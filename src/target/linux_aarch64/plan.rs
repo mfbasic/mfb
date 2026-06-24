@@ -307,7 +307,22 @@ impl plan::NativePlanPlatform for Platform {
             symbol: "pthread_detach".to_string(),
             required_by: "_main".to_string(),
         });
-        for symbol in ["pipe", "dup2", "getenv", "write", "strlen"] {
+        // `__libc_start_main` runs the C runtime + shared-library constructors
+        // (the GLib/GObject type system) before calling our real `main`; the entry
+        // can't link crt1.o, so it calls this directly (plan-05 §6.1).
+        for symbol in [
+            "__libc_start_main",
+            "pipe",
+            "dup2",
+            "getenv",
+            "write",
+            "strlen",
+            // Output marshaling to the GTK main thread + the worker park-on-finish.
+            "malloc",
+            "free",
+            "memcpy",
+            "pause",
+        ] {
             imports.push(self.libc_import(symbol, "_main"));
         }
         imports

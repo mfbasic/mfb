@@ -32,11 +32,18 @@ use crate::target::shared::code::{
 // --- Emitted symbols -------------------------------------------------------
 
 const MAIN_SYMBOL: &str = "_main";
+/// The real C `main(argc, argv, envp)` the libc start path invokes after running
+/// every loaded shared library's constructors (which boot the GLib/GObject type
+/// system — GTK is unusable without them).
+const GTK_MAIN_SYMBOL: &str = "_mfb_gtkapp_main";
 const ACTIVATE_SYMBOL: &str = "_mfb_gtkapp_activate";
 const WORKER_SYMBOL: &str = "_mfb_gtkapp_worker";
 const INPUT_COMMITTED_SYMBOL: &str = "_mfb_gtkapp_input_committed";
 const WINDOW_CLOSED_SYMBOL: &str = "_mfb_gtkapp_window_closed";
 const APPEND_SYMBOL: &str = "_mfb_gtkapp_append";
+/// Main-thread idle callback that drains one marshaled output chunk into the
+/// transcript (scheduled from the worker thread via `g_idle_add`, plan-05 §6.4).
+const APPEND_IDLE_SYMBOL: &str = "_mfb_gtkapp_append_idle";
 /// Worker program-completion handler (referenced by `emit_program_exit`).
 pub(crate) const FINISH_SYMBOL: &str = "_mfb_gtkapp_finish";
 
@@ -95,7 +102,8 @@ fn lib_for(symbol: &str) -> &'static str {
         "g_signal_connect_data" => GOBJECT,
         "g_idle_add" => GLIB,
         "pthread_create" | "pthread_detach" => LIBPTHREAD,
-        "pipe" | "dup2" | "getenv" | "write" | "strlen" | "_exit" => LIBC,
+        "pipe" | "dup2" | "getenv" | "write" | "strlen" | "_exit" | "__libc_start_main" | "malloc"
+        | "free" | "memcpy" | "pause" => LIBC,
         sym if sym.starts_with("gtk_") => GTK,
         sym if sym.starts_with("g_") => GLIB,
         other => panic!("linux app-mode codegen referenced unmapped symbol '{other}'"),
@@ -209,6 +217,7 @@ pub(crate) fn emit_app_program_entry(
     _platform_imports: &HashMap<String, String>,
 ) -> Result<Vec<CodeFunction>, String> {
     Ok(vec![
+        emit_libc_start_trampoline(),
         emit_main_bootstrap(),
         emit_activate_handler(),
         emit_worker_shim(spec),
@@ -216,16 +225,46 @@ pub(crate) fn emit_app_program_entry(
         emit_window_closed_handler(),
         emit_finish_helper(),
         emit_append_helper(),
+        emit_append_idle_helper(),
     ])
 }
 
-/// `int main(void)` — the ELF entry. Creates the GtkApplication, wires the
-/// `activate` signal, and runs the GTK main loop; the loop owns the process until
-/// the window closes (plan-05 §6.1).
-fn emit_main_bootstrap() -> CodeFunction {
+/// The ELF entry point. Our `_main` is `e_entry`, reached with the stack exactly
+/// as the kernel/loader left it (`sp` -> argc, argv, NULL, envp...). We can't link
+/// crt1.o (the built-in linker pulls in no host objects, plan-linker.md), so the
+/// entry hands off to `__libc_start_main`, which runs the C runtime init —
+/// including every loaded shared library's `DT_INIT_ARRAY` constructors (the
+/// GLib/GObject type system boots there) — and then calls our real `main`. On
+/// glibc the loader already ran library constructors via `_dl_init`; on musl they
+/// run inside `__libc_start_main`, so routing through it works on both.
+fn emit_libc_start_trampoline() -> CodeFunction {
     let mut asm = Asm::new(MAIN_SYMBOL);
     asm.push(abi::label("entry"));
+    // __libc_start_main(main, argc, argv, init, fini, rtld_fini, stack_end)
+    asm.local_address("x0", GTK_MAIN_SYMBOL); // main
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), 0)); // argc
+    asm.push(abi::add_immediate("x2", abi::stack_pointer(), 8)); // argv
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // init
+    asm.push(abi::move_immediate("x4", "Integer", "0")); // fini
+    asm.push(abi::move_immediate("x5", "Integer", "0")); // rtld_fini
+    asm.push(abi::add_immediate("x6", abi::stack_pointer(), 0)); // stack_end
+    asm.call_external("__libc_start_main");
+    // __libc_start_main never returns (it calls exit when main returns).
+    asm.push(abi::branch_self());
+    asm.push(abi::return_());
+    asm.finish(MAIN_SYMBOL, "Nothing")
+}
+
+/// `int _mfb_gtkapp_main(int argc, char **argv, char **envp)` — the real C main
+/// invoked by `__libc_start_main` after runtime + library init. Creates the
+/// GtkApplication, wires the `activate` signal, and runs the GTK main loop; the
+/// loop owns the process until the window closes (plan-05 §6.1). Returns 0 so
+/// `__libc_start_main` exits cleanly.
+fn emit_main_bootstrap() -> CodeFunction {
+    let mut asm = Asm::new(GTK_MAIN_SYMBOL);
+    asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
 
     // app = gtk_application_new("dev.mfbasic.app", G_APPLICATION_DEFAULT_FLAGS)
     asm.local_address("x0", STR_APP_ID.0);
@@ -253,12 +292,12 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_immediate("x2", "Integer", "0"));
     asm.call_external("g_application_run");
 
-    // _exit(0) — the loop returned, so the app is done.
+    // return 0 -> __libc_start_main calls exit(0).
     asm.push(abi::move_immediate("x0", "Integer", "0"));
-    asm.call_external("_exit");
-    asm.push(abi::branch_self());
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
     asm.push(abi::return_());
-    asm.finish(MAIN_SYMBOL, "Nothing")
+    asm.finish(GTK_MAIN_SYMBOL, "Integer")
 }
 
 /// `void on_activate(GtkApplication *app /*x0*/, gpointer user_data)` — build the
@@ -273,7 +312,7 @@ fn emit_activate_handler() -> CodeFunction {
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
 
-    // window = gtk_application_window_new(app)
+    // window = gtk_application_window_new(app)  (app is the incoming x0)
     asm.call_external("gtk_application_window_new");
     asm.store_state("x0", ST_WINDOW);
     // gtk_window_set_title(window, "MFBASIC App")
@@ -460,15 +499,17 @@ fn emit_window_closed_handler() -> CodeFunction {
     asm.finish(WINDOW_CLOSED_SYMBOL, "Boolean")
 }
 
-/// Worker program-completion handler. SCAFFOLD: hard-exits the process; the
-/// keep-window-open policy of §6.7 (schedule a `g_idle_add` notification, leave
-/// the window up, show the exit status) is deferred.
+/// Worker program-completion handler (plan-05 §6.7). The language program runs on
+/// the worker thread; when it finishes we must NOT `_exit`, or the process (and the
+/// GTK main loop + window) dies. Instead the worker parks here so the main thread
+/// keeps the window open until the user closes it. `pause()` suspends with no CPU
+/// until a signal; loop in case one arrives.
 fn emit_finish_helper() -> CodeFunction {
     let mut asm = Asm::new(FINISH_SYMBOL);
     asm.push(abi::label("entry"));
-    asm.push(abi::move_immediate("x0", "Integer", "0"));
-    asm.call_external("_exit");
-    asm.push(abi::branch_self());
+    asm.push(abi::label("park"));
+    asm.call_external("pause");
+    asm.push(abi::branch("park"));
     asm.push(abi::return_());
     asm.finish(FINISH_SYMBOL, "Nothing")
 }
@@ -509,6 +550,37 @@ fn emit_append_helper() -> CodeFunction {
     asm.finish(APPEND_SYMBOL, "Nothing")
 }
 
+/// `gboolean _mfb_gtkapp_append_idle(gpointer chunk)` — runs on the GTK main
+/// thread (scheduled by the io write helper via `g_idle_add`). Inserts the chunk's
+/// bytes into the transcript via `_mfb_gtkapp_append`, frees the chunk, and returns
+/// FALSE (`G_SOURCE_REMOVE`) so the one-shot idle source is removed. Chunk layout:
+/// `[0]` = len (u64), `[16..]` = bytes.
+fn emit_append_idle_helper() -> CodeFunction {
+    let mut asm = Asm::new(APPEND_IDLE_SYMBOL);
+    // lr@0, x20(chunk)@8.
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::move_register("x20", "x0")); // chunk (survives load_state's x9 use)
+
+    // _mfb_gtkapp_append(state.text_buffer, chunk+16, chunk[0])
+    asm.load_state("x0", ST_TEXT_BUFFER);
+    asm.push(abi::add_immediate("x1", "x20", 16));
+    asm.push(abi::load_u64("x2", "x20", 0));
+    asm.call_internal(APPEND_SYMBOL);
+    // free(chunk)
+    asm.push(abi::move_register("x0", "x20"));
+    asm.call_external("free");
+
+    asm.push(abi::move_immediate("x0", "Boolean", FALSE)); // G_SOURCE_REMOVE
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x20", abi::stack_pointer(), 8));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    asm.finish(APPEND_IDLE_SYMBOL, "Boolean")
+}
+
 // --- io::* app-mode helper bodies ------------------------------------------
 
 /// App-mode `io.print`/`io.write`/`io.printError`/`io.writeError`. The MFB string
@@ -522,33 +594,45 @@ pub(crate) fn emit_app_io_write_helper(
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let fd = if stderr { "2" } else { "1" };
     let mut asm = Asm::new(symbol);
-    // lr@0, x19(string)@8, newline scratch byte@16.
-    let frame = 32;
+    // lr@0, x19(string)@8, x20(len)@16, x21(heap chunk)@24, newline byte@32.
+    let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
     asm.push(abi::move_register("x19", "x0")); // preserve string object
 
-    // buffer = state.text_buffer; nil => fd fallback.
+    // buffer = state.text_buffer; nil => fd fallback (headless / pre-window).
     asm.load_state("x10", ST_TEXT_BUFFER);
     asm.push(abi::compare_immediate("x10", "0"));
     asm.push(abi::branch_eq("fd_path"));
 
-    // --- transcript path (TODO(plan-05): marshal to the main thread) ---
-    // TODO(plan-05 §5.4): style stderr runs with a GtkTextTag; appended plain here.
-    asm.push(abi::move_register("x0", "x10"));
-    asm.push(abi::add_immediate("x1", "x19", 8));
-    asm.push(abi::load_u64("x2", "x19", 0));
-    asm.call_internal(APPEND_SYMBOL);
+    // --- transcript path: marshal to the GTK main thread (plan-05 §6.4) ---
+    // GTK is not thread-safe, so the worker copies the bytes into a heap chunk and
+    // schedules an idle source; the main loop drains it via _mfb_gtkapp_append_idle.
+    // Chunk layout: [0]=len (u64), [16..]=bytes (+ optional trailing '\n').
+    // TODO(plan-05 §5.4): style stderr runs with a GtkTextTag (plain for now).
+    asm.push(abi::load_u64("x20", "x19", 0)); // len
+    asm.push(abi::add_immediate("x0", "x20", 17)); // 16 header + len + 1 newline
+    asm.call_external("malloc");
+    asm.push(abi::move_register("x21", "x0")); // heap chunk
+    asm.push(abi::add_immediate("x0", "x21", 16)); // memcpy(dst=chunk+16,
+    asm.push(abi::add_immediate("x1", "x19", 8)); //        src=bytes,
+    asm.push(abi::move_register("x2", "x20")); //          n=len)
+    asm.call_external("memcpy");
     if newline {
-        asm.push(abi::move_immediate("x9", "Integer", "10"));
-        asm.push(abi::store_u8("x9", abi::stack_pointer(), 16));
-        asm.load_state("x0", ST_TEXT_BUFFER);
-        asm.push(abi::add_immediate("x1", abi::stack_pointer(), 16));
-        asm.push(abi::move_immediate("x2", "Integer", "1"));
-        asm.call_internal(APPEND_SYMBOL);
+        asm.push(abi::add_immediate("x9", "x21", 16));
+        asm.push(abi::add_registers("x9", "x9", "x20")); // &chunk[16+len]
+        asm.push(abi::move_immediate("x10", "Integer", "10"));
+        asm.push(abi::store_u8("x10", "x9", 0)); // '\n'
+        asm.push(abi::add_immediate("x20", "x20", 1)); // len includes newline
     }
+    asm.push(abi::store_u64("x20", "x21", 0)); // chunk len
+    asm.local_address("x0", APPEND_IDLE_SYMBOL);
+    asm.push(abi::move_register("x1", "x21")); // user_data = chunk
+    asm.call_external("g_idle_add");
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::branch("done"));
 
@@ -560,9 +644,9 @@ pub(crate) fn emit_app_io_write_helper(
     asm.call_external("write");
     if newline {
         asm.push(abi::move_immediate("x9", "Integer", "10"));
-        asm.push(abi::store_u8("x9", abi::stack_pointer(), 16));
+        asm.push(abi::store_u8("x9", abi::stack_pointer(), 32));
         asm.push(abi::move_immediate("x0", "Integer", fd));
-        asm.push(abi::add_immediate("x1", abi::stack_pointer(), 16));
+        asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32));
         asm.push(abi::move_immediate("x2", "Integer", "1"));
         asm.call_external("write");
     }
@@ -571,6 +655,8 @@ pub(crate) fn emit_app_io_write_helper(
     asm.push(abi::label("done"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     asm.push(abi::load_u64("x19", abi::stack_pointer(), 8));
+    asm.push(abi::load_u64("x20", abi::stack_pointer(), 16));
+    asm.push(abi::load_u64("x21", abi::stack_pointer(), 24));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     (
