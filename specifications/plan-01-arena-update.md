@@ -261,6 +261,77 @@ Mitigations focus there:
 - Entropy poisoning (§6) turns any drop-emission bug (premature free, missed
   escape) into a loud use-after-free rather than silent corruption.
 
+### 5.5 Reality check: the heap is an **aliased graph**, not an ownership tree
+
+The plan §5.2 assumed "value semantics deep-copy, so a dropped non-escaped
+value's bytes are provably unaliased." **That assumption is false in the current
+implementation.** Owned arena values (`String`, record, union, collection,
+`Error`, `Result`) are shared by raw pointer at almost every store site — value
+semantics survive only because *mutation* always allocates fresh, so the shared
+copies are read-only. A naive "free every non-escaping owned local at scope-drop"
+would therefore **double-free**: e.g. `LET b = a` makes `a` and `b` the same
+allocation, and `MyRecord(s)` stores `s`'s pointer into the record.
+
+To free user values soundly, Phase 5 must **first** make the heap an ownership
+tree — insert `copy_value_to_current_arena` (the existing deep-copy glue,
+`builder_misc.rs:1279`) at every site that stores an owned value into a
+longer-lived or aliased location — **then** free every owned local at scope-drop
+except those moved out by `RETURN`/`thread::transfer`. The insertion must be
+**exhaustive**: any missed site leaves an alias the frees will double-free.
+
+**Aliasing store sites** (owned value stored by pointer — must be deep-copied):
+
+1. **Local bind / assignment** — `LET/MUT x = <aliasing source>` stores the
+   loaded pointer (`builder_control.rs:24-30`; `builder_values.rs:43-63` returns
+   the local's pointer). Aliasing sources: `Local`, `Global`, `Capture`,
+   `MemberAccess`, `UnionExtract`. Fresh-producing RHS (`Call`, `Constructor`,
+   literals, `Binary`/`Unary`, `UnionWrap`, `RuntimeCall`) yield a new
+   allocation and are moves, not aliases.
+2. **Record construction** — `Rec(a, b)` stores each arg pointer into
+   `[record + 8*i]` (`builder_values.rs:681-684`).
+3. **Union construction** — `Variant(a)` stores each arg pointer into
+   `[union + 8*(i+1)]` (`builder_values.rs:750-753`).
+4. **List/Map literals** — element results stored into the data region
+   (`builder_collection_layout.rs lower_list_literal` / map literal). For
+   **pointer-payload** element types (nested collections, resources) the element
+   *pointer* is stored (alias); inline payloads (scalars, `String` bytes,
+   record/union slot bytes) are byte-copied (`is_pointer_collection_payload_type`,
+   `builder_collection_layout.rs:24-32`).
+5. **Collection inserts** (`collections::append/set/insert/push/…`,
+   `builder_collection_updates.rs`) — same pointer-vs-inline rule as (4): nested
+   collection / resource payloads aliased; `String`/scalar/record/union payloads
+   copied inline. **Note:** an inline record/union payload still embeds *its*
+   field pointers, which alias the field values — recursion matters.
+6. **Global store** — `globalVar = x` stores the value pointer into the global
+   slot, no copy.
+7. **Record `WITH` update** (`WithUpdate`) — copies the base record but stores
+   the new field values by pointer (alias).
+8. **Closure capture** — captured owned values stored into the closure env by
+   pointer.
+
+**Move / escape sites** (value leaves the scope — *suppress* the drop, do not
+copy):
+
+9. **`RETURN`** moves the value pointer to the caller (`builder_misc.rs:2994-3001`
+   moves reference types; inline payloads are materialized). The returned local's
+   scope-drop free must be deactivated, mirroring how resources deactivate their
+   close on `RETURN` (`builder_misc.rs:3019-3041`).
+10. **`thread::transfer` / `thread::send`** already deep-copy into the receiver
+    arena and deactivate the sender's cleanup (`builder_misc.rs:2643-2675`).
+
+**Non-issue:** function **arguments** are a transient borrow for the duration of
+the call — the callee receives a pointer it must treat as borrowed and never
+free, and cannot retain it past return except by `RETURN` (which copies/moves per
+(9)). So args need no copy as long as parameters are borrows the callee never
+drops. This is also why a sound *conservative* subset is possible without the
+full copy-insertion: free only locals that never reach sites 1–8 or escape via
+9–10 (pure transient temporaries), which needs no new copies and so cannot
+corrupt.
+
+Ownership/escape analysis for these owned values **does not exist yet**:
+`escape.rs` and `ExprMode` (`typecheck.rs:110`) only track resource (`RES`)
+bindings. Phase 5 must add a general owned-value pass.
+
 ## 6. Entropy Fill
 
 ### 6.1 Mechanism — a **dedicated** per-arena PCG64, separate from `math::rand`
