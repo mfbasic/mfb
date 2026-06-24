@@ -261,13 +261,9 @@ impl plan::NativePlanPlatform for Platform {
             (GTK, "gtk_window_set_default_size"),
             (GTK, "gtk_window_set_child"),
             (GTK, "gtk_window_present"),
-            // Layout + scrolling container.
-            (GTK, "gtk_box_new"),
-            (GTK, "gtk_box_append"),
+            // Scrolling container.
             (GTK, "gtk_scrolled_window_new"),
             (GTK, "gtk_scrolled_window_set_child"),
-            (GTK, "gtk_widget_set_vexpand"),
-            (GTK, "gtk_widget_grab_focus"),
             // Read-only transcript (GtkTextView + GtkTextBuffer).
             (GTK, "gtk_text_view_new"),
             (GTK, "gtk_text_view_set_editable"),
@@ -279,10 +275,12 @@ impl plan::NativePlanPlatform for Platform {
             (GTK, "gtk_text_buffer_get_end_iter"),
             (GTK, "gtk_text_buffer_insert"),
             (GTK, "gtk_text_buffer_insert_with_tags"),
-            // Single-line input field.
-            (GTK, "gtk_entry_new"),
-            (GTK, "gtk_editable_get_text"),
-            (GTK, "gtk_editable_set_text"),
+            // Terminal-style key input captured at the window (no entry box; mirrors
+            // the macOS NSTextView keyDown: override). GDK lives in libgtk-4.
+            (GTK, "gtk_event_controller_key_new"),
+            (GTK, "gtk_widget_add_controller"),
+            (GTK, "gdk_keyval_to_unicode"),
+            (GLIB, "g_unichar_to_utf8"),
             // GObject signal wiring (non-variadic form; §6.4) + main-thread marshal.
             (GOBJECT, "g_signal_connect_data"),
             (GLIB, "g_idle_add"),
@@ -315,8 +313,8 @@ impl plan::NativePlanPlatform for Platform {
             "pipe",
             "dup2",
             "getenv",
+            "setenv",
             "write",
-            "strlen",
             // Output marshaling to the GTK main thread + the worker park-on-finish.
             "malloc",
             "free",

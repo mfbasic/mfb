@@ -159,6 +159,16 @@ impl code::CodegenPlatform for Platform {
         Some(Ok(gtk::emit_app_io_input_helper(symbol)))
     }
 
+    fn emit_app_raw_input_mode(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        gtk::emit_set_raw_input_mode(instructions, relocations, symbol);
+        Some(Ok(()))
+    }
+
     fn emit_app_io_is_terminal_helper(
         &self,
         symbol: &str,

@@ -38,7 +38,8 @@ const MAIN_SYMBOL: &str = "_main";
 const GTK_MAIN_SYMBOL: &str = "_mfb_gtkapp_main";
 const ACTIVATE_SYMBOL: &str = "_mfb_gtkapp_activate";
 const WORKER_SYMBOL: &str = "_mfb_gtkapp_worker";
-const INPUT_COMMITTED_SYMBOL: &str = "_mfb_gtkapp_input_committed";
+/// `key-pressed` handler on the transcript view (terminal-style input, no entry box).
+const KEY_PRESSED_SYMBOL: &str = "_mfb_gtkapp_key_pressed";
 const WINDOW_CLOSED_SYMBOL: &str = "_mfb_gtkapp_window_closed";
 const APPEND_SYMBOL: &str = "_mfb_gtkapp_append";
 /// Main-thread idle callback that drains one marshaled output chunk into the
@@ -53,14 +54,34 @@ pub(crate) const FINISH_SYMBOL: &str = "_mfb_gtkapp_finish";
 const STATE_SYMBOL: &str = "_mfb_gtkapp_state";
 const ST_APPLICATION: usize = 0;
 const ST_WINDOW: usize = 8;
-const ST_BOX: usize = 16;
-const ST_SCROLLED: usize = 24;
-const ST_TEXT_VIEW: usize = 32;
-const ST_TEXT_BUFFER: usize = 40;
-const ST_INPUT_FIELD: usize = 48;
-const ST_PIPE_READ_FD: usize = 56;
-const ST_PIPE_WRITE_FD: usize = 64;
-const STATE_SIZE: usize = 72;
+const ST_SCROLLED: usize = 16;
+const ST_TEXT_VIEW: usize = 24;
+const ST_TEXT_BUFFER: usize = 32;
+const ST_PIPE_READ_FD: usize = 40;
+const ST_PIPE_WRITE_FD: usize = 48;
+/// Current input mode (see `MODE_*`): selects echo / raw key handling, exactly like
+/// the macOS `INPUT_MODE_*` associated object.
+const ST_INPUT_MODE: usize = 56;
+/// Length of the pending (uncommitted) input line in `ST_LINE_BUF`.
+const ST_LINE_LEN: usize = 64;
+/// Accumulated bytes of the line being typed (committed to the pipe on Enter).
+const ST_LINE_BUF: usize = 72;
+const LINE_BUF_CAP: usize = 4096;
+const STATE_SIZE: usize = ST_LINE_BUF + LINE_BUF_CAP;
+
+// Input modes (mirror macOS app.rs INPUT_MODE_*): line-buffered without echo is the
+// default (`io::readLine`), line-buffered with echo is `io::input`, and raw delivers
+// each keystroke's bytes to the pipe immediately (`io::readChar`/`readByte`).
+/// Default mode: line-buffered, no echo (the zero-initialized state value).
+#[allow(dead_code)]
+const MODE_LINE_NOECHO: &str = "0";
+const MODE_LINE_ECHO: &str = "1";
+const MODE_RAW: &str = "2";
+
+// GDK keyvals for the keys the transcript handles specially.
+const GDK_KEY_BACKSPACE: &str = "65288"; // 0xFF08
+const GDK_KEY_RETURN: &str = "65293"; // 0xFF0D
+const GDK_KEY_KP_ENTER: &str = "65421"; // 0xFF8D
 
 // Reused runtime helper symbols (the console io::write / io::readLine bodies feed
 // the transcript prompt + the fd-0 window-input pipe respectively).
@@ -73,12 +94,17 @@ const STR_APP_ID: (&str, &str) = ("_mfb_gtkapp_str_app_id", "dev.mfbasic.app");
 const STR_TITLE: (&str, &str) = ("_mfb_gtkapp_str_title", "MFBASIC App");
 const STR_ACTIVATE: (&str, &str) = ("_mfb_gtkapp_str_activate", "activate");
 const STR_CLOSE_REQUEST: (&str, &str) = ("_mfb_gtkapp_str_close_request", "close-request");
-const STR_EMPTY: (&str, &str) = ("_mfb_gtkapp_str_empty", "");
+const STR_KEY_PRESSED: (&str, &str) = ("_mfb_gtkapp_str_key_pressed", "key-pressed");
+
+// In-process disable of the a11y + input-method layers, whose g_variant_new_string
+// path crashes when the worker inserts transcript text. Set before GTK initializes.
+const STR_ENV_A11Y: (&str, &str) = ("_mfb_gtkapp_env_a11y", "GTK_A11Y");
+const STR_ENV_IM: (&str, &str) = ("_mfb_gtkapp_env_im", "GTK_IM_MODULE");
+const STR_ENV_NONE: (&str, &str) = ("_mfb_gtkapp_env_none", "none");
 
 // --- GTK / GObject enum immediates -----------------------------------------
 
 const G_APPLICATION_DEFAULT_FLAGS: &str = "0";
-const GTK_ORIENTATION_VERTICAL: &str = "1";
 const TRUE: &str = "1";
 const FALSE: &str = "0";
 const WINDOW_WIDTH: &str = "900";
@@ -102,8 +128,10 @@ fn lib_for(symbol: &str) -> &'static str {
         "g_signal_connect_data" => GOBJECT,
         "g_idle_add" => GLIB,
         "pthread_create" | "pthread_detach" => LIBPTHREAD,
-        "pipe" | "dup2" | "getenv" | "write" | "strlen" | "_exit" | "__libc_start_main" | "malloc"
+        "pipe" | "dup2" | "getenv" | "setenv" | "write" | "_exit" | "__libc_start_main" | "malloc"
         | "free" | "memcpy" | "pause" => LIBC,
+        // GDK is part of libgtk-4.so.1 in GTK4 (no separate libgdk).
+        "gdk_keyval_to_unicode" => GTK,
         sym if sym.starts_with("gtk_") => GTK,
         sym if sym.starts_with("g_") => GLIB,
         other => panic!("linux app-mode codegen referenced unmapped symbol '{other}'"),
@@ -221,7 +249,7 @@ pub(crate) fn emit_app_program_entry(
         emit_main_bootstrap(),
         emit_activate_handler(),
         emit_worker_shim(spec),
-        emit_input_committed_handler(),
+        emit_key_pressed_handler(),
         emit_window_closed_handler(),
         emit_finish_helper(),
         emit_append_helper(),
@@ -262,9 +290,24 @@ fn emit_libc_start_trampoline() -> CodeFunction {
 /// `__libc_start_main` exits cleanly.
 fn emit_main_bootstrap() -> CodeFunction {
     let mut asm = Asm::new(GTK_MAIN_SYMBOL);
+    // lr@0, argc@8, argv@16.
     asm.push(abi::label("entry"));
-    asm.push(abi::subtract_stack(16));
+    asm.push(abi::subtract_stack(32));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // argc
+    asm.push(abi::store_u64("x1", abi::stack_pointer(), 16)); // argv
+
+    // Disable the a11y + IM layers before GTK initializes (they crash in
+    // g_variant_new_string on transcript inserts): setenv("GTK_A11Y","none",1) and
+    // setenv("GTK_IM_MODULE","none",1).
+    asm.local_address("x0", STR_ENV_A11Y.0);
+    asm.local_address("x1", STR_ENV_NONE.0);
+    asm.push(abi::move_immediate("x2", "Integer", "1"));
+    asm.call_external("setenv");
+    asm.local_address("x0", STR_ENV_IM.0);
+    asm.local_address("x1", STR_ENV_NONE.0);
+    asm.push(abi::move_immediate("x2", "Integer", "1"));
+    asm.call_external("setenv");
 
     // app = gtk_application_new("dev.mfbasic.app", G_APPLICATION_DEFAULT_FLAGS)
     asm.local_address("x0", STR_APP_ID.0);
@@ -285,17 +328,17 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_immediate("x5", "Integer", "0"));
     asm.call_external("g_signal_connect_data");
 
-    // g_application_run(app, 0, NULL). The scaffold passes argc=0/argv=NULL rather
-    // than sourcing them from the process stack (TODO(plan-05): forward argv).
+    // g_application_run(app, argc, argv) — forward the real argv so GApplication's
+    // platform-data (argv[0], cwd) is valid UTF-8 rather than garbage.
     asm.load_state("x0", ST_APPLICATION);
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
-    asm.push(abi::move_immediate("x2", "Integer", "0"));
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), 8)); // argc
+    asm.push(abi::load_u64("x2", abi::stack_pointer(), 16)); // argv
     asm.call_external("g_application_run");
 
     // return 0 -> __libc_start_main calls exit(0).
     asm.push(abi::move_immediate("x0", "Integer", "0"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::add_stack(16));
+    asm.push(abi::add_stack(32));
     asm.push(abi::return_());
     asm.finish(GTK_MAIN_SYMBOL, "Integer")
 }
@@ -306,11 +349,12 @@ fn emit_main_bootstrap() -> CodeFunction {
 /// spawn the language worker thread.
 fn emit_activate_handler() -> CodeFunction {
     let mut asm = Asm::new(ACTIVATE_SYMBOL);
-    // lr@0, pthread_t@8, pipe fds (2x i32)@16.
+    // lr@0, pthread_t@8, pipe fds (2x i32)@16, x19(controller)@24.
     let frame = 32;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 24));
 
     // window = gtk_application_window_new(app)  (app is the incoming x0)
     asm.call_external("gtk_application_window_new");
@@ -325,20 +369,14 @@ fn emit_activate_handler() -> CodeFunction {
     asm.push(abi::move_immediate("x2", "Integer", WINDOW_HEIGHT));
     asm.call_external("gtk_window_set_default_size");
 
-    // box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0)
-    asm.push(abi::move_immediate("x0", "Integer", GTK_ORIENTATION_VERTICAL));
-    asm.push(abi::move_immediate("x1", "Integer", "0"));
-    asm.call_external("gtk_box_new");
-    asm.store_state("x0", ST_BOX);
-
-    // scrolled = gtk_scrolled_window_new(); gtk_widget_set_vexpand(scrolled, TRUE)
+    // scrolled = gtk_scrolled_window_new()
     asm.call_external("gtk_scrolled_window_new");
     asm.store_state("x0", ST_SCROLLED);
-    asm.load_state("x0", ST_SCROLLED);
-    asm.push(abi::move_immediate("x1", "Integer", TRUE));
-    asm.call_external("gtk_widget_set_vexpand");
 
-    // text_view = gtk_text_view_new(); editable=FALSE; monospace=TRUE
+    // text_view = gtk_text_view_new(); editable=FALSE; monospace=TRUE. The view is
+    // left NON-focusable (like the working build): focusing a GtkTextView activates
+    // the IM/a11y machinery, which crashes in g_variant_new_string when the worker
+    // inserts text. Keys are captured at the window instead (see below).
     asm.call_external("gtk_text_view_new");
     asm.store_state("x0", ST_TEXT_VIEW);
     asm.load_state("x0", ST_TEXT_VIEW);
@@ -351,32 +389,31 @@ fn emit_activate_handler() -> CodeFunction {
     asm.load_state("x0", ST_TEXT_VIEW);
     asm.call_external("gtk_text_view_get_buffer");
     asm.store_state("x0", ST_TEXT_BUFFER);
-    // gtk_scrolled_window_set_child(scrolled, text_view)
+    // gtk_scrolled_window_set_child(scrolled, text_view); window child = scrolled.
     asm.load_state("x0", ST_SCROLLED);
     asm.load_state("x1", ST_TEXT_VIEW);
     asm.call_external("gtk_scrolled_window_set_child");
+    asm.load_state("x0", ST_WINDOW);
+    asm.load_state("x1", ST_SCROLLED);
+    asm.call_external("gtk_window_set_child");
 
-    // input = gtk_entry_new(); connect "activate" -> on_input_committed
-    asm.call_external("gtk_entry_new");
-    asm.store_state("x0", ST_INPUT_FIELD);
-    asm.load_state("x0", ST_INPUT_FIELD);
-    asm.local_address("x1", STR_ACTIVATE.0);
-    asm.local_address("x2", INPUT_COMMITTED_SYMBOL);
+    // Capture keystrokes terminal-style with a key controller on the WINDOW (no
+    // focusable input widget; the whole window is the terminal, matching macOS's
+    // keyDown:-on-the-transcript model without the focused-textview IM/a11y hazard).
+    //   controller = gtk_event_controller_key_new()
+    //   g_signal_connect_data(controller, "key-pressed", on_key, NULL, NULL, 0)
+    //   gtk_widget_add_controller(window, controller)  // takes ownership
+    asm.call_external("gtk_event_controller_key_new");
+    asm.push(abi::move_register("x19", "x0")); // controller (callee-saved across calls)
+    asm.local_address("x1", STR_KEY_PRESSED.0);
+    asm.local_address("x2", KEY_PRESSED_SYMBOL);
     asm.push(abi::move_immediate("x3", "Integer", "0"));
     asm.push(abi::move_immediate("x4", "Integer", "0"));
     asm.push(abi::move_immediate("x5", "Integer", "0"));
     asm.call_external("g_signal_connect_data");
-
-    // box_append(box, scrolled); box_append(box, input); window_set_child(window, box)
-    asm.load_state("x0", ST_BOX);
-    asm.load_state("x1", ST_SCROLLED);
-    asm.call_external("gtk_box_append");
-    asm.load_state("x0", ST_BOX);
-    asm.load_state("x1", ST_INPUT_FIELD);
-    asm.call_external("gtk_box_append");
     asm.load_state("x0", ST_WINDOW);
-    asm.load_state("x1", ST_BOX);
-    asm.call_external("gtk_window_set_child");
+    asm.push(abi::move_register("x1", "x19"));
+    asm.call_external("gtk_widget_add_controller");
 
     // connect window "close-request" -> on_window_closed
     asm.load_state("x0", ST_WINDOW);
@@ -387,11 +424,9 @@ fn emit_activate_handler() -> CodeFunction {
     asm.push(abi::move_immediate("x5", "Integer", "0"));
     asm.call_external("g_signal_connect_data");
 
-    // gtk_window_present(window); gtk_widget_grab_focus(input)
+    // gtk_window_present(window); focus the transcript so it receives keys.
     asm.load_state("x0", ST_WINDOW);
     asm.call_external("gtk_window_present");
-    asm.load_state("x0", ST_INPUT_FIELD);
-    asm.call_external("gtk_widget_grab_focus");
 
     // pipe(fds@sp+16); read end -> fd 0 so the reused console readers consume
     // committed input; both ends stashed in the runtime state (plan-05 §6.6).
@@ -415,6 +450,7 @@ fn emit_activate_handler() -> CodeFunction {
     asm.call_external("pthread_detach");
 
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x19", abi::stack_pointer(), 24));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
     asm.finish(ACTIVATE_SYMBOL, "Nothing")
@@ -441,46 +477,140 @@ fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
     asm.finish(WORKER_SYMBOL, "Pointer")
 }
 
-/// `gboolean on_input_committed(GtkEntry *entry /*x0*/, gpointer user_data)` —
-/// push the committed line + newline into the window-input pipe (so the fd-0
-/// console readers observe it) and clear the entry. Echoing committed input into
-/// the transcript is deferred (TODO(plan-05) §6.6).
-fn emit_input_committed_handler() -> CodeFunction {
-    let mut asm = Asm::new(INPUT_COMMITTED_SYMBOL);
-    // lr@0, entry widget@8, text ptr@16, newline scratch byte@24.
-    let frame = 32;
+/// `gboolean _mfb_gtkapp_key_pressed(GtkEventControllerKey *ctrl, guint keyval
+/// /*x1*/, guint keycode, GdkModifierType state, gpointer user_data)` — the
+/// transcript's terminal-style key handler (the GTK analog of the macOS
+/// `MFBTextView keyDown:`). Runs on the GTK main thread.
+///
+/// Behavior by `ST_INPUT_MODE`:
+/// - RAW (`readChar`/`readByte`): write the key's UTF-8 bytes to the input pipe
+///   immediately; no line buffering, no echo.
+/// - LINE_ECHO (`io::input`) / LINE_NOECHO (`io::readLine`): accumulate into the
+///   line buffer; Enter commits `line + '\n'` to the pipe; Backspace drops the last
+///   byte; printable keys append (and echo into the transcript in LINE_ECHO).
+///
+/// Committed bytes flow pipe -> fd 0 -> the reused console read helpers. Returns
+/// TRUE for keys it consumes, FALSE otherwise (so window shortcuts still work).
+fn emit_key_pressed_handler() -> CodeFunction {
+    let mut asm = Asm::new(KEY_PRESSED_SYMBOL);
+    // lr@0, oldlen@8, count@16, unichar@24, scratch(utf8/newline 8B)@32, x19@40.
+    let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // entry widget
+    asm.push(abi::store_u64("x19", abi::stack_pointer(), 40));
+    asm.push(abi::move_register("x19", "x1")); // keyval
 
-    // text = gtk_editable_get_text(entry)  (entry already in x0)
-    asm.call_external("gtk_editable_get_text");
-    asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // text ptr
-    // len = strlen(text)  (text already in x0)
-    asm.call_external("strlen");
-    asm.push(abi::move_register("x2", "x0")); // len
-    asm.push(abi::load_u64("x1", abi::stack_pointer(), 16)); // text ptr
+    // Raw mode delivers the keystroke immediately, bypassing the line buffer.
+    asm.load_state("x9", ST_INPUT_MODE);
+    asm.push(abi::compare_immediate("x9", MODE_RAW));
+    asm.push(abi::branch_eq("raw"));
+
+    // Enter (Return / KP_Enter) -> commit; Backspace -> erase.
+    asm.push(abi::move_immediate("x9", "Integer", GDK_KEY_RETURN));
+    asm.push(abi::compare_registers("x19", "x9"));
+    asm.push(abi::branch_eq("commit"));
+    asm.push(abi::move_immediate("x9", "Integer", GDK_KEY_KP_ENTER));
+    asm.push(abi::compare_registers("x19", "x9"));
+    asm.push(abi::branch_eq("commit"));
+    asm.push(abi::move_immediate("x9", "Integer", GDK_KEY_BACKSPACE));
+    asm.push(abi::compare_registers("x19", "x9"));
+    asm.push(abi::branch_eq("backspace"));
+
+    // Printable: unichar = gdk_keyval_to_unicode(keyval); 0 -> not a character.
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("gdk_keyval_to_unicode");
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("ignore"));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 24)); // unichar
+    // oldlen = line_len; dst = &line_buf[oldlen]; count = g_unichar_to_utf8(unichar, dst)
+    asm.load_state("x9", ST_LINE_LEN);
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), 8)); // oldlen
+    asm.local_address("x10", STATE_SYMBOL);
+    asm.push(abi::add_immediate("x1", "x10", ST_LINE_BUF));
+    asm.push(abi::add_registers("x1", "x1", "x9"));
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 24));
+    asm.call_external("g_unichar_to_utf8");
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // count
+    // line_len = oldlen + count
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), 8));
+    asm.push(abi::add_registers("x9", "x9", "x0"));
+    asm.local_address("x10", STATE_SYMBOL);
+    asm.push(abi::store_u64("x9", "x10", ST_LINE_LEN));
+    // Echo into the transcript only in LINE_ECHO mode.
+    asm.load_state("x9", ST_INPUT_MODE);
+    asm.push(abi::compare_immediate("x9", MODE_LINE_ECHO));
+    asm.push(abi::branch_ne("consumed"));
+    asm.load_state("x0", ST_TEXT_BUFFER);
+    asm.local_address("x10", STATE_SYMBOL);
+    asm.push(abi::add_immediate("x1", "x10", ST_LINE_BUF));
+    asm.push(abi::load_u64("x9", abi::stack_pointer(), 8)); // oldlen
+    asm.push(abi::add_registers("x1", "x1", "x9"));
+    asm.push(abi::load_u64("x2", abi::stack_pointer(), 16)); // count
+    asm.call_internal(APPEND_SYMBOL);
+    asm.push(abi::branch("consumed"));
+
+    // Commit: write line + '\n' to the pipe; echo '\n' in LINE_ECHO; clear buffer.
+    asm.push(abi::label("commit"));
     asm.load_state("x0", ST_PIPE_WRITE_FD);
+    asm.local_address("x10", STATE_SYMBOL);
+    asm.push(abi::add_immediate("x1", "x10", ST_LINE_BUF));
+    asm.load_state("x2", ST_LINE_LEN);
     asm.call_external("write");
-    // write a trailing '\n' so readChar/readByte see the line boundary.
     asm.push(abi::move_immediate("x9", "Integer", "10"));
-    asm.push(abi::store_u8("x9", abi::stack_pointer(), 24));
+    asm.push(abi::store_u8("x9", abi::stack_pointer(), 32)); // '\n'
     asm.load_state("x0", ST_PIPE_WRITE_FD);
-    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 24));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32));
     asm.push(abi::move_immediate("x2", "Integer", "1"));
     asm.call_external("write");
+    asm.load_state("x9", ST_INPUT_MODE);
+    asm.push(abi::compare_immediate("x9", MODE_LINE_ECHO));
+    asm.push(abi::branch_ne("commit_clear"));
+    asm.load_state("x0", ST_TEXT_BUFFER);
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32)); // the '\n'
+    asm.push(abi::move_immediate("x2", "Integer", "1"));
+    asm.call_internal(APPEND_SYMBOL);
+    asm.push(abi::label("commit_clear"));
+    asm.push(abi::move_immediate("x9", "Integer", "0"));
+    asm.local_address("x10", STATE_SYMBOL);
+    asm.push(abi::store_u64("x9", "x10", ST_LINE_LEN));
+    asm.push(abi::branch("consumed"));
 
-    // gtk_editable_set_text(entry, "")
-    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8));
-    asm.local_address("x1", STR_EMPTY.0);
-    asm.call_external("gtk_editable_set_text");
+    // Backspace: drop the last byte of the pending line (transcript echo-delete
+    // TODO(plan-05): byte-granular, ASCII-correct for now).
+    asm.push(abi::label("backspace"));
+    asm.load_state("x9", ST_LINE_LEN);
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("ignore"));
+    asm.push(abi::subtract_immediate("x9", "x9", 1));
+    asm.local_address("x10", STATE_SYMBOL);
+    asm.push(abi::store_u64("x9", "x10", ST_LINE_LEN));
+    asm.push(abi::branch("consumed"));
 
+    // Raw: unichar -> UTF-8 in scratch -> write to the pipe immediately.
+    asm.push(abi::label("raw"));
+    asm.push(abi::move_register("x0", "x19"));
+    asm.call_external("gdk_keyval_to_unicode");
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_eq("ignore"));
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32));
+    asm.call_external("g_unichar_to_utf8"); // x0 still = unichar; x0 := count
+    asm.push(abi::move_register("x2", "x0"));
+    asm.load_state("x0", ST_PIPE_WRITE_FD);
+    asm.push(abi::add_immediate("x1", abi::stack_pointer(), 32));
+    asm.call_external("write");
+
+    asm.push(abi::label("consumed"));
     asm.push(abi::move_immediate("x0", "Boolean", TRUE)); // handled
+    asm.push(abi::branch("kp_return"));
+    asm.push(abi::label("ignore"));
+    asm.push(abi::move_immediate("x0", "Boolean", FALSE)); // not handled
+    asm.push(abi::label("kp_return"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::load_u64("x19", abi::stack_pointer(), 40));
     asm.push(abi::add_stack(frame));
     asm.push(abi::return_());
-    asm.finish(INPUT_COMMITTED_SYMBOL, "Boolean")
+    asm.finish(KEY_PRESSED_SYMBOL, "Boolean")
 }
 
 /// `gboolean on_window_closed(GtkWindow *window, gpointer user_data)` — quit the
@@ -689,9 +819,10 @@ pub(crate) fn emit_app_io_flush_helper(
     )
 }
 
-/// App-mode `io.input` (plan-05 §5.4): render the prompt to the transcript via the
-/// `io.write` helper, then read a committed line via the `io.readLine` helper
-/// (which reads fd 0 — the window-input pipe). Prompt string is in `x0`.
+/// App-mode `io.input` (plan-05 §5.4): switch the transcript to echo mode (so the
+/// user sees what they type, like the macOS `io::input` path), render the prompt
+/// via the `io.write` helper, then read a committed line via the `io.readLine`
+/// helper (which reads fd 0 — the window-input pipe). Prompt string is in `x0`.
 pub(crate) fn emit_app_io_input_helper(
     symbol: &str,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
@@ -699,6 +830,10 @@ pub(crate) fn emit_app_io_input_helper(
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // preserve prompt
+    asm.push(abi::move_immediate("x10", "Integer", MODE_LINE_ECHO));
+    asm.store_state("x10", ST_INPUT_MODE);
+    asm.push(abi::load_u64("x0", abi::stack_pointer(), 8)); // prompt
     asm.call_internal(IO_WRITE_SYMBOL); // x0 = prompt; result ignored
     asm.call_internal(IO_READ_LINE_SYMBOL); // result in x0/x1/x2
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -742,7 +877,10 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
         STR_TITLE,
         STR_ACTIVATE,
         STR_CLOSE_REQUEST,
-        STR_EMPTY,
+        STR_KEY_PRESSED,
+        STR_ENV_A11Y,
+        STR_ENV_IM,
+        STR_ENV_NONE,
     ]
     .iter()
     .map(|(symbol, text)| CodeDataObject {
@@ -757,12 +895,29 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
     objects.push(CodeDataObject {
         symbol: STATE_SYMBOL.to_string(),
         kind: "raw".to_string(),
-        layout: "mfb.runtime.gtkapp_state.v1 { u64 handles[9] }".to_string(),
+        layout: "mfb.runtime.gtkapp_state.v1 { u64 handles[7]; u64 mode; u64 lineLen; u8 lineBuf[] }"
+            .to_string(),
         align: 8,
         size: STATE_SIZE,
         value: "00".repeat(STATE_SIZE),
     });
     objects
+}
+
+/// App-mode raw key input (plan-05 §5.4): set the transcript to RAW mode so each
+/// keystroke's bytes go straight to the input pipe. Appended inline at the start of
+/// the `io.readChar`/`io.readByte` helpers (the GTK analog of macOS
+/// `emit_set_raw_input_mode`).
+pub(crate) fn emit_set_raw_input_mode(
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    from: &str,
+) {
+    let mut asm = Asm::new(from);
+    asm.push(abi::move_immediate("x10", "Integer", MODE_RAW));
+    asm.store_state("x10", ST_INPUT_MODE);
+    instructions.extend(asm.ins);
+    relocations.extend(asm.rel);
 }
 
 fn hex_cstring(text: &str) -> String {
