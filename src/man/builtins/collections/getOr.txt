@@ -2,14 +2,14 @@ NAME
   getOr - read a collection value or return a default
 
 SYNOPSIS
-  getOr OF T(value AS List OF T, index AS Integer, default AS T) AS T
-  getOr OF K, V(value AS Map OF K TO V, key AS K, default AS V) AS V
+  collections::getOr OF T(value AS List OF T, index AS Integer, default AS T) AS T
+  collections::getOr OF K, V(value AS Map OF K TO V, key AS K, default AS V) AS V
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   getOr reads a value from a collection without copying the collection. It

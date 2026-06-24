@@ -21,6 +21,26 @@ SYNOPSIS
     collections::distinct(value)
     collections::merge(a, b, preferB)
     collections::partition(value, predicate)
+    collections::get(value, indexOrKey)
+    collections::getOr(value, indexOrKey, default)
+    collections::set(value, indexOrKey, item)
+    collections::append(value, item)
+    collections::prepend(value, item)
+    collections::insert(value, index, item)
+    collections::removeAt(value, index)
+    collections::removeKey(value, key)
+    collections::keys(value)
+    collections::values(value)
+    collections::hasKey(value, key)
+    collections::contains(value, item)
+    collections::forEach(value, action)
+    collections::transform(value, f)
+    collections::filter(value, predicate)
+    collections::reduce(value, initial, f)
+    collections::sum(value)
+    collections::find(value, item[, start])
+    collections::mid(value, start, count)
+    collections::replace(value, old, new)
 
 DESCRIPTION
     The collections package contains package-qualified helpers for List and Map
@@ -50,5 +70,5 @@ EXAMPLES
 SEE ALSO
     mfb man types pair
     mfb man types partition
-    mfb man general get
+    mfb man collections get
     mfb man strings left

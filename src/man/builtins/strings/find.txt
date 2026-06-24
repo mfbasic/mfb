@@ -2,13 +2,13 @@ NAME
   find - locate text
 
 SYNOPSIS
-  find(value AS String, needle AS String, start AS Integer = 0) AS Integer
+  strings::find(value AS String, needle AS String, start AS Integer = 0) AS Integer
 
 PACKAGE
-  general
+  strings
 
 IMPORTS
-  None. general functions are available without an IMPORT statement.
+  IMPORT strings
 
 DESCRIPTION
   find returns the zero-based position of the first match at or after start.
@@ -19,7 +19,7 @@ DESCRIPTION
   An empty needle matches at start when start is in range.
 
 OVERLOADS
-  find(value AS String, needle AS String, start AS Integer = 0) AS Integer
+  strings::find(value AS String, needle AS String, start AS Integer = 0) AS Integer
     Returns the first scalar index where needle occurs in value.
 
 ERRORS
@@ -39,17 +39,18 @@ TYPE CHECKING
 EXAMPLES
   Find text:
 
-    LET index AS Integer = find("hello", "l")
+    LET index AS Integer = strings::find("hello", "l")
 
   Start after an earlier match:
 
-    LET index AS Integer = find("hello", "l", 3)
+    LET index AS Integer = strings::find("hello", "l", 3)
 
   Handle absence explicitly:
 
+    IMPORT strings
     IMPORT errorCode
 
-    MATCH find("abc", "z")
+    MATCH strings::find("abc", "z")
       CASE Ok(i) : io::print("found at " & toString(i))
       CASE Err(e) WHEN e.code = errorCode::ErrNotFound : io::print("not found")
       CASE Err(e) : FAIL e

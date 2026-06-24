@@ -2,13 +2,13 @@ NAME
   keys - return the keys of a map
 
 SYNOPSIS
-  keys OF K, V(value AS Map OF K TO V) AS List OF K
+  collections::keys OF K, V(value AS Map OF K TO V) AS List OF K
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   keys returns a new list holding the keys of value in implementation-defined

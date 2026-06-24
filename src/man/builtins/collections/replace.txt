@@ -2,13 +2,13 @@ NAME
   replace - replace matching list items
 
 SYNOPSIS
-  replace OF T(value AS List OF T, old AS T, new AS T) AS List OF T
+  collections::replace OF T(value AS List OF T, old AS T, new AS T) AS List OF T
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   replace returns a new list where every item equal to old is replaced with

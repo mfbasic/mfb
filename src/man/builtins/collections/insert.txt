@@ -2,13 +2,13 @@ NAME
   insert - insert an item into a list
 
 SYNOPSIS
-  insert OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
+  collections::insert OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   insert returns a new list with item inserted before index. The original list is

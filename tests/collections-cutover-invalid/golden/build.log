@@ -1,0 +1,64 @@
+$ mfb build -ast tests/collections-cutover-invalid
+   2 | ' helpers are removed, not aliased. Calling them is a plain unknown-name error.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = get([1, 2, 3], 0)
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:4 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `get` is not a top-level function.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = get([1, 2, 3], 0)
+   5 |   LET b AS List OF Integer = transform([1, 2], isEven)
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:5 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `transform` is not a top-level function.
+   4 |   LET a AS Integer = get([1, 2, 3], 0)
+   5 |   LET b AS List OF Integer = transform([1, 2], isEven)
+   6 |   LET c AS Integer = find("hello", "l")
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:6 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `find` is not a top-level function.
+   5 |   LET b AS List OF Integer = transform([1, 2], isEven)
+   6 |   LET c AS Integer = find("hello", "l")
+   7 |   LET d AS String = mid("hello", 1, 2)
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:7 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `mid` is not a top-level function.
+   6 |   LET c AS Integer = find("hello", "l")
+   7 |   LET d AS String = mid("hello", 1, 2)
+   8 |   LET e AS List OF Integer = append([1], 2)
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:8 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `append` is not a top-level function.
+[exit 1]
+$ mfb build -ir tests/collections-cutover-invalid
+   2 | ' helpers are removed, not aliased. Calling them is a plain unknown-name error.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = get([1, 2, 3], 0)
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:4 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `get` is not a top-level function.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = get([1, 2, 3], 0)
+   5 |   LET b AS List OF Integer = transform([1, 2], isEven)
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:5 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `transform` is not a top-level function.
+   4 |   LET a AS Integer = get([1, 2, 3], 0)
+   5 |   LET b AS List OF Integer = transform([1, 2], isEven)
+   6 |   LET c AS Integer = find("hello", "l")
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:6 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `find` is not a top-level function.
+   5 |   LET b AS List OF Integer = transform([1, 2], isEven)
+   6 |   LET c AS Integer = find("hello", "l")
+   7 |   LET d AS String = mid("hello", 1, 2)
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:7 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `mid` is not a top-level function.
+   6 |   LET c AS Integer = find("hello", "l")
+   7 |   LET d AS String = mid("hello", 1, 2)
+   8 |   LET e AS List OF Integer = append([1], 2)
+     | ^
+tests/collections-cutover-invalid/src/main.mfb:8 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
+               Callable `append` is not a top-level function.
+[exit 1]

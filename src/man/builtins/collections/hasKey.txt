@@ -2,13 +2,13 @@ NAME
   hasKey - test whether a map contains a key
 
 SYNOPSIS
-  hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean
+  collections::hasKey OF K, V(value AS Map OF K TO V, key AS K) AS Boolean
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   hasKey returns TRUE when value contains an entry for key and FALSE otherwise.

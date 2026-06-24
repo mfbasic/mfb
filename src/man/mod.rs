@@ -25,7 +25,6 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
         parse_flow_package(),
         parse_errors_package(),
         parse_general_package(),
-        parse_collection_package(),
         parse_collections_package(),
         parse_filter_package(),
         parse_strings_package(),
@@ -130,24 +129,6 @@ fn parse_general_package() -> PackageDoc {
         name,
         summary,
         usage: "mfb man general [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_collection_package() -> PackageDoc {
-    let page = include_str!("builtins/collection/package.txt");
-    let (name, summary) = parse_name_line(page).expect("collection package NAME line");
-    let functions = generated::COLLECTION_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man collection [function]",
         functions: Box::leak(functions),
         page: Some(page),
     }
@@ -315,7 +296,6 @@ fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'stat
         "types" => Some(generated::TYPES_TOPIC_PAGES),
         "flow" => Some(generated::FLOW_TOPIC_PAGES),
         "general" => Some(generated::GENERAL_FUNCTION_PAGES),
-        "collection" => Some(generated::COLLECTION_FUNCTION_PAGES),
         "collections" => Some(generated::COLLECTIONS_FUNCTION_PAGES),
         "filter" => Some(generated::FILTER_FUNCTION_PAGES),
         "strings" => Some(generated::STRINGS_FUNCTION_PAGES),

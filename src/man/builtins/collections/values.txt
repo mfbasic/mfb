@@ -2,13 +2,13 @@ NAME
   values - return the values of a map
 
 SYNOPSIS
-  values OF K, V(value AS Map OF K TO V) AS List OF V
+  collections::values OF K, V(value AS Map OF K TO V) AS List OF V
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   values returns a new list holding the values of value in

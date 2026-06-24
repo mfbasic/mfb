@@ -2,15 +2,15 @@ NAME
   sum - add the values in a numeric list
 
 SYNOPSIS
-  sum(value AS List OF Integer) AS Integer
-  sum(value AS List OF Float) AS Float
-  sum(value AS List OF Fixed) AS Fixed
+  collections::sum(value AS List OF Integer) AS Integer
+  collections::sum(value AS List OF Float) AS Float
+  collections::sum(value AS List OF Fixed) AS Fixed
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   sum returns the total of a numeric list. It supports Integer, Float, and Fixed

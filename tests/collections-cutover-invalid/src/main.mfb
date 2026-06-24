@@ -1,0 +1,10 @@
+' Hard cutover (plan-01-functions.md §5.4): the bare global collection/string
+' helpers are removed, not aliased. Calling them is a plain unknown-name error.
+FUNC main AS Integer
+  LET a AS Integer = get([1, 2, 3], 0)
+  LET b AS List OF Integer = transform([1, 2], isEven)
+  LET c AS Integer = find("hello", "l")
+  LET d AS String = mid("hello", 1, 2)
+  LET e AS List OF Integer = append([1], 2)
+  RETURN 0
+END FUNC

@@ -30,6 +30,9 @@ SYNOPSIS
     strings::graphemeAt(value, index)
     strings::graphemesCount(value)
     strings::trimChars(value, chars)
+    strings::find(value, needle[, start])
+    strings::mid(value, start, count)
+    strings::replace(value, old, new)
 
 DESCRIPTION
     The strings package contains package-qualified string helpers.
@@ -50,6 +53,6 @@ EXAMPLES
 
 SEE ALSO
     mfb man general len
-    mfb man general find
-    mfb man general mid
-    mfb man general replace
+    mfb man strings find
+    mfb man strings mid
+    mfb man strings replace

@@ -2,13 +2,13 @@ NAME
   reduce - fold a list into one accumulated value
 
 SYNOPSIS
-  reduce OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
+  collections::reduce OF T, U(value AS List OF T, initial AS U, f AS FUNC(U, T) AS U) AS U
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   reduce folds value from left to right. The accumulator starts as initial. For

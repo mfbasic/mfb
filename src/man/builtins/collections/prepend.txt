@@ -2,13 +2,13 @@ NAME
   prepend - return a list with an item added at the start
 
 SYNOPSIS
-  prepend OF T(value AS List OF T, item AS T) AS List OF T
+  collections::prepend OF T(value AS List OF T, item AS T) AS List OF T
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   prepend returns a new list with item inserted before the existing first item.

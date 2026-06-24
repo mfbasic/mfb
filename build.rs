@@ -6,7 +6,6 @@ use std::path::PathBuf;
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let general_dir = manifest_dir.join("src/man/builtins/general");
-    let collection_dir = manifest_dir.join("src/man/builtins/collection");
     let collections_dir = manifest_dir.join("src/man/builtins/collections");
     let filter_dir = manifest_dir.join("src/man/builtins/filter");
     let strings_dir = manifest_dir.join("src/man/builtins/strings");
@@ -21,7 +20,6 @@ fn main() {
     let errors_page = manifest_dir.join("src/man/errors/package.txt");
     let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
     println!("cargo:rerun-if-changed={}", general_dir.display());
-    println!("cargo:rerun-if-changed={}", collection_dir.display());
     println!("cargo:rerun-if-changed={}", collections_dir.display());
     println!("cargo:rerun-if-changed={}", filter_dir.display());
     println!("cargo:rerun-if-changed={}", strings_dir.display());
@@ -37,7 +35,6 @@ fn main() {
     println!("cargo:rerun-if-changed={}", unicode_page.display());
 
     let general_pages = man_pages(&general_dir, "general");
-    let collection_pages = man_pages(&collection_dir, "collection");
     let collections_pages = man_pages(&collections_dir, "collections");
     let filter_pages = man_pages(&filter_dir, "filter");
     let strings_pages = man_pages(&strings_dir, "strings");
@@ -52,10 +49,6 @@ fn main() {
     println!(
         "cargo:rerun-if-changed={}",
         general_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        collection_dir.join("package.txt").display()
     );
     println!(
         "cargo:rerun-if-changed={}",
@@ -95,7 +88,7 @@ fn main() {
     );
     for page in general_pages
         .iter()
-        .chain(collection_pages.iter())
+        .chain(collections_pages.iter())
         .chain(filter_pages.iter())
         .chain(strings_pages.iter())
         .chain(types_pages.iter())
@@ -114,7 +107,6 @@ fn main() {
     let mut output = fs::File::create(out_path).expect("create generated man source");
 
     write_pages(&mut output, "GENERAL_FUNCTION_PAGES", general_pages);
-    write_pages(&mut output, "COLLECTION_FUNCTION_PAGES", collection_pages);
     write_pages(&mut output, "COLLECTIONS_FUNCTION_PAGES", collections_pages);
     write_pages(&mut output, "FILTER_FUNCTION_PAGES", filter_pages);
     write_pages(&mut output, "STRINGS_FUNCTION_PAGES", strings_pages);

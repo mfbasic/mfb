@@ -2,13 +2,13 @@ NAME
   transform - map each list item to a new value
 
 SYNOPSIS
-  transform OF T, U(value AS List OF T, f AS FUNC(T) AS U) AS List OF U
+  collections::transform OF T, U(value AS List OF T, f AS FUNC(T) AS U) AS List OF U
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   transform calls f once for each item in value, in order from left to right,

@@ -2,13 +2,13 @@ NAME
   removeAt - remove one list item by index
 
 SYNOPSIS
-  removeAt OF T(value AS List OF T, index AS Integer) AS List OF T
+  collections::removeAt OF T(value AS List OF T, index AS Integer) AS List OF T
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   removeAt returns a new list with the item at index removed. The original list is

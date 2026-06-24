@@ -2,13 +2,13 @@ NAME
   filter - keep list items that pass a predicate
 
 SYNOPSIS
-  filter OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
+  collections::filter OF T(value AS List OF T, predicate AS FUNC(T) AS Boolean) AS List OF T
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   filter calls predicate once for each item in value, in order from left to

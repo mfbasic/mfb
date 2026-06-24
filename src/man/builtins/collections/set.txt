@@ -2,14 +2,14 @@ NAME
   set - return a collection with one value changed
 
 SYNOPSIS
-  set OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
-  set OF K, V(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V
+  collections::set OF T(value AS List OF T, index AS Integer, item AS T) AS List OF T
+  collections::set OF K, V(value AS Map OF K TO V, key AS K, item AS V) AS Map OF K TO V
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   set returns a new collection with one value changed. The original collection

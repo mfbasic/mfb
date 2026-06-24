@@ -2,13 +2,13 @@ NAME
   removeKey - remove one map entry by key
 
 SYNOPSIS
-  removeKey OF K, V(value AS Map OF K TO V, key AS K) AS Map OF K TO V
+  collections::removeKey OF K, V(value AS Map OF K TO V, key AS K) AS Map OF K TO V
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   removeKey returns a new map with the entry for key removed. The original map is

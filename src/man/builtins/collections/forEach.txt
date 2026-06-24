@@ -2,13 +2,13 @@ NAME
   forEach - run an action for each list item
 
 SYNOPSIS
-  forEach OF T(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing
+  collections::forEach OF T(value AS List OF T, action AS FUNC(T) AS Nothing) AS Nothing
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   forEach calls action once for each item in value, in order from left to right.

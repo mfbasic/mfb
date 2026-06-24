@@ -10,35 +10,26 @@ IMPORTS
 
 DESCRIPTION
   general contains the built-in functions that are always in scope. These
-  functions cover string length and slicing, numeric conversion,
-  collection access and updates, higher-order list processing, and simple
-  aggregate operations.
-
-  Collection helpers are ordinary functions. Update helpers such as append,
-  set, insert, removeAt, and removeKey return a new value. When assigning the
-  result back to the same MUT collection, the compiler may perform the update
-  in place as an optimization, but the source-level meaning is still functional.
+  functions cover collection and string length, numeric conversion, type
+  inspection, and simple value predicates.
 
   Many general functions are overloaded. For example, len accepts String,
-  List OF T, and Map OF K TO V values; get accepts List and Map values; and
-  toString accepts only the primitive and byte-list overloads documented by
-  its function page.
+  List OF T, and Map OF K TO V values; and toString accepts only the primitive
+  and byte-list overloads documented by its function page.
+
+  List and Map helpers now live in the collections package, and string
+  slicing and search helpers live in the strings package.
 
 ERRORS
   Fallible general functions return Result and participate in normal MFBASIC
-  error propagation. For example, get fails when a list index is out of range
-  or a map key is missing, find fails when no match is found, and conversions
-  fail for invalid formats or out-of-range values.
+  error propagation. For example, conversions fail for invalid formats or
+  out-of-range values.
 
 EXAMPLES
   Count list items:
 
     LET count AS Integer = len([1, 2, 3])
 
-  Read with a fallback:
+  Convert a value to text:
 
-    LET value AS Integer = getOr([1, 2, 3], 9, 0)
-
-  Transform a list:
-
-    LET text AS List OF String = transform([1, 2], toString)
+    LET text AS String = toString(42)

@@ -2,19 +2,19 @@ NAME
   mid - return a sublist by item index
 
 SYNOPSIS
-  mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
+  collections::mid OF T(value AS List OF T, start AS Integer, count AS Integer) AS List OF T
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   mid returns a list slice beginning at zero-based start and containing count
   items. The returned list is a new owned collection value.
 
-  mid is also defined for String values; see general mid for the String
+  mid is also defined for String values; see strings mid for the String
   overload.
 
 OVERLOADS
@@ -38,4 +38,4 @@ EXAMPLES
     LET middle AS List OF Integer = mid([1, 2, 3, 4], 1, 2)
 
 SEE ALSO
-  find, get, len, general mid
+  find, get, len, strings mid

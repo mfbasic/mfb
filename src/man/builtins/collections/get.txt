@@ -2,14 +2,14 @@ NAME
   get - read a list item or map value
 
 SYNOPSIS
-  get OF T(value AS List OF T, index AS Integer) AS T
-  get OF K, V(value AS Map OF K TO V, key AS K) AS V
+  collections::get OF T(value AS List OF T, index AS Integer) AS T
+  collections::get OF K, V(value AS Map OF K TO V, key AS K) AS V
 
 PACKAGE
-  collection
+  collections
 
 IMPORTS
-  None. collection functions are available without an IMPORT statement.
+  IMPORT collections
 
 DESCRIPTION
   get reads a value from a collection without copying the collection.

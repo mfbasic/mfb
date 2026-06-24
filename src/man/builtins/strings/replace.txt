@@ -2,13 +2,13 @@ NAME
   replace - replace all occurrences of a substring
 
 SYNOPSIS
-  replace(value AS String, old AS String, new AS String) AS String
+  strings::replace(value AS String, old AS String, new AS String) AS String
 
 PACKAGE
-  general
+  strings
 
 IMPORTS
-  None. general functions are available without an IMPORT statement.
+  IMPORT strings
 
 DESCRIPTION
   replace returns a new String in which every non-overlapping occurrence of old
@@ -21,11 +21,11 @@ DESCRIPTION
   If old is an empty String, or old is longer than value, replace returns a
   String equal to value unchanged.
 
-  replace is also defined for collections; see collection replace for the List
+  replace is also defined for collections; see collections replace for the List
   overload.
 
 OVERLOADS
-  replace(value AS String, old AS String, new AS String) AS String
+  strings::replace(value AS String, old AS String, new AS String) AS String
     Replaces all non-overlapping occurrences of old with new.
 
 ERRORS
@@ -39,11 +39,11 @@ TYPE CHECKING
 EXAMPLES
   Replace every occurrence:
 
-    LET text AS String = replace("hello", "l", "x")
+    LET text AS String = strings::replace("hello", "l", "x")
 
   An empty old leaves value unchanged:
 
-    LET same AS String = replace("hello", "", "x")
+    LET same AS String = strings::replace("hello", "", "x")
 
 SEE ALSO
-  find, mid, len, collection replace
+  find, mid, len, collections replace
