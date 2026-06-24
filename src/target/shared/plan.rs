@@ -539,9 +539,11 @@ fn platform_imports(module: &NirModule, platform: &dyn NativePlanPlatform) -> Ve
             push_platform_import(&mut imports, import);
         }
     }
-    if module.build_mode == crate::target::NativeBuildMode::MacApp {
-        // App mode (plan-04-macos-app.md §6.5) binds the Obj-C runtime, AppKit,
-        // Foundation, and the pthread/env primitives the `_main` bootstrap uses.
+    if module.build_mode.is_app() {
+        // App mode binds the toolkit the `_main` bootstrap drives: the Obj-C
+        // runtime/AppKit/Foundation on macOS (plan-04-macos-app.md §6.5) or
+        // GTK4/GObject/GLib/GIO on Linux (plan-05-linux-app.md §6.4). The platform
+        // chooses; shared lowering just pulls in whatever it declares.
         for import in platform.app_mode_imports() {
             push_platform_import(&mut imports, import);
         }

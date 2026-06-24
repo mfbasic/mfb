@@ -326,8 +326,10 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let manifest = validate_project_manifest(&project_path)?;
     let project_kind = project_kind(&manifest);
 
-    // `mfb build -app` (plan-04-macos-app.md §5.1) is a macOS-only, executable-only
-    // build flag. Reject incompatible combinations up front, before any lowering.
+    // `mfb build -app` (plan-04-macos-app.md §5.1, plan-05-linux-app.md §5.1) is an
+    // executable-only build flag supported on app-capable native targets (macOS via
+    // AppKit, Linux via GTK4). Reject incompatible combinations up front, before any
+    // lowering.
     if options.app_mode {
         if project_kind != "executable" {
             eprintln!("error: mfb build -app requires an executable project");
@@ -335,14 +337,19 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
         }
         if !target::target_supports_app_mode(&target) {
             eprintln!(
-                "error: mfb build -app requires a macOS target (got {})",
+                "error: mfb build -app requires a macOS or Linux target (got {})",
                 target.name()
             );
             return Err(());
         }
     }
+    // The target OS selects the app toolkit and therefore the build mode. The CLI
+    // has already verified the target supports app mode at this point.
     let build_mode = if options.app_mode {
-        target::NativeBuildMode::MacApp
+        match target.os.as_str() {
+            "linux" => target::NativeBuildMode::LinuxApp,
+            _ => target::NativeBuildMode::MacApp,
+        }
     } else {
         target::NativeBuildMode::Console
     };

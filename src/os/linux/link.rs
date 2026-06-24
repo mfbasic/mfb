@@ -14,6 +14,7 @@ pub(crate) fn write_executable(
     project_dir: &Path,
     project_name: &str,
     flavor: LinuxFlavor,
+    app_mode: bool,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
     let mut text = image.text.clone();
@@ -45,7 +46,13 @@ pub(crate) fn write_executable(
     } else {
         encode_dynamic_elf(flavor, entry_offset, &text, &image.data, image)?
     };
-    let path = project_dir.join(format!("{project_name}-{}.out", flavor.suffix()));
+    // App mode (plan-05-linux-app.md §5.2) emits a single glibc `<name>.out`; the
+    // console build emits one flavored `<name>-{glibc,musl}.out` per libc world.
+    let path = if app_mode {
+        project_dir.join(format!("{project_name}.out"))
+    } else {
+        project_dir.join(format!("{project_name}-{}.out", flavor.suffix()))
+    };
     fs::write(&path, bytes)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
     let mut permissions = fs::metadata(&path)
@@ -907,7 +914,7 @@ mod tests {
         let image = glob_dat_image("libc.so.6");
         let dir = std::path::PathBuf::from("tmp/globlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
-        write_executable(&dir, "glob", LinuxFlavor::Glibc, &image).expect("link glob_dat elf");
+        write_executable(&dir, "glob", LinuxFlavor::Glibc, false, &image).expect("link glob_dat elf");
     }
 
     #[test]
@@ -915,7 +922,7 @@ mod tests {
         let image = glob_dat_image("libc.musl-aarch64.so.1");
         let dir = std::path::PathBuf::from("tmp/globlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
-        write_executable(&dir, "globmusl", LinuxFlavor::Musl, &image).expect("link musl glob_dat");
+        write_executable(&dir, "globmusl", LinuxFlavor::Musl, false, &image).expect("link musl glob_dat");
     }
 
     #[test]
@@ -935,7 +942,7 @@ mod tests {
             signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
         };
         let dir = tempfile::tempdir().unwrap();
-        let path = write_executable(dir.path(), "signed", LinuxFlavor::Glibc, &image)
+        let path = write_executable(dir.path(), "signed", LinuxFlavor::Glibc, false, &image)
             .expect("link signed elf");
         let bytes = std::fs::read(path).unwrap();
         assert!(bytes.windows(b".mfb_sign".len()).any(|window| window == b".mfb_sign"));
@@ -960,7 +967,7 @@ mod tests {
         let image = init_array_image();
         let dir = std::path::PathBuf::from("tmp/initlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
-        write_executable(&dir, "init", LinuxFlavor::Glibc, &image).expect("link init-array elf");
+        write_executable(&dir, "init", LinuxFlavor::Glibc, false, &image).expect("link init-array elf");
     }
 
     // Emits a dynamic glibc ELF whose single import requires `_exit@GLIBC_2.17`,
@@ -974,7 +981,7 @@ mod tests {
         let dir = std::path::PathBuf::from("tmp/verlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
         let path =
-            write_executable(&dir, "ver", LinuxFlavor::Glibc, &image).expect("link versioned elf");
+            write_executable(&dir, "ver", LinuxFlavor::Glibc, false, &image).expect("link versioned elf");
         let bytes = std::fs::read(&path).expect("read elf");
         assert!(
             bytes

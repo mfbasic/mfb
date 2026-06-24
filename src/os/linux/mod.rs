@@ -29,7 +29,8 @@ pub(crate) fn write_linked_executable(
     project_dir: &Path,
     project_name: &str,
     flavor: LinuxFlavor,
+    app_mode: bool,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
-    link::write_executable(project_dir, project_name, flavor, image)
+    link::write_executable(project_dir, project_name, flavor, app_mode, image)
 }

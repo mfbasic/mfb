@@ -135,6 +135,10 @@ impl NativeBackend for Backend {
         validate::validate_project(ir, packages)
     }
 
+    fn supports_app_mode(&self) -> bool {
+        true
+    }
+
     fn write_executable(
         &self,
         project_dir: &Path,
@@ -203,8 +207,17 @@ fn write_executable(
     build_mode: NativeBuildMode,
 ) -> Result<Vec<PathBuf>, String> {
     let module = lower_validated_module(ir, target, packages, build_mode)?;
+    // App mode (plan-05-linux-app.md §1.1, §5.2) is glibc-only: GTK is a
+    // glibc-world dependency, so app mode emits a single `<name>.out` instead of
+    // the console build's `-glibc.out` + `-musl.out` pair.
+    let app_mode = build_mode.is_app();
+    let flavors: &[LinuxFlavor] = if app_mode {
+        &[LinuxFlavor::Glibc]
+    } else {
+        &LinuxFlavor::ALL
+    };
     let mut paths = Vec::new();
-    for flavor in LinuxFlavor::ALL {
+    for &flavor in flavors {
         let native_plan = plan::lower_module(&module, flavor)?;
         native_plan.validate()?;
         os::linux::validate_native_object_plan(&native_plan)?;
@@ -216,6 +229,7 @@ fn write_executable(
             project_dir,
             &ir.name,
             flavor,
+            app_mode,
             &image,
         )?);
     }
@@ -292,10 +306,16 @@ fn lower_validated_module(
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    if build_mode != NativeBuildMode::Console {
-        // App mode is macOS-only; the CLI rejects `-app` for non-macOS targets
-        // before reaching a backend, so this is a defensive guard.
-        return Err("Linux native targets do not support app mode".to_string());
+    if !matches!(
+        build_mode,
+        NativeBuildMode::Console | NativeBuildMode::LinuxApp
+    ) {
+        // The Linux backend only produces console or GTK4 app-mode output; the CLI
+        // selects the build mode from the target OS, so `MacApp` never reaches here.
+        return Err(format!(
+            "Linux native targets do not support the {} build mode",
+            build_mode.as_str()
+        ));
     }
     let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
     validate::validate_nir(&module)?;

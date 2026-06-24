@@ -15,15 +15,20 @@ pub struct BuildTarget {
     pub arch: String,
 }
 
-/// Selects which native runtime/output shape a macOS-capable backend produces.
+/// Selects which native runtime/output shape a native backend produces.
 ///
 /// `Console` is the standard terminal/file-descriptor executable. `MacApp` is the
 /// macOS GUI app-mode output (`mfb build -app`) whose `io::*` built-ins target an
 /// AppKit window instead of the terminal (see specifications/plan-04-macos-app.md).
+/// `LinuxApp` is the Linux counterpart whose `io::*` built-ins target a GTK4 window
+/// (see specifications/plan-05-linux-app.md). The shared lowering treats both app
+/// modes uniformly via [`NativeBuildMode::is_app`]; the target OS selects the
+/// toolkit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NativeBuildMode {
     Console,
     MacApp,
+    LinuxApp,
 }
 
 impl NativeBuildMode {
@@ -33,7 +38,15 @@ impl NativeBuildMode {
         match self {
             NativeBuildMode::Console => "console",
             NativeBuildMode::MacApp => "macos-app",
+            NativeBuildMode::LinuxApp => "linux-app",
         }
+    }
+
+    /// Whether this is a GUI app-mode build (`mfb build -app`), regardless of the
+    /// target OS / toolkit. Shared lowering branches on this so console behavior is
+    /// shared by every target and app behavior is shared by every app toolkit.
+    pub(crate) fn is_app(self) -> bool {
+        matches!(self, NativeBuildMode::MacApp | NativeBuildMode::LinuxApp)
     }
 }
 

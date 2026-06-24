@@ -1097,8 +1097,7 @@ pub(crate) fn lower_module_for_platform(
     // Install SIGINT/SIGTERM handlers for console programs only. App-mode builds
     // keep their window-driven finish path (the worker has no Ctrl-C semantics),
     // but still share `_mfb_shutdown` for their normal-exit cleanup.
-    let register_signal_handlers =
-        module.entry.is_some() && module.build_mode != crate::target::NativeBuildMode::MacApp;
+    let register_signal_handlers = module.entry.is_some() && !module.build_mode.is_app();
     if let Some(entry) = &module.entry {
         let language_entry_symbol = nir::function_symbol(&entry.name);
         let entry_stack_size = align(
@@ -1106,10 +1105,11 @@ pub(crate) fn lower_module_for_platform(
             16,
         );
         let entry_global_slots = globals_base + link_slot_count + term_state_slots;
-        if module.build_mode == crate::target::NativeBuildMode::MacApp {
-            // App mode (plan-04-macos-app.md §6.6): the standard program entry runs
-            // on a worker thread under `_mfb_macapp_program`, while `_main` becomes
-            // the AppKit bootstrap that creates the window and spawns the worker.
+        if module.build_mode.is_app() {
+            // App mode (plan-04-macos-app.md §6.6, plan-05-linux-app.md §6.1): the
+            // standard program entry runs on a worker thread under the app program
+            // symbol, while `_main` becomes the toolkit bootstrap (AppKit / GTK4)
+            // that creates the window and spawns the worker.
             let app_spec = AppEntrySpec {
                 language_entry_accepts_args: entry.accepts_args,
                 uses_term,
@@ -1249,7 +1249,7 @@ pub(crate) fn lower_module_for_platform(
     // App-mode io.input composes io.write (prompt -> transcript) + io.readLine
     // (read the window input pipe), so ensure both helpers are emitted
     // (plan-04-macos-app.md §5.4).
-    if module.build_mode == crate::target::NativeBuildMode::MacApp
+    if module.build_mode.is_app()
         && runtime_symbols
             .iter()
             .any(|symbol| symbol == "_mfb_rt_io_io_input")
@@ -2995,7 +2995,7 @@ fn lower_runtime_helper(
             "native code plan does not emit runtime helper '{symbol}'"
         ));
     };
-    let app_mode = build_mode == crate::target::NativeBuildMode::MacApp;
+    let app_mode = build_mode.is_app();
     if builtins::term::is_term_call(spec.call) {
         let term_state_offset = term_state_offset.ok_or_else(|| {
             format!("native code plan emits '{symbol}' without reserving term state")

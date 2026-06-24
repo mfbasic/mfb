@@ -47,15 +47,18 @@ impl plan::NativePlanPlatform for Platform {
         "linux-aarch64"
     }
 
-    fn entry_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {
-        if _module.entry.is_none() {
+    fn entry_imports(&self, module: &NirModule) -> Vec<PlatformImport> {
+        if module.entry.is_none() {
             return Vec::new();
         }
+        let mut imports = vec![self.libc_import("_exit", "_main")];
         // `signal` installs the SIGINT/SIGTERM handlers that run `_mfb_shutdown`.
-        vec![
-            self.libc_import("_exit", "_main"),
-            self.libc_import("signal", "_main"),
-        ]
+        // App mode (plan-05-linux-app.md §6.1) keeps its window-driven finish path
+        // and registers no console signal handlers, so the import is omitted.
+        if !module.build_mode.is_app() {
+            imports.push(self.libc_import("signal", "_main"));
+        }
+        imports
     }
 
     fn entry_error_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {
