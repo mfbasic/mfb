@@ -73,94 +73,114 @@ Three independent pieces, layered:
 Pieces 1 and 3 are pure runtime/allocator work. Piece 2 is codegen and is where
 the correctness risk lives.
 
-## 4. Sized Free + Free-List (runtime)
+## 4. Coalescing Free-List (runtime)
 
-### 4.1 Sized free preserves the no-header invariant
+The arena becomes a single **address-ordered, coalescing free-list** per arena:
+allocation carves (splits) a free entry, and freeing returns the chunk and merges
+it with adjacent free neighbors. This subsumes the old bump pointer — bumping is
+just "split the one big trailing free entry" — so there is one mechanism, not a
+bump path plus bins. It needs **no per-object headers** (see §4.1), packs memory
+tightly via coalescing, and reuses a freed chunk for a request of any size.
 
-`arena_free` takes the **size** as a parameter: `arena_free(ptr, size)`. The
-caller (drop glue / runtime) always knows the size at the free site because it
-knew the size at the allocation site. This is deliberate: it keeps the design's
-"no universal per-object header" property — we do **not** add an 8-byte size
-header to every object, which would bloat every record/string/collection and
-violate the "no layout change" constraint.
+### 4.1 Sized free, no headers — and the size is compiler-trusted
 
-`size` is normalized the same way `arena_alloc` normalizes it (zero → 1, then
-rounded up to a size-class granule, see §4.3).
+`arena_free(ptr, size)` is told the size by its caller. The caller is **always
+the compiler's drop glue** (§5) — the language exposes no user-level free — so
+the size is computed from the static type at codegen time and is as trustworthy
+as any other emitted instruction. This is what lets the design skip per-object
+size headers entirely: we never need to *recover* a chunk's size at free time
+(the classic reason `malloc` carries a header), because the caller supplies it.
 
-### 4.2 Free-list lives in the dead bytes
+Consequently the free-list logic reads sizes only from (a) the `size` argument
+and (b) the free entries it is already walking — never from a tag on an allocated
+chunk. No allocation carries any header or footer; layouts and copying are
+untouched.
 
-A freed chunk is itself the list node. We store a single `next` pointer in the
-first 8 bytes of the freed region:
+`size` is normalized as `arena_alloc` normalizes it: zero → 1, then rounded up to
+the 16-byte granule (§4.2).
+
+### 4.2 Free-list node lives in the dead bytes
+
+Each free entry is an intrusive node overlaid on the free chunk itself; its
+**start is implicit** (the node's own address):
 
 ```text
-FreeNode (overlaid on a freed chunk)
-  +0  U64 next        ; next free chunk in this size class, 0 = end
+FreeNode (overlaid on a free chunk, start = node address)
+  +0  U64 next        ; next free chunk in address order, 0 = end
+  +8  U64 size        ; size of this free chunk, in bytes
   ...                 ; remaining bytes are dead (entropy-filled, see §6)
 ```
 
-This requires every reusable allocation to be **≥ 16 bytes** (8 for `next`, plus
-16-byte min alignment, see §4.4). Standalone arena allocations already clear
-this: a `StringObject` is `8 + bytes + 1`, a record is `8 * fieldCount`, a
-collection is `≥ 80`. Sub-16-byte requests round up to 16.
+The list is kept **address-ordered** (ascending `start`) so a single walk finds
+the insertion point and both neighbors for coalescing. Allocated chunks carry
+**nothing** — only free chunks spend 16 bytes on a node, in their own dead space.
+Min chunk granule is therefore **16 bytes** (8 `next` + 8 `size`); sub-16 requests
+round up to 16. Standalone arena allocations already clear this (`StringObject`
+≥ `8 + bytes + 1`, record `8 * fieldCount`, collection ≥ 80).
 
-### 4.3 Segregated free-lists by size class
+### 4.3 Allocation — first-fit + split
 
-Rather than one sorted list with coalescing (which needs boundary tags ≈
-per-object footers — a layout change we're avoiding), use **segregated
-free-lists keyed on a rounded size class**. Round each request up to a granule
-(proposal: 16-byte granules up to 256, then power-of-two classes above) and keep
-one list head per class. Push/pop are O(1), exact-class fit, no coalescing.
+`arena_alloc(size, align)`:
 
-Tradeoff to accept: without coalescing, N freed 32-byte chunks can never combine
-to serve one 64-byte request. That fragmentation is bounded and is backstopped
-by the bump path (a request that finds its class empty just bumps) and by bulk
-arena teardown. This is the standard "simple, fast, slightly wasteful" choice
-and is the right first version.
+1. Validate alignment, normalize/round `size` (unchanged spirit).
+2. Walk the address-ordered free-list for the first entry where the request fits
+   after alignment: `aligned = align_up(entry.start, align)` and
+   `aligned + size <= entry.start + entry.size`.
+3. **Split** that entry: return `aligned`; push the front padding
+   (`aligned - entry.start`, if ≥ 16) and the tail remainder
+   (`entry.end - (aligned + size)`, if ≥ 16) back as free entries. Remainders
+   below 16 bytes stay as unobservable slack inside the allocation.
+4. If no entry fits, **map a new block** (`max(4096, round_up(size+align+32,
+   4096))`, page-rounded as today), insert it as one big free entry, and retry.
 
-### 4.4 Where the free-list heads live — **per-arena, recommended**
+First-fit on an address-ordered list does the right thing for free: low-address
+reclaimed holes are reused **before** the big trailing entry is carved, and
+carving the trailing entry *is* the bump pointer. Early on the list is one big
+entry per block, so allocation is effectively an O(1) bump; it only lengthens
+under real fragmentation.
 
-The user's sketch put a free-list on each `ArenaBlock`. A per-block list forces
-`arena_free(ptr, size)` to first find *which block* `ptr` belongs to (to reach
-that block's list head) — which means either an O(blocks) address-range search
-on every free, or a per-object back-pointer (a header we are avoiding).
-
-Recommendation: keep the free-list **per-arena**. `arena_free` then never needs
-to know the owning block; it just pushes onto the size-class head. Store the
-class heads via one currently-reserved arena-state slot pointing at a small
-`binHeads[]` array that is itself lazily allocated from the arena on first free.
-Arena-state has reserved 8-byte slots at offsets 8/16/24/40/48/56 available for
-this.
-
-> Open decision (see §9): per-arena segregated lists (recommended) vs. the
-> literal per-block list. The per-arena form is simpler and faster here; the
-> per-block form only helps if we later want per-block reclamation, which the
-> arena never does.
-
-### 4.5 Allocation algorithm with reuse
-
-`arena_alloc(size, align)` becomes:
-
-1. Validate alignment (unchanged).
-2. Normalize + round `size` to its size class.
-3. If `align ≤ 16` and the class's free-list is non-empty → **pop and return**
-   (O(1) reuse). Reused chunks already satisfy 16-byte alignment (§4.4).
-4. Else fall through to the existing bump path (advance `bumpOffset`, growing a
-   new block if needed).
-
-Reuse-first keeps the live footprint small and slows block growth. Requests
-needing alignment > 16 skip the free-list and bump (rare: scalars are ≤ 8-align,
-records 8, collections 8, strings 1).
+### 4.4 Free — scan + coalesce
 
 `arena_free(ptr, size)`:
 
-1. Normalize + round `size` to its class.
-2. Entropy-fill the chunk (§6), then write the class head into `[ptr]` as `next`
-   and set the class head to `ptr`.
+1. Normalize/round `size`.
+2. Entropy-fill the chunk (§6).
+3. Walk the address-ordered list to `ptr`'s insertion slot, then:
+   - if `prev.start + prev.size == ptr` → extend `prev` (absorb the chunk);
+   - if `ptr + size == next.start` → absorb `next` into the chunk/`prev`;
+   - both adjacent → merge all three into one entry;
+   - neither → write the `{next, size}` node into `[ptr]` and link it in.
 
-`arena_free` **never unmaps** and never touches a block header — it is pure
-internal bookkeeping (fill + one push). Mapped memory is only ever returned to
-the OS by `arena_destroy` at teardown. Both helpers document their clobber set
-the way `arena_alloc` does today.
+Adjacency is pure arithmetic on `start`/`size`; no neighbor tag is read, so no
+headers are needed for coalescing — the scan replaces the O(1) boundary-tag
+lookup. **Coalescing keeps the list short**: same-size churn (a loop that
+allocs/frees the same shape each pass) merges straight back into its neighbor, so
+the list stays ~1–2 entries and the "scan" is effectively O(1). The list only
+grows — and scans only slow — under genuine fragmentation (many live objects
+separated by holes), which is exactly when the alternative bin design would be
+silently wasting memory instead.
+
+**Never merges across blocks.** Chunks in different OS-mapped blocks are not
+contiguous, so the `start + size == next.start` test fails between them with no
+special-casing; a single chunk never spans a block.
+
+`arena_free` **never unmaps** and never returns memory to the OS — it only fills
+and relinks. Mapped memory is reclaimed only by `arena_destroy` at teardown. Both
+helpers document their clobber set the way `arena_alloc` does today.
+
+### 4.5 Free-list head — one pointer, per-arena
+
+The list needs a single **head pointer** (lowest-address free entry), stored in
+the reserved arena-state word at **offset 48** (`freeListHead`). That is the only
+header state required — there is no bins array. After this plan the reserved
+arena-state words at offsets 16/24/40 hold the fill RNG and start time, offset 48
+holds `freeListHead`, and offsets 8 and 56 remain free. `ARENA_STATE_SIZE` stays
+104.
+
+A per-arena (not per-block) list is required for cheap coalescing: `arena_free`
+must reach neighbors by address order without first resolving which block a
+pointer belongs to. Across-block merges simply never occur (§4.4), so one
+arena-wide ordered list is both correct and simplest.
 
 ## 5. Free on Scope-Drop (codegen) — the hard part
 
@@ -212,8 +232,12 @@ materialized in transfer storage / the receiver arena, untouched by this plan.
 
 ### 5.4 Risk: double-free / use-after-free
 
-Introducing frees introduces the classic failure modes if drop emission is
-wrong. Mitigations:
+All frees are **compiler-emitted** — the language has no user-level free — so the
+`(ptr, size)` passed to `arena_free` is always codegen output derived from the
+static type, never user input. There is no class of "user passed the wrong size /
+double-freed" bugs; the only way to corrupt the free-list is a compiler bug in
+drop emission, the same trust boundary as any other emitted instruction.
+Mitigations focus there:
 
 - Phase the rollout (see §8): start with **runtime-internal** free sites whose
   lifetimes are trivially correct and need *no* user-level analysis — the old
@@ -222,7 +246,8 @@ wrong. Mitigations:
   returned. These reuse churned memory immediately with near-zero risk.
 - Only then enable user value scope-drop frees, gated behind the existing
   ownership/escape analysis and a thorough test pass.
-- Use entropy poisoning (§6) in debug builds as a use-after-free tripwire.
+- Entropy poisoning (§6) turns any drop-emission bug (premature free, missed
+  escape) into a loud use-after-free rather than silent corruption.
 
 ## 6. Entropy Fill
 
@@ -310,9 +335,10 @@ the fast dedicated PCG64 (§6.1) rather than an OS-entropy syscall per fill.
 
 ## 7. Layout / ABI Impact
 
-- `memory_layouts.md` Arena section: document the per-arena free-list (size
-  classes, `FreeNode` overlay, the bin-heads slot in arena-state), the reuse-first
-  branch in `arena_alloc`, and `arena_free(ptr, size)` with its result/clobber
+- `memory_layouts.md` Arena section: document the per-arena address-ordered
+  coalescing free-list (the `{next, size}` `FreeNode` overlay, `freeListHead` at
+  arena-state offset 48), `arena_alloc`'s first-fit + split path, and
+  `arena_free(ptr, size)`'s scan + coalesce path, each with its result/clobber
   ABI.
 - **Arena-state size unchanged (104 bytes).** The dedicated fill RNG reuses the
   reserved words at offsets 16/24 (`fillRngLo`/`fillRngHi`, §6.1), and the arena
@@ -330,13 +356,14 @@ the fast dedicated PCG64 (§6.1) rather than an OS-entropy syscall per fill.
 1. **Zero-init audit.** Make every allocation site fully initialize what it
    reads; remove all reliance on `MAP_ANON` zeroing. Land independently — it is
    correct and valuable on its own.
-2. **`arena_free` + per-arena segregated free-list + reuse-first `arena_alloc`.**
-   No callers yet beyond tests.
+2. **`arena_free` + per-arena coalescing free-list + first-fit/split
+   `arena_alloc`.** Replace the bump path with split-from-free-entry; no callers
+   of `arena_free` yet beyond tests.
 3. **Runtime-internal free sites.** Collection grow/realloc, compaction,
    throwaway string temporaries call `arena_free`. First real reuse; minimal
    risk.
-4. **Entropy fill.** `arena_fill_random` from the per-arena PCG64; fill on free
-   and on new block; debug-default toggle. (Depends on Phase 1.)
+4. **Entropy fill.** `arena_fill_random` from the dedicated per-arena PCG64; fill
+   on free and on new block; always on. (Depends on Phase 1.)
 5. **Scope-drop drop glue.** Per-type drop glue; emit frees at scope-drop for
    owned, non-escaping arena values, gated by existing escape analysis. The
    payoff phase and the riskiest — land behind heavy tests.
@@ -345,9 +372,21 @@ the fast dedicated PCG64 (§6.1) rather than an OS-entropy syscall per fill.
 
 Resolved:
 
-- **Free-list placement:** per-arena segregated lists. (§4.4)
+- **Allocator structure:** a single per-arena, address-ordered, coalescing
+  free-list with first-fit + split on alloc and scan + merge on free. This
+  subsumes the bump pointer (bump = split the trailing entry) and needs no
+  per-object headers (sized, compiler-emitted free + arithmetic adjacency).
+  (§4)
+- **Free-list head:** one `freeListHead` pointer at arena-state offset 48; no
+  bins array. (§4.5)
+- **Splitting / coalescing:** both built in from the start — they are what give
+  full cross-size reuse and keep the list short. Header-free because free is
+  sized and the caller is always the compiler. (§4.3, §4.4)
+- **Fit policy:** first-fit over the address-ordered list — reuses low-address
+  holes before carving the trailing entry, and is O(1) while the list is short.
+  (§4.3)
 - **OS reuse:** none — freeing is internal reuse only; blocks unmap only at
-  teardown. (§1, §4.5)
+  teardown. (§1, §4.4)
 - **Fill source:** a dedicated per-arena PCG64 reusing reserved arena-state
   offsets 16/24, seeded independently so it never perturbs the `math::rand`
   stream at 88/96; `ARENA_STATE_SIZE` stays 104. (§6.1)
@@ -355,17 +394,18 @@ Resolved:
 
 Still open:
 
-- **Size-class scheme:** 16-byte granules then power-of-two, vs. pure
-  power-of-two, vs. exact-size lists. (§4.3)
-- **Coalescing:** ship without it first (recommended); revisit if fragmentation
-  shows up in real workloads.
+- **List length under pathological fragmentation:** if real workloads produce
+  long free-lists, revisit with a hybrid (e.g. a small size-class index over the
+  ordered list) — measure first. (§4.4)
 
 ## 10. Summary
 
-The free-list, sized free, and entropy fill are straightforward, low-risk
-runtime work and preserve every layout. The real engineering is (1) the
-zero-init audit that entropy fill forces, and (2) deterministic scope-drop drop
-glue with airtight escape analysis. The language, copying, and transfer
-semantics are untouched throughout; this is purely "reuse freed memory and
-poison/scrub it," delivered the deterministic, GC-free way the rest of the
-language already cleans up resources.
+The coalescing free-list, sized free, and entropy fill are straightforward,
+low-risk runtime work and preserve every layout. The allocator is one mechanism —
+an address-ordered list that splits on alloc and merges on free — with no
+per-object headers, because free is sized and always compiler-emitted. The real
+engineering is (1) the zero-init audit that entropy fill forces, and (2)
+deterministic scope-drop drop glue with airtight escape analysis. The language,
+copying, and transfer semantics are untouched throughout; this is purely "reuse
+freed memory and poison/scrub it," delivered the deterministic, GC-free way the
+rest of the language already cleans up resources.
