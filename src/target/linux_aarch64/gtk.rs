@@ -1289,11 +1289,40 @@ pub(crate) fn emit_app_term_helper(
         "term.setForeground" => emit_app_term_set_color(symbol, ST_TERM_CUR_FG),
         "term.setBackground" => emit_app_term_set_color(symbol, ST_TERM_CUR_BG),
         "term.setBold" => emit_app_term_set_bold(symbol),
+        "term.terminalSize" => emit_app_term_terminal_size(symbol),
         // Cursor isn't rendered in v1: accept and no-op so console ANSI isn't emitted.
         "term.showCursor" | "term.hideCursor" => emit_app_term_ok_noop(symbol),
         _ => return None,
     };
     Some(helper)
+}
+
+/// `term::terminalSize()`: OK(record) where the arena-allocated 16-byte record is
+/// `{ columns@0, rows@8 }` = the fixed grid size. On allocation failure, propagate
+/// the allocator's error result. Result ABI: x0 = tag, x1 = record/err code.
+fn emit_app_term_terminal_size(
+    symbol: &str,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    // record = arena_alloc(16, 8) -> x0=tag, x1=ptr (clobbers caller-saved).
+    asm.push(abi::move_immediate("x0", "Integer", "16"));
+    asm.push(abi::move_immediate("x1", "Integer", "8"));
+    asm.call_internal(code::ARENA_ALLOC_SYMBOL);
+    asm.push(abi::compare_immediate("x0", "0"));
+    asm.push(abi::branch_ne("ts_err")); // non-OK tag -> propagate x0/x1/x2
+    asm.push(abi::move_immediate("x9", "Integer", &TERM_COLS.to_string()));
+    asm.push(abi::store_u64("x9", "x1", 0)); // columns
+    asm.push(abi::move_immediate("x9", "Integer", &TERM_ROWS.to_string()));
+    asm.push(abi::store_u64("x9", "x1", 8)); // rows
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // OK; x1 = record
+    asm.push(abi::label("ts_err"));
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
 }
 
 /// `term::setForeground`/`setBackground(r /*x0*/, g /*x1*/, b /*x2*/)`: pack and
