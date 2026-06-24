@@ -1,5 +1,5 @@
 NAME
-  find - locate text
+  find - locate the first occurrence of a substring by Unicode scalar index
 
 SYNOPSIS
   strings::find(value AS String, needle AS String, start AS Integer = 0) AS Integer
@@ -11,30 +11,61 @@ IMPORTS
   IMPORT strings
 
 DESCRIPTION
-  find returns the zero-based position of the first match at or after start.
+  find searches value for the first occurrence of needle at or after the
+  position start and returns the zero-based index where it begins.
 
-  For String values, indexes are Unicode scalar indexes. They are not byte
-  offsets and not grapheme-cluster indexes.
+  Positions are measured in Unicode scalar values, not UTF-8 bytes and not
+  user-perceived grapheme clusters. A multi-byte character such as "é" or "😀"
+  counts as one position even though it occupies several bytes. Both the start
+  argument and the returned index are scalar indexes.
 
-  An empty needle matches at start when start is in range.
+  The search begins at scalar position start and scans toward the end of value.
+  The first position whose following scalars match needle in full is returned.
+  An empty needle matches immediately and returns start, provided start is a
+  valid position in value.
+
+  start defaults to 0, meaning the search begins at the start of value. start
+  must be in the range 0 through the scalar length of value inclusive; the
+  upper bound equals the length so that a search may begin at the end of the
+  string (where only an empty needle can match). A negative start, or one
+  greater than the scalar length, is out of range.
+
+  find does not mutate value or needle and has no side effects. The returned
+  Integer is a fresh value.
+
+  find is also defined for collections; see collections find for the List
+  overload.
 
 OVERLOADS
   strings::find(value AS String, needle AS String, start AS Integer = 0) AS Integer
-    Returns the first scalar index where needle occurs in value.
-
-ERRORS
-  ErrNotFound (77050004)
-    Returned when no match exists at or after start.
-
-  77050001
-    Returned when start is less than 0 or greater than the scalar length of
+    Returns the first scalar index at or after start where needle occurs in
     value.
 
-  Other errors can propagate from evaluating value, needle, or start before find
-  is called.
+PARAMETERS
+  value AS String
+    The string to search.
+
+  needle AS String
+    The substring to locate. An empty needle matches at start.
+
+  start AS Integer
+    The zero-based scalar index at which to begin searching. Defaults to 0.
+    Must be between 0 and the scalar length of value inclusive.
+
+RETURN VALUE
+  AS Integer
+    The zero-based Unicode scalar index of the first occurrence of needle at or
+    after start. When needle is empty, returns start.
+
+ERRORS
+  77050001 (ErrIndexOutOfRange)
+  Raised when start is less than 0 or greater than the scalar length of value.
+
+  77050004 (ErrNotFound)
+  Raised when no occurrence of needle exists at or after start.
 
 TYPE CHECKING
-  String search requires a String needle.
+  value and needle must both be String. start must be an Integer.
 
 EXAMPLES
   Find text:
@@ -57,5 +88,4 @@ EXAMPLES
     END MATCH
 
 SEE ALSO
-  mid
-  replace
+  mid, replace, contains, collections find

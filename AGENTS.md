@@ -86,3 +86,10 @@ Guidelines:
 - NEVER create a branch unless the user explicitly asks for one. Always commit on
   the current branch, even when that is the default/main branch. Do not create,
   switch, or rename branches on your own initiative.
+
+## Remote Systems
+
+- ssh -p 2222 test@127.0.0.1 # ArchLinux (libc)
+- ssh -p 2223 test@127.0.0.1 # Kali (libc)
+- ssh -p 2224 test@127.0.0.1 # Alipine (musl)
+- ssh -p 2225 test@127.0.0.1 # Alipine gtk (musl)
