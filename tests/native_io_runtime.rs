@@ -388,6 +388,35 @@ END FUNC
 }
 
 #[test]
+fn native_io_readline_grows_buffer_and_reuses_freed_chunks() {
+    // A line far longer than the 32-byte initial buffer forces many doublings.
+    // Each grow copies the live bytes into the new buffer and returns the old one
+    // to the arena free-list (plan-01 §8.3), so this exercises arena_free /
+    // coalescing at runtime and guards the register-lifetime reload across the
+    // allocator call in the grow path (a stale length would run the copy off the
+    // new buffer and segfault).
+    let project = temp_project(
+        "native_io_readline_grow",
+        r#"
+IMPORT io
+
+FUNC main AS Integer
+  LET line AS String = io::readLine()
+  io::print(toString(len(line)))
+  io::print(line)
+  RETURN 0
+END FUNC
+"#,
+    );
+    let executable = build_project(&project);
+    let long: String = "AB".repeat(5000); // 10000 bytes, dozens of grows
+    let mut input = long.clone().into_bytes();
+    input.push(b'\n');
+    let stdout = run_with_stdin(&executable, &input);
+    assert_eq!(stdout, format!("10000\n{long}\n"));
+}
+
+#[test]
 fn native_io_flush_reports_standard_stream_failures() {
     let flush_stdout = temp_project(
         "native_io_flush_stdout_failure",

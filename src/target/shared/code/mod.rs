@@ -7671,6 +7671,11 @@ fn lower_io_read_line_helper(
     const SEQ_LEN_OFFSET: usize = 32;
     const RESULT_OFFSET: usize = 40;
     const BYTES_OFFSET: usize = 48;
+    // Old line-buffer pointer/size stashed across a grow so the dead buffer can be
+    // returned to the arena free-list (plan-01 §8.3 runtime-internal reuse). The
+    // termios scratch ends at 240 (macOS) / 228 (Linux), so 240/248 are free.
+    const OLD_BUFFER_OFFSET: usize = 240;
+    const OLD_CAPACITY_OFFSET: usize = 248;
     let terminal_slots = TerminalModeSlots {
         active: 56,
         saved_tag: 64,
@@ -7972,6 +7977,11 @@ fn lower_io_read_line_helper(
         abi::branch_gt(&grow),
         abi::branch(&grow_ok),
         abi::label(&grow),
+        // Stash the soon-to-be-dead buffer (ptr + its size = old capacity) before
+        // the new capacity overwrites CAPACITY_OFFSET, so it can be freed below.
+        abi::store_u64("x13", abi::stack_pointer(), OLD_CAPACITY_OFFSET),
+        abi::load_u64("x9", abi::stack_pointer(), BUFFER_OFFSET),
+        abi::store_u64("x9", abi::stack_pointer(), OLD_BUFFER_OFFSET),
         abi::add_registers("x14", "x13", "x13"),
         abi::compare_registers("x14", "x12"),
         abi::branch_ge(&format!("{symbol}_grow_size_ok")),
@@ -7983,11 +7993,18 @@ fn lower_io_read_line_helper(
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
     relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    // The `bl _mfb_arena_free` that frees the old buffer (emitted at grow_copy_done
+    // below) needs its branch relocation; order in the table is irrelevant.
+    relocations.push(internal_branch(symbol, ARENA_FREE_SYMBOL));
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&format!("{symbol}_grow_alloc_ok")),
         abi::branch(&alloc_error),
         abi::label(&format!("{symbol}_grow_alloc_ok")),
+        // `bl _mfb_arena_alloc` clobbers x10 (the live byte count to copy), so
+        // reload the length from the stack rather than trusting the register
+        // across the call — otherwise the copy loop runs off the new buffer.
+        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
         abi::load_u64("x12", abi::stack_pointer(), BUFFER_OFFSET),
         abi::move_register("x14", "x1"),
         abi::move_immediate("x15", "Integer", "0"),
@@ -8002,6 +8019,12 @@ fn lower_io_read_line_helper(
         abi::branch(&grow_copy_loop),
         abi::label(&grow_copy_done),
         abi::store_u64("x1", abi::stack_pointer(), BUFFER_OFFSET),
+        // The old buffer's bytes are now copied into the new one and dead — return
+        // it to the free-list. arena_free clobbers x0/x1/x9–x16; grow_ok reloads
+        // everything it needs from the stack, so nothing live is lost.
+        abi::load_u64("x0", abi::stack_pointer(), OLD_BUFFER_OFFSET),
+        abi::load_u64("x1", abi::stack_pointer(), OLD_CAPACITY_OFFSET),
+        abi::branch_link(ARENA_FREE_SYMBOL),
         abi::label(&grow_ok),
         abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
         abi::load_u64("x12", abi::stack_pointer(), BUFFER_OFFSET),
