@@ -332,6 +332,7 @@ impl plan::NativePlanPlatform for Platform {
             "free",
             "memcpy",
             "memset",
+            "memmove",
             "pause",
         ] {
             imports.push(self.libc_import(symbol, "_main"));

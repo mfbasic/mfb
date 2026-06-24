@@ -180,9 +180,9 @@ impl code::CodegenPlatform for Platform {
         &self,
         call: &str,
         symbol: &str,
-        _term_state_offset: usize,
+        term_state_offset: usize,
     ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
-        gtk::emit_app_term_helper(call, symbol).map(Ok)
+        gtk::emit_app_term_helper(call, symbol, term_state_offset).map(Ok)
     }
 
     fn emit_write(

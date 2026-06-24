@@ -77,17 +77,22 @@ const ST_TERM_COL: usize = ST_TERM_ROW + 8; // cursor col
 const ST_TERM_CUR_FG: usize = ST_TERM_COL + 8; // current fg (packed | COLOR_SET)
 const ST_TERM_CUR_BG: usize = ST_TERM_CUR_FG + 8; // current bg (packed | COLOR_SET)
 const ST_TERM_CUR_BOLD: usize = ST_TERM_CUR_BG + 8; // current bold flag
+const ST_TERM_CUR_UNDERLINE: usize = ST_TERM_CUR_BOLD + 8; // current underline flag
+const ST_TERM_CURSOR_VISIBLE: usize = ST_TERM_CUR_UNDERLINE + 8; // cursor visibility
 // Parallel per-cell grids: chars (1B), fg (u32 packed | flags), bg (u32 packed).
-const ST_TERM_CHARS: usize = ST_TERM_CUR_BOLD + 8;
+const ST_TERM_CHARS: usize = ST_TERM_CURSOR_VISIBLE + 8;
 const ST_TERM_FG: usize = ST_TERM_CHARS + TERM_COLS * TERM_ROWS;
 const ST_TERM_BG: usize = ST_TERM_FG + TERM_COLS * TERM_ROWS * 4;
 const STATE_SIZE: usize = ST_TERM_BG + TERM_COLS * TERM_ROWS * 4;
 
-// fg/bg cell encoding: low 24 bits = packed RGB (r<<16|g<<8|b); bit 24 marks an
-// explicit color (so 0 = "use default", letting black be set distinctly); bit 25
-// (fg only) marks bold.
+// fg/bg cell encoding: low 24 bits = packed RGB (r|g<<8|b<<16, the console
+// convention so the arena getters agree); bit 24 marks an explicit color (so 0 =
+// "use default", letting black be set distinctly); bit 25 (fg) = bold, bit 26 (fg)
+// = underline.
 const COLOR_SET: usize = 1 << 24;
 const BOLD_FLAG: usize = 1 << 25;
+const UNDERLINE_FLAG: usize = 1 << 26;
+const TERM_DEFAULT_FG: &str = "16777215"; // 0xFFFFFF white (matches console default)
 
 // Fixed grid geometry (v1, monochrome; avoids font-metric FP at init).
 const TERM_COLS: usize = 80;
@@ -105,6 +110,11 @@ const TERM_HIDE_IDLE_SYMBOL: &str = "_mfb_gtkapp_term_hide_idle";
 const TERM_REDRAW_IDLE_SYMBOL: &str = "_mfb_gtkapp_term_redraw_idle";
 /// Worker-side grid writer shared by the io write helpers when term:: is active.
 const TERM_WRITE_SYMBOL: &str = "_mfb_gtkapp_term_write";
+/// Worker-side grid scroll-up (called from term_write at the bottom edge).
+const TERM_SCROLL_SYMBOL: &str = "_mfb_gtkapp_term_scroll";
+/// Pinned arena-state base register (term helpers run on the worker thread, where
+/// x19 holds the arena base; the shared console term-state lives at tso + field).
+const ARENA_REG: &str = "x19";
 
 // Input modes (mirror macOS app.rs INPUT_MODE_*): line-buffered without echo is the
 // default (`io::readLine`), line-buffered with echo is `io::input`, and raw delivers
@@ -176,7 +186,7 @@ fn lib_for(symbol: &str) -> &'static str {
         "g_idle_add" => GLIB,
         "pthread_create" | "pthread_detach" => LIBPTHREAD,
         "pipe" | "dup2" | "getenv" | "setenv" | "write" | "_exit" | "__libc_start_main" | "malloc"
-        | "free" | "memcpy" | "memset" | "pause" => LIBC,
+        | "free" | "memcpy" | "memset" | "memmove" | "pause" => LIBC,
         // GDK is part of libgtk-4.so.1 in GTK4 (no separate libgdk).
         "gdk_keyval_to_unicode" => GTK,
         "g_object_ref_sink" => GOBJECT,
@@ -321,6 +331,7 @@ pub(crate) fn emit_app_program_entry(
         emit_term_hide_idle_helper(),
         emit_term_redraw_idle_helper(),
         emit_term_write_helper(),
+        emit_term_scroll_helper(),
     ])
 }
 
@@ -902,11 +913,11 @@ fn emit_append_idle_helper() -> CodeFunction {
 fn emit_cairo_color(asm: &mut Asm, cr: &str, packed: &str) {
     asm.push(abi::move_register("x0", cr));
     asm.push(abi::move_immediate("x9", "Integer", "255")); // mask + divisor
-    asm.push(abi::shift_right_immediate("x10", packed, 16)); // r
-    asm.push(abi::and_registers("x10", "x10", "x9"));
+    asm.push(abi::and_registers("x10", packed, "x9")); // r = packed & 0xFF
     asm.push(abi::shift_right_immediate("x11", packed, 8)); // g
     asm.push(abi::and_registers("x11", "x11", "x9"));
-    asm.push(abi::and_registers("x12", packed, "x9")); // b
+    asm.push(abi::shift_right_immediate("x12", packed, 16)); // b
+    asm.push(abi::and_registers("x12", "x12", "x9"));
     asm.push(abi::signed_convert_to_float_d("d3", "x9")); // 255.0
     asm.push(abi::signed_convert_to_float_d("d0", "x10"));
     asm.push(abi::float_divide_d("d0", "d0", "d3"));
@@ -1048,6 +1059,13 @@ fn emit_term_draw_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x19"));
     asm.push(abi::add_immediate("x1", abi::stack_pointer(), off_buf));
     asm.call_external("cairo_show_text");
+    // Underline: a 2px rect at the cell bottom in the (already-set) fg color.
+    asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
+    asm.push(abi::move_immediate("x9", "Integer", &UNDERLINE_FLAG.to_string()));
+    asm.push(abi::and_registers("x9", "x14", "x9"));
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("d_next"));
+    emit_term_cell_rect(&mut asm, "x19", "x21", "x20");
 
     asm.push(abi::label("d_next"));
     asm.push(abi::add_immediate("x21", "x21", 1));
@@ -1057,6 +1075,20 @@ fn emit_term_draw_helper() -> CodeFunction {
     asm.push(abi::branch("d_row"));
 
     asm.push(abi::label("d_done"));
+    // Cursor caret: a 2px bar at the cursor cell bottom in white, if visible.
+    asm.load_state("x9", ST_TERM_CURSOR_VISIBLE);
+    asm.push(abi::compare_immediate("x9", "0"));
+    asm.push(abi::branch_eq("d_no_cursor"));
+    asm.push(abi::move_register("x0", "x19"));
+    asm.push(abi::move_immediate("x9", "Integer", "1"));
+    asm.push(abi::signed_convert_to_float_d("d0", "x9"));
+    asm.push(abi::signed_convert_to_float_d("d1", "x9"));
+    asm.push(abi::signed_convert_to_float_d("d2", "x9"));
+    asm.call_external("cairo_set_source_rgb");
+    asm.load_state("x20", ST_TERM_ROW);
+    asm.load_state("x21", ST_TERM_COL);
+    emit_term_cell_rect(&mut asm, "x19", "x21", "x20");
+    asm.push(abi::label("d_no_cursor"));
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
     for (reg, off) in [
         ("x19", 8),
@@ -1098,6 +1130,59 @@ fn emit_cell_dim_to_d(asm: &mut Asm, dst: &str, index: &str, cell: usize) {
 fn emit_const_to_d(asm: &mut Asm, dst: &str, value: usize) {
     asm.push(abi::move_immediate("x9", "Integer", &value.to_string()));
     asm.push(abi::signed_convert_to_float_d(dst, "x9"));
+}
+
+/// Fill a 2px-tall rect at the bottom of cell (col,row) in the current source color
+/// (used for the underline run and the cursor caret).
+fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
+    asm.push(abi::move_register("x0", cr));
+    emit_cell_dim_to_d(asm, "d0", col, TERM_CELL_W); // x = col*W
+    asm.push(abi::add_immediate("x9", row, 1)); // y = (row+1)*CELL_H - 2
+    asm.push(abi::move_immediate("x10", "Integer", &TERM_CELL_H.to_string()));
+    asm.push(abi::multiply_registers("x9", "x9", "x10"));
+    asm.push(abi::subtract_immediate("x9", "x9", 2));
+    asm.push(abi::signed_convert_to_float_d("d1", "x9"));
+    emit_const_to_d(asm, "d2", TERM_CELL_W); // w
+    emit_const_to_d(asm, "d3", 2); // h
+    asm.call_external("cairo_rectangle");
+    asm.push(abi::move_register("x0", cr));
+    asm.call_external("cairo_fill");
+}
+
+/// `void _mfb_gtkapp_term_scroll(void)` — shift the grid up one row (chars/fg/bg)
+/// and blank the last row. Worker-side data mutation (no GTK).
+fn emit_term_scroll_helper() -> CodeFunction {
+    let mut asm = Asm::new(TERM_SCROLL_SYMBOL);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    let last_row = TERM_COLS * (TERM_ROWS - 1);
+    // memmove each array up one row.
+    for (base, stride) in [
+        (ST_TERM_CHARS, 1usize),
+        (ST_TERM_FG, 4),
+        (ST_TERM_BG, 4),
+    ] {
+        asm.state_array("x0", base); // dst = row 0
+        asm.state_array("x1", base + TERM_COLS * stride); // src = row 1
+        asm.push(abi::move_immediate("x2", "Integer", &(last_row * stride).to_string()));
+        asm.call_external("memmove");
+    }
+    // Blank the last row: chars=' ', fg/bg=0.
+    asm.state_array("x0", ST_TERM_CHARS + last_row);
+    asm.push(abi::move_immediate("x1", "Integer", "32"));
+    asm.push(abi::move_immediate("x2", "Integer", &TERM_COLS.to_string()));
+    asm.call_external("memset");
+    for (base, stride) in [(ST_TERM_FG, 4usize), (ST_TERM_BG, 4)] {
+        asm.state_array("x0", base + last_row * stride);
+        asm.push(abi::move_immediate("x1", "Integer", "0"));
+        asm.push(abi::move_immediate("x2", "Integer", &(TERM_COLS * stride).to_string()));
+        asm.call_external("memset");
+    }
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    asm.finish(TERM_SCROLL_SYMBOL, "Nothing")
 }
 
 /// Main-thread idle: swap the window child to the term:: surface and redraw it.
@@ -1184,7 +1269,7 @@ fn emit_term_write_helper() -> CodeFunction {
     asm.state_array("x28", ST_TERM_BG);
     asm.load_state("x25", ST_TERM_ROW);
     asm.load_state("x26", ST_TERM_COL);
-    // fgval = cur_fg | (cur_bold ? BOLD_FLAG : 0); bgval = cur_bg.
+    // fgval = cur_fg | (bold ? BOLD_FLAG : 0) | (underline ? UNDERLINE_FLAG : 0).
     // Hold cur_fg in x11 — load_state clobbers x9 as its address scratch.
     asm.load_state("x11", ST_TERM_CUR_FG);
     asm.load_state("x10", ST_TERM_CUR_BOLD);
@@ -1193,6 +1278,12 @@ fn emit_term_write_helper() -> CodeFunction {
     asm.push(abi::move_immediate("x9", "Integer", &BOLD_FLAG.to_string()));
     asm.push(abi::or_registers("x11", "x11", "x9"));
     asm.push(abi::label("tw_no_bold"));
+    asm.load_state("x10", ST_TERM_CUR_UNDERLINE);
+    asm.push(abi::compare_immediate("x10", "0"));
+    asm.push(abi::branch_eq("tw_no_ul"));
+    asm.push(abi::move_immediate("x9", "Integer", &UNDERLINE_FLAG.to_string()));
+    asm.push(abi::or_registers("x11", "x11", "x9"));
+    asm.push(abi::label("tw_no_ul"));
     asm.push(abi::store_u64("x11", abi::stack_pointer(), off_fgval));
     asm.load_state("x11", ST_TERM_CUR_BG);
     asm.push(abi::store_u64("x11", abi::stack_pointer(), off_bgval));
@@ -1229,9 +1320,10 @@ fn emit_term_write_helper() -> CodeFunction {
     asm.push(abi::move_immediate("x26", "Integer", "0"));
     asm.push(abi::add_immediate("x25", "x25", 1));
     asm.push(abi::label("tw_clamp"));
-    // row = min(row, ROWS-1) — no scroll in v1.
-    asm.push(abi::compare_immediate("x25", &(TERM_ROWS - 1).to_string()));
-    asm.push(abi::branch_le("tw_next"));
+    // Scroll the grid up when the cursor passes the bottom (matches macOS).
+    asm.push(abi::compare_immediate("x25", &TERM_ROWS.to_string()));
+    asm.push(abi::branch_lt("tw_next"));
+    asm.call_internal(TERM_SCROLL_SYMBOL);
     asm.push(abi::move_immediate("x25", "Integer", &(TERM_ROWS - 1).to_string()));
     asm.push(abi::label("tw_next"));
     asm.push(abi::add_immediate("x21", "x21", 1));
@@ -1243,8 +1335,9 @@ fn emit_term_write_helper() -> CodeFunction {
     asm.push(abi::branch_eq("tw_store"));
     asm.push(abi::move_immediate("x26", "Integer", "0"));
     asm.push(abi::add_immediate("x25", "x25", 1));
-    asm.push(abi::compare_immediate("x25", &(TERM_ROWS - 1).to_string()));
-    asm.push(abi::branch_le("tw_store"));
+    asm.push(abi::compare_immediate("x25", &TERM_ROWS.to_string()));
+    asm.push(abi::branch_lt("tw_store"));
+    asm.call_internal(TERM_SCROLL_SYMBOL);
     asm.push(abi::move_immediate("x25", "Integer", &(TERM_ROWS - 1).to_string()));
     asm.push(abi::label("tw_store"));
     asm.store_state("x25", ST_TERM_ROW);
@@ -1279,19 +1372,32 @@ fn emit_term_write_helper() -> CodeFunction {
 pub(crate) fn emit_app_term_helper(
     call: &str,
     symbol: &str,
+    tso: usize,
 ) -> Option<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>)> {
     let helper = match call {
-        "term.on" => emit_app_term_toggle(symbol, "1", TERM_SHOW_IDLE_SYMBOL),
-        "term.off" => emit_app_term_toggle(symbol, "0", TERM_HIDE_IDLE_SYMBOL),
+        "term.on" => emit_app_term_on(symbol, tso),
+        "term.off" => emit_app_term_off(symbol, tso),
         "term.isOn" => emit_app_term_is_on(symbol),
         "term.clear" => emit_app_term_clear(symbol),
         "term.moveTo" => emit_app_term_move_to(symbol),
-        "term.setForeground" => emit_app_term_set_color(symbol, ST_TERM_CUR_FG),
-        "term.setBackground" => emit_app_term_set_color(symbol, ST_TERM_CUR_BG),
-        "term.setBold" => emit_app_term_set_bold(symbol),
+        "term.setForeground" => {
+            emit_app_term_set_color(symbol, ST_TERM_CUR_FG, tso, code::TERM_STATE_FG_OFFSET)
+        }
+        "term.setBackground" => {
+            emit_app_term_set_color(symbol, ST_TERM_CUR_BG, tso, code::TERM_STATE_BG_OFFSET)
+        }
+        "term.setBold" => {
+            emit_app_term_set_attr(symbol, ST_TERM_CUR_BOLD, tso, code::TERM_STATE_BOLD_OFFSET)
+        }
+        "term.setUnderline" => emit_app_term_set_attr(
+            symbol,
+            ST_TERM_CUR_UNDERLINE,
+            tso,
+            code::TERM_STATE_UNDERLINE_OFFSET,
+        ),
         "term.terminalSize" => emit_app_term_terminal_size(symbol),
-        // Cursor isn't rendered in v1: accept and no-op so console ANSI isn't emitted.
-        "term.showCursor" | "term.hideCursor" => emit_app_term_ok_noop(symbol),
+        "term.showCursor" => emit_app_term_set_cursor(symbol, "1"),
+        "term.hideCursor" => emit_app_term_set_cursor(symbol, "0"),
         _ => return None,
     };
     Some(helper)
@@ -1325,60 +1431,128 @@ fn emit_app_term_terminal_size(
     (term_frame(), asm.ins, asm.rel)
 }
 
-/// `term::setForeground`/`setBackground(r /*x0*/, g /*x1*/, b /*x2*/)`: pack and
-/// store the current color (with COLOR_SET so explicit black is distinct).
+/// `term::setForeground`/`setBackground(r /*x0*/, g /*x1*/, b /*x2*/)`: pack
+/// `r|g<<8|b<<16` and store it to the arena term-state (so the console-backed
+/// getters return it) and to the app current-color field (with COLOR_SET, so the
+/// grid cells tag with it and explicit black stays distinct).
 fn emit_app_term_set_color(
     symbol: &str,
     field: usize,
+    tso: usize,
+    arena_field: usize,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
-    // Pack into x11 (NOT x9: store_state uses x9 as its address scratch).
-    asm.push(abi::shift_left_immediate("x11", "x0", 16)); // r<<16
     asm.push(abi::shift_left_immediate("x10", "x1", 8)); // g<<8
-    asm.push(abi::or_registers("x11", "x11", "x10"));
-    asm.push(abi::or_registers("x11", "x11", "x2")); // | b
-    asm.push(abi::move_immediate("x10", "Integer", &COLOR_SET.to_string()));
-    asm.push(abi::or_registers("x11", "x11", "x10")); // | COLOR_SET
-    asm.store_state("x11", field);
+    asm.push(abi::shift_left_immediate("x11", "x2", 16)); // b<<16
+    asm.push(abi::or_registers("x10", "x0", "x10")); // r | g<<8
+    asm.push(abi::or_registers("x10", "x10", "x11")); // | b<<16 -> packed (pure)
+    asm.push(abi::store_u64("x10", ARENA_REG, tso + arena_field)); // arena (no flags)
+    asm.push(abi::move_immediate("x11", "Integer", &COLOR_SET.to_string()));
+    asm.push(abi::or_registers("x11", "x10", "x11")); // packed | COLOR_SET
+    asm.store_state("x11", field); // app current color (x9 = store_state scratch)
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::return_());
     (term_frame(), asm.ins, asm.rel)
 }
 
-/// `term::setBold(enabled /*x0*/)`: store the current bold flag.
-fn emit_app_term_set_bold(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
-    let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.store_state("x0", ST_TERM_CUR_BOLD);
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
-}
-
-/// Accept-and-ignore term helper returning OK (Nothing).
-fn emit_app_term_ok_noop(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
-    let mut asm = Asm::new(symbol);
-    asm.push(abi::label("entry"));
-    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
-    asm.push(abi::return_());
-    (term_frame(), asm.ins, asm.rel)
-}
-
-/// `term::on`/`term::off`: set the active flag and schedule the view swap on the
-/// main thread. Returns OK (Nothing).
-fn emit_app_term_toggle(
+/// `term::setBold`/`setUnderline(enabled /*x0*/)`: store the flag to the app field
+/// and the arena term-state (so the console getter returns it).
+fn emit_app_term_set_attr(
     symbol: &str,
-    active: &str,
-    idle_symbol: &str,
+    field: usize,
+    tso: usize,
+    arena_field: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::store_u64("x0", ARENA_REG, tso + arena_field)); // arena
+    asm.store_state("x0", field); // app field (store_state uses x9, x0 safe)
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// `term::showCursor`/`hideCursor`: store the cursor-visible flag and redraw.
+fn emit_app_term_set_cursor(
+    symbol: &str,
+    visible: &str,
 ) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
     asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
-    asm.push(abi::move_immediate("x10", "Integer", active));
+    asm.push(abi::move_immediate("x10", "Integer", visible));
+    asm.store_state("x10", ST_TERM_CURSOR_VISIBLE);
+    asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.call_external("g_idle_add");
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// `term::on`: reset the attributes to defaults (app + arena term-state), mark
+/// active, and schedule the view swap on the main thread (plan-01-term.md §6.3).
+fn emit_app_term_on(
+    symbol: &str,
+    tso: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    // App current attributes -> defaults (fg/bg/bold/underline cleared, cursor on).
+    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    for field in [
+        ST_TERM_CUR_FG,
+        ST_TERM_CUR_BG,
+        ST_TERM_CUR_BOLD,
+        ST_TERM_CUR_UNDERLINE,
+    ] {
+        asm.store_state("x10", field);
+    }
+    asm.push(abi::move_immediate("x10", "Integer", "1"));
+    asm.store_state("x10", ST_TERM_CURSOR_VISIBLE);
     asm.store_state("x10", ST_TERM_ACTIVE);
-    asm.local_address("x0", idle_symbol);
+    // Arena term-state defaults so the console getters report them (plan §4.2.1).
+    asm.push(abi::move_immediate("x10", "Integer", "1"));
+    asm.push(abi::store_u64("x10", ARENA_REG, tso + code::TERM_STATE_ACTIVE_OFFSET));
+    asm.push(abi::move_immediate("x10", "Integer", TERM_DEFAULT_FG));
+    asm.push(abi::store_u64("x10", ARENA_REG, tso + code::TERM_STATE_FG_OFFSET));
+    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    for field in [
+        code::TERM_STATE_BG_OFFSET,
+        code::TERM_STATE_BOLD_OFFSET,
+        code::TERM_STATE_UNDERLINE_OFFSET,
+    ] {
+        asm.push(abi::store_u64("x10", ARENA_REG, tso + field));
+    }
+    asm.local_address("x0", TERM_SHOW_IDLE_SYMBOL);
+    asm.push(abi::move_immediate("x1", "Integer", "0"));
+    asm.call_external("g_idle_add");
+    asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
+    asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::add_stack(16));
+    asm.push(abi::return_());
+    (term_frame(), asm.ins, asm.rel)
+}
+
+/// `term::off`: clear the active flag (app + arena) and restore the transcript.
+fn emit_app_term_off(
+    symbol: &str,
+    tso: usize,
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let mut asm = Asm::new(symbol);
+    asm.push(abi::label("entry"));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::move_immediate("x10", "Integer", "0"));
+    asm.store_state("x10", ST_TERM_ACTIVE);
+    asm.push(abi::store_u64("x10", ARENA_REG, tso + code::TERM_STATE_ACTIVE_OFFSET));
+    asm.local_address("x0", TERM_HIDE_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.call_external("g_idle_add");
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
