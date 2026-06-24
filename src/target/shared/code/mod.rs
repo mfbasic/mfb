@@ -168,6 +168,28 @@ const ENTRY_ARGS_DATA_LENGTH_OFFSET: usize = ENTRY_ARGS_LIST_OFFSET + 8;
 const ENTRY_ARGS_COUNT_SAVED_OFFSET: usize = ENTRY_ARGS_DATA_LENGTH_OFFSET + 8;
 const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 const ARENA_BLOCK_HEADER_SIZE: usize = 32;
+/// Per-arena address-ordered coalescing free-list head (lowest-address free
+/// chunk, 0 when empty). Stored in the reserved arena-state word at offset 48
+/// (`memory_layouts.md` Arenas §). The list subsumes the old bump pointer: a
+/// freshly mapped block's usable region is inserted as one big free chunk and
+/// `arena_alloc` carves allocations out of it (first-fit + split), while
+/// `arena_free` returns chunks and coalesces with address-adjacent neighbors.
+const ARENA_FREE_LIST_HEAD_OFFSET: usize = 48;
+/// Minimum allocation granule. A free chunk overlays a `FreeNode` ({next, size})
+/// in its own dead bytes, so it must hold at least 16 bytes. Every request is
+/// rounded up to this granule and every allocation is at least 16-byte aligned,
+/// which keeps every chunk start 16-aligned and every chunk size a multiple of
+/// 16 — so a split front/tail remainder is always either 0 or a valid (≥16)
+/// node, never sub-granule slack.
+const ARENA_MIN_CHUNK: u64 = 16;
+/// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
+/// to the per-arena free-list (entropy-scrub then coalescing insert). Never
+/// unmaps; memory returns to the OS only at `arena_destroy`.
+pub(crate) const ARENA_FREE_SYMBOL: &str = "_mfb_arena_free";
+/// `arena_insert_free(x0 = ptr, x1 = size)` — the address-ordered coalescing
+/// insert shared by `arena_free` and `arena_alloc`'s block-grow path. Pure
+/// free-list surgery; does not scrub (callers fill first when required).
+const ARENA_INSERT_FREE_SYMBOL: &str = "_mfb_arena_insert_free";
 const ERR_INVALID_ARGUMENT_CODE: &str = "77050002";
 const ERR_INVALID_ARGUMENT_MESSAGE: &str = "invalid argument";
 const ERR_INVALID_ARGUMENT_SYMBOL: &str = "_mfb_str_error_invalid_argument";
@@ -1183,6 +1205,8 @@ pub(crate) fn lower_module_for_platform(
         )?);
     }
     code_functions.push(lower_arena_alloc(platform)?);
+    code_functions.push(lower_arena_insert_free());
+    code_functions.push(lower_arena_free());
     code_functions.push(lower_arena_destroy(platform)?);
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(uses_term, skip_entry_arena_destroy));
@@ -1784,6 +1808,9 @@ fn lower_program_entry(
         abi::store_u64("x31", ARENA_STATE_REGISTER, 8),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 16),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 24),
+        // The main arena-state lives on the entry stack (not zero-filled), so the
+        // free-list head must be explicitly cleared before the first allocation.
+        abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
     ];
     if emit_cleanup_failure_audit {
         instructions.extend([
@@ -2264,7 +2291,14 @@ fn emit_cleanup_failure_audit_report(
 }
 
 fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
+    let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
     let mut instructions = Vec::new();
+    // --- Validate alignment and normalize the request --------------------------
+    // x20 = normalized size (rounded up to the 16-byte granule), x21 = effective
+    // alignment (raised to ≥16 so every chunk start stays 16-aligned). This is a
+    // leaf function: the OS map is emitted inline (no `bl`), so no frame is
+    // needed and the historical clobber contract (x9, x10, x14, x15, x20–x28)
+    // holds — x11, x12, x13, x17 are never touched.
     instructions.extend([
         abi::label("entry"),
         abi::compare_immediate("x1", "0"),
@@ -2273,39 +2307,95 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         abi::and_registers("x10", "x1", "x9"),
         abi::compare_immediate("x10", "0"),
         abi::branch_ne("arena_alloc_invalid"),
-        abi::compare_immediate("x0", "0"),
-        abi::branch_ne("arena_alloc_size_nonzero"),
-        abi::move_immediate("x0", "Integer", "1"),
-        abi::label("arena_alloc_size_nonzero"),
-        abi::move_register("x20", "x0"),
+        // eff align = max(align, 16)
         abi::move_register("x21", "x1"),
-        abi::label("arena_alloc_try_current"),
-        abi::load_u64("x22", ARENA_STATE_REGISTER, 0),
+        abi::compare_immediate("x21", &ARENA_MIN_CHUNK.to_string()),
+        abi::branch_lo("arena_alloc_align_min"),
+        abi::branch("arena_alloc_align_ready"),
+        abi::label("arena_alloc_align_min"),
+        abi::move_immediate("x21", "Integer", &ARENA_MIN_CHUNK.to_string()),
+        abi::label("arena_alloc_align_ready"),
+        // normalized size = round_up(max(size, 1), 16)
+        abi::move_register("x20", "x0"),
+        abi::compare_immediate("x20", "0"),
+        abi::branch_ne("arena_alloc_size_nonzero"),
+        abi::move_immediate("x20", "Integer", "1"),
+        abi::label("arena_alloc_size_nonzero"),
+        abi::add_immediate("x20", "x20", (ARENA_MIN_CHUNK - 1) as usize),
+        abi::move_immediate("x9", "Integer", &not_15),
+        abi::and_registers("x20", "x20", "x9"),
+        // --- First-fit walk over the address-ordered free-list -----------------
+        abi::label("arena_alloc_walk"),
+        abi::load_u64("x22", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::move_immediate("x23", "Integer", "0"),
+        abi::label("arena_alloc_walk_loop"),
         abi::compare_immediate("x22", "0"),
         abi::branch_eq("arena_alloc_grow"),
-        abi::load_u64("x23", "x22", 16),
-        abi::load_u64("x24", "x22", 24),
-        abi::add_immediate("x25", "x22", ARENA_BLOCK_HEADER_SIZE),
-        abi::add_registers("x26", "x25", "x24"),
+        abi::load_u64("x24", "x22", 8), // cur_size
+        abi::subtract_immediate("x9", "x21", 1), // align mask
+        abi::add_registers("x25", "x22", "x9"),
+        abi::compare_registers("x25", "x22"),
+        abi::branch_lo("arena_alloc_walk_next"), // align overflow → skip
+        abi::bitwise_not("x10", "x9"),
+        abi::and_registers("x25", "x25", "x10"), // aligned
+        abi::add_registers("x26", "x25", "x20"), // end_needed
         abi::compare_registers("x26", "x25"),
-        abi::branch_lo("arena_alloc_oom"),
-        abi::subtract_immediate("x27", "x21", 1),
-        abi::move_register("x15", "x26"),
-        abi::add_registers("x26", "x26", "x27"),
-        abi::compare_registers("x26", "x15"),
-        abi::branch_lo("arena_alloc_oom"),
-        abi::bitwise_not("x27", "x27"),
-        abi::and_registers("x26", "x26", "x27"),
-        abi::add_registers("x28", "x26", "x20"),
-        abi::compare_registers("x28", "x26"),
-        abi::branch_lo("arena_alloc_oom"),
-        abi::subtract_registers("x28", "x28", "x25"),
-        abi::compare_registers("x28", "x23"),
-        abi::branch_hi("arena_alloc_grow"),
-        abi::store_u64("x28", "x22", 24),
+        abi::branch_lo("arena_alloc_walk_next"), // size overflow → skip
+        abi::add_registers("x27", "x22", "x24"), // cur_end
+        abi::compare_registers("x26", "x27"),
+        abi::branch_hi("arena_alloc_walk_next"), // doesn't fit → next
+        abi::branch("arena_alloc_found"),
+        abi::label("arena_alloc_walk_next"),
+        abi::move_register("x23", "x22"),
+        abi::load_u64("x22", "x22", 0),
+        abi::branch("arena_alloc_walk_loop"),
+        // --- Found: split the chosen chunk -------------------------------------
+        // cur=x22, prev=x23, cur_size=x24, aligned=x25, end_needed=x26,
+        // cur_end=x27, next=x9, front_pad=x14, tail_size=x15, link target=x10.
+        abi::label("arena_alloc_found"),
+        abi::load_u64("x9", "x22", 0), // next
+        abi::subtract_registers("x14", "x25", "x22"), // front_pad
+        abi::subtract_registers("x15", "x27", "x26"), // tail_size
+        abi::compare_immediate("x14", "0"),
+        abi::branch_ne("arena_alloc_have_front"),
+        abi::compare_immediate("x15", "0"),
+        abi::branch_ne("arena_alloc_front0_tail1"),
+        // case: chunk consumed exactly → link target is `next`
+        abi::move_register("x10", "x9"),
+        abi::branch("arena_alloc_set_prev_link"),
+        abi::label("arena_alloc_front0_tail1"),
+        // case: tail remainder only → new free node at end_needed
+        abi::store_u64("x9", "x26", 0),
+        abi::store_u64("x15", "x26", 8),
+        abi::move_register("x10", "x26"),
+        abi::branch("arena_alloc_set_prev_link"),
+        abi::label("arena_alloc_have_front"),
+        abi::compare_immediate("x15", "0"),
+        abi::branch_ne("arena_alloc_front1_tail1"),
+        // case: front padding only → shrink node in place at cur
+        abi::store_u64("x9", "x22", 0),
+        abi::store_u64("x14", "x22", 8),
+        abi::move_register("x10", "x22"),
+        abi::branch("arena_alloc_set_prev_link"),
+        abi::label("arena_alloc_front1_tail1"),
+        // case: both front and tail remainders → two free nodes
+        abi::store_u64("x26", "x22", 0), // cur.next → tail node
+        abi::store_u64("x14", "x22", 8), // cur.size = front_pad
+        abi::store_u64("x9", "x26", 0), // tail.next = next
+        abi::store_u64("x15", "x26", 8), // tail.size = tail_size
+        abi::move_register("x10", "x22"),
+        abi::label("arena_alloc_set_prev_link"),
+        abi::compare_immediate("x23", "0"),
+        abi::branch_eq("arena_alloc_set_head"),
+        abi::store_u64("x10", "x23", 0),
+        abi::branch("arena_alloc_done"),
+        abi::label("arena_alloc_set_head"),
+        abi::store_u64("x10", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::label("arena_alloc_done"),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register("x1", "x26"),
+        abi::move_register("x1", "x25"),
         abi::return_(),
+        // --- Grow: map a new block and add its usable region as a free chunk ---
         abi::label("arena_alloc_grow"),
         abi::add_registers("x23", "x20", "x21"),
         abi::compare_registers("x23", "x20"),
@@ -2331,6 +2421,9 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         abi::branch_ge("arena_alloc_mapped"),
         abi::branch("arena_alloc_oom"),
         abi::label("arena_alloc_mapped"),
+        // Write the block header (prevBlock, blockSize, usableCapacity, bumpOffset)
+        // and chain it. bumpOffset is vestigial under the free-list but kept zero
+        // so the documented block layout is unchanged.
         abi::load_u64("x24", ARENA_STATE_REGISTER, 0),
         abi::store_u64("x24", abi::return_register(), 0),
         abi::store_u64("x23", abi::return_register(), 8),
@@ -2338,7 +2431,31 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         abi::store_u64("x24", abi::return_register(), 16),
         abi::store_u64("x31", abi::return_register(), 24),
         abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 0),
-        abi::branch("arena_alloc_try_current"),
+        // Insert [base+32, base+32+usableCapacity) as one free chunk, in address
+        // order. A fresh block is never adjacent to an existing chunk (the 32-byte
+        // header always separates blocks), so no coalescing is required here.
+        abi::add_immediate("x9", abi::return_register(), ARENA_BLOCK_HEADER_SIZE), // ubase
+        abi::move_register("x10", "x24"), // usize
+        abi::load_u64("x14", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET), // cur
+        abi::move_immediate("x15", "Integer", "0"), // prev
+        abi::label("arena_alloc_ins_loop"),
+        abi::compare_immediate("x14", "0"),
+        abi::branch_eq("arena_alloc_ins_do"),
+        abi::compare_registers("x14", "x9"),
+        abi::branch_hi("arena_alloc_ins_do"),
+        abi::move_register("x15", "x14"),
+        abi::load_u64("x14", "x14", 0),
+        abi::branch("arena_alloc_ins_loop"),
+        abi::label("arena_alloc_ins_do"),
+        abi::store_u64("x14", "x9", 0),
+        abi::store_u64("x10", "x9", 8),
+        abi::compare_immediate("x15", "0"),
+        abi::branch_eq("arena_alloc_ins_head"),
+        abi::store_u64("x9", "x15", 0),
+        abi::branch("arena_alloc_walk"),
+        abi::label("arena_alloc_ins_head"),
+        abi::store_u64("x9", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::branch("arena_alloc_walk"),
         abi::label("arena_alloc_invalid"),
         abi::move_immediate(abi::return_register(), "Integer", ERR_INVALID_ARGUMENT_CODE),
         abi::move_immediate("x1", "Integer", "0"),
@@ -2361,6 +2478,141 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         instructions,
         relocations: Vec::new(),
     })
+}
+
+/// `arena_insert_free(x0 = ptr, x1 = size)` — insert a chunk into the
+/// address-ordered free-list and coalesce with the address-adjacent neighbor on
+/// either side. `size` must already be normalized (≥16, multiple of 16) and
+/// `ptr` 16-aligned; both hold for every chunk the allocator hands out and for a
+/// fresh block's usable region. Leaf function; clobbers x9–x13.
+fn lower_arena_insert_free() -> CodeFunction {
+    let instructions = vec![
+        abi::label("entry"),
+        // Walk to the insertion slot: prev (x10) = largest node < ptr (or 0),
+        // cur (x9) = smallest node > ptr (or 0).
+        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::move_immediate("x10", "Integer", "0"),
+        abi::label("insert_find"),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_eq("insert_slot"),
+        abi::compare_registers("x9", "x0"),
+        abi::branch_hi("insert_slot"), // cur > ptr
+        abi::move_register("x10", "x9"),
+        abi::load_u64("x9", "x9", 0),
+        abi::branch("insert_find"),
+        abi::label("insert_slot"),
+        // x13 = merged-into-prev flag.
+        abi::move_immediate("x13", "Integer", "0"),
+        abi::compare_immediate("x10", "0"),
+        abi::branch_eq("insert_check_next"),
+        abi::load_u64("x11", "x10", 8), // prev.size
+        abi::add_registers("x12", "x10", "x11"), // prev_end
+        abi::compare_registers("x12", "x0"),
+        abi::branch_ne("insert_check_next"),
+        // prev is address-adjacent: absorb the chunk into prev.
+        abi::add_registers("x11", "x11", "x1"),
+        abi::store_u64("x11", "x10", 8),
+        abi::move_immediate("x13", "Integer", "1"),
+        abi::label("insert_check_next"),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_eq("insert_finish_no_next"),
+        abi::compare_immediate("x13", "0"),
+        abi::branch_eq("insert_next_unmerged"),
+        // Merged into prev already: does the (now larger) prev meet cur?
+        abi::load_u64("x11", "x10", 8),
+        abi::add_registers("x12", "x10", "x11"),
+        abi::compare_registers("x12", "x9"),
+        abi::branch_ne("insert_done"),
+        // Absorb cur into prev too (three-way merge).
+        abi::load_u64("x11", "x9", 8), // cur.size
+        abi::load_u64("x12", "x10", 8), // prev.size
+        abi::add_registers("x12", "x12", "x11"),
+        abi::store_u64("x12", "x10", 8),
+        abi::load_u64("x11", "x9", 0), // cur.next
+        abi::store_u64("x11", "x10", 0),
+        abi::branch("insert_done"),
+        abi::label("insert_next_unmerged"),
+        abi::add_registers("x12", "x0", "x1"), // chunk_end
+        abi::compare_registers("x12", "x9"),
+        abi::branch_ne("insert_standalone"),
+        // chunk is address-adjacent to cur: new node at ptr absorbs cur.
+        abi::load_u64("x11", "x9", 8), // cur.size
+        abi::add_registers("x11", "x11", "x1"),
+        abi::store_u64("x11", "x0", 8),
+        abi::load_u64("x11", "x9", 0), // cur.next
+        abi::store_u64("x11", "x0", 0),
+        abi::branch("insert_link_prev"),
+        abi::label("insert_standalone"),
+        abi::store_u64("x9", "x0", 0), // ptr.next = cur
+        abi::store_u64("x1", "x0", 8), // ptr.size = size
+        abi::branch("insert_link_prev"),
+        abi::label("insert_finish_no_next"),
+        abi::compare_immediate("x13", "0"),
+        abi::branch_ne("insert_done"), // merged into prev, nothing to link
+        abi::store_u64("x31", "x0", 0), // ptr.next = 0
+        abi::store_u64("x1", "x0", 8), // ptr.size = size
+        abi::branch("insert_link_prev"),
+        abi::label("insert_link_prev"),
+        abi::compare_immediate("x10", "0"),
+        abi::branch_eq("insert_set_head"),
+        abi::store_u64("x0", "x10", 0), // prev.next = ptr
+        abi::branch("insert_done"),
+        abi::label("insert_set_head"),
+        abi::store_u64("x0", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::label("insert_done"),
+        abi::return_(),
+    ];
+    CodeFunction {
+        name: "runtime.arena_insert_free".to_string(),
+        symbol: ARENA_INSERT_FREE_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
+/// to the per-arena free-list. Normalizes `size` exactly as `arena_alloc` did
+/// (so the freed extent matches the live chunk), then coalesces it in via
+/// `arena_insert_free`. Never unmaps. Clobbers x9–x13.
+fn lower_arena_free() -> CodeFunction {
+    let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
+    let instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(16),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+        // normalize size = round_up(max(size, 1), 16)
+        abi::compare_immediate("x1", "0"),
+        abi::branch_ne("arena_free_size_nonzero"),
+        abi::move_immediate("x1", "Integer", "1"),
+        abi::label("arena_free_size_nonzero"),
+        abi::add_immediate("x1", "x1", (ARENA_MIN_CHUNK - 1) as usize),
+        abi::move_immediate("x9", "Integer", &not_15),
+        abi::and_registers("x1", "x1", "x9"),
+        abi::branch_link(ARENA_INSERT_FREE_SYMBOL),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::add_stack(16),
+        abi::return_(),
+    ];
+    CodeFunction {
+        name: "runtime.arena_free".to_string(),
+        symbol: ARENA_FREE_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 16,
+            callee_saved: vec![abi::link_register().to_string()],
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: vec![internal_branch(ARENA_FREE_SYMBOL, ARENA_INSERT_FREE_SYMBOL)],
+    }
 }
 
 fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
@@ -15950,9 +16202,200 @@ fn checked_arena_used_after_alloc(
     Ok((aligned, used))
 }
 
+/// Executable reference model of the per-arena coalescing free-list, mirroring
+/// the integer arithmetic of the emitted `arena_alloc` / `arena_insert_free`
+/// assembly so the algorithm can be unit-tested without running native code. The
+/// list is kept sorted by `start`; `nodes` holds `(start, size)` pairs.
+#[cfg(test)]
+#[derive(Default, Clone)]
+struct FreeListSim {
+    nodes: Vec<(u64, u64)>,
+}
+
+#[cfg(test)]
+impl FreeListSim {
+    /// `(size, align)` normalization shared by alloc and free: size 0 → 1, then
+    /// round up to the 16-byte granule; align is raised to at least 16 so every
+    /// chunk stays 16-aligned.
+    fn normalize(size: u64, align: u64) -> (u64, u64) {
+        let size = size.max(1);
+        let size = (size + (ARENA_MIN_CHUNK - 1)) & !(ARENA_MIN_CHUNK - 1);
+        let align = align.max(ARENA_MIN_CHUNK);
+        (size, align)
+    }
+
+    /// Insert a fresh OS block's usable region (or any chunk) and coalesce.
+    fn insert_free(&mut self, ptr: u64, size: u64) {
+        let (size, _) = Self::normalize(size, ARENA_MIN_CHUNK);
+        // address-ordered insertion slot
+        let slot = self.nodes.partition_point(|(start, _)| *start < ptr);
+        self.nodes.insert(slot, (ptr, size));
+        // coalesce with the node before and after, if adjacent
+        if slot + 1 < self.nodes.len() {
+            let (nstart, nsize) = self.nodes[slot + 1];
+            if ptr + size == nstart {
+                self.nodes[slot].1 += nsize;
+                self.nodes.remove(slot + 1);
+            }
+        }
+        if slot > 0 {
+            let (pstart, psize) = self.nodes[slot - 1];
+            if pstart + psize == self.nodes[slot].0 {
+                self.nodes[slot - 1].1 += self.nodes[slot].1;
+                self.nodes.remove(slot);
+            }
+        }
+    }
+
+    /// First-fit + split. Returns the aligned pointer, or `None` if nothing fits
+    /// (the caller would map a new block and retry).
+    fn alloc(&mut self, size: u64, align: u64) -> Option<u64> {
+        let (size, align) = Self::normalize(size, align);
+        let mask = align - 1;
+        for index in 0..self.nodes.len() {
+            let (start, csize) = self.nodes[index];
+            let aligned = (start + mask) & !mask;
+            if aligned + size <= start + csize {
+                let end = start + csize;
+                let front = aligned - start;
+                let tail = end - (aligned + size);
+                self.nodes.remove(index);
+                let mut insert_at = index;
+                if front > 0 {
+                    self.nodes.insert(insert_at, (start, front));
+                    insert_at += 1;
+                }
+                if tail > 0 {
+                    self.nodes.insert(insert_at, (aligned + size, tail));
+                }
+                return Some(aligned);
+            }
+        }
+        None
+    }
+
+    fn free(&mut self, ptr: u64, size: u64) {
+        let (size, _) = Self::normalize(size, ARENA_MIN_CHUNK);
+        self.insert_free(ptr, size);
+    }
+
+    /// Total free bytes and the list length — used to assert coalescing keeps the
+    /// list short and never loses or duplicates bytes.
+    fn free_bytes(&self) -> u64 {
+        self.nodes.iter().map(|(_, size)| *size).sum()
+    }
+
+    /// Invariant: strictly ascending, non-overlapping, never two coalescable
+    /// (address-adjacent) neighbors left un-merged.
+    fn assert_invariants(&self) {
+        for window in self.nodes.windows(2) {
+            let (astart, asize) = window[0];
+            let (bstart, _) = window[1];
+            assert!(astart < bstart, "free list not ascending: {:?}", self.nodes);
+            assert!(
+                astart + asize <= bstart,
+                "free list overlaps: {:?}",
+                self.nodes
+            );
+            assert!(
+                astart + asize != bstart,
+                "adjacent free chunks left un-coalesced: {:?}",
+                self.nodes
+            );
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn free_list_bump_then_reuse() {
+        // One 4064-byte block (4096 mapped − 32 header). Allocate a few chunks;
+        // with no frees the list is one shrinking trailing entry (bump behavior).
+        let mut sim = FreeListSim::default();
+        sim.insert_free(0x1020, 4064);
+        let a = sim.alloc(24, 8).unwrap(); // → rounded 32
+        let b = sim.alloc(16, 8).unwrap();
+        let c = sim.alloc(100, 8).unwrap(); // → rounded 112
+        assert_eq!(a, 0x1020);
+        assert_eq!(b, 0x1040);
+        assert_eq!(c, 0x1050);
+        assert_eq!(sim.nodes.len(), 1, "bump leaves one trailing free entry");
+        sim.assert_invariants();
+        // Free the middle chunk; first-fit reuses that 16-byte hole next.
+        sim.free(b, 16);
+        sim.assert_invariants();
+        let d = sim.alloc(16, 8).unwrap();
+        assert_eq!(d, b, "low-address hole is reused before the trailing entry");
+    }
+
+    #[test]
+    fn free_list_coalesces_neighbors() {
+        let mut sim = FreeListSim::default();
+        sim.insert_free(0x1000, 0x1000);
+        let a = sim.alloc(64, 16).unwrap();
+        let b = sim.alloc(64, 16).unwrap();
+        let c = sim.alloc(64, 16).unwrap();
+        let free_before = sim.free_bytes();
+        // Free a and c (non-adjacent) → two holes; then b merges all three.
+        sim.free(a, 64);
+        sim.free(c, 64);
+        sim.assert_invariants();
+        sim.free(b, 64);
+        sim.assert_invariants();
+        assert_eq!(sim.free_bytes(), free_before + 3 * 64);
+        // After full coalescing the block is whole again: a single entry.
+        assert_eq!(sim.nodes.len(), 1);
+        assert_eq!(sim.nodes[0].0, a);
+    }
+
+    #[test]
+    fn free_list_same_shape_churn_stays_short() {
+        // A loop that allocs/frees the same shape each pass must not grow the
+        // list: the freed chunk coalesces straight back into its neighbor.
+        let mut sim = FreeListSim::default();
+        sim.insert_free(0x2000, 0x4000);
+        for _ in 0..1000 {
+            let p = sim.alloc(48, 16).unwrap();
+            sim.free(p, 48);
+            assert!(sim.nodes.len() <= 1, "churn must keep the list ~1 entry");
+        }
+        sim.assert_invariants();
+        assert_eq!(sim.free_bytes(), 0x4000);
+    }
+
+    #[test]
+    fn free_list_never_merges_across_blocks() {
+        // Two separate blocks (header gap between them). Freeing the last chunk
+        // of the low block must not merge into the high block.
+        let mut sim = FreeListSim::default();
+        sim.insert_free(0x1020, 4064); // block A usable
+        sim.insert_free(0x3020, 4064); // block B usable (non-contiguous)
+        let a = sim.alloc(4064, 16).unwrap(); // consume all of A
+        assert_eq!(a, 0x1020);
+        assert_eq!(sim.nodes.len(), 1, "only B remains free");
+        sim.free(a, 4064);
+        sim.assert_invariants();
+        assert_eq!(sim.nodes.len(), 2, "A and B stay distinct (header gap)");
+    }
+
+    #[test]
+    fn free_list_over_aligns_to_16_with_front_split() {
+        let mut sim = FreeListSim::default();
+        sim.insert_free(0x1010, 0x1000); // start 16-aligned but not 64-aligned
+        let p = sim.alloc(32, 64).unwrap();
+        assert_eq!(p % 64, 0);
+        assert!(p > 0x1010, "front padding split into its own free chunk");
+        sim.assert_invariants();
+        // Freeing reconstitutes by merging with the front padding chunk.
+        let before = sim.free_bytes();
+        sim.free(p, 32);
+        sim.assert_invariants();
+        assert_eq!(sim.free_bytes(), before + 32);
+    }
+
 
     #[test]
     fn arena_rejects_invalid_alignment() {

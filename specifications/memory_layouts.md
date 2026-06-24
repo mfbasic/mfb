@@ -138,10 +138,17 @@ the expanded concrete union. Unused payload slots are not observable.
 ## Arenas
 
 Every heap-backed value — strings, records, unions, errors, and collections —
-is allocated from an *arena*. An arena is a bump allocator over a chain of
-OS-mapped blocks plus a small fixed *arena-state* control structure. Arenas are
-not general-purpose heaps: individual values are never freed, and the entire
-arena is reclaimed in one operation when its owning package instance shuts down.
+is allocated from an *arena*. An arena owns a chain of OS-mapped blocks plus a
+small fixed *arena-state* control structure, and manages the mapped bytes with a
+single per-arena **address-ordered coalescing free-list**: a freshly mapped
+block's usable region is added to the list as one big free chunk, `arena_alloc`
+carves allocations out of it (first-fit + split), and `arena_free` returns a
+chunk and merges it with address-adjacent free neighbors. The free-list subsumes
+the historical bump pointer — bumping is just splitting the one big trailing free
+chunk. Freeing is **internal reuse only**: a freed chunk goes back on the
+free-list for the next allocation but is never returned to the OS; mapped blocks
+are unmapped only by the bulk `arena_destroy` when the owning package instance
+shuts down.
 
 Each package instance owns a distinct arena. The main package's arena-state lives
 on the entry stack and is pinned in `x19` (`ARENA_STATE_REGISTER`) for the life of
@@ -163,7 +170,7 @@ ArenaState (at x19)
   +24  U64  reserved         ; zero-initialized
   +32  U64  exitStatus       ; pending exit/result code used during teardown
   +40  U64  reserved
-  +48  U64  reserved
+  +48  U64  freeListHead     ; lowest-address free chunk, 0 when the list is empty
   +56  U64  reserved
   +64  U64  cleanupFailCount ; count of cleanup errors (audit)
   +72  U64  cleanupFailCode  ; last cleanup failure error code
@@ -172,11 +179,37 @@ ArenaState (at x19)
   +96  U64  rngStateHi       ; PCG64 RNG state, high 64 bits
 ```
 
-Only `blockHead` participates in allocation. The cleanup-failure triple records
-diagnostics if reclamation of a value fails during teardown, and the two RNG
-words give each arena (hence each thread) an independent `math::rand` stream
-seeded at startup. The `ENTRY_*` argv/argc fields the entry shim stores begin at
-offset `ARENA_STATE_SIZE`, immediately after this structure on the entry stack.
+`blockHead` anchors the unmap walk and `freeListHead` anchors allocation. The
+cleanup-failure triple records diagnostics if reclamation of a value fails during
+teardown, and the two RNG words give each arena (hence each thread) an
+independent `math::rand` stream seeded at startup. The `ENTRY_*` argv/argc fields
+the entry shim stores begin at offset `ARENA_STATE_SIZE`, immediately after this
+structure on the entry stack. Because the main arena-state lives on the entry
+stack (not zero-filled), the entry shim explicitly clears `freeListHead` before
+the first allocation; worker arenas are zero-initialized at creation.
+
+### Free-List Layout
+
+A free chunk overlays an intrusive `FreeNode` in its own dead bytes; its start is
+implicit (the node's own address):
+
+```text
+FreeNode (overlaid on a free chunk, start = node address)
+  +0   U64  next            ; next free chunk in ascending address order, 0 = end
+  +8   U64  size            ; size of this free chunk, in bytes (includes the node)
+  ...                       ; remaining bytes are dead
+```
+
+The list is kept ascending by `start`, so one walk finds both the insertion slot
+and the coalescing neighbors. **Allocated chunks carry no header or footer** —
+only free chunks spend 16 bytes on a node, in their own dead space — which is
+what keeps object layouts and copying untouched. The minimum granule is therefore
+16 bytes; every request is rounded up to 16 and every allocation is at least
+16-byte aligned, so each chunk start stays 16-aligned and each chunk size stays a
+multiple of 16 (a split front/tail remainder is always 0 or a valid ≥16 node,
+never sub-granule slack). Sizes passed to `arena_free` are supplied by the
+compiler's drop glue from the static type, so no per-object size tag is needed to
+recover a chunk's size at free time.
 
 ### Block Layout
 
@@ -188,46 +221,72 @@ ArenaBlock
   +0   U64  prevBlock        ; previous block in the chain, 0 for the first
   +8   U64  blockSize        ; total mapped size of this block, in bytes
   +16  U64  usableCapacity   ; blockSize - 32 (bytes available after the header)
-  +24  U64  bumpOffset       ; bytes consumed in the usable region so far
-  +32  ...  payload          ; usableCapacity bytes of allocations
+  +24  U64  bumpOffset       ; vestigial under the free-list (kept 0); see below
+  +32  ...  payload          ; usableCapacity bytes managed by the free-list
 ```
 
 `ArenaState.blockHead` always points at the newest block; older blocks are
-reachable only through each block's `prevBlock` link. The default block size is
-`ARENA_DEFAULT_BLOCK_SIZE` = **4096 bytes**.
+reachable only through each block's `prevBlock` link, which is the chain
+`arena_destroy` unmaps. The default block size is `ARENA_DEFAULT_BLOCK_SIZE` =
+**4096 bytes**. Allocation no longer reads `bumpOffset` — it is written `0` at map
+time and kept only so the block-header layout is unchanged; the free-list drives
+all placement.
 
 ### `arena_alloc(size, align)`
 
 `arena_alloc` (symbol `_mfb_arena_alloc`) takes a byte `size` in `x0` and a power-
 of-two `align` in `x1`, and returns a fallible result: `x0` is `0` on success
 with the aligned pointer in `x1`, or an error code in `x0` with `x1 = 0` on
-failure. It clobbers **x9, x10, x14, x15, x20–x28**; callers must spill any live
-values held in those registers across the call.
+failure. It clobbers **x9, x10, x14, x15, x20–x28** (the OS map is emitted inline,
+so `arena_alloc` remains a leaf and never touches x11–x13/x17); callers must spill
+any live values held in the clobbered registers across the call.
 
 The algorithm:
 
 1. **Validate alignment.** A zero `align`, or one that is not a power of two
    (`(align - 1) & align != 0`), returns `ErrInvalidArgument`.
-2. **Normalize size.** A zero `size` is treated as `1` byte so every allocation
-   yields a distinct address.
-3. **Try the current block.** Compute the aligned cursor
-   `align_up(blockBase + bumpOffset, align)` and the end `cursor + size`. If the
-   end fits within `usableCapacity`, store the new `bumpOffset` and return the
-   cursor. Every intermediate addition is overflow-checked; an overflow reports
-   `ErrOutOfMemory`.
-4. **Grow.** If there is no current block, or the request does not fit, map a new
-   block. Its size is `max(4096, round_up(size + align + 32, 4096))` — large
-   requests get a dedicated, page-rounded block. The new block is linked at the
-   head (its `prevBlock` = old `blockHead`, `bumpOffset` = 0) and becomes the
-   current block; allocation then retries against it.
+2. **Normalize the request.** A zero `size` becomes `1`; `size` is then rounded up
+   to the 16-byte granule, and `align` is raised to at least 16. This keeps every
+   chunk 16-aligned and 16-sized.
+3. **First-fit walk.** Walk the address-ordered free-list for the first chunk
+   where the request fits after alignment: `aligned = align_up(start, align)` and
+   `aligned + size <= start + chunkSize`. **Split** it — return `aligned`, push the
+   front padding (`aligned - start`, if > 0) and the tail remainder
+   (`chunkEnd - (aligned + size)`, if > 0) back as free chunks. All sums are
+   overflow-checked; an overflow skips the chunk. First-fit over an ascending list
+   reuses low-address holes before carving the trailing chunk, and carving the
+   trailing chunk *is* the old bump pointer (O(1) while the list is short).
+4. **Grow.** If no chunk fits, map a new block sized
+   `max(4096, round_up(size + align + 32, 4096))`, write its header, link it at the
+   head, insert its usable region as one free chunk (in address order), and retry
+   the walk.
 
 A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
 `ErrOutOfMemory`. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
 source as ordinary language-level errors (see the language spec §14.3.1).
 
-Because allocation only ever advances `bumpOffset` or links a fresh block, there
-is no per-allocation free path and no per-object header — allocated bytes carry
-only the value's own layout.
+### `arena_free(ptr, size)`
+
+`arena_free` (symbol `_mfb_arena_free`) takes the chunk pointer in `x0` and its
+byte `size` in `x1` and returns nothing; it clobbers **x9–x13**. `size` is
+normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
+so the freed extent matches the live chunk that was handed out. The chunk is
+inserted into the address-ordered free-list (`_mfb_arena_insert_free`, the same
+ordered insert the grow path uses) and **coalesced** with the address-adjacent
+free neighbor on either side:
+
+- `prev.start + prev.size == ptr` → extend `prev` over the chunk;
+- `ptr + size == next.start` → absorb `next`;
+- both → merge all three into one chunk;
+- neither → link a fresh `{next, size}` node at `ptr`.
+
+Adjacency is pure arithmetic on `start`/`size`, so no boundary tags are read.
+Chunks in different blocks are never contiguous (the 32-byte header always
+separates blocks), so a merge never spans a block. `arena_free` **never unmaps**
+— it only relinks; memory returns to the OS solely at `arena_destroy`. The `size`
+is always supplied by the compiler's drop glue from the static type, so there is
+no user-level free and no class of wrong-size/double-free bugs outside a codegen
+error.
 
 ### Cleanup and Reclamation
 
