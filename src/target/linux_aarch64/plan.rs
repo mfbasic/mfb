@@ -238,6 +238,81 @@ impl plan::NativePlanPlatform for Platform {
         }
     }
 
+    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+        // plan-05-linux-app.md §6.4. GTK is plain C, so every call is an ordinary
+        // imported function (no objc_msgSend layer): the `_main` bootstrap creates
+        // the GtkApplication/window/transcript/input on the GTK main thread, and the
+        // io helpers append to / read from those widgets. The toolkit splits across
+        // four `.so`s (one DT_NEEDED each, plan-linker.md §6.1); pthread spawns the
+        // language worker and the pipe primitives feed window input to the reused
+        // fd-0 console readers. The GtkTextView size + Pango metrics behind
+        // `io::terminalSize` (§5.4) are deferred to Phase 6 and not declared yet.
+        const GTK: &str = "libgtk-4.so.1";
+        const GOBJECT: &str = "libgobject-2.0.so.0";
+        const GLIB: &str = "libglib-2.0.so.0";
+        const GIO: &str = "libgio-2.0.so.0";
+        let gtk: &[(&str, &str)] = &[
+            // Application + window lifecycle.
+            (GIO, "g_application_run"),
+            (GIO, "g_application_quit"),
+            (GTK, "gtk_application_new"),
+            (GTK, "gtk_application_window_new"),
+            (GTK, "gtk_window_set_title"),
+            (GTK, "gtk_window_set_default_size"),
+            (GTK, "gtk_window_set_child"),
+            (GTK, "gtk_window_present"),
+            // Layout + scrolling container.
+            (GTK, "gtk_box_new"),
+            (GTK, "gtk_box_append"),
+            (GTK, "gtk_scrolled_window_new"),
+            (GTK, "gtk_scrolled_window_set_child"),
+            (GTK, "gtk_widget_set_vexpand"),
+            (GTK, "gtk_widget_grab_focus"),
+            // Read-only transcript (GtkTextView + GtkTextBuffer).
+            (GTK, "gtk_text_view_new"),
+            (GTK, "gtk_text_view_set_editable"),
+            (GTK, "gtk_text_view_set_monospace"),
+            (GTK, "gtk_text_view_get_buffer"),
+            (GTK, "gtk_text_view_scroll_to_mark"),
+            (GTK, "gtk_text_buffer_create_tag"),
+            (GTK, "gtk_text_buffer_create_mark"),
+            (GTK, "gtk_text_buffer_get_end_iter"),
+            (GTK, "gtk_text_buffer_insert"),
+            (GTK, "gtk_text_buffer_insert_with_tags"),
+            // Single-line input field.
+            (GTK, "gtk_entry_new"),
+            (GTK, "gtk_editable_get_text"),
+            (GTK, "gtk_editable_set_text"),
+            // GObject signal wiring (non-variadic form; §6.4) + main-thread marshal.
+            (GOBJECT, "g_signal_connect_data"),
+            (GLIB, "g_idle_add"),
+        ];
+        let mut imports: Vec<PlatformImport> = gtk
+            .iter()
+            .map(|(library, symbol)| PlatformImport {
+                library: (*library).to_string(),
+                symbol: (*symbol).to_string(),
+                required_by: "_main".to_string(),
+            })
+            .collect();
+        // The worker thread and the window-input pipe come from libc/libpthread,
+        // exactly as the console runtime resolves them.
+        imports.push(PlatformImport {
+            library: self.libpthread().to_string(),
+            symbol: "pthread_create".to_string(),
+            required_by: "_main".to_string(),
+        });
+        imports.push(PlatformImport {
+            library: self.libpthread().to_string(),
+            symbol: "pthread_detach".to_string(),
+            required_by: "_main".to_string(),
+        });
+        for symbol in ["pipe", "dup2", "getenv", "write"] {
+            imports.push(self.libc_import(symbol, "_main"));
+        }
+        imports
+    }
+
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
         if target == "toString" {
             return vec![self.libc_import("snprintf", required_by)];
