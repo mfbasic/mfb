@@ -48,12 +48,21 @@ END TYPE
 TYPE SqlBlob
   value AS List OF Byte
 END TYPE
+' A SQL NULL. Modelled on `json::JsonNull`: a one-field record over `Nothing`,
+' since MFBASIC has no null value of its own. It lets a NULL be expressed as an
+' ordinary `SqlValue` so the typed-parameter binders below can bind one, distinct
+' from an empty string. (Result reads still surface NULL as `SqlText[""]`; faithful
+' NULL *reads* are a separate gap from NULL *binds*.)
+TYPE SqlNull
+  value AS Nothing
+END TYPE
 
 EXPORT UNION SqlValue
   SqlInt
   SqlFloat
   SqlText
   SqlBlob
+  SqlNull
 END UNION
 
 LINK "sqlite3" AS sqliteLink
@@ -104,6 +113,24 @@ LINK "sqlite3" AS sqliteLink
     SUCCESS_ON status = 0
   END FUNC
 
+  ' sqlite3_int64 sqlite3_last_insert_rowid(sqlite3*)
+  ' The ROWID of the most recent successful INSERT on this connection — the value
+  ' an `INTEGER PRIMARY KEY` / AUTOINCREMENT column received. Borrows db; a plain
+  ' value-returning call (the C return IS the result), like columnCount. Returns 0
+  ' when no row has ever been inserted on the connection.
+  FUNC lastInsertRowId(RES db AS Db) AS Integer
+    SYMBOL "sqlite3_last_insert_rowid"
+    ABI (db CPtr) AS return CInt64
+  END FUNC
+
+  ' int sqlite3_changes(sqlite3*)
+  ' The number of rows the most recent INSERT/UPDATE/DELETE on this connection
+  ' modified, inserted, or deleted. Borrows db; a plain value-returning call.
+  FUNC changes(RES db AS Db) AS Integer
+    SYMBOL "sqlite3_changes"
+    ABI (db CPtr) AS return CInt32
+  END FUNC
+
   ' int sqlite3_exec(sqlite3*, const char *sql,
   '                  int (*callback)(void*,int,char**,char**), void *arg,
   '                  char **errmsg)
@@ -152,6 +179,35 @@ LINK "sqlite3" AS sqliteLink
     SUCCESS_ON status = 0
   END FUNC
 
+  ' int sqlite3_bind_int64(sqlite3_stmt*, int iCol, sqlite3_int64 iVal)
+  ' Binds a 64-bit INTEGER to a positional (1-based) slot, surfaced straight from
+  ' MFBASIC's `Integer`. Borrows stmt. Unlike bindText (which leans on column
+  ' affinity to coerce digits), this binds a genuine SQLite INTEGER value.
+  FUNC bindInt(RES stmt AS Stmt, iCol AS Integer, iVal AS Integer) AS Nothing
+    SYMBOL "sqlite3_bind_int64"
+    ABI (stmt CPtr, iCol CInt32, iVal CInt64) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' int sqlite3_bind_double(sqlite3_stmt*, int iCol, double rVal)
+  ' Binds a FLOAT to a positional (1-based) slot from MFBASIC's `Float`. Borrows
+  ' stmt. The marshaling boundary never produces NaN/Inf on the way in, since the
+  ' source `Float` is always finite (mfbasic.md §3).
+  FUNC bindDouble(RES stmt AS Stmt, iCol AS Integer, rVal AS Float) AS Nothing
+    SYMBOL "sqlite3_bind_double"
+    ABI (stmt CPtr, iCol CInt32, rVal CDouble) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  ' int sqlite3_bind_null(sqlite3_stmt*, int iCol)
+  ' Binds SQL NULL to a positional (1-based) slot. Borrows stmt. This is the only
+  ' way to bind a real NULL — bindText of "" binds an empty string, not NULL.
+  FUNC bindNull(RES stmt AS Stmt, iCol AS Integer) AS Nothing
+    SYMBOL "sqlite3_bind_null"
+    ABI (stmt CPtr, iCol CInt32) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
   ' int sqlite3_bind_parameter_index(sqlite3_stmt*, const char *zName)
   ' Maps a named parameter (":aValue", "@x", "$y" — the leading sigil INCLUDED) to
   ' its 1-based index, or 0 when the statement has no such parameter. Borrows stmt.
@@ -188,6 +244,16 @@ LINK "sqlite3" AS sqliteLink
   ' This is thunk codegen, not an ABI form: no per-call annotation is needed here.
   FUNC columnText(RES stmt AS Stmt, col AS Integer) AS String
     SYMBOL "sqlite3_column_text"
+    ABI (stmt CPtr, col CInt32) AS return CPtr
+  END FUNC
+
+  ' const char *sqlite3_column_name(sqlite3_stmt*, int N)
+  ' The name assigned to result column `col` — the AS alias, or the source column
+  ' name otherwise. Like columnText the pointer is SQLite-owned UTF-8 valid only
+  ' until finalize, so the `CPtr -> String` thunk copies it out at once
+  ' (copy-and-leave). Borrows stmt. `queryMaps` keys each row by this name.
+  FUNC columnName(RES stmt AS Stmt, col AS Integer) AS String
+    SYMBOL "sqlite3_column_name"
     ABI (stmt CPtr, col CInt32) AS return CPtr
   END FUNC
 
@@ -308,16 +374,22 @@ LET ERR_NATIVE_CALL_FAILED = 77030008
 ' and borrows it by default.
 ' ---------------------------------------------------------------------------
 
-' Open an EXISTING database (read/write) and apply a default 5-second busy
-' timeout. Uses SQLITE_OPEN_READWRITE *without* SQLITE_OPEN_CREATE, so opening a
-' path that does not yet exist fails rather than silently creating an empty
-' database — call `create` for that. Both native calls auto-propagate: if the
-' open fails the function returns its error; if `busyTimeout` fails, the
-' already-open `db` is closed by lexical drop on the error exit before the error
-' propagates — no leak.
-EXPORT FUNC open(path AS String) AS RES Db
+' Open an EXISTING database and apply a default 5-second busy timeout. Never
+' creates: SQLITE_OPEN_CREATE is omitted, so opening a path that does not yet
+' exist fails rather than silently creating an empty database — call `create` for
+' that. `readOnly` (default FALSE) selects the open mode: FALSE uses
+' SQLITE_OPEN_READWRITE, TRUE uses SQLITE_OPEN_READONLY so every write attempt on
+' the returned handle fails. Both native calls auto-propagate: if the open fails
+' the function returns its error; if `busyTimeout` fails, the already-open `db` is
+' closed by lexical drop on the error exit before the error propagates — no leak.
+EXPORT FUNC open(path AS String, readOnly AS Boolean = FALSE) AS RES Db
+  LET SQLITE_OPEN_READONLY = 1           ' open for reading only; writes fail
   LET SQLITE_OPEN_READWRITE = 2          ' open for reading and writing
-  RES db AS Db = sqliteLink::openV2(path, SQLITE_OPEN_READWRITE)
+  MUT flags AS Integer = SQLITE_OPEN_READWRITE
+  IF readOnly THEN
+    flags = SQLITE_OPEN_READONLY
+  END IF
+  RES db AS Db = sqliteLink::openV2(path, flags)
   sqliteLink::busyTimeout(db, 5000)      ' borrows db
   RETURN db                              ' ownership moves to the caller (event #3)
 END FUNC
@@ -383,6 +455,47 @@ EXPORT FUNC close AS sqliteLink::close
 ' before `db` is closed), so SQLite's last-error state still reflects the failure.
 FUNC sqlError(RES db AS Db) AS Error
   RETURN error(sqliteLink::extendedErrcode(db), "sqlite3: " & sqliteLink::errmsg(db))
+END FUNC
+
+' Run one or more SQL statements that produce no result rows, e.g. an INSERT,
+' UPDATE, DELETE, a `PRAGMA`, `CREATE INDEX`, or a `;`-separated batch. This is
+' the general escape hatch the query/createTable wrappers don't cover: it goes
+' through native `sqlite3_exec`, which (unlike `prepare`/`step`, which compile
+' only the first statement) executes EVERY statement in `sql` in order. Borrows
+' db. Values must NOT be concatenated into `sql` — use the parameterized `query`
+' overloads for anything containing user input, to avoid SQL injection.
+EXPORT FUNC execute(RES db AS Db, sql AS String) AS Nothing
+  sqliteLink::exec(db, sql) TRAP(e)
+    FAIL sqlError(db)
+  END TRAP
+END FUNC
+
+' Transaction helpers — thin, named wrappers over `execute`, so callers don't
+' hand-write the SQL keywords. Borrow db. Wrap a unit of work as
+' `begin(db)` ... `commit(db)`, and `rollback(db)` on the error path.
+EXPORT FUNC begin(RES db AS Db) AS Nothing
+  execute(db, "BEGIN")
+END FUNC
+
+EXPORT FUNC commit(RES db AS Db) AS Nothing
+  execute(db, "COMMIT")
+END FUNC
+
+EXPORT FUNC rollback(RES db AS Db) AS Nothing
+  execute(db, "ROLLBACK")
+END FUNC
+
+' The ROWID assigned by the most recent successful INSERT on `db` — typically the
+' new `INTEGER PRIMARY KEY`. Borrows db; returns 0 if no INSERT has run. Read it
+' immediately after the INSERT, before any other write on the connection.
+EXPORT FUNC lastInsertRowId(RES db AS Db) AS Integer
+  RETURN sqliteLink::lastInsertRowId(db)
+END FUNC
+
+' The number of rows changed, inserted, or deleted by the most recent
+' INSERT/UPDATE/DELETE on `db`. Borrows db. Read it immediately after that write.
+EXPORT FUNC changes(RES db AS Db) AS Integer
+  RETURN sqliteLink::changes(db)
 END FUNC
 
 ' CREATE TABLE <name> (<columns>), e.g. createTable(db, "users", "id INTEGER")
@@ -499,6 +612,61 @@ FUNC rows(RES stmt AS Stmt) AS List OF List OF SqlValue
   RETURN out
 END FUNC
 
+' Bind one `SqlValue` to a 1-based parameter slot, dispatching on its union member
+' to the correctly typed native binder. Package-private; shared by the typed
+' `query` overloads below. Borrows stmt.
+'   SqlInt   -> bindInt    (a real SQLite INTEGER, not affinity-coerced text)
+'   SqlFloat -> bindDouble
+'   SqlText  -> bindText
+'   SqlNull  -> bindNull   (a true NULL, distinct from an empty string)
+' SqlBlob is rejected: faithfully binding raw bytes needs a byte-list argument ABI
+' form that does not exist yet (the same gap that blocks faithful BLOB *reads*), so
+' it fails loudly rather than silently corrupting the value.
+FUNC bindValue(RES stmt AS Stmt, idx AS Integer, value AS SqlValue) AS Nothing
+  MATCH value
+    CASE SqlInt(n)   : sqliteLink::bindInt(stmt, idx, n.value)
+    CASE SqlFloat(f) : sqliteLink::bindDouble(stmt, idx, f.value)
+    CASE SqlText(t)  : sqliteLink::bindText(stmt, idx, t.value)
+    CASE SqlNull(z)  : sqliteLink::bindNull(stmt, idx)
+    CASE SqlBlob(b)  : FAIL error(77050002, "sqlite3: binding a SqlBlob parameter is not yet supported")
+  END MATCH
+END FUNC
+
+' Drain an already-prepared, already-bound statement into NAMED rows: one
+' `Map OF String TO SqlValue` per result row, keyed by each column's name
+' (`columnName`) instead of by position. The cell typing rule is identical to
+' `rows` (SQLITE_INTEGER -> SqlInt, SQLITE_FLOAT -> SqlFloat, TEXT/BLOB/NULL ->
+' SqlText). Package-private; BORROWS `stmt` (the caller still finalizes it). Shared
+' by the `queryMaps` overloads below.
+'
+' CAVEAT: a map key is unique, so if a result set has two columns with the same
+' name (e.g. `SELECT a, a` or an unqualified join column), the later column
+' overwrites the earlier one in that row's map. Use the positional `query`
+' overloads (`List OF List OF SqlValue`) when duplicate column names must survive.
+FUNC rowsAsMaps(RES stmt AS Stmt) AS List OF Map OF String TO SqlValue
+  LET SQLITE_INTEGER = 1
+  LET SQLITE_FLOAT = 2
+  LET cols = sqliteLink::columnCount(stmt)      ' borrows stmt
+  MUT out AS List OF Map OF String TO SqlValue = []
+  WHILE sqliteLink::step(stmt)                  ' borrows stmt; once per result row
+    MUT row AS Map OF String TO SqlValue = Map OF String TO SqlValue {}
+    FOR i = 0 TO cols - 1
+      MUT cell AS SqlValue = SqlInt[0]          ' placeholder; overwritten below
+      LET kind = sqliteLink::columnType(stmt, i)             ' borrows stmt
+      IF kind = SQLITE_INTEGER THEN
+        cell = SqlInt[sqliteLink::columnInt(stmt, i)]
+      ELSEIF kind = SQLITE_FLOAT THEN
+        cell = SqlFloat[sqliteLink::columnDouble(stmt, i)]
+      ELSE
+        cell = SqlText[sqliteLink::columnText(stmt, i)]       ' TEXT/BLOB/NULL
+      END IF
+      row = set(row, sqliteLink::columnName(stmt, i), cell)   ' key by column name
+    NEXT
+    out = append(out, row)
+  WEND
+  RETURN out
+END FUNC
+
 ' Run SQL with positional `?` placeholders, e.g.
 '   query(db, "SELECT * FROM t WHERE a = ? AND b = ?", ["x", "y"])
 ' SQLite numbers `?` placeholders left to right starting at 1, so the i-th list
@@ -531,6 +699,131 @@ EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO String
     sqliteLink::bindText(stmt, idx, param.value)
   NEXT
   LET result = rows(stmt)
+  sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
+  RETURN result
+TRAP(e)
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
+END FUNC
+
+' Run SQL with positional `?` placeholders, binding TYPED values, e.g.
+'   query(db, "INSERT INTO t(a, b, c) VALUES (?, ?, ?)",
+'         [SqlInt[7], SqlText["hi"], SqlNull[]])
+' Same positional rule as the `List OF String` overload — the i-th element
+' (0-based) binds to slot i + 1 — but each value binds with its true SQLite type
+' (INTEGER/FLOAT/TEXT/NULL) via `bindValue` instead of always as text. Use this
+' when affinity coercion is not enough, or to bind a real NULL. Works for INSERT/
+' UPDATE/DELETE too (the result row list is then empty).
+EXPORT FUNC query(RES db AS Db, sql AS String, params AS List OF SqlValue) AS List OF List OF SqlValue
+  RES stmt AS Stmt = sqliteLink::prepare(db, sql)
+  FOR i = 0 TO len(params) - 1
+    bindValue(stmt, i + 1, get(params, i))   ' ? slots are 1-based
+  NEXT
+  LET result = rows(stmt)
+  sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
+  RETURN result
+TRAP(e)
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
+END FUNC
+
+' Run SQL with named placeholders, binding TYPED values, e.g.
+'   query(db, "INSERT INTO t(a, b) VALUES (:a, :b)",
+'         Map OF String TO SqlValue { ":a" := SqlInt[7], ":b" := SqlNull[] })
+' Same naming rule as the `Map OF String TO String` overload — each key is the
+' full placeholder text INCLUDING its leading sigil — but each value binds with
+' its true SQLite type via `bindValue`. A key naming no placeholder resolves to
+' index 0; binding there is a harmless no-op in SQLite.
+EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO SqlValue) AS List OF List OF SqlValue
+  RES stmt AS Stmt = sqliteLink::prepare(db, sql)
+  FOR EACH param IN params
+    LET idx = sqliteLink::bindParameterIndex(stmt, param.key)   ' resolve ":name" -> slot
+    bindValue(stmt, idx, param.value)
+  NEXT
+  LET result = rows(stmt)
+  sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
+  RETURN result
+TRAP(e)
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
+END FUNC
+
+' ---------------------------------------------------------------------------
+' Name-keyed result sets. `queryMaps` runs exactly like `query` — same SQL, same
+' parameter binding, same finalize-on-every-path safety — but returns each row as
+' a `Map OF String TO SqlValue` keyed by column name (via `rowsAsMaps`) instead of
+' a positional `List OF SqlValue`. Reach for these when the caller wants
+' `row["name"]` rather than tracking column order; reach for `query` when columns
+' may share a name (a map collapses duplicates — see `rowsAsMaps`).
+'
+' These cannot be `query` overloads: MFBASIC resolves overloads by parameter
+' types, not return type, so a function differing from `query` only by its result
+' shape needs a distinct name. The four parameter forms mirror `query` exactly.
+' ---------------------------------------------------------------------------
+
+' Positional `?` placeholders bound from text, e.g.
+'   queryMaps(db, "SELECT id, name FROM t WHERE a = ?", ["x"])
+EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS List OF String) AS List OF Map OF String TO SqlValue
+  RES stmt AS Stmt = sqliteLink::prepare(db, sql)
+  FOR i = 0 TO len(params) - 1
+    sqliteLink::bindText(stmt, i + 1, get(params, i))   ' ? slots are 1-based
+  NEXT
+  LET result = rowsAsMaps(stmt)
+  sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
+  RETURN result
+TRAP(e)
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
+END FUNC
+
+' Named placeholders bound from text, e.g.
+'   queryMaps(db, "SELECT id, name FROM t WHERE a = :a",
+'             Map OF String TO String { ":a" := "x" })
+EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS Map OF String TO String) AS List OF Map OF String TO SqlValue
+  RES stmt AS Stmt = sqliteLink::prepare(db, sql)
+  FOR EACH param IN params
+    LET idx = sqliteLink::bindParameterIndex(stmt, param.key)   ' resolve ":name" -> slot
+    sqliteLink::bindText(stmt, idx, param.value)
+  NEXT
+  LET result = rowsAsMaps(stmt)
+  sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
+  RETURN result
+TRAP(e)
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
+END FUNC
+
+' Positional `?` placeholders bound from TYPED values, e.g.
+'   queryMaps(db, "SELECT id, name FROM t WHERE a = ?", [SqlInt[7]])
+EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS List OF SqlValue) AS List OF Map OF String TO SqlValue
+  RES stmt AS Stmt = sqliteLink::prepare(db, sql)
+  FOR i = 0 TO len(params) - 1
+    bindValue(stmt, i + 1, get(params, i))   ' ? slots are 1-based
+  NEXT
+  LET result = rowsAsMaps(stmt)
+  sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
+  RETURN result
+TRAP(e)
+  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+  PROPAGATE
+END TRAP
+END FUNC
+
+' Named placeholders bound from TYPED values, e.g.
+'   queryMaps(db, "SELECT id, name FROM t WHERE a = :a",
+'             Map OF String TO SqlValue { ":a" := SqlInt[7] })
+EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS Map OF String TO SqlValue) AS List OF Map OF String TO SqlValue
+  RES stmt AS Stmt = sqliteLink::prepare(db, sql)
+  FOR EACH param IN params
+    LET idx = sqliteLink::bindParameterIndex(stmt, param.key)   ' resolve ":name" -> slot
+    bindValue(stmt, idx, param.value)
+  NEXT
+  LET result = rowsAsMaps(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
 TRAP(e)
