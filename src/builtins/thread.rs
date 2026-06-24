@@ -17,10 +17,16 @@ const IS_CANCELLED: &str = "thread.isCancelled";
 pub(crate) const TRANSFER: &str = "thread.transfer";
 pub(crate) const ACCEPT: &str = "thread.accept";
 /// Internal lowered targets for the resource plane. `thread::transfer`/`accept`
-/// lower to these so codegen routes them to the dedicated resource queue (they
-/// never appear in source).
+/// lower to these so codegen routes them to the dedicated resource queues (they
+/// never appear in source). The plane is split by direction like the data plane:
+/// `transfer` on a parent handle is `transferResource` (inbound queue) and on a
+/// worker handle is `emitResource` (outbound queue); `accept` on a worker handle
+/// is `acceptResource` (inbound queue) and on a parent handle is `readResource`
+/// (outbound queue). The worker-direction split is applied in `builder_values`.
 pub(crate) const TRANSFER_RESOURCE: &str = "thread.transferResource";
 pub(crate) const ACCEPT_RESOURCE: &str = "thread.acceptResource";
+pub(crate) const EMIT_RESOURCE: &str = "thread.emitResource";
+pub(crate) const READ_RESOURCE: &str = "thread.readResource";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -41,6 +47,8 @@ pub(crate) fn is_thread_call(name: &str) -> bool {
             | ACCEPT
             | TRANSFER_RESOURCE
             | ACCEPT_RESOURCE
+            | EMIT_RESOURCE
+            | READ_RESOURCE
     )
 }
 

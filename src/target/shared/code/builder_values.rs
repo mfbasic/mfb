@@ -1231,6 +1231,41 @@ impl CodeBuilder<'_> {
                     "thread.read"
                 }
             }
+            // Resource plane, split by direction like the data plane above. A
+            // `thread::transfer` (lowered to `transferResource`) on a worker handle
+            // writes the outbound resource queue (`emitResource`); on a parent
+            // handle it writes the inbound queue (`transferResource`). A
+            // `thread::accept` (lowered to `acceptResource`) on a worker handle
+            // reads the inbound queue (`acceptResource`); on a parent handle it
+            // reads the outbound queue (`readResource`).
+            "thread.transferResource" => {
+                let handle = self
+                    .static_type_name(helper_args.first().ok_or_else(|| {
+                        "native runtime thread.transfer missing handle argument".to_string()
+                    })?)
+                    .ok_or_else(|| {
+                        "native runtime thread.transfer handle has unknown type".to_string()
+                    })?;
+                if builtins::thread::is_worker_thread_type(&handle) {
+                    "thread.emitResource"
+                } else {
+                    "thread.transferResource"
+                }
+            }
+            "thread.acceptResource" => {
+                let handle = self
+                    .static_type_name(helper_args.first().ok_or_else(|| {
+                        "native runtime thread.accept missing handle argument".to_string()
+                    })?)
+                    .ok_or_else(|| {
+                        "native runtime thread.accept handle has unknown type".to_string()
+                    })?;
+                if builtins::thread::is_worker_thread_type(&handle) {
+                    "thread.acceptResource"
+                } else {
+                    "thread.readResource"
+                }
+            }
             "net.connectTcp" => {
                 if self.net_connect_is_address_form(args) {
                     "net.connectTcpAddr"

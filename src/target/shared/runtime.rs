@@ -1343,6 +1343,32 @@ pub(crate) const THREAD_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+// Resource plane, worker→parent direction: `emitResource` mirrors `emit` and
+// `readResource` mirrors `read`, but run on the outbound resource queue. A
+// source `thread::transfer`/`thread::accept` on a `ThreadWorker`/`Thread` handle
+// respectively lowers here (see `builder_values`).
+pub(crate) const THREAD_EMIT_RESOURCE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.emitResource",
+    symbol: "_mfb_rt_thread_thread_emitResource",
+    abi: RuntimeHelperAbi {
+        params: THREAD_WORKER_SEND_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const THREAD_READ_RESOURCE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Thread,
+    call: "thread.readResource",
+    symbol: "_mfb_rt_thread_thread_readResource",
+    abi: RuntimeHelperAbi {
+        params: THREAD_PARENT_RECEIVE_PARAMS,
+        returns: "Msg",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 const NET_HOST_PORT_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "host",
@@ -1977,6 +2003,8 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         THREAD_EMIT_SPEC,
         THREAD_TRANSFER_SPEC,
         THREAD_ACCEPT_SPEC,
+        THREAD_EMIT_RESOURCE_SPEC,
+        THREAD_READ_RESOURCE_SPEC,
         THREAD_IS_CANCELLED_SPEC,
         NET_LOOKUP_SPEC,
         NET_CONNECT_TCP_SPEC,

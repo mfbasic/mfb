@@ -750,7 +750,7 @@ impl CodeBuilder<'_> {
             "thread.isRunning" | "thread.poll" | "thread.isCancelled" => {
                 Some("Boolean".to_string())
             }
-            "thread.cancel" | "thread.send" | "thread.transferResource" => {
+            "thread.cancel" | "thread.send" | "thread.transferResource" | "thread.emitResource" => {
                 Some("Nothing".to_string())
             }
             "thread.waitFor" => {
@@ -761,8 +761,9 @@ impl CodeBuilder<'_> {
                 let thread_type = self.static_type_name(args.first()?)?;
                 builtins::thread::thread_message(&thread_type).map(str::to_string)
             }
-            // The resource plane: accept yields the thread's resource type.
-            "thread.acceptResource" => {
+            // The resource plane: accept yields the thread's resource type
+            // (worker reads the inbound queue, parent reads the outbound queue).
+            "thread.acceptResource" | "thread.readResource" => {
                 let thread_type = self.static_type_name(args.first()?)?;
                 builtins::thread::thread_resource(&thread_type).map(str::to_string)
             }
@@ -953,7 +954,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         if matches!(
             target,
-            "thread.send" | "thread.emit" | "thread.transferResource"
+            "thread.send" | "thread.emit" | "thread.transferResource" | "thread.emitResource"
         ) {
             return self.emit_thread_send_runtime_helper_call(
                 target,
@@ -1009,7 +1010,11 @@ impl CodeBuilder<'_> {
 
         let register = if matches!(
             target,
-            "thread.waitFor" | "thread.read" | "thread.receive" | "thread.acceptResource"
+            "thread.waitFor"
+                | "thread.read"
+                | "thread.receive"
+                | "thread.acceptResource"
+                | "thread.readResource"
         ) {
             self.reset_temporary_registers();
             self.copy_value_to_current_arena(result_type, RESULT_VALUE_REGISTER)?
@@ -2523,7 +2528,11 @@ impl CodeBuilder<'_> {
 
     fn deactivate_moved_thread_arguments(&mut self, target: &str, args: &[NirValue]) {
         match target {
-            "thread.start" | "thread.send" | "thread.emit" | "thread.transferResource" => {
+            "thread.start"
+            | "thread.send"
+            | "thread.emit"
+            | "thread.transferResource"
+            | "thread.emitResource" => {
                 if let Some(arg) = args.get(1) {
                     self.maybe_deactivate_moved_thread_local(arg);
                 }
@@ -2655,7 +2664,11 @@ impl CodeBuilder<'_> {
                 index == 0
             } else if matches!(
                 target,
-                "thread.start" | "thread.send" | "thread.emit" | "thread.transferResource"
+                "thread.start"
+                    | "thread.send"
+                    | "thread.emit"
+                    | "thread.transferResource"
+                    | "thread.emitResource"
             ) {
                 // A thread-sendable resource is moved into the thread on a
                 // successful transfer. Deactivation runs only on the success

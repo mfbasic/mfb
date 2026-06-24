@@ -1,0 +1,12 @@
+{
+  "name": "thread_transfer_bidirectional_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "xfer_bidi_worker", "version": "=0.1.0", "source": "file:packages/xfer_bidi_worker.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

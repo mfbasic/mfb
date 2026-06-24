@@ -1,0 +1,37 @@
+{
+  "project": "thread_transfer_bidirectional_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "thread", "line": 2 },
+    { "module": "fs", "line": 3 },
+    { "module": "xfer_bidi_worker", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 9,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Thread OF RES File TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "xfer_bidi_worker.exchange" }, { "kind": "string", "value": "seed" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "pf", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "string", "value": "tests/thread-transfer-bidirectional-rt/data/parent.txt" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "thread.transfer", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "identifier", "value": "pf" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "wf", "type": "File", "value": { "kind": "call", "callee": "thread.accept", "arguments": [{ "kind": "identifier", "value": "t" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "parentReceived", "type": "Integer", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "fs.readAll", "arguments": [{ "kind": "identifier", "value": "wf" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.close", "arguments": [{ "kind": "identifier", "value": "wf" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "workerReceived", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "t" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "workerReceived" }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "parentReceived" }] }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ]
+    }
+    ]
+  }
+  ]
+}
