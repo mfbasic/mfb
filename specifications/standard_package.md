@@ -240,6 +240,11 @@ compiler-owned `MapEntry` record inside a `List` and applying a two-argument
 function value element-wise, which the current runtime does not support. They are
 deferred until that infrastructure lands.
 
+| `collections::toMap` | `FUNC toMap OF K, V(value AS List OF MapEntry OF K TO V) AS Map OF K TO V` | Builds a map from entries. `K` must be comparable. On duplicate keys, **last entry wins**. |
+| `collections::zipWith` | `FUNC zipWith OF A, B, U(a AS List OF A, b AS List OF B, f AS FUNC(A, B) AS U) AS List OF U` | Combines items position-wise through `f`. Stops at the shorter input. |
+| `collections::filterEntries` | `FUNC filterEntries OF K, V(value AS Map OF K TO V, predicate AS FUNC(MapEntry OF K TO V) AS Boolean) AS Map OF K TO V` | Keeps entries where `predicate` returns `TRUE`. |
+
+
 ## 4. Built-in Filter Functions
 
 These predicate helpers are always in scope and are intended for use with `filter`, `MATCH` guards, and ordinary conditionals.
