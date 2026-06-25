@@ -160,11 +160,11 @@ impl CodeBuilder<'_> {
         let result_slot = self.allocate_stack_object("flat_copy_result", 8);
         let alloc_ok = self.label("flat_copy_alloc_ok");
         self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-        // Reload the source from its slot so size computation never aliases the
-        // caller's register choice for `source`.
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit_flat_block_size(type_, "x9", "x10", "x11")?;
-        self.emit(abi::store_u64("x10", abi::stack_pointer(), size_slot));
+        // Size the flat block from its pointer slot. This dispatcher handles every
+        // flat type — `String`, collection, record (walk), and data union
+        // (`size@8`) — so `copy_flat_block` is a sound deep copy for any
+        // `type_is_flat` value (plan-02 §4.1).
+        self.emit_inlined_block_size_from_ptr_slot(type_, source_slot, size_slot)?;
         self.emit(abi::load_u64(
             abi::return_register(),
             abi::stack_pointer(),
@@ -281,9 +281,13 @@ impl CodeBuilder<'_> {
                 .collect::<Vec<_>>()
                 .iter()
                 .all(|variant| self.type_is_flat_inner(variant, visited))
+        } else if crate::builtins::is_resource_type(type_) {
+            // A resource is a move-only handle to its single instance, never a
+            // copyable flat block.
+            false
         } else {
-            // A scalar (anything that is not a pointer composite or `String`) is
-            // flat; everything else (resource/resource-union/`Result`) is not.
+            // A scalar (anything that is not a pointer composite, `String`, or
+            // resource) is flat; resource unions / `Result` are excluded above.
             !self.record_field_is_pointer(type_)
         };
         visited.remove(type_);

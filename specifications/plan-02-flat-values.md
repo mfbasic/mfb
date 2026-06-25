@@ -96,7 +96,21 @@ Last updated: 2026-06-24
     compaction) to handle variable-size collection payloads — the most intricate
     remaining change. Until then `type_is_flat` correctly treats any collection
     with a nested-collection payload as **not** flat (so it stays a pointer).
-- Phases 6–8 — pending.
+- **Phase 6 (generic copy) — DONE (the cutover; glue deletion deferred).**
+  `copy_flat_block` now sizes any flat block via the `emit_inlined_block_size_from_ptr_slot`
+  dispatcher (`String`/collection/record-walk/data-union-`size@8`), and
+  `copy_value_to_current_arena` routes **every** `type_is_flat` value (flat record,
+  flat data union, flat collection, `String`) through it — one `arena_alloc` +
+  `memcpy`, no per-type recursion. The per-type glue (`copy_record_to_current_arena`,
+  `copy_union_to_current_arena`, `copy_collection_to_current_arena`) is now reached
+  **only** by types that still embed pointers (`Error`, `Result`, non-flat
+  collections/records/unions, resources). Resources are explicitly excluded from
+  `type_is_flat` (move-only handles). Full glue deletion waits on Phase 5a (once
+  nested collections inline, every non-resource value is flat and the glue is dead).
+  Validated: full acceptance green (no golden churn — thread-transfer codegen has
+  no `ncode` goldens; runtime identical), thread-return-string/-list-of-string/-map/
+  -union and the `flat-*-rt` proofs pass under entropy poisoning.
+- Phases 5a, 7, 8 — pending.
 
 ### Phase 4 scoping (ready for continuation)
 

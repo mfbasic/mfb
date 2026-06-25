@@ -1265,10 +1265,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_register(&result, source));
                 Ok(result)
             }
-            // A standalone `String` is already a flat, pointer-free block
-            // (length word + bytes + NUL), so the generic flat copy is a sound
-            // deep copy (plan-02 §4.1, Phase 1).
-            "String" => self.copy_flat_block("String", source),
+            // Any fully-flat value — `String`, a flat record/data-union, or a flat
+            // collection — is a single pointer-free block, so the generic flat
+            // copy (`arena_alloc` + `memcpy`) is a sound deep copy (plan-02 §4.1,
+            // Phase 6). Only types that still embed pointers fall through to the
+            // per-type glue below.
+            other if self.type_is_flat(other) => self.copy_flat_block(other, source),
             "Error" => self.copy_error_to_current_arena(source),
             other if other.starts_with("Result OF ") => {
                 self.copy_result_to_current_arena(other, source)
