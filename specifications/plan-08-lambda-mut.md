@@ -1,10 +1,12 @@
 # MFBASIC `MUT` Lambda Capture Plan
 
-Last updated: 2026-06-15
+Last updated: 2026-06-25
 
 This document records the current limitation around lambda capture of `MUT`
 bindings, why the limitation exists under the current ownership model, and the
- main design options for fully addressing it.
+plan to address it: allow `MUT` capture only in compiler-proven non-escaping
+callback positions. That is the committed approach; this document is the work
+to be done, not a survey of options.
 
 It complements:
 
@@ -46,6 +48,15 @@ This is already reflected in the spec and current diagnostics:
 - closures may capture only copyable `LET` bindings by value
 - `MUT` capture is rejected because closures do not capture live mutable cells
 - resource and other non-copyable captures are rejected for the same reason
+
+These checks live in `src/typecheck.rs` (the `TYPE_LAMBDA_CAPTURE_UNSUPPORTED`
+diagnostic). Capture-by-value is implemented in `builder_values.rs`: a closure
+allocates an arena env block and **deep-copies** each captured value into it
+(`lower_value_owned`), so the env owns an independent copy that outlives the
+capturing scope. Captures are read back via `NirValue::Capture { index }`,
+loading from the env block. This is why a `MUT` capture would be meaningless
+under today's model — the closure would observe a frozen copy, never the live
+binding.
 
 Under the current source model, values cross boundaries by:
 
@@ -106,6 +117,20 @@ collections. That means:
 - a moved value cannot be used again
 - a mutable collection crossing a boundary becomes a frozen owned value
 
+Since the flat-value rework (plan-02) and scope-drop frees (plan-01 Phase 5 /
+plan-02 Phase 8), this model has a concrete implementation shape that matters
+for the lowering below:
+
+- every non-resource value is a flat, pointer-free arena block; copy is one
+  `memcpy` (`copy_flat_block`) and free is one `arena_free`
+- storing a value into a structure, or binding it from an aliasing source,
+  inserts a copy (`lower_value_owned`), so each owned local is independent
+- each owned flat local is freed at scope exit via
+  `ActiveCleanup::OwnedValue`; the free is suppressed on the escape paths
+  (`RETURN`, `thread::transfer`)
+- "freeze" is now largely a semantic label on top of the flat-copy mechanism
+  rather than a distinct runtime operation
+
 Capturing `MUT total` in a lambda does not naturally fit any of those:
 
 - it is not a copy, because the callback must observe and update the same live
@@ -137,142 +162,53 @@ In other words, this model is a good fit for specific callback positions such
 as compiler-known `forEach`, but it is not a complete model for ordinary
 first-class closures.
 
-## 6. Design Options
+## 6. The Approach
 
-### Option A: Keep The Current Rule
-
-Do nothing. Continue rejecting `MUT` capture in all lambdas and closures.
-
-Pros:
-
-- simplest semantics
-- no new ownership category
-- no new verifier or package metadata rules
-- no risk of hidden aliasing or lifetime leaks
-
-Cons:
-
-- poor ergonomics for common callback-style local accumulation
-- forces users toward `reduce` even when a local mutable accumulator reads more
-  clearly
-- keeps the language stricter than necessary for obviously local cases
-
-This is safe but unsatisfying.
-
-### Option B: Allow `MUT` Capture Only For Non-Escaping Callbacks
-
-Add a compiler-known non-escaping callback category.
+Add a compiler-known **non-escaping callback** category and allow `MUT` capture
+only in those positions. Everything else stays exactly as today.
 
 Under this model:
 
-- `forEach(items, LAMBDA(x) -> total = total + x)` can be legal
+- `forEach(items, LAMBDA(x) -> total = total + x)` becomes legal
 - `LET f = LAMBDA(x) -> total = total + x` stays illegal
 - returning a `MUT`-capturing lambda stays illegal
 - storing it in a record, union, list, or map stays illegal
 - passing it to unknown functions stays illegal
 - sending it to a thread stays illegal
 
-The compiler would treat the captured `MUT` as temporarily transferred for the
-duration of the known call and restored after the call returns.
+The captured `MUT` is loaned to the callback for the duration of the known,
+synchronous call and is the outer binding's again once the call returns. With
+flat values this is a borrow of the parent's binding slot — no copy, no
+separate free (§11.2) — not a move/restore dance.
 
-Pros:
+The cost is accepted deliberately: a new notion of non-escaping callback
+positions, compiler/runtime guarantees that selected built-ins do not retain,
+forward, or concurrently invoke their callbacks, and two closure categories
+(ordinary first-class closures and non-escaping callback lambdas).
 
-- solves the motivating ergonomic problem
-- matches the move-in / mutate / move-out intuition
-- preserves the current no-escaping-mutable-cell rule
-- avoids a general borrow or lifetime system
+### 6.1 Alternatives rejected
 
-Cons:
+- **Broadly banning function escape routes** (e.g. forbidding `FUNC` return
+  types) is too blunt and still does not prove non-escape — lambdas escape via
+  locals, collections, retaining callees, and exported APIs — so it does not
+  solve local `forEach` mutation.
+- **General mutable closure capture** (ordinary closures capturing `MUT` in
+  any position) is a much larger feature: it needs closure-owned mutable cells,
+  copy-vs-alias and move/drop rules for captured state, thread interaction, and
+  package/verifier metadata for mutable environments. Treated as a possible
+  future major feature, not this work.
 
-- requires a new notion of non-escaping callback positions
-- requires compiler/runtime guarantees that selected built-ins do not retain,
-  forward, or concurrently invoke callbacks
-- creates two closure categories: ordinary first-class closures and
-  non-escaping callback lambdas
+Both are out of scope here; do not broaden to general mutable closures.
 
-This is the recommended first implementation path.
+## 7. Design Invariants
 
-### Option C: Ban Function Escape Routes More Broadly
-
-One idea is to forbid function return types, or otherwise reduce the ways a
-lambda can escape.
-
-This is not sufficient by itself.
-
-Even if function return types are banned, lambdas can still escape through:
-
-- assignment to locals
-- storage in records or collections
-- passing to another function that retains them
-- exported APIs that accept function values
-
-So a rule like "functions cannot be return types" is too blunt and still does
-not solve the real problem, which is escape.
-
-Pros:
-
-- reduces some escape paths
-
-Cons:
-
-- regresses existing or future higher-order patterns
-- still does not prove non-escape
-- does not directly solve local `forEach` style mutation
-
-This is not a recommended fix.
-
-### Option D: General Mutable Closure Capture
-
-Allow ordinary closures to capture `MUT` bindings in general.
-
-To do this correctly, the language would need to define:
-
-- closure-owned mutable cells
-- closure copying vs aliasing semantics
-- move/drop behavior for captured mutable state
-- whether multiple closures may share a mutable captured cell
-- interaction with threads
-- package metadata and verifier rules for mutable closure environments
-
-This is effectively a larger language feature:
-
-- either a hidden boxed mutable-cell model
-- or a borrow/lifetime system
-- or both
-
-Pros:
-
-- most expressive
-- supports closure factories such as counters and iterators
-
-Cons:
-
-- much larger semantic surface
-- materially complicates ownership, verification, packages, and runtime
-- easy to get subtly wrong
-
-This should be treated as a future major feature, not the first fix.
-
-## 7. Recommended Direction
-
-Implement Option B first:
-
-- support `MUT` capture only in compiler-proven non-escaping callback
-  positions
-- preserve the current prohibition for ordinary escaping closures
-
-This keeps the language's ownership story coherent:
+The approach must keep the language's ownership story coherent:
 
 - normal first-class closure capture remains capture-by-value of copyable
   bindings
-- mutable-cell capture exists only as a temporary call-bound ownership
-  transfer
+- mutable-cell capture exists only as a temporary call-bound loan
 - no live mutable cell may outlive its lexical owner
-
-In short:
-
-- allow local callback mutation where the compiler can prove safety
-- do not broaden to general mutable closures yet
+- local callback mutation is allowed only where the compiler can prove safety
 
 ## 8. What "Non-Escaping" Must Mean
 
@@ -308,7 +244,7 @@ Whether `transform` and `filter` should permit `MUT` capture is a separate
 ergonomic choice, not a safety requirement. The main pressure case is
 `forEach`.
 
-## 10. Source-Level Behavior Under The Recommended Model
+## 10. Source-Level Behavior
 
 ### Allowed
 
@@ -354,7 +290,7 @@ io::print(toString(total))
 
 which is fine after the call returns, but not while the callback is in flight.
 
-## 11. Compiler And IR Changes Required For Option B
+## 11. Compiler And IR Changes Required
 
 ### 11.1 Front-End And Type Checker
 
@@ -376,17 +312,34 @@ The type checker must:
 The IR must represent non-escaping mutable capture explicitly rather than
 pretending it is an ordinary closure environment.
 
-Possible lowering model:
+The flat-value + scope-drop-free rework gives a cleaner lowering than the
+"transfer ownership in, restore out" sketch this section originally described.
+Because a flat value lives in a stable arena block referenced from the
+binding's slot for the binding's whole lifetime, and the non-escaping call is
+synchronous and cannot outlive that slot, the capture can be a **borrow** with
+no move/restore dance:
 
-- callback block or lambda object with explicit mutable capture slots
-- call-site setup that transfers ownership of the mutable binding into the
-  callback invocation context
-- restoration after the non-escaping call finishes
+- ordinary capture (today) deep-copies the value into the closure env and
+  registers an independent owned-value free. A non-escaping `MUT` capture does
+  the opposite: store a pointer to the parent's live binding (a borrow) into
+  the env, with **no copy at capture** and **no free at drop** — the parent
+  retains ownership and remains the sole freer.
+- the primitives for this already exist: field reads and `UnionExtract` already
+  return *borrows* into a parent block, and `is_freeable_flat_value` plus the
+  `ActiveCleanup::OwnedValue` exclusion logic already model "this slot is not
+  ours to free." The non-escaping `MUT` capture reuses both rather than
+  inventing a new ownership category.
+- the env slot must reference the binding's **slot** (so a callback that
+  reassigns or grows the value is observed by the outer binding — see §12.3),
+  not a snapshot of the block pointer.
 
 The important point is semantic clarity:
 
-- do not simulate this as an ordinary heap closure unless the language is ready
-  to define ordinary mutable closures
+- do not simulate this as an ordinary heap closure (which would deep-copy and
+  independently free) unless the language is ready to define ordinary mutable
+  closures
+- mark the env slot as a borrow so the existing copy-insertion
+  (`lower_value_owned`) and scope-drop free machinery both skip it
 
 ### 11.3 Built-In Function Metadata
 
@@ -430,7 +383,7 @@ same `MUT`, the compiler must define whether:
 - this is rejected
 - or nested loans are serialized
 
-Rejecting this in the first implementation is likely simpler.
+Reject this initially; nested loans of the same `MUT` can be considered later.
 
 ### 12.3 Capturing Mutable Collections
 
@@ -442,6 +395,16 @@ If a captured binding is `MUT List` or `MUT Map`, the semantics must be clear:
 - no alias to the live mutable buffer can escape
 
 This is feasible under the non-escaping rule but should be tested explicitly.
+
+Flat values add a concrete hazard here. A `MUT List`/`Map` is a flat block in
+the binding's slot, and an in-place `append`/insert can **reallocate** the
+block (an `arena_alloc` grow) and rewrite the binding's slot pointer. So the
+borrow capture (§11.2) must point at the *slot* (double indirection), or the
+callback's grow must write the new block pointer back to the parent slot;
+capturing a snapshot of the block pointer would leave the outer binding looking
+at a stale, possibly freed block. This is exactly the class of register/pointer
+hazard that the arena grow path is sensitive to, so collection mutation through
+a captured `MUT` must be tested under entropy poisoning, not just acceptance.
 
 ### 12.4 Interaction With Resources
 
@@ -467,7 +430,7 @@ Any implementation should add:
 - runtime validation showing the outer mutable binding reflects callback
   mutations after the call returns
 
-## 14. Recommended Implementation Sequence
+## 14. Implementation Sequence
 
 1. Introduce compiler metadata for non-escaping callback positions on selected
    built-ins.
@@ -478,22 +441,83 @@ Any implementation should add:
 3. Implement type-check rules for temporary `MUT` transfer during the proven
    non-escaping call.
 4. Add IR support that does not misrepresent the feature as a general escaping
-   closure.
+   closure — lower the capture as a borrow of the parent slot (no copy, no
+   free), reusing the existing borrow and `ActiveCleanup::OwnedValue`-exclusion
+   machinery (§11.2).
 5. Add acceptance and runtime tests for the first allowed surface, ideally
    `forEach`.
-6. Only after that, decide whether additional built-ins should opt in.
+6. Write the developer manual page `src/man/lambda/package.txt` and wire it into
+   the man system (see §16). Update it as the feature lands so it documents what
+   actually works, including the new non-escaping `MUT` capture.
+7. Only after that, decide whether additional built-ins should opt in.
 
-## 15. Recommendation Summary
+## 15. Summary
 
-The best first fix is not to allow ordinary closures to capture `MUT` in
-general.
-
-The best first fix is:
+The work is not to allow ordinary closures to capture `MUT` in general. It is
+to:
 
 - allow `MUT` capture only for compiler-known non-escaping callbacks
-- model it as temporary transfer of the mutable binding into the callback and
-  back out when the call ends
+- model it as a temporary call-bound loan of the mutable binding — a borrow of
+  the parent slot under the flat-value model (§11.2) — released when the call
+  ends
 - keep ordinary escaping closures under the current prohibition
 
 That addresses the motivating problem without forcing MFBASIC to adopt a full
-general mutable-closure or borrow/lifetime system immediately.
+general mutable-closure or borrow/lifetime system.
+
+## 16. Developer Manual Page (`mfb man lambda`)
+
+Lambdas have no user-facing reference page today. This work must add one so a
+developer can learn the full lambda contract — including the new non-escaping
+`MUT` capture rule — from `mfb man lambda`.
+
+### 16.1 Wiring
+
+The page is a topic-only page (no per-function sub-pages), so it follows the
+`errors` / `unicode` pattern, not the per-function builtin pattern:
+
+1. Create `src/man/lambda/package.txt`. The first section must be a `NAME` block
+   whose line reads `lambda - <one-line summary>` (the man loader parses that
+   line); follow with the usual `SYNOPSIS` / `DESCRIPTION` / further sections.
+2. In `build.rs`, declare the page path and emit a `cargo:rerun-if-changed` line
+   for it, exactly as `errors_page` / `unicode_page` do, so edits trigger a
+   rebuild. No `*_FUNCTION_PAGES` / `*_TOPIC_PAGES` generation is needed.
+3. In `src/man/mod.rs`, add
+   `parse_package(include_str!("lambda/package.txt"), "mfb man lambda")` to the
+   `PACKAGES` vector. Do **not** add a `lambda` arm to `generated_pages`; with no
+   arm it resolves to no sub-pages (empty `functions`), which is correct for a
+   topic page.
+
+`scripts/update_man.sh` and any man-page index/test should be re-run so the new
+page is picked up.
+
+### 16.2 Required content
+
+The page documents lambdas as they actually behave; it is not aspirational.
+Until the `MUT` work lands, it must describe the current prohibition; once it
+lands, it must describe the non-escaping exception. It must cover at least:
+
+- **Syntax** — `LAMBDA(params) -> expression` single-expression form and the
+  multi-line body form ending in `RETURN`; parameter type annotations; how the
+  result type is inferred.
+- **Function types** — the `FUNC(argTypes) AS ReturnType` type, binding a lambda
+  to a `LET` of function type, and passing/returning function values.
+- **What you can do** — pass lambdas to higher-order built-ins (`forEach`,
+  `transform`, `filter`, `reduce`, …); bind them to `LET`; return them; store
+  them in records/collections (subject to the capture rules below).
+- **Capture rules** — closures capture copyable `LET` bindings **by value** (an
+  independent copy, not a live reference); `MUT` capture is rejected everywhere
+  except in compiler-proven non-escaping callback positions (e.g. `forEach`),
+  where the binding is loaned for the duration of the call; resource and other
+  non-copyable captures are always rejected. Name the diagnostic
+  (`TYPE_LAMBDA_CAPTURE_UNSUPPORTED`) so users can map errors to the rule.
+- **What is not possible** — capturing `MUT` in an escaping closure (assigning
+  it to a variable, returning it, storing it, sending it to a thread, or passing
+  it to an unknown function); observing a captured value's later mutations
+  through a by-value capture; capturing resources.
+- **Examples** — at minimum the allowed `forEach` accumulator and the rejected
+  `makeCounter`-style escaping closure from §10, each with a short note on why.
+
+Keep the page consistent with `specifications/mfbasic.md` (§13–§14 ownership,
+capture, and drop rules) and with this plan; if they ever disagree, the spec and
+this plan are authoritative and the page must be corrected.
