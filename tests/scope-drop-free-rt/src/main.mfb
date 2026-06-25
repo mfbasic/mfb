@@ -1,0 +1,73 @@
+' plan-01 Phase 5 / plan-02 Phase 8 proof: owned, non-escaping flat values are
+' freed at scope-drop, and copy-insertion makes every owner's block independent.
+' Exercises: copy independence across `LET b = a`, returning a record (move) and
+' returning a borrowed field (`p.name`, copied on return), nested records / lists
+' of records freed as one block, `WITH` rebuild independence, and a heavy churn
+' loop that builds-and-drops a record + String + List every iteration. Runs under
+' always-on entropy poisoning, so any double-free, free-of-borrow, wrong-size
+' free, or use-after-free of a scrubbed block surfaces as a loud crash rather
+' than silent garbage; the churn loop also proves freed memory is reused (no
+' unbounded growth).
+IMPORT io
+IMPORT collections
+
+TYPE Person
+  name AS String
+  city AS String
+END TYPE
+
+TYPE Team
+  lead AS Person
+  members AS List OF Person
+END TYPE
+
+' Returns a freshly built record; the local `p` is moved out to the caller.
+FUNC makePerson(n AS String, c AS String) AS Person
+  LET p AS Person = Person[n, c]
+  RETURN p
+END FUNC
+
+' Returns a borrow into a borrowed parameter: must be copied on return so the
+' caller owns an independent String (the parameter is the caller's, untouched).
+FUNC nameOf(p AS Person) AS String
+  RETURN p.name
+END FUNC
+
+' Build + drop a record, a String, and a List every iteration. Reuse keeps the
+' arena bounded; a bad free corrupts loudly under poisoning. Deterministic sum.
+FUNC churn(rounds AS Integer) AS Integer
+  MUT total AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < rounds
+    LET name AS String = "person-" & toString(i)
+    LET p AS Person = Person[name, "city"]
+    LET items AS List OF String = [name, p.city, "tail"]
+    total = total + len(name) + len(collections::get(items, 0))
+    i = i + 1
+  WEND
+  RETURN total
+END FUNC
+
+FUNC main AS Integer
+  ' Copy independence: `b` is an independent deep copy of `a`.
+  LET a AS Person = makePerson("Ada", "London")
+  LET b AS Person = a
+  io::print(a.name & "/" & a.city)
+  io::print(b.name & "/" & b.city)
+  io::print(nameOf(a))
+
+  ' Nested: a list of records and a record holding a record + that list.
+  LET team AS Team = Team[a, [a, b, makePerson("Grace", "New York")]]
+  io::print(team.lead.name & "+" & toString(len(team.members)))
+  io::print(collections::get(team.members, 2).name)
+  LET team2 AS Team = team
+  io::print(collections::get(team2.members, 0).city)
+
+  ' WITH rebuild: a2 resizes a field longer; the original is unchanged.
+  LET a2 AS Person = WITH a { city := "Paris-and-longer" }
+  io::print(a.city & "|" & a2.city)
+
+  ' Heavy build-and-drop churn under entropy poisoning.
+  io::print(toString(churn(500)))
+  RETURN 0
+END FUNC

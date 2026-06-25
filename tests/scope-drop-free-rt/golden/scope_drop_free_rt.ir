@@ -1,0 +1,108 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "scope_drop_free_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Person",
+    "fields": [
+    { "visibility": null, "name": "name", "type": "String" },
+    { "visibility": null, "name": "city", "type": "String" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Team",
+    "fields": [
+    { "visibility": null, "name": "lead", "type": "Person" },
+    { "visibility": null, "name": "members", "type": "List OF Person" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "makePerson",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "n", "type": "String", "default": null },
+    { "name": "c", "type": "String", "default": null }
+    ],
+    "returns": "Person",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Person", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "local", "name": "n" }, { "kind": "local", "name": "c" }] } },
+    { "op": "return", "value": { "kind": "local", "name": "p" } }
+    ]
+  },
+  {
+    "name": "nameOf",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "p", "type": "Person", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "name" } }
+    ]
+  },
+  {
+    "name": "churn",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "rounds", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "loop": "while",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "rounds" } },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "name", "type": "String", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "person-" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } } },
+      { "op": "bind", "mutable": false, "name": "p", "type": "Person", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "local", "name": "name" }, { "kind": "const", "type": "String", "value": "city" }] } },
+      { "op": "bind", "mutable": false, "name": "items", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "name" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "city" }, { "kind": "const", "type": "String", "value": "tail" }] } },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "name" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "items" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } } },
+      { "op": "assign", "name": "i", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "total" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "Person", "value": { "kind": "call", "target": "makePerson", "args": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "London" }] } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "Person", "value": { "kind": "local", "name": "a" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "name" }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "city" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "name" }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "city" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "nameOf", "args": [{ "kind": "local", "name": "a" }] }] } },
+    { "op": "bind", "mutable": false, "name": "team", "type": "Team", "value": { "kind": "constructor", "type": "Team", "args": [{ "kind": "local", "name": "a" }, { "kind": "list", "type": "List OF Person", "values": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }, { "kind": "call", "target": "makePerson", "args": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "New York" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "team" }, "member": "lead" }, "member": "name" }, "right": { "kind": "const", "type": "String", "value": "+" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "team" }, "member": "members" }] }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "call", "target": "collections.get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "team" }, "member": "members" }, { "kind": "const", "type": "Integer", "value": "2" }] }, "member": "name" }] } },
+    { "op": "bind", "mutable": false, "name": "team2", "type": "Team", "value": { "kind": "local", "name": "team" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "call", "target": "collections.get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "team2" }, "member": "members" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "member": "city" }] } },
+    { "op": "bind", "mutable": false, "name": "a2", "type": "Person", "value": { "kind": "with", "type": "Person", "target": { "kind": "local", "name": "a" }, "updates": [{ "field": "city", "value": { "kind": "const", "type": "String", "value": "Paris-and-longer" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "city" }, "right": { "kind": "const", "type": "String", "value": "|" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "a2" }, "member": "city" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "churn", "args": [{ "kind": "const", "type": "Integer", "value": "500" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

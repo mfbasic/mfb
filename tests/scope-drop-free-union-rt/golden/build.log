@@ -1,0 +1,16 @@
+$ mfb build -ast tests/scope-drop-free-union-rt
+Wrote AST to tests/scope-drop-free-union-rt/scope_drop_free_union_rt.ast
+[exit 0]
+$ mfb build -ir tests/scope-drop-free-union-rt
+Wrote IR to tests/scope-drop-free-union-rt/scope_drop_free_union_rt.ir
+[exit 0]
+$ mfb build tests/scope-drop-free-union-rt
+Wrote executable to tests/scope-drop-free-union-rt/scope_drop_free_union_rt.out
+[exit 0]
+$ tests/scope-drop-free-union-rt/scope_drop_free_union_rt.out
+dot:7
+hello-and-longer
+hello-and-longer|dot:7
+dot:7;hello-and-longer;hello-and-longer;
+85180
+[exit 0]

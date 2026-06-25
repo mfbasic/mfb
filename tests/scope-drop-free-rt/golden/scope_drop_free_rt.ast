@@ -1,0 +1,115 @@
+{
+  "project": "scope_drop_free_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 11 },
+    { "module": "collections", "line": 12 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Person",
+      "line": 14,
+      "fields": [
+      { "visibility": null, "name": "name", "type": "String", "line": 15 },
+      { "visibility": null, "name": "city", "type": "String", "line": 16 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Team",
+      "line": 19,
+      "fields": [
+      { "visibility": null, "name": "lead", "type": "Person", "line": 20 },
+      { "visibility": null, "name": "members", "type": "List OF Person", "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "makePerson",
+      "line": 25,
+      "params": [
+      { "name": "n", "type": "String", "default": null },
+      { "name": "c", "type": "String", "default": null }
+      ],
+      "returnType": "Person",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Person", "value": { "kind": "constructor", "type": "Person", "arguments": [{ "kind": "identifier", "value": "n" }, { "kind": "identifier", "value": "c" }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "p" }, "line": 27 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "nameOf",
+      "line": 32,
+      "params": [
+      { "name": "p", "type": "Person", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "name" }, "line": 33 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "churn",
+      "line": 38,
+      "params": [
+      { "name": "rounds", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 39 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 40 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "identifier", "value": "rounds" } },
+        "line": 41,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "name", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "person-" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "i" }] } }, "line": 42 },
+        { "kind": "binding", "mutable": false, "name": "p", "type": "Person", "value": { "kind": "constructor", "type": "Person", "arguments": [{ "kind": "identifier", "value": "name" }, { "kind": "string", "value": "city" }] }, "line": 43 },
+        { "kind": "binding", "mutable": false, "name": "items", "type": "List OF String", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "name" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "city" }, { "kind": "string", "value": "tail" }] }, "line": 44 },
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "name" }] } }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "items" }, { "kind": "number", "value": "0" }] }] } }, "line": 45 },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 46 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 48 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 51,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Person", "value": { "kind": "call", "callee": "makePerson", "arguments": [{ "kind": "string", "value": "Ada" }, { "kind": "string", "value": "London" }] }, "line": 53 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Person", "value": { "kind": "identifier", "value": "a" }, "line": 54 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "name" }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "city" } }] }, "line": 55 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "name" }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "city" } }] }, "line": 56 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "nameOf", "arguments": [{ "kind": "identifier", "value": "a" }] }] }, "line": 57 },
+      { "kind": "binding", "mutable": false, "name": "team", "type": "Team", "value": { "kind": "constructor", "type": "Team", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "list", "values": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }, { "kind": "call", "callee": "makePerson", "arguments": [{ "kind": "string", "value": "Grace" }, { "kind": "string", "value": "New York" }] }] }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "team" }, "member": "lead" }, "member": "name" }, "right": { "kind": "string", "value": "+" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "team" }, "member": "members" }] }] } }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "team" }, "member": "members" }, { "kind": "number", "value": "2" }] }, "member": "name" }] }, "line": 62 },
+      { "kind": "binding", "mutable": false, "name": "team2", "type": "Team", "value": { "kind": "identifier", "value": "team" }, "line": 63 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "team2" }, "member": "members" }, { "kind": "number", "value": "0" }] }, "member": "city" }] }, "line": 64 },
+      { "kind": "binding", "mutable": false, "name": "a2", "type": "Person", "value": { "kind": "with", "target": { "kind": "identifier", "value": "a" }, "updates": [{ "field": "city", "value": { "kind": "string", "value": "Paris-and-longer" } }] }, "line": 67 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a" }, "member": "city" }, "right": { "kind": "string", "value": "|" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "a2" }, "member": "city" } }] }, "line": 68 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "churn", "arguments": [{ "kind": "number", "value": "500" }] }] }] }, "line": 71 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 72 }
+      ]
+    }
+    ]
+  }
+  ]
+}
