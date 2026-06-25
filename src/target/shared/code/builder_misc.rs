@@ -1718,15 +1718,19 @@ impl CodeBuilder<'_> {
 
     fn collection_payload_needs_transfer_fix(&self, type_: &str) -> bool {
         if self.type_model.record_fields.contains_key(type_) {
-            // A record payload was byte-copied whole (inlined String fields came
-            // along); it only needs the per-payload fix if it still has pointer
-            // fields to deep-copy (plan-02 §4.2).
+            // A record payload was byte-copied whole (inlined fields came along);
+            // it only needs the per-payload fix if it still has pointer fields to
+            // deep-copy (plan-02 §4.2). (`Error`/`ErrorLoc` land here too — their
+            // `String` fields are pointers, so this returns true for them.)
             return self.record_needs_pointer_field_fix(type_);
         }
-        is_collection_type(type_)
-            || self.type_model.union_names.contains(type_)
-            || type_.starts_with("Result OF ")
-            || type_ == "Error"
+        if is_collection_type(type_) || self.type_model.union_names.contains(type_) {
+            // A flat nested collection or flat data union was inlined and copied
+            // whole; only a non-flat one (an embedded pointer/resource payload)
+            // needs the per-payload deep-copy fix (plan-02 §4.3/§4.4).
+            return !self.type_is_flat(type_);
+        }
+        type_.starts_with("Result OF ")
     }
 
     fn fix_collection_transfer_payload(

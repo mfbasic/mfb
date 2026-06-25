@@ -1,0 +1,53 @@
+{
+  "project": "flat_nested_collection_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 },
+    { "module": "collections", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Grid",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "rows", "type": "List OF List OF Integer", "line": 11 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "m", "type": "List OF List OF Integer", "value": { "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, { "kind": "list", "values": [{ "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "5" }] }, { "kind": "list", "values": [] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "m" }] }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "number", "value": "1" }] }] }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "2" }] }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "number", "value": "2" }] }] }] }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "m2", "type": "List OF List OF Integer", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "list", "values": [{ "kind": "number", "value": "9" }, { "kind": "number", "value": "9" }, { "kind": "number", "value": "9" }, { "kind": "number", "value": "9" }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "m" }] }] }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "m2" }] }] } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m2" }, { "kind": "number", "value": "3" }] }] }] }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "m" }, { "kind": "number", "value": "0" }] }, { "kind": "number", "value": "0" }] }] }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "byKey", "type": "Map OF String TO List OF Integer", "value": { "kind": "map", "keyType": "String", "valueType": "List OF Integer", "entries": [{ "key": { "kind": "string", "value": "a" }, "value": { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }] } }, { "key": { "kind": "string", "value": "b" }, "value": { "kind": "list", "values": [{ "kind": "number", "value": "30" }] } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "byKey" }, { "kind": "string", "value": "a" }] }, { "kind": "number", "value": "1" }] }] }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "byKey" }, { "kind": "string", "value": "b" }] }] }] }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "deep", "type": "List OF List OF List OF Integer", "value": { "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "number", "value": "1" }] }, { "kind": "list", "values": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }] }, { "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "number", "value": "4" }] }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "deep" }, { "kind": "number", "value": "0" }] }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "0" }] }] }] }, "line": 34 },
+      { "kind": "binding", "mutable": false, "name": "g", "type": "Grid", "value": { "kind": "constructor", "type": "Grid", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "8" }] }, { "kind": "list", "values": [{ "kind": "number", "value": "9" }] }] }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "g2", "type": "Grid", "value": { "kind": "identifier", "value": "g" }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "g2" }, "member": "rows" }, { "kind": "number", "value": "0" }] }, { "kind": "number", "value": "1" }] }] }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "g" }, "member": "rows" }] }] }] }, "line": 40 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 42 }
+      ]
+    }
+    ]
+  }
+  ]
+}

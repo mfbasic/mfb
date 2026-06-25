@@ -25,10 +25,14 @@ impl CodeBuilder<'_> {
         // A resource handle is a single 8-byte pointer to its record; a collection
         // slot stores a borrow of that pointer exactly like any other pointer
         // payload (§15.6). Resource *unions* carry a tag and are not pointer
-        // payloads.
-        is_collection_type(type_)
-            || (crate::builtins::is_resource_type(type_)
-                && !self.type_model.union_names.contains(type_))
+        // payloads. A **flat** nested collection is inlined as its own block in
+        // the data region (plan-02 §4.4, Phase 5a); only a *non-flat* nested
+        // collection (one that itself embeds a pointer/resource payload) stays a
+        // pointer handle.
+        if is_collection_type(type_) {
+            return !self.type_is_flat(type_);
+        }
+        crate::builtins::is_resource_type(type_) && !self.type_model.union_names.contains(type_)
     }
 
     /// Alignment, in bytes, that a packed collection payload of `type_` requires
@@ -44,6 +48,8 @@ impl CodeBuilder<'_> {
             "Integer" | "Float" | "Fixed" => 8,
             other if self.is_pointer_collection_payload_type(other) => 8,
             other if self.inline_collection_payload_size(other).is_some() => 8,
+            // An inlined flat collection block begins with `U64` header fields.
+            other if is_collection_type(other) => 8,
             _ => 1,
         }
     }
@@ -261,9 +267,12 @@ impl CodeBuilder<'_> {
         let result = if type_ == "String" {
             true
         } else if is_collection_type(type_) {
-            self.collection_payload_types(type_).into_iter().all(|p| {
-                !is_collection_type(&p) && self.type_is_flat_inner(&p, visited)
-            })
+            // A collection is flat when every payload is flat — including a nested
+            // flat collection, which is inlined in the data region (plan-02 §4.4,
+            // Phase 5a). A resource or recursive payload makes it non-flat.
+            self.collection_payload_types(type_)
+                .into_iter()
+                .all(|p| self.type_is_flat_inner(&p, visited))
         } else if self.type_model.record_fields.contains_key(type_) {
             !self.is_pointer_string_record(type_)
                 && self
@@ -1242,6 +1251,14 @@ impl CodeBuilder<'_> {
                 self.emit_data_union_size_to_slot(payload.slot, len_slot);
                 return Ok(len_slot);
             }
+            other if is_collection_type(other) => {
+                // A flat nested collection is inlined as its own block; size it at
+                // runtime (plan-02 §4.4).
+                self.emit(abi::load_u64("x8", abi::stack_pointer(), payload.slot));
+                self.emit_flat_block_size(other, "x8", "x9", "x10")?;
+                self.emit(abi::store_u64("x9", abi::stack_pointer(), len_slot));
+                return Ok(len_slot);
+            }
             other if self.inline_collection_payload_size(other).is_some() => {
                 let size = self
                     .inline_collection_payload_size(other)
@@ -1308,7 +1325,12 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
                 self.emit(abi::store_u64("x12", "x10", 0));
             }
-            other if self.inline_collection_payload_size(other).is_some() => {
+            other
+                if self.inline_collection_payload_size(other).is_some()
+                    || is_collection_type(other) =>
+            {
+                // Inline record/union slot bytes, or a flat nested collection
+                // block — copy `len_slot` bytes verbatim (plan-02 §4.2–§4.4).
                 self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
                 self.emit(abi::load_u64("x13", abi::stack_pointer(), len_slot));
                 self.emit_copy_bytes("x10", "x12", "x13", "collection_copy_inline");
@@ -1379,7 +1401,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&result, &data, 0));
                 Ok(result)
             }
+            // An inlined record/union slot block or a flat nested collection block
+            // is read as a borrow pointer to the block within the data region
+            // (plan-02 §4.2–§4.4). Its own offsets are relative to that base.
             other if self.inline_collection_payload_size(other).is_some() => Ok(data),
+            other if is_collection_type(other) => Ok(data),
             other => Err(format!(
                 "native collection packed payload does not support type '{other}'"
             )),

@@ -89,13 +89,23 @@ Last updated: 2026-06-24
   `tests/flat-record-collection-rt` (record with `List`+`Map` fields, a record
   holding a `List` of `String`-bearing records, copy/append independence) is
   deterministic under entropy poisoning.
-  - **Part (a) — PENDING:** nested collections inside a *collection's* data region
-    (`List OF List`, `Map OF String TO List`) are still 8-byte pointer handles
-    (`memory_layouts.md` Collection §; `is_pointer_collection_payload_type`).
-    Inlining them needs the collection layout-writer (append/insert/get/copy/
-    compaction) to handle variable-size collection payloads — the most intricate
-    remaining change. Until then `type_is_flat` correctly treats any collection
-    with a nested-collection payload as **not** flat (so it stays a pointer).
+  - **Part (a) — DONE.** Nested **flat** collections (`List OF List`,
+    `Map OF String TO List`, N levels) are now inlined as their full block in the
+    enclosing collection's data region by `valueOffset`/`valueLength` (the block
+    byte size), not a pointer handle. The collection payload writer/reader
+    (`emit_payload_length_to_stack`, `emit_copy_payload_to_collection`,
+    `emit_load_collection_payload`, `collection_payload_alignment`) gained a
+    flat-collection branch (size via `emit_flat_block_size`; copy = `memcpy` the
+    block; read = borrow pointer to the inlined block); `type_is_flat`'s collection
+    branch now recurses into nested-collection payloads (cycle-detected), and
+    `is_pointer_collection_payload_type` keeps **only** resources and non-flat
+    nested collections as pointers. A collection relocates under `memcpy` because
+    its entry offsets are base-relative. With this, **every non-resource value is
+    flat.** Validated: full acceptance green (no `ncode` churn); new runtime proof
+    `tests/flat-nested-collection-rt` (`List OF List`, `Map OF String TO List`,
+    3-level nesting, a record holding `List OF List`, append copy-independence) is
+    deterministic under entropy poisoning; `func_collections_helpers_valid`
+    (`flatten` over `List OF List`) passes.
 - **Phase 6 (generic copy) — DONE (the cutover; glue deletion deferred).**
   `copy_flat_block` now sizes any flat block via the `emit_inlined_block_size_from_ptr_slot`
   dispatcher (`String`/collection/record-walk/data-union-`size@8`), and

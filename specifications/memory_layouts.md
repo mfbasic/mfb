@@ -457,11 +457,17 @@ For `Map`, lookup entry order is the implementation-defined stable iteration
 order. The initial implementation may scan entries linearly. Future hash/probe
 metadata may be added through a new layout version.
 
-Version 1 packs primitive payloads, `String` bytes, user-defined record slots,
-and user-defined union slots directly into the data region. Nested `List` and
-`Map` values store one pointer-sized native collection handle in the data
-region; the nested collection's own allocation stores its full header, lookup
-table, and data region.
+The data region packs every **flat** payload directly, addressed by the lookup
+entry's `valueOffset`/`valueLength` (`plan-02-flat-values.md`): primitive
+payloads, `String` bytes, inlined record blocks, inlined data-union blocks, and —
+since Phase 5a — **nested flat collections** (a `List`/`Map` whose own payloads
+are flat) as their full block (header + lookup table + data region) inlined by
+offset, `valueLength` = the block byte size. Because a collection's internal
+entry offsets are relative to its own base, an inlined nested collection
+relocates correctly under the enclosing block's `memcpy`. The **only** payloads
+that remain an 8-byte pointer handle are a **resource** and a **non-flat** nested
+collection (one whose own payloads include a resource or a recursive type) — see
+`is_pointer_collection_payload_type`.
 
 ## List Examples
 

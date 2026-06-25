@@ -1,0 +1,43 @@
+' plan-02 Phase 5a proof: a flat nested collection is inlined as its own block in
+' the enclosing collection's data region (no pointer handle). Exercises List OF
+' List, Map OF String TO List, a List OF List OF Integer (two levels), reading
+' inner elements back, copy independence across append, and a record holding a
+' List OF List. Runs under entropy poisoning so any residual pointer aliasing or
+' wrong offset crashes loudly.
+IMPORT io
+IMPORT collections
+
+TYPE Grid
+  rows AS List OF List OF Integer
+END TYPE
+
+FUNC main AS Integer
+  LET m AS List OF List OF Integer = [[1, 2], [3, 4, 5], []]
+  io::print(toString(len(m)))
+  io::print(toString(len(collections::get(m, 1))))
+  io::print(toString(collections::get(collections::get(m, 1), 2)))
+  io::print(toString(len(collections::get(m, 2))))
+
+  ' Copy independence: append a new inner list to a copy; original intact.
+  LET m2 AS List OF List OF Integer = collections::append(m, [9, 9, 9, 9])
+  io::print(toString(len(m)) & "/" & toString(len(m2)))
+  io::print(toString(len(collections::get(m2, 3))))
+  io::print(toString(collections::get(collections::get(m, 0), 0)))
+
+  ' Map of String to List.
+  LET byKey AS Map OF String TO List OF Integer = Map OF String TO List OF Integer { "a" := [10, 20], "b" := [30] }
+  io::print(toString(collections::get(collections::get(byKey, "a"), 1)))
+  io::print(toString(len(collections::get(byKey, "b"))))
+
+  ' Three levels: List OF List OF List OF Integer.
+  LET deep AS List OF List OF List OF Integer = [[[1], [2, 3]], [[4]]]
+  io::print(toString(collections::get(collections::get(collections::get(deep, 0), 1), 0)))
+
+  ' Record holding a List OF List, copied by value.
+  LET g AS Grid = Grid[[[7, 8], [9]]]
+  LET g2 AS Grid = g
+  io::print(toString(collections::get(collections::get(g2.rows, 0), 1)))
+  io::print(toString(len(g.rows)))
+
+  RETURN 0
+END FUNC
