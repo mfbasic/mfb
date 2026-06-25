@@ -1,35 +1,64 @@
 NAME
-  general - Core built-in functions
+  general - always-in-scope core functions for length, conversion, type inspection, and predicates
 
 SYNOPSIS
-  mfb man general
-  mfb man general function
+  len(value)
+  toInt(value)
+  toString(value)
+  typeName(value)
+  isNumeric(value)
+  error(code, message)
 
 IMPORTS
-  None. general functions are available without an IMPORT statement.
+  None. general functions are always in scope and need no IMPORT statement.
 
 DESCRIPTION
-  general contains the built-in functions that are always in scope. These
-  functions cover collection and string length, numeric conversion, type
-  inspection, and simple value predicates.
+  The general package collects the core built-in functions that every program
+  can call without qualification: length queries, numeric and text conversions,
+  static type inspection, value predicates, and Error construction. They operate
+  on the primitive types (Integer, Float, Fixed, Byte, Boolean, String) and on
+  the generic List OF T and Map OF K TO V containers.
 
-  Many general functions are overloaded. For example, len accepts String,
-  List OF T, and Map OF K TO V values; and toString accepts only the primitive
-  and byte-list overloads documented by its function page.
+  Many general functions are overloaded on the static type of their single
+  argument, and the overload is resolved at compile time. len reports a size as
+  an Integer: the Unicode scalar count of a String, the element count of a
+  List OF T, or the entry count of a Map OF K TO V. typeName returns an
+  implementation-defined display name for a value's static type and never reads
+  the value itself. The conversion family moves between the numeric and text
+  types: toInt, toFloat, toFixed, and toByte produce the named type, while
+  toString renders Integer, Float, Fixed, Boolean, String, Byte, and List OF Byte
+  values as text. Float and Fixed string formatting takes an optional precision
+  (also spelled decimals) that defaults to 2.
 
-  List and Map helpers now live in the collections package, and string
-  slicing and search helpers live in the strings package.
+  The predicates return a Boolean and inspect their argument without side
+  effects: isNumeric tests whether a String would parse as a number, and the
+  numeric and emptiness predicates (isEven, isOdd, isPositive, isNegative,
+  isZero, isEmpty, isNotEmpty) classify a value by parity, sign, or size. These
+  predicates are inlined builtins, so they cannot be passed as function values
+  directly; wrap one in a FUNC where a predicate argument is needed.
+
+  error constructs a read-only Error value from an Integer code and a String
+  message, capturing the call-site source location in an ErrorLoc. An Error
+  exposes code (Integer), message (String), and source (ErrorLoc) fields; an
+  ErrorLoc exposes filename (String), line (Integer), and char (Integer). Both
+  are read-only built-in records whose fields cannot be reassigned. Neither the
+  conversions, the predicates, nor error mutate their arguments. toString and
+  typeName are diagnostic conveniences, not security boundaries, and must not be
+  relied on to redact secrets. List and Map helpers live in the collections
+  package, and string slicing and search helpers live in the strings package.
 
 ERRORS
-  Fallible general functions return Result and participate in normal MFBASIC
-  error propagation. For example, conversions fail for invalid formats or
-  out-of-range values.
+  77050003 (ErrInvalidFormat)
+  Raised by toInt, toFloat, and toFixed when a String argument is not well-formed
+  text for the target type, or when a Float argument to toInt or toFixed is NaN
+  or infinite and cannot be represented.
 
-EXAMPLES
-  Count list items:
+  77050010 (ErrOverflow)
+  Raised by toInt, toFloat, toFixed, and toByte when a value is outside the
+  representable range of the target type, such as Integer text too large for
+  Integer, a Float magnitude too large for Fixed, or an Integer outside 0 through
+  255 for toByte.
 
-    LET count AS Integer = len([1, 2, 3])
-
-  Convert a value to text:
-
-    LET text AS String = toString(42)
+  77020004 (ErrEncoding)
+  Raised by the toString List OF Byte overload when the byte sequence is not
+  valid UTF-8.

@@ -1,74 +1,58 @@
 NAME
-    collections - sequence and map helper functions
+  collections - sequence and map helper functions
 
 SYNOPSIS
-    IMPORT collections
-    collections::sort(value)
-    collections::sortBy(value, keyFn)
-    collections::take(value, count)
-    collections::drop(value, count)
-    collections::reduceRight(value, initial, f)
-    collections::any(value, predicate)
-    collections::all(value, predicate)
-    collections::findIndex(value, predicate[, start])
-    collections::findLastIndex(value, predicate[, end])
-    collections::groupBy(value, keyFn, valFn)
-    collections::mapValues(value, f)
-    collections::flatten(value)
-    collections::zip(a, b)
-    collections::chunks(value, chunkSize)
-    collections::window(value, size[, step])
-    collections::distinct(value)
-    collections::merge(a, b, preferB)
-    collections::partition(value, predicate)
-    collections::get(value, indexOrKey)
-    collections::getOr(value, indexOrKey, default)
-    collections::set(value, indexOrKey, item)
-    collections::append(value, item)
-    collections::prepend(value, item)
-    collections::insert(value, index, item)
-    collections::removeAt(value, index)
-    collections::removeKey(value, key)
-    collections::keys(value)
-    collections::values(value)
-    collections::hasKey(value, key)
-    collections::contains(value, item)
-    collections::forEach(value, action)
-    collections::transform(value, f)
-    collections::filter(value, predicate)
-    collections::reduce(value, initial, f)
-    collections::sum(value)
-    collections::find(value, item[, start])
-    collections::mid(value, start, count)
-    collections::replace(value, old, new)
+  IMPORT collections
+  collections::get(value, indexOrKey)
+  collections::transform(value, f)
+  collections::filter(value, predicate)
+  collections::reduce(value, initial, f)
+  collections::sort(value)
+  collections::groupBy(value, keyFn, valFn)
 
 DESCRIPTION
-    The collections package contains package-qualified helpers for List and Map
-    values. collections is a built-in package: IMPORT collections needs no
-    manifest dependency.
+  The collections package provides package-qualified helpers for List and Map
+  values: element access and mutation (get, set, append, prepend, insert,
+  removeAt, removeKey), higher-order transforms (transform, filter, reduce,
+  reduceRight, forEach, mapValues), queries (find, findIndex, findLastIndex,
+  contains, any, all, hasKey, keys, values), reshaping (sort, sortBy, distinct,
+  flatten, zip, chunks, window, partition, groupBy, merge), and numeric folding
+  (sum). collections is a built-in package: IMPORT collections needs no manifest
+  dependency.
 
-    Element and key types follow the comparable/orderable rules: collections::sort
-    and collections::sortBy require an orderable element or key type;
-    collections::distinct requires a comparable element type. List indexes are
-    zero-based.
+  These helpers do not mutate their arguments. Functions that change a
+  collection return a new value; the original is left unchanged. List indexes
+  are zero-based, and access reads without copying the collection.
 
-    Predicates and other function arguments are passed as function values (for
-    example a named FUNC). The numeric/empty filter predicates such as isEven are
-    inlined builtins and cannot be passed as values; wrap them in a FUNC when a
-    predicate argument is needed.
+  Element and key types follow the comparable/orderable rules: collections::sort
+  and collections::sortBy require an orderable element or key type, and
+  collections::distinct requires a comparable element type. Map helpers operate
+  on Map OF K TO V values, where the key type K is the map's declared key type.
 
-EXAMPLES
-    IMPORT io
-    IMPORT collections
+  Predicates and other function arguments are passed as function values (for
+  example a named FUNC). The numeric/empty filter predicates such as isEven are
+  inlined builtins and cannot be passed as values; wrap them in a FUNC when a
+  predicate argument is needed.
 
-    FUNC main AS Integer
-      LET ordered AS List OF Integer = collections::sort([3, 1, 2])
-      io::print(toString(collections::take(ordered, 2)))
-      RETURN 0
-    END FUNC
+  Some helpers introduce built-in result types: collections::zip produces a
+  List OF Pair OF A, B, and collections::partition produces a Partition OF T
+  holding the matched and unmatched elements. See `mfb man types pair` and
+  `mfb man types partition`.
 
-SEE ALSO
-    mfb man types pair
-    mfb man types partition
-    mfb man collections get
-    mfb man strings left
+ERRORS
+  77050001 (ErrIndexOutOfRange)
+  Raised by get (List overload), set, insert, removeAt, mid, find, findIndex,
+  and findLastIndex when an index or start position is outside the valid range
+  of the list.
+
+  77050002 (ErrInvalidArgument)
+  Raised by chunks when chunkSize is less than 1, and by window when size or
+  step is less than 1.
+
+  77050004 (ErrNotFound)
+  Raised by get (Map overload) when the key is missing, and by find, findIndex,
+  and findLastIndex when no element matches.
+
+  77050010 (ErrOverflow)
+  Raised by sum when Integer or Fixed summation exceeds the range of the element
+  type.

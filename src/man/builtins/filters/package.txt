@@ -1,32 +1,36 @@
 NAME
-  filters - predicate helper functions
+  filters - always-in-scope predicate helper functions
 
 SYNOPSIS
-  mfb man filter [function]
+  isEven(value)
+  isPositive(value)
+  isEmpty(value)
+  filter([1, 2, 3, 4], isEven)
 
 IMPORTS
-  None. filter functions are available without an IMPORT statement.
+  None. filters functions are always in scope and need no IMPORT statement.
 
 DESCRIPTION
-  filter contains always-in-scope predicate helpers for ordinary conditionals,
-  MATCH guards, and collection filter predicates.
+  The filters package provides boolean predicate helpers for ordinary
+  conditionals, MATCH guards, and collection filter predicates. Every function
+  returns a Boolean and inspects its argument without modifying it or producing
+  side effects.
 
-  Numeric predicates test parity, sign, and zero values. Emptiness predicates
-  test String, List, and Map values using the same length rules as len.
+  The numeric predicates test parity, sign, and value. isEven and isOdd accept
+  Integer values and report whether value MOD 2 is zero. isPositive and
+  isNegative accept Integer, Float, and Fixed values and report whether value is
+  greater than or less than zero.
+
+  The emptiness predicates isEmpty and isNotEmpty accept String, List OF T, and
+  Map OF K TO V values and are logical negations of each other. They use exactly
+  the same length rules as len: a String is measured by Unicode scalar count, a
+  List by item count, and a Map by entry count, so the empty string "", a list
+  with no items, and a map with no entries are the only empty values.
+
+  Accepted argument types are resolved at compile time. An argument whose type a
+  predicate does not support is rejected during type checking rather than at run
+  time. Because these predicates are inlined builtins, they cannot be passed as
+  function values directly; wrap one in a FUNC when a predicate value is needed.
 
 ERRORS
-  Filter predicates do not fail for supported evaluated arguments. Errors can
-  still propagate from evaluating an argument before the predicate is called.
-
-EXAMPLES
-  Filter integers:
-
-    LET values AS List OF Integer = filter([1, 2, 3, 4], isEven)
-
-  Test text:
-
-    LET ok AS Boolean = isNotEmpty("hello")
-
-SEE ALSO
-  collection
-  general
+  No errors.

@@ -1,35 +1,53 @@
 NAME
-  json - JSON parsing, formatting, and object-path helpers
+  json - parse, build, serialize, and read JSON values
 
 SYNOPSIS
   IMPORT json
-  json::parse(value)
+  json::parse(text)
   json::stringify(value)
   json::get(value, path)
-  json::getOr(value, path, defaultValue)
+  json::getOr(value, path, default)
 
 DESCRIPTION
-  The json package provides a built-in Json union plus helpers for parsing
-  UTF-8 JSON text, formatting Json values, and reading nested object members by
-  key path.
+  The json package converts between JSON text and a Json value tree, and reads
+  members out of that tree. json::parse turns a UTF-8 String holding one
+  complete JSON document into a Json value, json::stringify renders a Json value
+  back into compact JSON text, and json::get and json::getOr walk a path of
+  object keys to a nested member. json is a built-in package: IMPORT json needs
+  no manifest dependency.
 
-  The built-in Json type is:
+  The package defines the Json union and its six member types. Json is a UNION
+  over JsonNull, JsonBool, JsonNum, JsonStr, JsonArr, and JsonObj, each a record
+  wrapping one field: JsonNull holds Nothing, JsonBool holds a Boolean, JsonNum
+  holds a Float, JsonStr holds a String, JsonArr holds a List OF Json, and
+  JsonObj holds a Map OF String TO Json. Every JSON form maps to exactly one
+  variant, and json::stringify accepts either the Json union or any one of its
+  member types directly. Because numbers are carried as Float, very large or
+  very precise values may lose precision in a parse/stringify round trip, and a
+  JsonNum holding a non-finite Float (NaN or infinity) has no JSON form.
 
-    UNION Json
-      Null(value AS Nothing)
-      Bool(value AS Boolean)
-      Num(value AS Float)
-      Str(value AS String)
-      Arr(items AS List OF Json)
-      Obj(fields AS Map OF String TO Json)
-    END UNION
+  Serialization is compact: json::stringify emits no insignificant whitespace,
+  preserves array item order, emits object pairs in the map's iteration order,
+  and applies the standard JSON string escapes. Parsing reads one complete
+  document, allows surrounding JSON whitespace, and rejects any trailing
+  non-whitespace content.
 
-  json::get and json::getOr traverse only object members. Path elements are
-  String keys. Arrays are represented as Json values but are not indexed by
-  these helpers.
+  The path readers operate only on object members. json::get and json::getOr
+  follow a List OF String of object keys left to right from value, requiring a
+  JsonObj at each step; an empty path returns value unchanged. They do not copy
+  value: the located Json value is returned directly. json::get fails when a key
+  is missing or the current value is not an object, whereas json::getOr returns
+  its default value in those cases instead of failing.
 
-SEE ALSO
-  mfb man json parse
-  mfb man json stringify
-  mfb man json get
-  mfb man json getOr
+ERRORS
+  77050003 (ErrInvalidFormat)
+  Raised by json::parse when the text is not a single valid JSON document
+  (empty, truncated, trailing non-whitespace content, a bad escape or surrogate,
+  an out-of-range code point, a raw control character in a string, or a
+  malformed number), and by json::stringify when a JsonNum holds a non-finite
+  Float (NaN or positive or negative infinity).
+
+  77050004 (ErrNotFound)
+  Raised by json::get when a path element names a key absent from the current
+  JsonObj, or when traversal reaches a non-object Json value while path elements
+  remain.

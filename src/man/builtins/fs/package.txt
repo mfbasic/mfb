@@ -44,8 +44,10 @@ DESCRIPTION
   fs::close only to release it earlier. Using a File after it is closed fails.
 
   Directory functions create (fs::createDirectory, fs::createDirectories), remove
-  (fs::deleteDirectory), and inspect (fs::listDirectory) directories, and read or
-  change the working directory (fs::currentDirectory, fs::setCurrentDirectory).
+  (fs::deleteDirectory), and inspect (fs::listDirectory) directories, read or
+  change the working directory (fs::currentDirectory, fs::setCurrentDirectory),
+  and report the host temporary directory (fs::tempDirectory), which is also the
+  default location fs::createTempFile uses when called without a directory.
   fs::listDirectory returns entry names only, excluding "." and "..", sorted in
   ascending byte-wise order for deterministic results. The existence predicates
   fs::exists, fs::fileExists, and fs::directoryExists return a Boolean and report
