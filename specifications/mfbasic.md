@@ -547,6 +547,21 @@ END SUB
 - **Every function may fail.** `FUNC F(...) AS T` yields a `T` on success and an `Error` on failure. A `SUB` yields nothing on success and may still fail (see §7).
 - **Default args** allowed (trailing).
 - **Named args** at call site: `greet("Ada", greeting := "Hi")`. Named arguments bind by parameter name, may be mixed with positional arguments, and are evaluated/lowered in declaration order after omitted default parameters are filled.
+- **Overloading.** Several `FUNC`s or `SUB`s may share one name as long as their parameter lists differ — by **arity** (number of parameters) or by **parameter type**. Each such declaration is a distinct overload; the function's identity is its name together with its ordered parameter types. Declaring two callables with the same name and the same ordered parameter types is a duplicate-symbol error (`SYMBOL_DUPLICATE_TOP_LEVEL`), even if they differ only in default values or return type — the **return type is not part of the signature** and never distinguishes an overload. Overloads may be declared across the files of one package, and an `EXPORT`ed overload set is resolved across the package boundary by importers.
+
+  ```basic
+  FUNC area(width AS Float, height AS Float) AS Float   ' rectangle
+    RETURN width * height
+  END FUNC
+  FUNC area(radius AS Float) AS Float                   ' circle — different arity
+    RETURN 3.14159 * radius * radius
+  END FUNC
+  FUNC area(side AS Integer) AS Integer                 ' square — different type
+    RETURN side * side
+  END FUNC
+  ```
+
+- **Overload resolution** is by the call's **argument count and positional argument types**: a call binds to the one overload whose parameter count equals the number of supplied arguments and whose declared parameter types match the argument types position by position. Resolution does not rank or prefer among candidates and does not coerce argument types to find a match; if no overload matches exactly, the call is a resolution error. **Default arguments do not combine with overloading**: trailing defaults are filled only for a name that has a single declaration, so within an overload set every parameter — including one declared with a default — must be supplied explicitly. (A name therefore either uses default/omitted arguments *or* is overloaded, not both.)
 - **Parameter passing**: arguments are passed as owned values under the memory model (§14). Copyable values are copied when they remain needed by the caller; movable values are moved when ownership can be transferred. Containers own their contents, so passing a container never passes an aliasable reference.
 - **Resource parameters**: a parameter whose type is a `RESOURCE` is handled by compiler-known resource rules (§15). Ordinary resource operations borrow the handle for the duration of the call; close operations consume it. MFBASIC source does not add `BORROW` or `MOVE` parameter keywords.
 - **Collection boundaries freeze mutable buffers.** When a `MUT` collection is passed to a function or returned from a function, it crosses the boundary as an immutable, owned collection value (§14). The compiler may move or freeze the existing buffer when ownership permits; the semantic guarantee is that no caller and callee can secretly share a mutable collection.
@@ -577,6 +592,9 @@ SUB logItem(x AS Integer)
   io::print(toString(x))
 END SUB
 ```
+
+A `SUB` may be **overloaded** on the same terms as a `FUNC` (§6): several `SUB`s
+may share a name when their parameter lists differ by arity or by parameter type.
 
 A `SUB` still has an error channel — it can `FAIL`, auto-propagate, and drop
 resources on the way out — but it produces nothing on success. `EXIT SUB` is the
