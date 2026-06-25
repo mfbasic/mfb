@@ -1,0 +1,77 @@
+{
+  "project": "func_regex_find_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "regex", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "findOr",
+      "line": 8,
+      "params": [
+      { "name": "value", "type": "String", "default": null },
+      { "name": "pattern", "type": "String", "default": null },
+      { "name": "start", "type": "Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.find", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }, { "kind": "identifier", "value": "start" }] }] }, "line": 9 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 10,
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "Err" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }] } }, "line": 11 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "show",
+      "line": 15,
+      "params": [
+      { "name": "value", "type": "String", "default": null },
+      { "name": "pattern", "type": "String", "default": null },
+      { "name": "start", "type": "Integer", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "findOr", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }, { "kind": "identifier", "value": "start" }] }] }, "line": 16 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }, { "kind": "number", "value": "0" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }, { "kind": "number", "value": "3" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }, { "kind": "number", "value": "4" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "a1b2c3" }, { "kind": "string", "value": "\\d" }, { "kind": "number", "value": "0" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "aaa" }, { "kind": "string", "value": "a+" }, { "kind": "number", "value": "0" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "string", "value": "x" }, { "kind": "number", "value": "0" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "string", "value": "" }, { "kind": "number", "value": "0" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "string", "value": "^b" }, { "kind": "number", "value": "1" }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "l" }, { "kind": "number", "value": "6" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "string", "value": "o$" }, { "kind": "number", "value": "0" }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.find", "arguments": [{ "kind": "string", "value": "a1b2c3" }, { "kind": "string", "value": "\\d" }] }] }] }, "line": 32 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "string", "value": "$" }, { "kind": "number", "value": "3" }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "show", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "string", "value": "\\b" }, { "kind": "number", "value": "0" }] }, "line": 36 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 37 }
+      ]
+    }
+    ]
+  }
+  ]
+}

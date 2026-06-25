@@ -115,6 +115,7 @@ enum ExprMode {
 
 pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    let augmented = builtins::regex::augmented_project(&augmented)?;
     let mut checker = TypeChecker::new(project_dir, &augmented);
     checker.check();
     if checker.had_error {
@@ -4509,6 +4510,16 @@ impl<'a> TypeChecker<'a> {
                 line,
             );
         }
+        if builtins::regex::is_regex_call(callee) {
+            return self.check_regex_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
+        }
         if builtins::thread::is_thread_call(callee) {
             return self.check_thread_builtin_call(
                 file,
@@ -4758,6 +4769,63 @@ impl<'a> TypeChecker<'a> {
         let Some(resolved) = builtins::json::resolve_call(callee, &arg_types) else {
             let expected =
                 builtins::json::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    fn check_regex_builtin_call(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arguments: &[CallArg],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::regex::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::regex::resolve_call(callee, &arg_types) else {
+            let expected =
+                builtins::regex::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(

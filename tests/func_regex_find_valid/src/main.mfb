@@ -1,0 +1,38 @@
+IMPORT io
+IMPORT regex
+
+REM regex.md §17.2 worked examples. `find` fails with ErrNotFound (77050004)
+REM when absent and ErrIndexOutOfRange (77050001) when `start` is out of range;
+REM both are caught here and reported as text so the run is total.
+
+FUNC findOr(value AS String, pattern AS String, start AS Integer) AS String
+  RETURN toString(regex::find(value, pattern, start))
+  TRAP(err)
+    RETURN "Err" & toString(err.code)
+  END TRAP
+END FUNC
+
+FUNC show(value AS String, pattern AS String, start AS Integer) AS Nothing
+  io::print(findOr(value, pattern, start))
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  show("hello", "l", 0)
+  show("hello", "l", 3)
+  show("hello", "l", 4)
+  show("a1b2c3", "\\d", 0)
+  show("aaa", "a+", 0)
+  show("abc", "x", 0)
+  show("abc", "", 0)
+  show("abc", "^b", 1)
+  show("hello", "l", 6)
+  show("hello", "o$", 0)
+  REM default start = 0
+  io::print(toString(regex::find("a1b2c3", "\\d")))
+  REM start == len is permitted and can match an end-anchored pattern
+  show("abc", "$", 3)
+  REM zero-length match position is a valid result
+  show("abc", "\\b", 0)
+  RETURN 0
+END FUNC

@@ -1,0 +1,15 @@
+IMPORT io
+IMPORT thread
+IMPORT regex_thread_workers
+
+REM Proves the regex package works inside an isolated worker thread (own arena).
+
+FUNC main AS Integer
+  LET t1 AS Thread OF Nothing TO Integer = thread::start(regex_thread_workers::countDigits, "a1b2c3d4")
+  LET t2 AS Thread OF Nothing TO String = thread::start(regex_thread_workers::normalizeSpaces, "hello   world  foo")
+  LET digits AS Integer = thread::waitFor(t1)
+  LET normalized AS String = thread::waitFor(t2)
+  io::print("digits=" & toString(digits))
+  io::print("normalized=" & normalized)
+  RETURN 0
+END FUNC

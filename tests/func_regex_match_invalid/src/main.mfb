@@ -1,0 +1,9 @@
+IMPORT regex
+
+FUNC main AS Integer
+  LET missing AS Boolean = regex::match("a")
+  LET tooMany AS Boolean = regex::match("a", "b", "c")
+  LET wrongType AS Boolean = regex::match("a", 5)
+  LET badName AS Boolean = regex::match(text := "a", pattern := "b")
+  RETURN 0
+END FUNC

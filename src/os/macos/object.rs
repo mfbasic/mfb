@@ -6,6 +6,7 @@ use crate::target::shared::plan::{CallKind, NativePlan};
 const VM_BASE: u64 = 0x1_0000_0000;
 const TEXT_FILE_OFFSET: usize = 0x4000;
 const LINKEDIT_FILE_OFFSET: usize = 0x8000;
+const MACHO_PAGE_SIZE: usize = 0x4000;
 
 pub(crate) struct NativeObjectPlan {
     target: String,
@@ -115,6 +116,16 @@ pub(crate) fn lower_plan(plan: &NativePlan) -> Result<NativeObjectPlan, String> 
     let cstring_file_offset = TEXT_FILE_OFFSET + align(text_size, 16);
     let cstring_vm_address = VM_BASE + cstring_file_offset as u64;
     let linkedit_size = 0x1000;
+    // `__LINKEDIT` follows `__text` + `__cstring`, page-aligned, mirroring the
+    // real linker layout in `link.rs` (`macho_layout`). The historical fixed
+    // `LINKEDIT_FILE_OFFSET` (0x8000) is kept as a floor so small programs keep
+    // their existing object-plan goldens; larger code grows the offset instead
+    // of overflowing into `__LINKEDIT` (a large source package like `regex`
+    // alone exceeds the old 16 KiB text budget).
+    let linkedit_file_offset = std::cmp::max(
+        LINKEDIT_FILE_OFFSET,
+        align(cstring_file_offset + cstring_size, MACHO_PAGE_SIZE),
+    );
 
     let sections = vec![
         SectionPlan {
@@ -139,8 +150,8 @@ pub(crate) fn lower_plan(plan: &NativePlan) -> Result<NativeObjectPlan, String> 
             segment: "__LINKEDIT".to_string(),
             section: None,
             kind: "linkedit".to_string(),
-            vm_address: VM_BASE + LINKEDIT_FILE_OFFSET as u64,
-            file_offset: LINKEDIT_FILE_OFFSET,
+            vm_address: VM_BASE + linkedit_file_offset as u64,
+            file_offset: linkedit_file_offset,
             size: linkedit_size,
             align: 1,
         },
@@ -168,17 +179,17 @@ pub(crate) fn lower_plan(plan: &NativePlan) -> Result<NativeObjectPlan, String> 
             SegmentPlan {
                 name: "__TEXT".to_string(),
                 vm_address: VM_BASE,
-                vm_size: LINKEDIT_FILE_OFFSET,
+                vm_size: linkedit_file_offset,
                 file_offset: 0,
-                file_size: LINKEDIT_FILE_OFFSET,
+                file_size: linkedit_file_offset,
                 max_protection: "read-execute".to_string(),
                 initial_protection: "read-execute".to_string(),
             },
             SegmentPlan {
                 name: "__LINKEDIT".to_string(),
-                vm_address: VM_BASE + LINKEDIT_FILE_OFFSET as u64,
+                vm_address: VM_BASE + linkedit_file_offset as u64,
                 vm_size: linkedit_size,
-                file_offset: LINKEDIT_FILE_OFFSET,
+                file_offset: linkedit_file_offset,
                 file_size: linkedit_size,
                 max_protection: "read".to_string(),
                 initial_protection: "read".to_string(),

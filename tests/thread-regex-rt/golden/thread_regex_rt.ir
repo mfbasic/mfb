@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "thread_regex_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "t1", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "regex_thread_workers.countDigits", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "a1b2c3d4" }] } },
+    { "op": "bind", "mutable": false, "name": "t2", "type": "Thread OF Nothing TO String", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "regex_thread_workers.normalizeSpaces", "type": "ISOLATED FUNC(ThreadWorker OF Nothing TO String, String) AS String" }, { "kind": "const", "type": "String", "value": "hello   world  foo" }] } },
+    { "op": "bind", "mutable": false, "name": "digits", "type": "Integer", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t1" }] } },
+    { "op": "bind", "mutable": false, "name": "normalized", "type": "String", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t2" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "digits=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "digits" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "normalized=" }, "right": { "kind": "local", "name": "normalized" } }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

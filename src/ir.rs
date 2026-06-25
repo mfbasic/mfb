@@ -396,6 +396,8 @@ pub fn lower_project_with_external_functions(
 ) -> IrProject {
     let augmented =
         builtins::json::augmented_project(ast).expect("built-in json package source must parse");
+    let augmented = builtins::regex::augmented_project(&augmented)
+        .expect("built-in regex package source must parse");
     let ast = &augmented;
     let mut types = Vec::new();
     let mut functions = Vec::new();
@@ -2194,6 +2196,15 @@ fn expression_type(
                 return builtins::json::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::regex::is_regex_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::regex::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::thread::is_thread_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2336,6 +2347,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::fs::expected_arguments(callee))
         .or_else(|| builtins::io::expected_arguments(callee))
         .or_else(|| builtins::json::expected_arguments(callee))
+        .or_else(|| builtins::regex::expected_arguments(callee))
         .or_else(|| builtins::net::argument_types(callee))
         .or_else(|| builtins::tls::argument_types(callee))
         .or_else(|| builtins::thread::expected_arguments(callee))?;
@@ -2644,6 +2656,14 @@ fn lower_expression_with_expected(
                     value: (*value).to_string(),
                 });
             }
+            for (type_, value) in
+                builtins::regex::default_argument_padding(&canonical_callee, args.len())
+            {
+                args.push(IrValue::Const {
+                    type_: (*type_).to_string(),
+                    value: (*value).to_string(),
+                });
+            }
             // Dequalify migrated `collections::`/`strings::` native members back
             // to their bare lowering names (plan-01-functions.md §5): the native
             // code generator stays keyed on `get`/`transform`/`find`/... .
@@ -2652,8 +2672,9 @@ fn lower_expression_with_expected(
             // §5). The native code generator dispatches on the qualified name, so
             // the freed bare names (`get`, `transform`, ...) can be redefined by
             // user code without colliding with the native lowering.
-            let resolved_target =
-                builtins::json::implementation_name(&canonical_callee).unwrap_or(&canonical_callee);
+            let resolved_target = builtins::json::implementation_name(&canonical_callee)
+                .or_else(|| builtins::regex::implementation_name(&canonical_callee))
+                .unwrap_or(&canonical_callee);
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`

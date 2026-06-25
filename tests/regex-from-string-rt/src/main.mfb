@@ -1,0 +1,34 @@
+IMPORT io
+IMPORT fs
+IMPORT regex
+IMPORT collections
+
+REM Proves a runtime regex works: the pattern is read from a file as raw bytes
+REM (so the backslashes in `(\w+)=(\d+)` reach the engine literally, with no
+REM compile-time string-escaping involved) and used by every regex function.
+
+FUNC render(hits AS List OF Integer) AS String
+  MUT s AS String = "["
+  MUT first AS Boolean = TRUE
+  FOR EACH h IN hits
+    IF first THEN
+      first = FALSE
+    ELSE
+      s = s & ","
+    END IF
+    s = s & toString(h)
+  NEXT
+  RETURN s & "]"
+END FUNC
+
+FUNC main AS Integer
+  LET pattern AS String = fs::readText("tests/regex-from-string-rt/data/pattern.txt")
+  LET value AS String = fs::readText("tests/regex-from-string-rt/data/input.txt")
+  io::print("pattern=" & pattern)
+  io::print("value=" & value)
+  io::print("match=" & toString(regex::match(value, pattern)))
+  io::print("find=" & toString(regex::find(value, pattern)))
+  io::print("findAll=" & render(regex::findAll(value, pattern)))
+  io::print("replace=" & regex::replace(value, pattern, "$2:$1"))
+  RETURN 0
+END FUNC

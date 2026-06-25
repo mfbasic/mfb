@@ -1,0 +1,15 @@
+IMPORT regex
+IMPORT thread
+
+REM Worker entry points that exercise the regex package inside an isolated
+REM thread arena (its own arena, separate from the parent). Patterns are
+REM ordinary runtime strings, compiled in the worker. A backslash in a pattern
+REM is written "\\" in MFBASIC source.
+
+EXPORT ISOLATED FUNC countDigits(t AS ThreadWorker OF Nothing TO Integer, seed AS String) AS Integer
+  RETURN len(regex::findAll(seed, "\\d"))
+END FUNC
+
+EXPORT ISOLATED FUNC normalizeSpaces(t AS ThreadWorker OF Nothing TO String, seed AS String) AS String
+  RETURN regex::replace(seed, "\\s+", "_")
+END FUNC

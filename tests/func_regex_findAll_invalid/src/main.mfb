@@ -1,0 +1,9 @@
+IMPORT regex
+
+FUNC main AS Integer
+  LET missing AS List OF Integer = regex::findAll("a")
+  LET tooMany AS List OF Integer = regex::findAll("a", "b", 0, 1)
+  LET wrongType AS List OF Integer = regex::findAll("a", "b", "c")
+  LET badName AS List OF Integer = regex::findAll("a", "b", begin := 0)
+  RETURN 0
+END FUNC

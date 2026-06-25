@@ -1,0 +1,17 @@
+$ mfb build -ast tests/regex-from-string-rt
+Wrote AST to tests/regex-from-string-rt/regex_from_string_rt.ast
+[exit 0]
+$ mfb build -ir tests/regex-from-string-rt
+Wrote IR to tests/regex-from-string-rt/regex_from_string_rt.ir
+[exit 0]
+$ mfb build tests/regex-from-string-rt
+Wrote executable to tests/regex-from-string-rt/regex_from_string_rt.out
+[exit 0]
+$ tests/regex-from-string-rt/regex_from_string_rt.out
+pattern=(\w+)=(\d+)
+value=alpha=12 beta=345 gamma=6
+match=TRUE
+find=0
+findAll=[0,9,18]
+replace=12:alpha 345:beta 6:gamma
+[exit 0]

@@ -310,19 +310,27 @@ String helpers are exported by the `strings` package. Package functions are call
 
 Regular-expression helpers are exported by the `regex` package. Package functions are called with their package qualifier.
 
-The regular-expression dialect is the Rust `regex` crate style supported by this implementation. It is compiler-defined and must behave the same across targets. Invalid patterns fail with `ErrInvalidFormat`.
+The regular-expression dialect is **MFBASIC's own**, defined completely and
+self-containedly in `specifications/regex.md` — its grammar, matching semantics,
+escapes, class shorthands, flags, replacement mini-language, and error behavior
+are normative there, not defined by reference to Rust, PCRE, POSIX, or any host
+`regcomp()`. It is compiler-defined and produces byte-for-byte identical results
+across every target and on both the native and Binary Representation code paths
+(`regex.md` §16). Invalid patterns fail with `ErrInvalidFormat`.
 
-Matching is Unicode-aware and user-visible indexes remain zero-based Unicode scalar indexes, not byte offsets. The implementation targets the Rust `regex` feature style rather than POSIX `regcomp()` semantics:
+Matching is Unicode-aware and user-visible indexes remain zero-based Unicode
+scalar indexes, not byte offsets (`regex.md` §2). Key properties:
 
-- syntax and matching behavior should follow Rust `regex` style
-- backreferences and look-around are not supported
+- syntax and matching behavior are defined by `specifications/regex.md`
+- backreferences and look-around are not supported (`regex.md` §15)
 - behavior must not vary by target libc or OS regex library
-- replacement behavior should follow Rust `regex`-style global replacement semantics supported by this implementation
+- replacement behavior follows the replacement mini-language in `regex.md` §13
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
 | `regex::match` | `FUNC match(value AS String, pattern AS String) AS Boolean` | `TRUE` when `pattern` matches anywhere in `value`. |
 | `regex::find` | `FUNC find(value AS String, pattern AS String, start AS Integer = 0) AS Integer` | Returns the zero-based scalar index of the first regex match at or after `start`. Fails with `ErrNotFound` when absent. |
+| `regex::findAll` | `FUNC findAll(value AS String, pattern AS String, start AS Integer = 0) AS List OF Integer` | Returns the zero-based scalar start index of every non-overlapping match at or after `start`, left to right. Returns an empty list when there are none (it does not fail with `ErrNotFound`). |
 | `regex::replace` | `FUNC replace(value AS String, pattern AS String, replacement AS String) AS String` | Replaces all regex matches. |
 
 ## 7. Built-in IO Package

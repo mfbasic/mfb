@@ -1,0 +1,9 @@
+IMPORT regex
+
+FUNC main AS Integer
+  LET missing AS String = regex::replace("a", "b")
+  LET tooMany AS String = regex::replace("a", "b", "c", "d")
+  LET wrongType AS String = regex::replace("a", "b", 5)
+  LET badName AS String = regex::replace("a", "b", replacementText := "c")
+  RETURN 0
+END FUNC

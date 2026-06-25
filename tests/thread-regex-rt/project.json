@@ -1,0 +1,16 @@
+{
+  "name": "thread_regex_rt",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    {
+      "name": "regex_thread_workers",
+      "version": "=0.1.0",
+      "source": "file:packages/regex_thread_workers.mfp"
+    }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

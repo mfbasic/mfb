@@ -1,0 +1,37 @@
+IMPORT io
+IMPORT regex
+
+REM regex.md §17.3 / §17.4 worked examples plus replacement mini-language (§13).
+
+FUNC show(value AS String, pattern AS String, replacement AS String) AS Nothing
+  io::print(regex::replace(value, pattern, replacement))
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  REM §17.3
+  show("a-b-c", "-", ":")
+  show("hello", "l", "L")
+  show("2024-06-24", "(\\d+)-(\\d+)-(\\d+)", "$3/$2/$1")
+  show("foo", "(?<x>o)", "[${x}]")
+  show("abc", "", "-")
+  show("a1b2", "\\d", "")
+  show("price", "x", "y")
+  show("5", "5", "$$")
+  show("ab", "a", "${1}z")
+  show("cat", "a", "4")
+  REM §17.4 zero-length advance detail
+  show("abc", "x*", "-")
+  REM braced vs unbraced references
+  show("ab", "(a)(b)", "${1}0")
+  show("ab", "(a)(b)", "$10")
+  REM named ref via ${name}_x boundary
+  show("ab", "(?<n>a)", "${n}_x")
+  REM $ that cannot start a reference is literal
+  show("x", "x", "$ y")
+  REM absent group expands to empty
+  show("abc", "a", "$9z")
+  REM whole-match group 0
+  show("hello", "l+", "[$0]")
+  RETURN 0
+END FUNC

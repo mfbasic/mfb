@@ -1,0 +1,71 @@
+{
+  "project": "regex_from_string_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 },
+    { "module": "regex", "line": 3 },
+    { "module": "collections", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "render",
+      "line": 10,
+      "params": [
+      { "name": "hits", "type": "List OF Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "string", "value": "[" }, "line": 11 },
+      { "kind": "binding", "mutable": true, "name": "first", "type": "Boolean", "value": { "kind": "boolean", "value": true }, "line": 12 },
+      {
+        "kind": "forEach",
+        "name": "h",
+        "iterable": { "kind": "identifier", "value": "hits" },
+        "line": 13,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "identifier", "value": "first" },
+          "line": 14,
+          "then": [
+          { "kind": "assignment", "name": "first", "value": { "kind": "boolean", "value": false }, "line": 15 }
+          ],
+          "else": [
+          { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "," } }, "line": 17 }
+          ]
+        },
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "h" }] } }, "line": 19 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": "]" } }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 24,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "pattern", "type": "String", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "tests/regex-from-string-rt/data/pattern.txt" }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "value", "type": "String", "value": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "string", "value": "tests/regex-from-string-rt/data/input.txt" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pattern=" }, "right": { "kind": "identifier", "value": "pattern" } }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "value=" }, "right": { "kind": "identifier", "value": "value" } }] }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "match=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.match", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }] }] } }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "regex.find", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }] }] } }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "findAll=" }, "right": { "kind": "call", "callee": "render", "arguments": [{ "kind": "call", "callee": "regex.findAll", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }] }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "replace=" }, "right": { "kind": "call", "callee": "regex.replace", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "pattern" }, { "kind": "string", "value": "$2:$1" }] } }] }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+      ]
+    }
+    ]
+  }
+  ]
+}
