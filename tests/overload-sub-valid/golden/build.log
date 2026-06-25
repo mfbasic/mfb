@@ -1,0 +1,14 @@
+$ mfb build -ast tests/overload-sub-valid
+Wrote AST to tests/overload-sub-valid/overload_sub_valid.ast
+[exit 0]
+$ mfb build -ir tests/overload-sub-valid
+Wrote IR to tests/overload-sub-valid/overload_sub_valid.ir
+[exit 0]
+$ mfb build tests/overload-sub-valid
+Wrote executable to tests/overload-sub-valid/overload_sub_valid.out
+[exit 0]
+$ tests/overload-sub-valid/overload_sub_valid.out
+int 7
+str hi
+count=3
+[exit 0]

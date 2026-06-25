@@ -1,0 +1,68 @@
+{
+  "project": "overload_sub_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "log",
+      "line": 8,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "log",
+      "line": 12,
+      "params": [
+      { "name": "value", "type": "String", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str " }, "right": { "kind": "identifier", "value": "value" } }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "log",
+      "line": 17,
+      "params": [
+      { "name": "label", "type": "String", "default": null },
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": "=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }] }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "log", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "log", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "log", "arguments": [{ "kind": "string", "value": "count" }, { "kind": "number", "value": "3" }] }, "line": 24 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 25 }
+      ]
+    }
+    ]
+  }
+  ]
+}

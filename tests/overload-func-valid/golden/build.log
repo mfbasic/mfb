@@ -1,0 +1,16 @@
+$ mfb build -ast tests/overload-func-valid
+Wrote AST to tests/overload-func-valid/overload_func_valid.ast
+[exit 0]
+$ mfb build -ir tests/overload-func-valid
+Wrote IR to tests/overload-func-valid/overload_func_valid.ir
+[exit 0]
+$ mfb build tests/overload-func-valid
+Wrote executable to tests/overload-func-valid/overload_func_valid.out
+[exit 0]
+$ tests/overload-func-valid/overload_func_valid.out
+int 42
+str hello
+bool true
+5
+9
+[exit 9]

@@ -1,0 +1,40 @@
+IMPORT io
+
+' User-defined `FUNC` overloading: several functions may share one name as long
+' as their parameter type lists differ (by arity or by type). Each call site
+' resolves to the matching signature. This mirrors the resolver rule that keys a
+' function symbol by (name, parameter types), not by name alone.
+
+' Overload by parameter type.
+FUNC describe(value AS Integer) AS String
+  RETURN "int " & toString(value)
+END FUNC
+
+FUNC describe(value AS String) AS String
+  RETURN "str " & value
+END FUNC
+
+FUNC describe(value AS Boolean) AS String
+  IF value THEN
+    RETURN "bool true"
+  END IF
+  RETURN "bool false"
+END FUNC
+
+' Overload by arity (same types, different count).
+FUNC combine(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+FUNC combine(a AS Integer, b AS Integer, c AS Integer) AS Integer
+  RETURN a + b + c
+END FUNC
+
+FUNC main AS Integer
+  io::print(describe(42))
+  io::print(describe("hello"))
+  io::print(describe(TRUE))
+  io::print(toString(combine(2, 3)))
+  io::print(toString(combine(2, 3, 4)))
+  RETURN combine(2, 3, 4)
+END FUNC

@@ -1,0 +1,26 @@
+IMPORT io
+
+' User-defined `SUB` overloading: like `FUNC`, several subs may share one name
+' when their parameter type lists differ (by type or by arity). Each call site
+' resolves to the matching signature.
+
+' Overload by parameter type.
+SUB log(value AS Integer)
+  io::print("int " & toString(value))
+END SUB
+
+SUB log(value AS String)
+  io::print("str " & value)
+END SUB
+
+' Overload by arity.
+SUB log(label AS String, value AS Integer)
+  io::print(label & "=" & toString(value))
+END SUB
+
+FUNC main AS Integer
+  log(7)
+  log("hi")
+  log("count", 3)
+  RETURN 0
+END FUNC

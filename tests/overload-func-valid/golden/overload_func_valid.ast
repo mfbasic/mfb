@@ -1,0 +1,108 @@
+{
+  "project": "overload_func_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "describe",
+      "line": 9,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "int " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] } }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "describe",
+      "line": 13,
+      "params": [
+      { "name": "value", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "str " }, "right": { "kind": "identifier", "value": "value" } }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "describe",
+      "line": 17,
+      "params": [
+      { "name": "value", "type": "Boolean", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "identifier", "value": "value" },
+        "line": 18,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "bool true" }, "line": 19 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "bool false" }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "combine",
+      "line": 25,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 26 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "combine",
+      "line": 29,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null },
+      { "name": "c", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "right": { "kind": "identifier", "value": "c" } }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 33,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "number", "value": "42" }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "string", "value": "hello" }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "boolean", "value": true }] }] }, "line": 36 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "combine", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }] }] }, "line": 37 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "combine", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }] }] }, "line": 38 },
+      { "kind": "return", "value": { "kind": "call", "callee": "combine", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }] }, "line": 39 }
+      ]
+    }
+    ]
+  }
+  ]
+}

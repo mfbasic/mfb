@@ -1,0 +1,65 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "overload_sub_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "log$Integer",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "int " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } }
+    ]
+  },
+  {
+    "name": "log$String",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "str " }, "right": { "kind": "local", "name": "value" } }] } }
+    ]
+  },
+  {
+    "name": "log$String$Integer",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "label", "type": "String", "default": null },
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "log$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "log$String", "args": [{ "kind": "const", "type": "String", "value": "hi" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "log$String$Integer", "args": [{ "kind": "const", "type": "String", "value": "count" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
