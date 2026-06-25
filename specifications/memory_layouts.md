@@ -89,7 +89,7 @@ logical string length.
 
 User-defined records store one 8-byte field slot per declared field, in
 declaration order, followed by a trailing data region that inlines variable-
-length sub-values (`plan-02-flat-values.md`):
+length sub-values:
 
 ```text
 RecordObject (flat)
@@ -127,7 +127,7 @@ do not rebase.
 
 ### `Error` and `ErrorLoc`
 
-`Error` and `ErrorLoc` are flat built-in records (`plan-02-flat-values.md`): their
+`Error` and `ErrorLoc` are flat built-in records: their
 `String`/sub-record fields are inlined into the trailing data region by
 block-relative offset, exactly like any other flat record, so the whole value is
 a single pointer-free block.
@@ -169,8 +169,7 @@ a scalar. Copy/transfer is one generic `memcpy`.
 ### Union
 
 A **data** union (all variants are data records) is a flat, self-describing
-`{tag, size, data}` block sized to the **active** variant
-(`plan-02-flat-values.md` §4.3):
+`{tag, size, data}` block sized to the **active** variant:
 
 ```text
 DataUnionObject (flat)
@@ -352,7 +351,7 @@ error.
 ### Entropy Fill
 
 Freed chunks and freshly mapped blocks are filled with pseudo-random bytes —
-always on, in debug and release (plan-01 §6). This scrubs freed secrets so they
+always on, in debug and release. This scrubs freed secrets so they
 do not linger as plaintext and poisons memory so a use-after-free or
 uninitialized read yields garbage instead of stale-but-plausible data. Because
 fresh arena memory is no longer implicitly zero, every allocation site must fully
@@ -388,11 +387,10 @@ first materialized in transfer storage or in the receiver's arena.
 ### Scope-Drop Frees
 
 Beyond the bulk `arena_destroy`, individual owned values are freed deterministically
-at **scope-drop** (`plan-01` Phase 5 / `plan-02` Phase 8), the same model resources
-already use. Because every non-resource value is a flat, pointer-free block, freeing
-one is a single `arena_free(ptr, size)` of its block — no per-type recursive drop
-glue — and the size is recomputed from the static type at the drop point
-(`emit_inlined_block_size_from_ptr_slot`).
+at **scope-drop**, the same model resources already use. Because every non-resource
+value is a flat, pointer-free block, freeing one is a single `arena_free(ptr, size)`
+of its block — no per-type recursive drop glue — and the size is recomputed from the
+static type at the drop point (`emit_inlined_block_size_from_ptr_slot`).
 
 Soundness rests on the heap being an **ownership tree**, which **copy-insertion**
 guarantees: every site that hands a value to a longer-lived owner — a `LET`/`MUT`
@@ -516,7 +514,7 @@ order. The initial implementation may scan entries linearly. Future hash/probe
 metadata may be added through a new layout version.
 
 The data region packs every **flat** payload directly, addressed by the lookup
-entry's `valueOffset`/`valueLength` (`plan-02-flat-values.md`): primitive
+entry's `valueOffset`/`valueLength`: primitive
 payloads, `String` bytes, inlined record blocks, inlined data-union blocks, and —
 since Phase 5a — **nested flat collections** (a `List`/`Map` whose own payloads
 are flat) as their full block (header + lookup table + data region) inlined by

@@ -172,7 +172,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0027` | `TYPE_DEFAULT_VALUE_MISMATCH` | error | `default parameter value has the wrong type` |
 | `2-203-0028` | `TYPE_DUPLICATE_ENUM_MEMBER` | error | `enum member is declared more than once` |
 | `2-203-0029` | `TYPE_DUPLICATE_FIELD` | error | `type field is declared more than once` |
-| `2-203-0030` | `TYPE_DUPLICATE_VARIANT` | error | `union member type is declared more than once` |
+| `2-203-0030` | `TYPE_DUPLICATE_VARIANT` | error | `union variant is declared more than once` |
 | `2-203-0031` | `TYPE_ENUM_REQUIRES_MEMBER` | error | `enum must declare at least one member` |
 | `2-203-0032` | `TYPE_FUNC_MISSING_RETURN` | error | `function is missing a return value` |
 | `2-203-0033` | `TYPE_FUNC_REQUIRES_RETURN_TYPE` | error | `FUNC must declare a return type` |
@@ -189,7 +189,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0044` | `TYPE_UNKNOWN_ENUM_MEMBER` | error | `enum member does not exist` |
 | `2-203-0045` | `TYPE_UNKNOWN_FIELD` | error | `record field does not exist` |
 | `2-203-0046` | `TYPE_UNION_INCLUDE_REQUIRES_UNION` | error | `union includes must name union types` |
-| `2-203-0047` | `TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS` | error | `union member constructor name is ambiguous` |
+| `2-203-0047` | `TYPE_VARIANT_CONSTRUCTOR_AMBIGUOUS` | error | `variant constructor name is ambiguous` |
 | `2-203-0048` | `TYPE_ASSIGN_REQUIRES_MUT` | error | `assignment target must be mutable` |
 | `2-203-0049` | `TYPE_MATCH_PATTERN_MISMATCH` | error | `match pattern type does not match the scrutinee type` |
 | `2-203-0050` | `TYPE_FOR_EACH_REQUIRES_COLLECTION` | error | `FOR EACH source must be a List or Map` |
@@ -199,7 +199,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0054` | `TYPE_USING_REQUIRES_RESOURCE` | retired | `retired: USING removed from the language; resources close by lexical drop` |
 | `2-203-0055` | `TYPE_USE_AFTER_MOVE` | error | `binding is used after move` |
 | `2-203-0056` | `TYPE_COLLECTION_OWNERSHIP_VIOLATION` | error | `ordinary collections cannot store resource or thread ownership` |
-| `2-203-0057` | `TYPE_DOUBLE_DROP_PATH` | error | `control flow could drop the same owned value more than once` |
+| `2-203-0057` | `TYPE_DOUBLE_DROP_PATH` | retired | `retired: double-drop is now prevented by ownership and scope-drop analysis (TYPE_USE_AFTER_MOVE and related); the number is reserved and not re-used` |
 | `2-203-0058` | `TYPE_DUPLICATE_ARGUMENT_NAME` | error | `call argument is supplied more than once` |
 | `2-203-0059` | `TYPE_UNKNOWN_ARGUMENT_NAME` | error | `call argument name does not match any parameter` |
 | `2-203-0060` | `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` | error | `uninitialized mutable binding requires a defaultable type` |
@@ -261,7 +261,7 @@ These are non-runtime diagnostics emitted by the `mfb` application and therefore
 | `2-205-0008` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_TRAP`        | error    | `decoded package IR has invalid trap structure (more than one function-level bottom trap, or PROPAGATE outside a TRAP region)` |
 | `2-205-0009` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_RETURN`      | error    | `decoded package IR return or effect does not agree with the declared function signature` |
 | `2-205-0010` | `PACKAGE_BINARY_REPRESENTATION_VERIFY_NATIVE_LINK` | error    | `decoded package IR references native bindings that are not declared in NATIVE_LINK_TABLE or whose signatures disagree` |
-| `3-302-0001` | `VERIFICATION_FAILED`           | error    | `Binary Representation or native validation failed` |
+| `3-302-0001` | `VERIFICATION_FAILED`           | error    | `binary representation or native validation failed` |
 | `3-304-0001` | `TARGET_UNSUPPORTED`            | error    | `requested target OS, CPU, or ABI is unsupported` |
 | `3-304-0002` | `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` | error | `package projects do not support the requested native output mode` |
 | `5-500-0001` | `LINK_FAILED`                   | error    | `linking packages, native libraries, symbols, objects, or executables failed` |
@@ -274,4 +274,6 @@ These are non-runtime diagnostics emitted by the `mfb` application and therefore
 - This registry supersedes the older flat `10000`/`20000`/`30000` documentation bands.
 - Older umbrella compiler names such as `ErrSyntax` are intentionally replaced here by the concrete emitted rule identifiers from `src/rules.rs`.
 - Non-runtime diagnostics emitted by the `mfb` process should be added to `src/rules.rs` and documented here in `Code | Rule | Severity | Message` form.
+- The `2-205-0003`–`2-205-0010` `PACKAGE_BINARY_REPRESENTATION_*` codes are currently emitted by the package Binary Representation verifier (`src/ir.rs`) as `NAME: detail` message-prefixed diagnostics rather than through the `RULES` table; they are registry-reserved and should migrate into `src/rules.rs` when that verifier is folded into the standard diagnostic path.
+- `2-203-0054` (`TYPE_USING_REQUIRES_RESOURCE`) and `2-203-0057` (`TYPE_DOUBLE_DROP_PATH`) are retired; their numbers are reserved and not present in `src/rules.rs`.
 - Runtime `Error.code` values remain the separate exported constant registry because they are program-visible data, not host-tool diagnostics.

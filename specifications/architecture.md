@@ -79,12 +79,14 @@ The CLI supports these build-related commands:
 - `mfb build -ncode [location]` writes `<name>.ncode`.
 - `mfb build -target os-arch [location]` selects a native target instead of
   the host target.
-- `mfb build -app [location]` selects macOS app mode: the executable and native
-  intermediate outputs target the AppKit app runtime instead of the console
-  runtime (see `specifications/plan-04-macos-app.md`). `-app` is valid only for
-  executable projects and only when `-target` resolves to a macOS native target;
-  it is rejected otherwise. App mode is recorded as the `buildMode` field in
-  `-nir`, `-nplan`, and `-ncode` output (`"console"` or `"macos-app"`).
+- `mfb build -app [location]` selects GUI app mode: the executable and native
+  intermediate outputs target a windowing app runtime instead of the console
+  runtime — AppKit on macOS, GTK4 on Linux. Shared lowering treats both uniformly
+  (`NativeBuildMode::is_app`); the target OS selects the toolkit. `-app` is valid
+  only for executable projects and only when `-target` resolves to a native target
+  that supports app mode (`macos-aarch64` or `linux-aarch64`); it is rejected
+  otherwise. App mode is recorded as the `buildMode` field in `-nir`, `-nplan`,
+  and `-ncode` output (`"console"`, `"macos-app"`, or `"linux-app"`).
 
 The output flags are mutually exclusive. If no output flag is supplied,
 `mfb build` emits:
@@ -760,6 +762,37 @@ Linux output:
   (which bundles pthread).
 - `LinuxFlavor` (`src/os/linux/flavor.rs`) selects interpreter path and
   `DT_NEEDED` entries per flavor.
+
+### 12.9 Runtime Value Memory Model
+
+Native code generation realizes the language's value semantics over a per-arena
+heap. `specifications/memory_layouts.md` is the authority; the architectural shape:
+
+- **Flat values.** Every non-resource value (`String`, `Record`, `Union`, `List`,
+  `Map`, `Error`, `Result`) is a single self-describing, pointer-free arena block —
+  all composite sub-values are inlined by block-relative offset, not pointers. A
+  resource is the one exception: an opaque move-only handle to its single instance.
+- **Copy = `memcpy`.** Because a flat block has no internal pointers, copying any
+  value is one `arena_alloc` + one `memcpy` (`copy_flat_block`); there is no
+  per-type deep-copy glue. `thread::transfer`/`send` use the same routine to copy
+  into the receiver's arena.
+- **Ownership tree via copy-insertion.** Values are shared by pointer at most read
+  sites, so the lowering inserts a deep copy (`lower_value_owned`) at every site
+  that hands a value to a longer-lived owner — `Bind`/`Assign`, global store,
+  closure capture, and `Return` — whenever the source is an alias/borrow (a local,
+  global, capture, field/`MemberAccess` read, union/`Result` extract) or a static
+  `String` constant (rodata, not arena). After this every owned local owns an
+  independent block. Constructors, collection inserts, and `WITH` already inline
+  (copy) their flat payloads.
+- **Deterministic scope-drop frees.** Each owned, non-escaping flat local is freed
+  by one `arena_free(ptr, size)` at scope exit (normal drain, `EXIT`/`CONTINUE`,
+  `RETURN`, `TRAP`), reusing the resource-cleanup machinery. A returned local is
+  moved out (its free suppressed); resources, runtime-managed thread results
+  (`thread::receive`/`waitFor`), and recursive/non-flat composites are excluded.
+- **Arena reuse + entropy fill.** Freed blocks go onto a per-arena coalescing
+  free-list for reuse (never returned to the OS until bulk `arena_destroy` at
+  teardown), and freed/freshly-mapped memory is filled with PRNG bytes, always on,
+  so a use-after-free or uninitialized read fails loudly instead of silently.
 
 ## 13. Source-To-Executable End-To-End Flow
 

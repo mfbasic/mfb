@@ -107,7 +107,11 @@ ownership rules.
 
 For copyable sendable values, crossing a thread boundary copies or freezes the
 value as required by the representation. The sender's original binding remains
-usable.
+usable. Because every non-resource value is a flat, pointer-free block
+(`memory_layouts.md`), this copy is a single `arena_alloc` + `memcpy`
+(`copy_flat_block`) into the receiver's arena — the same generic routine ordinary
+value copies use, with no per-type deep-copy glue. The sender keeps its own block
+and frees it on its own scope-drop; the receiver owns and reclaims the copy.
 
 For non-copyable sendable values, including sendable resource handles, crossing a
 thread boundary is an ownership move. A successful `thread::start` or
@@ -378,6 +382,23 @@ handle before storing the replacement. Bindings that have moved out through
 return or another consuming operation are removed from the cleanup set. Handles
 closed by `thread::waitFor(t)` remain safe for compiler-generated cleanup; the
 drop helper is idempotent for an already closed handle.
+
+The same scope-drop cleanup mechanism also frees ordinary owned **values** (flat
+`String`/`Record`/`Union`/`List`/`Map`/`Error`/`Result` blocks) with one
+`arena_free` each, in the same reverse order on the same exit paths. Two
+thread-specific exclusions apply, because those values are not plain blocks this
+scope owns:
+
+- **Thread-boundary results are runtime-managed.** Values produced by
+  `thread::receive`, `thread::waitFor`, and the data-plane reads live in the
+  thread plumbing and the worker arena that the runtime bulk-reclaims at teardown;
+  on a cancel/timeout path a result is not a clean ownable block at all. Such a
+  binding is therefore *not* registered for a scope-drop value free — it follows
+  the queue/control-block lifetime rules below, not lexical value cleanup. If such
+  a value is re-bound or returned it is deep-copied first, so the copy is owned and
+  freed normally while the original stays runtime-managed.
+- **Resources** stay move-only handles closed by their own close op, never
+  `arena_free`d, exactly as before.
 
 When the worker completes:
 
