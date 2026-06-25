@@ -16,6 +16,88 @@ impl CodeBuilder<'_> {
         result
     }
 
+    /// Lower a value that is being stored into a longer-lived or independently
+    /// freed location (a `LET`/`MUT` binding, a global, a closure env, a returned
+    /// value). plan-02 made every non-resource value a flat, pointer-free block,
+    /// so a `memcpy` is a sound deep copy; this routine inserts that copy whenever
+    /// the source is an **aliasing source** (a node that yields a pointer to an
+    /// existing block rather than a fresh allocation). After copy-insertion every
+    /// owned local owns an independent block, so plan-01 Phase 5 / plan-02 Phase 8
+    /// can free each one exactly once at scope-drop with no double-free.
+    ///
+    /// Fresh-producing nodes (`Call`, `Constructor`, literals, `Binary`, …) and
+    /// non-freeable types (scalars, resources, threads) are returned unchanged.
+    pub(super) fn lower_value_owned(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        let result = self.lower_value(value)?;
+        if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_) {
+            let copied = self.copy_flat_block(&result.type_, &result.location)?;
+            return Ok(ValueResult {
+                type_: result.type_,
+                location: copied,
+                text: result.text,
+            });
+        }
+        Ok(result)
+    }
+
+    /// Whether lowering `value` yields a pointer this scope does **not** own — an
+    /// alias/borrow into another value, or a *static* `String` constant in rodata
+    /// (`static_string_value`). Either must be deep-copied into the arena before a
+    /// binding/global/return can own it, so the eventual scope-drop `arena_free`
+    /// reclaims a real arena block and never an aliased or static one.
+    pub(super) fn value_needs_owning_copy(&self, value: &NirValue) -> bool {
+        Self::value_is_aliasing_source(value) || self.static_string_value(value).is_some()
+    }
+
+    /// Whether lowering `value` yields a value whose lifetime is managed by the
+    /// thread runtime, not by this scope: the result of a cross-thread data call
+    /// (`thread::receive`/`read`/`waitFor`/`result`). Such a value lives in the
+    /// thread's message plumbing and the worker arena that the runtime bulk-frees
+    /// at teardown; scope-drop must not `arena_free` it (it may be a non-owning
+    /// view, or already reclaimed on a cancel/timeout path), so its binding is not
+    /// registered for an owned-value free — same exclusion principle as resources.
+    pub(super) fn value_is_runtime_managed(value: &NirValue) -> bool {
+        let target = match value {
+            NirValue::Call { target, .. }
+            | NirValue::CallResult { target, .. }
+            | NirValue::RuntimeCall { target, .. } => target.as_str(),
+            NirValue::MemberAccess { member, .. } if member == "result" => return true,
+            _ => return false,
+        };
+        target.starts_with("thread.") || target.starts_with("thread::")
+    }
+
+    /// A NIR value node that yields a pointer to a **pre-existing** arena block
+    /// (an alias / borrow) rather than a freshly allocated one. Storing such a
+    /// value into an owned slot without copying would alias another owner, so
+    /// [`lower_value_owned`](Self::lower_value_owned) deep-copies these.
+    pub(super) fn value_is_aliasing_source(value: &NirValue) -> bool {
+        matches!(
+            value,
+            NirValue::Local(_)
+                | NirValue::Global { .. }
+                | NirValue::Capture { .. }
+                | NirValue::MemberAccess { .. }
+                | NirValue::UnionExtract { .. }
+                | NirValue::ResultValue { .. }
+                | NirValue::ResultError { .. }
+        )
+    }
+
+    /// Whether `type_` is a flat, arena-allocated value block that scope-drop
+    /// frees own and `arena_free` reclaims in one call — `String`, a flat record,
+    /// a flat data union, a flat collection, or a flat `Result`. Scalars (stored
+    /// inline by value), resources, threads, and recursive/non-flat composites are
+    /// excluded: they are never freed by the generic owned-value path.
+    pub(super) fn is_freeable_flat_value(&self, type_: &str) -> bool {
+        self.type_is_flat(type_)
+            && (type_ == "String"
+                || is_collection_type(type_)
+                || type_.starts_with("Result OF ")
+                || self.type_model.record_fields.contains_key(type_)
+                || self.union_is_data(type_))
+    }
+
     fn lower_value_inner(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         if let Some(string_value) = self.static_string_value(value) {
             let register = self.load_string_constant(&string_value)?;
@@ -222,7 +304,14 @@ impl CodeBuilder<'_> {
                         env_slot,
                     ));
                     for (index, capture) in captures.iter().enumerate() {
-                        let value = self.lower_value(capture)?;
+                        // The closure env outlives the capturing scope, so it must
+                        // own each captured flat value independently (plan-02
+                        // Phase 8). `lower_value_owned` deep-copies an aliasing
+                        // source; its `arena_alloc` clobbers caller-saved scratch
+                        // (incl. `env_register`), so reload the env from its slot.
+                        let value = self.lower_value_owned(capture)?;
+                        let env_register = self.allocate_register()?;
+                        self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                         self.emit(abi::store_u64(&value.location, &env_register, index * 8));
                     }
                     Some(env_slot)

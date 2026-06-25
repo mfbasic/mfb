@@ -21,8 +21,40 @@ impl CodeBuilder<'_> {
                                 constant,
                             },
                         );
+                        // A `MATCH` variant binding (`UnionExtract`) is a borrow
+                        // into the matched union's inlined variant block: the union
+                        // owns the data and frees it as one block on its own drop,
+                        // so the binding is neither deep-copied nor freed here.
+                        let borrows_union_variant =
+                            matches!(value, Some(NirValue::UnionExtract { .. }));
+                        // A thread-boundary result (`thread::receive`/`waitFor`/…)
+                        // is owned by the thread runtime / worker arena, not this
+                        // scope, so it is neither zero-initialized nor freed here.
+                        let runtime_managed = value
+                            .as_ref()
+                            .is_some_and(Self::value_is_runtime_managed);
+                        // This binding owns a freeable flat block that scope-drop
+                        // must free (plan-02 Phase 8).
+                        let owns_freeable_value = !borrows_union_variant
+                            && !runtime_managed
+                            && self.is_freeable_flat_value(type_);
+                        // Zero the slot before a (possibly fallible) initializer
+                        // runs. If the initializer traps before storing, the slot
+                        // stays null and the scope-drop free skips it instead of
+                        // freeing an uninitialized pointer.
+                        if owns_freeable_value {
+                            self.emit(abi::move_immediate("x9", "Integer", "0"));
+                            self.emit(abi::store_u64("x9", abi::stack_pointer(), stack_offset));
+                        }
                         if let Some(value) = value {
-                            let result = self.lower_value(value)?;
+                            // Deep-copy aliasing sources so this binding owns an
+                            // independent flat block (plan-02 Phase 8); a borrowed
+                            // variant binding aliases the union deliberately.
+                            let result = if borrows_union_variant {
+                                self.lower_value(value)?
+                            } else {
+                                self.lower_value_owned(value)?
+                            };
                             self.emit(abi::store_u64(
                                 &result.location,
                                 abi::stack_pointer(),
@@ -30,8 +62,17 @@ impl CodeBuilder<'_> {
                             ));
                         } else {
                             let result = self.lower_default_value(type_)?;
+                            // The default empty `String` is static rodata; copy it
+                            // into the arena so this binding owns an arena block its
+                            // scope-drop free can reclaim (collections/records
+                            // default to arena allocations already).
+                            let location = if result.type_ == "String" {
+                                self.copy_flat_block("String", &result.location)?
+                            } else {
+                                result.location
+                            };
                             self.emit(abi::store_u64(
-                                &result.location,
+                                &location,
                                 abi::stack_pointer(),
                                 stack_offset,
                             ));
@@ -59,12 +100,6 @@ impl CodeBuilder<'_> {
                                 )?;
                             }
                         }
-                        // A resource extracted from a union (a `MATCH` variant
-                        // binding) is a borrow: the union still owns it and
-                        // closes the active variant on drop, so the extracted
-                        // binding registers no cleanup of its own.
-                        let borrows_union_variant =
-                            matches!(value, Some(NirValue::UnionExtract { .. }));
                         // Where this binding's close obligation lives (§15.6).
                         let resource_owner = self
                             .resource_owners
@@ -99,6 +134,17 @@ impl CodeBuilder<'_> {
                                     name: name.clone(),
                                     variants,
                                 }));
+                        } else if owns_freeable_value {
+                            // An owned, non-escaping flat value (plan-01 Phase 5 /
+                            // plan-02 Phase 8): a single `arena_free` of its block
+                            // reclaims everything at scope-drop. Copy-insertion
+                            // (`lower_value_owned`) guarantees this block is
+                            // unaliased, so the free is sound and once-only.
+                            self.active_cleanups
+                                .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                                    type_: type_.clone(),
+                                    stack_offset,
+                                }));
                         }
                         // Default-initialize a `RES` binding's `STATE` payload.
                         // The owning binding allocates the state record on first
@@ -118,8 +164,11 @@ impl CodeBuilder<'_> {
                         } else {
                             type_.clone()
                         };
+                        // A global outlives every scope, so it must own its value
+                        // independently: deep-copy an aliasing source so freeing a
+                        // local never dangles the global (plan-02 Phase 8).
                         let result = if let Some(value) = value {
-                            self.lower_value(value)?
+                            self.lower_value_owned(value)?
                         } else {
                             self.lower_default_value(&value_type)?
                         };
@@ -134,7 +183,11 @@ impl CodeBuilder<'_> {
                                 format!("native code assignment unknown local '{name}'")
                             })?
                             .stack_offset;
-                        let result = self.lower_value(value)?;
+                        // Reassignment installs a fresh independent block; the old
+                        // block remains owned by this binding's scope-drop free
+                        // (the slot is overwritten with the new owner). Deep-copy
+                        // an aliasing source so the binding stays unaliased.
+                        let result = self.lower_value_owned(value)?;
                         let assign_slot = if Self::is_thread_type(&result.type_) {
                             let slot = self.allocate_stack_object("thread_assign_value", 8);
                             self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
@@ -453,6 +506,9 @@ impl CodeBuilder<'_> {
                     }
                     ActiveCleanup::OwnedList(cleanup) => {
                         self.emit_owned_list_drain(&cleanup)?
+                    }
+                    ActiveCleanup::OwnedValue(cleanup) => {
+                        self.emit_owned_value_drop(&cleanup)?
                     }
                 }
             }

@@ -858,12 +858,27 @@ struct OwnedListCleanup {
     close_symbol: String,
 }
 
+/// An owned, non-escaping flat value freed at scope-drop (plan-01 Phase 5 /
+/// plan-02 Phase 8). Because every non-resource value is a pointer-free flat
+/// block and copy-insertion (`lower_value_owned`) makes each owner's block
+/// unaliased, a single `arena_free(ptr, size)` reclaims the whole value; the
+/// size is recomputed from the static type at drop via
+/// `emit_inlined_block_size_from_ptr_slot`.
+#[derive(Clone)]
+struct OwnedValueCleanup {
+    /// Static type of the bound value (drives the runtime size computation).
+    type_: String,
+    /// Stack offset of the binding's slot (holds the block pointer).
+    stack_offset: usize,
+}
+
 #[derive(Clone)]
 enum ActiveCleanup {
     Thread(ThreadCleanup),
     Resource(ResourceCleanup),
     ResourceUnion(ResourceUnionCleanup),
     OwnedList(OwnedListCleanup),
+    OwnedValue(OwnedValueCleanup),
 }
 
 #[derive(Clone, Copy)]

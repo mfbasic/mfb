@@ -2344,14 +2344,23 @@ impl CodeBuilder<'_> {
         slots
     }
 
-    fn store_pending_success_result(&mut self, value: Option<&ValueResult>) -> Result<(), String> {
+    fn store_pending_success_result(
+        &mut self,
+        value: Option<&ValueResult>,
+        already_standalone: bool,
+    ) -> Result<(), String> {
         let slots = self.ensure_pending_result_slots();
         let value_register = if let Some(value) = value {
             if value.type_ == "Nothing" {
                 let register = self.allocate_register()?;
                 self.emit(abi::move_immediate(&register, "Integer", "0"));
                 register
-            } else if self.inline_collection_payload_size(&value.type_).is_some() {
+            } else if !already_standalone
+                && self.inline_collection_payload_size(&value.type_).is_some()
+            {
+                // A borrow / inline-payload return is promoted to a standalone
+                // arena block. A value already deep-copied by
+                // `lower_returned_value` is standalone and skips this.
                 self.materialize_inline_value_in_arena(&value.type_, &value.location)?
             } else {
                 value.location.clone()
@@ -2434,7 +2443,11 @@ impl CodeBuilder<'_> {
     }
 
     fn store_pending_error_from_value(&mut self, error: &NirValue) -> Result<(), String> {
-        let error = self.lower_value(error)?;
+        // The error's message/source are read as block-relative pointers, then
+        // used after `emit_cleanup_sequence` frees this scope's owned values.
+        // Deep-copy an aliasing-source error so those pointers reference a
+        // standalone block that the frees cannot scrub (plan-02 Phase 8).
+        let error = self.lower_value_owned(error)?;
         if error.type_ != "Error" {
             return Err(format!(
                 "cleanup error exit expects Error value, got `{}`",
@@ -2974,6 +2987,65 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Free an owned, non-escaping flat value at scope-drop (plan-01 Phase 5 /
+    /// plan-02 Phase 8): recompute the block's byte size from its static type and
+    /// `arena_free(ptr, size)`. `arena_free` scrubs the bytes (entropy poison),
+    /// so a later use-after-free reads garbage and traps loudly. Clobbers
+    /// caller-saved scratch; the caller reloads anything it needs afterward.
+    pub(super) fn emit_owned_value_drop(
+        &mut self,
+        cleanup: &OwnedValueCleanup,
+    ) -> Result<(), String> {
+        // The slot is null when the binding's initializer trapped before it was
+        // stored (the slot is zero-initialized at bind, see `lower_ops`), or for
+        // a moved-out value; a null free would fault scrubbing address 0, so skip.
+        let skip = self.label("owned_value_free_skip");
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            cleanup.stack_offset,
+        ));
+        self.emit(abi::compare_immediate(abi::return_register(), "0"));
+        self.emit(abi::branch_eq(&skip));
+        let size_slot = self.allocate_stack_object("owned_value_free_size", 8);
+        // The slot already holds the block pointer; size it from the type.
+        self.emit_inlined_block_size_from_ptr_slot(
+            &cleanup.type_,
+            cleanup.stack_offset,
+            size_slot,
+        )?;
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            cleanup.stack_offset,
+        ));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), size_slot));
+        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_FREE_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::label(&skip));
+        Ok(())
+    }
+
+    /// Suppress the scope-drop free of an owned flat local that is moved out
+    /// (`RETURN`/`FAIL` of the binding) so its block is not freed here — the
+    /// caller/trap now owns it. Mirrors `deactivate_resource_cleanup`.
+    pub(super) fn deactivate_owned_value_cleanup(&mut self, name: &str) {
+        let Some(offset) = self.locals.get(name).map(|local| local.stack_offset) else {
+            return;
+        };
+        if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
+            matches!(cleanup, ActiveCleanup::OwnedValue(owned) if owned.stack_offset == offset)
+        }) {
+            self.active_cleanups.remove(index);
+        }
+    }
+
     fn emit_cleanup_sequence(&mut self) -> Result<(), String> {
         let cleanups = self.active_cleanups.clone();
         for cleanup in cleanups.iter().rev() {
@@ -2989,6 +3061,9 @@ impl CodeBuilder<'_> {
                 }
                 ActiveCleanup::OwnedList(cleanup) => {
                     self.emit_owned_list_drain(cleanup)?;
+                }
+                ActiveCleanup::OwnedValue(cleanup) => {
+                    self.emit_owned_value_drop(cleanup)?;
                 }
             }
         }
@@ -3009,6 +3084,7 @@ impl CodeBuilder<'_> {
                     self.emit_resource_union_cleanup_call(cleanup)?
                 }
                 ActiveCleanup::OwnedList(cleanup) => self.emit_owned_list_drain(cleanup)?,
+                ActiveCleanup::OwnedValue(cleanup) => self.emit_owned_value_drop(cleanup)?,
             }
         }
         self.emit(abi::branch(target));
@@ -3077,18 +3153,53 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Lower a returned value as a caller-owned, standalone block. An aliasing
+    /// source of a freeable flat type is deep-copied here (plan-02 Phase 8): the
+    /// returned block must outlive this scope's frees and is owned/freed by the
+    /// caller, so it cannot remain a borrow into a local that is about to be
+    /// freed. The bool is `already_standalone` — true when the result is a fresh
+    /// standalone allocation (a copy made here) that must NOT be re-materialized;
+    /// false for a fresh value or a borrow of a non-flat type, which keep the
+    /// existing inline-payload materialization. A returned thread/resource local
+    /// is a move (never freeable-flat) and is handled by cleanup deactivation.
+    fn lower_returned_value(&mut self, value: &NirValue) -> Result<(ValueResult, bool), String> {
+        if self.value_needs_owning_copy(value) {
+            let lowered = self.lower_value(value)?;
+            if self.is_freeable_flat_value(&lowered.type_) {
+                let copied = self.copy_flat_block(&lowered.type_, &lowered.location)?;
+                return Ok((
+                    ValueResult {
+                        type_: lowered.type_,
+                        location: copied,
+                        text: lowered.text,
+                    },
+                    true,
+                ));
+            }
+            return Ok((lowered, false));
+        }
+        Ok((self.lower_value(value)?, false))
+    }
+
     pub(super) fn emit_return_exit(&mut self, value: Option<&NirValue>) -> Result<(), String> {
+        let lowered = if let Some(value) = value {
+            Some(self.lower_returned_value(value)?)
+        } else {
+            None
+        };
+        let already_standalone = lowered.as_ref().map(|(_, standalone)| *standalone).unwrap_or(true);
+        let result = lowered.map(|(result, _)| result);
         if self.active_cleanups.is_empty() {
-            if let Some(value) = value {
-                let result = self.lower_value(value)?;
+            if let Some(result) = &result {
                 if result.type_ != "Nothing" {
-                    if self.inline_collection_payload_size(&result.type_).is_some() {
-                        let stable = self
-                            .materialize_inline_value_in_arena(&result.type_, &result.location)?;
-                        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &stable));
+                    let location = if !already_standalone
+                        && self.inline_collection_payload_size(&result.type_).is_some()
+                    {
+                        self.materialize_inline_value_in_arena(&result.type_, &result.location)?
                     } else {
-                        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &result.location));
-                    }
+                        result.location.clone()
+                    };
+                    self.emit(abi::move_register(RESULT_VALUE_REGISTER, &location));
                 }
             }
             self.emit(abi::move_immediate(
@@ -3099,12 +3210,7 @@ impl CodeBuilder<'_> {
             self.emit(abi::return_());
             return Ok(());
         }
-        let result = if let Some(value) = value {
-            Some(self.lower_value(value)?)
-        } else {
-            None
-        };
-        self.store_pending_success_result(result.as_ref())?;
+        self.store_pending_success_result(result.as_ref(), already_standalone)?;
         if let Some(value) = value {
             if let NirValue::Local(name) = value {
                 if result

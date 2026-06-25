@@ -1,6 +1,27 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// `collections::get`/`getOr` extract an element as a borrow into the
+    /// container's data region for inline composite / nested-collection payloads
+    /// (`emit_load_collection_payload`). By value semantics `get` returns an
+    /// **owned** value the caller may bind, store, and free, so copy such a
+    /// borrow into a standalone arena block (scalars are by-value and `String`
+    /// is already materialized fresh, so they pass through). plan-02 Phase 8.
+    pub(super) fn materialize_owned_element(
+        &mut self,
+        result: ValueResult,
+    ) -> Result<ValueResult, String> {
+        if self.is_freeable_flat_value(&result.type_) && result.type_ != "String" {
+            let copied = self.copy_flat_block(&result.type_, &result.location)?;
+            return Ok(ValueResult {
+                type_: result.type_,
+                location: copied,
+                text: result.text,
+            });
+        }
+        Ok(result)
+    }
+
     pub(super) fn lower_collection_get(
         &mut self,
         args: &[NirValue],
@@ -28,12 +49,13 @@ impl CodeBuilder<'_> {
                     key.type_
                 ));
             }
-            return self.lower_list_get(
+            let result = self.lower_list_get(
                 collection_slot,
                 key_slot,
                 &collection.type_,
                 &element_type,
-            );
+            )?;
+            return self.materialize_owned_element(result);
         }
 
         if let Some((key_type, value_type)) = map_type_parts(&collection.type_) {
@@ -43,13 +65,14 @@ impl CodeBuilder<'_> {
                     key_type, key.type_
                 ));
             }
-            return self.lower_map_get(
+            let result = self.lower_map_get(
                 collection_slot,
                 key_slot,
                 &collection.type_,
                 &key_type,
                 &value_type,
-            );
+            )?;
+            return self.materialize_owned_element(result);
         }
 
         Err(format!(
@@ -212,13 +235,14 @@ impl CodeBuilder<'_> {
                     element_type, default.type_
                 ));
             }
-            return self.lower_list_get_or(
+            let result = self.lower_list_get_or(
                 collection_slot,
                 key_slot,
                 default_slot,
                 &collection.type_,
                 &element_type,
-            );
+            )?;
+            return self.materialize_owned_element(result);
         }
 
         if let Some((key_type, value_type)) = map_type_parts(&collection.type_) {
@@ -234,14 +258,15 @@ impl CodeBuilder<'_> {
                     value_type, default.type_
                 ));
             }
-            return self.lower_map_get_or(
+            let result = self.lower_map_get_or(
                 collection_slot,
                 key_slot,
                 default_slot,
                 &collection.type_,
                 &key_type,
                 &value_type,
-            );
+            )?;
+            return self.materialize_owned_element(result);
         }
 
         Err(format!(
