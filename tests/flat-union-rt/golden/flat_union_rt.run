@@ -1,0 +1,7 @@
+dot:7
+tag:hello
+pair:3/boxed-and-longer
+pair:3/boxed-and-longer
+dot:7|tag:hello
+dot:7;tag:hello;pair:3/boxed-and-longer;
+3

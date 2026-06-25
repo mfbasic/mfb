@@ -767,6 +767,20 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         format!("native code union variant '{member_type}' does not resolve")
                     })?;
+                // Data variant: build a flat `{tag, size, variant-record-block}`
+                // union, inlining the wrapped variant record at +16 (plan-02
+                // §4.3). Resource variants fall through to the fixed
+                // `{tag, resource-ptr}` layout below.
+                if !is_resource_variant {
+                    let _ = &fields;
+                    let register =
+                        self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
+                    return Ok(ValueResult {
+                        type_: union_type.clone(),
+                        location: register,
+                        text: format!("wrap {member_type} as {union_type}"),
+                    });
+                }
                 // Payload words across all variants: a resource variant occupies
                 // one word (the handle pointer); a record variant occupies its
                 // field count.
@@ -862,65 +876,12 @@ impl CodeBuilder<'_> {
                         text: format!("extract {type_} from {}", source.text),
                     });
                 }
-                // A record variant whose record has inlined String data was
-                // wrapped as a single pointer at +8 (see UnionWrap); recover the
-                // standalone flat record directly (plan-02 §4.2).
-                if self.record_has_inline_data(type_) {
-                    let source = self.lower_value(value)?;
-                    let register = self.allocate_register()?;
-                    self.emit(abi::load_u64(&register, &source.location, 8));
-                    return Ok(ValueResult {
-                        type_: type_.clone(),
-                        location: register,
-                        text: format!("extract {type_} from {}", source.text),
-                    });
-                }
-                let fields = self
-                    .type_model
-                    .record_fields
-                    .get(type_)
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!("native code union extract target '{type_}' is not a record")
-                    })?;
+                // A data union inlines the active variant's flat record block at
+                // +16 (plan-02 §4.3); the extracted record is a borrow into the
+                // union at that offset.
                 let source = self.lower_value(value)?;
-                let source_slot = self.allocate_stack_object("union_extract_source", 8);
-                self.emit(abi::store_u64(
-                    &source.location,
-                    abi::stack_pointer(),
-                    source_slot,
-                ));
-                let result_slot = self.allocate_stack_object("union_extract_result", 8);
-                let alloc_ok = self.label("union_extract_alloc_ok");
-                self.emit(abi::move_immediate(
-                    abi::return_register(),
-                    "Integer",
-                    &(8 * fields.len()).to_string(),
-                ));
-                self.emit(abi::move_immediate("x1", "Integer", "8"));
-                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                self.relocations.push(CodeRelocation {
-                    from: self.current_symbol.clone(),
-                    to: ARENA_ALLOC_SYMBOL.to_string(),
-                    kind: "branch26".to_string(),
-                    binding: "internal".to_string(),
-                    library: None,
-                });
-                self.emit(abi::compare_immediate(
-                    abi::return_register(),
-                    RESULT_OK_TAG,
-                ));
-                self.emit(abi::branch_eq(&alloc_ok));
-                self.emit_allocation_error_return()?;
-                self.emit(abi::label(&alloc_ok));
-                self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-                for (index, _) in fields.iter().enumerate() {
-                    self.emit(abi::load_u64("x11", abi::stack_pointer(), source_slot));
-                    self.emit(abi::load_u64("x9", "x11", 8 * (index + 1)));
-                    self.emit(abi::store_u64("x9", "x1", 8 * index));
-                }
                 let register = self.allocate_register()?;
-                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                self.emit(abi::add_immediate(&register, &source.location, 16));
                 Ok(ValueResult {
                     type_: type_.clone(),
                     location: register,

@@ -300,6 +300,88 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// True when `type_` is a **data** union (all variants are data records, no
+    /// resource variants). Data unions use the flat `{tag, size, data}` layout
+    /// (plan-02 §4.3); resource unions keep `{tag, resource-ptr}` and are never
+    /// reshaped. A union is all-data or all-resource (`rules.rs:790`).
+    pub(super) fn union_is_data(&self, type_: &str) -> bool {
+        if !self.type_model.union_names.contains(type_) {
+            return false;
+        }
+        let mut saw_variant = false;
+        for variant in self.type_model.variants_for_union(type_) {
+            saw_variant = true;
+            if crate::builtins::is_resource_type(variant) {
+                return false;
+            }
+        }
+        saw_variant
+    }
+
+    /// Total byte size of a data union into `out_slot`: the `size` word at `+8`
+    /// (plan-02 §4.3). `ptr_slot` holds the union pointer. Clobbers x8.
+    pub(super) fn emit_data_union_size_to_slot(&mut self, ptr_slot: usize, out_slot: usize) {
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), ptr_slot));
+        self.emit(abi::load_u64("x8", "x8", 8));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), out_slot));
+    }
+
+    /// Wrap a built variant record (pointer in `record_ptr_slot`) into a data
+    /// union value `{U64 tag@0, U64 size@8, variant-record-block@16}` (plan-02
+    /// §4.3): the variant's flat record block is inlined at `+16`. Returns a
+    /// register holding the union pointer.
+    pub(super) fn emit_wrap_record_in_union(
+        &mut self,
+        member_type: &str,
+        tag: usize,
+        record_ptr_slot: usize,
+    ) -> Result<String, String> {
+        let inner_size_slot = self.allocate_stack_object("union_wrap_inner_size", 8);
+        self.emit_record_block_size_to_slot(member_type, record_ptr_slot, inner_size_slot)?;
+        let size_slot = self.allocate_stack_object("union_wrap_size", 8);
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), inner_size_slot));
+        self.emit(abi::add_immediate("x8", "x8", 16));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        let result_slot = self.allocate_stack_object("union_wrap_result", 8);
+        let alloc_ok = self.label("union_wrap_alloc_ok");
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        // tag@0, size@8.
+        self.emit(abi::move_immediate("x9", "UnionTag", &tag.to_string()));
+        self.emit(abi::store_u64("x9", "x1", 0));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), size_slot));
+        self.emit(abi::store_u64("x9", "x1", 8));
+        // Inline the variant record block at +16.
+        self.emit(abi::load_u64("x11", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x11", "x11", 16));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), record_ptr_slot));
+        self.emit(abi::load_u64("x13", abi::stack_pointer(), inner_size_slot));
+        self.emit_copy_bytes("x11", "x12", "x13", "union_wrap_block");
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+        Ok(register)
+    }
+
     /// Emit the **total byte size** of an inlined record of `record_type` whose
     /// base pointer is in `base_slot`, into `out_slot`. Walks the fixed slot
     /// region (`8*fieldCount`) plus each inlined sub-block (8-aligned, in field
@@ -628,17 +710,23 @@ impl CodeBuilder<'_> {
         type_: &str,
         source: &str,
     ) -> Result<String, String> {
-        // A record with inlined String fields is variable-length: size its flat
-        // block at runtime, then block-copy it (plan-02 §4.2). The inlined String
-        // data comes along; pointer fields keep the same shallow-share semantics
-        // as the fixed path below.
-        if self.record_has_inline_data(type_) {
+        // A record with inlined fields or a data union is variable-length: size
+        // its flat block at runtime, then block-copy it (plan-02 §4.2/§4.3). The
+        // inlined data comes along; pointer fields keep the same shallow-share
+        // semantics as the fixed path below.
+        let is_record_inline = self.record_has_inline_data(type_);
+        let is_data_union = self.union_is_data(type_);
+        if is_record_inline || is_data_union {
             let source_slot = self.allocate_stack_object("inline_value_source", 8);
             let size_slot = self.allocate_stack_object("inline_value_size", 8);
             let result_slot = self.allocate_stack_object("inline_value_result", 8);
             let alloc_ok = self.label("inline_value_alloc_ok");
             self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-            self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
+            if is_data_union {
+                self.emit_data_union_size_to_slot(source_slot, size_slot);
+            } else {
+                self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
+            }
             self.emit(abi::load_u64(
                 abi::return_register(),
                 abi::stack_pointer(),
@@ -1082,6 +1170,12 @@ impl CodeBuilder<'_> {
                 // A record with inlined String fields is variable-length; size
                 // its full flat block at runtime (plan-02 §4.2).
                 self.emit_record_block_size_to_slot(other, payload.slot, len_slot)?;
+                return Ok(len_slot);
+            }
+            other if self.union_is_data(other) => {
+                // A data union is variable-length; read its `size` word at +8
+                // (plan-02 §4.3).
+                self.emit_data_union_size_to_slot(payload.slot, len_slot);
                 return Ok(len_slot);
             }
             other if self.inline_collection_payload_size(other).is_some() => {

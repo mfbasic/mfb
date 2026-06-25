@@ -1557,17 +1557,27 @@ impl CodeBuilder<'_> {
     }
 
     fn copy_union_to_current_arena(&mut self, type_: &str, source: &str) -> Result<String, String> {
-        let size = self.inline_collection_payload_size(type_).ok_or_else(|| {
-            format!("native thread transfer union type '{type_}' does not resolve")
-        })?;
         let source_slot = self.allocate_stack_object("thread_copy_union_source", 8);
+        let size_slot = self.allocate_stack_object("thread_copy_union_size", 8);
         let result_slot = self.allocate_stack_object("thread_copy_union_result", 8);
         let alloc_ok = self.label("thread_copy_union_alloc_ok");
         self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-        self.emit(abi::move_immediate(
+        // A data union is `{tag, size, variant-record-block}`: its total size is
+        // the runtime `size` word at +8 (plan-02 §4.3). A resource union is the
+        // fixed `{tag, resource-ptr}` block.
+        if self.union_is_data(type_) {
+            self.emit_data_union_size_to_slot(source_slot, size_slot);
+        } else {
+            let size = self.inline_collection_payload_size(type_).ok_or_else(|| {
+                format!("native thread transfer union type '{type_}' does not resolve")
+            })?;
+            self.emit(abi::move_immediate("x8", "Integer", &size.to_string()));
+            self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        }
+        self.emit(abi::load_u64(
             abi::return_register(),
-            "Integer",
-            &size.to_string(),
+            abi::stack_pointer(),
+            size_slot,
         ));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
@@ -1587,7 +1597,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit(abi::move_immediate("x13", "Integer", &size.to_string()));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x13", abi::stack_pointer(), size_slot));
         self.emit_copy_bytes("x1", "x9", "x13", "thread_copy_union_raw");
         self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
@@ -1949,19 +1960,19 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&labels[variant]));
         }
         self.emit(abi::branch(&fallback_label));
+        let is_data_union = self.union_is_data(type_);
         let union_copied_slot = self.allocate_stack_object("thread_copy_union_field", 8);
         for (variant, _, fields) in &variants {
             self.emit(abi::label(&labels[variant]));
-            if self.record_has_inline_data(variant) {
-                // This variant's record was wrapped as a single pointer at +8
-                // (see UnionWrap); deep-copy the standalone record there.
+            if is_data_union {
+                // The active variant's flat record block was byte-copied at +16
+                // by the whole-union memcpy; deep-copy only its pointer fields so
+                // the union copy aliases nothing (plan-02 §4.3).
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-                self.emit(abi::load_u64("x10", "x9", 8));
-                let copied = self.copy_value_to_current_arena(variant, "x10")?;
-                self.emit(abi::store_u64(&copied, abi::stack_pointer(), union_copied_slot));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), destination_slot));
-                self.emit(abi::load_u64("x10", abi::stack_pointer(), union_copied_slot));
-                self.emit(abi::store_u64("x10", "x9", 8));
+                self.emit(abi::add_immediate("x9", "x9", 16));
+                self.emit(abi::load_u64("x10", abi::stack_pointer(), destination_slot));
+                self.emit(abi::add_immediate("x10", "x10", 16));
+                self.copy_record_fields_into_existing(variant, "x9", "x10")?;
                 self.emit(abi::branch(&done_label));
                 continue;
             }

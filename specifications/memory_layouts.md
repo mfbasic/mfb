@@ -149,18 +149,30 @@ its `filename`).
 
 ### Union
 
-User-defined unions store the active member tag at offset `0`, followed by slot
-space for the largest member payload:
+A **data** union (all variants are data records) is a flat, self-describing
+`{tag, size, data}` block sized to the **active** variant
+(`plan-02-flat-values.md` §4.3):
 
 ```text
-UnionObject
-  U64 activeMemberTag
-  Slot[maxMemberFieldCount] payloadFields
+DataUnionObject (flat)
+  +0   U64 tag       ; active variant index
+  +8   U64 size      ; total byte size of THIS object (16 + variant block)
+  +16  data          ; the active variant's flat record block, inlined
 ```
 
-Payload field `0` starts at offset `8`; payload field `n` starts at offset
-`8 * (n + 1)`. The active member tag is the compiler-assigned member index for
-the expanded concrete union. Unused payload slots are not observable.
+`data` is the active variant's record laid out exactly as a standalone record
+(scalar slots inline; `String`/flat-record fields inlined by block-relative
+offset — relative to the union base at `+16`). Constructing a variant wraps its
+built record block at `+16`; `MATCH` dispatches on `tag@0`; extracting a variant
+yields a borrow pointer to the record at `+16`. The `size` word makes copy/free
+generic (read the size, `memcpy`, then deep-copy only the active variant's
+pointer fields). The union is variable-length, so a `List`/`Map` of a data union
+stores each union block inline by its runtime `size`.
+
+A **resource** union (all variants are resource handles; a union is all-data or
+all-resource, `rules.rs:790`) is **not** reshaped — it keeps the fixed
+`{U64 activeMemberTag@0, resource-handle-ptr@8}` layout, and the handle is moved
+(never deep-copied) so the resource is closed exactly once.
 
 ## Arenas
 

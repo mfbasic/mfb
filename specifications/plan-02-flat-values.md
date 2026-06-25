@@ -51,8 +51,26 @@ Last updated: 2026-06-24
   new runtime proof `tests/flat-nested-record-rt` (3-level nesting, `WITH`-replace
   a nested record, `List` append independence, nested-tree equality) runs
   deterministically under entropy poisoning.
-- Phases 4–8 — pending. **The same atomicity reasoning (scoping correction below)
-  governs Phases 4/5.**
+- **Phase 4 (data unions) — DONE.** Data unions reshaped to flat
+  `{U64 tag@0, U64 size@8, variant-record-block@16}`, inlining the active
+  variant's record at `+16` (`emit_wrap_record_in_union`); `UnionExtract` returns
+  `union+16` (a borrow), `MATCH` still dispatches on `tag@0`. Copy/transfer reads
+  the runtime `size@8`, `memcpy`s the whole union, then deep-copies only the
+  active variant's pointer fields (`copy_union_fields_into_existing` →
+  `copy_record_fields_into_existing` at `+16`). Collection embedding sizes a data
+  union from `size@8` (`emit_payload_length_to_stack` /
+  `materialize_inline_value_in_arena`). **Resource unions are untouched** (kept
+  `{tag, resource-ptr}`, `union_is_data` gates the split), so the close-once
+  lifecycle is unchanged — `resource-union-valid`/`-drop-valid` stay byte-
+  identical. The Phase-2 pointer-at-`+8` hack for inline-data record variants is
+  removed. Validated: full acceptance green (`control-flow-match` ncode resynced,
+  runtime identical), `types-union` (`List OF Shape`, `ShapeBag`),
+  `thread-return-union` (transfer), `control-flow-match-*`, `func_json_parse_valid`
+  (JSON values are unions), and packages pass; new runtime proof
+  `tests/flat-union-rt` (scalar/String/nested-record variants, `MATCH`, copy,
+  `List` of variable-size unions) is deterministic under entropy poisoning.
+  `Result`/`Error` keep their current ABI-wired representation (a later step).
+- Phases 5–8 — pending.
 
 ### Phase 4 scoping (ready for continuation)
 

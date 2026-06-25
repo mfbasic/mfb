@@ -1,0 +1,62 @@
+' plan-02 Phase 4 proof: a data union is a flat {tag, size, variant-record-block}
+' value, inlining the active variant's record at +16. Variants here exercise a
+' scalar record, a String-bearing record, and a nested-flat-record (so the
+' inlined variant block is itself variable-length with internal offsets). MATCH
+' dispatch + extract, copy/reassign independence, and a List of unions (each a
+' different, variable-size variant) are all checked under entropy poisoning.
+IMPORT io
+IMPORT collections
+
+TYPE Dot
+  x AS Integer
+END TYPE
+
+TYPE Tag
+  name AS String
+END TYPE
+
+TYPE Boxed
+  dot AS Dot
+  label AS String
+END TYPE
+
+UNION Shape
+  Dot
+  Tag
+  Boxed
+END UNION
+
+FUNC describe(s AS Shape) AS String
+  MATCH s
+    CASE Dot(d)
+      RETURN "dot:" & toString(d.x)
+    CASE Tag(t)
+      RETURN "tag:" & t.name
+    CASE Boxed(p)
+      RETURN "pair:" & toString(p.dot.x) & "/" & p.label
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  LET a AS Shape = Dot[7]
+  LET b AS Shape = Tag["hello"]
+  LET c AS Shape = Boxed[Dot[3], "boxed-and-longer"]
+  io::print(describe(a))
+  io::print(describe(b))
+  io::print(describe(c))
+
+  ' Copy/reassign: d aliases c's value; both describe identically and a/b stay put.
+  LET d AS Shape = c
+  io::print(describe(d))
+  io::print(describe(a) & "|" & describe(b))
+
+  ' A List of unions stores each variable-size union block inline.
+  LET xs AS List OF Shape = [a, b, c]
+  MUT joined AS String = ""
+  FOR EACH s IN xs
+    joined = joined & describe(s) & ";"
+  NEXT
+  io::print(joined)
+  io::print(toString(len(xs)))
+  RETURN 0
+END FUNC
