@@ -120,32 +120,51 @@ block, or recursively a nested-record block).
 Construction, `WITH`-update, copy/transfer, equality, and collection embedding
 all use that runtime size; copying a record with only scalar and `String` fields
 is a single block `memcpy` (no per-field deep copy). The built-in helper-
-constructed records `Error`, `ErrorLoc`, `Address`, `Datagram`, and
-`DatagramText` are **excluded**: their `String` fields remain pointers to
-separate allocations (the error-result ABI and `net::` socket helpers build them
-that way), so reads of those records do not rebase.
+constructed `net::` records `Address`, `Datagram`, and `DatagramText` are
+**excluded**: their `String`/sub-record fields remain pointers to separate
+allocations (the socket helpers build them that way), so reads of those records
+do not rebase.
 
 ### `Error` and `ErrorLoc`
 
-`Error` and `ErrorLoc` are read-only built-in records laid out exactly like any
-other record (one 8-byte slot per field, in declaration order):
+`Error` and `ErrorLoc` are flat built-in records (`plan-02-flat-values.md`): their
+`String`/sub-record fields are inlined into the trailing data region by
+block-relative offset, exactly like any other flat record, so the whole value is
+a single pointer-free block.
 
 ```text
-Error
-  +0  Integer  code
-  +8  String   message      (pointer to a string object)
-  +16 ErrorLoc source       (pointer to an ErrorLoc object)
-
-ErrorLoc
-  +0  String   filename     (pointer to a string object)
-  +8  Integer  line
-  +16 Integer  char
+Error                              ErrorLoc
+  +0  Integer  code                  +0  String    filename  (block-relative offset)
+  +8  String   message  (offset)     +8  Integer   line
+  +16 ErrorLoc source   (offset)     +16 Integer   char
+  ...  inlined message + source        ...  inlined filename
 ```
 
-Both are 24-byte objects. Construction, field access, copy, thread-transfer, and
-arena cleanup all reuse the generic record machinery; copying an `Error` deep-
-copies its `message` string and its `source` `ErrorLoc` (which in turn deep-copies
-its `filename`).
+`message` is always a valid (possibly empty) `String`. A null `source` (an
+OOM-degraded error with no origin) is represented by an **offset-0 sentinel**
+(offset 0 can never address a real inlined block, since the data region starts at
+24); `emit_load_error_fields` maps it back to a null pointer when loading the
+fallible-call ABI registers. Construction, field access, copy, and
+thread-transfer reuse the generic flat-record machinery — copying an `Error` is
+one `memcpy`.
+
+### `Result`
+
+`Result OF T` is a flat `{tag, size, payload}` value — a two-variant data union
+`Ok(T)` / `Err(Error)`:
+
+```text
+Result
+  +0   U64   tag         ; 0 = Ok, otherwise Err
+  +8   U64   size        ; total byte size of THIS object
+  +16  payload           ; a scalar value inline, or a flat block inlined whole
+```
+
+A scalar success payload occupies the 8-byte word at `+16`; a block payload
+(`String`, record, union, collection, the `Err` `Error`, or a nested `Result`) is
+inlined whole at `+16` and `size` covers it. Reading the value yields a borrow
+pointer into the block (`base + 16`) for a block payload, or the 8-byte value for
+a scalar. Copy/transfer is one generic `memcpy`.
 
 ### Union
 

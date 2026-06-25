@@ -69,7 +69,7 @@ Last updated: 2026-06-24
   (JSON values are unions), and packages pass; new runtime proof
   `tests/flat-union-rt` (scalar/String/nested-record variants, `MATCH`, copy,
   `List` of variable-size unions) is deterministic under entropy poisoning.
-  `Result`/`Error` keep their current ABI-wired representation (a later step).
+  (`Result`/`Error` were flattened later, in Phase 6.)
 - **Phase 5 (collection/union fields of records) — DONE (part b).** A record or
   union-variant field that is a **fully-flat** collection (`List`/`Map` whose
   payloads are flat and not themselves collections) or a **flat data union** is
@@ -106,21 +106,33 @@ Last updated: 2026-06-24
     3-level nesting, a record holding `List OF List`, append copy-independence) is
     deterministic under entropy poisoning; `func_collections_helpers_valid`
     (`flatten` over `List OF List`) passes.
-- **Phase 6 (generic copy) — DONE (the cutover; glue deletion deferred).**
-  `copy_flat_block` now sizes any flat block via the `emit_inlined_block_size_from_ptr_slot`
-  dispatcher (`String`/collection/record-walk/data-union-`size@8`), and
-  `copy_value_to_current_arena` routes **every** `type_is_flat` value (flat record,
-  flat data union, flat collection, `String`) through it — one `arena_alloc` +
-  `memcpy`, no per-type recursion. The per-type glue (`copy_record_to_current_arena`,
-  `copy_union_to_current_arena`, `copy_collection_to_current_arena`) is now reached
-  **only** by types that still embed pointers (`Error`, `Result`, non-flat
-  collections/records/unions, resources). Resources are explicitly excluded from
-  `type_is_flat` (move-only handles). Full glue deletion waits on Phase 5a (once
-  nested collections inline, every non-resource value is flat and the glue is dead).
-  Validated: full acceptance green (no golden churn — thread-transfer codegen has
-  no `ncode` goldens; runtime identical), thread-return-string/-list-of-string/-map/
-  -union and the `flat-*-rt` proofs pass under entropy poisoning.
-- Phases 5a, 7, 8 — pending.
+- **Phase 6 (generic copy + glue deletion) — DONE.** `Error`, `ErrorLoc`, and
+  `Result` were flattened (the §1 targets), so **every non-resource value is now a
+  single pointer-free block**:
+  - `ErrorLoc` `{filename(String offset)@0, line@8, char@16}` —
+    `emit_build_error_loc` inlines the filename (empty-String-guarded, keeps its
+    OOM-returns-null contract).
+  - `Error` `{code@0, message(offset)@8, source(offset)@16}` —
+    `emit_build_error_inline` inlines message + source at all three construction
+    sites; a null `source` (OOM, no origin) is an **offset-0 sentinel**;
+    `emit_load_error_fields` rebases them for the FAIL ABI.
+  - `Result` `{tag@0, size@8, payload@16}` — `emit_build_result_inline` inlines a
+    scalar payload (8-byte word) or a block payload whole; `ResultValue`/
+    `ResultError` read `+16`; `type_is_flat` now recognises `Result OF T`.
+
+  With that, `copy_value_to_current_arena` routes every value through the generic
+  `copy_flat_block` (sized by `emit_inlined_block_size_from_ptr_slot`), and the
+  per-type deep-copy glue — `copy_error_to_current_arena`,
+  `copy_result_to_current_arena`, `copy_record_to_current_arena` — was **deleted**.
+  The only glue left is the resource-move path (`copy_resource`, and
+  `copy_collection`/`copy_union` for a `List OF RES` / resource union), which is
+  the single remaining pointer the plan always allowed (§9). Validated: full
+  acceptance green; the error/trap/`Result` runtime tests
+  (`thread-error-source-rt`, `control-flow-inline-trap-*`, `func_thread_result_valid`,
+  `arithmetic-division-invalid-rt`) and resource transfer
+  (`thread-send-file-ownership-rt`, `resource-union-valid`/`-drop-valid`) pass
+  deterministically under entropy poisoning.
+- Phase 8 — pending.
 
 ### Phase 4 scoping (ready for continuation)
 
