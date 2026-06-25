@@ -432,7 +432,13 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
 }
 
 pub(crate) fn function_symbol(name: &str) -> String {
-    format!("_mfb_fn_{}", symbol_fragment(name))
+    // Compiler-internal functions (injected built-ins, sigil-prefixed) get a
+    // reserved symbol namespace that user functions — always routed through
+    // `_mfb_fn_` — can never reach, so a sigil name cannot collide at link time.
+    match crate::internal_name::strip_sigil(name) {
+        Some(rest) => format!("_mfb_ifn_{}", symbol_fragment(rest)),
+        None => format!("_mfb_fn_{}", symbol_fragment(name)),
+    }
 }
 
 pub(crate) fn global_symbol(project: &str, name: &str) -> String {

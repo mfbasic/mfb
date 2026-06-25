@@ -5,7 +5,7 @@ REM Maps a Unicode scalar value to its two-letter general category.
 REM Runs are contiguous and cover 0 .. 0x10FFFF (Cs = surrogate,
 REM Cn = unassigned). See specifications/regex.md §2.1, §8.
 
-FUNC rxGenCat(cp AS Integer) AS String
+FUNC __regex_genCat(cp AS Integer) AS String
   IF cp <= 31 THEN RETURN "Cc"
   IF cp <= 32 THEN RETURN "Zs"
   IF cp <= 35 THEN RETURN "Po"

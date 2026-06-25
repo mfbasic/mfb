@@ -2722,14 +2722,18 @@ fn lower_expression_with_expected(
             // §5). The native code generator dispatches on the qualified name, so
             // the freed bare names (`get`, `transform`, ...) can be redefined by
             // user code without colliding with the native lowering.
+            // `implementation_name` returns the `__pkg_name` form; the injected
+            // package's function is lexed in internal mode, so its actual name
+            // carries the internal sigil. Internalize the dispatch target to match.
             let resolved_target = builtins::json::implementation_name(&canonical_callee)
                 .or_else(|| builtins::regex::implementation_name(&canonical_callee))
-                .unwrap_or(&canonical_callee);
+                .map(crate::internal_name::internalize)
+                .unwrap_or_else(|| canonical_callee.clone());
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`
                 // (typecheck already enforced their resource semantics).
-                target: thread_resource_plane_target(resolved_target).to_string(),
+                target: thread_resource_plane_target(&resolved_target).to_string(),
                 args,
                 loc,
             }

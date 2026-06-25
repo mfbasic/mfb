@@ -4,6 +4,7 @@ mod audit;
 mod binary_repr;
 mod builtins;
 mod escape;
+mod internal_name;
 mod ir;
 mod lexer;
 mod man;

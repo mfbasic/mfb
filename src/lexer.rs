@@ -101,6 +101,14 @@ pub struct Token {
 }
 
 pub fn lex(path: &Path, source: &str) -> Result<Vec<Token>, ()> {
+    lex_with(path, source, false)
+}
+
+/// Lex `source`, optionally in *internal* mode. In internal mode the lexer
+/// rewrites a leading `__` on each identifier to the untypeable internal sigil
+/// (`__json_parse` -> `#json_parse`), making compiler-internal names unforgeable
+/// by user code. Only the built-in injected packages are lexed this way.
+pub fn lex_with(path: &Path, source: &str, internal: bool) -> Result<Vec<Token>, ()> {
     let mut lexer = Lexer {
         path,
         chars: source.chars().collect(),
@@ -109,6 +117,7 @@ pub fn lex(path: &Path, source: &str) -> Result<Vec<Token>, ()> {
         column: 1,
         tokens: Vec::new(),
         had_error: false,
+        internal,
     };
     lexer.lex_all();
 
@@ -127,6 +136,9 @@ struct Lexer<'a> {
     column: usize,
     tokens: Vec<Token>,
     had_error: bool,
+    /// When set, identifiers beginning `__` are rewritten to their internal
+    /// sigil form (see [`lex_with`]). Public names (no `__` prefix) are untouched.
+    internal: bool,
 }
 
 impl Lexer<'_> {
@@ -347,6 +359,13 @@ impl Lexer<'_> {
         if value.eq_ignore_ascii_case("REM") && self.is_statement_start() {
             self.skip_line_comment();
             return;
+        }
+
+        // In an internal file, rewrite a leading `__` to the untypeable internal
+        // sigil so the resulting name cannot collide with any user identifier
+        // (keywords never carry a `__` prefix, so this only ever affects names).
+        if self.internal && value.starts_with("__") {
+            value = crate::internal_name::internalize(&value);
         }
 
         let kind = keyword(&value)

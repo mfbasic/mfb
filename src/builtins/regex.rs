@@ -107,13 +107,13 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
     // separate physical files so the table can be regenerated mechanically, but
     // they compile as one source file: MFBASIC `FUNC`s are file-local unless
     // exported, and `PACKAGE` visibility is not valid in an executable, so the
-    // engine's calls to `rxGenCat` must be intra-file.
+    // engine's calls to `__regex_genCat` must be intra-file.
     let combined = format!(
         "{}\n{}",
         include_str!("regex_package.mfb"),
         include_str!("regex_unicode.mfb"),
     );
-    crate::ast::parse_source(Path::new("<builtin-regex>"), "builtins/regex.mfb", &combined)
+    crate::ast::parse_source_internal(Path::new("<builtin-regex>"), "builtins/regex.mfb", &combined)
 }
 
 pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {

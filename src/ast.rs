@@ -17,6 +17,11 @@ pub struct AstFile {
     pub path: String,
     pub imports: Vec<Import>,
     pub items: Vec<Item>,
+    /// True for compiler-injected built-in package source (`json`, `regex`,
+    /// `collections`). Such files are lexed in internal mode, rewriting their
+    /// `__`-prefixed private names to the untypeable internal sigil. Not emitted
+    /// in the `.ast` dump (injected files are excluded from it).
+    pub internal: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -541,6 +546,8 @@ fn builtin_prelude_file() -> AstFile {
     AstFile {
         path: BUILTIN_PRELUDE_PATH.to_string(),
         imports: Vec::new(),
+        // Public prelude types (`Pair`, `Partition`) — not internal-name material.
+        internal: false,
         items: vec![
             template(
                 "Pair",
@@ -611,12 +618,37 @@ pub fn write_ast(project_dir: &Path, ast: &AstProject) -> Result<PathBuf, String
 }
 
 pub fn parse_source(path: &Path, relative_path: &str, contents: &str) -> Result<AstFile, ()> {
-    let tokens = lexer::lex(path, contents)?;
+    parse_source_with(path, relative_path, contents, false)
+}
+
+/// Parse a compiler-injected built-in package file. Lexed in internal mode so
+/// its `__`-prefixed private names become untypeable internal symbols, and
+/// tagged `internal` for downstream provenance.
+pub fn parse_source_internal(
+    path: &Path,
+    relative_path: &str,
+    contents: &str,
+) -> Result<AstFile, ()> {
+    parse_source_with(path, relative_path, contents, true)
+}
+
+fn parse_source_with(
+    path: &Path,
+    relative_path: &str,
+    contents: &str,
+    internal: bool,
+) -> Result<AstFile, ()> {
+    let tokens = if internal {
+        lexer::lex_with(path, contents, true)?
+    } else {
+        lexer::lex(path, contents)?
+    };
     let ast_file = FileParser::new(path, tokens).parse()?;
     Ok(AstFile {
         path: relative_path.replace('\\', "/"),
         imports: ast_file.imports,
         items: ast_file.items,
+        internal,
     })
 }
 

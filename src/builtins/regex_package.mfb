@@ -1,9 +1,9 @@
 REM MFBASIC regex package — implements specifications/regex.md.
 REM
-REM Strategy: parse the pattern into an AST of RxNode values, then run a
+REM Strategy: parse the pattern into an AST of __regex_Node values, then run a
 REM continuation-passing backtracking matcher (leftmost-first / preference order,
 REM regex.md §4). The Unicode general-category table lives in regex_unicode.mfb
-REM (rxGenCat); everything else is here. All matching is over Unicode scalars,
+REM (__regex_genCat); everything else is here. All matching is over Unicode scalars,
 REM represented as single-scalar Strings, with a parallel code-point list.
 REM
 REM Error codes (regex.md §14): ErrInvalidFormat 77050003, ErrNotFound 77050004,
@@ -16,7 +16,7 @@ REM ---------------------------------------------------------------------------
 REM Types
 REM ---------------------------------------------------------------------------
 
-TYPE RxFlags
+TYPE __regex_Flags
   ci AS Boolean
   ml AS Boolean
   dotall AS Boolean
@@ -25,157 +25,157 @@ TYPE RxFlags
 END TYPE
 
 REM Character-class items.
-TYPE RxRange
+TYPE __regex_Range
   lo AS String
   hi AS String
 END TYPE
-TYPE RxSingle
+TYPE __regex_Single
   ch AS String
 END TYPE
-TYPE RxShort
+TYPE __regex_Short
   kind AS Integer
 END TYPE
-TYPE RxProp
+TYPE __regex_Prop
   name AS String
   neg AS Boolean
 END TYPE
-UNION RxClassItem
-  RxRange
-  RxSingle
-  RxShort
-  RxProp
+UNION __regex_ClassItem
+  __regex_Range
+  __regex_Single
+  __regex_Short
+  __regex_Prop
 END UNION
 
 REM Regex AST nodes.
-TYPE RxLit
+TYPE __regex_Lit
   ch AS String
   fold AS Boolean
 END TYPE
-TYPE RxAny
+TYPE __regex_Any
   dotall AS Boolean
 END TYPE
-TYPE RxClass
+TYPE __regex_Class
   neg AS Boolean
   fold AS Boolean
-  items AS List OF RxClassItem
+  items AS List OF __regex_ClassItem
 END TYPE
-TYPE RxAnchor
+TYPE __regex_Anchor
   kind AS Integer
   ml AS Boolean
 END TYPE
-TYPE RxConcat
-  parts AS List OF RxNode
+TYPE __regex_Concat
+  parts AS List OF __regex_Node
 END TYPE
-TYPE RxAlt
-  opts AS List OF RxNode
+TYPE __regex_Alt
+  opts AS List OF __regex_Node
 END TYPE
-TYPE RxRepeat
-  child AS RxNode
+TYPE __regex_Repeat
+  child AS __regex_Node
   lo AS Integer
   hi AS Integer
   greedy AS Boolean
 END TYPE
-TYPE RxGroup
-  child AS RxNode
+TYPE __regex_Group
+  child AS __regex_Node
   slot AS Integer
 END TYPE
-UNION RxNode
-  RxLit
-  RxAny
-  RxClass
-  RxAnchor
-  RxConcat
-  RxAlt
-  RxRepeat
-  RxGroup
+UNION __regex_Node
+  __regex_Lit
+  __regex_Any
+  __regex_Class
+  __regex_Anchor
+  __regex_Concat
+  __regex_Alt
+  __regex_Repeat
+  __regex_Group
 END UNION
 
 REM Match continuations.
-TYPE ContDone
+TYPE __regex_ContDone
   dummy AS Boolean
 END TYPE
-TYPE ContSeq
-  parts AS List OF RxNode
+TYPE __regex_ContSeq
+  parts AS List OF __regex_Node
   idx AS Integer
-  nxt AS Cont
+  nxt AS __regex_Cont
 END TYPE
-TYPE ContCap
+TYPE __regex_ContCap
   slot AS Integer
-  nxt AS Cont
+  nxt AS __regex_Cont
 END TYPE
-TYPE ContRep
-  rep AS RxRepeat
+TYPE __regex_ContRep
+  rep AS __regex_Repeat
   count AS Integer
   startPos AS Integer
-  nxt AS Cont
+  nxt AS __regex_Cont
 END TYPE
-UNION Cont
-  ContDone
-  ContSeq
-  ContCap
-  ContRep
+UNION __regex_Cont
+  __regex_ContDone
+  __regex_ContSeq
+  __regex_ContCap
+  __regex_ContRep
 END UNION
 
-TYPE RxResult
+TYPE __regex_Result
   ok AS Boolean
   pos AS Integer
   caps AS List OF Integer
 END TYPE
 
-TYPE RxCtx
+TYPE __regex_Ctx
   text AS List OF String
   cps AS List OF Integer
   n AS Integer
 END TYPE
 
-TYPE RxProgram
-  root AS RxNode
+TYPE __regex_Program
+  root AS __regex_Node
   groups AS Integer
   names AS Map OF String TO Integer
 END TYPE
 
 REM Parser return values.
-TYPE RxParse
-  node AS RxNode
+TYPE __regex_Parse
+  node AS __regex_Node
   nxt AS Integer
   groups AS Integer
   names AS Map OF String TO Integer
 END TYPE
-TYPE RxParen
+TYPE __regex_Paren
   isDir AS Boolean
-  flags AS RxFlags
-  node AS RxNode
+  flags AS __regex_Flags
+  node AS __regex_Node
   nxt AS Integer
   groups AS Integer
   names AS Map OF String TO Integer
 END TYPE
-TYPE RxCount
+TYPE __regex_Count
   lo AS Integer
   hi AS Integer
   nxt AS Integer
 END TYPE
-TYPE RxLitScalar
+TYPE __regex_LitScalar
   ch AS String
   nxt AS Integer
 END TYPE
-TYPE RxPropParse
+TYPE __regex_PropParse
   name AS String
   neg AS Boolean
   nxt AS Integer
 END TYPE
-TYPE RxEndpoint
+TYPE __regex_Endpoint
   kind AS Integer
   ch AS String
-  item AS RxClassItem
+  item AS __regex_ClassItem
   nxt AS Integer
 END TYPE
-TYPE RxFlagSpec
-  flags AS RxFlags
+TYPE __regex_FlagSpec
+  flags AS __regex_Flags
   any AS Boolean
   term AS String
   nxt AS Integer
 END TYPE
-TYPE RxName
+TYPE __regex_Name
   name AS String
   nxt AS Integer
 END TYPE
@@ -184,7 +184,7 @@ REM ---------------------------------------------------------------------------
 REM Scalar / code-point helpers
 REM ---------------------------------------------------------------------------
 
-FUNC rxChr(value AS Integer) AS String
+FUNC __regex_chr(value AS Integer) AS String
   MUT v AS Integer = value
   IF v < 0 THEN
     v = 0
@@ -230,13 +230,13 @@ FUNC rxChr(value AS Integer) AS String
 END FUNC
 
 REM Binary search the code point of a single scalar string using the monotone
-REM (UTF-8 byte order == scalar order) encoding produced by rxChr.
-FUNC rxScalarToCp(ch AS String) AS Integer
+REM (UTF-8 byte order == scalar order) encoding produced by __regex_chr.
+FUNC __regex_scalarToCp(ch AS String) AS Integer
   MUT lo AS Integer = 0
   MUT hi AS Integer = 1114111
   WHILE lo < hi
     LET mid AS Integer = (lo + hi) / 2
-    LET s AS String = rxChr(mid)
+    LET s AS String = __regex_chr(mid)
     IF s < ch THEN
       lo = mid + 1
     ELSE
@@ -246,7 +246,7 @@ FUNC rxScalarToCp(ch AS String) AS Integer
   RETURN lo
 END FUNC
 
-FUNC rxToScalars(s AS String) AS List OF String
+FUNC __regex_toScalars(s AS String) AS List OF String
   MUT out AS List OF String = []
   LET m AS Integer = len(s)
   MUT i AS Integer = 0
@@ -257,28 +257,28 @@ FUNC rxToScalars(s AS String) AS List OF String
   RETURN out
 END FUNC
 
-FUNC rxMakeCtx(value AS String) AS RxCtx
-  LET chars AS List OF String = rxToScalars(value)
+FUNC __regex_makeCtx(value AS String) AS __regex_Ctx
+  LET chars AS List OF String = __regex_toScalars(value)
   MUT cps AS List OF Integer = []
   FOR EACH ch IN chars
-    cps = collections::append(cps, rxScalarToCp(ch))
+    cps = collections::append(cps, __regex_scalarToCp(ch))
   NEXT
-  RETURN RxCtx[chars, cps, len(chars)]
+  RETURN __regex_Ctx[chars, cps, len(chars)]
 END FUNC
 
 REM ---------------------------------------------------------------------------
 REM Character classification (regex.md §8)
 REM ---------------------------------------------------------------------------
 
-FUNC rxCatIsLetter(cat AS String) AS Boolean
+FUNC __regex_catIsLetter(cat AS String) AS Boolean
   RETURN strings::startsWith(cat, "L")
 END FUNC
 
-FUNC rxCatIsMark(cat AS String) AS Boolean
+FUNC __regex_catIsMark(cat AS String) AS Boolean
   RETURN strings::startsWith(cat, "M")
 END FUNC
 
-FUNC rxIsSpaceCp(cp AS Integer, cat AS String) AS Boolean
+FUNC __regex_isSpaceCp(cp AS Integer, cat AS String) AS Boolean
   IF strings::startsWith(cat, "Z") THEN
     RETURN TRUE
   END IF
@@ -291,14 +291,14 @@ FUNC rxIsSpaceCp(cp AS Integer, cat AS String) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC rxIsWordCp(cp AS Integer, cat AS String) AS Boolean
-  IF rxCatIsLetter(cat) THEN
+FUNC __regex_isWordCp(cp AS Integer, cat AS String) AS Boolean
+  IF __regex_catIsLetter(cat) THEN
     RETURN TRUE
   END IF
   IF cat = "Nl" THEN
     RETURN TRUE
   END IF
-  IF rxCatIsMark(cat) THEN
+  IF __regex_catIsMark(cat) THEN
     RETURN TRUE
   END IF
   IF cat = "Nd" THEN
@@ -313,13 +313,13 @@ FUNC rxIsWordCp(cp AS Integer, cat AS String) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC rxIsWord(cp AS Integer) AS Boolean
-  RETURN rxIsWordCp(cp, rxGenCat(cp))
+FUNC __regex_isWord(cp AS Integer) AS Boolean
+  RETURN __regex_isWordCp(cp, __regex_genCat(cp))
 END FUNC
 
 REM \d \D \w \W \s \S — kind 1..6.
-FUNC rxShorthandMatch(kind AS Integer, cp AS Integer) AS Boolean
-  LET cat AS String = rxGenCat(cp)
+FUNC __regex_shorthandMatch(kind AS Integer, cp AS Integer) AS Boolean
+  LET cat AS String = __regex_genCat(cp)
   IF kind = 1 THEN
     RETURN cat = "Nd"
   END IF
@@ -327,18 +327,18 @@ FUNC rxShorthandMatch(kind AS Integer, cp AS Integer) AS Boolean
     RETURN NOT (cat = "Nd")
   END IF
   IF kind = 3 THEN
-    RETURN rxIsWordCp(cp, cat)
+    RETURN __regex_isWordCp(cp, cat)
   END IF
   IF kind = 4 THEN
-    RETURN NOT rxIsWordCp(cp, cat)
+    RETURN NOT __regex_isWordCp(cp, cat)
   END IF
   IF kind = 5 THEN
-    RETURN rxIsSpaceCp(cp, cat)
+    RETURN __regex_isSpaceCp(cp, cat)
   END IF
-  RETURN NOT rxIsSpaceCp(cp, cat)
+  RETURN NOT __regex_isSpaceCp(cp, cat)
 END FUNC
 
-FUNC rxIsGcName(name AS String) AS Boolean
+FUNC __regex_isGcName(name AS String) AS Boolean
   IF name = "Lu" OR name = "Ll" OR name = "Lt" OR name = "Lm" OR name = "Lo" THEN
     RETURN TRUE
   END IF
@@ -366,7 +366,7 @@ FUNC rxIsGcName(name AS String) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC rxScriptCanon(low AS String) AS String
+FUNC __regex_scriptCanon(low AS String) AS String
   IF low = "latin" THEN
     RETURN "Latin"
   END IF
@@ -400,7 +400,7 @@ FUNC rxScriptCanon(low AS String) AS String
   RETURN ""
 END FUNC
 
-FUNC rxScriptTest(name AS String, cp AS Integer) AS Boolean
+FUNC __regex_scriptTest(name AS String, cp AS Integer) AS Boolean
   IF name = "Latin" THEN
     IF cp >= 65 AND cp <= 90 THEN
       RETURN TRUE
@@ -491,13 +491,13 @@ FUNC rxScriptTest(name AS String, cp AS Integer) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC rxIsScriptName(low AS String) AS Boolean
-  RETURN rxScriptCanon(low) <> ""
+FUNC __regex_isScriptName(low AS String) AS Boolean
+  RETURN __regex_scriptCanon(low) <> ""
 END FUNC
 
-REM Property test against a canonical property name (see rxCanonProp).
-FUNC rxPropTest(name AS String, cp AS Integer) AS Boolean
-  LET cat AS String = rxGenCat(cp)
+REM Property test against a canonical property name (see __regex_canonProp).
+FUNC __regex_propTest(name AS String, cp AS Integer) AS Boolean
+  LET cat AS String = __regex_genCat(cp)
   IF name = "L" THEN
     RETURN strings::startsWith(cat, "L")
   END IF
@@ -520,19 +520,19 @@ FUNC rxPropTest(name AS String, cp AS Integer) AS Boolean
     RETURN strings::startsWith(cat, "C")
   END IF
   IF name = "White_Space" THEN
-    RETURN rxIsSpaceCp(cp, cat)
+    RETURN __regex_isSpaceCp(cp, cat)
   END IF
   IF name = "Alphabetic" THEN
     RETURN strings::startsWith(cat, "L") OR cat = "Nl"
   END IF
-  IF rxIsGcName(name) THEN
+  IF __regex_isGcName(name) THEN
     RETURN cat = name
   END IF
-  RETURN rxScriptTest(name, cp)
+  RETURN __regex_scriptTest(name, cp)
 END FUNC
 
 REM Resolve a \p{...} property text to a canonical name, or "" if invalid.
-FUNC rxCanonProp(name AS String) AS String
+FUNC __regex_canonProp(name AS String) AS String
   IF strings::contains(name, "=") THEN
     LET parts AS List OF String = strings::split(name, "=")
     IF len(parts) <> 2 THEN
@@ -541,10 +541,10 @@ FUNC rxCanonProp(name AS String) AS String
     LET key AS String = strings::lower(strings::trim(collections::get(parts, 0)))
     LET val AS String = strings::trim(collections::get(parts, 1))
     IF key = "gc" OR key = "general_category" THEN
-      RETURN rxCanonProp(val)
+      RETURN __regex_canonProp(val)
     END IF
     IF key = "sc" OR key = "script" THEN
-      RETURN rxScriptCanon(strings::lower(val))
+      RETURN __regex_scriptCanon(strings::lower(val))
     END IF
     RETURN ""
   END IF
@@ -570,7 +570,7 @@ FUNC rxCanonProp(name AS String) AS String
   IF low = "c" OR low = "other" THEN
     RETURN "C"
   END IF
-  IF rxIsGcName(name) THEN
+  IF __regex_isGcName(name) THEN
     RETURN name
   END IF
   IF low = "white_space" OR low = "whitespace" THEN
@@ -579,8 +579,8 @@ FUNC rxCanonProp(name AS String) AS String
   IF low = "alphabetic" OR low = "alpha" THEN
     RETURN "Alphabetic"
   END IF
-  IF rxIsScriptName(low) THEN
-    RETURN rxScriptCanon(low)
+  IF __regex_isScriptName(low) THEN
+    RETURN __regex_scriptCanon(low)
   END IF
   RETURN ""
 END FUNC
@@ -589,23 +589,23 @@ REM ---------------------------------------------------------------------------
 REM Class membership
 REM ---------------------------------------------------------------------------
 
-FUNC rxClassMatchOne(items AS List OF RxClassItem, ch AS String, cp AS Integer) AS Boolean
+FUNC __regex_classMatchOne(items AS List OF __regex_ClassItem, ch AS String, cp AS Integer) AS Boolean
   FOR EACH item IN items
     MATCH item
-      CASE RxRange(rng)
+      CASE __regex_Range(rng)
         IF ch >= rng.lo AND ch <= rng.hi THEN
           RETURN TRUE
         END IF
-      CASE RxSingle(sng)
+      CASE __regex_Single(sng)
         IF ch = sng.ch THEN
           RETURN TRUE
         END IF
-      CASE RxShort(sh)
-        IF rxShorthandMatch(sh.kind, cp) THEN
+      CASE __regex_Short(sh)
+        IF __regex_shorthandMatch(sh.kind, cp) THEN
           RETURN TRUE
         END IF
-      CASE RxProp(pr)
-        IF rxPropMatchItem(pr.name, pr.neg, cp) THEN
+      CASE __regex_Prop(pr)
+        IF __regex_propMatchItem(pr.name, pr.neg, cp) THEN
           RETURN TRUE
         END IF
     END MATCH
@@ -613,22 +613,22 @@ FUNC rxClassMatchOne(items AS List OF RxClassItem, ch AS String, cp AS Integer) 
   RETURN FALSE
 END FUNC
 
-FUNC rxPropMatchItem(name AS String, neg AS Boolean, cp AS Integer) AS Boolean
-  LET hit AS Boolean = rxPropTest(name, cp)
+FUNC __regex_propMatchItem(name AS String, neg AS Boolean, cp AS Integer) AS Boolean
+  LET hit AS Boolean = __regex_propTest(name, cp)
   IF neg THEN
     RETURN NOT hit
   END IF
   RETURN hit
 END FUNC
 
-FUNC rxClassMatch(cls AS RxClass, pos AS Integer, ctx AS RxCtx) AS Boolean
+FUNC __regex_classMatch(cls AS __regex_Class, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
   LET ch AS String = collections::get(ctx.text, pos)
   LET cp AS Integer = collections::get(ctx.cps, pos)
-  MUT hit AS Boolean = rxClassMatchOne(cls.items, ch, cp)
+  MUT hit AS Boolean = __regex_classMatchOne(cls.items, ch, cp)
   IF cls.fold AND hit = FALSE THEN
     LET lc AS String = strings::lower(ch)
     IF lc <> ch AND len(lc) = 1 THEN
-      IF rxClassMatchOne(cls.items, lc, rxScalarToCp(lc)) THEN
+      IF __regex_classMatchOne(cls.items, lc, __regex_scalarToCp(lc)) THEN
         hit = TRUE
       END IF
     END IF
@@ -636,7 +636,7 @@ FUNC rxClassMatch(cls AS RxClass, pos AS Integer, ctx AS RxCtx) AS Boolean
   IF cls.fold AND hit = FALSE THEN
     LET uc AS String = strings::upper(ch)
     IF uc <> ch AND len(uc) = 1 THEN
-      IF rxClassMatchOne(cls.items, uc, rxScalarToCp(uc)) THEN
+      IF __regex_classMatchOne(cls.items, uc, __regex_scalarToCp(uc)) THEN
         hit = TRUE
       END IF
     END IF
@@ -651,19 +651,19 @@ REM ---------------------------------------------------------------------------
 REM Anchors (regex.md §11.4)
 REM ---------------------------------------------------------------------------
 
-FUNC rxWordBoundary(pos AS Integer, ctx AS RxCtx) AS Boolean
+FUNC __regex_wordBoundary(pos AS Integer, ctx AS __regex_Ctx) AS Boolean
   MUT before AS Boolean = FALSE
   MUT after AS Boolean = FALSE
   IF pos > 0 THEN
-    before = rxIsWord(collections::get(ctx.cps, pos - 1))
+    before = __regex_isWord(collections::get(ctx.cps, pos - 1))
   END IF
   IF pos < ctx.n THEN
-    after = rxIsWord(collections::get(ctx.cps, pos))
+    after = __regex_isWord(collections::get(ctx.cps, pos))
   END IF
   RETURN before <> after
 END FUNC
 
-FUNC rxAnchorMatch(anchor AS RxAnchor, pos AS Integer, ctx AS RxCtx) AS Boolean
+FUNC __regex_anchorMatch(anchor AS __regex_Anchor, pos AS Integer, ctx AS __regex_Ctx) AS Boolean
   IF anchor.kind = 3 THEN
     RETURN pos = 0
   END IF
@@ -689,134 +689,134 @@ FUNC rxAnchorMatch(anchor AS RxAnchor, pos AS Integer, ctx AS RxCtx) AS Boolean
     RETURN FALSE
   END IF
   IF anchor.kind = 5 THEN
-    RETURN rxWordBoundary(pos, ctx)
+    RETURN __regex_wordBoundary(pos, ctx)
   END IF
-  RETURN NOT rxWordBoundary(pos, ctx)
+  RETURN NOT __regex_wordBoundary(pos, ctx)
 END FUNC
 
 REM ---------------------------------------------------------------------------
 REM Matcher (regex.md §4, §5, §6)
 REM ---------------------------------------------------------------------------
 
-FUNC rxFail AS RxResult
+FUNC __regex_fail AS __regex_Result
   LET e AS List OF Integer = []
-  RETURN RxResult[FALSE, 0, e]
+  RETURN __regex_Result[FALSE, 0, e]
 END FUNC
 
-FUNC rxSetCap(caps AS List OF Integer, idx AS Integer, val AS Integer) AS List OF Integer
+FUNC __regex_setCap(caps AS List OF Integer, idx AS Integer, val AS Integer) AS List OF Integer
   RETURN collections::set(caps, idx, val)
 END FUNC
 
-FUNC rxCharEq(a AS String, b AS String, fold AS Boolean) AS Boolean
+FUNC __regex_charEq(a AS String, b AS String, fold AS Boolean) AS Boolean
   IF fold THEN
     RETURN strings::caseFold(a) = strings::caseFold(b)
   END IF
   RETURN a = b
 END FUNC
 
-FUNC matchNode(node AS RxNode, pos AS Integer, caps AS List OF Integer, c AS Cont, ctx AS RxCtx) AS RxResult
+FUNC __regex_matchNode(node AS __regex_Node, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx) AS __regex_Result
   MATCH node
-    CASE RxLit(litNode)
+    CASE __regex_Lit(litNode)
       IF pos >= ctx.n THEN
-        RETURN rxFail()
+        RETURN __regex_fail()
       END IF
-      IF rxCharEq(litNode.ch, collections::get(ctx.text, pos), litNode.fold) THEN
-        RETURN matchCont(c, pos + 1, caps, ctx)
+      IF __regex_charEq(litNode.ch, collections::get(ctx.text, pos), litNode.fold) THEN
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx)
       END IF
-      RETURN rxFail()
-    CASE RxAny(anyNode)
+      RETURN __regex_fail()
+    CASE __regex_Any(anyNode)
       IF pos >= ctx.n THEN
-        RETURN rxFail()
+        RETURN __regex_fail()
       END IF
       IF anyNode.dotall OR collections::get(ctx.text, pos) <> "\n" THEN
-        RETURN matchCont(c, pos + 1, caps, ctx)
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx)
       END IF
-      RETURN rxFail()
-    CASE RxClass(clsNode)
+      RETURN __regex_fail()
+    CASE __regex_Class(clsNode)
       IF pos >= ctx.n THEN
-        RETURN rxFail()
+        RETURN __regex_fail()
       END IF
-      IF rxClassMatch(clsNode, pos, ctx) THEN
-        RETURN matchCont(c, pos + 1, caps, ctx)
+      IF __regex_classMatch(clsNode, pos, ctx) THEN
+        RETURN __regex_matchCont(c, pos + 1, caps, ctx)
       END IF
-      RETURN rxFail()
-    CASE RxAnchor(anchorNode)
-      IF rxAnchorMatch(anchorNode, pos, ctx) THEN
-        RETURN matchCont(c, pos, caps, ctx)
+      RETURN __regex_fail()
+    CASE __regex_Anchor(anchorNode)
+      IF __regex_anchorMatch(anchorNode, pos, ctx) THEN
+        RETURN __regex_matchCont(c, pos, caps, ctx)
       END IF
-      RETURN rxFail()
-    CASE RxConcat(seqNode)
-      RETURN matchCont(ContSeq[seqNode.parts, 0, c], pos, caps, ctx)
-    CASE RxAlt(altNode)
-      RETURN rxMatchAlt(altNode.opts, 0, pos, caps, c, ctx)
-    CASE RxRepeat(repNode)
-      RETURN rxMatchRep(repNode, 0, pos, caps, c, ctx)
-    CASE RxGroup(grpNode)
-      LET caps2 AS List OF Integer = rxSetCap(caps, 2 * grpNode.slot, pos)
-      RETURN matchNode(grpNode.child, pos, caps2, ContCap[grpNode.slot, c], ctx)
+      RETURN __regex_fail()
+    CASE __regex_Concat(seqNode)
+      RETURN __regex_matchCont(__regex_ContSeq[seqNode.parts, 0, c], pos, caps, ctx)
+    CASE __regex_Alt(altNode)
+      RETURN __regex_matchAlt(altNode.opts, 0, pos, caps, c, ctx)
+    CASE __regex_Repeat(repNode)
+      RETURN __regex_matchRep(repNode, 0, pos, caps, c, ctx)
+    CASE __regex_Group(grpNode)
+      LET caps2 AS List OF Integer = __regex_setCap(caps, 2 * grpNode.slot, pos)
+      RETURN __regex_matchNode(grpNode.child, pos, caps2, __regex_ContCap[grpNode.slot, c], ctx)
   END MATCH
 END FUNC
 
-FUNC rxMatchAlt(opts AS List OF RxNode, i AS Integer, pos AS Integer, caps AS List OF Integer, c AS Cont, ctx AS RxCtx) AS RxResult
+FUNC __regex_matchAlt(opts AS List OF __regex_Node, i AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx) AS __regex_Result
   IF i >= len(opts) THEN
-    RETURN rxFail()
+    RETURN __regex_fail()
   END IF
-  LET r AS RxResult = matchNode(collections::get(opts, i), pos, caps, c, ctx)
+  LET r AS __regex_Result = __regex_matchNode(collections::get(opts, i), pos, caps, c, ctx)
   IF r.ok THEN
     RETURN r
   END IF
-  RETURN rxMatchAlt(opts, i + 1, pos, caps, c, ctx)
+  RETURN __regex_matchAlt(opts, i + 1, pos, caps, c, ctx)
 END FUNC
 
-FUNC rxMatchRep(rep AS RxRepeat, count AS Integer, pos AS Integer, caps AS List OF Integer, c AS Cont, ctx AS RxCtx) AS RxResult
+FUNC __regex_matchRep(rep AS __regex_Repeat, count AS Integer, pos AS Integer, caps AS List OF Integer, c AS __regex_Cont, ctx AS __regex_Ctx) AS __regex_Result
   LET canMore AS Boolean = (rep.hi < 0) OR (count < rep.hi)
   LET mustMore AS Boolean = count < rep.lo
   IF rep.greedy THEN
     IF canMore THEN
-      LET r AS RxResult = matchNode(rep.child, pos, caps, ContRep[rep, count + 1, pos, c], ctx)
+      LET r AS __regex_Result = __regex_matchNode(rep.child, pos, caps, __regex_ContRep[rep, count + 1, pos, c], ctx)
       IF r.ok THEN
         RETURN r
       END IF
     END IF
     IF mustMore THEN
-      RETURN rxFail()
+      RETURN __regex_fail()
     END IF
-    RETURN matchCont(c, pos, caps, ctx)
+    RETURN __regex_matchCont(c, pos, caps, ctx)
   END IF
   IF mustMore = FALSE THEN
-    LET r2 AS RxResult = matchCont(c, pos, caps, ctx)
+    LET r2 AS __regex_Result = __regex_matchCont(c, pos, caps, ctx)
     IF r2.ok THEN
       RETURN r2
     END IF
   END IF
   IF canMore THEN
-    RETURN matchNode(rep.child, pos, caps, ContRep[rep, count + 1, pos, c], ctx)
+    RETURN __regex_matchNode(rep.child, pos, caps, __regex_ContRep[rep, count + 1, pos, c], ctx)
   END IF
-  RETURN rxFail()
+  RETURN __regex_fail()
 END FUNC
 
-FUNC matchCont(c AS Cont, pos AS Integer, caps AS List OF Integer, ctx AS RxCtx) AS RxResult
+FUNC __regex_matchCont(c AS __regex_Cont, pos AS Integer, caps AS List OF Integer, ctx AS __regex_Ctx) AS __regex_Result
   MATCH c
-    CASE ContDone(doneCont)
-      RETURN RxResult[TRUE, pos, caps]
-    CASE ContSeq(seqCont)
+    CASE __regex_ContDone(doneCont)
+      RETURN __regex_Result[TRUE, pos, caps]
+    CASE __regex_ContSeq(seqCont)
       IF seqCont.idx >= len(seqCont.parts) THEN
-        RETURN matchCont(seqCont.nxt, pos, caps, ctx)
+        RETURN __regex_matchCont(seqCont.nxt, pos, caps, ctx)
       END IF
-      LET part AS RxNode = collections::get(seqCont.parts, seqCont.idx)
-      RETURN matchNode(part, pos, caps, ContSeq[seqCont.parts, seqCont.idx + 1, seqCont.nxt], ctx)
-    CASE ContCap(capCont)
-      LET caps2 AS List OF Integer = rxSetCap(caps, 2 * capCont.slot + 1, pos)
-      RETURN matchCont(capCont.nxt, pos, caps2, ctx)
-    CASE ContRep(repCont)
+      LET part AS __regex_Node = collections::get(seqCont.parts, seqCont.idx)
+      RETURN __regex_matchNode(part, pos, caps, __regex_ContSeq[seqCont.parts, seqCont.idx + 1, seqCont.nxt], ctx)
+    CASE __regex_ContCap(capCont)
+      LET caps2 AS List OF Integer = __regex_setCap(caps, 2 * capCont.slot + 1, pos)
+      RETURN __regex_matchCont(capCont.nxt, pos, caps2, ctx)
+    CASE __regex_ContRep(repCont)
       IF pos = repCont.startPos THEN
-        RETURN matchCont(repCont.nxt, pos, caps, ctx)
+        RETURN __regex_matchCont(repCont.nxt, pos, caps, ctx)
       END IF
-      RETURN rxMatchRep(repCont.rep, repCont.count, pos, caps, repCont.nxt, ctx)
+      RETURN __regex_matchRep(repCont.rep, repCont.count, pos, caps, repCont.nxt, ctx)
   END MATCH
 END FUNC
 
-FUNC rxInitCaps(groups AS Integer) AS List OF Integer
+FUNC __regex_initCaps(groups AS Integer) AS List OF Integer
   MUT caps AS List OF Integer = []
   LET total AS Integer = 2 * (groups + 1)
   MUT i AS Integer = 0
@@ -827,33 +827,33 @@ FUNC rxInitCaps(groups AS Integer) AS List OF Integer
   RETURN caps
 END FUNC
 
-FUNC rxTryAt(prog AS RxProgram, ctx AS RxCtx, start AS Integer) AS RxResult
-  MUT caps AS List OF Integer = rxInitCaps(prog.groups)
-  caps = rxSetCap(caps, 0, start)
-  RETURN matchNode(prog.root, start, caps, ContCap[0, ContDone[TRUE]], ctx)
+FUNC __regex_tryAt(prog AS __regex_Program, ctx AS __regex_Ctx, start AS Integer) AS __regex_Result
+  MUT caps AS List OF Integer = __regex_initCaps(prog.groups)
+  caps = __regex_setCap(caps, 0, start)
+  RETURN __regex_matchNode(prog.root, start, caps, __regex_ContCap[0, __regex_ContDone[TRUE]], ctx)
 END FUNC
 
-FUNC rxSearchFrom(prog AS RxProgram, ctx AS RxCtx, from AS Integer) AS RxResult
+FUNC __regex_searchFrom(prog AS __regex_Program, ctx AS __regex_Ctx, from AS Integer) AS __regex_Result
   MUT s AS Integer = from
   WHILE s <= ctx.n
-    LET r AS RxResult = rxTryAt(prog, ctx, s)
+    LET r AS __regex_Result = __regex_tryAt(prog, ctx, s)
     IF r.ok THEN
       RETURN r
     END IF
     s = s + 1
   WEND
-  RETURN rxFail()
+  RETURN __regex_fail()
 END FUNC
 
 REM ---------------------------------------------------------------------------
 REM Lexical helpers for the parser
 REM ---------------------------------------------------------------------------
 
-FUNC rxIsDigit(ch AS String) AS Boolean
+FUNC __regex_isDigit(ch AS String) AS Boolean
   RETURN ch >= "0" AND ch <= "9"
 END FUNC
 
-FUNC rxIsNameStart(ch AS String) AS Boolean
+FUNC __regex_isNameStart(ch AS String) AS Boolean
   IF ch >= "A" AND ch <= "Z" THEN
     RETURN TRUE
   END IF
@@ -863,11 +863,11 @@ FUNC rxIsNameStart(ch AS String) AS Boolean
   RETURN ch = "_"
 END FUNC
 
-FUNC rxIsNameCont(ch AS String) AS Boolean
-  RETURN rxIsNameStart(ch) OR rxIsDigit(ch)
+FUNC __regex_isNameCont(ch AS String) AS Boolean
+  RETURN __regex_isNameStart(ch) OR __regex_isDigit(ch)
 END FUNC
 
-FUNC rxIsAsciiPunct(ch AS String) AS Boolean
+FUNC __regex_isAsciiPunct(ch AS String) AS Boolean
   IF ch >= "!" AND ch <= "/" THEN
     RETURN TRUE
   END IF
@@ -883,27 +883,27 @@ FUNC rxIsAsciiPunct(ch AS String) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC rxIsPatSpace(ch AS String) AS Boolean
+FUNC __regex_isPatSpace(ch AS String) AS Boolean
   IF ch = " " OR ch = "\t" OR ch = "\n" OR ch = "\r" THEN
     RETURN TRUE
   END IF
-  RETURN ch = rxChr(12) OR ch = rxChr(11)
+  RETURN ch = __regex_chr(12) OR ch = __regex_chr(11)
 END FUNC
 
-FUNC rxHexValue(ch AS String) AS Integer
+FUNC __regex_hexValue(ch AS String) AS Integer
   IF ch >= "0" AND ch <= "9" THEN
-    RETURN rxScalarToCp(ch) - 48
+    RETURN __regex_scalarToCp(ch) - 48
   END IF
   IF ch >= "a" AND ch <= "f" THEN
-    RETURN rxScalarToCp(ch) - 87
+    RETURN __regex_scalarToCp(ch) - 87
   END IF
   IF ch >= "A" AND ch <= "F" THEN
-    RETURN rxScalarToCp(ch) - 55
+    RETURN __regex_scalarToCp(ch) - 55
   END IF
   RETURN -1
 END FUNC
 
-FUNC rxParseIntClamp(s AS String) AS Integer
+FUNC __regex_parseIntClamp(s AS String) AS Integer
   IF len(s) > 7 THEN
     RETURN 10000000
   END IF
@@ -918,7 +918,7 @@ REM Escape parsing
 REM ---------------------------------------------------------------------------
 
 REM Parse \xHH or \x{H..H}; i points just after the 'x'.
-FUNC rxParseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) AS RxLitScalar
+FUNC __regex_parseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) AS __regex_LitScalar
   IF i >= n THEN
     FAIL error(77050003, "invalid regex")
   END IF
@@ -927,7 +927,7 @@ FUNC rxParseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) AS RxLi
     MUT value AS Integer = 0
     MUT digits AS Integer = 0
     WHILE j < n AND collections::get(pat, j) <> "}"
-      LET d AS Integer = rxHexValue(collections::get(pat, j))
+      LET d AS Integer = __regex_hexValue(collections::get(pat, j))
       IF d < 0 THEN
         FAIL error(77050003, "invalid regex")
       END IF
@@ -944,65 +944,65 @@ FUNC rxParseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) AS RxLi
     IF value > 1114111 OR (value >= 55296 AND value <= 57343) THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    RETURN RxLitScalar[rxChr(value), j + 1]
+    RETURN __regex_LitScalar[__regex_chr(value), j + 1]
   END IF
   IF i + 1 >= n THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  LET h1 AS Integer = rxHexValue(collections::get(pat, i))
-  LET h2 AS Integer = rxHexValue(collections::get(pat, i + 1))
+  LET h1 AS Integer = __regex_hexValue(collections::get(pat, i))
+  LET h2 AS Integer = __regex_hexValue(collections::get(pat, i + 1))
   IF h1 < 0 OR h2 < 0 THEN
     FAIL error(77050003, "invalid regex")
   END IF
   LET value AS Integer = h1 * 16 + h2
-  RETURN RxLitScalar[rxChr(value), i + 2]
+  RETURN __regex_LitScalar[__regex_chr(value), i + 2]
 END FUNC
 
 REM A literal/control escape; i points at the backslash. allowSpace permits
 REM "\ " (x mode). Rejects backreferences and unknown letter/digit escapes.
-FUNC rxParseLiteralEscape(pat AS List OF String, n AS Integer, i AS Integer, allowSpace AS Boolean) AS RxLitScalar
+FUNC __regex_parseLiteralEscape(pat AS List OF String, n AS Integer, i AS Integer, allowSpace AS Boolean) AS __regex_LitScalar
   IF i + 1 >= n THEN
     FAIL error(77050003, "invalid regex")
   END IF
   LET e AS String = collections::get(pat, i + 1)
   IF e = "n" THEN
-    RETURN RxLitScalar["\n", i + 2]
+    RETURN __regex_LitScalar["\n", i + 2]
   END IF
   IF e = "r" THEN
-    RETURN RxLitScalar["\r", i + 2]
+    RETURN __regex_LitScalar["\r", i + 2]
   END IF
   IF e = "t" THEN
-    RETURN RxLitScalar["\t", i + 2]
+    RETURN __regex_LitScalar["\t", i + 2]
   END IF
   IF e = "f" THEN
-    RETURN RxLitScalar[rxChr(12), i + 2]
+    RETURN __regex_LitScalar[__regex_chr(12), i + 2]
   END IF
   IF e = "v" THEN
-    RETURN RxLitScalar[rxChr(11), i + 2]
+    RETURN __regex_LitScalar[__regex_chr(11), i + 2]
   END IF
   IF e = "a" THEN
-    RETURN RxLitScalar[rxChr(7), i + 2]
+    RETURN __regex_LitScalar[__regex_chr(7), i + 2]
   END IF
   IF e = "e" THEN
-    RETURN RxLitScalar[rxChr(27), i + 2]
+    RETURN __regex_LitScalar[__regex_chr(27), i + 2]
   END IF
   IF e = "0" THEN
-    RETURN RxLitScalar[rxChr(0), i + 2]
+    RETURN __regex_LitScalar[__regex_chr(0), i + 2]
   END IF
   IF e = "x" THEN
-    RETURN rxParseHexEscape(pat, n, i + 2)
+    RETURN __regex_parseHexEscape(pat, n, i + 2)
   END IF
-  IF rxIsAsciiPunct(e) THEN
-    RETURN RxLitScalar[e, i + 2]
+  IF __regex_isAsciiPunct(e) THEN
+    RETURN __regex_LitScalar[e, i + 2]
   END IF
   IF allowSpace AND e = " " THEN
-    RETURN RxLitScalar[" ", i + 2]
+    RETURN __regex_LitScalar[" ", i + 2]
   END IF
   FAIL error(77050003, "invalid regex")
 END FUNC
 
 REM Parse \p{...} / \pX / \P...; i points just after the p/P. neg=TRUE for \P.
-FUNC rxParseProp(pat AS List OF String, n AS Integer, i AS Integer, neg AS Boolean) AS RxPropParse
+FUNC __regex_parseProp(pat AS List OF String, n AS Integer, i AS Integer, neg AS Boolean) AS __regex_PropParse
   IF i >= n THEN
     FAIL error(77050003, "invalid regex")
   END IF
@@ -1016,24 +1016,24 @@ FUNC rxParseProp(pat AS List OF String, n AS Integer, i AS Integer, neg AS Boole
     IF j >= n THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    LET canon AS String = rxCanonProp(name)
+    LET canon AS String = __regex_canonProp(name)
     IF canon = "" THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    RETURN RxPropParse[canon, neg, j + 1]
+    RETURN __regex_PropParse[canon, neg, j + 1]
   END IF
-  LET canon AS String = rxCanonProp(collections::get(pat, i))
+  LET canon AS String = __regex_canonProp(collections::get(pat, i))
   IF canon = "" THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  RETURN RxPropParse[canon, neg, i + 1]
+  RETURN __regex_PropParse[canon, neg, i + 1]
 END FUNC
 
 REM ---------------------------------------------------------------------------
 REM Character class parsing (regex.md §9)
 REM ---------------------------------------------------------------------------
 
-FUNC rxShortKind(e AS String) AS Integer
+FUNC __regex_shortKind(e AS String) AS Integer
   IF e = "d" THEN
     RETURN 1
   END IF
@@ -1056,7 +1056,7 @@ FUNC rxShortKind(e AS String) AS Integer
 END FUNC
 
 REM POSIX [:name:] inside a class; idx points at the leading '['.
-FUNC rxParsePosix(pat AS List OF String, n AS Integer, idx AS Integer) AS RxEndpoint
+FUNC __regex_parsePosix(pat AS List OF String, n AS Integer, idx AS Integer) AS __regex_Endpoint
   MUT j AS Integer = idx + 2
   MUT neg AS Boolean = FALSE
   IF j < n AND collections::get(pat, j) = "^" THEN
@@ -1074,16 +1074,16 @@ FUNC rxParsePosix(pat AS List OF String, n AS Integer, idx AS Integer) AS RxEndp
   IF collections::get(pat, j) <> ":" OR collections::get(pat, j + 1) <> "]" THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  LET prop AS String = rxPosixProp(name)
+  LET prop AS String = __regex_posixProp(name)
   IF prop = "" THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  LET item AS RxClassItem = RxProp[prop, neg]
-  RETURN RxEndpoint[1, "", item, j + 2]
+  LET item AS __regex_ClassItem = __regex_Prop[prop, neg]
+  RETURN __regex_Endpoint[1, "", item, j + 2]
 END FUNC
 
-REM Map a POSIX class name to a property usable by rxPropTest (or a special).
-FUNC rxPosixProp(name AS String) AS String
+REM Map a POSIX class name to a property usable by __regex_propTest (or a special).
+FUNC __regex_posixProp(name AS String) AS String
   IF name = "alpha" THEN
     RETURN "Alphabetic"
   END IF
@@ -1127,42 +1127,42 @@ FUNC rxPosixProp(name AS String) AS String
 END FUNC
 
 REM One class endpoint; kind 0 = literal scalar (rangeable), 1 = item.
-FUNC rxParseClassEndpoint(pat AS List OF String, n AS Integer, idx AS Integer) AS RxEndpoint
+FUNC __regex_parseClassEndpoint(pat AS List OF String, n AS Integer, idx AS Integer) AS __regex_Endpoint
   LET c AS String = collections::get(pat, idx)
   IF c = "\\" THEN
     IF idx + 1 >= n THEN
       FAIL error(77050003, "invalid regex")
     END IF
     LET e AS String = collections::get(pat, idx + 1)
-    LET sk AS Integer = rxShortKind(e)
+    LET sk AS Integer = __regex_shortKind(e)
     IF sk <> 0 THEN
-      LET item AS RxClassItem = RxShort[sk]
-      RETURN RxEndpoint[1, "", item, idx + 2]
+      LET item AS __regex_ClassItem = __regex_Short[sk]
+      RETURN __regex_Endpoint[1, "", item, idx + 2]
     END IF
     IF e = "p" OR e = "P" THEN
-      LET pp AS RxPropParse = rxParseProp(pat, n, idx + 2, (e = "P"))
-      LET item AS RxClassItem = RxProp[pp.name, pp.neg]
-      RETURN RxEndpoint[1, "", item, pp.nxt]
+      LET pp AS __regex_PropParse = __regex_parseProp(pat, n, idx + 2, (e = "P"))
+      LET item AS __regex_ClassItem = __regex_Prop[pp.name, pp.neg]
+      RETURN __regex_Endpoint[1, "", item, pp.nxt]
     END IF
     IF e = "b" OR e = "A" OR e = "z" OR e = "B" THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    LET lit AS RxLitScalar = rxParseLiteralEscape(pat, n, idx, FALSE)
-    LET dummy AS RxClassItem = RxSingle[lit.ch]
-    RETURN RxEndpoint[0, lit.ch, dummy, lit.nxt]
+    LET lit AS __regex_LitScalar = __regex_parseLiteralEscape(pat, n, idx, FALSE)
+    LET dummy AS __regex_ClassItem = __regex_Single[lit.ch]
+    RETURN __regex_Endpoint[0, lit.ch, dummy, lit.nxt]
   END IF
-  LET dummy AS RxClassItem = RxSingle[c]
-  RETURN RxEndpoint[0, c, dummy, idx + 1]
+  LET dummy AS __regex_ClassItem = __regex_Single[c]
+  RETURN __regex_Endpoint[0, c, dummy, idx + 1]
 END FUNC
 
-FUNC rxParseClass(pat AS List OF String, n AS Integer, i AS Integer, flags AS RxFlags, g AS Integer, names AS Map OF String TO Integer) AS RxParse
+FUNC __regex_parseClass(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
   MUT idx AS Integer = i + 1
   MUT neg AS Boolean = FALSE
   IF idx < n AND collections::get(pat, idx) = "^" THEN
     neg = TRUE
     idx = idx + 1
   END IF
-  MUT items AS List OF RxClassItem = []
+  MUT items AS List OF __regex_ClassItem = []
   MUT count AS Integer = 0
   DO WHILE TRUE
     IF idx >= n THEN
@@ -1180,13 +1180,13 @@ FUNC rxParseClass(pat AS List OF String, n AS Integer, i AS Integer, flags AS Rx
       FAIL error(77050003, "invalid regex")
     END IF
     IF c = "[" AND idx + 1 < n AND collections::get(pat, idx + 1) = ":" THEN
-      LET px AS RxEndpoint = rxParsePosix(pat, n, idx)
+      LET px AS __regex_Endpoint = __regex_parsePosix(pat, n, idx)
       items = collections::append(items, px.item)
       count = count + 1
       idx = px.nxt
       CONTINUE DO
     END IF
-    LET ep AS RxEndpoint = rxParseClassEndpoint(pat, n, idx)
+    LET ep AS __regex_Endpoint = __regex_parseClassEndpoint(pat, n, idx)
     idx = ep.nxt
     IF ep.kind = 1 THEN
       items = collections::append(items, ep.item)
@@ -1195,7 +1195,7 @@ FUNC rxParseClass(pat AS List OF String, n AS Integer, i AS Integer, flags AS Rx
     END IF
     IF idx < n AND collections::get(pat, idx) = "-" AND idx + 1 < n AND collections::get(pat, idx + 1) <> "]" THEN
       idx = idx + 1
-      LET ep2 AS RxEndpoint = rxParseClassEndpoint(pat, n, idx)
+      LET ep2 AS __regex_Endpoint = __regex_parseClassEndpoint(pat, n, idx)
       idx = ep2.nxt
       IF ep2.kind = 1 THEN
         FAIL error(77050003, "invalid regex")
@@ -1203,29 +1203,29 @@ FUNC rxParseClass(pat AS List OF String, n AS Integer, i AS Integer, flags AS Rx
       IF ep.ch > ep2.ch THEN
         FAIL error(77050003, "invalid regex")
       END IF
-      LET rng AS RxClassItem = RxRange[ep.ch, ep2.ch]
+      LET rng AS __regex_ClassItem = __regex_Range[ep.ch, ep2.ch]
       items = collections::append(items, rng)
       count = count + 1
       CONTINUE DO
     END IF
-    LET sng AS RxClassItem = RxSingle[ep.ch]
+    LET sng AS __regex_ClassItem = __regex_Single[ep.ch]
     items = collections::append(items, sng)
     count = count + 1
   LOOP
-  LET node AS RxNode = RxClass[neg, flags.ci, items]
-  RETURN RxParse[node, idx, g, names]
+  LET node AS __regex_Node = __regex_Class[neg, flags.ci, items]
+  RETURN __regex_Parse[node, idx, g, names]
 END FUNC
 
 REM ---------------------------------------------------------------------------
 REM Counted quantifier syntax
 REM ---------------------------------------------------------------------------
 
-FUNC rxIsCountedAt(pat AS List OF String, n AS Integer, i AS Integer) AS Boolean
+FUNC __regex_isCountedAt(pat AS List OF String, n AS Integer, i AS Integer) AS Boolean
   MUT j AS Integer = i + 1
-  IF j >= n OR rxIsDigit(collections::get(pat, j)) = FALSE THEN
+  IF j >= n OR __regex_isDigit(collections::get(pat, j)) = FALSE THEN
     RETURN FALSE
   END IF
-  WHILE j < n AND rxIsDigit(collections::get(pat, j))
+  WHILE j < n AND __regex_isDigit(collections::get(pat, j))
     j = j + 1
   WEND
   IF j < n AND collections::get(pat, j) = "}" THEN
@@ -1236,8 +1236,8 @@ FUNC rxIsCountedAt(pat AS List OF String, n AS Integer, i AS Integer) AS Boolean
     IF j < n AND collections::get(pat, j) = "}" THEN
       RETURN TRUE
     END IF
-    IF j < n AND rxIsDigit(collections::get(pat, j)) THEN
-      WHILE j < n AND rxIsDigit(collections::get(pat, j))
+    IF j < n AND __regex_isDigit(collections::get(pat, j)) THEN
+      WHILE j < n AND __regex_isDigit(collections::get(pat, j))
         j = j + 1
       WEND
       IF j < n AND collections::get(pat, j) = "}" THEN
@@ -1248,38 +1248,38 @@ FUNC rxIsCountedAt(pat AS List OF String, n AS Integer, i AS Integer) AS Boolean
   RETURN FALSE
 END FUNC
 
-FUNC rxParseCounted(pat AS List OF String, n AS Integer, i AS Integer) AS RxCount
+FUNC __regex_parseCounted(pat AS List OF String, n AS Integer, i AS Integer) AS __regex_Count
   MUT j AS Integer = i + 1
   MUT loS AS String = ""
-  WHILE j < n AND rxIsDigit(collections::get(pat, j))
+  WHILE j < n AND __regex_isDigit(collections::get(pat, j))
     loS = loS & collections::get(pat, j)
     j = j + 1
   WEND
-  LET lo AS Integer = rxParseIntClamp(loS)
+  LET lo AS Integer = __regex_parseIntClamp(loS)
   IF collections::get(pat, j) = "}" THEN
-    RETURN RxCount[lo, lo, j + 1]
+    RETURN __regex_Count[lo, lo, j + 1]
   END IF
   j = j + 1
   IF collections::get(pat, j) = "}" THEN
-    RETURN RxCount[lo, -1, j + 1]
+    RETURN __regex_Count[lo, -1, j + 1]
   END IF
   MUT hiS AS String = ""
-  WHILE j < n AND rxIsDigit(collections::get(pat, j))
+  WHILE j < n AND __regex_isDigit(collections::get(pat, j))
     hiS = hiS & collections::get(pat, j)
     j = j + 1
   WEND
-  LET hi AS Integer = rxParseIntClamp(hiS)
+  LET hi AS Integer = __regex_parseIntClamp(hiS)
   IF lo > hi THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  RETURN RxCount[lo, hi, j + 1]
+  RETURN __regex_Count[lo, hi, j + 1]
 END FUNC
 
 REM ---------------------------------------------------------------------------
 REM Flag spec parsing
 REM ---------------------------------------------------------------------------
 
-FUNC rxParseFlagSpec(pat AS List OF String, n AS Integer, i AS Integer, base AS RxFlags) AS RxFlagSpec
+FUNC __regex_parseFlagSpec(pat AS List OF String, n AS Integer, i AS Integer, base AS __regex_Flags) AS __regex_FlagSpec
   MUT fi AS Boolean = base.ci
   MUT fm AS Boolean = base.ml
   MUT fs AS Boolean = base.dotall
@@ -1331,50 +1331,50 @@ FUNC rxParseFlagSpec(pat AS List OF String, n AS Integer, i AS Integer, base AS 
       FAIL error(77050003, "invalid regex")
     END IF
   END IF
-  LET fl AS RxFlags = RxFlags[fi, fm, fs, fu, fx]
+  LET fl AS __regex_Flags = __regex_Flags[fi, fm, fs, fu, fx]
   MUT term AS String = ""
   IF j < n THEN
     term = collections::get(pat, j)
   END IF
-  RETURN RxFlagSpec[fl, any, term, j]
+  RETURN __regex_FlagSpec[fl, any, term, j]
 END FUNC
 
 REM ---------------------------------------------------------------------------
 REM Group / paren parsing
 REM ---------------------------------------------------------------------------
 
-FUNC rxParseName(pat AS List OF String, n AS Integer, i AS Integer) AS RxName
-  IF i >= n OR rxIsNameStart(collections::get(pat, i)) = FALSE THEN
+FUNC __regex_parseName(pat AS List OF String, n AS Integer, i AS Integer) AS __regex_Name
+  IF i >= n OR __regex_isNameStart(collections::get(pat, i)) = FALSE THEN
     FAIL error(77050003, "invalid regex")
   END IF
   MUT j AS Integer = i
   MUT name AS String = ""
-  WHILE j < n AND rxIsNameCont(collections::get(pat, j))
+  WHILE j < n AND __regex_isNameCont(collections::get(pat, j))
     name = name & collections::get(pat, j)
     j = j + 1
   WEND
   IF j >= n OR collections::get(pat, j) <> ">" THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  RETURN RxName[name, j + 1]
+  RETURN __regex_Name[name, j + 1]
 END FUNC
 
-FUNC rxParseNamedGroup(pat AS List OF String, n AS Integer, nameStart AS Integer, flags AS RxFlags, g AS Integer, names AS Map OF String TO Integer) AS RxParen
-  LET nm AS RxName = rxParseName(pat, n, nameStart)
+FUNC __regex_parseNamedGroup(pat AS List OF String, n AS Integer, nameStart AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Paren
+  LET nm AS __regex_Name = __regex_parseName(pat, n, nameStart)
   IF collections::hasKey(names, nm.name) THEN
     FAIL error(77050003, "invalid regex")
   END IF
   LET slot AS Integer = g + 1
   LET names2 AS Map OF String TO Integer = collections::set(names, nm.name, slot)
-  LET inner AS RxParse = rxParseAlt(pat, n, nm.nxt, flags, slot, names2)
+  LET inner AS __regex_Parse = __regex_parseAlt(pat, n, nm.nxt, flags, slot, names2)
   IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  LET node AS RxNode = RxGroup[inner.node, slot]
-  RETURN RxParen[FALSE, flags, node, inner.nxt + 1, inner.groups, inner.names]
+  LET node AS __regex_Node = __regex_Group[inner.node, slot]
+  RETURN __regex_Paren[FALSE, flags, node, inner.nxt + 1, inner.groups, inner.names]
 END FUNC
 
-FUNC rxParseParen(pat AS List OF String, n AS Integer, i AS Integer, flags AS RxFlags, g AS Integer, names AS Map OF String TO Integer) AS RxParen
+FUNC __regex_parseParen(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Paren
   MUT idx AS Integer = i + 1
   IF idx >= n THEN
     FAIL error(77050003, "invalid regex")
@@ -1382,12 +1382,12 @@ FUNC rxParseParen(pat AS List OF String, n AS Integer, i AS Integer, flags AS Rx
   LET c AS String = collections::get(pat, idx)
   IF c <> "?" THEN
     LET slot AS Integer = g + 1
-    LET inner AS RxParse = rxParseAlt(pat, n, idx, flags, slot, names)
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, idx, flags, slot, names)
     IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    LET node AS RxNode = RxGroup[inner.node, slot]
-    RETURN RxParen[FALSE, flags, node, inner.nxt + 1, inner.groups, inner.names]
+    LET node AS __regex_Node = __regex_Group[inner.node, slot]
+    RETURN __regex_Paren[FALSE, flags, node, inner.nxt + 1, inner.groups, inner.names]
   END IF
   idx = idx + 1
   IF idx >= n THEN
@@ -1395,11 +1395,11 @@ FUNC rxParseParen(pat AS List OF String, n AS Integer, i AS Integer, flags AS Rx
   END IF
   LET d AS String = collections::get(pat, idx)
   IF d = ":" THEN
-    LET inner AS RxParse = rxParseAlt(pat, n, idx + 1, flags, g, names)
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, idx + 1, flags, g, names)
     IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    RETURN RxParen[FALSE, flags, inner.node, inner.nxt + 1, inner.groups, inner.names]
+    RETURN __regex_Paren[FALSE, flags, inner.node, inner.nxt + 1, inner.groups, inner.names]
   END IF
   IF d = "<" THEN
     IF idx + 1 < n THEN
@@ -1408,32 +1408,32 @@ FUNC rxParseParen(pat AS List OF String, n AS Integer, i AS Integer, flags AS Rx
         FAIL error(77050003, "invalid regex")
       END IF
     END IF
-    RETURN rxParseNamedGroup(pat, n, idx + 1, flags, g, names)
+    RETURN __regex_parseNamedGroup(pat, n, idx + 1, flags, g, names)
   END IF
   IF d = "P" THEN
     IF idx + 1 >= n OR collections::get(pat, idx + 1) <> "<" THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    RETURN rxParseNamedGroup(pat, n, idx + 2, flags, g, names)
+    RETURN __regex_parseNamedGroup(pat, n, idx + 2, flags, g, names)
   END IF
   IF d = "=" OR d = "!" THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  LET spec AS RxFlagSpec = rxParseFlagSpec(pat, n, idx, flags)
+  LET spec AS __regex_FlagSpec = __regex_parseFlagSpec(pat, n, idx, flags)
   IF spec.term = ")" THEN
     IF spec.any = FALSE THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    LET empty AS List OF RxNode = []
-    LET node AS RxNode = RxConcat[empty]
-    RETURN RxParen[TRUE, spec.flags, node, spec.nxt + 1, g, names]
+    LET empty AS List OF __regex_Node = []
+    LET node AS __regex_Node = __regex_Concat[empty]
+    RETURN __regex_Paren[TRUE, spec.flags, node, spec.nxt + 1, g, names]
   END IF
   IF spec.term = ":" THEN
-    LET inner AS RxParse = rxParseAlt(pat, n, spec.nxt + 1, spec.flags, g, names)
+    LET inner AS __regex_Parse = __regex_parseAlt(pat, n, spec.nxt + 1, spec.flags, g, names)
     IF inner.nxt >= n OR collections::get(pat, inner.nxt) <> ")" THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    RETURN RxParen[FALSE, flags, inner.node, inner.nxt + 1, inner.groups, inner.names]
+    RETURN __regex_Paren[FALSE, flags, inner.node, inner.nxt + 1, inner.groups, inner.names]
   END IF
   FAIL error(77050003, "invalid regex")
 END FUNC
@@ -1442,73 +1442,73 @@ REM ---------------------------------------------------------------------------
 REM Atom / quantifier / concat / alternation
 REM ---------------------------------------------------------------------------
 
-FUNC rxParseEscapeAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS RxFlags, g AS Integer, names AS Map OF String TO Integer) AS RxParse
+FUNC __regex_parseEscapeAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
   IF i + 1 >= n THEN
     FAIL error(77050003, "invalid regex")
   END IF
   LET e AS String = collections::get(pat, i + 1)
   IF e = "A" THEN
-    LET node AS RxNode = RxAnchor[3, FALSE]
-    RETURN RxParse[node, i + 2, g, names]
+    LET node AS __regex_Node = __regex_Anchor[3, FALSE]
+    RETURN __regex_Parse[node, i + 2, g, names]
   END IF
   IF e = "z" THEN
-    LET node AS RxNode = RxAnchor[4, FALSE]
-    RETURN RxParse[node, i + 2, g, names]
+    LET node AS __regex_Node = __regex_Anchor[4, FALSE]
+    RETURN __regex_Parse[node, i + 2, g, names]
   END IF
   IF e = "b" THEN
-    LET node AS RxNode = RxAnchor[5, FALSE]
-    RETURN RxParse[node, i + 2, g, names]
+    LET node AS __regex_Node = __regex_Anchor[5, FALSE]
+    RETURN __regex_Parse[node, i + 2, g, names]
   END IF
   IF e = "B" THEN
-    LET node AS RxNode = RxAnchor[6, FALSE]
-    RETURN RxParse[node, i + 2, g, names]
+    LET node AS __regex_Node = __regex_Anchor[6, FALSE]
+    RETURN __regex_Parse[node, i + 2, g, names]
   END IF
-  LET sk AS Integer = rxShortKind(e)
+  LET sk AS Integer = __regex_shortKind(e)
   IF sk <> 0 THEN
-    LET item AS RxClassItem = RxShort[sk]
-    LET items AS List OF RxClassItem = [item]
-    LET node AS RxNode = RxClass[FALSE, flags.ci, items]
-    RETURN RxParse[node, i + 2, g, names]
+    LET item AS __regex_ClassItem = __regex_Short[sk]
+    LET items AS List OF __regex_ClassItem = [item]
+    LET node AS __regex_Node = __regex_Class[FALSE, flags.ci, items]
+    RETURN __regex_Parse[node, i + 2, g, names]
   END IF
   IF e = "p" OR e = "P" THEN
-    LET pp AS RxPropParse = rxParseProp(pat, n, i + 2, (e = "P"))
-    LET item AS RxClassItem = RxProp[pp.name, pp.neg]
-    LET items AS List OF RxClassItem = [item]
-    LET node AS RxNode = RxClass[FALSE, flags.ci, items]
-    RETURN RxParse[node, pp.nxt, g, names]
+    LET pp AS __regex_PropParse = __regex_parseProp(pat, n, i + 2, (e = "P"))
+    LET item AS __regex_ClassItem = __regex_Prop[pp.name, pp.neg]
+    LET items AS List OF __regex_ClassItem = [item]
+    LET node AS __regex_Node = __regex_Class[FALSE, flags.ci, items]
+    RETURN __regex_Parse[node, pp.nxt, g, names]
   END IF
-  LET lit AS RxLitScalar = rxParseLiteralEscape(pat, n, i, flags.verbose)
-  LET node AS RxNode = RxLit[lit.ch, flags.ci]
-  RETURN RxParse[node, lit.nxt, g, names]
+  LET lit AS __regex_LitScalar = __regex_parseLiteralEscape(pat, n, i, flags.verbose)
+  LET node AS __regex_Node = __regex_Lit[lit.ch, flags.ci]
+  RETURN __regex_Parse[node, lit.nxt, g, names]
 END FUNC
 
-FUNC rxParseAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS RxFlags, g AS Integer, names AS Map OF String TO Integer) AS RxParse
+FUNC __regex_parseAtom(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
   LET c AS String = collections::get(pat, i)
   IF c = "." THEN
-    LET node AS RxNode = RxAny[flags.dotall]
-    RETURN RxParse[node, i + 1, g, names]
+    LET node AS __regex_Node = __regex_Any[flags.dotall]
+    RETURN __regex_Parse[node, i + 1, g, names]
   END IF
   IF c = "^" THEN
-    LET node AS RxNode = RxAnchor[1, flags.ml]
-    RETURN RxParse[node, i + 1, g, names]
+    LET node AS __regex_Node = __regex_Anchor[1, flags.ml]
+    RETURN __regex_Parse[node, i + 1, g, names]
   END IF
   IF c = "$" THEN
-    LET node AS RxNode = RxAnchor[2, flags.ml]
-    RETURN RxParse[node, i + 1, g, names]
+    LET node AS __regex_Node = __regex_Anchor[2, flags.ml]
+    RETURN __regex_Parse[node, i + 1, g, names]
   END IF
   IF c = "[" THEN
-    RETURN rxParseClass(pat, n, i, flags, g, names)
+    RETURN __regex_parseClass(pat, n, i, flags, g, names)
   END IF
   IF c = "\\" THEN
-    RETURN rxParseEscapeAtom(pat, n, i, flags, g, names)
+    RETURN __regex_parseEscapeAtom(pat, n, i, flags, g, names)
   END IF
-  LET node AS RxNode = RxLit[c, flags.ci]
-  RETURN RxParse[node, i + 1, g, names]
+  LET node AS __regex_Node = __regex_Lit[c, flags.ci]
+  RETURN __regex_Parse[node, i + 1, g, names]
 END FUNC
 
-FUNC rxParseQuantSuffix(pat AS List OF String, n AS Integer, i AS Integer, flags AS RxFlags, atom AS RxNode, g AS Integer, names AS Map OF String TO Integer) AS RxParse
+FUNC __regex_parseQuantSuffix(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, atom AS __regex_Node, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
   IF i >= n THEN
-    RETURN RxParse[atom, i, g, names]
+    RETURN __regex_Parse[atom, i, g, names]
   END IF
   LET c AS String = collections::get(pat, i)
   MUT lo AS Integer = 0
@@ -1530,15 +1530,15 @@ FUNC rxParseQuantSuffix(pat AS List OF String, n AS Integer, i AS Integer, flags
     hi = 1
     has = TRUE
     nxt = i + 1
-  ELSEIF c = "{" AND rxIsCountedAt(pat, n, i) THEN
-    LET cnt AS RxCount = rxParseCounted(pat, n, i)
+  ELSEIF c = "{" AND __regex_isCountedAt(pat, n, i) THEN
+    LET cnt AS __regex_Count = __regex_parseCounted(pat, n, i)
     lo = cnt.lo
     hi = cnt.hi
     has = TRUE
     nxt = cnt.nxt
   END IF
   IF has = FALSE THEN
-    RETURN RxParse[atom, i, g, names]
+    RETURN __regex_Parse[atom, i, g, names]
   END IF
   MUT greedy AS Boolean = TRUE
   IF flags.ungreedy THEN
@@ -1552,22 +1552,22 @@ FUNC rxParseQuantSuffix(pat AS List OF String, n AS Integer, i AS Integer, flags
     END IF
     nxt = nxt + 1
   END IF
-  LET rep AS RxNode = RxRepeat[atom, lo, hi, greedy]
-  RETURN RxParse[rep, nxt, g, names]
+  LET rep AS __regex_Node = __regex_Repeat[atom, lo, hi, greedy]
+  RETURN __regex_Parse[rep, nxt, g, names]
 END FUNC
 
-FUNC rxParseConcat(pat AS List OF String, n AS Integer, i AS Integer, flags AS RxFlags, g AS Integer, names AS Map OF String TO Integer) AS RxParse
+FUNC __regex_parseConcat(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
   MUT idx AS Integer = i
   MUT gg AS Integer = g
   MUT nm AS Map OF String TO Integer = names
-  MUT fl AS RxFlags = flags
-  MUT parts AS List OF RxNode = []
+  MUT fl AS __regex_Flags = flags
+  MUT parts AS List OF __regex_Node = []
   DO WHILE idx < n
     LET c AS String = collections::get(pat, idx)
     IF c = "|" OR c = ")" THEN
       EXIT DO
     END IF
-    IF fl.verbose AND rxIsPatSpace(c) THEN
+    IF fl.verbose AND __regex_isPatSpace(c) THEN
       idx = idx + 1
       CONTINUE DO
     END IF
@@ -1578,7 +1578,7 @@ FUNC rxParseConcat(pat AS List OF String, n AS Integer, i AS Integer, flags AS R
       CONTINUE DO
     END IF
     IF c = "(" THEN
-      LET pr AS RxParen = rxParseParen(pat, n, idx, fl, gg, nm)
+      LET pr AS __regex_Paren = __regex_parseParen(pat, n, idx, fl, gg, nm)
       gg = pr.groups
       nm = pr.names
       IF pr.isDir THEN
@@ -1586,7 +1586,7 @@ FUNC rxParseConcat(pat AS List OF String, n AS Integer, i AS Integer, flags AS R
         idx = pr.nxt
         CONTINUE DO
       END IF
-      LET q AS RxParse = rxParseQuantSuffix(pat, n, pr.nxt, fl, pr.node, gg, nm)
+      LET q AS __regex_Parse = __regex_parseQuantSuffix(pat, n, pr.nxt, fl, pr.node, gg, nm)
       parts = collections::append(parts, q.node)
       idx = q.nxt
       gg = q.groups
@@ -1596,75 +1596,75 @@ FUNC rxParseConcat(pat AS List OF String, n AS Integer, i AS Integer, flags AS R
     IF c = "*" OR c = "+" OR c = "?" THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    IF c = "{" AND rxIsCountedAt(pat, n, idx) THEN
+    IF c = "{" AND __regex_isCountedAt(pat, n, idx) THEN
       FAIL error(77050003, "invalid regex")
     END IF
-    LET atom AS RxParse = rxParseAtom(pat, n, idx, fl, gg, nm)
-    LET q AS RxParse = rxParseQuantSuffix(pat, n, atom.nxt, fl, atom.node, atom.groups, atom.names)
+    LET atom AS __regex_Parse = __regex_parseAtom(pat, n, idx, fl, gg, nm)
+    LET q AS __regex_Parse = __regex_parseQuantSuffix(pat, n, atom.nxt, fl, atom.node, atom.groups, atom.names)
     parts = collections::append(parts, q.node)
     idx = q.nxt
     gg = q.groups
     nm = q.names
   LOOP
   IF len(parts) = 1 THEN
-    RETURN RxParse[collections::get(parts, 0), idx, gg, nm]
+    RETURN __regex_Parse[collections::get(parts, 0), idx, gg, nm]
   END IF
-  LET node AS RxNode = RxConcat[parts]
-  RETURN RxParse[node, idx, gg, nm]
+  LET node AS __regex_Node = __regex_Concat[parts]
+  RETURN __regex_Parse[node, idx, gg, nm]
 END FUNC
 
-FUNC rxParseAlt(pat AS List OF String, n AS Integer, i AS Integer, flags AS RxFlags, g AS Integer, names AS Map OF String TO Integer) AS RxParse
+FUNC __regex_parseAlt(pat AS List OF String, n AS Integer, i AS Integer, flags AS __regex_Flags, g AS Integer, names AS Map OF String TO Integer) AS __regex_Parse
   MUT idx AS Integer = i
   MUT gg AS Integer = g
   MUT nm AS Map OF String TO Integer = names
-  LET first AS RxParse = rxParseConcat(pat, n, idx, flags, gg, nm)
+  LET first AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm)
   idx = first.nxt
   gg = first.groups
   nm = first.names
-  MUT opts AS List OF RxNode = [first.node]
+  MUT opts AS List OF __regex_Node = [first.node]
   WHILE idx < n AND collections::get(pat, idx) = "|"
     idx = idx + 1
-    LET nextc AS RxParse = rxParseConcat(pat, n, idx, flags, gg, nm)
+    LET nextc AS __regex_Parse = __regex_parseConcat(pat, n, idx, flags, gg, nm)
     idx = nextc.nxt
     gg = nextc.groups
     nm = nextc.names
     opts = collections::append(opts, nextc.node)
   WEND
   IF len(opts) = 1 THEN
-    RETURN RxParse[collections::get(opts, 0), idx, gg, nm]
+    RETURN __regex_Parse[collections::get(opts, 0), idx, gg, nm]
   END IF
-  LET node AS RxNode = RxAlt[opts]
-  RETURN RxParse[node, idx, gg, nm]
+  LET node AS __regex_Node = __regex_Alt[opts]
+  RETURN __regex_Parse[node, idx, gg, nm]
 END FUNC
 
-FUNC rxCompile(pattern AS String) AS RxProgram
-  LET pat AS List OF String = rxToScalars(pattern)
-  LET flags0 AS RxFlags = RxFlags[FALSE, FALSE, FALSE, FALSE, FALSE]
+FUNC __regex_compile(pattern AS String) AS __regex_Program
+  LET pat AS List OF String = __regex_toScalars(pattern)
+  LET flags0 AS __regex_Flags = __regex_Flags[FALSE, FALSE, FALSE, FALSE, FALSE]
   LET names0 AS Map OF String TO Integer = Map OF String TO Integer {}
-  LET parsed AS RxParse = rxParseAlt(pat, len(pat), 0, flags0, 0, names0)
+  LET parsed AS __regex_Parse = __regex_parseAlt(pat, len(pat), 0, flags0, 0, names0)
   IF parsed.nxt <> len(pat) THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  RETURN RxProgram[parsed.node, parsed.groups, parsed.names]
+  RETURN __regex_Program[parsed.node, parsed.groups, parsed.names]
 END FUNC
 
 REM ---------------------------------------------------------------------------
 REM Replacement expansion (regex.md §13)
 REM ---------------------------------------------------------------------------
 
-FUNC rxAllDigits(s AS String) AS Boolean
+FUNC __regex_allDigits(s AS String) AS Boolean
   IF len(s) = 0 THEN
     RETURN FALSE
   END IF
-  FOR EACH ch IN rxToScalars(s)
-    IF rxIsDigit(ch) = FALSE THEN
+  FOR EACH ch IN __regex_toScalars(s)
+    IF __regex_isDigit(ch) = FALSE THEN
       RETURN FALSE
     END IF
   NEXT
   RETURN TRUE
 END FUNC
 
-FUNC rxLookupNum(num AS Integer, r AS RxResult, value AS String, prog AS RxProgram) AS String
+FUNC __regex_lookupNum(num AS Integer, r AS __regex_Result, value AS String, prog AS __regex_Program) AS String
   IF num < 0 OR num > prog.groups THEN
     RETURN ""
   END IF
@@ -1676,22 +1676,22 @@ FUNC rxLookupNum(num AS Integer, r AS RxResult, value AS String, prog AS RxProgr
   RETURN strings::mid(value, s, e - s)
 END FUNC
 
-FUNC rxLookupName(name AS String, r AS RxResult, value AS String, prog AS RxProgram) AS String
+FUNC __regex_lookupName(name AS String, r AS __regex_Result, value AS String, prog AS __regex_Program) AS String
   IF collections::hasKey(prog.names, name) THEN
-    RETURN rxLookupNum(collections::get(prog.names, name), r, value, prog)
+    RETURN __regex_lookupNum(collections::get(prog.names, name), r, value, prog)
   END IF
   RETURN ""
 END FUNC
 
-FUNC rxLookupRef(ref AS String, r AS RxResult, value AS String, prog AS RxProgram) AS String
-  IF rxAllDigits(ref) THEN
-    RETURN rxLookupNum(rxParseIntClamp(ref), r, value, prog)
+FUNC __regex_lookupRef(ref AS String, r AS __regex_Result, value AS String, prog AS __regex_Program) AS String
+  IF __regex_allDigits(ref) THEN
+    RETURN __regex_lookupNum(__regex_parseIntClamp(ref), r, value, prog)
   END IF
-  RETURN rxLookupName(ref, r, value, prog)
+  RETURN __regex_lookupName(ref, r, value, prog)
 END FUNC
 
-FUNC rxExpand(repl AS String, r AS RxResult, value AS String, prog AS RxProgram) AS String
-  LET rs AS List OF String = rxToScalars(repl)
+FUNC __regex_expand(repl AS String, r AS __regex_Result, value AS String, prog AS __regex_Program) AS String
+  LET rs AS List OF String = __regex_toScalars(repl)
   LET m AS Integer = len(rs)
   MUT out AS String = ""
   MUT i AS Integer = 0
@@ -1727,7 +1727,7 @@ FUNC rxExpand(repl AS String, r AS RxResult, value AS String, prog AS RxProgram)
         j = j + 1
       LOOP
       IF closed THEN
-        out = out & rxLookupRef(ref, r, value, prog)
+        out = out & __regex_lookupRef(ref, r, value, prog)
         i = j + 1
       ELSE
         out = out & "$"
@@ -1735,25 +1735,25 @@ FUNC rxExpand(repl AS String, r AS RxResult, value AS String, prog AS RxProgram)
       END IF
       CONTINUE DO
     END IF
-    IF rxIsDigit(d) THEN
+    IF __regex_isDigit(d) THEN
       MUT j AS Integer = i + 1
       MUT num AS String = ""
-      DO WHILE j < m AND rxIsDigit(collections::get(rs, j))
+      DO WHILE j < m AND __regex_isDigit(collections::get(rs, j))
         num = num & collections::get(rs, j)
         j = j + 1
       LOOP
-      out = out & rxLookupNum(rxParseIntClamp(num), r, value, prog)
+      out = out & __regex_lookupNum(__regex_parseIntClamp(num), r, value, prog)
       i = j
       CONTINUE DO
     END IF
-    IF rxIsNameStart(d) THEN
+    IF __regex_isNameStart(d) THEN
       MUT j AS Integer = i + 1
       MUT nm AS String = ""
-      DO WHILE j < m AND rxIsNameCont(collections::get(rs, j))
+      DO WHILE j < m AND __regex_isNameCont(collections::get(rs, j))
         nm = nm & collections::get(rs, j)
         j = j + 1
       LOOP
-      out = out & rxLookupName(nm, r, value, prog)
+      out = out & __regex_lookupName(nm, r, value, prog)
       i = j
       CONTINUE DO
     END IF
@@ -1768,19 +1768,19 @@ REM Public functions
 REM ---------------------------------------------------------------------------
 
 FUNC __regex_match(value AS String, pattern AS String) AS Boolean
-  LET prog AS RxProgram = rxCompile(pattern)
-  LET ctx AS RxCtx = rxMakeCtx(value)
-  LET r AS RxResult = rxSearchFrom(prog, ctx, 0)
+  LET prog AS __regex_Program = __regex_compile(pattern)
+  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
+  LET r AS __regex_Result = __regex_searchFrom(prog, ctx, 0)
   RETURN r.ok
 END FUNC
 
 FUNC __regex_find(value AS String, pattern AS String, start AS Integer) AS Integer
-  LET prog AS RxProgram = rxCompile(pattern)
-  LET ctx AS RxCtx = rxMakeCtx(value)
+  LET prog AS __regex_Program = __regex_compile(pattern)
+  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
   IF start < 0 OR start > ctx.n THEN
     FAIL error(77050001, "index out of range")
   END IF
-  LET r AS RxResult = rxSearchFrom(prog, ctx, start)
+  LET r AS __regex_Result = __regex_searchFrom(prog, ctx, start)
   IF r.ok = FALSE THEN
     RETURN -1
   END IF
@@ -1788,8 +1788,8 @@ FUNC __regex_find(value AS String, pattern AS String, start AS Integer) AS Integ
 END FUNC
 
 FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS List OF Integer
-  LET prog AS RxProgram = rxCompile(pattern)
-  LET ctx AS RxCtx = rxMakeCtx(value)
+  LET prog AS __regex_Program = __regex_compile(pattern)
+  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
   IF start < 0 OR start > ctx.n THEN
     FAIL error(77050001, "index out of range")
   END IF
@@ -1797,7 +1797,7 @@ FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS Li
   MUT lastEnd AS Integer = start
   MUT lastMatch AS Integer = -1
   DO WHILE lastEnd <= ctx.n
-    LET r AS RxResult = rxSearchFrom(prog, ctx, lastEnd)
+    LET r AS __regex_Result = __regex_searchFrom(prog, ctx, lastEnd)
     IF r.ok = FALSE THEN
       EXIT DO
     END IF
@@ -1821,14 +1821,14 @@ FUNC __regex_findAll(value AS String, pattern AS String, start AS Integer) AS Li
 END FUNC
 
 FUNC __regex_replace(value AS String, pattern AS String, replacement AS String) AS String
-  LET prog AS RxProgram = rxCompile(pattern)
-  LET ctx AS RxCtx = rxMakeCtx(value)
+  LET prog AS __regex_Program = __regex_compile(pattern)
+  LET ctx AS __regex_Ctx = __regex_makeCtx(value)
   MUT out AS String = ""
   MUT cursor AS Integer = 0
   MUT lastEnd AS Integer = 0
   MUT lastMatch AS Integer = -1
   DO WHILE lastEnd <= ctx.n
-    LET r AS RxResult = rxSearchFrom(prog, ctx, lastEnd)
+    LET r AS __regex_Result = __regex_searchFrom(prog, ctx, lastEnd)
     IF r.ok = FALSE THEN
       EXIT DO
     END IF
@@ -1840,14 +1840,14 @@ FUNC __regex_replace(value AS String, pattern AS String, replacement AS String) 
         CONTINUE DO
       END IF
       out = out & strings::mid(value, cursor, mstart - cursor)
-      out = out & rxExpand(replacement, r, value, prog)
+      out = out & __regex_expand(replacement, r, value, prog)
       cursor = mend
       lastMatch = mend
       lastEnd = mend + 1
       CONTINUE DO
     END IF
     out = out & strings::mid(value, cursor, mstart - cursor)
-    out = out & rxExpand(replacement, r, value, prog)
+    out = out & __regex_expand(replacement, r, value, prog)
     cursor = mend
     lastMatch = mend
     lastEnd = mend

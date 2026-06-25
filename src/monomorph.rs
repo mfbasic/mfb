@@ -268,6 +268,7 @@ impl<'a> Monomorphizer<'a> {
                     path: file.path.clone(),
                     imports: file.imports.clone(),
                     items,
+                    internal: file.internal,
                 }
             })
             .collect::<Vec<_>>();
@@ -391,11 +392,14 @@ impl<'a> Monomorphizer<'a> {
         line: usize,
     ) -> Option<String> {
         let template = self.function_templates.get(name)?.clone();
+        // Internal generic implementations (e.g. `collections::sort`) carry the
+        // untypeable sigil; show the readable `__` form in user-facing messages.
+        let display = crate::internal_name::display_name(name);
         if arg_types.len() > template.params.len() {
             self.report(
                 "TYPE_CALL_ARITY_MISMATCH",
                 &format!(
-                    "Call to `{name}` has {} argument(s), expected at most {}.",
+                    "Call to `{display}` has {} argument(s), expected at most {}.",
                     arg_types.len(),
                     template.params.len()
                 ),
@@ -418,7 +422,9 @@ impl<'a> Monomorphizer<'a> {
             ) {
                 self.report(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
-                    &format!("Call to `{name}` cannot infer template arguments from `{actual}`."),
+                    &format!(
+                        "Call to `{display}` cannot infer template arguments from `{actual}`."
+                    ),
                     line,
                 );
                 return None;

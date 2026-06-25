@@ -103,7 +103,7 @@ pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
 }
 
 pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
-    crate::ast::parse_source(
+    crate::ast::parse_source_internal(
         Path::new("<builtin-json>"),
         "builtins/json.mfb",
         include_str!("json_package.mfb"),

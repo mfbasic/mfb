@@ -68,9 +68,11 @@ const NATIVE_MEMBERS: &[&str] = &[
 ];
 
 /// The internal generic-function name implementing a public `collections::`
-/// member, e.g. `sort` -> `__collections_sort`.
+/// member, e.g. `sort` -> `#collections_sort`. The injected package is lexed in
+/// internal mode, so its `__collections_*` definitions carry the internal sigil;
+/// the monomorphizer's rewrite target must match.
 pub(crate) fn internal_name(member: &str) -> String {
-    format!("__collections_{member}")
+    crate::internal_name::internalize(&format!("__collections_{member}"))
 }
 
 /// Whether `member` is a public `collections::` function name.
@@ -228,7 +230,7 @@ pub(crate) fn uses_package(ast: &AstProject) -> bool {
 
 /// Parses the built-in `collections` package source.
 pub(crate) fn source_file() -> Result<AstFile, ()> {
-    crate::ast::parse_source(
+    crate::ast::parse_source_internal(
         Path::new(SOURCE_PATH),
         SOURCE_PATH,
         include_str!("collections_package.mfb"),
