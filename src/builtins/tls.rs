@@ -3,8 +3,9 @@
 //!
 //! `tls` is a native built-in like `net`: the Linux backend drives the system
 //! OpenSSL (`libssl.so.3`, falling back to `libssl.so.1.1`) via `dlopen`/`dlsym`
-//! so a single binary spans OpenSSL 1.1.1 and 3.x (plan-03-net.md §4.1). macOS
-//! is deferred.
+//! so a single binary spans OpenSSL 1.1.1 and 3.x (plan-03-net.md §4.1). The
+//! macOS backend drives Network.framework through a dispatch-semaphore
+//! synchronous bridge.
 
 use std::borrow::Cow;
 

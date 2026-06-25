@@ -1,13 +1,15 @@
 //! Native code generation for the built-in `tls` package (transport-layer
 //! security). The Linux backend drives the system OpenSSL via `dlopen`/`dlsym`
-//! so one binary spans OpenSSL 1.1.1 and 3.x (plan-03-net.md §4). macOS is not
-//! yet supported and is rejected earlier by the backend capability gate.
+//! so one binary spans OpenSSL 1.1.1 and 3.x (plan-03-net.md §4). The macOS
+//! backend (see the `macos` submodule) drives Network.framework through a
+//! dispatch-semaphore synchronous bridge.
 //!
-//! A `TlsSocket` handle is a 32-byte arena record: `fd` at 0, a `closed` flag at
-//! 8, the `SSL*` at 16, and the `SSL_CTX*` at 24. Each helper re-`dlopen`s
-//! `libssl` (cheap once loaded — it just bumps the refcount) and `dlsym`s the
-//! `SSL_*` symbols it needs; `dlsym` resolves the library's default symbol
-//! version, which is why a single binary works against both OpenSSL series.
+//! On Linux a `TlsSocket` handle is a 32-byte arena record: `fd` at 0, a
+//! `closed` flag at 8, the `SSL*` at 16, and the `SSL_CTX*` at 24. Each helper
+//! re-`dlopen`s `libssl` (cheap once loaded — it just bumps the refcount) and
+//! `dlsym`s the `SSL_*` symbols it needs; `dlsym` resolves the library's default
+//! symbol version, which is why a single binary works against both OpenSSL
+//! series. The macOS record layout differs and is documented in `macos`.
 
 use std::collections::HashMap;
 
@@ -966,9 +968,14 @@ mod macos {
     const QLABEL: &str = "mfb.tls";
     const QLABEL_SYMBOL: &str = "_mfb_tls_qlabel";
     const DESC_SYMBOL: &str = "_mfb_tls_block_desc";
+    // Descriptor for the larger SNI-config block (three captured pointers).
+    const CFG_DESC_SYMBOL: &str = "_mfb_tls_cfg_block_desc";
     const STATE_INVOKE: &str = "_mfb_tls_nw_state_invoke";
     const SEND_INVOKE: &str = "_mfb_tls_nw_send_invoke";
     const RECV_INVOKE: &str = "_mfb_tls_nw_recv_invoke";
+    // Configure-TLS block invoke: overrides the SNI / certificate-validation
+    // server name when `serverName` is supplied.
+    const CFG_INVOKE: &str = "_mfb_tls_nw_cfg_invoke";
 
     // nw_connection_state_t
     const NW_STATE_READY: &str = "3";
@@ -997,6 +1004,13 @@ mod macos {
     const BLK_DESC: usize = 24;
     const BLK_CAP: usize = 32;
 
+    // The SNI-config block captures three plain pointers after the 32-byte
+    // header: the server-name C string and the two resolved framework functions
+    // its invoke calls. Total size 56 (see CFG_DESC_SYMBOL).
+    const CFG_CAP_SNAME: usize = 32;
+    const CFG_CAP_COPYFN: usize = 40;
+    const CFG_CAP_SETFN: usize = 48;
+
     const SYMBOLS: &[&str] = &[
         "nw_endpoint_create_host",
         "nw_parameters_create_secure_tcp",
@@ -1019,6 +1033,8 @@ mod macos {
         "_NSConcreteStackBlock",
         "_nw_parameters_configure_protocol_default_configuration",
         "_nw_content_context_default_message",
+        "nw_tls_copy_sec_protocol_options",
+        "sec_protocol_options_set_tls_server_name",
     ];
 
     fn raw_cstr(symbol: &str, text: &str) -> CodeDataObject {
@@ -1044,6 +1060,15 @@ mod macos {
                 size: 16,
                 // reserved = 0, size = 40 (0x28), little-endian u64s
                 value: "00000000000000002800000000000000".to_string(),
+            },
+            CodeDataObject {
+                symbol: CFG_DESC_SYMBOL.to_string(),
+                kind: "raw".to_string(),
+                layout: "Block_descriptor { u64 reserved=0; u64 size=56 }".to_string(),
+                align: 8,
+                size: 16,
+                // reserved = 0, size = 56 (0x38), little-endian u64s
+                value: "00000000000000003800000000000000".to_string(),
             },
         ];
         for name in SYMBOLS {
@@ -1126,6 +1151,46 @@ mod macos {
         }
     }
 
+    /// The configure-TLS block `void(block @x0, nw_protocol_options_t tls @x1)`.
+    /// It copies the TLS protocol's `sec_protocol_options`, then overrides the
+    /// server name used for SNI and certificate validation. The server-name C
+    /// string and the two framework functions are captured in the block (the
+    /// invoke is a static aux function and cannot embed per-call `dlsym`
+    /// results). Defaults still apply for everything it does not touch.
+    fn cfg_invoke_function() -> CodeFunction {
+        let instructions = vec![
+            abi::label("entry"),
+            abi::subtract_stack(32),
+            abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+            abi::store_u64("x19", abi::stack_pointer(), 8),
+            abi::store_u64("x20", abi::stack_pointer(), 16),
+            // x0 = block, x1 = tls_options. Preserve server name + setter across
+            // the copy call (x0/x1 are clobbered by it).
+            abi::load_u64("x19", "x0", CFG_CAP_SNAME), // server name (cstr)
+            abi::load_u64("x20", "x0", CFG_CAP_SETFN), // sec_protocol_options_set_tls_server_name
+            abi::load_u64("x9", "x0", CFG_CAP_COPYFN), // nw_tls_copy_sec_protocol_options
+            abi::move_register("x0", "x1"),
+            abi::branch_link_register("x9"), // x0 = sec_options
+            abi::move_register("x1", "x19"),
+            abi::branch_link_register("x20"), // set_tls_server_name(sec_options, name)
+            abi::load_u64("x20", abi::stack_pointer(), 16),
+            abi::load_u64("x19", abi::stack_pointer(), 8),
+            abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+            abi::add_stack(32),
+            abi::return_(),
+        ];
+        CodeFunction {
+            name: format!("runtime.{CFG_INVOKE}"),
+            symbol: CFG_INVOKE.to_string(),
+            params: Vec::new(),
+            returns: "Nothing".to_string(),
+            frame: frame(32),
+            stack_slots: Vec::new(),
+            instructions,
+            relocations: Vec::new(),
+        }
+    }
+
     pub(super) fn aux_functions() -> Vec<CodeFunction> {
         vec![
             // state_changed(state @x1, error @x2)
@@ -1133,6 +1198,7 @@ mod macos {
             // send_completion(error @x1)
             invoke_function(SEND_INVOKE, &[("x1", CTX_ERROR)]),
             recv_invoke_function(),
+            cfg_invoke_function(),
         ]
     }
 
@@ -1245,7 +1311,7 @@ mod macos {
         platform_imports: &HashMap<String, String>,
         platform: &dyn CodegenPlatform,
     ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-        const FRAME_SIZE: usize = 224;
+        const FRAME_SIZE: usize = 256;
         const LR: usize = 0;
         const HOST: usize = 8;
         const PORT: usize = 16;
@@ -1262,6 +1328,10 @@ mod macos {
         const WAITFN: usize = 104;
         const BLOCK: usize = 112; // 112..152
         const PORTBUF: usize = 152; // 152..176
+        const SNAME: usize = 176; // serverName String ptr (arg x3)
+        const SNICSTR: usize = 184; // serverName as a C string
+        const TLSCFG: usize = 192; // chosen configure-TLS block pointer
+        const CFGBLOCK: usize = 200; // 200..256: the SNI-config block literal
 
         let wait_loop = format!("{symbol}_wait");
         let ready = format!("{symbol}_ready");
@@ -1270,6 +1340,7 @@ mod macos {
         let load_fail = format!("{symbol}_load_fail");
         let alloc_fail = format!("{symbol}_alloc_fail");
         let itoa_loop = format!("{symbol}_itoa");
+        let sni_default = format!("{symbol}_sni_default");
         let done = format!("{symbol}_done");
 
         let mut ins = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
@@ -1278,6 +1349,7 @@ mod macos {
             abi::store_u64(abi::link_register(), abi::stack_pointer(), LR),
             abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
             abi::store_u64("x1", abi::stack_pointer(), PORT),
+            abi::store_u64("x3", abi::stack_pointer(), SNAME),
         ]);
         // itoa(port) -> NUL-terminated decimal at PORTBUF, pointer in PORTCSTR.
         ins.extend([
@@ -1332,11 +1404,52 @@ mod macos {
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::load_u64("x9", "x9", 0),
             abi::store_u64("x9", abi::stack_pointer(), CFG),
+            // The configure-TLS block defaults to the system default. A non-empty
+            // serverName swaps in a custom block that overrides the SNI /
+            // certificate-validation name (empty => the endpoint host is used).
+            abi::store_u64("x9", abi::stack_pointer(), TLSCFG),
+            abi::load_u64("x9", abi::stack_pointer(), SNAME),
+            abi::load_u64("x10", "x9", 0),
+            abi::compare_immediate("x10", "0"),
+            abi::branch_eq(&sni_default),
         ]);
-        // params = nw_parameters_create_secure_tcp(cfg, cfg)
+        // serverName given: copy it to a C string and build a configure block
+        // whose invoke calls sec_protocol_options_set_tls_server_name. The block
+        // is invoked synchronously during nw_parameters_create_secure_tcp, so the
+        // stack literal stays live for its whole lifetime.
+        emit_cstring(symbol, "sni", SNAME, SNICSTR, &alloc_fail, &mut ins, &mut rel);
+        dlsym(symbol, HANDLE, "_NSConcreteStackBlock", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        ins.extend([
+            abi::load_u64("x9", abi::stack_pointer(), FNPTR),
+            abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + BLK_ISA),
+            abi::store_u64("x31", abi::stack_pointer(), CFGBLOCK + BLK_FLAGS),
+        ]);
+        emit_data_address(symbol, "x9", CFG_INVOKE, &mut ins, &mut rel);
+        ins.push(abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + BLK_INVOKE));
+        emit_data_address(symbol, "x9", CFG_DESC_SYMBOL, &mut ins, &mut rel);
+        ins.push(abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + BLK_DESC));
+        ins.extend([
+            abi::load_u64("x9", abi::stack_pointer(), SNICSTR),
+            abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SNAME),
+        ]);
+        dlsym(symbol, HANDLE, "nw_tls_copy_sec_protocol_options", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        ins.extend([
+            abi::load_u64("x9", abi::stack_pointer(), FNPTR),
+            abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_COPYFN),
+        ]);
+        dlsym(symbol, HANDLE, "sec_protocol_options_set_tls_server_name", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        ins.extend([
+            abi::load_u64("x9", abi::stack_pointer(), FNPTR),
+            abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETFN),
+            // tlscfg = &block
+            abi::add_immediate("x9", abi::stack_pointer(), CFGBLOCK),
+            abi::store_u64("x9", abi::stack_pointer(), TLSCFG),
+        ]);
+        ins.push(abi::label(&sni_default));
+        // params = nw_parameters_create_secure_tcp(tlscfg, cfg)
         dlsym(symbol, HANDLE, "nw_parameters_create_secure_tcp", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
         ins.extend([
-            abi::load_u64(abi::return_register(), abi::stack_pointer(), CFG),
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), TLSCFG),
             abi::load_u64("x1", abi::stack_pointer(), CFG),
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::branch_link_register("x9"),
