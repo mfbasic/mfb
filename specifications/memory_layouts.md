@@ -385,6 +385,45 @@ handle into a worker arena past the point that arena becomes eligible for
 reclamation, so cross-thread values (start inputs, queued messages, results) are
 first materialized in transfer storage or in the receiver's arena.
 
+### Scope-Drop Frees
+
+Beyond the bulk `arena_destroy`, individual owned values are freed deterministically
+at **scope-drop** (`plan-01` Phase 5 / `plan-02` Phase 8), the same model resources
+already use. Because every non-resource value is a flat, pointer-free block, freeing
+one is a single `arena_free(ptr, size)` of its block — no per-type recursive drop
+glue — and the size is recomputed from the static type at the drop point
+(`emit_inlined_block_size_from_ptr_slot`).
+
+Soundness rests on the heap being an **ownership tree**, which **copy-insertion**
+guarantees: every site that hands a value to a longer-lived owner — a `LET`/`MUT`
+bind, a global store, an assignment, a closure capture, and a `RETURN` — deep-copies
+(`copy_flat_block`) when the source is an *aliasing source* (a `Local`, `Global`,
+`Capture`, field/`MemberAccess` read, `UnionExtract`, or `Result` payload — all of
+which yield a borrow/pointer into an existing block) or a *static* `String` constant
+(which lives in rodata, not the arena). Record/union/collection construction,
+collection inserts, and `WITH` already byte-copy (inline) their flat payloads, so
+they introduce no new aliases. After copy-insertion every owned local owns an
+independent block, so freeing each exactly once at scope exit cannot double-free.
+
+A free is emitted at **every** scope exit — the normal end-of-block drain,
+`EXIT`/`CONTINUE` (only back to the loop's entry depth), `RETURN`, and `TRAP`
+routing — reusing the resource cleanup stack (`ActiveCleanup::OwnedValue`). A value
+that is **moved out** suppresses its free: a returned named local is moved (not
+copied) and its cleanup deactivated; `thread::transfer` already deep-copies into the
+receiver arena and deactivates the sender's cleanup. Binding slots are
+zero-initialized before a (possibly trapping) initializer runs and the free is
+null-guarded, so an initializer that traps before storing frees nothing.
+
+Three classes of value are **excluded** from scope-drop frees because they are not
+plain arena blocks this scope owns: **resources** (a move-only handle to the single
+arena-global instance, reclaimed by its own close op); **runtime-managed thread
+results** (`thread::receive`/`waitFor`/… yield values owned by the thread plumbing
+and the worker arena, bulk-freed at teardown); and **recursive / non-flat composites**
+(kept as pointer graphs, `type_is_flat` is false). Builtins that previously returned
+a borrow into an argument now return an owned block instead (`collections::get`/`getOr`
+materialize the element; `strings::replace`'s no-op path returns a fresh copy), so a
+call result is always safe for the caller to own and free.
+
 ## Collection String Payloads
 
 String payloads stored inside a collection data region are UTF-8 bytes only.

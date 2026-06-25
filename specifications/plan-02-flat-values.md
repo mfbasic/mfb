@@ -132,7 +132,68 @@ Last updated: 2026-06-24
   `arithmetic-division-invalid-rt`) and resource transfer
   (`thread-send-file-ownership-rt`, `resource-union-valid`/`-drop-valid`) pass
   deterministically under entropy poisoning.
-- Phase 8 — pending.
+- **Phase 7 (hardening) — DONE.** Two runtime proofs under always-on entropy
+  poisoning exercise the free paths directly: `tests/scope-drop-free-rt` (copy
+  independence `LET b = a`, record move-on-return, borrowed-field copy-on-return
+  `nameOf → p.name`, nested record / list-of-records freed as one block, `WITH`
+  rebuild independence, and a 500-round build-and-drop churn of record + `String`
+  + `List` proving freed memory is reused) and `tests/scope-drop-free-union-rt`
+  (flat data unions with alternating variable-size variants and `Map`s freed as
+  one block, `MATCH`-extracted field copied on return, list of variable-size
+  unions, 400-round union+map churn). The full pre-existing `-rt` suite
+  (`flat-record-string-rt`, `flat-union-rt`, `flat-nested-collection-rt`,
+  `flat-record-collection-rt`, …) now also runs *with* scope-drop frees active.
+- **Phase 8 (scope-drop frees) — DONE.** This is `plan-01` Phase 5, and it was
+  **not** the trivial step §4.7 promised: §4.7 assumed flatness had already made
+  the heap alias-free, but it had not. Phase 6 made every value a flat block (so
+  a `memcpy` *is* a deep copy) yet left every store site sharing pointers — `LET
+  b = a`, a field read (`p.name` borrows into `p`), a `Global`/`Capture`, all
+  still aliased. So two pieces were needed, mirroring `plan-01` §5.5:
+  - **Copy-insertion (`lower_value_owned`, `builder_values.rs`).** At every site
+    that gives a longer-lived owner a value — `LET`/`MUT` bind, `StoreGlobal`,
+    `Assign`, closure capture, and `RETURN` — an *aliasing source* (`Local`,
+    `Global`, `Capture`, `MemberAccess`, `UnionExtract`, `ResultValue/Error`) or a
+    *static* `String` constant (`static_string_value`, which lives in rodata, not
+    the arena) is deep-copied via `copy_flat_block`. After this every owned local
+    holds an independent arena block. Record/union/collection construction,
+    collection inserts, and `WITH` already inline-copy their payloads, so they
+    needed no change.
+  - **Scope-drop frees (`ActiveCleanup::OwnedValue`).** Every owned freeable-flat
+    local registers a free at bind; `emit_owned_value_drop` emits
+    `arena_free(ptr, size)` (size recomputed via
+    `emit_inlined_block_size_from_ptr_slot`) at every scope exit — the normal
+    drain, `break`/`continue`, `RETURN`, and `TRAP` — reusing the resource
+    cleanup machinery (`emit_cleanup_sequence` / `emit_cleanup_branch_to_depth`).
+    A returned named local is moved out (no copy) and other returns copy the
+    borrow so the caller owns it. Binding slots are zero-initialized before a
+    (possibly trapping) initializer and the free is null-guarded, so a trap before
+    the store frees nothing.
+
+  Three subtleties the entropy poisoning forced out (each a loud crash, not silent
+  garbage):
+  - **Static `String`s are not arena blocks.** A `LET s = "lit"` (and the default
+    empty `String`) points into rodata; freeing it faults. `value_needs_owning_copy`
+    copies static strings into the arena so every freeable binding owns an arena
+    block.
+  - **Some builtins returned borrows.** `collections::get`/`getOr` returned a
+    borrow into the container for inline record/union/nested-collection payloads;
+    they now materialize an owned element (value semantics anyway). `strings::replace`'s
+    no-op path returned its input; it now returns a fresh copy. (`String` collection
+    payloads were already materialized fresh; `strings::stripPrefix/Suffix` already
+    rebuild.)
+  - **Thread-boundary results are runtime-managed.** `thread::receive`/`waitFor`/…
+    yield values owned by the thread plumbing / worker arena (bulk-freed at
+    teardown, and on a cancel/timeout path not a clean ownable block);
+    `value_is_runtime_managed` excludes them from frees, the same exclusion
+    principle as resources.
+
+  Validated: full `scripts/test-accept.sh` green under entropy poisoning with
+  **identical runtime output** (only the three committed `.ncode` goldens resynced
+  for the added copy/free instructions); the new Phase 7 proofs and the thread
+  drop/cancel tests (`thread-drop-cleanup`, `thread-queue-timeout-cancel`) pass
+  deterministically. The per-type drop glue `plan-01` Phase 5 anticipated never
+  had to be written: a single generic `arena_free` per block suffices, exactly as
+  this plan set out to make possible.
 
 ### Phase 4 scoping (ready for continuation)
 

@@ -2,17 +2,21 @@
 
 Last updated: 2026-06-24
 
-> **Status.** Phases 1–4 are implemented, validated, and landed (coalescing
-> free-list + sized `arena_free`, the zero-init audit — which the entropy-fill
-> forcing function showed needs no code fixes —, entropy fill, and the first
-> runtime-internal free site). **Phase 5 (scope-drop drop glue) is not yet
-> implemented**: it is the riskiest phase and requires a *new* general-value
-> ownership/escape analysis (the existing `ExprMode` in `typecheck.rs` and
-> `escape.rs` are resource-specific, not a copy/move/borrow analysis for arena
-> values), per-type recursive drop glue, and drop emission at every scope exit.
-> Its correctness hazard is freeing an escaped/aliased value → use-after-free in
-> the caller; entropy poisoning (§6) makes such bugs loud, but the analysis must
-> be airtight. See §5 and the Phases list below.
+> **Status.** Phases 1–5 are implemented, validated, and landed. Phases 1–4:
+> coalescing free-list + sized `arena_free`, the zero-init audit (the entropy-fill
+> forcing function showed it needs no code fixes), entropy fill, and the first
+> runtime-internal free site. **Phase 5 (scope-drop frees) is DONE** — but via
+> `plan-02`, not the per-type drop glue this document anticipated. `plan-02` made
+> every non-resource value a flat, pointer-free block, so freeing a value is one
+> generic `arena_free` of its block (no per-type recursive drop glue) and the
+> hard "is this value aliased?" question is dissolved by **copy-insertion**: a
+> deep `memcpy` (`copy_flat_block`) is inserted at every store/return site that
+> takes an aliasing source, making every owned local hold an independent block.
+> No general-value escape *analysis* was needed; only a syntactic copy-insertion
+> rule plus the existing `RETURN`/`thread::transfer` move suppressions. The
+> implementation is `plan-02` Phase 8 — see that document's status section for the
+> full account (and the three entropy-surfaced subtleties: static `String`s in
+> rodata, builtins that returned borrows, and runtime-managed thread results).
 
 This document plans turning the arena from a pure bump allocator into a
 deterministic, reuse-capable heap: freed memory is returned to a per-arena
@@ -453,13 +457,20 @@ the fast dedicated PCG64 (§6.1) rather than an OS-entropy syscall per fill.
    PCG64 at offsets 16/24; fill on free and on new block; always on. Seeded from
    OS entropy + arena address + start time (offset 40), independent of
    `math::rand`.
-5. **[TODO] Scope-drop drop glue.** Per-type drop glue; emit frees at scope-drop
-   for owned, non-escaping arena values. The payoff phase and the riskiest — land
-   behind heavy tests. **Not yet implemented** (see Status note at top): needs a
-   new general-value ownership/escape analysis, since `ExprMode`/`escape.rs` only
-   cover resources. Suppress the drop for values that are `RETURN`ed,
-   `thread::transfer`red, or otherwise escape; rely on value-semantics deep-copy
-   to guarantee a dropped non-escaping value is unaliased.
+5. **[DONE] Scope-drop frees.** Emit `arena_free` at scope-drop for owned,
+   non-escaping arena values. Realized as `plan-02` Phase 8: because every value
+   is now a flat block, the free is a single generic `arena_free` of the block
+   (no per-type drop glue) and aliasing is removed up front by **copy-insertion**
+   (`lower_value_owned` deep-copies an aliasing source at each bind/store/return),
+   so no general escape analysis was required — only the existing
+   `RETURN`/`thread::transfer` move suppressions, plus exclusions for static
+   `String` constants (rodata, not arena), borrow-returning builtins
+   (`collections::get`/`getOr`, `strings::replace` — fixed to return owned), and
+   runtime-managed thread results (`thread::receive`/`waitFor`). Frees emit at
+   every scope exit (drain, `break`/`continue`, `RETURN`, `TRAP`) via the resource
+   cleanup machinery (`ActiveCleanup::OwnedValue`). Landed behind heavy tests
+   (`plan-02` §7a / `tests/scope-drop-free*-rt`) under entropy poisoning; full
+   acceptance green with identical runtime output.
 
 ## 9. Decisions
 
