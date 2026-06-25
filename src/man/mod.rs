@@ -34,6 +34,8 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
         parse_fs_package(),
         parse_thread_package(),
         parse_json_package(),
+        parse_regex_package(),
+        parse_term_package(),
     ]
 });
 
@@ -291,6 +293,42 @@ fn parse_json_package() -> PackageDoc {
     }
 }
 
+fn parse_regex_package() -> PackageDoc {
+    let page = include_str!("builtins/regex/package.txt");
+    let (name, summary) = parse_name_line(page).expect("regex package NAME line");
+    let functions = generated::REGEX_FUNCTION_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man regex [function]",
+        functions: Box::leak(functions),
+        page: Some(page),
+    }
+}
+
+fn parse_term_package() -> PackageDoc {
+    let page = include_str!("builtins/term/package.txt");
+    let (name, summary) = parse_name_line(page).expect("term package NAME line");
+    let functions = generated::TERM_FUNCTION_PAGES
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
+
+    PackageDoc {
+        name,
+        summary,
+        usage: "mfb man term [function]",
+        functions: Box::leak(functions),
+        page: Some(page),
+    }
+}
+
 fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
     match package_name {
         "types" => Some(generated::TYPES_TOPIC_PAGES),
@@ -304,6 +342,8 @@ fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'stat
         "fs" => Some(generated::FS_FUNCTION_PAGES),
         "thread" => Some(generated::THREAD_FUNCTION_PAGES),
         "json" => Some(generated::JSON_FUNCTION_PAGES),
+        "regex" => Some(generated::REGEX_FUNCTION_PAGES),
+        "term" => Some(generated::TERM_FUNCTION_PAGES),
         _ => None,
     }
 }

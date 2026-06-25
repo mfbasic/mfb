@@ -8,6 +8,10 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$REPO_ROOT"
 
+# Optional first argument: restrict to a single package/module (e.g. `term`).
+# When given, only functions whose module matches are processed.
+FILTER="${1:-}"
+
 # Full man-page template, modeled on Linux man(1) pages but detailing each
 # built-in function. Placeholders in <angle brackets> are filled in per function;
 # sections in [brackets] are conditional and omitted when they do not apply.
@@ -79,6 +83,26 @@ done < <(
     | sed 's/^[[:space:]]*//' \
     | sed 's/[[:space:]]*(constant)//'
 )
+
+# If a package filter was given, keep only functions in that module.
+if [[ -n "$FILTER" ]]; then
+  KEPT=()
+  for func in "${FUNCTIONS[@]}"; do
+    if [[ "$func" == *::* ]]; then
+      module="${func%%::*}"
+    else
+      module="general"
+    fi
+    if [[ "$module" == "$FILTER" ]]; then
+      KEPT+=("$func")
+    fi
+  done
+  if [[ ${#KEPT[@]} -eq 0 ]]; then
+    echo "No built-in functions found for package '$FILTER'." >&2
+    exit 1
+  fi
+  FUNCTIONS=("${KEPT[@]}")
+fi
 
 total=${#FUNCTIONS[@]}
 echo "Updating man pages for $total functions..."

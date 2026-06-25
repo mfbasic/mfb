@@ -1,0 +1,78 @@
+NAME
+  match - test whether a pattern matches anywhere in a string
+
+SYNOPSIS
+  regex::match(value AS String, pattern AS String) AS Boolean
+
+PACKAGE
+  regex
+
+IMPORTS
+  IMPORT regex
+
+DESCRIPTION
+  regex::match compiles pattern as a regular expression and returns TRUE when it
+  matches anywhere in value, and FALSE otherwise. It is the existence test of the
+  package: it reports only whether some match exists, not where (see
+  regex::find) or what was matched (see regex::replace). A zero-length match
+  counts, so a pattern that can match the empty string -- such as a*, an anchor
+  like ^, or the empty pattern "" -- matches every value, including "".
+
+  The search is unanchored and leftmost: a match is sought at each position
+  0, 1, ... up to the scalar length of value, and the first position at which the
+  pattern can match makes match succeed. To require that the whole value match,
+  anchor with \A and \z (or with ^ and $ when the m flag is off). Matching
+  operates over Unicode scalar values and is Unicode aware: the (?i) flag uses
+  Unicode simple case folding, and \d, \w, and \s use the pinned Unicode
+  definitions, so results are identical on every target and never defer to a host
+  regex library.
+
+  pattern uses MFBASIC's own portable regex dialect, defined in
+  specifications/regex.md (run `mfb man regex` for the language overview). It is
+  an ordinary runtime String, so it may be built or read at run time; because
+  String literals process backslash escapes, a literal backslash must be written
+  "\\" -- regex::match(value, "\\d+") tests for one or more digits. match never
+  reports absence as a failure; absence simply returns FALSE. Only an invalid
+  pattern fails, with ErrInvalidFormat. Because match takes no start argument, it
+  raises neither ErrIndexOutOfRange nor ErrNotFound.
+
+  match does not mutate value or pattern and has no side effects.
+
+PARAMETERS
+  value AS String
+    The subject text to search. It is never modified.
+
+  pattern AS String
+    The regular expression to compile and test. It must be a valid pattern in
+    the MFBASIC regex dialect; otherwise the call fails with ErrInvalidFormat.
+
+RETURN VALUE
+  AS Boolean
+    TRUE when a match exists anywhere in value, otherwise FALSE. A pattern that
+    can match the empty string yields TRUE for every value.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  Raised when pattern is not a valid regular expression: an unbalanced or
+  unterminated group or class, a quantifier with no atom or stacked quantifiers,
+  a counted quantifier with m > n, a class range whose low endpoint exceeds its
+  high endpoint, an empty class, a backslash escape outside the defined set, a
+  \x.../\x{...} value that is not a valid scalar, an unknown \p{...} property, a
+  malformed flag or group head, or a non-goal construct (backreference or
+  look-around).
+
+EXAMPLES
+  Test for a substring and an anchored pattern:
+
+    IMPORT regex
+    LET hasEll AS Boolean = regex::match("hello", "ell")
+    LET startsH AS Boolean = regex::match("hello", "^h")
+
+  Case-insensitive match and a digit-class test (note the doubled backslash):
+
+    IMPORT regex
+    LET greeting AS Boolean = regex::match("Hello", "(?i)hello")
+    LET hasDigit AS Boolean = regex::match("abc123", "\\d+")
+
+SEE ALSO
+  regex::find, regex::findAll, regex::replace, strings::contains

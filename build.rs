@@ -16,6 +16,8 @@ fn main() {
     let fs_dir = manifest_dir.join("src/man/builtins/fs");
     let thread_dir = manifest_dir.join("src/man/builtins/thread");
     let json_dir = manifest_dir.join("src/man/builtins/json");
+    let regex_dir = manifest_dir.join("src/man/builtins/regex");
+    let term_dir = manifest_dir.join("src/man/builtins/term");
     let types_page = manifest_dir.join("src/man/types/package.txt");
     let errors_page = manifest_dir.join("src/man/errors/package.txt");
     let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
@@ -32,6 +34,8 @@ fn main() {
     println!("cargo:rerun-if-changed={}", fs_dir.display());
     println!("cargo:rerun-if-changed={}", thread_dir.display());
     println!("cargo:rerun-if-changed={}", json_dir.display());
+    println!("cargo:rerun-if-changed={}", regex_dir.display());
+    println!("cargo:rerun-if-changed={}", term_dir.display());
     println!("cargo:rerun-if-changed={}", types_page.display());
     println!("cargo:rerun-if-changed={}", errors_page.display());
     println!("cargo:rerun-if-changed={}", unicode_page.display());
@@ -47,6 +51,8 @@ fn main() {
     let fs_pages = man_pages(&fs_dir, "fs");
     let thread_pages = man_pages(&thread_dir, "thread");
     let json_pages = man_pages(&json_dir, "json");
+    let regex_pages = man_pages(&regex_dir, "regex");
+    let term_pages = man_pages(&term_dir, "term");
 
     println!(
         "cargo:rerun-if-changed={}",
@@ -88,6 +94,14 @@ fn main() {
         "cargo:rerun-if-changed={}",
         json_dir.join("package.txt").display()
     );
+    println!(
+        "cargo:rerun-if-changed={}",
+        regex_dir.join("package.txt").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
+        term_dir.join("package.txt").display()
+    );
     for page in general_pages
         .iter()
         .chain(collections_pages.iter())
@@ -100,6 +114,8 @@ fn main() {
         .chain(fs_pages.iter())
         .chain(thread_pages.iter())
         .chain(json_pages.iter())
+        .chain(regex_pages.iter())
+        .chain(term_pages.iter())
     {
         println!("cargo:rerun-if-changed={}", page.display());
     }
@@ -119,6 +135,8 @@ fn main() {
     write_pages(&mut output, "FS_FUNCTION_PAGES", fs_pages);
     write_pages(&mut output, "THREAD_FUNCTION_PAGES", thread_pages);
     write_pages(&mut output, "JSON_FUNCTION_PAGES", json_pages);
+    write_pages(&mut output, "REGEX_FUNCTION_PAGES", regex_pages);
+    write_pages(&mut output, "TERM_FUNCTION_PAGES", term_pages);
 
     generate_errorcode_table(&error_codes_doc, &out_dir);
 }

@@ -1,0 +1,114 @@
+NAME
+  findAll - find the start index of every non-overlapping match
+
+SYNOPSIS
+  regex::findAll(value AS String, pattern AS String) AS List OF Integer
+  regex::findAll(value AS String, pattern AS String, start AS Integer) AS List OF Integer
+
+PACKAGE
+  regex
+
+IMPORTS
+  IMPORT regex
+
+DESCRIPTION
+  findAll compiles pattern as a regular expression and returns the zero-based
+  start index of every non-overlapping match at or after start, in left-to-right
+  order, as a List OF Integer. It is the enumerating form of the regex package:
+  match reports only whether a match exists, find reports where the first one
+  begins, and findAll reports the start of every match.
+
+  Matches are produced by the same leftmost, non-overlapping iterator that drives
+  regex::replace. After a non-empty match the scan resumes at the match end; an
+  empty (zero-length) match advances one scalar past its position, so iteration
+  always terminates and never reports two empty matches at the same position. As
+  a result findAll(value, pattern) reports exactly the positions replace would
+  rewrite -- for example regex::findAll("abc", "") is [0, 1, 2, 3], an empty
+  match before each scalar and one at the end. At each reported position the
+  engine resolves the match by preference order (earlier alternatives, greedy
+  quantifiers as long as possible, lazy ones as short as possible), but only the
+  start index of each match is collected.
+
+  start restricts only where a match may begin; it does not redefine the input,
+  so the absolute anchors \A and \z, and ^ and $ when the m flag is off, are
+  still evaluated against the whole value. With no start argument the scan begins
+  at position 0.
+
+  Positions are Unicode scalar values, never UTF-8 bytes and never grapheme
+  clusters, consistent with len and the strings package. A string of n scalars
+  has positions 0 .. n; position n is after the last scalar. Both the start
+  argument and every returned index are scalar indexes.
+
+  findAll is total over the match set: when there is no match at or after start
+  it returns an empty list rather than failing with ErrNotFound. Only an invalid
+  pattern, or a start that is out of range, causes a failure.
+
+  pattern is an ordinary runtime String, so it may be built or read at run time;
+  it uses MFBASIC's own portable regex dialect, defined in specifications/regex.md
+  (run `mfb man regex`), which produces identical results on every target and
+  never defers to a host regex library. Because String literals process backslash
+  escapes, a literal backslash is written "\\": regex::findAll(value, "\\d+")
+  collects the start of every digit run.
+
+  findAll does not mutate value or pattern and has no side effects. The returned
+  list is a fresh value.
+
+OVERLOADS
+  regex::findAll(value AS String, pattern AS String) AS List OF Integer
+    Collects matches from position 0; equivalent to passing start = 0.
+
+  regex::findAll(value AS String, pattern AS String, start AS Integer) AS List OF Integer
+    Collects matches at or after the explicit scalar position start.
+
+PARAMETERS
+  value AS String
+    The subject text to search. It is never modified.
+
+  pattern AS String
+    The regular expression to compile and search for. It must be a valid pattern
+    in the MFBASIC regex dialect; otherwise the call fails with ErrInvalidFormat.
+
+  start AS Integer
+    The zero-based scalar index at or after which matches are collected. Defaults
+    to 0. Must be between 0 and the scalar length of value inclusive;
+    start == len(value) is allowed and can match a zero-length or end-anchored
+    pattern. May be passed by name.
+
+RETURN VALUE
+  AS List OF Integer
+    The zero-based Unicode scalar start index of each non-overlapping match, in
+    left-to-right order. Empty when there is no match at or after start. A
+    zero-length match contributes its own start position.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  Raised when pattern is not a valid regular expression: an unbalanced or
+  unterminated group or class, a quantifier with no atom or stacked quantifiers,
+  a counted quantifier with m > n, a class range whose low endpoint exceeds its
+  high endpoint, an empty class, a backslash escape outside the defined set, a
+  \x.../\x{...} value that is not a valid scalar, an unknown \p{...} property, a
+  malformed flag or group head, or a non-goal construct (backreference or
+  look-around). Pattern compilation is checked before start, so this error takes
+  precedence when both apply.
+
+  77050001 (ErrIndexOutOfRange)
+  Raised when start is less than 0 or greater than the scalar length of value.
+
+EXAMPLES
+  Collect every digit-run position (note the doubled backslash):
+
+    IMPORT regex
+    LET positions AS List OF Integer = regex::findAll("a1b22c333", "\\d+")
+
+  Collect matches at or after a start position:
+
+    IMPORT regex
+    LET later AS List OF Integer = regex::findAll("a.b.c", "\\.", 2)
+
+  No match yields an empty list rather than a failure:
+
+    IMPORT regex
+    LET none AS List OF Integer = regex::findAll("abc", "x")
+
+SEE ALSO
+  regex::match, regex::find, regex::replace, strings::find
