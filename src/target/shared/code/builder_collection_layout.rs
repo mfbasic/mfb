@@ -196,6 +196,192 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
+    /// Built-in records that are constructed by bespoke runtime helpers (which
+    /// still write their `String` fields as pointers) rather than the codegen
+    /// `Constructor` path. They are excluded from the inline-`String` record
+    /// layout so that machinery — and field reads of values it produces — stay on
+    /// the pointer layout consistently (plan-02 Phase 2):
+    ///   - `Error`/`ErrorLoc`: the fallible-call ABI, trap materialization, `FAIL`.
+    ///   - `Address`/`Datagram`/`DatagramText`: the `net::` socket helpers
+    ///     (`emit_address_from_sockaddr`, etc.).
+    /// Every other record inlines its `String` fields.
+    pub(super) fn is_pointer_string_record(&self, type_: &str) -> bool {
+        matches!(
+            type_,
+            "Error" | "ErrorLoc" | "Address" | "Datagram" | "DatagramText"
+        )
+    }
+
+    /// True when `field_type` occupies a record slot as a pointer to a separate
+    /// allocation (nested record/union/collection/`Result`/`Error`). These stay
+    /// pointers in Phase 2 (later phases inline them).
+    pub(super) fn record_field_is_pointer(&self, field_type: &str) -> bool {
+        is_collection_type(field_type)
+            || self.type_model.record_fields.contains_key(field_type)
+            || self.type_model.union_names.contains(field_type)
+            || field_type.starts_with("Result OF ")
+            || field_type == "Error"
+    }
+
+    /// True when field `field_type` of `record_type` is inlined as a
+    /// block-relative `String` offset into the record's data region.
+    pub(super) fn record_field_is_inline_string(&self, record_type: &str, field_type: &str) -> bool {
+        field_type == "String" && !self.is_pointer_string_record(record_type)
+    }
+
+    /// True when `record_type` has at least one inlined `String` field (so its
+    /// block is variable-length and carries a trailing data region).
+    pub(super) fn record_has_inline_string(&self, record_type: &str) -> bool {
+        if self.is_pointer_string_record(record_type) {
+            return false;
+        }
+        self.type_model
+            .record_fields
+            .get(record_type)
+            .map(|fields| fields.iter().any(|(_, ft)| ft == "String"))
+            .unwrap_or(false)
+    }
+
+    /// Emit the **total byte size** of an inlined record of `record_type` whose
+    /// base pointer is in `base_slot`, into `out_slot`. Walks the fixed slot
+    /// region (`8*fieldCount`) plus each inlined `String` block (8-aligned,
+    /// `len + 9` bytes), in field order — matching `emit_build_inlined_record`'s
+    /// layout. Clobbers x8/x9/x12/x13.
+    pub(super) fn emit_record_block_size_to_slot(
+        &mut self,
+        record_type: &str,
+        base_slot: usize,
+        out_slot: usize,
+    ) -> Result<(), String> {
+        let fields = self
+            .type_model
+            .record_fields
+            .get(record_type)
+            .cloned()
+            .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
+        let fixed = 8 * fields.len();
+        self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), out_slot));
+        for (_, field_type) in &fields {
+            if !self.record_field_is_inline_string(record_type, field_type) {
+                continue;
+            }
+            self.emit_align_offset_slot(out_slot, 8);
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), out_slot));
+            self.emit(abi::add_registers("x8", "x8", "x9"));
+            self.emit(abi::load_u64("x8", "x8", 0));
+            self.emit(abi::add_immediate("x8", "x8", 9));
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), out_slot));
+            self.emit(abi::add_registers("x9", "x9", "x8"));
+            self.emit(abi::store_u64("x9", abi::stack_pointer(), out_slot));
+        }
+        Ok(())
+    }
+
+    /// Build a flat record of `record_type` from `field_slots` (one stack slot
+    /// per field, in field order). A `String` field slot holds a pointer to a
+    /// source `String` block (its bytes are inlined into the record's data
+    /// region and the slot stores the block-relative offset); every other field
+    /// slot holds the scalar value or pointer, stored inline at `8*index`.
+    /// Returns a register holding the new record pointer. plan-02 §4.2.
+    pub(super) fn emit_build_inlined_record(
+        &mut self,
+        record_type: &str,
+        field_slots: &[usize],
+    ) -> Result<String, String> {
+        let fields = self
+            .type_model
+            .record_fields
+            .get(record_type)
+            .cloned()
+            .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
+        if fields.len() != field_slots.len() {
+            return Err(format!(
+                "native record '{record_type}' construction expected {} fields, got {}",
+                fields.len(),
+                field_slots.len()
+            ));
+        }
+        let fixed = 8 * fields.len();
+        let size_slot = self.allocate_stack_object("record_build_size", 8);
+        let result_slot = self.allocate_stack_object("record_build_result", 8);
+        let cursor_slot = self.allocate_stack_object("record_build_cursor", 8);
+        let alloc_ok = self.label("record_build_alloc_ok");
+
+        // Pass 1: total size = fixed slots + each inlined String block.
+        self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        for (index, (_, field_type)) in fields.iter().enumerate() {
+            if !self.record_field_is_inline_string(record_type, field_type) {
+                continue;
+            }
+            self.emit_align_offset_slot(size_slot, 8);
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), field_slots[index]));
+            self.emit(abi::load_u64("x9", "x8", 0));
+            self.emit(abi::add_immediate("x9", "x9", 9));
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), size_slot));
+            self.emit(abi::add_registers("x8", "x8", "x9"));
+            self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        }
+
+        self.emit(abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            size_slot,
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+
+        // Pass 2: write slots; inline String blocks into the data region.
+        self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), cursor_slot));
+        for (index, (_, field_type)) in fields.iter().enumerate() {
+            if self.record_field_is_inline_string(record_type, field_type) {
+                self.emit_align_offset_slot(cursor_slot, 8);
+                // Slot stores the block-relative offset of the inlined String.
+                self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
+                self.emit(abi::store_u64("x9", "x10", 8 * index));
+                // dest = base + offset; copy (len + 9) bytes from the source.
+                self.emit(abi::add_registers("x11", "x10", "x9"));
+                self.emit(abi::load_u64("x12", abi::stack_pointer(), field_slots[index]));
+                self.emit(abi::load_u64("x13", "x12", 0));
+                self.emit(abi::add_immediate("x13", "x13", 9));
+                self.emit_copy_bytes("x11", "x12", "x13", "record_inline_string");
+                // Advance the cursor by the same block length.
+                self.emit(abi::load_u64("x12", abi::stack_pointer(), field_slots[index]));
+                self.emit(abi::load_u64("x13", "x12", 0));
+                self.emit(abi::add_immediate("x13", "x13", 9));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
+                self.emit(abi::add_registers("x9", "x9", "x13"));
+                self.emit(abi::store_u64("x9", abi::stack_pointer(), cursor_slot));
+            } else {
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), field_slots[index]));
+                self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
+                self.emit(abi::store_u64("x9", "x10", 8 * index));
+            }
+        }
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+        Ok(register)
+    }
+
     pub(super) fn emit_compare_bytes_branch(
         &mut self,
         left: &str,
@@ -303,14 +489,27 @@ impl CodeBuilder<'_> {
                     self.emit(abi::branch(equal_label));
                     return Ok(());
                 }
+                let inline_string_field = fields
+                    .iter()
+                    .map(|(_, ft)| self.record_field_is_inline_string(other, ft))
+                    .collect::<Vec<_>>();
                 for (index, (_, field_type)) in fields.iter().enumerate() {
                     let next_field = self.label("compare_record_next_field");
                     let field_left_slot = self.allocate_stack_object("compare_record_left", 8);
                     let field_right_slot = self.allocate_stack_object("compare_record_right", 8);
                     self.emit(abi::load_u64("x2", abi::stack_pointer(), left_slot));
                     self.emit(abi::load_u64("x4", abi::stack_pointer(), right_slot));
-                    self.emit(abi::load_u64("x2", "x2", index * 8));
-                    self.emit(abi::load_u64("x4", "x4", index * 8));
+                    if inline_string_field[index] {
+                        // The slot is a block-relative offset; recover the String
+                        // borrow pointer (record base + offset) before comparing.
+                        self.emit(abi::load_u64("x3", "x2", index * 8));
+                        self.emit(abi::add_registers("x2", "x2", "x3"));
+                        self.emit(abi::load_u64("x3", "x4", index * 8));
+                        self.emit(abi::add_registers("x4", "x4", "x3"));
+                    } else {
+                        self.emit(abi::load_u64("x2", "x2", index * 8));
+                        self.emit(abi::load_u64("x4", "x4", index * 8));
+                    }
                     self.emit(abi::store_u64("x2", abi::stack_pointer(), field_left_slot));
                     self.emit(abi::store_u64("x4", abi::stack_pointer(), field_right_slot));
                     self.emit_comparable_values_match_branch_from_slots(
@@ -351,6 +550,47 @@ impl CodeBuilder<'_> {
         type_: &str,
         source: &str,
     ) -> Result<String, String> {
+        // A record with inlined String fields is variable-length: size its flat
+        // block at runtime, then block-copy it (plan-02 §4.2). The inlined String
+        // data comes along; pointer fields keep the same shallow-share semantics
+        // as the fixed path below.
+        if self.record_has_inline_string(type_) {
+            let source_slot = self.allocate_stack_object("inline_value_source", 8);
+            let size_slot = self.allocate_stack_object("inline_value_size", 8);
+            let result_slot = self.allocate_stack_object("inline_value_result", 8);
+            let alloc_ok = self.label("inline_value_alloc_ok");
+            self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+            self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
+            self.emit(abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                size_slot,
+            ));
+            self.emit(abi::move_immediate("x1", "Integer", "8"));
+            self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+            self.relocations.push(CodeRelocation {
+                from: self.current_symbol.clone(),
+                to: ARENA_ALLOC_SYMBOL.to_string(),
+                kind: "branch26".to_string(),
+                binding: "internal".to_string(),
+                library: None,
+            });
+            self.emit(abi::compare_immediate(
+                abi::return_register(),
+                RESULT_OK_TAG,
+            ));
+            self.emit(abi::branch_eq(&alloc_ok));
+            self.emit_allocation_error_return()?;
+            self.emit(abi::label(&alloc_ok));
+            self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+            self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+            self.emit(abi::load_u64("x10", abi::stack_pointer(), size_slot));
+            self.emit_copy_bytes("x1", "x9", "x10", "inline_value_block_copy");
+            let result = self.allocate_register()?;
+            self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+            return Ok(result);
+        }
         let size = self
             .inline_collection_payload_size(type_)
             .ok_or_else(|| format!("native inline type '{type_}' has no fixed storage size"))?;
@@ -759,6 +999,12 @@ impl CodeBuilder<'_> {
             }
             other if self.is_pointer_collection_payload_type(other) => {
                 self.emit(abi::move_immediate("x8", "Integer", "8"));
+            }
+            other if self.record_has_inline_string(other) => {
+                // A record with inlined String fields is variable-length; size
+                // its full flat block at runtime (plan-02 §4.2).
+                self.emit_record_block_size_to_slot(other, payload.slot, len_slot)?;
+                return Ok(len_slot);
             }
             other if self.inline_collection_payload_size(other).is_some() => {
                 let size = self

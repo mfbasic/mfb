@@ -155,36 +155,9 @@ impl CodeBuilder<'_> {
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     field_slots.push(slot);
                 }
-                let result_slot = self.allocate_stack_object("default_record_result", 8);
-                let alloc_ok = self.label("default_record_alloc_ok");
-                self.emit(abi::move_immediate(
-                    abi::return_register(),
-                    "Integer",
-                    &(8 * fields.len()).to_string(),
-                ));
-                self.emit(abi::move_immediate("x1", "Integer", "8"));
-                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                self.relocations.push(CodeRelocation {
-                    from: self.current_symbol.clone(),
-                    to: ARENA_ALLOC_SYMBOL.to_string(),
-                    kind: "branch26".to_string(),
-                    binding: "internal".to_string(),
-                    library: None,
-                });
-                self.emit(abi::compare_immediate(
-                    abi::return_register(),
-                    RESULT_OK_TAG,
-                ));
-                self.emit(abi::branch_eq(&alloc_ok));
-                self.emit_allocation_error_return()?;
-                self.emit(abi::label(&alloc_ok));
-                self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-                for (index, slot) in field_slots.iter().enumerate() {
-                    self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-                    self.emit(abi::store_u64("x9", "x1", 8 * index));
-                }
-                let register = self.allocate_register()?;
-                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                // Inline `String` defaults (empty String blocks) into the record's
+                // data region; scalar/pointer defaults stay inline (plan-02 §4.2).
+                let register = self.emit_build_inlined_record(type_, &field_slots)?;
                 Ok(ValueResult {
                     type_: type_.to_string(),
                     location: register,
@@ -221,11 +194,11 @@ impl CodeBuilder<'_> {
                 });
             }
         }
-        let (field_index, field_type, payload_offset) =
+        let (field_index, field_type, payload_offset, inline_string) =
             if let Some((key_type, value_type)) = parse_map_entry_type(&target_value.type_) {
                 match member {
-                    "key" => (0, key_type, 0),
-                    "value" => (1, value_type, 0),
+                    "key" => (0, key_type, 0, false),
+                    "value" => (1, value_type, 0, false),
                     _ => {
                         return Err(format!(
                             "native code map entry '{}' has no field '{}'",
@@ -244,7 +217,9 @@ impl CodeBuilder<'_> {
                         target_value.type_, member
                     ));
                 };
-                (index, field_type.clone(), 0)
+                let inline_string =
+                    self.record_field_is_inline_string(&target_value.type_, field_type);
+                (index, field_type.clone(), 0, inline_string)
             } else if let Some(fields) = self
                 .type_model
                 .union_variant_fields
@@ -260,7 +235,7 @@ impl CodeBuilder<'_> {
                         target_value.type_, member
                     ));
                 };
-                (index, field_type.clone(), 8)
+                (index, field_type.clone(), 8, false)
             } else if self.type_model.union_names.contains(&target_value.type_) {
                 let matches = self
                     .type_model
@@ -280,7 +255,7 @@ impl CodeBuilder<'_> {
                         target_value.type_, member
                     ));
                 };
-                (index, field_type, 8)
+                (index, field_type, 8, false)
             } else {
                 return Err(format!(
                     "native code field access target '{}' is not a record or variant",
@@ -293,6 +268,16 @@ impl CodeBuilder<'_> {
             &target_value.location,
             payload_offset + 8 * field_index,
         ));
+        if inline_string {
+            // The slot holds a block-relative offset; the borrow pointer to the
+            // inlined `String` block is the record base plus that offset
+            // (plan-02 §4.2). `target_value.location` survives this add.
+            self.emit(abi::add_registers(
+                &register,
+                &target_value.location,
+                &register,
+            ));
+        }
         Ok(ValueResult {
             type_: field_type,
             location: register,
@@ -320,38 +305,9 @@ impl CodeBuilder<'_> {
             target_slot,
         ));
 
-        let result_slot = self.allocate_stack_object("with_record_result", 8);
-        let alloc_ok = self.label("with_record_alloc_ok");
-        let object_size = 8 * fields.len();
-        self.emit(abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &object_size.to_string(),
-        ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-
-        for (index, _) in fields.iter().enumerate() {
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), target_slot));
-            self.emit(abi::load_u64("x9", "x8", 8 * index));
-            self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-            self.emit(abi::store_u64("x9", "x10", 8 * index));
-        }
+        // Resolve each updated field to its new value up front (evaluation order
+        // matches source order).
+        let mut updated: Vec<(usize, usize)> = Vec::with_capacity(updates.len());
         for update in updates {
             let Some(index) = fields
                 .iter()
@@ -369,12 +325,29 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 value_slot,
             ));
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), value_slot));
-            self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-            self.emit(abi::store_u64("x9", "x10", 8 * index));
+            updated.push((index, value_slot));
         }
-        let register = self.allocate_register()?;
-        self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+
+        // Gather one value slot per field — the new value where updated, else the
+        // old field value read from the target (a `String` field yields the
+        // borrow pointer `base + offset`) — then rebuild the inlined record so a
+        // resized `String` is re-laid-out with correct offsets (plan-02 §4.5).
+        let mut field_slots = Vec::with_capacity(fields.len());
+        for (index, (_, field_type)) in fields.iter().enumerate() {
+            if let Some((_, value_slot)) = updated.iter().find(|(i, _)| *i == index) {
+                field_slots.push(*value_slot);
+                continue;
+            }
+            let slot = self.allocate_stack_object("with_old_field", 8);
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), target_slot));
+            self.emit(abi::load_u64("x9", "x8", 8 * index));
+            if self.record_field_is_inline_string(type_, field_type) {
+                self.emit(abi::add_registers("x9", "x8", "x9"));
+            }
+            self.emit(abi::store_u64("x9", abi::stack_pointer(), slot));
+            field_slots.push(slot);
+        }
+        let register = self.emit_build_inlined_record(type_, &field_slots)?;
         Ok(ValueResult {
             type_: type_.to_string(),
             location: register,
@@ -1488,6 +1461,30 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
+    /// True when field `field_type` of `record_type` is a pointer to a separate
+    /// allocation that a whole-block `memcpy` would alias and must therefore be
+    /// deep-copied. Inlined `String` fields (the common case) come along with the
+    /// block copy; only still-pointer composites and the built-in
+    /// `Error`/`ErrorLoc` pointer-`String` fields need the fix.
+    fn record_field_is_pointer_in(&self, record_type: &str, field_type: &str) -> bool {
+        if field_type == "String" {
+            return self.is_pointer_string_record(record_type);
+        }
+        self.record_field_is_pointer(field_type)
+    }
+
+    fn record_needs_pointer_field_fix(&self, record_type: &str) -> bool {
+        self.type_model
+            .record_fields
+            .get(record_type)
+            .map(|fields| {
+                fields
+                    .iter()
+                    .any(|(_, ft)| self.record_field_is_pointer_in(record_type, ft))
+            })
+            .unwrap_or(false)
+    }
+
     fn copy_record_to_current_arena(
         &mut self,
         type_: &str,
@@ -1502,13 +1499,19 @@ impl CodeBuilder<'_> {
                 format!("native thread transfer record type '{type_}' does not resolve")
             })?;
         let source_slot = self.allocate_stack_object("thread_copy_record_source", 8);
+        let size_slot = self.allocate_stack_object("thread_copy_record_size", 8);
         let result_slot = self.allocate_stack_object("thread_copy_record_result", 8);
         let alloc_ok = self.label("thread_copy_record_alloc_ok");
         self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-        self.emit(abi::move_immediate(
+        // The record's flat block (fixed slots + inlined String data) is
+        // self-describing; size it, allocate, and copy the whole block. Inlined
+        // String fields come along verbatim because their offsets are
+        // block-relative (plan-02 §4.1/§4.2).
+        self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
+        self.emit(abi::load_u64(
             abi::return_register(),
-            "Integer",
-            &(fields.len() * 8).to_string(),
+            abi::stack_pointer(),
+            size_slot,
         ));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
@@ -1527,14 +1530,21 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), size_slot));
+        self.emit_copy_bytes("x1", "x9", "x10", "thread_copy_record_block");
+        // Deep-copy any pointer fields so the copy shares nothing.
         let copied_slot = self.allocate_stack_object("thread_copy_record_field", 8);
         for (index, (_, field_type)) in fields.iter().enumerate() {
+            if !self.record_field_is_pointer_in(type_, field_type) {
+                continue;
+            }
             self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
             self.emit(abi::load_u64("x10", "x9", index * 8));
             let copied = self.copy_value_to_current_arena(field_type, "x10")?;
             // Stash the copied value before reloading the result pointer into x9:
-            // `copied` is an allocated register that may itself be x9, in which
-            // case reloading x9 would clobber the value being stored.
+            // `copied` is an allocated register that may itself be x9.
             self.emit(abi::store_u64(&copied, abi::stack_pointer(), copied_slot));
             self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
             self.emit(abi::load_u64("x10", abi::stack_pointer(), copied_slot));
@@ -1693,8 +1703,13 @@ impl CodeBuilder<'_> {
     }
 
     fn collection_payload_needs_transfer_fix(&self, type_: &str) -> bool {
+        if self.type_model.record_fields.contains_key(type_) {
+            // A record payload was byte-copied whole (inlined String fields came
+            // along); it only needs the per-payload fix if it still has pointer
+            // fields to deep-copy (plan-02 §4.2).
+            return self.record_needs_pointer_field_fix(type_);
+        }
         is_collection_type(type_)
-            || self.type_model.record_fields.contains_key(type_)
             || self.type_model.union_names.contains(type_)
             || type_.starts_with("Result OF ")
             || type_ == "Error"
@@ -1856,8 +1871,14 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             destination_slot,
         ));
+        // The whole record block was already byte-copied into `destination`
+        // (inlined String fields came along). Only deep-copy pointer fields so
+        // the copy aliases nothing (plan-02 §4.2).
         let copied_slot = self.allocate_stack_object("thread_copy_into_field", 8);
         for (index, (_, field_type)) in fields.iter().enumerate() {
+            if !self.record_field_is_pointer_in(type_, field_type) {
+                continue;
+            }
             self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
             self.emit(abi::load_u64("x10", "x9", index * 8));
             let copied = self.copy_value_to_current_arena(field_type, "x10")?;
@@ -1930,6 +1951,19 @@ impl CodeBuilder<'_> {
         let union_copied_slot = self.allocate_stack_object("thread_copy_union_field", 8);
         for (variant, _, fields) in &variants {
             self.emit(abi::label(&labels[variant]));
+            if self.record_has_inline_string(variant) {
+                // This variant's record was wrapped as a single pointer at +8
+                // (see UnionWrap); deep-copy the standalone record there.
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+                self.emit(abi::load_u64("x10", "x9", 8));
+                let copied = self.copy_value_to_current_arena(variant, "x10")?;
+                self.emit(abi::store_u64(&copied, abi::stack_pointer(), union_copied_slot));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), destination_slot));
+                self.emit(abi::load_u64("x10", abi::stack_pointer(), union_copied_slot));
+                self.emit(abi::store_u64("x10", "x9", 8));
+                self.emit(abi::branch(&done_label));
+                continue;
+            }
             for (index, (_, field_type)) in fields.iter().enumerate() {
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
                 self.emit(abi::load_u64("x10", "x9", 8 * (index + 1)));

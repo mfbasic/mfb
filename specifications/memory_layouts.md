@@ -88,15 +88,36 @@ logical string length.
 ### Record
 
 User-defined records store one 8-byte field slot per declared field, in
-declaration order:
+declaration order, followed by a trailing data region that inlines variable-
+length sub-values (`plan-02-flat-values.md`):
 
 ```text
-RecordObject
-  Slot[fieldCount] fields
+RecordObject (flat)
+  Slot[fieldCount] fields        ; field n at offset 8 * n
+  Byte[...] dataRegion           ; inlined String blocks, 8-aligned, in field order
 ```
 
 Field `0` starts at offset `0`; field `n` starts at offset `8 * n`. A slot
-stores the native scalar value or native handle for the field's type.
+stores, by field type:
+
+- **scalar** (`Boolean`/`Byte`/`Integer`/`Float`/`Fixed`/enum): the value inline.
+- **`String`**: a `U64` **block-relative offset** into the record's own data
+  region, where the `String`'s flat block (`{U64 len, bytes, U8 nul}`, 8-aligned)
+  is embedded inline. The field read recovers the borrow pointer as
+  `recordBase + offset`; the offset is relative to the record base, so a whole-
+  block `memcpy` is a correct deep copy and the inlined `String` comes along.
+- **composite** (`Record`/`Union`/`List`/`Map`): a pointer to a separate
+  allocation (these are inlined by later plan-02 phases).
+
+Because inlined `String` fields are variable-length, a record's total byte size
+is computed by walking the fixed slot region plus each inlined `String` block.
+Construction, `WITH`-update, copy/transfer, equality, and collection embedding
+all use that runtime size; copying a record with only scalar and `String` fields
+is a single block `memcpy` (no per-field deep copy). The built-in helper-
+constructed records `Error`, `ErrorLoc`, `Address`, `Datagram`, and
+`DatagramText` are **excluded**: their `String` fields remain pointers to
+separate allocations (the error-result ABI and `net::` socket helpers build them
+that way), so reads of those records do not rebase.
 
 ### `Error` and `ErrorLoc`
 

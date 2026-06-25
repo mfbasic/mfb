@@ -651,44 +651,18 @@ impl CodeBuilder<'_> {
                     arg_values.push(value);
                     arg_slots.push(slot);
                 }
-                let register = self.allocate_register()?;
                 if self.type_model.record_fields.contains_key(type_) {
-                    let result_slot = self.allocate_stack_object("record_result", 8);
-                    let alloc_ok = self.label("record_construct_alloc_ok");
-                    let object_size = 8 * arg_values.len();
-                    self.emit(abi::move_immediate(
-                        abi::return_register(),
-                        "Integer",
-                        &object_size.to_string(),
-                    ));
-                    self.emit(abi::move_immediate("x1", "Integer", "8"));
-                    self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                    self.relocations.push(CodeRelocation {
-                        from: self.current_symbol.clone(),
-                        to: ARENA_ALLOC_SYMBOL.to_string(),
-                        kind: "branch26".to_string(),
-                        binding: "internal".to_string(),
-                        library: None,
-                    });
-                    self.emit(abi::compare_immediate(
-                        abi::return_register(),
-                        RESULT_OK_TAG,
-                    ));
-                    self.emit(abi::branch_eq(&alloc_ok));
-                    self.emit_allocation_error_return()?;
-                    self.emit(abi::label(&alloc_ok));
-                    self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-                    for (index, slot) in arg_slots.iter().enumerate() {
-                        self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-                        self.emit(abi::store_u64("x9", "x1", 8 * index));
-                    }
-                    self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                    // A record inlines its `String` fields into a trailing data
+                    // region (the slot holds a block-relative offset); scalar and
+                    // pointer fields stay inline at `8*index` (plan-02 §4.2).
+                    let register = self.emit_build_inlined_record(type_, &arg_slots)?;
                     return Ok(ValueResult {
                         type_: type_.clone(),
                         location: register,
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
                 }
+                let register = self.allocate_register()?;
                 let tag = self
                     .type_model
                     .union_variant_tags
@@ -849,8 +823,13 @@ impl CodeBuilder<'_> {
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, "x1", 0));
-                if is_resource_variant {
-                    // Store the resource handle pointer directly as the payload.
+                if is_resource_variant || self.record_has_inline_string(member_type) {
+                    // Resource variants store the handle pointer at +8. A record
+                    // variant whose record has inlined String data is also stored
+                    // as a single pointer at +8 (the inline-offset slots are
+                    // meaningless once detached from the record's data region);
+                    // the record stays a standalone flat block (plan-02 §4.2,
+                    // union reshape deferred to Phase 4).
                     self.emit(abi::load_u64("x9", abi::stack_pointer(), wrapped_slot));
                     self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
                     self.emit(abi::store_u64("x9", "x10", 8));
@@ -874,6 +853,19 @@ impl CodeBuilder<'_> {
                 // A resource-union variant's payload is the resource pointer
                 // itself (offset 8): extracting it yields that pointer directly.
                 if crate::builtins::is_resource_type(type_) {
+                    let source = self.lower_value(value)?;
+                    let register = self.allocate_register()?;
+                    self.emit(abi::load_u64(&register, &source.location, 8));
+                    return Ok(ValueResult {
+                        type_: type_.clone(),
+                        location: register,
+                        text: format!("extract {type_} from {}", source.text),
+                    });
+                }
+                // A record variant whose record has inlined String data was
+                // wrapped as a single pointer at +8 (see UnionWrap); recover the
+                // standalone flat record directly (plan-02 §4.2).
+                if self.record_has_inline_string(type_) {
                     let source = self.lower_value(value)?;
                     let register = self.allocate_register()?;
                     self.emit(abi::load_u64(&register, &source.location, 8));

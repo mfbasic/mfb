@@ -1,0 +1,26 @@
+$ mfb build -ast tests/flat-record-string-rt
+Wrote AST to tests/flat-record-string-rt/flat_record_string_rt.ast
+[exit 0]
+$ mfb build -ir tests/flat-record-string-rt
+Wrote IR to tests/flat-record-string-rt/flat_record_string_rt.ir
+[exit 0]
+$ mfb build tests/flat-record-string-rt
+Wrote executable to tests/flat-record-string-rt/flat_record_string_rt.out
+[exit 0]
+$ tests/flat-record-string-rt/flat_record_string_rt.out
+Ada/London
+Ada/London
+Ada/London
+Augusta/London
+Ada/NY
+Ada:London:first
+first|second-and-longer
+Ada:London
+2,3
+Augusta/London
+Grace/Newport
+1
+2
+FALSE
+[][x]
+[exit 0]

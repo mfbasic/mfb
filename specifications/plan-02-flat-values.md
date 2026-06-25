@@ -16,8 +16,28 @@ Last updated: 2026-06-24
   entropy poisoning); acceptance green. The generic `arena_free` wrapper is
   deferred to Phase 8 where it gains a call site (its only new primitive, the
   block-size computation, already landed here).
-- Phases 2–8 — pending. **See the scoping correction below before starting
-  Phase 2 — the original phase split is not landable as written.**
+- **Phase 2 (records) — DONE.** Records now inline their `String` fields as
+  block-relative `U64` offsets into a trailing data region (the slot at `8*n`
+  holds the offset; the inlined block is `{len, bytes, nul}`, 8-aligned). Landed
+  as one atomic change across: construction (`emit_build_inlined_record`), default
+  init, field read (`base + offset` deref), `WITH` (rebuild + re-lay-out),
+  thread-transfer copy (whole-block `memcpy` + pointer-field fix only), record
+  equality / map-key compare (deref), and variable-size record payloads in
+  collections (`emit_record_block_size_to_slot` drives append/literal/length/
+  materialize). A `String`-bearing **record variant of a union** is stored as a
+  single record pointer at `+8` (UnionWrap/Extract/copy), deferring the full
+  `{tag,size,data}` union reshape to Phase 4. Built-in helper-constructed records
+  (`Error`, `ErrorLoc`, `Address`, `Datagram`, `DatagramText`) are excluded and
+  keep the pointer layout (`is_pointer_string_record`), so the error/`net::`
+  machinery is untouched. Validated: full `scripts/test-accept.sh` green
+  (`control-flow-match` ncode golden resynced — runtime `build.log` identical),
+  the record stressors (`types-record-comparable-runtime`,
+  `builtin-pair-partition-valid`) pass, and a new dedicated runtime proof
+  `tests/flat-record-string-rt` (copy independence, `WITH` resize shorter/longer,
+  nested records, `List` append independence, record map keys, empty `String`)
+  runs deterministically under entropy poisoning.
+- Phases 3–8 — pending. **See the scoping correction below — it applied to Phase 2
+  (records) and the same atomicity reasoning will govern Phases 3/4/5.**
 
 ### Phase 2 scoping correction (discovered while implementing)
 
