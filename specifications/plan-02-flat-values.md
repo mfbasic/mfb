@@ -16,7 +16,94 @@ Last updated: 2026-06-24
   entropy poisoning); acceptance green. The generic `arena_free` wrapper is
   deferred to Phase 8 where it gains a call site (its only new primitive, the
   block-size computation, already landed here).
-- Phases 2–8 — pending.
+- Phases 2–8 — pending. **See the scoping correction below before starting
+  Phase 2 — the original phase split is not landable as written.**
+
+### Phase 2 scoping correction (discovered while implementing)
+
+The plan calls Phase 2 ("inline `String` in records/unions") "the smallest
+layout step" and defers the union reshape (Phase 4), nested records (Phase 3),
+and collection inlining (Phase 5) to later. **That separation does not hold.**
+A standalone record/union with a `String` field can be changed in isolation, but
+records and unions do not occur in isolation in the existing, green test suite —
+they flow through containers, equality, map keys, nesting, and union wrapping,
+and every one of those paths assumes a record is a fixed `8*fieldCount` block of
+slots in which a `String` slot is a **pointer**. Concrete, exercised evidence:
+
+- `tests/types-record-comparable-runtime` puts `Person { name AS String, city
+  AS String }` into `List OF Person`, `Map OF Person TO Integer` (record as a
+  **map key**), and nests it in `Badge { owner AS Person, level AS Integer }`,
+  and compares records for **equality**.
+- `tests/builtin-pair-partition-valid` stores `Pair OF Integer, String` in a
+  `List` and reads fields back.
+- `tests/types-recursive-record-valid` wraps a `String`-bearing record
+  (`ConfigJsonStr { value AS String }`) inside `UNION ConfigJson`, then reads
+  `tree.value` after a `MATCH`, and stores the union recursively in
+  `Map OF String TO ConfigJson`.
+
+Why these force the later phases forward into Phase 2:
+
+1. **Collection embedding becomes variable-size.** A record is embedded in a
+   collection by copying `inline_collection_payload_size` = `8*fieldCount` bytes
+   (the slots) into the data region (`builder_collection_layout.rs`
+   `emit_copy_payload_to_collection`, `emit_payload_length_to_stack`). If a
+   `String` slot is now a block-relative **offset**, the bytes it points at (the
+   record's data region) must be copied too, so a record payload becomes
+   **runtime-variable length**. That is the core of Phase 5, pulled into Phase 2.
+2. **Union wrapping inlines record fields.** `UnionWrap` (`builder_values.rs`
+   ~761-871) copies a record variant's **slots** into the union payload slots
+   (`+8, +16, …`), not a pointer to the record. An inlined-`String` record's
+   slots are offsets into the record's data region, which is not copied into the
+   union — so the union must inline the record's data region, i.e. become
+   `{tag, size, data}`. That is Phase 4, pulled into Phase 2.
+3. **Equality / map-key compare must deref.** The record-equality branch
+   (`builder_collection_layout.rs` `emit_comparable_values_match_branch_from_slots`
+   ~295-325) loads each field slot and recurses; a `String` field slot is now an
+   offset, so it must become `base + offset` before the byte compare. Map-key
+   matching for record keys rides the same path.
+4. **`materialize_inline_value_in_arena`** (`builder_collection_layout.rs` ~349)
+   copies a fixed `inline_collection_payload_size` bytes; variable-size records
+   break it.
+
+**Conclusion:** inlining `String` into records is an **atomic** change that must
+land together with: record construction/default-init/field-read/`WITH`/copy,
+record equality + map-key compare, variable-size record payloads in collections
+(append/literal/get/length/materialize), record nesting, and union-payload
+reshaping for record variants. A partially-applied version corrupts the heap for
+the tests above (the exact layout-sensitive, "passes small tests then fails at
+scale" failure mode AGENTS.md and the arena memory notes warn about).
+
+**Recommended re-sequencing for whoever resumes:**
+
+- **2a. Size header up front.** Add the explicit `U64 size` header (§9) to the
+  record block *now* (and the union `size` word), placed so field-slot access
+  stays `base + 8*n` (e.g. keep slots at `8*n`, data region after them, and store
+  total size by walking — or accept a header at `+0` and shift slot access to
+  `8 + 8*n` everywhere). The header makes copy/embed/length one `load`, removing
+  the per-type size walk and most of the risk multiplier. `emit_flat_block_size`
+  (landed in Phase 1) is the seam to extend.
+- **2b. One atomic commit per "value kind goes flat,"** each kept green by the
+  existing copy-dispatches-on-"is it flat yet" rule, but scoped to a *kind* that
+  is closed under the operations above. The smallest closed unit is **all of**:
+  record construct/read/with/default/copy/equality + variable-size record payload
+  in collections + record-variant union wrap/extract — landed together for the
+  `String`-field case.
+- Validate each commit with `scripts/test-accept.sh` **and** a direct run of
+  `types-record-comparable-runtime`, `builtin-pair-partition-valid`, and
+  `types-recursive-record-valid` under entropy poisoning (a missed inline shows
+  up as a loud crash, not silent garbage).
+
+A complete, file-and-line site map for the record and union changes was produced
+during this investigation (record construction `builder_values.rs:644-690`; field
+read `builder_misc.rs:197-301`; `WITH` `builder_misc.rs:303-383`; default init
+`builder_misc.rs:145-193`; copy glue `builder_misc.rs:1498-1553` /
+`copy_record_fields_into_existing`; equality
+`builder_collection_layout.rs:295-325`; collection embedding
+`builder_collection_layout.rs:743-846`; union construct/wrap/extract
+`builder_values.rs:692-936`; union copy `builder_misc.rs:1555-1594` /
+`copy_union_fields_into_existing`). The change is mechanically large but well
+understood; it is **not** safe to land as the under-scoped single "smallest step"
+the original Phase 2 describes.
 
 This plan makes **every non-resource value a flat, self-describing,
 single-allocation block** — all sub-values inlined, no pointers to other
