@@ -1,0 +1,19 @@
+NAME
+  offsetAt - a zone's UTC offset at a given instant
+
+SYNOPSIS
+  datetime::offsetAt(zone AS Zone, at AS Instant) AS Integer
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::offsetAt returns the zone's UTC offset, in seconds, effective at the
+  instant at. For utc and fixed-offset zones the value is constant; for local it
+  consults the host's zone table and is DST-correct for that instant.
+
+SEE ALSO
+  mfb man datetime local, mfb man datetime inZone

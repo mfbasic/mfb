@@ -1,0 +1,27 @@
+NAME
+  duration - build a Duration from seconds, nanoseconds, or components
+
+SYNOPSIS
+  datetime::duration(seconds AS Integer) AS Duration
+  datetime::duration(seconds AS Integer, nanos AS Integer) AS Duration
+  datetime::duration(mins, seconds, nanos) AS Duration
+  datetime::duration(hours, mins, seconds, nanos) AS Duration
+  datetime::duration(days, hours, mins, seconds, nanos) AS Duration
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::duration builds a signed Duration span. The one- and two-argument
+  forms take whole seconds and optional nanoseconds (normalized into
+  0 .. 999_999_999, carrying into seconds); the three-, four-, and five-argument
+  forms are component builders (mins*60 + seconds, hours*3600 + ..., or
+  days*86400 + ..., plus nanos). Combine durations with datetime::plus,
+  datetime::minus, and datetime::negate; apply one to an instant with
+  datetime::add or datetime::subtract.
+
+SEE ALSO
+  mfb man datetime instant, mfb man datetime plus, mfb man datetime formatDuration

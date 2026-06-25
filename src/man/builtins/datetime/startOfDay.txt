@@ -1,0 +1,18 @@
+NAME
+  startOfDay - civil midnight in a DateTime's zone
+
+SYNOPSIS
+  datetime::startOfDay(dt AS DateTime) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::startOfDay returns the DateTime at 00:00:00 on dt's civil date in dt's
+  zone, re-resolving the offset (DST-aware).
+
+SEE ALSO
+  mfb man datetime civil, mfb man datetime addDays

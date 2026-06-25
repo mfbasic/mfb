@@ -1,0 +1,34 @@
+NAME
+  instant - build an Instant from seconds, nanoseconds, or components
+
+SYNOPSIS
+  datetime::instant(seconds AS Integer) AS Instant
+  datetime::instant(seconds AS Integer, nanos AS Integer) AS Instant
+  datetime::instant(mins, seconds, nanos) AS Instant
+  datetime::instant(hours, mins, seconds, nanos) AS Instant
+  datetime::instant(days, hours, mins, seconds, nanos) AS Instant
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::instant builds an Instant at a given offset after the Unix epoch. The
+  one- and two-argument forms take whole seconds and (optionally) nanoseconds;
+  nanos is normalized into 0 .. 999_999_999, carrying any whole seconds into the
+  seconds field. The three-, four-, and five-argument forms are component
+  builders: the instant at mins*60 + seconds, hours*3600 + ..., or
+  days*86400 + ..., respectively, plus nanos.
+
+  instant is overloaded, so every parameter must be supplied for the form you
+  call; the component forms do not carry defaults (see standard_package.md). To
+  add a span to an existing instant, use datetime::add with a Duration.
+
+ERRORS
+  Arithmetic that overflows the Integer range fails with
+  errorCode::ErrOverflow (77050010).
+
+SEE ALSO
+  mfb man datetime duration, mfb man datetime add, mfb man datetime fromMillis

@@ -1,0 +1,22 @@
+NAME
+  toMillis - epoch milliseconds of an instant
+
+SYNOPSIS
+  datetime::toMillis(at AS Instant) AS Integer
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::toMillis returns the number of milliseconds between the Unix epoch and
+  at (truncating sub-millisecond nanoseconds toward the epoch is not applied;
+  whole milliseconds are taken from the nanosecond field).
+
+ERRORS
+  A value outside the Integer range fails with errorCode::ErrOverflow (77050010).
+
+SEE ALSO
+  mfb man datetime toNanos, mfb man datetime fromMillis

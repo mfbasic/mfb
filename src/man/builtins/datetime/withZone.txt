@@ -1,0 +1,19 @@
+NAME
+  withZone - re-project a DateTime into a different zone
+
+SYNOPSIS
+  datetime::withZone(dt AS DateTime, zone AS Zone) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::withZone returns the same instant as dt, re-projected into zone: the
+  wall-clock fields and offset change, but the underlying Instant
+  (datetime::resolve(dt)) does not.
+
+SEE ALSO
+  mfb man datetime inZone, mfb man datetime resolve

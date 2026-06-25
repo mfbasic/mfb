@@ -1,0 +1,20 @@
+NAME
+  subtract - subtract a duration from an instant
+
+SYNOPSIS
+  datetime::subtract(at AS Instant, by AS Duration) AS Instant
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::subtract returns the Instant at - by.
+
+ERRORS
+  A result past the Integer range fails with errorCode::ErrOverflow (77050010).
+
+SEE ALSO
+  mfb man datetime add, mfb man datetime between

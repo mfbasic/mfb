@@ -1,0 +1,155 @@
+{
+  "project": "datetime-invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "datetime", "line": 2 },
+    { "module": "errorCode", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "badDate",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Date", "value": { "kind": "call", "callee": "datetime.date", "arguments": [{ "kind": "number", "value": "2026" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "29" }] }, "line": 6 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "day" }, "line": 7 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 8,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "badDate=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 10 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "badMonth",
+      "line": 14,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Date", "value": { "kind": "call", "callee": "datetime.date", "arguments": [{ "kind": "number", "value": "2026" }, { "kind": "number", "value": "13" }, { "kind": "number", "value": "1" }] }, "line": 15 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "month" }, "line": 16 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 17,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "badMonth=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 19 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "badHour",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Time", "value": { "kind": "call", "callee": "datetime.time", "arguments": [{ "kind": "number", "value": "24" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, "line": 24 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "hour" }, "line": 25 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 26,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "badHour=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }] }, "line": 27 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 28 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "badOffset",
+      "line": 32,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "z", "type": "Zone", "value": { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "30" }, { "kind": "number", "value": "0" }] }, "line": 33 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "z" }, "member": "offsetSeconds" }, "line": 34 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 35,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "badOffset=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }] }, "line": 36 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 37 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "badParse",
+      "line": 41,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "not-a-date" }, { "kind": "string", "value": "yyyy-MM-dd" }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "date" }, "member": "year" }, "line": 43 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 44,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "badParse=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } }] } }] }, "line": 45 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 46 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "badIso",
+      "line": 50,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "string", "value": "2026/06/25" }] }, "line": 51 },
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "dt" }, "member": "date" }, "member": "year" }, "line": 52 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 53,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "badIso=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } }] } }] }, "line": 54 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 55 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 59,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "badDate", "arguments": [] }, "right": { "kind": "call", "callee": "badMonth", "arguments": [] } }, "right": { "kind": "call", "callee": "badHour", "arguments": [] } }, "right": { "kind": "call", "callee": "badOffset", "arguments": [] } }, "right": { "kind": "call", "callee": "badParse", "arguments": [] } }, "right": { "kind": "call", "callee": "badIso", "arguments": [] } }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "all_trapped=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "r" }, "right": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "6" } } }] } }] }, "line": 61 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 62 }
+      ]
+    }
+    ]
+  }
+  ]
+}

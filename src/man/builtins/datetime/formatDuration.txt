@@ -1,0 +1,19 @@
+NAME
+  formatDuration - render a duration as a human-readable span
+
+SYNOPSIS
+  datetime::formatDuration(d AS Duration) AS String
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::formatDuration renders d as a span of the form [-][Nd ]HH:MM:SS.mmm,
+  for example 1d 02:03:04.500 or 00:01:30.000. A negative duration is prefixed
+  with a minus sign. The day component is shown only when non-zero.
+
+SEE ALSO
+  mfb man datetime between, mfb man datetime duration

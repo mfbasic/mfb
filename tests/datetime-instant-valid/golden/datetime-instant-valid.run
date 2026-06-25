@@ -1,0 +1,18 @@
+i1=100
+i3=150
+i5=93784
+d3=150
+d5=86400
+norm_secs=6 norm_nanos=500000000
+span=2.750000000
+add=TRUE
+sub=TRUE
+cmp=-110
+before=TRUE after=FALSE
+plus=13
+minus=7
+neg=-10
+millis=100500
+nanos=2000000005
+fromMillis=2.500000000
+fromMillisNeg=-2.500000000

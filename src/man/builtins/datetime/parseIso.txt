@@ -1,0 +1,25 @@
+NAME
+  parseIso - parse an RFC 3339 / ISO 8601 timestamp
+
+SYNOPSIS
+  datetime::parseIso(value AS String) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::parseIso parses an RFC 3339 timestamp such as
+  1969-07-20T20:17:00Z or 2026-06-25T14:30:00.250+05:30. The date/time separator
+  may be T, t, or a space; fractional seconds are optional; and an offset is
+  required (Z is accepted for UTC). It is the convenience inverse of
+  datetime::toIso.
+
+ERRORS
+  A string that is not valid RFC 3339 fails with errorCode::ErrInvalidFormat
+  (77050003).
+
+SEE ALSO
+  mfb man datetime toIso, mfb man datetime parse

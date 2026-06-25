@@ -1,0 +1,7 @@
+launch=-14182980
+frac_nanos=250000000 off=19800
+p=2026-06-25 14:30:00 +05:30
+q=2026-06-25 14:30 Z
+am=00:05
+roundtrip=TRUE
+iso_roundtrip=TRUE

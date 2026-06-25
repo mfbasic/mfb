@@ -1,0 +1,25 @@
+NAME
+  fixedOffset - a fixed-offset zone
+
+SYNOPSIS
+  datetime::fixedOffset(offsetSeconds AS Integer) AS Zone
+  datetime::fixedOffset(hours AS Integer, mins AS Integer) AS Zone
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::fixedOffset builds a Zone with a constant UTC offset. The one-argument
+  form takes a raw second count; the two-argument form takes hours and a minute
+  magnitude in 0 .. 59 that takes the sign of hours, so fixedOffset(-5, 30) is
+  -05:30. The label is rendered as +/-HH:MM.
+
+ERRORS
+  An offset magnitude of 24 hours or more, or mins outside 0 .. 59, fails with
+  errorCode::ErrInvalidArgument (77050002).
+
+SEE ALSO
+  mfb man datetime utc, mfb man datetime local, mfb man datetime inZone

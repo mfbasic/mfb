@@ -5,6 +5,7 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RuntimeHelper {
+    Datetime,
     Fs,
     General,
     Io,
@@ -19,6 +20,7 @@ pub enum RuntimeHelper {
 impl RuntimeHelper {
     pub fn name(self) -> &'static str {
         match self {
+            RuntimeHelper::Datetime => "datetime",
             RuntimeHelper::Fs => "fs",
             RuntimeHelper::General => "general",
             RuntimeHelper::Io => "io",
@@ -88,6 +90,49 @@ const IO_POLL_INPUT_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     type_: "Integer",
     location: abi::RETURN_REGISTER,
 }];
+
+// `datetime::` OS-seam intrinsics (plan-01-datetime.md §8.2). `nowNanos` /
+// `monotonicNanos` take no arguments; `localOffset` takes the epoch-seconds
+// instant in `x0`. All return an `Integer` in the standard result-value
+// register with the OK tag set (they cannot fail).
+const DATETIME_LOCAL_OFFSET_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "epochSeconds",
+    type_: "Integer",
+    location: abi::RETURN_REGISTER,
+}];
+
+pub(crate) const DATETIME_NOW_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Datetime,
+    call: "datetime.nowNanos",
+    symbol: "_mfb_rt_datetime_datetime_nowNanos",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Integer",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const DATETIME_MONOTONIC_NANOS_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Datetime,
+    call: "datetime.monotonicNanos",
+    symbol: "_mfb_rt_datetime_datetime_monotonicNanos",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Integer",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const DATETIME_LOCAL_OFFSET_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Datetime,
+    call: "datetime.localOffset",
+    symbol: "_mfb_rt_datetime_datetime_localOffset",
+    abi: RuntimeHelperAbi {
+        params: DATETIME_LOCAL_OFFSET_PARAMS,
+        returns: "Integer",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
 
 const FS_PATH_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     name: "path",
@@ -1915,6 +1960,9 @@ pub(crate) const TLS_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
 
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
     &[
+        DATETIME_NOW_NANOS_SPEC,
+        DATETIME_MONOTONIC_NANOS_SPEC,
+        DATETIME_LOCAL_OFFSET_SPEC,
         IO_PRINT_SPEC,
         IO_WRITE_SPEC,
         IO_PRINT_ERROR_SPEC,
@@ -2048,7 +2096,12 @@ pub(crate) fn spec_for_call(target: &str) -> Option<&'static RuntimeHelperSpec> 
 }
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
-    if builtins::fs::is_fs_call(name) {
+    if matches!(
+        name,
+        "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset"
+    ) {
+        Some(RuntimeHelper::Datetime)
+    } else if builtins::fs::is_fs_call(name) {
         Some(RuntimeHelper::Fs)
     } else if builtins::general::is_general_call(name) {
         Some(RuntimeHelper::General)

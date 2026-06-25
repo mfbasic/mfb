@@ -1,0 +1,20 @@
+NAME
+  resolve - map a civil DateTime back to its Instant
+
+SYNOPSIS
+  datetime::resolve(dt AS DateTime) AS Instant
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::resolve maps a civil DateTime back to the absolute Instant it names,
+  using the offset already pinned on dt. It is total: because a DateTime stores
+  its resolved offset, no zone lookup is needed and the result is unambiguous.
+  resolve is the inverse of datetime::inZone.
+
+SEE ALSO
+  mfb man datetime inZone, mfb man datetime civil, mfb man datetime between

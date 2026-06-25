@@ -1,0 +1,19 @@
+NAME
+  toLocal - project an instant into the host's local zone
+
+SYNOPSIS
+  datetime::toLocal(at AS Instant) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::toLocal is shorthand for datetime::inZone(at, datetime::local()): it
+  projects at into the host's local zone, resolving the DST-correct offset for
+  that instant. The result depends on the host's zone configuration.
+
+SEE ALSO
+  mfb man datetime inZone, mfb man datetime toUtc, mfb man datetime local

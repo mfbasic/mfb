@@ -1,0 +1,18 @@
+NAME
+  weekday - the day of the week of a civil date
+
+SYNOPSIS
+  datetime::weekday(dt AS DateTime) AS Weekday
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::weekday returns the Weekday enum (Monday .. Sunday) for the civil date
+  of dt.
+
+SEE ALSO
+  mfb man datetime dayOfYear, mfb man datetime format

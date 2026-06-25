@@ -1,0 +1,59 @@
+{
+  "project": "datetime-civil-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "datetime", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "fmt",
+      "line": 4,
+      "params": [
+      { "name": "dt", "type": "DateTime", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss" }] }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "e0", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "0" }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "epoch=" }, "right": { "kind": "call", "callee": "fmt", "arguments": [{ "kind": "identifier", "value": "e0" }] } }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "epoch_weekday=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "datetime.weekday", "arguments": [{ "kind": "identifier", "value": "e0" }] }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "Weekday" }, "member": "Thursday" } }] } }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "leap", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.civil", "arguments": [{ "kind": "call", "callee": "datetime.date", "arguments": [{ "kind": "number", "value": "2024" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "29" }] }, { "kind": "call", "callee": "datetime.time", "arguments": [{ "kind": "number", "value": "12" }, { "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, { "kind": "call", "callee": "datetime.utc", "arguments": [] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "leap=" }, "right": { "kind": "call", "callee": "fmt", "arguments": [{ "kind": "identifier", "value": "leap" }] } }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "leap_doy=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.dayOfYear", "arguments": [{ "kind": "identifier", "value": "leap" }] }] } }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "neg", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "neg=" }, "right": { "kind": "call", "callee": "fmt", "arguments": [{ "kind": "identifier", "value": "neg" }] } }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "base", "type": "Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "1782743400" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "name": "india", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.inZone", "arguments": [{ "kind": "identifier", "value": "base" }, { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "30" }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "india=" }, "right": { "kind": "call", "callee": "fmt", "arguments": [{ "kind": "identifier", "value": "india" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "india" }, "member": "zone" }, "member": "label" } }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "india_off=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "india" }, "member": "offset" }] } }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "resolve=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.equals", "arguments": [{ "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "india" }] }, { "kind": "identifier", "value": "base" }] }] } }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "west", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.inZone", "arguments": [{ "kind": "identifier", "value": "base" }, { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "18000" } }] }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "west=" }, "right": { "kind": "call", "callee": "fmt", "arguments": [{ "kind": "identifier", "value": "west" }] } }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "west" }, "member": "zone" }, "member": "label" } }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "moved", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.withZone", "arguments": [{ "kind": "identifier", "value": "india" }, { "kind": "call", "callee": "datetime.utc", "arguments": [] }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "moved=" }, "right": { "kind": "call", "callee": "fmt", "arguments": [{ "kind": "identifier", "value": "moved" }] } }] }, "line": 31 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "sod=" }, "right": { "kind": "call", "callee": "fmt", "arguments": [{ "kind": "call", "callee": "datetime.startOfDay", "arguments": [{ "kind": "identifier", "value": "india" }] }] } }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "leap2024=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.isLeapYear", "arguments": [{ "kind": "number", "value": "2024" }] }] } }, "right": { "kind": "string", "value": " leap1900=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.isLeapYear", "arguments": [{ "kind": "number", "value": "1900" }] }] } }, "right": { "kind": "string", "value": " leap2000=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.isLeapYear", "arguments": [{ "kind": "number", "value": "2000" }] }] } }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dim=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.daysInMonth", "arguments": [{ "kind": "number", "value": "2024" }, { "kind": "number", "value": "2" }] }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.daysInMonth", "arguments": [{ "kind": "number", "value": "2023" }, { "kind": "number", "value": "2" }] }] } }, "right": { "kind": "string", "value": "," } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.daysInMonth", "arguments": [{ "kind": "number", "value": "2024" }, { "kind": "number", "value": "4" }] }] } }] }, "line": 36 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 37 }
+      ]
+    }
+    ]
+  }
+  ]
+}

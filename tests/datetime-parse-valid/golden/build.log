@@ -1,0 +1,18 @@
+$ mfb build -ast tests/datetime-parse-valid
+Wrote AST to tests/datetime-parse-valid/datetime-parse-valid.ast
+[exit 0]
+$ mfb build -ir tests/datetime-parse-valid
+Wrote IR to tests/datetime-parse-valid/datetime-parse-valid.ir
+[exit 0]
+$ mfb build tests/datetime-parse-valid
+Wrote executable to tests/datetime-parse-valid/datetime-parse-valid.out
+[exit 0]
+$ tests/datetime-parse-valid/datetime-parse-valid.out
+launch=-14182980
+frac_nanos=250000000 off=19800
+p=2026-06-25 14:30:00 +05:30
+q=2026-06-25 14:30 Z
+am=00:05
+roundtrip=TRUE
+iso_roundtrip=TRUE
+[exit 0]

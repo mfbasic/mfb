@@ -1,0 +1,17 @@
+NAME
+  plus - add two durations
+
+SYNOPSIS
+  datetime::plus(a AS Duration, b AS Duration) AS Duration
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::plus returns the Duration a + b.
+
+SEE ALSO
+  mfb man datetime minus, mfb man datetime negate

@@ -1,0 +1,18 @@
+NAME
+  fromMillis - the instant at a given epoch-millisecond count
+
+SYNOPSIS
+  datetime::fromMillis(millis AS Integer) AS Instant
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::fromMillis returns the Instant millis milliseconds after the Unix
+  epoch (negative values are before it). It is the inverse of datetime::toMillis.
+
+SEE ALSO
+  mfb man datetime toMillis, mfb man datetime instant

@@ -1,0 +1,20 @@
+NAME
+  toIso - render a DateTime as RFC 3339 / ISO 8601
+
+SYNOPSIS
+  datetime::toIso(dt AS DateTime) AS String
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::toIso renders dt as an RFC 3339 / ISO 8601 timestamp with millisecond
+  precision and an explicit offset, for example 2026-06-25T14:30:00.000+05:30, or
+  ...Z for UTC. It is the convenience form of datetime::format with the pattern
+  yyyy-MM-dd'T'HH:mm:ss.fffZ. Parse the result with datetime::parseIso.
+
+SEE ALSO
+  mfb man datetime parseIso, mfb man datetime format

@@ -87,6 +87,10 @@ impl plan::NativePlanPlatform for Platform {
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         match spec.call {
+            "datetime.nowNanos" | "datetime.monotonicNanos" => {
+                vec![self.libc_import("clock_gettime", spec.symbol)]
+            }
+            "datetime.localOffset" => vec![self.libc_import("localtime_r", spec.symbol)],
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }

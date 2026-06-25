@@ -1,0 +1,991 @@
+' Built-in `datetime::` package (plan-01-datetime.md).
+'
+' All portable calendar math, formatting, and parsing lives here as internal
+' `__datetime_*` functions. Only the OS clock and the local-zone table are
+' platform state, reached through the `datetime::nowNanos` / `monotonicNanos` /
+' `localOffset` intrinsics (lowered to libc runtime helpers, §8.2). The public
+' surface (`datetime::now`, `datetime::instant`, ...) is presented by the Rust
+' seam (`src/builtins/datetime.rs`), which rewrites each public call onto the
+' matching internal implementation below.
+
+IMPORT datetime
+IMPORT strings
+IMPORT collections
+
+' ===========================================================================
+' Types (§3). Every public type is a flat copyable record/enum.
+' ===========================================================================
+
+EXPORT TYPE Instant
+  seconds AS Integer
+  nanos   AS Integer
+END TYPE
+
+EXPORT TYPE Duration
+  seconds AS Integer
+  nanos   AS Integer
+END TYPE
+
+EXPORT TYPE Date
+  year  AS Integer
+  month AS Integer
+  day   AS Integer
+END TYPE
+
+EXPORT TYPE Time
+  hour   AS Integer
+  minute AS Integer
+  second AS Integer
+  nanos  AS Integer
+END TYPE
+
+EXPORT TYPE Zone
+  offsetSeconds AS Integer
+  kind          AS Integer
+  label         AS String
+END TYPE
+
+EXPORT TYPE DateTime
+  date   AS Date
+  time   AS Time
+  zone   AS Zone
+  offset AS Integer
+END TYPE
+
+EXPORT ENUM ZoneKind
+  Utc, FixedOffset, Local
+END ENUM
+
+EXPORT ENUM Weekday
+  Monday, Tuesday, Wednesday, Thursday, Friday, Saturday, Sunday
+END ENUM
+
+EXPORT ENUM Month
+  January, February, March, April, May, June, July, August, September, October, November, December
+END ENUM
+
+' ===========================================================================
+' Normalization helpers. Carry a raw (seconds, nanos) pair into the canonical
+' form where nanos is in [0, 1_000_000_000). `/` truncates toward zero and
+' `MOD` takes the sign of the dividend, so a negative nanos borrows one second.
+' ===========================================================================
+
+FUNC __datetime_normInstant(seconds AS Integer, nanos AS Integer) AS Instant
+  MUT q AS Integer = nanos / 1000000000
+  MUT r AS Integer = nanos MOD 1000000000
+  IF r < 0 THEN
+    r = r + 1000000000
+    q = q - 1
+  END IF
+  RETURN Instant[seconds + q, r]
+END FUNC
+
+FUNC __datetime_normDuration(seconds AS Integer, nanos AS Integer) AS Duration
+  MUT q AS Integer = nanos / 1000000000
+  MUT r AS Integer = nanos MOD 1000000000
+  IF r < 0 THEN
+    r = r + 1000000000
+    q = q - 1
+  END IF
+  RETURN Duration[seconds + q, r]
+END FUNC
+
+' ===========================================================================
+' Clock (§5.1). The intrinsics return nanoseconds since the epoch / an
+' arbitrary origin; both are non-negative on any sane host, so the split is a
+' plain truncating divide.
+' ===========================================================================
+
+FUNC __datetime_now AS Instant
+  LET ns AS Integer = datetime::nowNanos()
+  RETURN __datetime_normInstant(ns / 1000000000, ns MOD 1000000000)
+END FUNC
+
+FUNC __datetime_monotonic AS Duration
+  LET ns AS Integer = datetime::monotonicNanos()
+  RETURN __datetime_normDuration(ns / 1000000000, ns MOD 1000000000)
+END FUNC
+
+' ===========================================================================
+' Instant component builders (§5.1.1). Disjoint arities 1..5.
+' ===========================================================================
+
+FUNC __datetime_instant1(seconds AS Integer) AS Instant
+  RETURN Instant[seconds, 0]
+END FUNC
+
+FUNC __datetime_instant2(seconds AS Integer, nanos AS Integer) AS Instant
+  RETURN __datetime_normInstant(seconds, nanos)
+END FUNC
+
+FUNC __datetime_instant3(mins AS Integer, seconds AS Integer, nanos AS Integer) AS Instant
+  RETURN __datetime_normInstant(mins * 60 + seconds, nanos)
+END FUNC
+
+FUNC __datetime_instant4(hours AS Integer, mins AS Integer, seconds AS Integer, nanos AS Integer) AS Instant
+  RETURN __datetime_normInstant(hours * 3600 + mins * 60 + seconds, nanos)
+END FUNC
+
+FUNC __datetime_instant5(days AS Integer, hours AS Integer, mins AS Integer, seconds AS Integer, nanos AS Integer) AS Instant
+  RETURN __datetime_normInstant(days * 86400 + hours * 3600 + mins * 60 + seconds, nanos)
+END FUNC
+
+' ===========================================================================
+' Duration component builders (§5.1).
+' ===========================================================================
+
+FUNC __datetime_duration1(seconds AS Integer) AS Duration
+  RETURN Duration[seconds, 0]
+END FUNC
+
+FUNC __datetime_duration2(seconds AS Integer, nanos AS Integer) AS Duration
+  RETURN __datetime_normDuration(seconds, nanos)
+END FUNC
+
+FUNC __datetime_duration3(mins AS Integer, seconds AS Integer, nanos AS Integer) AS Duration
+  RETURN __datetime_normDuration(mins * 60 + seconds, nanos)
+END FUNC
+
+FUNC __datetime_duration4(hours AS Integer, mins AS Integer, seconds AS Integer, nanos AS Integer) AS Duration
+  RETURN __datetime_normDuration(hours * 3600 + mins * 60 + seconds, nanos)
+END FUNC
+
+FUNC __datetime_duration5(days AS Integer, hours AS Integer, mins AS Integer, seconds AS Integer, nanos AS Integer) AS Duration
+  RETURN __datetime_normDuration(days * 86400 + hours * 3600 + mins * 60 + seconds, nanos)
+END FUNC
+
+' ===========================================================================
+' Instant arithmetic & comparison (§5.4).
+' ===========================================================================
+
+FUNC __datetime_add(at AS Instant, by AS Duration) AS Instant
+  RETURN __datetime_normInstant(at.seconds + by.seconds, at.nanos + by.nanos)
+END FUNC
+
+FUNC __datetime_subtract(at AS Instant, by AS Duration) AS Instant
+  RETURN __datetime_normInstant(at.seconds - by.seconds, at.nanos - by.nanos)
+END FUNC
+
+FUNC __datetime_between(start AS Instant, finish AS Instant) AS Duration
+  RETURN __datetime_normDuration(finish.seconds - start.seconds, finish.nanos - start.nanos)
+END FUNC
+
+FUNC __datetime_compare(a AS Instant, b AS Instant) AS Integer
+  IF a.seconds < b.seconds THEN RETURN -1
+  IF a.seconds > b.seconds THEN RETURN 1
+  IF a.nanos < b.nanos THEN RETURN -1
+  IF a.nanos > b.nanos THEN RETURN 1
+  RETURN 0
+END FUNC
+
+FUNC __datetime_isBefore(a AS Instant, b AS Instant) AS Boolean
+  RETURN __datetime_compare(a, b) < 0
+END FUNC
+
+FUNC __datetime_isAfter(a AS Instant, b AS Instant) AS Boolean
+  RETURN __datetime_compare(a, b) > 0
+END FUNC
+
+FUNC __datetime_equals(a AS Instant, b AS Instant) AS Boolean
+  RETURN __datetime_compare(a, b) = 0
+END FUNC
+
+' ===========================================================================
+' Duration algebra (§5.4).
+' ===========================================================================
+
+FUNC __datetime_negate(d AS Duration) AS Duration
+  RETURN __datetime_normDuration(-d.seconds, -d.nanos)
+END FUNC
+
+FUNC __datetime_plus(a AS Duration, b AS Duration) AS Duration
+  RETURN __datetime_normDuration(a.seconds + b.seconds, a.nanos + b.nanos)
+END FUNC
+
+FUNC __datetime_minus(a AS Duration, b AS Duration) AS Duration
+  RETURN __datetime_normDuration(a.seconds - b.seconds, a.nanos - b.nanos)
+END FUNC
+
+' ===========================================================================
+' Epoch milliseconds / nanoseconds (§5.5). Checked arithmetic surfaces
+' `ErrOverflow` when a value is outside the Integer range.
+' ===========================================================================
+
+FUNC __datetime_toMillis(at AS Instant) AS Integer
+  RETURN at.seconds * 1000 + at.nanos / 1000000
+END FUNC
+
+FUNC __datetime_toNanos(at AS Instant) AS Integer
+  RETURN at.seconds * 1000000000 + at.nanos
+END FUNC
+
+FUNC __datetime_fromMillis(millis AS Integer) AS Instant
+  MUT q AS Integer = millis / 1000
+  MUT r AS Integer = millis MOD 1000
+  IF r < 0 THEN
+    r = r + 1000
+    q = q - 1
+  END IF
+  RETURN Instant[q, r * 1000000]
+END FUNC
+
+' ===========================================================================
+' Integer floor division / modulo (operators truncate toward zero; calendar
+' math needs flooring for negative epoch-day and second-of-day values).
+' ===========================================================================
+
+FUNC __datetime_floorDiv(a AS Integer, b AS Integer) AS Integer
+  MUT q AS Integer = a / b
+  LET r AS Integer = a MOD b
+  IF r <> 0 AND r < 0 THEN
+    q = q - 1
+  END IF
+  RETURN q
+END FUNC
+
+FUNC __datetime_floorMod(a AS Integer, b AS Integer) AS Integer
+  MUT r AS Integer = a MOD b
+  IF r < 0 THEN
+    r = r + b
+  END IF
+  RETURN r
+END FUNC
+
+' ===========================================================================
+' Calendar core (§2.2): Howard Hinnant's branch-free civil <-> epoch-day
+' conversions. Valid across the full Integer range; the explicit era
+' adjustments keep every divide operand non-negative, so truncating division
+' equals flooring there.
+' ===========================================================================
+
+FUNC __datetime_daysFromCivil(y0 AS Integer, m AS Integer, d AS Integer) AS Integer
+  MUT y AS Integer = y0
+  IF m <= 2 THEN
+    y = y - 1
+  END IF
+  MUT era AS Integer = 0
+  IF y >= 0 THEN
+    era = y / 400
+  ELSE
+    era = (y - 399) / 400
+  END IF
+  LET yoe AS Integer = y - era * 400
+  MUT mAdj AS Integer = 9
+  IF m > 2 THEN
+    mAdj = -3
+  END IF
+  LET doy AS Integer = (153 * (m + mAdj) + 2) / 5 + d - 1
+  LET doe AS Integer = yoe * 365 + yoe / 4 - yoe / 100 + doy
+  RETURN era * 146097 + doe - 719468
+END FUNC
+
+FUNC __datetime_civilFromDays(z0 AS Integer) AS Date
+  LET z AS Integer = z0 + 719468
+  MUT era AS Integer = 0
+  IF z >= 0 THEN
+    era = z / 146097
+  ELSE
+    era = (z - 146096) / 146097
+  END IF
+  LET doe AS Integer = z - era * 146097
+  LET yoe AS Integer = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+  LET y AS Integer = yoe + era * 400
+  LET doy AS Integer = doe - (365 * yoe + yoe / 4 - yoe / 100)
+  LET mp AS Integer = (5 * doy + 2) / 153
+  LET d AS Integer = doy - (153 * mp + 2) / 5 + 1
+  MUT m AS Integer = mp + 3
+  IF mp >= 10 THEN
+    m = mp - 9
+  END IF
+  MUT yFinal AS Integer = y
+  IF m <= 2 THEN
+    yFinal = y + 1
+  END IF
+  RETURN Date[yFinal, m, d]
+END FUNC
+
+' ===========================================================================
+' Leap rule, month length, validating constructors (§4, §5.5).
+' ===========================================================================
+
+FUNC __datetime_isLeapYear(year AS Integer) AS Boolean
+  RETURN (year MOD 4 = 0 AND year MOD 100 <> 0) OR year MOD 400 = 0
+END FUNC
+
+FUNC __datetime_daysInMonth(year AS Integer, month AS Integer) AS Integer
+  IF month = 2 THEN
+    IF __datetime_isLeapYear(year) THEN
+      RETURN 29
+    END IF
+    RETURN 28
+  END IF
+  IF month = 4 OR month = 6 OR month = 9 OR month = 11 THEN
+    RETURN 30
+  END IF
+  RETURN 31
+END FUNC
+
+FUNC __datetime_date(year AS Integer, month AS Integer, day AS Integer) AS Date
+  IF month < 1 OR month > 12 THEN
+    FAIL error(77050002, "datetime: month out of range")
+  END IF
+  IF day < 1 OR day > __datetime_daysInMonth(year, month) THEN
+    FAIL error(77050002, "datetime: day out of range for month")
+  END IF
+  RETURN Date[year, month, day]
+END FUNC
+
+FUNC __datetime_time(hour AS Integer, minute AS Integer, second AS Integer, nanos AS Integer) AS Time
+  IF hour < 0 OR hour > 23 THEN
+    FAIL error(77050002, "datetime: hour out of range")
+  END IF
+  IF minute < 0 OR minute > 59 THEN
+    FAIL error(77050002, "datetime: minute out of range")
+  END IF
+  IF second < 0 OR second > 59 THEN
+    FAIL error(77050002, "datetime: second out of range")
+  END IF
+  IF nanos < 0 OR nanos > 999999999 THEN
+    FAIL error(77050002, "datetime: nanos out of range")
+  END IF
+  RETURN Time[hour, minute, second, nanos]
+END FUNC
+
+' ===========================================================================
+' Offset rendering and zone constructors (§5.2).
+' ===========================================================================
+
+FUNC __datetime_pad2(n AS Integer) AS String
+  IF n < 10 THEN
+    RETURN "0" & toString(n)
+  END IF
+  RETURN toString(n)
+END FUNC
+
+FUNC __datetime_offsetLabel(seconds AS Integer) AS String
+  MUT sign AS String = "+"
+  MUT s AS Integer = seconds
+  IF s < 0 THEN
+    sign = "-"
+    s = -s
+  END IF
+  LET hh AS Integer = s / 3600
+  LET mm AS Integer = (s / 60) MOD 60
+  RETURN sign & __datetime_pad2(hh) & ":" & __datetime_pad2(mm)
+END FUNC
+
+FUNC __datetime_utc AS Zone
+  RETURN Zone[0, 0, "UTC"]
+END FUNC
+
+FUNC __datetime_local AS Zone
+  RETURN Zone[0, 2, "Local"]
+END FUNC
+
+FUNC __datetime_fixedOffset1(offsetSeconds AS Integer) AS Zone
+  IF offsetSeconds <= -86400 OR offsetSeconds >= 86400 THEN
+    FAIL error(77050002, "datetime: fixed offset magnitude must be under 24h")
+  END IF
+  RETURN Zone[offsetSeconds, 1, __datetime_offsetLabel(offsetSeconds)]
+END FUNC
+
+FUNC __datetime_fixedOffset2(hours AS Integer, mins AS Integer) AS Zone
+  IF mins < 0 OR mins > 59 THEN
+    FAIL error(77050002, "datetime: fixed offset minutes out of range")
+  END IF
+  MUT absHours AS Integer = hours
+  MUT negative AS Boolean = FALSE
+  IF hours < 0 THEN
+    absHours = -hours
+    negative = TRUE
+  END IF
+  MUT total AS Integer = absHours * 3600 + mins * 60
+  IF negative THEN
+    total = -total
+  END IF
+  RETURN __datetime_fixedOffset1(total)
+END FUNC
+
+FUNC __datetime_offsetAt(z AS Zone, at AS Instant) AS Integer
+  IF z.kind = 2 THEN
+    RETURN datetime::localOffset(at.seconds)
+  END IF
+  RETURN z.offsetSeconds
+END FUNC
+
+' ===========================================================================
+' Projection (§5.3).
+' ===========================================================================
+
+FUNC __datetime_inZone(at AS Instant, z AS Zone) AS DateTime
+  LET off AS Integer = __datetime_offsetAt(z, at)
+  LET localSeconds AS Integer = at.seconds + off
+  LET days AS Integer = __datetime_floorDiv(localSeconds, 86400)
+  LET secOfDay AS Integer = __datetime_floorMod(localSeconds, 86400)
+  LET date AS Date = __datetime_civilFromDays(days)
+  LET time AS Time = Time[secOfDay / 3600, (secOfDay / 60) MOD 60, secOfDay MOD 60, at.nanos]
+  RETURN DateTime[date, time, z, off]
+END FUNC
+
+FUNC __datetime_toUtc(at AS Instant) AS DateTime
+  RETURN __datetime_inZone(at, __datetime_utc())
+END FUNC
+
+FUNC __datetime_toLocal(at AS Instant) AS DateTime
+  RETURN __datetime_inZone(at, __datetime_local())
+END FUNC
+
+FUNC __datetime_resolve(dt AS DateTime) AS Instant
+  LET localSeconds AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day) * 86400 + dt.time.hour * 3600 + dt.time.minute * 60 + dt.time.second
+  RETURN Instant[localSeconds - dt.offset, dt.time.nanos]
+END FUNC
+
+' Map a wall-clock second count (civil fields treated as if UTC) to the epoch
+' instant it names in zone `z`, applying the §5.7 policy. Probes the offset a day
+' on each side to bracket any single DST transition near the local time; a normal
+' time uses the bracketing offset, a fall-back overlap takes the earlier offset,
+' and a spring-forward gap shifts forward onto the post-transition offset.
+FUNC __datetime_resolveLocal(localSeconds AS Integer, z AS Zone) AS Integer
+  LET offEarly AS Integer = __datetime_offsetAt(z, Instant[localSeconds - 86400, 0])
+  LET offLate AS Integer = __datetime_offsetAt(z, Instant[localSeconds + 86400, 0])
+  LET candEarly AS Integer = localSeconds - offEarly
+  IF offEarly = offLate THEN
+    RETURN candEarly
+  END IF
+  LET candLate AS Integer = localSeconds - offLate
+  LET earlyOk AS Boolean = __datetime_offsetAt(z, Instant[candEarly, 0]) = offEarly
+  LET lateOk AS Boolean = __datetime_offsetAt(z, Instant[candLate, 0]) = offLate
+  IF lateOk AND NOT earlyOk THEN
+    RETURN candLate
+  END IF
+  RETURN candEarly
+END FUNC
+
+FUNC __datetime_civil(d AS Date, t AS Time, z AS Zone) AS DateTime
+  LET localSeconds AS Integer = __datetime_daysFromCivil(d.year, d.month, d.day) * 86400 + t.hour * 3600 + t.minute * 60 + t.second
+  LET epochSeconds AS Integer = __datetime_resolveLocal(localSeconds, z)
+  RETURN __datetime_inZone(Instant[epochSeconds, t.nanos], z)
+END FUNC
+
+FUNC __datetime_withZone(dt AS DateTime, z AS Zone) AS DateTime
+  RETURN __datetime_inZone(__datetime_resolve(dt), z)
+END FUNC
+
+' ===========================================================================
+' Accessors (§5.5).
+' ===========================================================================
+
+FUNC __datetime_weekday(dt AS DateTime) AS Weekday
+  LET days AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day)
+  LET idx AS Integer = __datetime_floorMod(days + 3, 7)
+  IF idx = 0 THEN RETURN Weekday.Monday
+  IF idx = 1 THEN RETURN Weekday.Tuesday
+  IF idx = 2 THEN RETURN Weekday.Wednesday
+  IF idx = 3 THEN RETURN Weekday.Thursday
+  IF idx = 4 THEN RETURN Weekday.Friday
+  IF idx = 5 THEN RETURN Weekday.Saturday
+  RETURN Weekday.Sunday
+END FUNC
+
+FUNC __datetime_dayOfYear(dt AS DateTime) AS Integer
+  LET here AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day)
+  LET start AS Integer = __datetime_daysFromCivil(dt.date.year, 1, 1)
+  RETURN here - start + 1
+END FUNC
+
+FUNC __datetime_startOfDay(dt AS DateTime) AS DateTime
+  RETURN __datetime_civil(dt.date, Time[0, 0, 0, 0], dt.zone)
+END FUNC
+
+' ===========================================================================
+' Format mini-language (§6).
+' ===========================================================================
+
+FUNC __datetime_isLetter(ch AS String) AS Boolean
+  RETURN (ch >= "A" AND ch <= "Z") OR (ch >= "a" AND ch <= "z")
+END FUNC
+
+FUNC __datetime_padN(value AS Integer, width AS Integer) AS String
+  RETURN strings::padLeft(toString(value), width, "0")
+END FUNC
+
+FUNC __datetime_isoWeekday(dt AS DateTime) AS Integer
+  LET days AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day)
+  RETURN __datetime_floorMod(days + 3, 7)
+END FUNC
+
+FUNC __datetime_monthName(month AS Integer, full AS Boolean) AS String
+  MUT names AS List OF String = []
+  IF full THEN
+    names = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"]
+  ELSE
+    names = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+  END IF
+  RETURN collections::get(names, month - 1)
+END FUNC
+
+FUNC __datetime_weekdayName(index AS Integer, full AS Boolean) AS String
+  MUT names AS List OF String = []
+  IF full THEN
+    names = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+  ELSE
+    names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+  END IF
+  RETURN collections::get(names, index)
+END FUNC
+
+FUNC __datetime_offsetLabelCompact(seconds AS Integer) AS String
+  MUT sign AS String = "+"
+  MUT s AS Integer = seconds
+  IF s < 0 THEN
+    sign = "-"
+    s = -s
+  END IF
+  LET hh AS Integer = s / 3600
+  LET mm AS Integer = (s / 60) MOD 60
+  RETURN sign & __datetime_pad2(hh) & __datetime_pad2(mm)
+END FUNC
+
+FUNC __datetime_hour12(hour AS Integer) AS Integer
+  LET h AS Integer = hour MOD 12
+  IF h = 0 THEN
+    RETURN 12
+  END IF
+  RETURN h
+END FUNC
+
+FUNC __datetime_formatToken(dt AS DateTime, ch AS String, runLen AS Integer) AS String
+  IF ch = "y" THEN
+    IF runLen = 2 THEN
+      RETURN __datetime_pad2(__datetime_floorMod(dt.date.year, 100))
+    END IF
+    RETURN __datetime_padN(dt.date.year, runLen)
+  END IF
+  IF ch = "M" THEN
+    IF runLen = 1 THEN RETURN toString(dt.date.month)
+    IF runLen = 2 THEN RETURN __datetime_pad2(dt.date.month)
+    IF runLen = 3 THEN RETURN __datetime_monthName(dt.date.month, FALSE)
+    RETURN __datetime_monthName(dt.date.month, TRUE)
+  END IF
+  IF ch = "d" THEN
+    IF runLen = 1 THEN RETURN toString(dt.date.day)
+    RETURN __datetime_pad2(dt.date.day)
+  END IF
+  IF ch = "H" THEN
+    IF runLen = 1 THEN RETURN toString(dt.time.hour)
+    RETURN __datetime_pad2(dt.time.hour)
+  END IF
+  IF ch = "h" THEN
+    LET h12 AS Integer = __datetime_hour12(dt.time.hour)
+    IF runLen = 1 THEN RETURN toString(h12)
+    RETURN __datetime_pad2(h12)
+  END IF
+  IF ch = "m" THEN
+    IF runLen = 1 THEN RETURN toString(dt.time.minute)
+    RETURN __datetime_pad2(dt.time.minute)
+  END IF
+  IF ch = "s" THEN
+    IF runLen = 1 THEN RETURN toString(dt.time.second)
+    RETURN __datetime_pad2(dt.time.second)
+  END IF
+  IF ch = "f" THEN
+    RETURN strings::left(__datetime_padN(dt.time.nanos, 9), runLen)
+  END IF
+  IF ch = "a" THEN
+    IF dt.time.hour < 12 THEN RETURN "AM"
+    RETURN "PM"
+  END IF
+  IF ch = "E" THEN
+    IF runLen >= 4 THEN
+      RETURN __datetime_weekdayName(__datetime_isoWeekday(dt), TRUE)
+    END IF
+    RETURN __datetime_weekdayName(__datetime_isoWeekday(dt), FALSE)
+  END IF
+  IF ch = "Z" THEN
+    IF runLen = 1 THEN
+      IF dt.offset = 0 THEN RETURN "Z"
+      RETURN __datetime_offsetLabel(dt.offset)
+    END IF
+    IF runLen = 2 THEN
+      RETURN __datetime_offsetLabel(dt.offset)
+    END IF
+    RETURN __datetime_offsetLabelCompact(dt.offset)
+  END IF
+  FAIL error(77050003, "datetime: unknown format token")
+END FUNC
+
+FUNC __datetime_format(dt AS DateTime, pattern AS String) AS String
+  LET n AS Integer = len(pattern)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  WHILE i < n
+    LET ch AS String = strings::mid(pattern, i, 1)
+    IF ch = "'" THEN
+      IF i + 1 < n AND strings::mid(pattern, i + 1, 1) = "'" THEN
+        out = out & "'"
+        i = i + 2
+      ELSE
+        MUT j AS Integer = i + 1
+        WHILE j < n AND strings::mid(pattern, j, 1) <> "'"
+          out = out & strings::mid(pattern, j, 1)
+          j = j + 1
+        WEND
+        i = j + 1
+      END IF
+    ELSEIF __datetime_isLetter(ch) THEN
+      MUT runLen AS Integer = 1
+      WHILE i + runLen < n AND strings::mid(pattern, i + runLen, 1) = ch
+        runLen = runLen + 1
+      WEND
+      out = out & __datetime_formatToken(dt, ch, runLen)
+      i = i + runLen
+    ELSE
+      out = out & ch
+      i = i + 1
+    END IF
+  WEND
+  RETURN out
+END FUNC
+
+FUNC __datetime_toIso(dt AS DateTime) AS String
+  RETURN __datetime_format(dt, "yyyy-MM-dd'T'HH:mm:ss.fffZ")
+END FUNC
+
+FUNC __datetime_formatDuration(d AS Duration) AS String
+  MUT totalMs AS Integer = d.seconds * 1000 + d.nanos / 1000000
+  MUT sign AS String = ""
+  IF totalMs < 0 THEN
+    sign = "-"
+    totalMs = -totalMs
+  END IF
+  LET days AS Integer = totalMs / 86400000
+  LET hh AS Integer = (totalMs / 3600000) MOD 24
+  LET mm AS Integer = (totalMs / 60000) MOD 60
+  LET ss AS Integer = (totalMs / 1000) MOD 60
+  LET ms AS Integer = totalMs MOD 1000
+  MUT out AS String = sign
+  IF days > 0 THEN
+    out = out & toString(days) & "d "
+  END IF
+  RETURN out & __datetime_pad2(hh) & ":" & __datetime_pad2(mm) & ":" & __datetime_pad2(ss) & "." & strings::padLeft(toString(ms), 3, "0")
+END FUNC
+
+' ===========================================================================
+' Parsing (§6). A pattern-driven scanner walks `pattern` and `value` in
+' lockstep, filling field accumulators; absent fields keep their epoch/zero
+' defaults. Structural mismatches fail `ErrInvalidFormat` (77050003).
+' ===========================================================================
+
+TYPE __datetime_NumRead
+  value AS Integer
+  nextPos  AS Integer
+END TYPE
+
+TYPE __datetime_Fields
+  year     AS Integer
+  month    AS Integer
+  day      AS Integer
+  hour     AS Integer
+  minute   AS Integer
+  second   AS Integer
+  nanos    AS Integer
+  offset   AS Integer
+  hasOff   AS Boolean
+  isPM     AS Boolean
+  is12     AS Boolean
+  hadPM    AS Boolean
+  nextPos     AS Integer
+END TYPE
+
+FUNC __datetime_isDigit(ch AS String) AS Boolean
+  RETURN ch >= "0" AND ch <= "9"
+END FUNC
+
+FUNC __datetime_readNum(value AS String, start AS Integer, maxDigits AS Integer) AS __datetime_NumRead
+  MUT i AS Integer = start
+  MUT acc AS Integer = 0
+  MUT count AS Integer = 0
+  LET n AS Integer = len(value)
+  WHILE i < n AND count < maxDigits AND __datetime_isDigit(strings::mid(value, i, 1))
+    acc = acc * 10 + toInt(strings::mid(value, i, 1))
+    i = i + 1
+    count = count + 1
+  WEND
+  IF count = 0 THEN
+    FAIL error(77050003, "datetime: expected digits while parsing")
+  END IF
+  RETURN __datetime_NumRead[acc, i]
+END FUNC
+
+FUNC __datetime_monthFromName(value AS String, start AS Integer) AS __datetime_NumRead
+  LET lowered AS String = strings::lower(value)
+  MUT m AS Integer = 1
+  WHILE m <= 12
+    LET full AS String = strings::lower(__datetime_monthName(m, TRUE))
+    LET flen AS Integer = len(full)
+    LET candFull AS String = strings::mid(lowered, start, flen)
+    IF candFull = full THEN
+      RETURN __datetime_NumRead[m, start + flen]
+    END IF
+    LET short AS String = strings::lower(__datetime_monthName(m, FALSE))
+    LET candShort AS String = strings::mid(lowered, start, 3)
+    IF candShort = short THEN
+      RETURN __datetime_NumRead[m, start + 3]
+    END IF
+    m = m + 1
+  WEND
+  FAIL error(77050003, "datetime: unrecognized month name")
+END FUNC
+
+FUNC __datetime_skipWeekdayName(value AS String, start AS Integer) AS Integer
+  MUT i AS Integer = start
+  LET n AS Integer = len(value)
+  WHILE i < n AND __datetime_isLetter(strings::mid(value, i, 1))
+    i = i + 1
+  WEND
+  RETURN i
+END FUNC
+
+' Reads an offset (`Z`, `±HH:MM`, or `±HHMM`) at `start`; returns the offset in
+' seconds (encoded in `.value`) and the next position.
+FUNC __datetime_readOffset(value AS String, start AS Integer) AS __datetime_NumRead
+  LET head AS String = strings::mid(value, start, 1)
+  IF head = "Z" OR head = "z" THEN
+    RETURN __datetime_NumRead[0, start + 1]
+  END IF
+  MUT sign AS Integer = 1
+  IF head = "-" THEN
+    sign = -1
+  ELSEIF head <> "+" THEN
+    FAIL error(77050003, "datetime: expected offset")
+  END IF
+  LET hh AS __datetime_NumRead = __datetime_readNum(value, start + 1, 2)
+  MUT pos AS Integer = hh.nextPos
+  IF pos < len(value) AND strings::mid(value, pos, 1) = ":" THEN
+    pos = pos + 1
+  END IF
+  LET mm AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  RETURN __datetime_NumRead[sign * (hh.value * 3600 + mm.value * 60), mm.nextPos]
+END FUNC
+
+FUNC __datetime_parseFields(value AS String, pattern AS String) AS __datetime_Fields
+  LET pn AS Integer = len(pattern)
+  LET vn AS Integer = len(value)
+  MUT year AS Integer = 1970
+  MUT month AS Integer = 1
+  MUT day AS Integer = 1
+  MUT hour AS Integer = 0
+  MUT minute AS Integer = 0
+  MUT second AS Integer = 0
+  MUT nanos AS Integer = 0
+  MUT offset AS Integer = 0
+  MUT hasOff AS Boolean = FALSE
+  MUT isPM AS Boolean = FALSE
+  MUT hadPM AS Boolean = FALSE
+  MUT is12 AS Boolean = FALSE
+  MUT pi AS Integer = 0
+  MUT vi AS Integer = 0
+  WHILE pi < pn
+    LET ch AS String = strings::mid(pattern, pi, 1)
+    IF ch = "'" THEN
+      IF pi + 1 < pn AND strings::mid(pattern, pi + 1, 1) = "'" THEN
+        IF vi >= vn OR strings::mid(value, vi, 1) <> "'" THEN
+          FAIL error(77050003, "datetime: literal mismatch")
+        END IF
+        vi = vi + 1
+        pi = pi + 2
+      ELSE
+        MUT pj AS Integer = pi + 1
+        WHILE pj < pn AND strings::mid(pattern, pj, 1) <> "'"
+          IF vi >= vn OR strings::mid(value, vi, 1) <> strings::mid(pattern, pj, 1) THEN
+            FAIL error(77050003, "datetime: literal mismatch")
+          END IF
+          vi = vi + 1
+          pj = pj + 1
+        WEND
+        pi = pj + 1
+      END IF
+    ELSEIF __datetime_isLetter(ch) THEN
+      MUT runLen AS Integer = 1
+      WHILE pi + runLen < pn AND strings::mid(pattern, pi + runLen, 1) = ch
+        runLen = runLen + 1
+      WEND
+      IF ch = "y" THEN
+        LET r AS __datetime_NumRead = __datetime_readNum(value, vi, runLen)
+        year = r.value
+        IF runLen = 2 THEN
+          year = 2000 + r.value
+        END IF
+        vi = r.nextPos
+      ELSEIF ch = "M" THEN
+        IF runLen >= 3 THEN
+          LET r AS __datetime_NumRead = __datetime_monthFromName(value, vi)
+          month = r.value
+          vi = r.nextPos
+        ELSE
+          LET r AS __datetime_NumRead = __datetime_readNum(value, vi, 2)
+          month = r.value
+          vi = r.nextPos
+        END IF
+      ELSEIF ch = "d" THEN
+        LET r AS __datetime_NumRead = __datetime_readNum(value, vi, 2)
+        day = r.value
+        vi = r.nextPos
+      ELSEIF ch = "H" THEN
+        LET r AS __datetime_NumRead = __datetime_readNum(value, vi, 2)
+        hour = r.value
+        vi = r.nextPos
+      ELSEIF ch = "h" THEN
+        LET r AS __datetime_NumRead = __datetime_readNum(value, vi, 2)
+        hour = r.value
+        is12 = TRUE
+        vi = r.nextPos
+      ELSEIF ch = "m" THEN
+        LET r AS __datetime_NumRead = __datetime_readNum(value, vi, 2)
+        minute = r.value
+        vi = r.nextPos
+      ELSEIF ch = "s" THEN
+        LET r AS __datetime_NumRead = __datetime_readNum(value, vi, 2)
+        second = r.value
+        vi = r.nextPos
+      ELSEIF ch = "f" THEN
+        LET r AS __datetime_NumRead = __datetime_readNum(value, vi, runLen)
+        MUT frac AS Integer = r.value
+        MUT k AS Integer = runLen
+        WHILE k < 9
+          frac = frac * 10
+          k = k + 1
+        WEND
+        nanos = frac
+        vi = r.nextPos
+      ELSEIF ch = "a" THEN
+        LET marker AS String = strings::upper(strings::mid(value, vi, 2))
+        IF marker = "PM" THEN
+          isPM = TRUE
+          hadPM = TRUE
+        ELSEIF marker = "AM" THEN
+          hadPM = TRUE
+        ELSE
+          FAIL error(77050003, "datetime: expected AM/PM")
+        END IF
+        vi = vi + 2
+      ELSEIF ch = "E" THEN
+        vi = __datetime_skipWeekdayName(value, vi)
+      ELSEIF ch = "Z" THEN
+        LET r AS __datetime_NumRead = __datetime_readOffset(value, vi)
+        offset = r.value
+        hasOff = TRUE
+        vi = r.nextPos
+      ELSE
+        FAIL error(77050003, "datetime: unknown parse token")
+      END IF
+      pi = pi + runLen
+    ELSE
+      IF vi >= vn OR strings::mid(value, vi, 1) <> ch THEN
+        FAIL error(77050003, "datetime: literal mismatch")
+      END IF
+      vi = vi + 1
+      pi = pi + 1
+    END IF
+  WEND
+  RETURN __datetime_Fields[year, month, day, hour, minute, second, nanos, offset, hasOff, isPM, is12, hadPM, vi]
+END FUNC
+
+FUNC __datetime_buildFromFields(f AS __datetime_Fields, zone AS Zone) AS DateTime
+  MUT hour AS Integer = f.hour
+  IF f.is12 THEN
+    IF f.isPM AND hour < 12 THEN
+      hour = hour + 12
+    ELSEIF f.hadPM AND NOT f.isPM AND hour = 12 THEN
+      hour = 0
+    END IF
+  END IF
+  LET d AS Date = Date[f.year, f.month, f.day]
+  LET t AS Time = Time[hour, f.minute, f.second, f.nanos]
+  IF f.hasOff THEN
+    RETURN DateTime[d, t, __datetime_fixedOffset1(f.offset), f.offset]
+  END IF
+  RETURN __datetime_civil(d, t, zone)
+END FUNC
+
+FUNC __datetime_parse3(value AS String, pattern AS String, zone AS Zone) AS DateTime
+  RETURN __datetime_buildFromFields(__datetime_parseFields(value, pattern), zone)
+END FUNC
+
+FUNC __datetime_parse2(value AS String, pattern AS String) AS DateTime
+  RETURN __datetime_parse3(value, pattern, __datetime_utc())
+END FUNC
+
+FUNC __datetime_parseIso(value AS String) AS DateTime
+  LET n AS Integer = len(value)
+  LET yr AS __datetime_NumRead = __datetime_readNum(value, 0, 4)
+  MUT pos AS Integer = yr.nextPos
+  pos = __datetime_expect(value, pos, "-")
+  LET mo AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = __datetime_expect(value, mo.nextPos, "-")
+  LET dy AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = dy.nextPos
+  LET sep AS String = strings::mid(value, pos, 1)
+  IF sep <> "T" AND sep <> "t" AND sep <> " " THEN
+    FAIL error(77050003, "datetime: expected date/time separator")
+  END IF
+  pos = pos + 1
+  LET hh AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = __datetime_expect(value, hh.nextPos, ":")
+  LET mm AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = __datetime_expect(value, mm.nextPos, ":")
+  LET ss AS __datetime_NumRead = __datetime_readNum(value, pos, 2)
+  pos = ss.nextPos
+  MUT nanos AS Integer = 0
+  IF pos < n AND strings::mid(value, pos, 1) = "." THEN
+    pos = pos + 1
+    MUT frac AS Integer = 0
+    MUT digits AS Integer = 0
+    WHILE pos < n AND __datetime_isDigit(strings::mid(value, pos, 1)) AND digits < 9
+      frac = frac * 10 + toInt(strings::mid(value, pos, 1))
+      digits = digits + 1
+      pos = pos + 1
+    WEND
+    WHILE digits < 9
+      frac = frac * 10
+      digits = digits + 1
+    WEND
+    nanos = frac
+    WHILE pos < n AND __datetime_isDigit(strings::mid(value, pos, 1))
+      pos = pos + 1
+    WEND
+  END IF
+  LET off AS __datetime_NumRead = __datetime_readOffset(value, pos)
+  LET d AS Date = Date[yr.value, mo.value, dy.value]
+  LET t AS Time = Time[hh.value, mm.value, ss.value, nanos]
+  RETURN DateTime[d, t, __datetime_fixedOffset1(off.value), off.value]
+END FUNC
+
+FUNC __datetime_expect(value AS String, pos AS Integer, ch AS String) AS Integer
+  IF pos >= len(value) OR strings::mid(value, pos, 1) <> ch THEN
+    FAIL error(77050003, "datetime: expected separator")
+  END IF
+  RETURN pos + 1
+END FUNC
+
+' ===========================================================================
+' Calendar-day / month arithmetic (§5.4). Both keep the civil wall-clock and
+' re-resolve the offset through the value's zone, so they stay DST-aware.
+' ===========================================================================
+
+FUNC __datetime_addDays(dt AS DateTime, days AS Integer) AS DateTime
+  LET newDays AS Integer = __datetime_daysFromCivil(dt.date.year, dt.date.month, dt.date.day) + days
+  RETURN __datetime_civil(__datetime_civilFromDays(newDays), dt.time, dt.zone)
+END FUNC
+
+FUNC __datetime_addMonths(dt AS DateTime, months AS Integer) AS DateTime
+  LET total AS Integer = dt.date.year * 12 + (dt.date.month - 1) + months
+  LET y AS Integer = __datetime_floorDiv(total, 12)
+  LET m AS Integer = __datetime_floorMod(total, 12) + 1
+  MUT day AS Integer = dt.date.day
+  LET dim AS Integer = __datetime_daysInMonth(y, m)
+  IF day > dim THEN
+    day = dim
+  END IF
+  RETURN __datetime_civil(Date[y, m, day], dt.time, dt.zone)
+END FUNC

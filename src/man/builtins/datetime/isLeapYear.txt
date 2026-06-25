@@ -1,0 +1,19 @@
+NAME
+  isLeapYear - whether a year is a leap year
+
+SYNOPSIS
+  datetime::isLeapYear(year AS Integer) AS Boolean
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::isLeapYear applies the proleptic-Gregorian leap rule: a year is a leap
+  year when it is divisible by 4, except centuries, which must be divisible by 400.
+  So 2000 is a leap year and 1900 is not.
+
+SEE ALSO
+  mfb man datetime daysInMonth, mfb man datetime dayOfYear

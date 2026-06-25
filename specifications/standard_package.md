@@ -703,7 +703,74 @@ The `Json` union above is a built-in package type. JSON object member order is p
 | `json::get` | `FUNC get(value AS Json, path AS List OF String) AS Json` | Reads an object path from a JSON value. Fails with `ErrNotFound` when any component is absent or not an object. |
 | `json::getOr` | `FUNC getOr(value AS Json, path AS List OF String, default AS Json) AS Json` | Reads an object path or returns `default` when absent. |
 
-## 13. Built-in Error Codes
+## 13. Built-in Datetime Package
+
+Instants, civil dates and times, durations, time zones, and string formatting are
+exported by the `datetime` package. Package functions are called with their
+package qualifier; `IMPORT datetime` needs no manifest dependency. The full design
+is in [plan-01-datetime.md](./plan-01-datetime.md).
+
+An `Instant` is the single source of truth: an absolute point on the UTC timeline
+(Unix epoch, leap-second-free) carrying whole `seconds` and `nanos` in
+`0 .. 999_999_999`. Civil values (`Date`, `Time`, `DateTime`) are **projections**
+of an instant through a `Zone`, and every projection stores its resolved UTC
+offset, so a `DateTime` round-trips back to its `Instant` without re-consulting the
+zone. Every public type — `Instant`, `Duration`, `Date`, `Time`, `Zone`,
+`DateTime` and the enums `ZoneKind`, `Weekday`, `Month` — is a flat **copyable**
+value with no resources and no hidden state. Calendar math is pure integer
+arithmetic (Howard Hinnant's civil ⇄ epoch-day conversions) and is identical on
+every target; only `now`, `monotonic`, and `local` consult the host.
+
+There are no leap seconds (every day is 86 400 s, the POSIX convention) and no
+named IANA zones in this version: zones are `utc()`, fixed offsets, and the host's
+`local()`. `Instant.seconds` spans the full `Integer`; `now()` is additionally
+valid through year 2262.
+
+Out-of-range constructor fields fail with `ErrInvalidArgument` (`77050002`);
+unparseable strings or unknown pattern tokens fail with `ErrInvalidFormat`
+(`77050003`); arithmetic past the `Integer` range fails with `ErrOverflow`
+(`77050010`).
+
+| Function | Signature | Behavior |
+|----------|-----------|----------|
+| `datetime::now` | `FUNC now() AS Instant` | Current wall-clock instant (UTC); valid through year 2262. |
+| `datetime::monotonic` | `FUNC monotonic() AS Duration` | Monotonic span from an arbitrary fixed origin; for measuring elapsed time. |
+| `datetime::instant` | `FUNC instant(seconds[, nanos]) AS Instant` (also 3/4/5-component overloads) | Builds an `Instant` from seconds/nanos or `mins`/`hours`/`days` components. |
+| `datetime::duration` | `FUNC duration(seconds[, nanos]) AS Duration` (also 3/4/5-component overloads) | Builds a signed `Duration` span. |
+| `datetime::date` | `FUNC date(year, month, day) AS Date` | Validating `Date` constructor. |
+| `datetime::time` | `FUNC time(hour, minute, second = 0, nanos = 0) AS Time` | Validating `Time` constructor. |
+| `datetime::utc` | `FUNC utc() AS Zone` | The UTC zone (offset 0). |
+| `datetime::local` | `FUNC local() AS Zone` | The host's local zone, resolved per-instant (DST-correct). |
+| `datetime::fixedOffset` | `FUNC fixedOffset(offsetSeconds) AS Zone` / `FUNC fixedOffset(hours, mins) AS Zone` | A constant-offset zone; `mins` takes the sign of `hours`. |
+| `datetime::offsetAt` | `FUNC offsetAt(zone, at) AS Integer` | The zone's UTC offset (seconds) at instant `at`. |
+| `datetime::inZone` | `FUNC inZone(at, zone) AS DateTime` | Projects an instant into a zone (the primary "to civil" call). |
+| `datetime::toUtc` / `datetime::toLocal` | `FUNC toUtc(at) AS DateTime` | Shorthands for `inZone(at, utc())` / `inZone(at, local())`. |
+| `datetime::resolve` | `FUNC resolve(dt) AS Instant` | Maps a civil `DateTime` back to its `Instant` (total). |
+| `datetime::civil` | `FUNC civil(date, time, zone) AS DateTime` | Builds a `DateTime` from civil parts; lenient DST gap/overlap resolution. |
+| `datetime::withZone` | `FUNC withZone(dt, zone) AS DateTime` | Same instant, re-projected into another zone. |
+| `datetime::add` / `datetime::subtract` | `FUNC add(at, by) AS Instant` | Instant ± `Duration`. |
+| `datetime::between` | `FUNC between(start, finish) AS Duration` | Signed span `finish − start`. |
+| `datetime::addDays` / `datetime::addMonths` | `FUNC addDays(dt, days) AS DateTime` | DST-aware calendar-day / month arithmetic (month clamps the day). |
+| `datetime::compare` | `FUNC compare(a, b) AS Integer` | `-1 / 0 / 1` over instants. |
+| `datetime::isBefore` / `isAfter` / `equals` | `FUNC isBefore(a, b) AS Boolean` | Convenience instant predicates. |
+| `datetime::negate` / `plus` / `minus` | `FUNC plus(a, b) AS Duration` | Duration algebra. |
+| `datetime::weekday` | `FUNC weekday(dt) AS Weekday` | Day of week for the civil date. |
+| `datetime::dayOfYear` | `FUNC dayOfYear(dt) AS Integer` | 1 .. 366. |
+| `datetime::isLeapYear` | `FUNC isLeapYear(year) AS Boolean` | Proleptic-Gregorian leap rule. |
+| `datetime::daysInMonth` | `FUNC daysInMonth(year, month) AS Integer` | 28 .. 31. |
+| `datetime::startOfDay` | `FUNC startOfDay(dt) AS DateTime` | Civil midnight (DST-aware) in the value's zone. |
+| `datetime::toMillis` / `toNanos` | `FUNC toMillis(at) AS Integer` | Epoch milliseconds / nanoseconds. |
+| `datetime::fromMillis` | `FUNC fromMillis(millis) AS Instant` | Inverse of `toMillis`. |
+| `datetime::format` | `FUNC format(dt, pattern) AS String` | Renders `dt` with the pattern mini-language (see `mfb man datetime format`). |
+| `datetime::parse` | `FUNC parse(value, pattern, zone = utc()) AS DateTime` | Parses `value` against `pattern`. |
+| `datetime::toIso` | `FUNC toIso(dt) AS String` | RFC 3339 / ISO 8601, e.g. `2026-06-25T14:30:00.000+05:30` (`Z` for UTC). |
+| `datetime::parseIso` | `FUNC parseIso(value) AS DateTime` | Parses RFC 3339 (offset required, `Z` accepted). |
+| `datetime::formatDuration` | `FUNC formatDuration(d) AS String` | Human span, e.g. `1d 02:03:04.500`. |
+
+The `format`/`parse` pattern mini-language (`yyyy MM dd HH mm ss fff a EEE Z` …) is
+documented at `mfb man datetime format`.
+
+## 14. Built-in Error Codes
 
 The built-in `errorCode` package exports named `Integer` constants for every standard runtime and toolchain error in the canonical registry at [error_codes.md](./error_codes.md). Programs should use these names instead of raw integer literals in source code, examples, tests, and diagnostics:
 

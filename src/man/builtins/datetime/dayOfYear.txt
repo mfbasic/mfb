@@ -1,0 +1,18 @@
+NAME
+  dayOfYear - the ordinal day within the year
+
+SYNOPSIS
+  datetime::dayOfYear(dt AS DateTime) AS Integer
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::dayOfYear returns the ordinal day of dt's civil date, 1 .. 366
+  (366 only in a leap year).
+
+SEE ALSO
+  mfb man datetime weekday, mfb man datetime isLeapYear

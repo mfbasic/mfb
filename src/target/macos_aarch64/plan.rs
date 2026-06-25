@@ -136,6 +136,16 @@ impl plan::NativePlanPlatform for Platform {
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         match spec.call {
+            "datetime.nowNanos" | "datetime.monotonicNanos" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_clock_gettime".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
+            "datetime.localOffset" => vec![PlatformImport {
+                library: "libSystem".to_string(),
+                symbol: "_localtime_r".to_string(),
+                required_by: spec.symbol.to_string(),
+            }],
             "io.print" | "io.write" | "io.printError" | "io.writeError" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_write".to_string(),

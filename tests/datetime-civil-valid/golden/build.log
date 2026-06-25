@@ -1,0 +1,24 @@
+$ mfb build -ast tests/datetime-civil-valid
+Wrote AST to tests/datetime-civil-valid/datetime-civil-valid.ast
+[exit 0]
+$ mfb build -ir tests/datetime-civil-valid
+Wrote IR to tests/datetime-civil-valid/datetime-civil-valid.ir
+[exit 0]
+$ mfb build tests/datetime-civil-valid
+Wrote executable to tests/datetime-civil-valid/datetime-civil-valid.out
+[exit 0]
+$ tests/datetime-civil-valid/datetime-civil-valid.out
+epoch=1970-01-01 00:00:00
+epoch_weekday=TRUE
+leap=2024-02-29 12:00:00
+leap_doy=60
+neg=1969-12-31 23:59:59
+india=2026-06-29 20:00:00 +05:30
+india_off=19800
+resolve=TRUE
+west=2026-06-29 09:30:00 -05:00
+moved=2026-06-29 14:30:00
+sod=2026-06-29 00:00:00
+leap2024=TRUE leap1900=FALSE leap2000=TRUE
+dim=29,28,30
+[exit 0]

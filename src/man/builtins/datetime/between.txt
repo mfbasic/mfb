@@ -1,0 +1,19 @@
+NAME
+  between - the signed span between two instants
+
+SYNOPSIS
+  datetime::between(start AS Instant, finish AS Instant) AS Duration
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::between returns the signed Duration finish - start: positive when
+  finish is later than start, negative when earlier. Render it with
+  datetime::formatDuration.
+
+SEE ALSO
+  mfb man datetime add, mfb man datetime compare, mfb man datetime formatDuration

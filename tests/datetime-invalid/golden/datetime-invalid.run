@@ -1,0 +1,7 @@
+badDate=TRUE
+badMonth=TRUE
+badHour=TRUE
+badOffset=TRUE
+badParse=TRUE
+badIso=TRUE
+all_trapped=TRUE

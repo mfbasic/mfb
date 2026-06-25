@@ -1,0 +1,18 @@
+NAME
+  negate - negate a duration
+
+SYNOPSIS
+  datetime::negate(d AS Duration) AS Duration
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::negate returns the Duration with the opposite sign, so a span of
+  +90s becomes -90s.
+
+SEE ALSO
+  mfb man datetime plus, mfb man datetime minus

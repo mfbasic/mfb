@@ -411,6 +411,8 @@ pub fn lower_project_with_external_functions(
         builtins::json::augmented_project(ast).expect("built-in json package source must parse");
     let augmented = builtins::regex::augmented_project(&augmented)
         .expect("built-in regex package source must parse");
+    let augmented = builtins::datetime::augmented_project(&augmented)
+        .expect("built-in datetime package source must parse");
     let ast = &augmented;
     let mut types = Vec::new();
     let mut functions = Vec::new();
@@ -2238,6 +2240,15 @@ fn expression_type(
                 return builtins::regex::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::datetime::is_datetime_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::datetime::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::thread::is_thread_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2714,6 +2725,14 @@ fn lower_expression_with_expected(
                     value: (*value).to_string(),
                 });
             }
+            for (type_, value) in
+                builtins::datetime::default_argument_padding(&canonical_callee, args.len())
+            {
+                args.push(IrValue::Const {
+                    type_: (*type_).to_string(),
+                    value: (*value).to_string(),
+                });
+            }
             // Dequalify migrated `collections::`/`strings::` native members back
             // to their bare lowering names (plan-01-functions.md §5): the native
             // code generator stays keyed on `get`/`transform`/`find`/... .
@@ -2725,10 +2744,21 @@ fn lower_expression_with_expected(
             // `implementation_name` returns the `__pkg_name` form; the injected
             // package's function is lexed in internal mode, so its actual name
             // carries the internal sigil. Internalize the dispatch target to match.
-            let resolved_target = builtins::json::implementation_name(&canonical_callee)
-                .or_else(|| builtins::regex::implementation_name(&canonical_callee))
-                .map(crate::internal_name::internalize)
-                .unwrap_or_else(|| canonical_callee.clone());
+            // `datetime::` is arity-aware: the overloaded constructors and
+            // `parse` select a distinct internal name by argument count (§5.1.1).
+            // Its OS-seam intrinsics return `None`, staying `datetime.*` runtime
+            // helper calls.
+            let resolved_target = builtins::datetime::implementation_name(
+                &canonical_callee,
+                args.len(),
+            )
+            .map(|name| crate::internal_name::internalize(&name))
+            .or_else(|| {
+                builtins::json::implementation_name(&canonical_callee)
+                    .or_else(|| builtins::regex::implementation_name(&canonical_callee))
+                    .map(crate::internal_name::internalize)
+            })
+            .unwrap_or_else(|| canonical_callee.clone());
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`

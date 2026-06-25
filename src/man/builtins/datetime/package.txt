@@ -1,0 +1,120 @@
+NAME
+  datetime - instants, civil dates and times, durations, zones, and formatting
+
+SYNOPSIS
+  IMPORT datetime
+  datetime::now() AS Instant
+  datetime::instant(seconds[, nanos]) AS Instant
+  datetime::inZone(at, zone) AS DateTime
+  datetime::format(dt, pattern) AS String
+  datetime::parse(value, pattern[, zone]) AS DateTime
+  datetime::toIso(dt) AS String
+
+DESCRIPTION
+  The datetime package models time around a single source of truth: an Instant,
+  an absolute point on the UTC timeline (Unix epoch, leap-second-free) carrying
+  whole seconds and a nanosecond field in 0 .. 999_999_999. Everything civil --
+  Date, Time, and DateTime -- is a projection of an instant through a Zone, and
+  every projection records the resolved UTC offset, so a DateTime always knows
+  its offset and round-trips back to its Instant without re-consulting the zone.
+
+  datetime is a built-in package: IMPORT datetime needs no manifest dependency.
+  All public types are flat, copyable value records and enums (Instant, Duration,
+  Date, Time, Zone, DateTime; ZoneKind, Weekday, Month) -- there are no resources
+  and no hidden global state. Calendar arithmetic is pure integer math (Howard
+  Hinnant's civil <-> epoch-day conversions) and produces identical results on
+  every target. Only three things touch the host: the wall clock (now), a
+  monotonic counter (monotonic), and the local zone's DST-correct offset (local).
+
+  ZONES. datetime::utc() is fixed at offset 0; datetime::fixedOffset(...) builds a
+  constant offset (rendered as +HH:MM); datetime::local() resolves the host's
+  zone per-instant, so it is DST-correct at the moment it projects. Named IANA
+  zones are not supported in this version.
+
+  RANGE. Instant.seconds spans the full 64-bit Integer, so civil dates reach far
+  beyond any practical need. datetime::now() is additionally bounded by its
+  intrinsic (nanoseconds since the epoch), valid through year 2262. There are no
+  leap seconds: every day is 86400 seconds (the POSIX convention).
+
+  CLOCK & CONSTRUCTION
+    now            Current wall-clock instant (UTC).
+    monotonic      Monotonic span from an arbitrary fixed origin.
+    instant        Build an Instant from seconds[/nanos] or components.
+    duration       Build a Duration from seconds[/nanos] or components.
+    date           Validating Date constructor.
+    time           Validating Time constructor (trailing second/nanos default 0).
+
+  ZONES
+    utc            The UTC zone.
+    local          The host's local zone (DST-correct per instant).
+    fixedOffset    A fixed-offset zone, from seconds or hours:mins.
+    offsetAt       A zone's UTC offset (seconds) at a given instant.
+
+  PROJECTION
+    inZone         Project an instant into a zone (the primary "to civil" call).
+    toUtc          Shorthand for inZone(at, utc()).
+    toLocal        Shorthand for inZone(at, local()).
+    resolve        Map a civil DateTime back to its Instant.
+    civil          Build a DateTime from civil parts in a zone.
+    withZone       Re-project the same instant into a different zone.
+
+  ARITHMETIC & COMPARISON
+    add, subtract  Instant +/- Duration.
+    between        Signed span finish - start.
+    addDays        Calendar-day arithmetic (DST-aware).
+    addMonths      Month arithmetic, clamping day-of-month.
+    compare        -1 / 0 / 1 over instants.
+    isBefore, isAfter, equals   Convenience predicates.
+    negate, plus, minus         Duration algebra.
+
+  ACCESSORS
+    weekday, dayOfYear, isLeapYear, daysInMonth, startOfDay
+    toMillis, toNanos, fromMillis
+
+  FORMATTING & PARSING
+    format         Render a DateTime with the pattern mini-language.
+    parse          Parse a string against a pattern.
+    toIso          RFC 3339 / ISO 8601 string.
+    parseIso       Parse RFC 3339 (offset required).
+    formatDuration Human span, e.g. 1d 02:03:04.500.
+
+  PATTERN MINI-LANGUAGE. A pattern is literal text with token runs; a run of the
+  same letter is one token whose length selects width or style. Wrap literal
+  letters in single quotes ('T'); '' is a literal apostrophe.
+
+    yyyy / yy        year, 4-digit / 2-digit
+    M / MM           month number, minimal / 2-digit
+    MMM / MMMM       month name, short / full (English)
+    d / dd           day of month
+    H / HH           hour 0-23
+    h / hh           hour 1-12
+    m / mm           minute
+    s / ss           second
+    fff .. fffffffff fractional second, fixed width (3/6/9 = ms/us/ns)
+    a                AM/PM marker
+    EEE / EEEE       weekday name, short / full
+    Z                offset, Z for UTC else +/-HH:MM
+    ZZ               offset, always +/-HH:MM
+    ZZZ              offset, +/-HHMM
+
+ERRORS
+  Out-of-range constructor fields fail with errorCode::ErrInvalidArgument
+  (77050002). A string that does not parse, or an unknown pattern token, fails
+  with errorCode::ErrInvalidFormat (77050003). Arithmetic past the Integer range
+  fails with errorCode::ErrOverflow (77050010).
+
+EXAMPLES
+  IMPORT datetime
+  IMPORT io
+
+  SUB main()
+    LET start AS Instant = datetime::now()
+    LET here AS DateTime = datetime::toLocal(start)
+    io::print(datetime::format(here, "EEEE yyyy-MM-dd HH:mm:ss Z"))
+    LET india AS DateTime = datetime::inZone(start, datetime::fixedOffset(5, 30))
+    io::print(datetime::toIso(india))
+  END SUB
+
+SEE ALSO
+  mfb man datetime now, mfb man datetime inZone, mfb man datetime format,
+  mfb man datetime parse, specifications/standard_package.md

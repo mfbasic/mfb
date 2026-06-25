@@ -1,0 +1,27 @@
+NAME
+  parse - parse a string against a pattern
+
+SYNOPSIS
+  datetime::parse(value AS String, pattern AS String, zone AS Zone = utc()) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::parse reads value according to pattern (the same mini-language as
+  datetime::format) and returns a DateTime. Fields absent from the pattern take
+  their defaults: the date defaults to the epoch date and the time to 00:00:00.
+  Numeric tokens accept their stated width (minimal tokens like M accept 1-2
+  digits); name tokens are case-insensitive; an offset token (Z, ZZ, ZZZ) sets the
+  offset and overrides zone. When the pattern has no offset token, zone supplies
+  the offset (UTC by default).
+
+ERRORS
+  A value that does not match the pattern, or an unknown pattern token, fails with
+  errorCode::ErrInvalidFormat (77050003).
+
+SEE ALSO
+  mfb man datetime format, mfb man datetime parseIso

@@ -1,0 +1,21 @@
+NAME
+  toNanos - epoch nanoseconds of an instant
+
+SYNOPSIS
+  datetime::toNanos(at AS Instant) AS Integer
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::toNanos returns the number of nanoseconds between the Unix epoch and
+  at.
+
+ERRORS
+  A value outside the Integer range fails with errorCode::ErrOverflow (77050010).
+
+SEE ALSO
+  mfb man datetime toMillis, mfb man datetime fromMillis

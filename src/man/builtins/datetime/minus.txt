@@ -1,0 +1,18 @@
+NAME
+  minus - subtract two durations
+
+SYNOPSIS
+  datetime::minus(a AS Duration, b AS Duration) AS Duration
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::minus returns the Duration a - b. A common use is measuring elapsed
+  time between two datetime::monotonic readings.
+
+SEE ALSO
+  mfb man datetime plus, mfb man datetime monotonic

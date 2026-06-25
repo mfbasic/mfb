@@ -1,0 +1,41 @@
+NAME
+  format - render a DateTime with the pattern mini-language
+
+SYNOPSIS
+  datetime::format(dt AS DateTime, pattern AS String) AS String
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::format renders dt as text using a pattern of literal characters and
+  token runs. A run of the same letter is one token whose length selects width or
+  style; wrap literal letters in single quotes ('T'), and write a literal
+  apostrophe as ''.
+
+    yyyy / yy        year, 4-digit / 2-digit
+    M / MM           month number, minimal / 2-digit
+    MMM / MMMM       month name, short / full (English)
+    d / dd           day of month
+    H / HH           hour 0-23
+    h / hh           hour 1-12
+    m / mm           minute
+    s / ss           second
+    fff..fffffffff   fractional second, fixed width (3/6/9 = ms/us/ns)
+    a                AM/PM marker
+    EEE / EEEE       weekday name, short / full
+    Z                offset, Z for UTC else +/-HH:MM
+    ZZ               offset, always +/-HH:MM
+    ZZZ              offset, +/-HHMM
+
+  For example, format(dt, "EEEE yyyy-MM-dd HH:mm:ss Z"). For RFC 3339 use the
+  datetime::toIso shorthand.
+
+ERRORS
+  An unknown pattern token fails with errorCode::ErrInvalidFormat (77050003).
+
+SEE ALSO
+  mfb man datetime parse, mfb man datetime toIso, mfb man datetime formatDuration

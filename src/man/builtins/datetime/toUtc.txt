@@ -1,0 +1,18 @@
+NAME
+  toUtc - project an instant into UTC
+
+SYNOPSIS
+  datetime::toUtc(at AS Instant) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::toUtc is shorthand for datetime::inZone(at, datetime::utc()): it
+  projects at into the UTC zone, yielding a DateTime with a zero offset.
+
+SEE ALSO
+  mfb man datetime inZone, mfb man datetime toLocal

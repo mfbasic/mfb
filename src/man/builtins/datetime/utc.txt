@@ -1,0 +1,19 @@
+NAME
+  utc - the UTC zone
+
+SYNOPSIS
+  datetime::utc() AS Zone
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::utc returns the Zone with a constant UTC offset of zero and the label
+  "UTC". Project an instant through it with datetime::inZone, or use the shorthand
+  datetime::toUtc.
+
+SEE ALSO
+  mfb man datetime local, mfb man datetime fixedOffset, mfb man datetime toUtc

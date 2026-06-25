@@ -31,6 +31,9 @@ impl NativeBackend for Backend {
             native_object_plan: true,
             native_code_plan: true,
             runtime_calls: &[
+                "datetime.nowNanos",
+                "datetime.monotonicNanos",
+                "datetime.localOffset",
                 "io.print",
                 "io.write",
                 "io.printError",

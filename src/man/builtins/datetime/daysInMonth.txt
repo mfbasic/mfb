@@ -1,0 +1,18 @@
+NAME
+  daysInMonth - the number of days in a month
+
+SYNOPSIS
+  datetime::daysInMonth(year AS Integer, month AS Integer) AS Integer
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::daysInMonth returns 28 .. 31, the length of month (1 .. 12) in year,
+  accounting for leap years in February.
+
+SEE ALSO
+  mfb man datetime isLeapYear, mfb man datetime date

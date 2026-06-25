@@ -1,0 +1,24 @@
+NAME
+  date - validating Date constructor
+
+SYNOPSIS
+  datetime::date(year AS Integer, month AS Integer, day AS Integer) AS Date
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::date builds a proleptic-Gregorian Date, validating that month is in
+  1 .. 12 and day is in range for that month and year (so February 29 is accepted
+  only in leap years). Use it with datetime::time and datetime::civil to build a
+  DateTime in a zone.
+
+ERRORS
+  An impossible calendar date fails with errorCode::ErrInvalidArgument
+  (77050002), for example datetime::date(2026, 2, 29).
+
+SEE ALSO
+  mfb man datetime time, mfb man datetime civil, mfb man datetime daysInMonth

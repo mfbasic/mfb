@@ -1,0 +1,22 @@
+NAME
+  inZone - project an instant into a zone
+
+SYNOPSIS
+  datetime::inZone(at AS Instant, zone AS Zone) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::inZone is the primary "to civil time" call: it projects the instant
+  at through zone, resolving the effective UTC offset (DST applied for local
+  zones) and storing it on the result. The returned DateTime carries the civil
+  date and time, the zone, and the resolved offset, so it round-trips back to at
+  via datetime::resolve without re-consulting the zone. datetime::toUtc and
+  datetime::toLocal are shorthands for the utc and local zones.
+
+SEE ALSO
+  mfb man datetime resolve, mfb man datetime civil, mfb man datetime withZone

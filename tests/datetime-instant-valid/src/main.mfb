@@ -1,0 +1,39 @@
+IMPORT io
+IMPORT datetime
+
+FUNC main AS Integer
+  ' Component builders (overload arities 1..5).
+  io::print("i1=" & toString(datetime::instant(100).seconds))
+  io::print("i3=" & toString(datetime::instant(2, 30, 0).seconds))
+  io::print("i5=" & toString(datetime::instant(1, 2, 3, 4, 0).seconds))
+  io::print("d3=" & toString(datetime::duration(2, 30, 0).seconds))
+  io::print("d5=" & toString(datetime::duration(1, 0, 0, 0, 0).seconds))
+  ' Nanosecond normalization carries into seconds.
+  LET n AS Instant = datetime::instant(5, 1500000000)
+  io::print("norm_secs=" & toString(n.seconds) & " norm_nanos=" & toString(n.nanos))
+  ' Arithmetic.
+  LET a AS Instant = datetime::instant(100, 500000000)
+  LET b AS Instant = datetime::instant(103, 250000000)
+  LET span AS Duration = datetime::between(a, b)
+  io::print("span=" & toString(span.seconds) & "." & toString(span.nanos))
+  LET c AS Instant = datetime::add(a, span)
+  io::print("add=" & toString(datetime::equals(c, b)))
+  LET back AS Instant = datetime::subtract(b, span)
+  io::print("sub=" & toString(datetime::equals(back, a)))
+  io::print("cmp=" & toString(datetime::compare(a, b)) & toString(datetime::compare(b, a)) & toString(datetime::compare(a, a)))
+  io::print("before=" & toString(datetime::isBefore(a, b)) & " after=" & toString(datetime::isAfter(a, b)))
+  ' Duration algebra.
+  LET d1 AS Duration = datetime::duration(10)
+  LET d2 AS Duration = datetime::duration(3)
+  io::print("plus=" & toString(datetime::plus(d1, d2).seconds))
+  io::print("minus=" & toString(datetime::minus(d1, d2).seconds))
+  io::print("neg=" & toString(datetime::negate(d1).seconds))
+  ' Epoch conversions.
+  io::print("millis=" & toString(datetime::toMillis(a)))
+  io::print("nanos=" & toString(datetime::toNanos(datetime::instant(2, 5))))
+  LET fm AS Instant = datetime::fromMillis(2500)
+  io::print("fromMillis=" & toString(fm.seconds) & "." & toString(fm.nanos))
+  LET fmn AS Instant = datetime::fromMillis(-1500)
+  io::print("fromMillisNeg=" & toString(fmn.seconds) & "." & toString(fmn.nanos))
+  RETURN 0
+END FUNC

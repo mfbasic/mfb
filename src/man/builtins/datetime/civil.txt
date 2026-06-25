@@ -1,0 +1,24 @@
+NAME
+  civil - build a DateTime from civil parts in a zone
+
+SYNOPSIS
+  datetime::civil(date AS Date, time AS Time, zone AS Zone) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::civil builds a DateTime from a Date and Time interpreted in zone,
+  resolving the UTC offset for that local time and returning the canonical
+  projection (so the result round-trips through datetime::resolve).
+
+  When the named local time does not exist (a spring-forward gap) or is ambiguous
+  (a fall-back overlap), civil resolves deterministically: a gap shifts forward by
+  the gap (the post-transition offset), and an overlap picks the earlier
+  (pre-transition) offset. This is the common "lenient" convention.
+
+SEE ALSO
+  mfb man datetime inZone, mfb man datetime resolve, mfb man datetime date

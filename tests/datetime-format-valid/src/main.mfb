@@ -1,0 +1,20 @@
+IMPORT io
+IMPORT datetime
+
+FUNC main AS Integer
+  LET at AS Instant = datetime::instant(1782743400)
+  LET dt AS DateTime = datetime::inZone(at, datetime::fixedOffset(5, 30))
+  io::print(datetime::format(dt, "EEEE yyyy-MM-dd HH:mm:ss Z"))
+  io::print(datetime::format(dt, "EEE, d MMM yyyy h:mm:ss a"))
+  io::print(datetime::format(dt, "MMMM d, yyyy"))
+  io::print(datetime::format(dt, "yy/MM/dd HHmmss"))
+  io::print(datetime::format(dt, "'year' yyyy 'at' HH'h'mm"))
+  io::print(datetime::format(dt, "HH:mm:ss.fff"))
+  io::print(datetime::format(dt, "ZZ ZZZ"))
+  io::print(datetime::toIso(dt))
+  io::print(datetime::toIso(datetime::toUtc(at)))
+  io::print(datetime::formatDuration(datetime::duration(1, 2, 3, 4, 500000000)))
+  io::print(datetime::formatDuration(datetime::duration(90)))
+  io::print(datetime::formatDuration(datetime::negate(datetime::duration(3661))))
+  RETURN 0
+END FUNC

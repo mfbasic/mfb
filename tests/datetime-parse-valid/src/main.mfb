@@ -1,0 +1,27 @@
+IMPORT io
+IMPORT datetime
+
+FUNC main AS Integer
+  ' parseIso, offset required.
+  LET launch AS DateTime = datetime::parseIso("1969-07-20T20:17:00Z")
+  io::print("launch=" & toString(datetime::resolve(launch).seconds))
+  LET frac AS DateTime = datetime::parseIso("2026-06-25T14:30:00.250+05:30")
+  io::print("frac_nanos=" & toString(frac.time.nanos) & " off=" & toString(frac.offset))
+  ' parse with pattern + offset token.
+  LET p AS DateTime = datetime::parse("2026-06-25 14:30:00 +05:30", "yyyy-MM-dd HH:mm:ss Z")
+  io::print("p=" & datetime::format(p, "yyyy-MM-dd HH:mm:ss Z"))
+  ' parse with default zone (UTC) and 12-hour clock + month name.
+  LET q AS DateTime = datetime::parse("Jun 25 2026 2:30 PM", "MMM d yyyy h:mm a")
+  io::print("q=" & datetime::format(q, "yyyy-MM-dd HH:mm Z"))
+  LET am AS DateTime = datetime::parse("2026-01-02 12:05 AM", "yyyy-MM-dd hh:mm a")
+  io::print("am=" & datetime::format(am, "HH:mm"))
+  ' format -> parse round-trip.
+  LET dt AS DateTime = datetime::inZone(datetime::instant(1782743400), datetime::fixedOffset(-5, 0))
+  LET s AS String = datetime::format(dt, "yyyy-MM-dd'T'HH:mm:ssZ")
+  LET dt2 AS DateTime = datetime::parse(s, "yyyy-MM-dd'T'HH:mm:ssZ")
+  io::print("roundtrip=" & toString(datetime::equals(datetime::resolve(dt), datetime::resolve(dt2))))
+  ' toIso -> parseIso round-trip.
+  LET iso AS String = datetime::toIso(dt)
+  io::print("iso_roundtrip=" & toString(datetime::equals(datetime::resolve(dt), datetime::resolve(datetime::parseIso(iso)))))
+  RETURN 0
+END FUNC

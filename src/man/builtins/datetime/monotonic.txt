@@ -1,0 +1,24 @@
+NAME
+  monotonic - a monotonically non-decreasing span for measuring elapsed time
+
+SYNOPSIS
+  datetime::monotonic() AS Duration
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::monotonic returns a Duration measured from an arbitrary fixed origin
+  on a clock that never moves backward. It is unrelated to wall-clock time and is
+  not comparable across processes; its only use is to measure elapsed time by
+  subtracting two readings with datetime::minus.
+
+    LET t0 AS Duration = datetime::monotonic()
+    ' ... work ...
+    LET elapsed AS Duration = datetime::minus(datetime::monotonic(), t0)
+
+SEE ALSO
+  mfb man datetime now, mfb man datetime minus, mfb man datetime formatDuration

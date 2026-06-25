@@ -1,0 +1,19 @@
+NAME
+  addDays - calendar-day arithmetic on a civil DateTime
+
+SYNOPSIS
+  datetime::addDays(dt AS DateTime, days AS Integer) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::addDays advances dt by a whole number of calendar days, keeping the
+  wall-clock time of day and re-resolving the offset through dt's zone, so it stays
+  DST-aware. days may be negative.
+
+SEE ALSO
+  mfb man datetime addMonths, mfb man datetime add

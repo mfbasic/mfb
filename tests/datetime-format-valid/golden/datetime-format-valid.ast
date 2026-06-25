@@ -1,0 +1,40 @@
+{
+  "project": "datetime-format-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "datetime", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "at", "type": "Instant", "value": { "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "1782743400" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.inZone", "arguments": [{ "kind": "identifier", "value": "at" }, { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "number", "value": "5" }, { "kind": "number", "value": "30" }] }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "EEEE yyyy-MM-dd HH:mm:ss Z" }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "EEE, d MMM yyyy h:mm:ss a" }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "MMMM d, yyyy" }] }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "yy/MM/dd HHmmss" }] }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "'year' yyyy 'at' HH'h'mm" }] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "HH:mm:ss.fff" }] }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "ZZ ZZZ" }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "identifier", "value": "dt" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "call", "callee": "datetime.toUtc", "arguments": [{ "kind": "identifier", "value": "at" }] }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.formatDuration", "arguments": [{ "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }, { "kind": "number", "value": "4" }, { "kind": "number", "value": "500000000" }] }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.formatDuration", "arguments": [{ "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "90" }] }] }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "datetime.formatDuration", "arguments": [{ "kind": "call", "callee": "datetime.negate", "arguments": [{ "kind": "call", "callee": "datetime.duration", "arguments": [{ "kind": "number", "value": "3661" }] }] }] }] }, "line": 18 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 19 }
+      ]
+    }
+    ]
+  }
+  ]
+}

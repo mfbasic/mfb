@@ -3583,6 +3583,29 @@ fn lower_runtime_helper(
         });
     }
     match spec.call {
+        "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
+            let (frame, instructions, relocations) =
+                datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots: Vec::new(),
+                instructions,
+                relocations,
+            })
+        }
         "io.print" | "io.write" | "io.printError" | "io.writeError" => {
             let stderr = matches!(spec.call, "io.printError" | "io.writeError");
             let newline = matches!(spec.call, "io.print" | "io.printError");
@@ -13799,6 +13822,7 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
     }
 }
 
+mod datetime;
 mod net;
 mod term;
 mod tls;

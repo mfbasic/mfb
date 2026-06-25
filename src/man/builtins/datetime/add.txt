@@ -1,0 +1,21 @@
+NAME
+  add - add a duration to an instant
+
+SYNOPSIS
+  datetime::add(at AS Instant, by AS Duration) AS Instant
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::add returns the Instant at + by. For civil, DST-aware day and month
+  arithmetic, use datetime::addDays and datetime::addMonths instead.
+
+ERRORS
+  A result past the Integer range fails with errorCode::ErrOverflow (77050010).
+
+SEE ALSO
+  mfb man datetime subtract, mfb man datetime between, mfb man datetime addDays

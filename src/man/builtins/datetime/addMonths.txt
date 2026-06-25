@@ -1,0 +1,20 @@
+NAME
+  addMonths - month arithmetic on a civil DateTime, clamping day-of-month
+
+SYNOPSIS
+  datetime::addMonths(dt AS DateTime, months AS Integer) AS DateTime
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::addMonths advances dt by a whole number of months, keeping the
+  wall-clock time and re-resolving the offset through dt's zone. The day of month
+  is clamped to the target month's length, so January 31 plus one month is
+  February 28 (or 29 in a leap year). months may be negative.
+
+SEE ALSO
+  mfb man datetime addDays, mfb man datetime daysInMonth

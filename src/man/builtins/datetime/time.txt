@@ -1,0 +1,23 @@
+NAME
+  time - validating Time constructor
+
+SYNOPSIS
+  datetime::time(hour, minute, second AS Integer = 0, nanos AS Integer = 0) AS Time
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::time builds a Time of day, validating hour in 0 .. 23, minute and
+  second in 0 .. 59 (there are no leap seconds), and nanos in
+  0 .. 999_999_999. second and nanos default to 0. Unlike instant and duration,
+  time is not overloaded, so its trailing defaults apply.
+
+ERRORS
+  An out-of-range field fails with errorCode::ErrInvalidArgument (77050002).
+
+SEE ALSO
+  mfb man datetime date, mfb man datetime civil

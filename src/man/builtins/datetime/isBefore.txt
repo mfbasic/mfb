@@ -1,0 +1,19 @@
+NAME
+  isBefore - compare two instants
+
+SYNOPSIS
+  datetime::isBefore(a AS Instant, b AS Instant) AS Boolean
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::isBefore is a convenience predicate over instants, equivalent to testing
+  datetime::compare(a, b). isBefore is TRUE when a precedes b, isAfter when a
+  follows b, and equals when they name the same instant.
+
+SEE ALSO
+  mfb man datetime compare, mfb man datetime between

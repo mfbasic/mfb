@@ -1,0 +1,42 @@
+{
+  "project": "datetime-parse-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "datetime", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "launch", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "string", "value": "1969-07-20T20:17:00Z" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "launch=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "launch" }] }, "member": "seconds" }] } }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "frac", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "string", "value": "2026-06-25T14:30:00.250+05:30" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "frac_nanos=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "frac" }, "member": "time" }, "member": "nanos" }] } }, "right": { "kind": "string", "value": " off=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "frac" }, "member": "offset" }] } }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "p", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "2026-06-25 14:30:00 +05:30" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss Z" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "p=" }, "right": { "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm:ss Z" }] } }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "q", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "Jun 25 2026 2:30 PM" }, { "kind": "string", "value": "MMM d yyyy h:mm a" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "q=" }, "right": { "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "q" }, { "kind": "string", "value": "yyyy-MM-dd HH:mm Z" }] } }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "am", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "string", "value": "2026-01-02 12:05 AM" }, { "kind": "string", "value": "yyyy-MM-dd hh:mm a" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "am=" }, "right": { "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "am" }, { "kind": "string", "value": "HH:mm" }] } }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "name": "dt", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.inZone", "arguments": [{ "kind": "call", "callee": "datetime.instant", "arguments": [{ "kind": "number", "value": "1782743400" }] }, { "kind": "call", "callee": "datetime.fixedOffset", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "5" } }, { "kind": "number", "value": "0" }] }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "s", "type": "String", "value": { "kind": "call", "callee": "datetime.format", "arguments": [{ "kind": "identifier", "value": "dt" }, { "kind": "string", "value": "yyyy-MM-dd'T'HH:mm:ssZ" }] }, "line": 20 },
+      { "kind": "binding", "mutable": false, "name": "dt2", "type": "DateTime", "value": { "kind": "call", "callee": "datetime.parse", "arguments": [{ "kind": "identifier", "value": "s" }, { "kind": "string", "value": "yyyy-MM-dd'T'HH:mm:ssZ" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "roundtrip=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.equals", "arguments": [{ "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "dt" }] }, { "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "dt2" }] }] }] } }] }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "iso", "type": "String", "value": { "kind": "call", "callee": "datetime.toIso", "arguments": [{ "kind": "identifier", "value": "dt" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "iso_roundtrip=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "datetime.equals", "arguments": [{ "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "identifier", "value": "dt" }] }, { "kind": "call", "callee": "datetime.resolve", "arguments": [{ "kind": "call", "callee": "datetime.parseIso", "arguments": [{ "kind": "identifier", "value": "iso" }] }] }] }] } }] }, "line": 25 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 26 }
+      ]
+    }
+    ]
+  }
+  ]
+}

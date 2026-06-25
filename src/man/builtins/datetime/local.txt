@@ -1,0 +1,21 @@
+NAME
+  local - the host's local zone
+
+SYNOPSIS
+  datetime::local() AS Zone
+
+PACKAGE
+  datetime
+
+IMPORTS
+  IMPORT datetime
+
+DESCRIPTION
+  datetime::local returns the Zone representing the host's local time. Unlike utc
+  and fixedOffset, its offset is not constant: it is resolved per-instant from the
+  platform's zone table at projection time, so it is DST-correct for the moment
+  being projected. Two hosts in different zones will project the same instant to
+  different civil fields.
+
+SEE ALSO
+  mfb man datetime utc, mfb man datetime toLocal, mfb man datetime offsetAt

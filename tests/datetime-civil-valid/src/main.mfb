@@ -1,0 +1,38 @@
+IMPORT io
+IMPORT datetime
+
+FUNC fmt(dt AS DateTime) AS String
+  RETURN datetime::format(dt, "yyyy-MM-dd HH:mm:ss")
+END FUNC
+
+FUNC main AS Integer
+  ' Epoch 0 is 1970-01-01T00:00:00Z, a Thursday.
+  LET e0 AS DateTime = datetime::toUtc(datetime::instant(0))
+  io::print("epoch=" & fmt(e0))
+  io::print("epoch_weekday=" & toString(datetime::weekday(e0) = Weekday.Thursday))
+  ' Leap day.
+  LET leap AS DateTime = datetime::civil(datetime::date(2024, 2, 29), datetime::time(12, 0, 0), datetime::utc())
+  io::print("leap=" & fmt(leap))
+  io::print("leap_doy=" & toString(datetime::dayOfYear(leap)))
+  ' Negative instant: one second before epoch.
+  LET neg AS DateTime = datetime::toUtc(datetime::instant(-1))
+  io::print("neg=" & fmt(neg))
+  ' Fixed offset projection and round-trip.
+  LET base AS Instant = datetime::instant(1782743400)
+  LET india AS DateTime = datetime::inZone(base, datetime::fixedOffset(5, 30))
+  io::print("india=" & fmt(india) & " " & india.zone.label)
+  io::print("india_off=" & toString(india.offset))
+  io::print("resolve=" & toString(datetime::equals(datetime::resolve(india), base)))
+  ' Negative fixed offset via seconds form.
+  LET west AS DateTime = datetime::inZone(base, datetime::fixedOffset(-18000))
+  io::print("west=" & fmt(west) & " " & west.zone.label)
+  ' withZone keeps the instant.
+  LET moved AS DateTime = datetime::withZone(india, datetime::utc())
+  io::print("moved=" & fmt(moved))
+  ' startOfDay.
+  io::print("sod=" & fmt(datetime::startOfDay(india)))
+  ' Accessors.
+  io::print("leap2024=" & toString(datetime::isLeapYear(2024)) & " leap1900=" & toString(datetime::isLeapYear(1900)) & " leap2000=" & toString(datetime::isLeapYear(2000)))
+  io::print("dim=" & toString(datetime::daysInMonth(2024, 2)) & "," & toString(datetime::daysInMonth(2023, 2)) & "," & toString(datetime::daysInMonth(2024, 4)))
+  RETURN 0
+END FUNC

@@ -1,4 +1,5 @@
 pub(crate) mod collections;
+pub(crate) mod datetime;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
 pub(crate) mod general;
@@ -19,6 +20,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
         "collections"
+            | "datetime"
             | "errorCode"
             | "fs"
             | "io"
@@ -34,7 +36,8 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    fs::is_builtin_type(name)
+    datetime::is_builtin_type(name)
+        || fs::is_builtin_type(name)
         || io::is_builtin_type(name)
         || json::is_builtin_type(name)
         || net::is_builtin_type(name)
@@ -104,6 +107,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| io::call_return_type_name(name))
         .or_else(|| json::call_return_type_name(name))
         .or_else(|| regex::call_return_type_name(name))
+        .or_else(|| datetime::call_return_type_name(name))
         .or_else(|| net::call_return_type_name(name))
         .or_else(|| term::call_return_type_name(name))
         .or_else(|| tls::call_return_type_name(name))
@@ -136,6 +140,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || io::is_io_call(name)
         || json::is_json_call(name)
         || regex::is_regex_call(name)
+        || datetime::is_datetime_call(name)
         || net::is_net_call(name)
         || term::is_term_call(name)
         || thread::is_thread_call(name)
@@ -171,6 +176,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| io::call_param_names(name))
         .or_else(|| json::call_param_names(name))
         .or_else(|| regex::call_param_names(name))
+        .or_else(|| datetime::call_param_names(name))
         .or_else(|| net::call_param_names(name))
         .or_else(|| term::call_param_names(name))
         .or_else(|| tls::call_param_names(name))
