@@ -1,0 +1,21 @@
+$ mfb build -ast tests/func_errorcode_constant_valid
+Wrote AST to tests/func_errorcode_constant_valid/func_errorcode_constant_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_errorcode_constant_valid
+Wrote IR to tests/func_errorcode_constant_valid/func_errorcode_constant_valid.ir
+[exit 0]
+$ mfb build tests/func_errorcode_constant_valid
+Wrote executable to tests/func_errorcode_constant_valid/func_errorcode_constant_valid.out
+[exit 0]
+$ tests/func_errorcode_constant_valid/func_errorcode_constant_valid.out
+77050004
+77050002
+77010001
+77020001
+77030001
+77050000
+77060001
+77070008
+not-found matches
+-1
+[exit 0]

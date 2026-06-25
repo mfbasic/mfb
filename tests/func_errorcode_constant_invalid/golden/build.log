@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_errorcode_constant_invalid
+   3 | FUNC main AS Integer
+   4 |   ' A constant is not callable.
+   5 |   LET called AS Integer = errorCode::ErrNotFound()
+     | ^
+tests/func_errorcode_constant_invalid/src/main.mfb:5 error[2-201-0012 SYMBOL_NOT_CALLABLE]: symbol cannot be called
+               Package constant `errorCode.ErrNotFound` is not callable.
+[exit 1]
+$ mfb build -ir tests/func_errorcode_constant_invalid
+   3 | FUNC main AS Integer
+   4 |   ' A constant is not callable.
+   5 |   LET called AS Integer = errorCode::ErrNotFound()
+     | ^
+tests/func_errorcode_constant_invalid/src/main.mfb:5 error[2-201-0012 SYMBOL_NOT_CALLABLE]: symbol cannot be called
+               Package constant `errorCode.ErrNotFound` is not callable.
+[exit 1]

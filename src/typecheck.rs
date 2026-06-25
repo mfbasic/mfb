@@ -2894,9 +2894,9 @@ impl<'a> TypeChecker<'a> {
                 let canonical_name = self.canonical_import_name(file, name);
                 if canonical_name == "NOTHING" {
                     Type::Nothing
-                } else if builtins::math::is_math_constant(&canonical_name) {
+                } else if builtins::is_package_constant(&canonical_name) {
                     self.parse_type(
-                        builtins::math::constant_type_name(&canonical_name).unwrap_or("Unknown"),
+                        builtins::package_constant_type_name(&canonical_name).unwrap_or("Unknown"),
                     )
                 } else {
                     if let Some(local) = locals.get(name).cloned() {
@@ -2939,7 +2939,7 @@ impl<'a> TypeChecker<'a> {
                 let fallible = match inner.as_ref() {
                     Expression::Call { callee, .. } => {
                         let canonical = self.canonical_import_name(file, callee);
-                        !builtins::math::is_math_constant(&canonical)
+                        !builtins::is_package_constant(&canonical)
                     }
                     _ => false,
                 };
@@ -3031,7 +3031,7 @@ impl<'a> TypeChecker<'a> {
                 callee, arguments, ..
             } => {
                 let canonical_callee = self.canonical_import_name(file, callee);
-                if builtins::math::is_math_constant(&canonical_callee) {
+                if builtins::is_package_constant(&canonical_callee) {
                     self.report(
                         "SYMBOL_NOT_CALLABLE",
                         &format!("Package constant `{callee}` is not callable."),
@@ -3048,7 +3048,8 @@ impl<'a> TypeChecker<'a> {
                         );
                     }
                     return self.parse_type(
-                        builtins::math::constant_type_name(&canonical_callee).unwrap_or("Unknown"),
+                        builtins::package_constant_type_name(&canonical_callee)
+                            .unwrap_or("Unknown"),
                     );
                 }
                 if builtins::is_builtin_call(&canonical_callee) {

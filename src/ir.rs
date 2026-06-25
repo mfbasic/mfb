@@ -1998,8 +1998,8 @@ fn expression_type(
         Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
         Expression::Identifier(value) => {
             let canonical_value = canonical_import_name(value, context);
-            if builtins::math::is_math_constant(&canonical_value) {
-                builtins::math::constant_type_name(&canonical_value).map(str::to_string)
+            if builtins::is_package_constant(&canonical_value) {
+                builtins::package_constant_type_name(&canonical_value).map(str::to_string)
             } else {
                 locals
                     .get(value)
@@ -2522,12 +2522,12 @@ fn lower_expression_with_expected(
         },
         Expression::Identifier(value) => {
             let canonical_value = canonical_import_name(value, context);
-            if builtins::math::is_math_constant(&canonical_value) {
-                let type_ = builtins::math::constant_type_name(&canonical_value)
+            if builtins::is_package_constant(&canonical_value) {
+                let type_ = builtins::package_constant_type_name(&canonical_value)
                     .unwrap_or("Unknown")
                     .to_string();
-                let value = builtins::math::constant_value(&canonical_value)
-                    .expect("recognized math constant has a value")
+                let value = builtins::package_constant_value(&canonical_value)
+                    .expect("recognized package constant has a value")
                     .to_string();
                 return IrValue::Const { type_, value };
             }

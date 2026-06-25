@@ -1,0 +1,7 @@
+IMPORT errorCode
+
+FUNC main AS Integer
+  ' A constant is not callable.
+  LET called AS Integer = errorCode::ErrNotFound()
+  RETURN called
+END FUNC

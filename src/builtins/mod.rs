@@ -1,4 +1,5 @@
 pub(crate) mod collections;
+pub(crate) mod errorcode;
 pub(crate) mod fs;
 pub(crate) mod general;
 pub(crate) mod io;
@@ -17,6 +18,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
         "collections"
+            | "errorCode"
             | "fs"
             | "io"
             | "json"
@@ -120,7 +122,22 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_member(name: &str) -> bool {
-    is_builtin_call(name) || math::is_math_constant(name)
+    is_builtin_call(name) || is_package_constant(name)
+}
+
+/// A compile-time package constant that folds to a literal: `math::pi` and
+/// friends (`Float`/`Fixed`) or an `errorCode::Err*` registry value (`Integer`).
+/// These are keyed package-qualified (`"math.pi"`, `"errorCode.ErrNotFound"`).
+pub(crate) fn is_package_constant(name: &str) -> bool {
+    math::is_math_constant(name) || errorcode::is_errorcode_constant(name)
+}
+
+pub(crate) fn package_constant_type_name(name: &str) -> Option<&'static str> {
+    math::constant_type_name(name).or_else(|| errorcode::constant_type_name(name))
+}
+
+pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
+    math::constant_value(name).or_else(|| errorcode::constant_value(name))
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {

@@ -19,6 +19,8 @@ fn main() {
     let types_page = manifest_dir.join("src/man/types/package.txt");
     let errors_page = manifest_dir.join("src/man/errors/package.txt");
     let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
+    let error_codes_doc = manifest_dir.join("specifications/error_codes.md");
+    println!("cargo:rerun-if-changed={}", error_codes_doc.display());
     println!("cargo:rerun-if-changed={}", general_dir.display());
     println!("cargo:rerun-if-changed={}", collections_dir.display());
     println!("cargo:rerun-if-changed={}", filters_dir.display());
@@ -117,6 +119,75 @@ fn main() {
     write_pages(&mut output, "FS_FUNCTION_PAGES", fs_pages);
     write_pages(&mut output, "THREAD_FUNCTION_PAGES", thread_pages);
     write_pages(&mut output, "JSON_FUNCTION_PAGES", json_pages);
+
+    generate_errorcode_table(&error_codes_doc, &out_dir);
+}
+
+/// Parse the "Runtime and Standard Package Errors" table in
+/// `specifications/error_codes.md` and emit a generated `(name, integer)`
+/// table for the built-in `errorCode` package. The doc is the single source of
+/// truth (plan-06-errorcodes.md §4a); this keeps the package from drifting from
+/// the canonical registry. Only the runtime `Err*` rows are exported — those are
+/// the program-visible `Error.code` values, matching `errorCode::Err*` usage.
+fn generate_errorcode_table(doc_path: &PathBuf, out_dir: &PathBuf) {
+    let doc = fs::read_to_string(doc_path).expect("read specifications/error_codes.md");
+
+    let mut in_section = false;
+    let mut rows: Vec<(String, String)> = Vec::new();
+    for line in doc.lines() {
+        if line.starts_with("## ") {
+            // The runtime registry table lives under this one heading; any other
+            // top-level heading ends it.
+            in_section = line.contains("Runtime and Standard Package Errors");
+            continue;
+        }
+        if !in_section || !line.trim_start().starts_with("| `") {
+            continue;
+        }
+        let cells: Vec<&str> = line.split('|').map(str::trim).collect();
+        // | `code` | `integer` | `Name` | meaning | notes |  -> cells[1..4]
+        if cells.len() < 4 {
+            continue;
+        }
+        let code = cells[1].trim_matches('`');
+        let integer = cells[2].trim_matches('`');
+        let name = cells[3].trim_matches('`');
+        if code.is_empty() || integer.is_empty() || name.is_empty() {
+            continue;
+        }
+        // Defend against doc drift: hyphen-stripping the canonical code must equal
+        // the integer column, and the integer must be a bare number.
+        assert_eq!(
+            code.replace('-', ""),
+            integer,
+            "error_codes.md row `{name}`: code `{code}` does not match integer `{integer}`",
+        );
+        assert!(
+            integer.chars().all(|c| c.is_ascii_digit()),
+            "error_codes.md row `{name}`: integer `{integer}` is not numeric",
+        );
+        rows.push((name.to_string(), integer.to_string()));
+    }
+
+    assert!(
+        !rows.is_empty(),
+        "no runtime error-code rows parsed from {}",
+        doc_path.display()
+    );
+
+    let out_path = out_dir.join("errorcode_generated.rs");
+    let mut output = fs::File::create(out_path).expect("create generated errorcode source");
+    writeln!(
+        output,
+        "/// `(name, integer-literal)` for every runtime registry row, generated\n\
+         /// from specifications/error_codes.md by build.rs. Do not edit by hand.\n\
+         pub(crate) const ERRORCODE_CONSTANTS: &[(&str, &str)] = &["
+    )
+    .expect("write generated errorcode source");
+    for (name, integer) in &rows {
+        writeln!(output, "    ({name:?}, {integer:?}),").expect("write generated errorcode source");
+    }
+    writeln!(output, "];").expect("write generated errorcode source");
 }
 
 fn man_pages(dir: &PathBuf, package: &str) -> Vec<PathBuf> {
