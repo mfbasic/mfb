@@ -3050,6 +3050,46 @@ impl CodeBuilder<'_> {
 
     fn emit_cleanup_sequence(&mut self) -> Result<(), String> {
         let cleanups = self.active_cleanups.clone();
+        self.emit_cleanups(&cleanups)
+    }
+
+    /// The cleanups present at this function's top-level (trap-handler) scope.
+    /// The trap body runs at the function's top-level scope, so an error routed
+    /// to it stays inside the function and these locals remain in scope. Only
+    /// cleanups belonging to inner blocks being exited by the jump to the trap
+    /// are *fully* out of scope. `cleanup_scope_starts[0]` is the function body;
+    /// `[1]`, when present, is the first nested block's entry depth — i.e. the
+    /// function-level cleanup count. With no inner block open, every active
+    /// cleanup is function-level.
+    fn trap_cleanup_floor(&self) -> usize {
+        self.cleanup_scope_starts
+            .get(1)
+            .copied()
+            .unwrap_or(self.active_cleanups.len())
+    }
+
+    /// The cleanups to run when an error is routed to this function's trap
+    /// handler. Inner-block locals being exited (`index >= floor`) are dropped
+    /// like any other exit. A function-level (trap-shared) **owned arena value**
+    /// is *not* dropped here: it stays live for the handler to read and is freed
+    /// exactly once on the handler's own exit — dropping it here would
+    /// double-free it. Trap-shared threads/resources *are* still dropped here:
+    /// their drop is idempotent (the handler's later drop is a harmless no-op)
+    /// and propagating an error past them cancels/closes them as before.
+    fn trap_route_cleanups(&self) -> Vec<ActiveCleanup> {
+        let floor = self.trap_cleanup_floor();
+        self.active_cleanups
+            .iter()
+            .enumerate()
+            .filter(|(index, cleanup)| {
+                !(*index < floor && matches!(cleanup, ActiveCleanup::OwnedValue(_)))
+            })
+            .map(|(_, cleanup)| cleanup.clone())
+            .collect()
+    }
+
+    /// Emit the scope-drop frees for `cleanups` (innermost/last first).
+    fn emit_cleanups(&mut self, cleanups: &[ActiveCleanup]) -> Result<(), String> {
         for cleanup in cleanups.iter().rev() {
             match cleanup {
                 ActiveCleanup::Thread(cleanup) => {
@@ -3117,16 +3157,20 @@ impl CodeBuilder<'_> {
         &mut self,
         destination: ExitDestination,
     ) -> Result<(), String> {
-        if self.active_cleanups.is_empty() {
-            match destination {
-                ExitDestination::Return => self.emit(abi::return_()),
-                ExitDestination::Trap => self.route_current_result_to_trap()?,
-            }
-            return Ok(());
+        // A `Return` leaves the function and frees every live local. A `Trap`
+        // jumps to the same-function handler, where function-level locals stay in
+        // scope; `trap_route_cleanups` omits their owned arena values so the
+        // handler can read them and free them once on its own exit (freeing them
+        // here would double-free).
+        let cleanups = match destination {
+            ExitDestination::Return => self.active_cleanups.clone(),
+            ExitDestination::Trap => self.trap_route_cleanups(),
+        };
+        if !cleanups.is_empty() {
+            self.store_pending_current_result();
+            self.emit_cleanups(&cleanups)?;
+            self.load_pending_result_registers();
         }
-        self.store_pending_current_result();
-        self.emit_cleanup_sequence()?;
-        self.load_pending_result_registers();
         match destination {
             ExitDestination::Return => self.emit(abi::return_()),
             ExitDestination::Trap => self.route_current_result_to_trap()?,
@@ -3139,14 +3183,20 @@ impl CodeBuilder<'_> {
         error: &NirValue,
         destination: ExitDestination,
     ) -> Result<(), String> {
-        if self.active_cleanups.is_empty() {
+        // See `emit_current_result_exit`: a trap route keeps the function-level
+        // locals' owned arena values live for the handler, freeing only the rest.
+        let cleanups = match destination {
+            ExitDestination::Return => self.active_cleanups.clone(),
+            ExitDestination::Trap => self.trap_route_cleanups(),
+        };
+        if cleanups.is_empty() {
             return match destination {
                 ExitDestination::Return => self.emit_direct_error_return(error),
                 ExitDestination::Trap => self.emit_direct_error_route_to_trap(error),
             };
         }
         self.store_pending_error_from_value(error)?;
-        self.emit_cleanup_sequence()?;
+        self.emit_cleanups(&cleanups)?;
         self.load_pending_result_registers();
         match destination {
             ExitDestination::Return => self.emit(abi::return_()),

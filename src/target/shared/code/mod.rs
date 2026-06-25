@@ -761,6 +761,12 @@ struct CodeBuilder<'a> {
     trap: Option<TrapState>,
     loop_stack: Vec<LoopLabels>,
     active_cleanups: Vec<ActiveCleanup>,
+    /// One entry per open `lower_ops` scope, holding the `active_cleanups` length
+    /// at that scope's entry. Index 0 is the function body (the scope the trap
+    /// handler shares). Used to compute which cleanups an error routed to a trap
+    /// must run: only those belonging to inner blocks being exited, never the
+    /// function-level locals that stay live (and visible) in the trap body.
+    cleanup_scope_starts: Vec<usize>,
     pending_result_slots: Option<PendingResultSlots>,
     error_arena_restore_slot: Option<usize>,
     /// When set, an inline built-in error return (`emit_error_register_return`)
@@ -787,6 +793,13 @@ struct CodeBuilder<'a> {
     owner_collections: HashSet<String>,
     /// Live owned-lists: collection binding name -> head-pointer stack slot.
     owned_list_heads: HashMap<String, usize>,
+    /// Stack slots of owned freeable-flat locals, recorded as each is bound.
+    /// In a function with a trap handler, an error can jump to the handler past
+    /// a not-yet-run `LET`, so the handler's scope-drop would free a slot whose
+    /// initializer never executed. Zeroing these slots in the prologue makes the
+    /// handler's null-guarded frees skip such slots (the per-`LET` zero-init only
+    /// guards a binding's *own* trapping initializer, not an earlier jump past it).
+    owned_value_slots: Vec<usize>,
 }
 
 #[derive(Clone)]
@@ -3277,6 +3290,7 @@ fn lower_function(
         trap: None,
         loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
+        cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
@@ -3292,6 +3306,7 @@ fn lower_function(
             .collect(),
         resource_owners: function.resource_owners.clone(),
         owned_list_heads: HashMap::new(),
+        owned_value_slots: Vec::new(),
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -3344,6 +3359,30 @@ fn lower_function(
         builder.emit_return_exit(None)?;
     }
     let mut instructions = builder.instructions;
+    // In a trap function, an error can jump to the handler past a not-yet-run
+    // `LET`; zero every owned freeable-flat slot at entry so the handler's
+    // scope-drop skips any binding whose initializer never executed. The stores
+    // are sp-relative with pre-prologue offsets, so `finalize_frame` shifts them
+    // by the callee-save area like every other stack access.
+    if builder.trap.is_some() && !builder.owned_value_slots.is_empty() {
+        let mut zeroing = Vec::new();
+        zeroing.push(abi::move_immediate("x9", "Integer", "0"));
+        let mut slots = builder.owned_value_slots.clone();
+        slots.sort_unstable();
+        slots.dedup();
+        for slot in slots {
+            zeroing.push(abi::store_u64("x9", abi::stack_pointer(), slot));
+        }
+        let insert_at = if instructions
+            .first()
+            .is_some_and(|instruction| instruction.op == CodeOp::Label)
+        {
+            1
+        } else {
+            0
+        };
+        instructions.splice(insert_at..insert_at, zeroing);
+    }
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(
         &mut instructions,
@@ -3410,6 +3449,7 @@ fn lower_builtin_function_wrapper(
         trap: None,
         loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
+        cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
@@ -3418,6 +3458,7 @@ fn lower_builtin_function_wrapper(
         resource_owners: HashMap::new(),
         owner_collections: HashSet::new(),
         owned_list_heads: HashMap::new(),
+        owned_value_slots: Vec::new(),
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -4526,6 +4567,7 @@ fn lower_direct_builtin_runtime_helper(
         trap: None,
         loop_stack: Vec::new(),
         active_cleanups: Vec::new(),
+        cleanup_scope_starts: Vec::new(),
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
@@ -4534,6 +4576,7 @@ fn lower_direct_builtin_runtime_helper(
         resource_owners: HashMap::new(),
         owner_collections: HashSet::new(),
         owned_list_heads: HashMap::new(),
+        owned_value_slots: Vec::new(),
     };
 
     let args = spec

@@ -3,6 +3,17 @@ use super::*;
 impl CodeBuilder<'_> {
     pub(super) fn lower_ops(&mut self, ops: &[NirOp]) -> Result<(), String> {
         let cleanup_scope_start = self.active_cleanups.len();
+        self.cleanup_scope_starts.push(cleanup_scope_start);
+        let result = self.lower_ops_inner(ops, cleanup_scope_start);
+        self.cleanup_scope_starts.pop();
+        result
+    }
+
+    fn lower_ops_inner(
+        &mut self,
+        ops: &[NirOp],
+        cleanup_scope_start: usize,
+    ) -> Result<(), String> {
         for op in ops {
             let result = (|| -> Result<(), String> {
                 match op {
@@ -164,6 +175,7 @@ impl CodeBuilder<'_> {
                                     type_: type_.clone(),
                                     stack_offset,
                                 }));
+                            self.owned_value_slots.push(stack_offset);
                         }
                         // Default-initialize a `RES` binding's `STATE` payload.
                         // The owning binding allocates the state record on first

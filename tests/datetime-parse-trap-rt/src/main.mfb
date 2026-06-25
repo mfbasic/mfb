@@ -1,0 +1,60 @@
+IMPORT io
+IMPORT datetime
+IMPORT errorCode
+
+REM Regression: a TRAP catching an error that propagated up through a deep call
+REM chain (datetime::parse) must run the handler correctly regardless of which
+REM owned locals are live in the scope. Routing the error to the handler used to
+REM re-run the scope-drop over the function-level owned locals the handler still
+REM owns, double-freeing them — a layout-sensitive SIGKILL/SIGSEGV in the trap
+REM path. The handler's own exit frees them exactly once.
+
+REM An owned String local declared BEFORE the failing parse: it stays live in
+REM the handler (read below) and must be freed once, on the handler's exit.
+FUNC parsePreLocal AS Integer
+  LET keep AS String = "preTrapLocal"
+  LET dt AS DateTime = datetime::parse("nope", "yyyy-MM-dd")
+  RETURN dt.date.year
+  TRAP(err)
+    io::print("pre keep=" & keep)
+    io::print("pre invalid=" & toString(err.code = errorCode::ErrInvalidFormat))
+    RETURN -1
+  END TRAP
+END FUNC
+
+REM An owned String local declared AFTER the failing parse: its initializer
+REM never runs, so the handler's scope-drop must skip its (zeroed) slot rather
+REM than free an uninitialized pointer.
+FUNC parsePostLocal AS Integer
+  LET dt AS DateTime = datetime::parse("nope", "yyyy-MM-dd")
+  LET after AS String = "neverInitialized"
+  io::print(after)
+  RETURN dt.date.year
+  TRAP(err)
+    io::print("post invalid=" & toString(err.code = errorCode::ErrInvalidFormat))
+    RETURN -2
+  END TRAP
+END FUNC
+
+REM The parse fails inside an inner block: the inner-block local is freed at the
+REM route, while the function-level local survives into the handler.
+FUNC parseInnerBlock AS Integer
+  LET top AS String = "topLevel"
+  IF TRUE THEN
+    LET inner AS String = "innerBlock"
+    LET dt AS DateTime = datetime::parse("nope", "yyyy-MM-dd")
+    io::print(inner & toString(dt.date.year))
+  END IF
+  RETURN 0
+  TRAP(err)
+    io::print("inner top=" & top)
+    RETURN -3
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  io::print("parsePreLocal=" & toString(parsePreLocal()))
+  io::print("parsePostLocal=" & toString(parsePostLocal()))
+  io::print("parseInnerBlock=" & toString(parseInnerBlock()))
+  RETURN 0
+END FUNC

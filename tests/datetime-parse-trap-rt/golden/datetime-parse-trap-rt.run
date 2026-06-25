@@ -1,0 +1,7 @@
+pre keep=preTrapLocal
+pre invalid=TRUE
+parsePreLocal=-1
+post invalid=TRUE
+parsePostLocal=-2
+inner top=topLevel
+parseInnerBlock=-3
