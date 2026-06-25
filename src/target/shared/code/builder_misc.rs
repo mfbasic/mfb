@@ -1109,6 +1109,80 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// True when a `Result` payload of `payload_type` is a heap block addressed by
+    /// pointer (inlined whole), versus an inline scalar (stored in the 8-byte
+    /// payload word). Mirrors the record/collection inline rules (plan-02 §4.3).
+    pub(super) fn result_payload_is_block(&self, payload_type: &str) -> bool {
+        payload_type == "String"
+            || payload_type == "Error"
+            || is_collection_type(payload_type)
+            || payload_type.starts_with("Result OF ")
+            || self.type_model.record_fields.contains_key(payload_type)
+            || self.type_model.union_names.contains(payload_type)
+    }
+
+    /// Build a flat `Result` value `{tag @0, size @8, payload @16}` (plan-02
+    /// §4.3): a scalar payload occupies the 8-byte word at +16 (total 24 bytes); a
+    /// block payload (`String`/record/union/collection/`Error`/nested `Result`) is
+    /// inlined whole at +16, sized by `emit_inlined_block_size_from_ptr_slot`.
+    /// `tag_slot` holds the active tag; `payload_slot` holds the scalar value or
+    /// the block pointer. Returns a register with the Result pointer.
+    pub(super) fn emit_build_result_inline(
+        &mut self,
+        tag_slot: usize,
+        payload_type: &str,
+        payload_slot: usize,
+    ) -> Result<String, String> {
+        let is_block = self.result_payload_is_block(payload_type);
+        let size_slot = self.allocate_stack_object("result_size", 8);
+        let block_slot = self.allocate_stack_object("result_block", 8);
+        let result_slot = self.allocate_stack_object("result_value", 8);
+        let alloc_ok = self.label("result_inline_alloc_ok");
+        if is_block {
+            self.emit_inlined_block_size_from_ptr_slot(payload_type, payload_slot, block_slot)?;
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), block_slot));
+            self.emit(abi::add_immediate("x8", "x8", 16));
+            self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        } else {
+            self.emit(abi::move_immediate("x8", "Integer", "24"));
+            self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        }
+        self.emit(abi::load_u64(abi::return_register(), abi::stack_pointer(), size_slot));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        // tag @0, size @8.
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
+        self.emit(abi::store_u64("x9", "x1", 0));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), size_slot));
+        self.emit(abi::store_u64("x9", "x1", 8));
+        // payload @16.
+        if is_block {
+            self.emit(abi::add_immediate("x10", "x1", 16));
+            self.emit(abi::load_u64("x11", abi::stack_pointer(), payload_slot));
+            self.emit(abi::load_u64("x12", abi::stack_pointer(), block_slot));
+            self.emit_copy_bytes("x10", "x11", "x12", "result_payload_copy");
+        } else {
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), payload_slot));
+            self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+            self.emit(abi::store_u64("x9", "x1", 16));
+        }
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
     pub(super) fn materialize_current_result(
         &mut self,
         success_type: &str,
@@ -1125,7 +1199,6 @@ impl CodeBuilder<'_> {
         let source_raw_slot = self.allocate_stack_object("raw_result_source_raw", 8);
         let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
         let result_slot = self.allocate_stack_object("raw_result", 8);
-        let alloc_ok = self.label("result_construct_alloc_ok");
         let wrap_error_label = self.label("result_wrap_error");
         let have_payload_label = self.label("result_have_payload");
 
@@ -1159,6 +1232,8 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             payload_slot,
         ));
+        let ok_result = self.emit_build_result_inline(tag_slot, success_type, payload_slot)?;
+        self.emit(abi::store_u64(&ok_result, abi::stack_pointer(), result_slot));
         self.emit(abi::branch(&have_payload_label));
 
         self.emit(abi::label(&wrap_error_label));
@@ -1198,31 +1273,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             payload_slot,
         ));
+        let err_result = self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+        self.emit(abi::store_u64(&err_result, abi::stack_pointer(), result_slot));
 
         self.emit(abi::label(&have_payload_label));
-        self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
-        self.emit(abi::store_u64("x9", "x1", 0));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), payload_slot));
-        self.emit(abi::store_u64("x9", "x1", 8));
-
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
@@ -1698,17 +1752,20 @@ impl CodeBuilder<'_> {
         if self.type_model.record_fields.contains_key(type_) {
             // A record payload was byte-copied whole (inlined fields came along);
             // it only needs the per-payload fix if it still has pointer fields to
-            // deep-copy (plan-02 §4.2). (`Error`/`ErrorLoc` land here too — their
-            // `String` fields are pointers, so this returns true for them.)
+            // deep-copy (plan-02 §4.2).
             return self.record_needs_pointer_field_fix(type_);
         }
-        if is_collection_type(type_) || self.type_model.union_names.contains(type_) {
-            // A flat nested collection or flat data union was inlined and copied
-            // whole; only a non-flat one (an embedded pointer/resource payload)
-            // needs the per-payload deep-copy fix (plan-02 §4.3/§4.4).
+        if is_collection_type(type_)
+            || self.type_model.union_names.contains(type_)
+            || type_.starts_with("Result OF ")
+        {
+            // A flat nested collection / data union / `Result` was inlined and
+            // copied whole; only a non-flat one (an embedded pointer/resource
+            // payload) needs the per-payload deep-copy fix (plan-02 §4.3/§4.4).
+            // Bare resource payloads fall through (moved verbatim, no fix).
             return !self.type_is_flat(type_);
         }
-        type_.starts_with("Result OF ")
+        false
     }
 
     fn fix_collection_transfer_payload(

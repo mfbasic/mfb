@@ -263,6 +263,10 @@ impl CodeBuilder<'_> {
         }
         let result = if type_ == "String" {
             true
+        } else if let Some(payload) = type_.strip_prefix("Result OF ") {
+            // A flat `Result` `{tag, size, payload}` is pointer-free when its
+            // success payload is flat (the `Err` variant is the now-flat `Error`).
+            self.type_is_flat_inner(payload, visited)
         } else if is_collection_type(type_) {
             // A collection is flat when every payload is flat — including a nested
             // flat collection, which is inlined in the data region (plan-02 §4.4,
@@ -314,7 +318,8 @@ impl CodeBuilder<'_> {
         }
         let is_composite = self.type_model.record_fields.contains_key(field_type)
             || self.type_model.union_names.contains(field_type)
-            || is_collection_type(field_type);
+            || is_collection_type(field_type)
+            || field_type.starts_with("Result OF ");
         is_composite && self.type_is_flat(field_type)
     }
 
@@ -340,7 +345,7 @@ impl CodeBuilder<'_> {
     /// is in `ptr_slot`, into `out_slot`. An inlined `String` is `len + 9`; an
     /// inlined nested record recurses through `emit_record_block_size_to_slot`.
     /// Clobbers x8/x9/x12/x13 (and the recursion's scratch).
-    fn emit_inlined_block_size_from_ptr_slot(
+    pub(super) fn emit_inlined_block_size_from_ptr_slot(
         &mut self,
         field_type: &str,
         ptr_slot: usize,
@@ -354,8 +359,9 @@ impl CodeBuilder<'_> {
             Ok(())
         } else if self.type_model.record_fields.contains_key(field_type) {
             self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
-        } else if self.union_is_data(field_type) {
-            // A data union is self-describing: its `size` word lives at +8.
+        } else if self.union_is_data(field_type) || field_type.starts_with("Result OF ") {
+            // A data union and a flat `Result` are self-describing: their `size`
+            // word lives at +8 (plan-02 §4.3).
             self.emit_data_union_size_to_slot(ptr_slot, out_slot);
             Ok(())
         } else if is_collection_type(field_type) {
