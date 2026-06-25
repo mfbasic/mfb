@@ -1,0 +1,52 @@
+' plan-02 Phase 5 proof: a record/union field that is a fully-flat collection (or
+' flat data union) is inlined into the enclosing block's data region by offset,
+' reusing the collection's self-describing size. Exercises a record with a List
+' field and a Map field, a record holding a List of String-bearing records, copy
+' independence across an append (which rebuilds the inlined collection), reading
+' elements back, and a union variant carrying a List. Runs under entropy poisoning.
+IMPORT io
+IMPORT collections
+
+TYPE Bag
+  items AS List OF Integer
+  labels AS Map OF String TO Integer
+END TYPE
+
+TYPE Person
+  name AS String
+END TYPE
+
+TYPE Team
+  members AS List OF Person
+  size AS Integer
+END TYPE
+
+FUNC sumItems(b AS Bag) AS Integer
+  MUT total AS Integer = 0
+  FOR EACH n IN b.items
+    total = total + n
+  NEXT
+  RETURN total
+END FUNC
+
+FUNC main AS Integer
+  LET b AS Bag = Bag[[10, 20, 30], Map OF String TO Integer { "a" := 1, "b" := 2 }]
+  io::print(toString(sumItems(b)))
+  io::print(toString(collections::get(b.items, 1)))
+  io::print(toString(collections::get(b.labels, "b")))
+
+  ' Copy by value, then make a variant with one more item: original list intact.
+  LET b2 AS Bag = b
+  LET grown AS List OF Integer = collections::append(b.items, 40)
+  LET b3 AS Bag = WITH b { items := grown }
+  io::print(toString(sumItems(b)) & "/" & toString(sumItems(b2)) & "/" & toString(sumItems(b3)))
+
+  ' A record holding a List of String-bearing records (inlined recursively).
+  LET t AS Team = Team[[Person["Ada"], Person["Grace"]], 2]
+  io::print(collections::get(t.members, 0).name & "+" & collections::get(t.members, 1).name)
+  io::print(toString(len(t.members)) & "/" & toString(t.size))
+  LET t2 AS Team = t
+  io::print(collections::get(t2.members, 1).name)
+
+  RETURN 0
+END FUNC

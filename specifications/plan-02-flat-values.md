@@ -70,7 +70,33 @@ Last updated: 2026-06-24
   `tests/flat-union-rt` (scalar/String/nested-record variants, `MATCH`, copy,
   `List` of variable-size unions) is deterministic under entropy poisoning.
   `Result`/`Error` keep their current ABI-wired representation (a later step).
-- Phases 5–8 — pending.
+- **Phase 5 (collection/union fields of records) — DONE (part b).** A record or
+  union-variant field that is a **fully-flat** collection (`List`/`Map` whose
+  payloads are flat and not themselves collections) or a **flat data union** is
+  now inlined into the enclosing block's data region by offset, reusing the
+  collection's self-describing size (`emit_flat_block_size`) and the data union's
+  `size@8`. A single cycle-detecting predicate `type_is_flat` (with a `visited`
+  path set) now decides inlining for records, data unions, and collections
+  uniformly — recursive types (e.g. `ConfigJson` ⊇ `Map OF String TO ConfigJson`)
+  stay pointers, so they don't blow up the compiler or imply infinite-size blocks.
+  `emit_inlined_block_size_from_ptr_slot` gained union (`size@8`) and collection
+  (`emit_flat_block_size`) branches; field read / `WITH` / copy / collection
+  embedding all follow `record_field_is_inlined`. Validated: full acceptance green
+  (`control-flow-match` ncode resynced, runtime identical), `types-union`
+  (`ShapeBag { shapes AS List OF Shape }`), `builtin-pair-partition-valid`
+  (`Partition` List fields), `types-record-comparable-runtime`, and
+  `types-recursive-record-valid` (recursive `ConfigJson`) pass; new runtime proof
+  `tests/flat-record-collection-rt` (record with `List`+`Map` fields, a record
+  holding a `List` of `String`-bearing records, copy/append independence) is
+  deterministic under entropy poisoning.
+  - **Part (a) — PENDING:** nested collections inside a *collection's* data region
+    (`List OF List`, `Map OF String TO List`) are still 8-byte pointer handles
+    (`memory_layouts.md` Collection §; `is_pointer_collection_payload_type`).
+    Inlining them needs the collection layout-writer (append/insert/get/copy/
+    compaction) to handle variable-size collection payloads — the most intricate
+    remaining change. Until then `type_is_flat` correctly treats any collection
+    with a nested-collection payload as **not** flat (so it stays a pointer).
+- Phases 6–8 — pending.
 
 ### Phase 4 scoping (ready for continuation)
 

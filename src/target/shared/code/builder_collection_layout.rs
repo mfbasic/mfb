@@ -223,42 +223,89 @@ impl CodeBuilder<'_> {
             || field_type == "Error"
     }
 
-    /// True when `type_` is a record whose every field is itself flat — scalars,
-    /// inlined `String`s, and (recursively) fully-flat nested records — so the
-    /// whole record block is pointer-free and a `memcpy` is a deep copy. A field
-    /// that is a `Union`/`List`/`Map`/`Result`/`Error`, or a not-yet-flat nested
-    /// record, makes the record non-flat. Helper-built records
-    /// (`is_pointer_string_record`) are never flat (their `String`s are pointers).
-    pub(super) fn record_is_fully_flat(&self, type_: &str) -> bool {
-        if self.is_pointer_string_record(type_) {
+    /// The payload value types a collection stores: the element type for a
+    /// `List`, the key and value types for a `Map`.
+    fn collection_payload_types(&self, type_: &str) -> Vec<String> {
+        if let Some(value) = type_.strip_prefix("List OF ") {
+            vec![value.to_string()]
+        } else if let Some((key, value)) = map_type_parts(type_) {
+            vec![key, value]
+        } else {
+            Vec::new()
+        }
+    }
+
+    /// True when a value of `type_` is **fully flat** — a single pointer-free
+    /// block that a `memcpy` deep-copies. Flat types: scalars, `String`, a record
+    /// whose every field is flat, a **data** union whose every variant is flat,
+    /// and a collection whose payloads are flat **and not themselves collections**
+    /// (nested collections are still pointers — plan-02 §4.4 pending). Not flat:
+    /// resource unions/handles, `Result`, `Error`/`ErrorLoc` and the other
+    /// helper-built pointer-`String` records, and any recursive type (broken by
+    /// the `visited` path set, so a cyclic type stays a pointer).
+    pub(super) fn type_is_flat(&self, type_: &str) -> bool {
+        let mut visited = std::collections::HashSet::new();
+        self.type_is_flat_inner(type_, &mut visited)
+    }
+
+    fn type_is_flat_inner(
+        &self,
+        type_: &str,
+        visited: &mut std::collections::HashSet<String>,
+    ) -> bool {
+        if !visited.insert(type_.to_string()) {
+            // Already on the current path: a type cycle. Cyclic values cannot be
+            // a single finite flat block, so treat them as pointers.
             return false;
         }
-        let Some(fields) = self.type_model.record_fields.get(type_) else {
-            return false;
+        let result = if type_ == "String" {
+            true
+        } else if is_collection_type(type_) {
+            self.collection_payload_types(type_).into_iter().all(|p| {
+                !is_collection_type(&p) && self.type_is_flat_inner(&p, visited)
+            })
+        } else if self.type_model.record_fields.contains_key(type_) {
+            !self.is_pointer_string_record(type_)
+                && self
+                    .type_model
+                    .record_fields
+                    .get(type_)
+                    .cloned()
+                    .unwrap_or_default()
+                    .iter()
+                    .all(|(_, ft)| self.type_is_flat_inner(ft, visited))
+        } else if self.union_is_data(type_) {
+            self.type_model
+                .variants_for_union(type_)
+                .map(|variant| variant.to_string())
+                .collect::<Vec<_>>()
+                .iter()
+                .all(|variant| self.type_is_flat_inner(variant, visited))
+        } else {
+            // A scalar (anything that is not a pointer composite or `String`) is
+            // flat; everything else (resource/resource-union/`Result`) is not.
+            !self.record_field_is_pointer(type_)
         };
-        fields.clone().iter().all(|(_, ft)| {
-            if ft == "String" {
-                true
-            } else if self.type_model.record_fields.contains_key(ft) {
-                self.record_is_fully_flat(ft)
-            } else {
-                // Scalars are flat; pointer composites (collection/union/Result/
-                // Error) are not.
-                !self.record_field_is_pointer(ft)
-            }
-        })
+        visited.remove(type_);
+        result
     }
 
     /// True when field `field_type` of `record_type` is inlined into the record's
     /// trailing data region (the slot holds a block-relative offset): an inlined
-    /// `String`, or a fully-flat nested record (plan-02 §4.2, Phases 2–3).
+    /// `String`, or a fully-flat composite — a nested record, a flat data union,
+    /// or a flat collection (plan-02 §4.2–§4.4). Scalars stay inline in the slot;
+    /// not-yet-flat composites stay pointers.
     pub(super) fn record_field_is_inlined(&self, record_type: &str, field_type: &str) -> bool {
         if self.is_pointer_string_record(record_type) {
             return false;
         }
-        field_type == "String"
-            || (self.type_model.record_fields.contains_key(field_type)
-                && self.record_is_fully_flat(field_type))
+        if field_type == "String" {
+            return true;
+        }
+        let is_composite = self.type_model.record_fields.contains_key(field_type)
+            || self.type_model.union_names.contains(field_type)
+            || is_collection_type(field_type);
+        is_composite && self.type_is_flat(field_type)
     }
 
     /// True when `record_type` has at least one inlined field (so its block is
@@ -295,8 +342,21 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_immediate("x9", "x9", 9));
             self.emit(abi::store_u64("x9", abi::stack_pointer(), out_slot));
             Ok(())
-        } else {
+        } else if self.type_model.record_fields.contains_key(field_type) {
             self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
+        } else if self.union_is_data(field_type) {
+            // A data union is self-describing: its `size` word lives at +8.
+            self.emit_data_union_size_to_slot(ptr_slot, out_slot);
+            Ok(())
+        } else if is_collection_type(field_type) {
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), ptr_slot));
+            self.emit_flat_block_size(field_type, "x8", "x9", "x10")?;
+            self.emit(abi::store_u64("x9", abi::stack_pointer(), out_slot));
+            Ok(())
+        } else {
+            Err(format!(
+                "native inlined field size not available for type '{field_type}'"
+            ))
         }
     }
 
