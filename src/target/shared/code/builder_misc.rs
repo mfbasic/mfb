@@ -1303,80 +1303,23 @@ impl CodeBuilder<'_> {
             // Phase 6). Only types that still embed pointers fall through to the
             // per-type glue below.
             other if self.type_is_flat(other) => self.copy_flat_block(other, source),
-            "Error" => self.copy_error_to_current_arena(source),
-            other if other.starts_with("Result OF ") => {
-                self.copy_result_to_current_arena(other, source)
-            }
+            // The only non-flat values left are resources and the collections /
+            // unions that embed them (the single remaining pointer, plan-02 §9).
+            // Their transfer copy is still a `memcpy` that moves the resource
+            // handle verbatim, plus the per-payload no-op kept for symmetry.
             other if is_collection_type(other) => {
                 self.copy_collection_to_current_arena(other, source)
             }
             other if crate::builtins::is_thread_sendable_resource_type(other) => {
                 self.copy_resource_to_current_arena(source)
             }
-            other => {
-                if self.type_model.record_fields.contains_key(other) {
-                    return self.copy_record_to_current_arena(other, source);
-                }
-                if self.type_model.union_names.contains(other) {
-                    return self.copy_union_to_current_arena(other, source);
-                }
-                Err(format!(
-                    "native thread transfer cannot copy value of type '{other}'"
-                ))
+            other if self.type_model.union_names.contains(other) => {
+                self.copy_union_to_current_arena(other, source)
             }
+            other => Err(format!(
+                "native thread transfer cannot copy value of type '{other}'"
+            )),
         }
-    }
-
-    fn copy_error_to_current_arena(&mut self, source: &str) -> Result<String, String> {
-        let source_slot = self.allocate_stack_object("thread_copy_error_source", 8);
-        let result_slot = self.allocate_stack_object("thread_copy_error_result", 8);
-        let alloc_ok = self.label("thread_copy_error_alloc_ok");
-        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-        self.emit(abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &ERROR_OBJECT_SIZE.to_string(),
-        ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        let field_slot = self.allocate_stack_object("thread_copy_error_field", 8);
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        // code: copied directly.
-        self.emit(abi::load_u64("x10", "x9", 0));
-        self.emit(abi::store_u64("x10", "x1", 0));
-        // message: deep-copied String into the destination arena.
-        self.emit(abi::load_u64("x10", "x9", 8));
-        let copied_message = self.copy_value_to_current_arena("String", "x10")?;
-        self.emit(abi::store_u64(&copied_message, abi::stack_pointer(), field_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), field_slot));
-        self.emit(abi::store_u64("x10", "x9", 8));
-        // source: deep-copied ErrorLoc record (its filename String comes along).
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x10", "x9", 16));
-        let copied_source = self.copy_value_to_current_arena("ErrorLoc", "x10")?;
-        self.emit(abi::store_u64(&copied_source, abi::stack_pointer(), field_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), field_slot));
-        self.emit(abi::store_u64("x10", "x9", 16));
-        let result = self.allocate_register()?;
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        Ok(result)
     }
 
     /// Materialize a thread-sendable resource handle (e.g. `File`) into the
@@ -1424,77 +1367,6 @@ impl CodeBuilder<'_> {
         Ok(result)
     }
 
-    fn copy_result_to_current_arena(
-        &mut self,
-        type_: &str,
-        source: &str,
-    ) -> Result<String, String> {
-        let success_type = type_
-            .strip_prefix("Result OF ")
-            .ok_or_else(|| {
-                format!("native thread transfer result type '{type_}' does not resolve")
-            })?
-            .to_string();
-        let source_slot = self.allocate_stack_object("thread_copy_result_source", 8);
-        let tag_slot = self.allocate_stack_object("thread_copy_result_tag", 8);
-        let payload_slot = self.allocate_stack_object("thread_copy_result_payload", 8);
-        let result_slot = self.allocate_stack_object("thread_copy_result_result", 8);
-        let alloc_ok = self.label("thread_copy_result_alloc_ok");
-        let copy_error = self.label("thread_copy_result_error");
-        let have_payload = self.label("thread_copy_result_have_payload");
-        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x9", source, 0));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), tag_slot));
-        self.emit(abi::compare_immediate("x9", RESULT_OK_TAG));
-        self.emit(abi::branch_ne(&copy_error));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x10", "x9", 8));
-        let copied_success = self.copy_value_to_current_arena(&success_type, "x10")?;
-        self.emit(abi::store_u64(
-            &copied_success,
-            abi::stack_pointer(),
-            payload_slot,
-        ));
-        self.emit(abi::branch(&have_payload));
-
-        self.emit(abi::label(&copy_error));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x10", "x9", 8));
-        let copied_error = self.copy_value_to_current_arena("Error", "x10")?;
-        self.emit(abi::store_u64(
-            &copied_error,
-            abi::stack_pointer(),
-            payload_slot,
-        ));
-
-        self.emit(abi::label(&have_payload));
-        self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
-        self.emit(abi::store_u64("x9", "x1", 0));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), payload_slot));
-        self.emit(abi::store_u64("x9", "x1", 8));
-        let result = self.allocate_register()?;
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        Ok(result)
-    }
-
     /// True when field `field_type` of `record_type` is a pointer to a separate
     /// allocation that a whole-block `memcpy` would alias and must therefore be
     /// deep-copied. Inlined fields (`String` and fully-flat nested records) come
@@ -1518,76 +1390,6 @@ impl CodeBuilder<'_> {
                     .any(|(_, ft)| self.record_field_is_pointer_in(record_type, ft))
             })
             .unwrap_or(false)
-    }
-
-    fn copy_record_to_current_arena(
-        &mut self,
-        type_: &str,
-        source: &str,
-    ) -> Result<String, String> {
-        let fields = self
-            .type_model
-            .record_fields
-            .get(type_)
-            .cloned()
-            .ok_or_else(|| {
-                format!("native thread transfer record type '{type_}' does not resolve")
-            })?;
-        let source_slot = self.allocate_stack_object("thread_copy_record_source", 8);
-        let size_slot = self.allocate_stack_object("thread_copy_record_size", 8);
-        let result_slot = self.allocate_stack_object("thread_copy_record_result", 8);
-        let alloc_ok = self.label("thread_copy_record_alloc_ok");
-        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
-        // The record's flat block (fixed slots + inlined String data) is
-        // self-describing; size it, allocate, and copy the whole block. Inlined
-        // String fields come along verbatim because their offsets are
-        // block-relative (plan-02 §4.1/§4.2).
-        self.emit_record_block_size_to_slot(type_, source_slot, size_slot)?;
-        self.emit(abi::load_u64(
-            abi::return_register(),
-            abi::stack_pointer(),
-            size_slot,
-        ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), size_slot));
-        self.emit_copy_bytes("x1", "x9", "x10", "thread_copy_record_block");
-        // Deep-copy any pointer fields so the copy shares nothing.
-        let copied_slot = self.allocate_stack_object("thread_copy_record_field", 8);
-        for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_pointer_in(type_, field_type) {
-                continue;
-            }
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-            self.emit(abi::load_u64("x10", "x9", index * 8));
-            let copied = self.copy_value_to_current_arena(field_type, "x10")?;
-            // Stash the copied value before reloading the result pointer into x9:
-            // `copied` is an allocated register that may itself be x9.
-            self.emit(abi::store_u64(&copied, abi::stack_pointer(), copied_slot));
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
-            self.emit(abi::load_u64("x10", abi::stack_pointer(), copied_slot));
-            self.emit(abi::store_u64("x10", "x9", index * 8));
-        }
-        let result = self.allocate_register()?;
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        Ok(result)
     }
 
     fn copy_union_to_current_arena(&mut self, type_: &str, source: &str) -> Result<String, String> {
