@@ -10,12 +10,12 @@ Wrote executable to tests/func_regex_find_valid/func_regex_find_valid.out
 $ tests/func_regex_find_valid/func_regex_find_valid.out
 2
 3
-Err77050004
+-1
 1
 0
-Err77050004
+-1
 0
-Err77050004
+-1
 Err77050001
 4
 1

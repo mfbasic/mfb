@@ -329,7 +329,7 @@ scalar indexes, not byte offsets (`regex.md` §2). Key properties:
 | Function | Signature | Behavior |
 |----------|-----------|----------|
 | `regex::match` | `FUNC match(value AS String, pattern AS String) AS Boolean` | `TRUE` when `pattern` matches anywhere in `value`. |
-| `regex::find` | `FUNC find(value AS String, pattern AS String, start AS Integer = 0) AS Integer` | Returns the zero-based scalar index of the first regex match at or after `start`. Fails with `ErrNotFound` when absent. |
+| `regex::find` | `FUNC find(value AS String, pattern AS String, start AS Integer = 0) AS Integer` | Returns the zero-based scalar index of the first regex match at or after `start`, or `-1` when there is no match. Fails with `ErrIndexOutOfRange` when `start` is outside `0 .. len(value)`. |
 | `regex::findAll` | `FUNC findAll(value AS String, pattern AS String, start AS Integer = 0) AS List OF Integer` | Returns the zero-based scalar start index of every non-overlapping match at or after `start`, left to right. Returns an empty list when there are none (it does not fail with `ErrNotFound`). |
 | `regex::replace` | `FUNC replace(value AS String, pattern AS String, replacement AS String) AS String` | Replaces all regex matches. |
 

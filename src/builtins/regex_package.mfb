@@ -1782,7 +1782,7 @@ FUNC __regex_find(value AS String, pattern AS String, start AS Integer) AS Integ
   END IF
   LET r AS RxResult = rxSearchFrom(prog, ctx, start)
   IF r.ok = FALSE THEN
-    FAIL error(77050004, "not found")
+    RETURN -1
   END IF
   RETURN collections::get(r.caps, 0)
 END FUNC

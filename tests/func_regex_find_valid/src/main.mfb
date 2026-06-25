@@ -1,9 +1,10 @@
 IMPORT io
 IMPORT regex
 
-REM regex.md §17.2 worked examples. `find` fails with ErrNotFound (77050004)
-REM when absent and ErrIndexOutOfRange (77050001) when `start` is out of range;
-REM both are caught here and reported as text so the run is total.
+REM regex.md §17.2 worked examples. `find` returns -1 when there is no match,
+REM and fails with ErrIndexOutOfRange (77050001) only when `start` is out of
+REM range; the range error is caught here and reported as text so the run is
+REM total.
 
 FUNC findOr(value AS String, pattern AS String, start AS Integer) AS String
   RETURN toString(regex::find(value, pattern, start))

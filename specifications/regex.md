@@ -36,7 +36,7 @@ FUNC replace(value AS String, pattern AS String, replacement AS String) AS Strin
 
 - `match` returns `TRUE` when `pattern` matches anywhere in `value`.
 - `find` returns the zero-based Unicode scalar index where the first match at or
-  after `start` begins.
+  after `start` begins, or `-1` when there is no such match.
 - `findAll` returns the zero-based Unicode scalar start index of *every*
   non-overlapping match at or after `start`, left to right.
 - `replace` returns `value` with every non-overlapping match replaced by the
@@ -451,7 +451,8 @@ returns `FALSE`. `match` never fails with `ErrNotFound`; absence is `FALSE`.
 3. Find the leftmost match (§4) whose start position is `>= start`. Anchors are
    still evaluated against the full input (§11.2).
 4. On success, return the match's **start** scalar index. On no match at or after
-   `start`, fail with `ErrNotFound` (`77050004`).
+   `start`, return `-1`. (`find` does not fail with `ErrNotFound`; because every
+   real match position is `>= 0`, `-1` is an unambiguous "no match" sentinel.)
 
 A zero-length match is a valid result: `find` returns its position.
 
@@ -585,12 +586,12 @@ an invalid `pattern` fails (`ErrInvalidFormat`).
 | Condition                                   | Failure                                  |
 |---------------------------------------------|------------------------------------------|
 | invalid `pattern` (any function)            | `ErrInvalidFormat` (`77050003`)          |
-| `find` no match at or after `start`         | `ErrNotFound` (`77050004`)               |
 | `find`/`findAll` `start` outside `0 .. len(value)` | `ErrIndexOutOfRange` (`77050001`)  |
 
-`findAll` never fails with `ErrNotFound`: when there is no match at or after
-`start` it returns an empty list (§12.5). Only `find`'s single-result contract
-fails on absence.
+No `regex` function fails on the *absence* of a match. `match` returns `FALSE`,
+`find` returns `-1` (§12.2), `findAll` returns an empty list (§12.5), and
+`replace` returns `value` unchanged. `ErrNotFound` is never raised by this
+package.
 
 A malformed pattern must **not** be mapped to `FALSE`, `-1`, an unchanged source
 string, or any host/errno-style error.
@@ -705,12 +706,12 @@ Each row is a normative example and should have a corresponding test under
 |---------------|------------|-------|-----------------------|-----------------------------------|
 | `"hello"`     | `"l"`      | `0`   | `2`                   | first `l` at index 2              |
 | `"hello"`     | `"l"`      | `3`   | `3`                   | first `l` at or after 3           |
-| `"hello"`     | `"l"`      | `4`   | `ErrNotFound`         | no `l` at or after 4              |
+| `"hello"`     | `"l"`      | `4`   | `-1`                  | no `l` at or after 4              |
 | `"a1b2c3"`    | `"\d"`     | `0`   | `1`                   | first digit                       |
 | `"aaa"`       | `"a+"`     | `0`   | `0`                   | leftmost; greedy matches `aaa`, start is 0 |
-| `"abc"`       | `"x"`      | `0`   | `ErrNotFound`         | no match                          |
+| `"abc"`       | `"x"`      | `0`   | `-1`                  | no match                          |
 | `"abc"`       | `""`       | `0`   | `0`                   | empty pattern matches at 0        |
-| `"abc"`       | `"^b"`     | `1`   | `ErrNotFound`         | `^` is absolute pos 0, not `start`|
+| `"abc"`       | `"^b"`     | `1`   | `-1`                  | `^` is absolute pos 0, not `start`|
 | `"hello"`     | `"l"`      | `6`   | `ErrIndexOutOfRange`  | `start > len` (len is 5)          |
 | `"hello"`     | `"o$"`     | `0`   | `4`                   | `$` at end of input               |
 
