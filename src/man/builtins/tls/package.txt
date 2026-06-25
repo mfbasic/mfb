@@ -1,0 +1,91 @@
+NAME
+  tls - connect to TLS servers and exchange encrypted application data
+
+SYNOPSIS
+  IMPORT tls
+  RES conn = tls::connect(host, port)
+  RES conn = tls::connect(host, port, timeoutMs, serverName)
+  tls::writeText(conn, value)
+  tls::write(conn, bytes)
+  LET reply = tls::readText(conn, maxBytes)
+  LET chunk = tls::read(conn, maxBytes)
+
+DESCRIPTION
+  The tls package opens outbound TLS client connections and reads and writes
+  encrypted application data over them. tls::connect resolves a host, opens a TCP
+  stream, performs a TLS client handshake, and verifies the peer's certificate
+  before returning a connected socket; tls::read and tls::readText receive
+  decrypted data; tls::write and tls::writeText send data; and tls::close tears a
+  connection down. The package is a client only -- there is no listener or accept
+  side; use net for plain unencrypted TCP and UDP.
+
+  The package defines one built-in type. TlsSocket is a connected TLS client
+  stream: an opaque, owned, non-copyable resource handle. It is closed
+  automatically by lexical drop when its binding leaves scope, so tls::close is
+  needed only to release a handle earlier; unlike net::close, tls::close consumes
+  the handle and treats an already-closed socket as success rather than an error.
+  TlsSocket handles cannot be stored as collection elements or carried in records.
+
+  Hosts are UTF-8 String values naming either a textual IP address or a name
+  passed to the system host resolver, which connects to the first resolved IPv4
+  address. The handshake negotiates TLS 1.2 or later against the system trust
+  store and always verifies the certificate chain and the expected server name;
+  by default the name is the host, but a non-empty serverName both selects the
+  name to validate and is sent as the TLS Server Name Indication (SNI) extension,
+  which is needed when connecting to a literal IP or a virtual host. Ports and the
+  maxBytes read cap are Integer values, and maxBytes must be positive. The
+  timeoutMs argument to tls::connect is Integer milliseconds but is advisory on
+  the current backend and does not yet bound the attempt.
+
+  The read and write functions come in paired byte/text forms: the byte form
+  transfers a List OF Byte verbatim, while the text form transfers a String's
+  UTF-8 bytes directly and validates received bytes as UTF-8. Each read performs
+  one underlying TLS read and returns as soon as any plaintext is available, so a
+  result is frequently shorter than maxBytes and never empty on success; end of
+  stream is reported as an error rather than an empty result, so read in a loop
+  until the connection is closed. Each write transmits the entire buffer, looping
+  internally to resend any portion a single TLS write did not accept. TLS is
+  implemented on Linux by driving the system OpenSSL library (libssl.so.3,
+  falling back to libssl.so.1.1) so a single binary spans OpenSSL 1.1.1 and 3.x;
+  if neither library can be loaded or a required symbol is missing, the call
+  fails. Unlike net, the tls functions map every underlying read or write failure
+  -- a closed peer, a reset connection, or any other SSL error during transfer --
+  to a single TLS error rather than distinguishing timeouts and closes.
+
+ERRORS
+  77010001 (ErrOutOfMemory)
+  Raised by tls::connect, tls::read, and tls::readText when an internal allocation
+  fails, such as a NUL-terminated host copy, a read or handshake buffer, the
+  TlsSocket handle, or the List OF Byte or String holding a result.
+
+  77050002 (ErrInvalidArgument)
+  Raised by tls::read and tls::readText when maxBytes is not positive.
+
+  77020004 (ErrEncoding)
+  Raised by tls::readText when the received bytes are not valid UTF-8.
+
+  77030004 (ErrResourceClosed)
+  Raised by tls::read, tls::readText, tls::write, and tls::writeText when the
+  TlsSocket has already been closed.
+
+  77070002 (ErrAddressNotFound)
+  Raised by tls::connect when host cannot be resolved, including when it is
+  malformed or has no address record.
+
+  77070003 (ErrNetworkFailed)
+  Raised by tls::connect when the socket cannot be created or the TCP connection
+  cannot be established before the TLS handshake begins, such as a refused or
+  unreachable peer.
+
+  77070004 (ErrConnectionClosed)
+  Raised by tls::read and tls::readText when the peer has closed the TLS session
+  (an end-of-stream read).
+
+  77070008 (ErrTlsFailed)
+  Raised by any function when the TLS layer cannot be initialized -- the system
+  OpenSSL library or a required symbol could not be loaded -- and by tls::connect
+  when the handshake fails (chain validation, server name mismatch, protocol
+  negotiation, or a reset during the handshake), by tls::read and tls::readText
+  when the underlying TLS read fails, by tls::write and tls::writeText when the
+  underlying TLS write fails for any reason including a closed or reset peer, and
+  by tls::close when the session cannot be torn down.
