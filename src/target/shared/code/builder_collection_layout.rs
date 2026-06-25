@@ -212,10 +212,7 @@ impl CodeBuilder<'_> {
     ///     (`emit_address_from_sockaddr`, etc.).
     /// Every other record inlines its `String` fields.
     pub(super) fn is_pointer_string_record(&self, type_: &str) -> bool {
-        matches!(
-            type_,
-            "Error" | "ErrorLoc" | "Address" | "Datagram" | "DatagramText"
-        )
+        matches!(type_, "Error" | "Address" | "Datagram" | "DatagramText")
     }
 
     /// True when `field_type` occupies a record slot as a pointer to a separate

@@ -2136,27 +2136,44 @@ impl CodeBuilder<'_> {
     /// may already be near the physical-register limit). Callers must save any
     /// live register inputs to the stack before invoking this.
     pub(super) fn emit_build_error_loc(&mut self) -> Result<String, String> {
+        // `ErrorLoc` is a flat record `{filename(String) @0, line @8, char @16}`
+        // (plan-02): the `filename` slot holds a block-relative offset to the
+        // inlined `String` block in the trailing data region. The fixed part is
+        // 24 bytes (3 slots), so the filename block begins at offset 24
+        // (8-aligned). This site stays bespoke (rather than using
+        // `emit_build_inlined_record`) because it must return a **null** pointer
+        // on OOM instead of propagating an error — building an `ErrorLoc` happens
+        // *during* error handling, so a propagated alloc error would recurse.
         let result_slot = self.allocate_stack_object("error_loc_result", 8);
         let filename_slot = self.allocate_stack_object("error_loc_filename", 8);
+        let len_slot = self.allocate_stack_object("error_loc_filename_len", 8);
         let alloc_ok = self.label("error_loc_alloc_ok");
         let done = self.label("error_loc_done");
         // Default the result to a null pointer for the OOM fall-through path.
         self.emit(abi::move_immediate("x9", "Integer", "0"));
         self.emit(abi::store_u64("x9", abi::stack_pointer(), result_slot));
-        // Resolve the filename string pointer before the allocation call clobbers
-        // caller-saved registers.
+        // Resolve the filename String pointer (an empty String when unknown, never
+        // null — the inline copy below dereferences it) before the allocation
+        // call clobbers caller-saved registers.
         let filename = self.current_file.clone();
-        if filename.is_empty() {
-            self.emit(abi::move_immediate("x9", "Integer", "0"));
+        let filename_register = if filename.is_empty() {
+            self.load_empty_string_constant()?
         } else {
-            self.emit_load_string_constant("x9", &filename)?;
-        }
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), filename_slot));
-        self.emit(abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &ERROR_LOC_OBJECT_SIZE.to_string(),
+            let register = self.allocate_register()?;
+            self.emit_load_string_constant(&register, &filename)?;
+            register
+        };
+        self.emit(abi::store_u64(
+            &filename_register,
+            abi::stack_pointer(),
+            filename_slot,
         ));
+        // size = 24 (fixed slots) + (filenameLen + 9) for the inlined String block.
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), filename_slot));
+        self.emit(abi::load_u64("x9", "x9", 0));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), len_slot));
+        self.emit(abi::add_immediate("x9", "x9", ERROR_LOC_OBJECT_SIZE + 9));
+        self.emit(abi::move_register(abi::return_register(), "x9"));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -2173,8 +2190,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&alloc_ok));
-        // x1 holds the new ErrorLoc pointer.
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), filename_slot));
+        // x1 holds the new ErrorLoc pointer. filename offset slot @0 = 24.
+        self.emit(abi::move_immediate(
+            "x9",
+            "Integer",
+            &ERROR_LOC_OBJECT_SIZE.to_string(),
+        ));
         self.emit(abi::store_u64("x9", "x1", 0));
         self.emit(abi::move_immediate(
             "x9",
@@ -2188,7 +2209,13 @@ impl CodeBuilder<'_> {
             &self.current_loc.column.to_string(),
         ));
         self.emit(abi::store_u64("x9", "x1", 16));
+        // Inline the filename String block (len + 9 bytes) at offset 24.
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x10", "x1", ERROR_LOC_OBJECT_SIZE));
+        self.emit(abi::load_u64("x11", abi::stack_pointer(), filename_slot));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), len_slot));
+        self.emit(abi::add_immediate("x12", "x12", 9));
+        self.emit_copy_bytes("x10", "x11", "x12", "error_loc_filename_copy");
         self.emit(abi::label(&done));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
         Ok("x9".to_string())
