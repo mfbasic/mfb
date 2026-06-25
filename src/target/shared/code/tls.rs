@@ -286,6 +286,33 @@ fn emit_dlsym(
     Ok(())
 }
 
+/// Emit `setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO/SO_SNDTIMEO, &tv, 16)` for the
+/// `timeval` already stored at `sp + tv_off`. Used on Linux to bound the
+/// blocking TLS handshake by `timeoutMs` (and, with a zero `timeval`, to clear
+/// the bound afterwards so `read`/`write` stay unbounded). Best effort: a
+/// `setsockopt` failure is ignored — the handshake just falls back to blocking.
+fn emit_set_sock_timeouts(
+    symbol: &str,
+    fd_off: usize,
+    tv_off: usize,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    for opt in [platform.so_rcvtimeo(), platform.so_sndtimeo()] {
+        instructions.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
+            abi::move_immediate("x1", "Integer", platform.sol_socket()),
+            abi::move_immediate("x2", "Integer", opt),
+            abi::add_immediate("x3", abi::stack_pointer(), tv_off),
+            abi::move_immediate("x4", "Integer", "16"),
+        ]);
+        platform.emit_libc_call("setsockopt", symbol, platform_imports, instructions, relocations)?;
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // tls.connect
 // ---------------------------------------------------------------------------
@@ -312,10 +339,22 @@ pub(super) fn lower_tls_connect_helper(
     const SNICSTR_OFFSET: usize = 80;
     const RES_OFFSET: usize = 88; // addrinfo*
     const HINTS_OFFSET: usize = 96; // 96..144
+    const TIMEOUT_OFFSET: usize = 144; // timeoutMs
+    const FLAGS_OFFSET: usize = 152; // saved socket flags for non-blocking connect
+    const POLLFD_OFFSET: usize = 160; // pollfd { fd; events; revents }
+    const SOERR_OFFSET: usize = 168; // getsockopt SO_ERROR output
+    const SOLEN_OFFSET: usize = 176; // getsockopt option length
+    const TIMEVAL_OFFSET: usize = 184; // 184..200: tv_sec (8) + tv_usec (8)
 
     let resolve_fail = format!("{symbol}_resolve_fail");
     let net_fail = format!("{symbol}_net_fail");
     let net_fail_fd = format!("{symbol}_net_fail_fd");
+    let connect_timeout = format!("{symbol}_connect_timeout");
+    let blocking_connect = format!("{symbol}_blocking_connect");
+    let nb_connected = format!("{symbol}_nb_connected");
+    let connected = format!("{symbol}_connected");
+    let hs_timeout_set = format!("{symbol}_hs_timeout_set");
+    let hs_timeout_clear = format!("{symbol}_hs_timeout_clear");
     let tls_fail = format!("{symbol}_tls_fail");
     let alloc_fail = format!("{symbol}_alloc_fail");
     let load_fail = format!("{symbol}_load_fail");
@@ -328,10 +367,11 @@ pub(super) fn lower_tls_connect_helper(
     let mut relocations = Vec::new();
     instructions.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET));
 
-    // x0 = host; x1 = port; x2 = timeoutMs (best effort); x3 = serverName.
+    // x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
         abi::store_u64("x1", abi::stack_pointer(), PORT_OFFSET),
+        abi::store_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET),
         abi::store_u64("x3", abi::stack_pointer(), SNAME_OFFSET),
     ]);
     // Resolve + connect a TCP socket. Zero a 48-byte hints block and set
@@ -382,7 +422,92 @@ pub(super) fn lower_tls_connect_helper(
         abi::shift_right_immediate("x11", "x10", 8),
         abi::store_u8("x11", "x9", 2),
         abi::store_u8("x10", "x9", 3),
-        // connect(fd, ai_addr, ai_addrlen)
+    ]);
+    // Connect the socket, bounded by timeoutMs when > 0 (non-blocking connect +
+    // poll, then restore blocking mode), else a plain blocking connect. Mirrors
+    // net::connectTcp. DNS (getaddrinfo above) is not bounded by timeoutMs.
+    instructions.extend([
+        abi::load_u64("x9", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_le(&blocking_connect),
+        // flags = fcntl(fd, F_GETFL, 0)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate("x1", "Integer", "3"),
+        abi::move_immediate("x2", "Integer", "0"),
+    ]);
+    platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), FLAGS_OFFSET),
+        // fcntl(fd, F_SETFL, flags | O_NONBLOCK)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate("x1", "Integer", "4"),
+        abi::load_u64("x2", abi::stack_pointer(), FLAGS_OFFSET),
+        abi::move_immediate("x9", "Integer", platform.o_nonblock()),
+        abi::or_registers("x2", "x2", "x9"),
+    ]);
+    platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    // connect(fd, ai_addr, ai_addrlen)
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64("x9", abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64("x1", "x9", addr_off),
+        abi::load_u32("x2", "x9", 16),
+    ]);
+    platform.emit_libc_call("connect", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&nb_connected),
+    ]);
+    // In progress? Anything other than EINPROGRESS is a hard failure.
+    platform.emit_errno(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate("x9", platform.einprogress()),
+        abi::branch_ne(&net_fail_fd),
+        // poll(&pollfd { fd, POLLOUT }, 1, timeoutMs)
+        abi::load_u64("x9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("x9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("x10", "Integer", "4"), // POLLOUT
+        abi::store_u8("x10", abi::stack_pointer(), POLLFD_OFFSET + 4),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 5),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 6),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 7),
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("x1", "Integer", "1"),
+        abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET),
+    ]);
+    platform.emit_libc_call("poll", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&net_fail_fd),
+        abi::branch_eq(&connect_timeout),
+        // getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len)
+        abi::move_immediate("x9", "Integer", "4"),
+        abi::store_u64("x9", abi::stack_pointer(), SOLEN_OFFSET),
+        abi::store_u64("x31", abi::stack_pointer(), SOERR_OFFSET),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate("x1", "Integer", platform.sol_socket()),
+        abi::move_immediate("x2", "Integer", platform.so_error()),
+        abi::add_immediate("x3", abi::stack_pointer(), SOERR_OFFSET),
+        abi::add_immediate("x4", abi::stack_pointer(), SOLEN_OFFSET),
+    ]);
+    platform.emit_libc_call("getsockopt", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&net_fail_fd),
+        abi::load_u32("x9", abi::stack_pointer(), SOERR_OFFSET),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_ne(&net_fail_fd),
+        // Connected: restore blocking mode with fcntl(fd, F_SETFL, flags).
+        abi::label(&nb_connected),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate("x1", "Integer", "4"),
+        abi::load_u64("x2", abi::stack_pointer(), FLAGS_OFFSET),
+    ]);
+    platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.extend([
+        abi::branch(&connected),
+        // Blocking connect path (timeoutMs <= 0).
+        abi::label(&blocking_connect),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), RES_OFFSET),
         abi::load_u64("x1", "x9", addr_off),
@@ -392,9 +517,28 @@ pub(super) fn lower_tls_connect_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail_fd),
+        abi::label(&connected),
+        // freeaddrinfo(res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
     platform.emit_libc_call("freeaddrinfo", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    // Bound the blocking TLS handshake by timeoutMs (SO_RCVTIMEO/SO_SNDTIMEO),
+    // cleared again after the handshake so read/write stay unbounded.
+    instructions.extend([
+        abi::load_u64("x1", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("x1", "0"),
+        abi::branch_le(&hs_timeout_set),
+        // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
+        abi::move_immediate("x10", "Integer", "1000"),
+        abi::unsigned_divide_registers("x11", "x1", "x10"),
+        abi::multiply_subtract_registers("x12", "x11", "x10", "x1"),
+        abi::move_immediate("x13", "Integer", "1000"),
+        abi::multiply_registers("x12", "x12", "x13"),
+        abi::store_u64("x11", abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::store_u64("x12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+    ]);
+    emit_set_sock_timeouts(symbol, FD_OFFSET, TIMEVAL_OFFSET, platform_imports, platform, &mut instructions, &mut relocations)?;
+    instructions.push(abi::label(&hs_timeout_set));
     // SNI/validation name = serverName if non-empty, else host.
     instructions.extend([
         abi::load_u64("x9", abi::stack_pointer(), SNAME_OFFSET),
@@ -532,6 +676,16 @@ pub(super) fn lower_tls_connect_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&tls_fail),
     ]);
+    // Handshake done: clear SO_*TIMEO (zero timeval) so read/write are unbounded.
+    instructions.extend([
+        abi::load_u64("x9", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_le(&hs_timeout_clear),
+        abi::store_u64("x31", abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::store_u64("x31", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+    ]);
+    emit_set_sock_timeouts(symbol, FD_OFFSET, TIMEVAL_OFFSET, platform_imports, platform, &mut instructions, &mut relocations)?;
+    instructions.push(abi::label(&hs_timeout_clear));
     // Build the TlsSocket record { fd, closed = 0, ssl, ctx }.
     instructions.extend([
         abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
@@ -567,6 +721,14 @@ pub(super) fn lower_tls_connect_helper(
     instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET));
     platform.emit_libc_call("freeaddrinfo", symbol, platform_imports, &mut instructions, &mut relocations)?;
     emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    // The TCP connect did not complete before timeoutMs: close the pending
+    // socket, release the resolver results, and report a timeout.
+    instructions.push(abi::label(&connect_timeout));
+    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET));
+    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET));
+    platform.emit_libc_call("freeaddrinfo", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&resolve_fail));
     emit_fail(symbol, ERR_ADDRESS_NOT_FOUND_CODE, ERR_ADDRESS_NOT_FOUND_SYMBOL, &mut instructions, &mut relocations, &done);
     instructions.push(abi::label(&alloc_fail));
@@ -1026,6 +1188,7 @@ mod macos {
         "dispatch_semaphore_create",
         "dispatch_semaphore_signal",
         "dispatch_semaphore_wait",
+        "dispatch_time",
         "dispatch_data_create",
         "dispatch_data_create_map",
         "dispatch_release",
@@ -1311,7 +1474,7 @@ mod macos {
         platform_imports: &HashMap<String, String>,
         platform: &dyn CodegenPlatform,
     ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-        const FRAME_SIZE: usize = 256;
+        const FRAME_SIZE: usize = 288;
         const LR: usize = 0;
         const HOST: usize = 8;
         const PORT: usize = 16;
@@ -1332,10 +1495,15 @@ mod macos {
         const SNICSTR: usize = 184; // serverName as a C string
         const TLSCFG: usize = 192; // chosen configure-TLS block pointer
         const CFGBLOCK: usize = 200; // 200..256: the SNI-config block literal
+        const TIMEOUT: usize = 256; // timeoutMs (arg x2)
+        const DEADLINE: usize = 264; // dispatch_time deadline for the wait
 
         let wait_loop = format!("{symbol}_wait");
         let ready = format!("{symbol}_ready");
         let conn_fail = format!("{symbol}_conn_fail");
+        let conn_timeout = format!("{symbol}_conn_timeout");
+        let wait_forever = format!("{symbol}_wait_forever");
+        let deadline_ready = format!("{symbol}_deadline_ready");
         let net_fail = format!("{symbol}_net_fail");
         let load_fail = format!("{symbol}_load_fail");
         let alloc_fail = format!("{symbol}_alloc_fail");
@@ -1349,6 +1517,7 @@ mod macos {
             abi::store_u64(abi::link_register(), abi::stack_pointer(), LR),
             abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
             abi::store_u64("x1", abi::stack_pointer(), PORT),
+            abi::store_u64("x2", abi::stack_pointer(), TIMEOUT),
             abi::store_u64("x3", abi::stack_pointer(), SNAME),
         ]);
         // itoa(port) -> NUL-terminated decimal at PORTBUF, pointer in PORTCSTR.
@@ -1531,7 +1700,31 @@ mod macos {
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::branch_link_register("x9"),
         ]);
-        // Wait for a terminal state.
+        // Compute the wait deadline: timeoutMs > 0 => dispatch_time(NOW, ms*1e6);
+        // otherwise DISPATCH_TIME_FOREVER. It is absolute, so re-waits across the
+        // preparing loop all share the original deadline.
+        ins.extend([
+            abi::load_u64("x9", abi::stack_pointer(), TIMEOUT),
+            abi::compare_immediate("x9", "0"),
+            abi::branch_le(&wait_forever),
+        ]);
+        dlsym(symbol, HANDLE, "dispatch_time", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        ins.extend([
+            abi::move_immediate(abi::return_register(), "Integer", "0"), // DISPATCH_TIME_NOW
+            abi::load_u64("x1", abi::stack_pointer(), TIMEOUT),
+            abi::move_immediate("x10", "Integer", "1000000"),
+            abi::multiply_registers("x1", "x1", "x10"), // ms -> ns
+            abi::load_u64("x9", abi::stack_pointer(), FNPTR),
+            abi::branch_link_register("x9"),
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), DEADLINE),
+            abi::branch(&deadline_ready),
+            abi::label(&wait_forever),
+            abi::move_immediate("x9", "Integer", "0"),
+            abi::bitwise_not("x9", "x9"), // DISPATCH_TIME_FOREVER
+            abi::store_u64("x9", abi::stack_pointer(), DEADLINE),
+            abi::label(&deadline_ready),
+        ]);
+        // Wait for a terminal state, bounded by the deadline.
         dlsym(symbol, HANDLE, "dispatch_semaphore_wait", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
@@ -1539,10 +1732,12 @@ mod macos {
             abi::label(&wait_loop),
             abi::load_u64("x9", abi::stack_pointer(), CTX),
             abi::load_u64(abi::return_register(), "x9", CTX_SEM),
-            abi::move_immediate("x1", "Integer", "0"),
-            abi::bitwise_not("x1", "x1"), // DISPATCH_TIME_FOREVER
+            abi::load_u64("x1", abi::stack_pointer(), DEADLINE),
             abi::load_u64("x10", abi::stack_pointer(), WAITFN),
             abi::branch_link_register("x10"),
+            // Non-zero => the deadline elapsed before any state change signalled.
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&conn_timeout),
             abi::load_u64("x9", abi::stack_pointer(), CTX),
             abi::load_u32("x10", "x9", CTX_STATE),
             abi::compare_immediate("x10", NW_STATE_READY),
@@ -1581,6 +1776,16 @@ mod macos {
             abi::branch_link_register("x9"),
         ]);
         emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+        // conn_timeout: the deadline elapsed; cancel the connection, report a
+        // timeout.
+        ins.push(abi::label(&conn_timeout));
+        dlsym(symbol, HANDLE, "nw_connection_cancel", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        ins.extend([
+            abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+            abi::load_u64("x9", abi::stack_pointer(), FNPTR),
+            abi::branch_link_register("x9"),
+        ]);
+        emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
         ins.push(abi::label(&net_fail));
         emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
         ins.push(abi::label(&load_fail));

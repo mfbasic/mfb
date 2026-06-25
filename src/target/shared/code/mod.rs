@@ -14237,6 +14237,7 @@ fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             ERR_RESOURCE_CLOSED_MESSAGE,
             ERR_INVALID_ARGUMENT_MESSAGE,
             ERR_ENCODING_MESSAGE,
+            ERR_TIMEOUT_MESSAGE,
         ] {
             push_string_value(&mut values, value.to_string());
         }

@@ -233,7 +233,19 @@ impl plan::NativePlanPlatform for Platform {
                     imports.push(self.libc_import("close", spec.symbol));
                 }
                 if call == "tls.connect" {
-                    for base in ["getaddrinfo", "freeaddrinfo", "socket", "connect"] {
+                    // getaddrinfo..connect open the socket; fcntl/poll/getsockopt
+                    // bound the TCP connect by timeoutMs (non-blocking connect +
+                    // poll); setsockopt sets SO_*TIMEO to bound the handshake.
+                    for base in [
+                        "getaddrinfo",
+                        "freeaddrinfo",
+                        "socket",
+                        "connect",
+                        "fcntl",
+                        "poll",
+                        "getsockopt",
+                        "setsockopt",
+                    ] {
                         imports.push(self.libc_import(base, spec.symbol));
                     }
                 }
