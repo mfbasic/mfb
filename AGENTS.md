@@ -1,5 +1,34 @@
 # Agent Instructions
 
+## "Done" and "Verify" (read this first)
+
+**"Done" means every part of the requested work is finished and verified — the
+whole thing, not the easy part, not most of it.** If any part is unfinished,
+unverified, stubbed, deferred, or depends on something not yet built, the work is
+**NOT done**.
+
+**"Verify" means proving the actual goal is true** — confirming the real property
+the work was supposed to achieve, with evidence that maps directly to that goal.
+Running the tests and seeing them pass is **NOT** verifying. Passing tests only
+prove what those specific tests check; they are a proxy, not the goal. To verify,
+you must check the real requirement itself, including the parts no existing test
+covers. If you cannot point to the specific evidence that the actual goal holds,
+you have not verified it — and you must say so.
+
+When asked "is it done / complete / finished / verified":
+
+- Answer **yes** or **no** on the first line. Nothing else first.
+- Answer **yes** only after you have *verified* (per above) that all of it is
+  finished. When unsure, the answer is **no**.
+- If **no**: add one short line naming what is left. Do not produce a status
+  report, an evidence dump, or a summary of what you did — unless explicitly
+  asked.
+- Never report work as "done" because compilation succeeded, acceptance/tests are
+  green, or goldens match. Those answer a different question than "is it done."
+- For a multi-phase plan, a phase is done only when its own stated acceptance
+  criterion is met and verified. A phase whose verification depends on a feature
+  that does not exist yet cannot be marked done.
+
 ## Implementation Quality
 
 When asked to implement a change, deliver production-ready, valid code.
