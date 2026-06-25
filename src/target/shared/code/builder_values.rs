@@ -823,7 +823,7 @@ impl CodeBuilder<'_> {
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, "x1", 0));
-                if is_resource_variant || self.record_has_inline_string(member_type) {
+                if is_resource_variant || self.record_has_inline_data(member_type) {
                     // Resource variants store the handle pointer at +8. A record
                     // variant whose record has inlined String data is also stored
                     // as a single pointer at +8 (the inline-offset slots are
@@ -865,7 +865,7 @@ impl CodeBuilder<'_> {
                 // A record variant whose record has inlined String data was
                 // wrapped as a single pointer at +8 (see UnionWrap); recover the
                 // standalone flat record directly (plan-02 §4.2).
-                if self.record_has_inline_string(type_) {
+                if self.record_has_inline_data(type_) {
                     let source = self.lower_value(value)?;
                     let register = self.allocate_register()?;
                     self.emit(abi::load_u64(&register, &source.location, 8));

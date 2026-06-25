@@ -36,8 +36,23 @@ Last updated: 2026-06-24
   `tests/flat-record-string-rt` (copy independence, `WITH` resize shorter/longer,
   nested records, `List` append independence, record map keys, empty `String`)
   runs deterministically under entropy poisoning.
-- Phases 3–8 — pending. **See the scoping correction below — it applied to Phase 2
-  (records) and the same atomicity reasoning will govern Phases 3/4/5.**
+- **Phase 3 (nested flat records) — DONE.** A record field whose type is a
+  **fully-flat** record (scalars + inlined `String`s + flat nested records, no
+  `Union`/`List`/`Map`/`Result`/`Error` and not a helper-built pointer-`String`
+  record) is now inlined into the enclosing record's data region by offset,
+  recursively. The Phase-2 machinery generalized: `record_field_is_inlined` /
+  `record_is_fully_flat` / `record_has_inline_data` drive it;
+  `emit_record_block_size_to_slot` and `emit_build_inlined_record` recurse through
+  nested records (`emit_inlined_block_size_from_ptr_slot`); field read, equality,
+  `WITH`, copy (pointer-fix skips inlined records), and collection embedding all
+  follow. Recursion is bounded by static nesting. Validated: full acceptance green
+  (`control-flow-match` ncode resynced, runtime identical),
+  `types-record-comparable-runtime` (`Badge { owner AS Person, … }`) passes, and a
+  new runtime proof `tests/flat-nested-record-rt` (3-level nesting, `WITH`-replace
+  a nested record, `List` append independence, nested-tree equality) runs
+  deterministically under entropy poisoning.
+- Phases 4–8 — pending. **The same atomicity reasoning (scoping correction below)
+  governs Phases 4/5.**
 
 ### Phase 2 scoping correction (discovered while implementing)
 

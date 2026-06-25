@@ -218,7 +218,7 @@ impl CodeBuilder<'_> {
                     ));
                 };
                 let inline_string =
-                    self.record_field_is_inline_string(&target_value.type_, field_type);
+                    self.record_field_is_inlined(&target_value.type_, field_type);
                 (index, field_type.clone(), 0, inline_string)
             } else if let Some(fields) = self
                 .type_model
@@ -341,7 +341,7 @@ impl CodeBuilder<'_> {
             let slot = self.allocate_stack_object("with_old_field", 8);
             self.emit(abi::load_u64("x8", abi::stack_pointer(), target_slot));
             self.emit(abi::load_u64("x9", "x8", 8 * index));
-            if self.record_field_is_inline_string(type_, field_type) {
+            if self.record_field_is_inlined(type_, field_type) {
                 self.emit(abi::add_registers("x9", "x8", "x9"));
             }
             self.emit(abi::store_u64("x9", abi::stack_pointer(), slot));
@@ -1463,14 +1463,15 @@ impl CodeBuilder<'_> {
 
     /// True when field `field_type` of `record_type` is a pointer to a separate
     /// allocation that a whole-block `memcpy` would alias and must therefore be
-    /// deep-copied. Inlined `String` fields (the common case) come along with the
-    /// block copy; only still-pointer composites and the built-in
-    /// `Error`/`ErrorLoc` pointer-`String` fields need the fix.
+    /// deep-copied. Inlined fields (`String` and fully-flat nested records) come
+    /// along with the block copy; only still-pointer composites (`Union`/`List`/
+    /// `Map`/`Result`/`Error`, a not-yet-flat nested record) and the built-in
+    /// pointer-`String` records' `String` fields need the fix.
     fn record_field_is_pointer_in(&self, record_type: &str, field_type: &str) -> bool {
-        if field_type == "String" {
-            return self.is_pointer_string_record(record_type);
+        if self.record_field_is_inlined(record_type, field_type) {
+            return false;
         }
-        self.record_field_is_pointer(field_type)
+        field_type == "String" || self.record_field_is_pointer(field_type)
     }
 
     fn record_needs_pointer_field_fix(&self, record_type: &str) -> bool {
@@ -1951,7 +1952,7 @@ impl CodeBuilder<'_> {
         let union_copied_slot = self.allocate_stack_object("thread_copy_union_field", 8);
         for (variant, _, fields) in &variants {
             self.emit(abi::label(&labels[variant]));
-            if self.record_has_inline_string(variant) {
+            if self.record_has_inline_data(variant) {
                 // This variant's record was wrapped as a single pointer at +8
                 // (see UnionWrap); deep-copy the standalone record there.
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));

@@ -106,11 +106,17 @@ stores, by field type:
   is embedded inline. The field read recovers the borrow pointer as
   `recordBase + offset`; the offset is relative to the record base, so a whole-
   block `memcpy` is a correct deep copy and the inlined `String` comes along.
-- **composite** (`Record`/`Union`/`List`/`Map`): a pointer to a separate
-  allocation (these are inlined by later plan-02 phases).
+- **fully-flat nested record** (a record whose every field is scalar, inlined
+  `String`, or another fully-flat record): inlined recursively as a `U64`
+  block-relative offset into the data region, exactly like a `String` — the field
+  read recovers `recordBase + offset` and the inlined record's own offsets are
+  relative to that same base, so a whole-block `memcpy` deep-copies the tree.
+- **other composite** (`Union`/`List`/`Map`/`Result`/`Error`, or a not-yet-flat
+  nested record): a pointer to a separate allocation (inlined by later phases).
 
-Because inlined `String` fields are variable-length, a record's total byte size
-is computed by walking the fixed slot region plus each inlined `String` block.
+Because inlined fields are variable-length, a record's total byte size is
+computed by walking the fixed slot region plus each inlined sub-block (a `String`
+block, or recursively a nested-record block).
 Construction, `WITH`-update, copy/transfer, equality, and collection embedding
 all use that runtime size; copying a record with only scalar and `String` fields
 is a single block `memcpy` (no per-field deep copy). The built-in helper-

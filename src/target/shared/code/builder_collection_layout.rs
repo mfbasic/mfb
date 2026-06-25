@@ -223,30 +223,90 @@ impl CodeBuilder<'_> {
             || field_type == "Error"
     }
 
-    /// True when field `field_type` of `record_type` is inlined as a
-    /// block-relative `String` offset into the record's data region.
-    pub(super) fn record_field_is_inline_string(&self, record_type: &str, field_type: &str) -> bool {
-        field_type == "String" && !self.is_pointer_string_record(record_type)
+    /// True when `type_` is a record whose every field is itself flat — scalars,
+    /// inlined `String`s, and (recursively) fully-flat nested records — so the
+    /// whole record block is pointer-free and a `memcpy` is a deep copy. A field
+    /// that is a `Union`/`List`/`Map`/`Result`/`Error`, or a not-yet-flat nested
+    /// record, makes the record non-flat. Helper-built records
+    /// (`is_pointer_string_record`) are never flat (their `String`s are pointers).
+    pub(super) fn record_is_fully_flat(&self, type_: &str) -> bool {
+        if self.is_pointer_string_record(type_) {
+            return false;
+        }
+        let Some(fields) = self.type_model.record_fields.get(type_) else {
+            return false;
+        };
+        fields.clone().iter().all(|(_, ft)| {
+            if ft == "String" {
+                true
+            } else if self.type_model.record_fields.contains_key(ft) {
+                self.record_is_fully_flat(ft)
+            } else {
+                // Scalars are flat; pointer composites (collection/union/Result/
+                // Error) are not.
+                !self.record_field_is_pointer(ft)
+            }
+        })
     }
 
-    /// True when `record_type` has at least one inlined `String` field (so its
-    /// block is variable-length and carries a trailing data region).
-    pub(super) fn record_has_inline_string(&self, record_type: &str) -> bool {
+    /// True when field `field_type` of `record_type` is inlined into the record's
+    /// trailing data region (the slot holds a block-relative offset): an inlined
+    /// `String`, or a fully-flat nested record (plan-02 §4.2, Phases 2–3).
+    pub(super) fn record_field_is_inlined(&self, record_type: &str, field_type: &str) -> bool {
+        if self.is_pointer_string_record(record_type) {
+            return false;
+        }
+        field_type == "String"
+            || (self.type_model.record_fields.contains_key(field_type)
+                && self.record_is_fully_flat(field_type))
+    }
+
+    /// True when `record_type` has at least one inlined field (so its block is
+    /// variable-length and carries a trailing data region).
+    pub(super) fn record_has_inline_data(&self, record_type: &str) -> bool {
         if self.is_pointer_string_record(record_type) {
             return false;
         }
         self.type_model
             .record_fields
             .get(record_type)
-            .map(|fields| fields.iter().any(|(_, ft)| ft == "String"))
+            .cloned()
+            .map(|fields| {
+                fields
+                    .iter()
+                    .any(|(_, ft)| self.record_field_is_inlined(record_type, ft))
+            })
             .unwrap_or(false)
+    }
+
+    /// Emit the byte size of an inlined field value of `field_type` whose pointer
+    /// is in `ptr_slot`, into `out_slot`. An inlined `String` is `len + 9`; an
+    /// inlined nested record recurses through `emit_record_block_size_to_slot`.
+    /// Clobbers x8/x9/x12/x13 (and the recursion's scratch).
+    fn emit_inlined_block_size_from_ptr_slot(
+        &mut self,
+        field_type: &str,
+        ptr_slot: usize,
+        out_slot: usize,
+    ) -> Result<(), String> {
+        if field_type == "String" {
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), ptr_slot));
+            self.emit(abi::load_u64("x9", "x8", 0));
+            self.emit(abi::add_immediate("x9", "x9", 9));
+            self.emit(abi::store_u64("x9", abi::stack_pointer(), out_slot));
+            Ok(())
+        } else {
+            self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
+        }
     }
 
     /// Emit the **total byte size** of an inlined record of `record_type` whose
     /// base pointer is in `base_slot`, into `out_slot`. Walks the fixed slot
-    /// region (`8*fieldCount`) plus each inlined `String` block (8-aligned,
-    /// `len + 9` bytes), in field order — matching `emit_build_inlined_record`'s
-    /// layout. Clobbers x8/x9/x12/x13.
+    /// region (`8*fieldCount`) plus each inlined sub-block (8-aligned, in field
+    /// order) — an inlined `String` (`len + 9`) or a fully-flat nested record
+    /// (recursively) — matching `emit_build_inlined_record`'s layout. Clobbers
+    /// x8/x9/x12/x13 (and the recursion's scratch). Recursion is bounded by the
+    /// static type nesting (a record cannot directly contain itself).
     pub(super) fn emit_record_block_size_to_slot(
         &mut self,
         record_type: &str,
@@ -263,16 +323,24 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
         self.emit(abi::store_u64("x8", abi::stack_pointer(), out_slot));
         for (_, field_type) in &fields {
-            if !self.record_field_is_inline_string(record_type, field_type) {
+            if !self.record_field_is_inlined(record_type, field_type) {
                 continue;
             }
             self.emit_align_offset_slot(out_slot, 8);
+            // inner_base = base + current offset (where this sub-block begins).
+            let inner_base_slot = self.allocate_stack_object("record_size_inner_base", 8);
             self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
             self.emit(abi::load_u64("x9", abi::stack_pointer(), out_slot));
             self.emit(abi::add_registers("x8", "x8", "x9"));
-            self.emit(abi::load_u64("x8", "x8", 0));
-            self.emit(abi::add_immediate("x8", "x8", 9));
+            self.emit(abi::store_u64("x8", abi::stack_pointer(), inner_base_slot));
+            let inner_size_slot = self.allocate_stack_object("record_size_inner_size", 8);
+            self.emit_inlined_block_size_from_ptr_slot(
+                field_type,
+                inner_base_slot,
+                inner_size_slot,
+            )?;
             self.emit(abi::load_u64("x9", abi::stack_pointer(), out_slot));
+            self.emit(abi::load_u64("x8", abi::stack_pointer(), inner_size_slot));
             self.emit(abi::add_registers("x9", "x9", "x8"));
             self.emit(abi::store_u64("x9", abi::stack_pointer(), out_slot));
         }
@@ -309,17 +377,21 @@ impl CodeBuilder<'_> {
         let cursor_slot = self.allocate_stack_object("record_build_cursor", 8);
         let alloc_ok = self.label("record_build_alloc_ok");
 
-        // Pass 1: total size = fixed slots + each inlined String block.
+        // Pass 1: total size = fixed slots + each inlined sub-block.
         self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
         self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if !self.record_field_is_inline_string(record_type, field_type) {
+            if !self.record_field_is_inlined(record_type, field_type) {
                 continue;
             }
             self.emit_align_offset_slot(size_slot, 8);
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), field_slots[index]));
-            self.emit(abi::load_u64("x9", "x8", 0));
-            self.emit(abi::add_immediate("x9", "x9", 9));
+            let block_size_slot = self.allocate_stack_object("record_build_block_size", 8);
+            self.emit_inlined_block_size_from_ptr_slot(
+                field_type,
+                field_slots[index],
+                block_size_slot,
+            )?;
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), block_size_slot));
             self.emit(abi::load_u64("x8", abi::stack_pointer(), size_slot));
             self.emit(abi::add_registers("x8", "x8", "x9"));
             self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
@@ -348,26 +420,32 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
 
-        // Pass 2: write slots; inline String blocks into the data region.
+        // Pass 2: write slots; inline each flat sub-block into the data region.
         self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
         self.emit(abi::store_u64("x8", abi::stack_pointer(), cursor_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
-            if self.record_field_is_inline_string(record_type, field_type) {
+            if self.record_field_is_inlined(record_type, field_type) {
                 self.emit_align_offset_slot(cursor_slot, 8);
-                // Slot stores the block-relative offset of the inlined String.
+                // Slot stores the block-relative offset of the inlined sub-block.
                 self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
                 self.emit(abi::store_u64("x9", "x10", 8 * index));
-                // dest = base + offset; copy (len + 9) bytes from the source.
+                // Compute the sub-block's byte size from the source pointer.
+                let block_size_slot = self.allocate_stack_object("record_fill_block_size", 8);
+                self.emit_inlined_block_size_from_ptr_slot(
+                    field_type,
+                    field_slots[index],
+                    block_size_slot,
+                )?;
+                // dest = base + offset; copy `block_size` bytes from the source.
+                self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
                 self.emit(abi::add_registers("x11", "x10", "x9"));
                 self.emit(abi::load_u64("x12", abi::stack_pointer(), field_slots[index]));
-                self.emit(abi::load_u64("x13", "x12", 0));
-                self.emit(abi::add_immediate("x13", "x13", 9));
-                self.emit_copy_bytes("x11", "x12", "x13", "record_inline_string");
+                self.emit(abi::load_u64("x13", abi::stack_pointer(), block_size_slot));
+                self.emit_copy_bytes("x11", "x12", "x13", "record_inline_block");
                 // Advance the cursor by the same block length.
-                self.emit(abi::load_u64("x12", abi::stack_pointer(), field_slots[index]));
-                self.emit(abi::load_u64("x13", "x12", 0));
-                self.emit(abi::add_immediate("x13", "x13", 9));
+                self.emit(abi::load_u64("x13", abi::stack_pointer(), block_size_slot));
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
                 self.emit(abi::add_registers("x9", "x9", "x13"));
                 self.emit(abi::store_u64("x9", abi::stack_pointer(), cursor_slot));
@@ -491,7 +569,7 @@ impl CodeBuilder<'_> {
                 }
                 let inline_string_field = fields
                     .iter()
-                    .map(|(_, ft)| self.record_field_is_inline_string(other, ft))
+                    .map(|(_, ft)| self.record_field_is_inlined(other, ft))
                     .collect::<Vec<_>>();
                 for (index, (_, field_type)) in fields.iter().enumerate() {
                     let next_field = self.label("compare_record_next_field");
@@ -554,7 +632,7 @@ impl CodeBuilder<'_> {
         // block at runtime, then block-copy it (plan-02 §4.2). The inlined String
         // data comes along; pointer fields keep the same shallow-share semantics
         // as the fixed path below.
-        if self.record_has_inline_string(type_) {
+        if self.record_has_inline_data(type_) {
             let source_slot = self.allocate_stack_object("inline_value_source", 8);
             let size_slot = self.allocate_stack_object("inline_value_size", 8);
             let result_slot = self.allocate_stack_object("inline_value_result", 8);
@@ -1000,7 +1078,7 @@ impl CodeBuilder<'_> {
             other if self.is_pointer_collection_payload_type(other) => {
                 self.emit(abi::move_immediate("x8", "Integer", "8"));
             }
-            other if self.record_has_inline_string(other) => {
+            other if self.record_has_inline_data(other) => {
                 // A record with inlined String fields is variable-length; size
                 // its full flat block at runtime (plan-02 §4.2).
                 self.emit_record_block_size_to_slot(other, payload.slot, len_slot)?;
