@@ -1126,7 +1126,6 @@ impl CodeBuilder<'_> {
         let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
         let result_slot = self.allocate_stack_object("raw_result", 8);
         let alloc_ok = self.label("result_construct_alloc_ok");
-        let error_alloc_ok = self.label("result_error_alloc_ok");
         let wrap_error_label = self.label("result_wrap_error");
         let have_payload_label = self.label("result_have_payload");
 
@@ -1192,34 +1191,13 @@ impl CodeBuilder<'_> {
             let loc_register = self.emit_build_error_loc()?;
             self.emit(abi::store_u64(&loc_register, abi::stack_pointer(), source_slot));
         }
-        self.emit(abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &ERROR_OBJECT_SIZE.to_string(),
+        let error_register =
+            self.emit_build_error_inline(value_slot, message_slot, source_slot)?;
+        self.emit(abi::store_u64(
+            &error_register,
+            abi::stack_pointer(),
+            payload_slot,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
-        self.emit(abi::branch_eq(&error_alloc_ok));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&error_alloc_ok));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), value_slot));
-        self.emit(abi::store_u64("x9", "x1", 0));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), message_slot));
-        self.emit(abi::store_u64("x9", "x1", 8));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit(abi::store_u64("x9", "x1", 16));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), payload_slot));
 
         self.emit(abi::label(&have_payload_label));
         self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
@@ -2221,6 +2199,113 @@ impl CodeBuilder<'_> {
         Ok("x9".to_string())
     }
 
+    /// Build a flat `Error` value `{code @0, message(String offset) @8,
+    /// source(ErrorLoc offset) @16, [inlined message][inlined source]}` from the
+    /// raw code/message-pointer/source-pointer in the given stack slots (plan-02).
+    /// `message` is always a valid String pointer; `source` may be **null** (an
+    /// OOM-degraded error with no origin), represented by an offset-`0` sentinel
+    /// (offset 0 can never address a real inlined block — the data region starts
+    /// at 24). Propagates an allocation error like the previous fixed-size build.
+    /// Returns a register holding the Error pointer.
+    pub(super) fn emit_build_error_inline(
+        &mut self,
+        code_slot: usize,
+        message_slot: usize,
+        source_slot: usize,
+    ) -> Result<String, String> {
+        let msg_block_slot = self.allocate_stack_object("error_msg_block", 8);
+        let src_block_slot = self.allocate_stack_object("error_src_block", 8);
+        let src_off_slot = self.allocate_stack_object("error_src_off", 8);
+        let size_slot = self.allocate_stack_object("error_size", 8);
+        let result_slot = self.allocate_stack_object("error_result", 8);
+        let src_null_size = self.label("error_src_null_size");
+        let src_size_done = self.label("error_src_size_done");
+        let alloc_ok = self.label("error_inline_alloc_ok");
+        let src_null_fill = self.label("error_src_null_fill");
+        let src_fill_done = self.label("error_src_fill_done");
+
+        // message block size = len + 9 (message is never null).
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), message_slot));
+        self.emit(abi::load_u64("x9", "x8", 0));
+        self.emit(abi::add_immediate("x9", "x9", 9));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), msg_block_slot));
+        // source block size + offset: 0 (sentinel) when null, else its flat
+        // ErrorLoc block size at the 8-aligned offset past the message block.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
+        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::branch_eq(&src_null_size));
+        self.emit_record_block_size_to_slot("ErrorLoc", source_slot, src_block_slot)?;
+        // src_off = align8(24 + msg_block)
+        self.emit(abi::move_immediate("x8", "Integer", &ERROR_OBJECT_SIZE.to_string()));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::add_registers("x8", "x8", "x9"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), src_off_slot));
+        self.emit_align_offset_slot(src_off_slot, 8);
+        // size = src_off + src_block
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), src_off_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), src_block_slot));
+        self.emit(abi::add_registers("x8", "x8", "x9"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        self.emit(abi::branch(&src_size_done));
+        self.emit(abi::label(&src_null_size));
+        // No source: offset sentinel 0, size = 24 + msg_block.
+        self.emit(abi::move_immediate("x8", "Integer", "0"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), src_off_slot));
+        self.emit(abi::move_immediate("x8", "Integer", "0"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), src_block_slot));
+        self.emit(abi::move_immediate("x8", "Integer", &ERROR_OBJECT_SIZE.to_string()));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::add_registers("x8", "x8", "x9"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        self.emit(abi::label(&src_size_done));
+
+        // Allocate the Error block.
+        self.emit(abi::load_u64(abi::return_register(), abi::stack_pointer(), size_slot));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        // code @0.
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), code_slot));
+        self.emit(abi::store_u64("x9", "x1", 0));
+        // message-offset @8 = 24; inline message block at +24.
+        self.emit(abi::move_immediate("x9", "Integer", &ERROR_OBJECT_SIZE.to_string()));
+        self.emit(abi::store_u64("x9", "x1", 8));
+        self.emit(abi::add_immediate("x10", "x1", ERROR_OBJECT_SIZE));
+        self.emit(abi::load_u64("x11", abi::stack_pointer(), message_slot));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), msg_block_slot));
+        self.emit_copy_bytes("x10", "x11", "x12", "error_msg_copy");
+        // source-offset @16; inline source block when present.
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), src_off_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64("x9", "x1", 16));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
+        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::branch_eq(&src_null_fill));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), src_off_slot));
+        self.emit(abi::add_registers("x10", "x1", "x9"));
+        self.emit(abi::load_u64("x11", abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), src_block_slot));
+        self.emit_copy_bytes("x10", "x11", "x12", "error_src_copy");
+        self.emit(abi::branch(&src_fill_done));
+        self.emit(abi::label(&src_null_fill));
+        self.emit(abi::label(&src_fill_done));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
     /// Finalize a `thread::waitFor` error so it survives the worker arena being
     /// freed by the impending `thread.drop` cleanup. A propagated worker error
     /// arrives with its origin `ErrorLoc` in `x3` and its message in `x2`, both
@@ -2463,6 +2548,32 @@ impl CodeBuilder<'_> {
         ));
     }
 
+    /// Load a flat `Error`'s `code`/`message`/`source` into the given registers
+    /// for the fallible-call ABI (plan-02). `message`/`source` are stored as
+    /// block-relative offsets, so the pointer is `errorBase + offset`; a `source`
+    /// offset of `0` is the null sentinel (no origin) and yields a null pointer.
+    /// `error_location` is preserved.
+    fn emit_load_error_fields(
+        &mut self,
+        error_location: &str,
+        code_register: &str,
+        message_register: &str,
+        source_register: &str,
+    ) {
+        let src_null = self.label("error_read_src_null");
+        let src_done = self.label("error_read_src_done");
+        self.emit(abi::load_u64(code_register, error_location, 0));
+        self.emit(abi::load_u64(message_register, error_location, 8));
+        self.emit(abi::add_registers(message_register, error_location, message_register));
+        self.emit(abi::load_u64(source_register, error_location, 16));
+        self.emit(abi::compare_immediate(source_register, "0"));
+        self.emit(abi::branch_eq(&src_null));
+        self.emit(abi::add_registers(source_register, error_location, source_register));
+        self.emit(abi::branch(&src_done));
+        self.emit(abi::label(&src_null));
+        self.emit(abi::label(&src_done));
+    }
+
     fn store_pending_error_from_value(&mut self, error: &NirValue) -> Result<(), String> {
         let error = self.lower_value(error)?;
         if error.type_ != "Error" {
@@ -2474,9 +2585,12 @@ impl CodeBuilder<'_> {
         let code_register = self.allocate_register()?;
         let message_register = self.allocate_register()?;
         let source_register = self.allocate_register()?;
-        self.emit(abi::load_u64(&code_register, &error.location, 0));
-        self.emit(abi::load_u64(&message_register, &error.location, 8));
-        self.emit(abi::load_u64(&source_register, &error.location, 16));
+        self.emit_load_error_fields(
+            &error.location,
+            &code_register,
+            &message_register,
+            &source_register,
+        );
         self.store_pending_error_registers(&code_register, &message_register, &source_register);
         Ok(())
     }
@@ -2492,9 +2606,12 @@ impl CodeBuilder<'_> {
         let code_register = self.allocate_register()?;
         let message_register = self.allocate_register()?;
         let source_register = self.allocate_register()?;
-        self.emit(abi::load_u64(&code_register, &error.location, 0));
-        self.emit(abi::load_u64(&message_register, &error.location, 8));
-        self.emit(abi::load_u64(&source_register, &error.location, 16));
+        self.emit_load_error_fields(
+            &error.location,
+            &code_register,
+            &message_register,
+            &source_register,
+        );
         self.emit(abi::move_register(RESULT_VALUE_REGISTER, &code_register));
         self.emit(abi::move_immediate(
             RESULT_TAG_REGISTER,
@@ -3172,8 +3289,6 @@ impl CodeBuilder<'_> {
         let code_slot = self.allocate_stack_object("trap_error_code", 8);
         let message_slot = self.allocate_stack_object("trap_error_message", 8);
         let source_slot = self.allocate_stack_object("trap_error_source", 8);
-        let error_slot = self.allocate_stack_object("trap_error", 8);
-        let alloc_ok = self.label("trap_error_alloc_ok");
         let (stack_offset, label) = self
             .trap
             .as_ref()
@@ -3199,36 +3314,13 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             source_slot,
         ));
-        self.emit(abi::move_immediate(
-            abi::return_register(),
-            "Integer",
-            &ERROR_OBJECT_SIZE.to_string(),
+        let error_register =
+            self.emit_build_error_inline(code_slot, message_slot, source_slot)?;
+        self.emit(abi::store_u64(
+            &error_register,
+            abi::stack_pointer(),
+            stack_offset,
         ));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
-            binding: "internal".to_string(),
-            library: None,
-        });
-        self.emit(abi::compare_immediate(
-            abi::return_register(),
-            RESULT_OK_TAG,
-        ));
-        self.emit(abi::branch_eq(&alloc_ok));
-        self.emit_allocation_error_return()?;
-        self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), error_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), code_slot));
-        self.emit(abi::store_u64("x9", "x1", 0));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), message_slot));
-        self.emit(abi::store_u64("x9", "x1", 8));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit(abi::store_u64("x9", "x1", 16));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), error_slot));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), stack_offset));
         self.emit(abi::branch(&label));
         Ok(())
     }
