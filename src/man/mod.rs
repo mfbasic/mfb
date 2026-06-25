@@ -21,21 +21,54 @@ pub(crate) struct FunctionDoc {
 
 static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
     vec![
-        parse_types_package(),
-        parse_flow_package(),
-        parse_errors_package(),
-        parse_general_package(),
-        parse_collections_package(),
-        parse_filter_package(),
-        parse_strings_package(),
-        parse_unicode_package(),
-        parse_io_package(),
-        parse_math_package(),
-        parse_fs_package(),
-        parse_thread_package(),
-        parse_json_package(),
-        parse_regex_package(),
-        parse_term_package(),
+        parse_package(include_str!("types/package.txt"), "mfb man types [topic]"),
+        parse_package(include_str!("flow/package.txt"), "mfb man flow [topic]"),
+        parse_package(include_str!("errors/package.txt"), "mfb man errors"),
+        parse_package(
+            include_str!("builtins/general/package.txt"),
+            "mfb man general [function]",
+        ),
+        parse_package(
+            include_str!("builtins/collections/package.txt"),
+            "mfb man collections [function]",
+        ),
+        parse_package(
+            include_str!("builtins/filters/package.txt"),
+            "mfb man filters [function]",
+        ),
+        parse_package(
+            include_str!("builtins/strings/package.txt"),
+            "mfb man strings [function]",
+        ),
+        parse_package(include_str!("unicode/package.txt"), "mfb man unicode"),
+        parse_package(
+            include_str!("builtins/io/package.txt"),
+            "mfb man io [function]",
+        ),
+        parse_package(
+            include_str!("builtins/math/package.txt"),
+            "mfb man math [function]",
+        ),
+        parse_package(
+            include_str!("builtins/fs/package.txt"),
+            "mfb man fs [function]",
+        ),
+        parse_package(
+            include_str!("builtins/thread/package.txt"),
+            "mfb man thread [function]",
+        ),
+        parse_package(
+            include_str!("builtins/json/package.txt"),
+            "mfb man json [function]",
+        ),
+        parse_package(
+            include_str!("builtins/regex/package.txt"),
+            "mfb man regex [function]",
+        ),
+        parse_package(
+            include_str!("builtins/term/package.txt"),
+            "mfb man term [function]",
+        ),
     ]
 });
 
@@ -69,262 +102,24 @@ pub(crate) fn function_page(package: &PackageDoc, name: &str) -> Option<&'static
         .map(|(_, page)| *page)
 }
 
-fn parse_types_package() -> PackageDoc {
-    let page = include_str!("types/package.txt");
-    let (name, summary) = parse_name_line(page).expect("types package NAME line");
-    let functions = generated::TYPES_TOPIC_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
+fn parse_package(page: &'static str, usage: &'static str) -> PackageDoc {
+    let (name, summary) = parse_name_line(page).expect("package NAME line");
+    let functions = generated_pages(name)
+        .map(|pages| {
+            let docs = pages
+                .iter()
+                .map(|(_, page)| parse_rendered_function_page(page))
+                .collect::<Vec<_>>()
+                .into_boxed_slice();
+            &*Box::leak(docs)
+        })
+        .unwrap_or(&[]);
 
     PackageDoc {
         name,
         summary,
-        usage: "mfb man types [topic]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_flow_package() -> PackageDoc {
-    let page = include_str!("flow/package.txt");
-    let (name, summary) = parse_name_line(page).expect("flow package NAME line");
-    let functions = generated::FLOW_TOPIC_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man flow [topic]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_errors_package() -> PackageDoc {
-    let page = include_str!("errors/package.txt");
-    let (name, summary) = parse_name_line(page).expect("errors package NAME line");
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man errors",
-        functions: &[],
-        page: Some(page),
-    }
-}
-
-fn parse_general_package() -> PackageDoc {
-    let page = include_str!("builtins/general/package.txt");
-    let (name, summary) = parse_name_line(page).expect("general package NAME line");
-    let functions = generated::GENERAL_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man general [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_collections_package() -> PackageDoc {
-    let page = include_str!("builtins/collections/package.txt");
-    let (name, summary) = parse_name_line(page).expect("collections package NAME line");
-    let functions = generated::COLLECTIONS_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man collections [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_filter_package() -> PackageDoc {
-    let page = include_str!("builtins/filters/package.txt");
-    let (name, summary) = parse_name_line(page).expect("filters package NAME line");
-    let functions = generated::FILTERS_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man filters [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_strings_package() -> PackageDoc {
-    let page = include_str!("builtins/strings/package.txt");
-    let (name, summary) = parse_name_line(page).expect("strings package NAME line");
-    let functions = generated::STRINGS_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man strings [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_unicode_package() -> PackageDoc {
-    let page = include_str!("unicode/package.txt");
-    let (name, summary) = parse_name_line(page).expect("unicode package NAME line");
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man unicode",
-        functions: &[],
-        page: Some(page),
-    }
-}
-
-fn parse_io_package() -> PackageDoc {
-    let page = include_str!("builtins/io/package.txt");
-    let (name, summary) = parse_name_line(page).expect("io package NAME line");
-    let functions = generated::IO_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man io [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_math_package() -> PackageDoc {
-    let page = include_str!("builtins/math/package.txt");
-    let (name, summary) = parse_name_line(page).expect("math package NAME line");
-    let functions = generated::MATH_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man math [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_fs_package() -> PackageDoc {
-    let page = include_str!("builtins/fs/package.txt");
-    let (name, summary) = parse_name_line(page).expect("fs package NAME line");
-    let functions = generated::FS_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man fs [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_thread_package() -> PackageDoc {
-    let page = include_str!("builtins/thread/package.txt");
-    let (name, summary) = parse_name_line(page).expect("thread package NAME line");
-    let functions = generated::THREAD_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man thread [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_json_package() -> PackageDoc {
-    let page = include_str!("builtins/json/package.txt");
-    let (name, summary) = parse_name_line(page).expect("json package NAME line");
-    let functions = generated::JSON_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man json [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_regex_package() -> PackageDoc {
-    let page = include_str!("builtins/regex/package.txt");
-    let (name, summary) = parse_name_line(page).expect("regex package NAME line");
-    let functions = generated::REGEX_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man regex [function]",
-        functions: Box::leak(functions),
-        page: Some(page),
-    }
-}
-
-fn parse_term_package() -> PackageDoc {
-    let page = include_str!("builtins/term/package.txt");
-    let (name, summary) = parse_name_line(page).expect("term package NAME line");
-    let functions = generated::TERM_FUNCTION_PAGES
-        .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
-        .collect::<Vec<_>>()
-        .into_boxed_slice();
-
-    PackageDoc {
-        name,
-        summary,
-        usage: "mfb man term [function]",
-        functions: Box::leak(functions),
+        usage,
+        functions,
         page: Some(page),
     }
 }
