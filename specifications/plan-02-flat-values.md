@@ -54,6 +54,39 @@ Last updated: 2026-06-24
 - Phases 4–8 — pending. **The same atomicity reasoning (scoping correction below)
   governs Phases 4/5.**
 
+### Phase 4 scoping (ready for continuation)
+
+Reshape **data** unions to `{U64 tag@0, U64 size@8, variant-record-block@16}`,
+inlining the active variant's flat record block at `+16`. De-risking already
+worked out:
+
+- **Resource unions stay untouched.** A union is all-data or all-resource
+  (`rules.rs:790`), so the two are disjoint. Resource unions keep
+  `{tag@0, resource ptr@8}` and their close-once lifecycle — do **not** reshape
+  them (that's where the resource-leak/double-close risk lives).
+- **The variant is a record**, so the existing record helpers apply to the block
+  at `+16`: `emit_build_inlined_record` builds it, `emit_record_block_size_to_slot`
+  sizes it, `copy_record_fields_into_existing` / `record_field_is_pointer_in` fix
+  its pointer fields, and field reads after `MATCH`/`UnionExtract` already go
+  through the record path. `MATCH` dispatch reads `tag@0` (unchanged) — only
+  `UnionExtract` changes, to return `union+16` (a borrow of the inlined variant
+  record) instead of today's pointer-at-`+8` hack.
+- Sites: `UnionWrap` + the `Constructor` union branch (wrap → `{tag,size,data}`),
+  `UnionExtract` (return `+16`), `copy_union_to_current_arena` /
+  `copy_union_fields_into_existing` (size from `+8`, then fix the active variant's
+  pointer fields at `+16` by tag), union equality, union payload size in
+  collections (`emit_payload_length_to_stack` / `materialize_inline_value_in_arena`
+  → load `[union+8]`), and the direct union/variant field-access branches in
+  `lower_field_access` (`+16 + variantFieldOffset`).
+- Remove the Phase-2 transitional hack (`record_has_inline_data` pointer-at-`+8`
+  for inline-data record variants) — the reshape inlines them properly instead.
+- Tests to keep green (all have `.run` goldens): `types-union`, `thread-return-union`
+  (transfer), `control-flow-match-destructuring` / `-else` / `-when`,
+  `resource-union-valid` / `resource-union-drop-valid` (must stay byte-identical —
+  resource path untouched), `package-*`, plus `json`/`string`/`collections`
+  helpers that `MATCH` internally. `Result`/`Error` stay on their current
+  (excluded, ABI-wired) representation; inlining them is a later, separate step.
+
 ### Phase 2 scoping correction (discovered while implementing)
 
 The plan calls Phase 2 ("inline `String` in records/unions") "the smallest
