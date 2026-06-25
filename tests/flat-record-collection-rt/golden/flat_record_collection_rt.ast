@@ -1,0 +1,91 @@
+{
+  "project": "flat_record_collection_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 },
+    { "module": "collections", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Bag",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF Integer", "line": 11 },
+      { "visibility": null, "name": "labels", "type": "Map OF String TO Integer", "line": 12 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Person",
+      "line": 15,
+      "fields": [
+      { "visibility": null, "name": "name", "type": "String", "line": 16 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Team",
+      "line": 19,
+      "fields": [
+      { "visibility": null, "name": "members", "type": "List OF Person", "line": 20 },
+      { "visibility": null, "name": "size", "type": "Integer", "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "sumItems",
+      "line": 24,
+      "params": [
+      { "name": "b", "type": "Bag", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 25 },
+      {
+        "kind": "forEach",
+        "name": "n",
+        "iterable": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "items" },
+        "line": 26,
+        "body": [
+        { "kind": "assignment", "name": "total", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "total" }, "right": { "kind": "identifier", "value": "n" } }, "line": 27 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "total" }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 32,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Bag", "value": { "kind": "constructor", "type": "Bag", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, { "kind": "map", "keyType": "String", "valueType": "Integer", "entries": [{ "key": { "kind": "string", "value": "a" }, "value": { "kind": "number", "value": "1" } }, { "key": { "kind": "string", "value": "b" }, "value": { "kind": "number", "value": "2" } }] }] }, "line": 33 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sumItems", "arguments": [{ "kind": "identifier", "value": "b" }] }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "items" }, { "kind": "number", "value": "1" }] }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "labels" }, { "kind": "string", "value": "b" }] }] }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "b2", "type": "Bag", "value": { "kind": "identifier", "value": "b" }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "grown", "type": "List OF Integer", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "b" }, "member": "items" }, { "kind": "number", "value": "40" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "b3", "type": "Bag", "value": { "kind": "with", "target": { "kind": "identifier", "value": "b" }, "updates": [{ "field": "items", "value": { "kind": "identifier", "value": "grown" } }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sumItems", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sumItems", "arguments": [{ "kind": "identifier", "value": "b2" }] }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sumItems", "arguments": [{ "kind": "identifier", "value": "b3" }] }] } }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "t", "type": "Team", "value": { "kind": "constructor", "type": "Team", "arguments": [{ "kind": "list", "values": [{ "kind": "constructor", "type": "Person", "arguments": [{ "kind": "string", "value": "Ada" }] }, { "kind": "constructor", "type": "Person", "arguments": [{ "kind": "string", "value": "Grace" }] }] }, { "kind": "number", "value": "2" }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "members" }, { "kind": "number", "value": "0" }] }, "member": "name" }, "right": { "kind": "string", "value": "+" } }, "right": { "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "members" }, { "kind": "number", "value": "1" }] }, "member": "name" } }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "members" }] }] }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "size" }] } }] }, "line": 47 },
+      { "kind": "binding", "mutable": false, "name": "t2", "type": "Team", "value": { "kind": "identifier", "value": "t" }, "line": 48 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "t2" }, "member": "members" }, { "kind": "number", "value": "1" }] }, "member": "name" }] }, "line": 49 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 51 }
+      ]
+    }
+    ]
+  }
+  ]
+}

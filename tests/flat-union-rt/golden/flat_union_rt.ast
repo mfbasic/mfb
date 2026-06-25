@@ -1,0 +1,131 @@
+{
+  "project": "flat_union_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 },
+    { "module": "collections", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Dot",
+      "line": 10,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 11 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Tag",
+      "line": 14,
+      "fields": [
+      { "visibility": null, "name": "name", "type": "String", "line": 15 }
+      ]
+    },
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Boxed",
+      "line": 18,
+      "fields": [
+      { "visibility": null, "name": "dot", "type": "Dot", "line": 19 },
+      { "visibility": null, "name": "label", "type": "String", "line": 20 }
+      ]
+    },
+    {
+      "kind": "union",
+      "visibility": "private",
+      "name": "Shape",
+      "line": 23,
+      "includes": [],
+      "variants": [
+      { "name": "Dot", "line": 24 },
+      { "name": "Tag", "line": 25 },
+      { "name": "Boxed", "line": 26 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "describe",
+      "line": 29,
+      "params": [
+      { "name": "s", "type": "Shape", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "match",
+        "expression": { "kind": "identifier", "value": "s" },
+        "line": 30,
+        "cases": [
+        {
+          "pattern": { "kind": "union", "type": "Dot", "binding": "d" },
+          "guard": null,
+          "line": 31,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "dot:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "d" }, "member": "x" }] } }, "line": 32 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Tag", "binding": "t" },
+          "guard": null,
+          "line": 33,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tag:" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "t" }, "member": "name" } }, "line": 34 }
+          ]
+        },
+        {
+          "pattern": { "kind": "union", "type": "Boxed", "binding": "p" },
+          "guard": null,
+          "line": 35,
+          "body": [
+          { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pair:" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "dot" }, "member": "x" }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "p" }, "member": "label" } }, "line": 36 }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 40,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Shape", "value": { "kind": "constructor", "type": "Dot", "arguments": [{ "kind": "number", "value": "7" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Shape", "value": { "kind": "constructor", "type": "Tag", "arguments": [{ "kind": "string", "value": "hello" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "c", "type": "Shape", "value": { "kind": "constructor", "type": "Boxed", "arguments": [{ "kind": "constructor", "type": "Dot", "arguments": [{ "kind": "number", "value": "3" }] }, { "kind": "string", "value": "boxed-and-longer" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "a" }] }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "b" }] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "c" }] }] }, "line": 46 },
+      { "kind": "binding", "mutable": false, "name": "d", "type": "Shape", "value": { "kind": "identifier", "value": "c" }, "line": 49 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "d" }] }] }, "line": 50 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "a" }] }, "right": { "kind": "string", "value": "|" } }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF Shape", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }, { "kind": "identifier", "value": "c" }] }, "line": 54 },
+      { "kind": "binding", "mutable": true, "name": "joined", "type": "String", "value": { "kind": "string", "value": "" }, "line": 55 },
+      {
+        "kind": "forEach",
+        "name": "s",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 56,
+        "body": [
+        { "kind": "assignment", "name": "joined", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "joined" }, "right": { "kind": "call", "callee": "describe", "arguments": [{ "kind": "identifier", "value": "s" }] } }, "right": { "kind": "string", "value": ";" } }, "line": 57 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "joined" }] }, "line": 59 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "xs" }] }] }] }, "line": 60 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 61 }
+      ]
+    }
+    ]
+  }
+  ]
+}

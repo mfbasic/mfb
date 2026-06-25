@@ -16,8 +16,156 @@ Last updated: 2026-06-24
   entropy poisoning); acceptance green. The generic `arena_free` wrapper is
   deferred to Phase 8 where it gains a call site (its only new primitive, the
   block-size computation, already landed here).
-- Phases 2–8 — pending. **See the scoping correction below before starting
-  Phase 2 — the original phase split is not landable as written.**
+- **Phase 2 (records) — DONE.** Records now inline their `String` fields as
+  block-relative `U64` offsets into a trailing data region (the slot at `8*n`
+  holds the offset; the inlined block is `{len, bytes, nul}`, 8-aligned). Landed
+  as one atomic change across: construction (`emit_build_inlined_record`), default
+  init, field read (`base + offset` deref), `WITH` (rebuild + re-lay-out),
+  thread-transfer copy (whole-block `memcpy` + pointer-field fix only), record
+  equality / map-key compare (deref), and variable-size record payloads in
+  collections (`emit_record_block_size_to_slot` drives append/literal/length/
+  materialize). A `String`-bearing **record variant of a union** is stored as a
+  single record pointer at `+8` (UnionWrap/Extract/copy), deferring the full
+  `{tag,size,data}` union reshape to Phase 4. Built-in helper-constructed records
+  (`Error`, `ErrorLoc`, `Address`, `Datagram`, `DatagramText`) are excluded and
+  keep the pointer layout (`is_pointer_string_record`), so the error/`net::`
+  machinery is untouched. Validated: full `scripts/test-accept.sh` green
+  (`control-flow-match` ncode golden resynced — runtime `build.log` identical),
+  the record stressors (`types-record-comparable-runtime`,
+  `builtin-pair-partition-valid`) pass, and a new dedicated runtime proof
+  `tests/flat-record-string-rt` (copy independence, `WITH` resize shorter/longer,
+  nested records, `List` append independence, record map keys, empty `String`)
+  runs deterministically under entropy poisoning.
+- **Phase 3 (nested flat records) — DONE.** A record field whose type is a
+  **fully-flat** record (scalars + inlined `String`s + flat nested records, no
+  `Union`/`List`/`Map`/`Result`/`Error` and not a helper-built pointer-`String`
+  record) is now inlined into the enclosing record's data region by offset,
+  recursively. The Phase-2 machinery generalized: `record_field_is_inlined` /
+  `record_is_fully_flat` / `record_has_inline_data` drive it;
+  `emit_record_block_size_to_slot` and `emit_build_inlined_record` recurse through
+  nested records (`emit_inlined_block_size_from_ptr_slot`); field read, equality,
+  `WITH`, copy (pointer-fix skips inlined records), and collection embedding all
+  follow. Recursion is bounded by static nesting. Validated: full acceptance green
+  (`control-flow-match` ncode resynced, runtime identical),
+  `types-record-comparable-runtime` (`Badge { owner AS Person, … }`) passes, and a
+  new runtime proof `tests/flat-nested-record-rt` (3-level nesting, `WITH`-replace
+  a nested record, `List` append independence, nested-tree equality) runs
+  deterministically under entropy poisoning.
+- **Phase 4 (data unions) — DONE.** Data unions reshaped to flat
+  `{U64 tag@0, U64 size@8, variant-record-block@16}`, inlining the active
+  variant's record at `+16` (`emit_wrap_record_in_union`); `UnionExtract` returns
+  `union+16` (a borrow), `MATCH` still dispatches on `tag@0`. Copy/transfer reads
+  the runtime `size@8`, `memcpy`s the whole union, then deep-copies only the
+  active variant's pointer fields (`copy_union_fields_into_existing` →
+  `copy_record_fields_into_existing` at `+16`). Collection embedding sizes a data
+  union from `size@8` (`emit_payload_length_to_stack` /
+  `materialize_inline_value_in_arena`). **Resource unions are untouched** (kept
+  `{tag, resource-ptr}`, `union_is_data` gates the split), so the close-once
+  lifecycle is unchanged — `resource-union-valid`/`-drop-valid` stay byte-
+  identical. The Phase-2 pointer-at-`+8` hack for inline-data record variants is
+  removed. Validated: full acceptance green (`control-flow-match` ncode resynced,
+  runtime identical), `types-union` (`List OF Shape`, `ShapeBag`),
+  `thread-return-union` (transfer), `control-flow-match-*`, `func_json_parse_valid`
+  (JSON values are unions), and packages pass; new runtime proof
+  `tests/flat-union-rt` (scalar/String/nested-record variants, `MATCH`, copy,
+  `List` of variable-size unions) is deterministic under entropy poisoning.
+  (`Result`/`Error` were flattened later, in Phase 6.)
+- **Phase 5 (collection/union fields of records) — DONE (part b).** A record or
+  union-variant field that is a **fully-flat** collection (`List`/`Map` whose
+  payloads are flat and not themselves collections) or a **flat data union** is
+  now inlined into the enclosing block's data region by offset, reusing the
+  collection's self-describing size (`emit_flat_block_size`) and the data union's
+  `size@8`. A single cycle-detecting predicate `type_is_flat` (with a `visited`
+  path set) now decides inlining for records, data unions, and collections
+  uniformly — recursive types (e.g. `ConfigJson` ⊇ `Map OF String TO ConfigJson`)
+  stay pointers, so they don't blow up the compiler or imply infinite-size blocks.
+  `emit_inlined_block_size_from_ptr_slot` gained union (`size@8`) and collection
+  (`emit_flat_block_size`) branches; field read / `WITH` / copy / collection
+  embedding all follow `record_field_is_inlined`. Validated: full acceptance green
+  (`control-flow-match` ncode resynced, runtime identical), `types-union`
+  (`ShapeBag { shapes AS List OF Shape }`), `builtin-pair-partition-valid`
+  (`Partition` List fields), `types-record-comparable-runtime`, and
+  `types-recursive-record-valid` (recursive `ConfigJson`) pass; new runtime proof
+  `tests/flat-record-collection-rt` (record with `List`+`Map` fields, a record
+  holding a `List` of `String`-bearing records, copy/append independence) is
+  deterministic under entropy poisoning.
+  - **Part (a) — DONE.** Nested **flat** collections (`List OF List`,
+    `Map OF String TO List`, N levels) are now inlined as their full block in the
+    enclosing collection's data region by `valueOffset`/`valueLength` (the block
+    byte size), not a pointer handle. The collection payload writer/reader
+    (`emit_payload_length_to_stack`, `emit_copy_payload_to_collection`,
+    `emit_load_collection_payload`, `collection_payload_alignment`) gained a
+    flat-collection branch (size via `emit_flat_block_size`; copy = `memcpy` the
+    block; read = borrow pointer to the inlined block); `type_is_flat`'s collection
+    branch now recurses into nested-collection payloads (cycle-detected), and
+    `is_pointer_collection_payload_type` keeps **only** resources and non-flat
+    nested collections as pointers. A collection relocates under `memcpy` because
+    its entry offsets are base-relative. With this, **every non-resource value is
+    flat.** Validated: full acceptance green (no `ncode` churn); new runtime proof
+    `tests/flat-nested-collection-rt` (`List OF List`, `Map OF String TO List`,
+    3-level nesting, a record holding `List OF List`, append copy-independence) is
+    deterministic under entropy poisoning; `func_collections_helpers_valid`
+    (`flatten` over `List OF List`) passes.
+- **Phase 6 (generic copy + glue deletion) — DONE.** `Error`, `ErrorLoc`, and
+  `Result` were flattened (the §1 targets), so **every non-resource value is now a
+  single pointer-free block**:
+  - `ErrorLoc` `{filename(String offset)@0, line@8, char@16}` —
+    `emit_build_error_loc` inlines the filename (empty-String-guarded, keeps its
+    OOM-returns-null contract).
+  - `Error` `{code@0, message(offset)@8, source(offset)@16}` —
+    `emit_build_error_inline` inlines message + source at all three construction
+    sites; a null `source` (OOM, no origin) is an **offset-0 sentinel**;
+    `emit_load_error_fields` rebases them for the FAIL ABI.
+  - `Result` `{tag@0, size@8, payload@16}` — `emit_build_result_inline` inlines a
+    scalar payload (8-byte word) or a block payload whole; `ResultValue`/
+    `ResultError` read `+16`; `type_is_flat` now recognises `Result OF T`.
+
+  With that, `copy_value_to_current_arena` routes every value through the generic
+  `copy_flat_block` (sized by `emit_inlined_block_size_from_ptr_slot`), and the
+  per-type deep-copy glue — `copy_error_to_current_arena`,
+  `copy_result_to_current_arena`, `copy_record_to_current_arena` — was **deleted**.
+  The only glue left is the resource-move path (`copy_resource`, and
+  `copy_collection`/`copy_union` for a `List OF RES` / resource union), which is
+  the single remaining pointer the plan always allowed (§9). Validated: full
+  acceptance green; the error/trap/`Result` runtime tests
+  (`thread-error-source-rt`, `control-flow-inline-trap-*`, `func_thread_result_valid`,
+  `arithmetic-division-invalid-rt`) and resource transfer
+  (`thread-send-file-ownership-rt`, `resource-union-valid`/`-drop-valid`) pass
+  deterministically under entropy poisoning.
+- Phase 8 — pending.
+
+### Phase 4 scoping (ready for continuation)
+
+Reshape **data** unions to `{U64 tag@0, U64 size@8, variant-record-block@16}`,
+inlining the active variant's flat record block at `+16`. De-risking already
+worked out:
+
+- **Resource unions stay untouched.** A union is all-data or all-resource
+  (`rules.rs:790`), so the two are disjoint. Resource unions keep
+  `{tag@0, resource ptr@8}` and their close-once lifecycle — do **not** reshape
+  them (that's where the resource-leak/double-close risk lives).
+- **The variant is a record**, so the existing record helpers apply to the block
+  at `+16`: `emit_build_inlined_record` builds it, `emit_record_block_size_to_slot`
+  sizes it, `copy_record_fields_into_existing` / `record_field_is_pointer_in` fix
+  its pointer fields, and field reads after `MATCH`/`UnionExtract` already go
+  through the record path. `MATCH` dispatch reads `tag@0` (unchanged) — only
+  `UnionExtract` changes, to return `union+16` (a borrow of the inlined variant
+  record) instead of today's pointer-at-`+8` hack.
+- Sites: `UnionWrap` + the `Constructor` union branch (wrap → `{tag,size,data}`),
+  `UnionExtract` (return `+16`), `copy_union_to_current_arena` /
+  `copy_union_fields_into_existing` (size from `+8`, then fix the active variant's
+  pointer fields at `+16` by tag), union equality, union payload size in
+  collections (`emit_payload_length_to_stack` / `materialize_inline_value_in_arena`
+  → load `[union+8]`), and the direct union/variant field-access branches in
+  `lower_field_access` (`+16 + variantFieldOffset`).
+- Remove the Phase-2 transitional hack (`record_has_inline_data` pointer-at-`+8`
+  for inline-data record variants) — the reshape inlines them properly instead.
+- Tests to keep green (all have `.run` goldens): `types-union`, `thread-return-union`
+  (transfer), `control-flow-match-destructuring` / `-else` / `-when`,
+  `resource-union-valid` / `resource-union-drop-valid` (must stay byte-identical —
+  resource path untouched), `package-*`, plus `json`/`string`/`collections`
+  helpers that `MATCH` internally. `Result`/`Error` stay on their current
+  (excluded, ABI-wired) representation; inlining them is a later, separate step.
 
 ### Phase 2 scoping correction (discovered while implementing)
 

@@ -1,0 +1,53 @@
+' plan-02 Phase 3 proof: a fully-flat nested record is inlined into the enclosing
+' record's data region by offset (recursively), so a record tree is a single flat
+' block. Exercises deep nesting (3 levels, each carrying a String), field reads
+' through the chain, copy independence, WITH that resizes an outer String and WITH
+' that replaces a whole nested record, and nested records flowing through a List.
+' Runs under always-on entropy poisoning.
+IMPORT io
+IMPORT collections
+
+TYPE Inner
+  label AS String
+  n AS Integer
+END TYPE
+
+TYPE Mid
+  inner AS Inner
+  name AS String
+END TYPE
+
+TYPE Outer
+  mid AS Mid
+  tag AS String
+END TYPE
+
+FUNC main AS Integer
+  LET o AS Outer = Outer[Mid[Inner["deep", 7], "mid"], "top"]
+  io::print(o.mid.inner.label & "/" & toString(o.mid.inner.n) & "/" & o.mid.name & "/" & o.tag)
+
+  ' Copy by assignment, WITH-resize an outer String, and WITH-replace a whole
+  ' nested record — the original and the first copy must stay intact.
+  LET o2 AS Outer = o
+  LET o3 AS Outer = WITH o { tag := "top-changed-and-longer" }
+  LET o4 AS Outer = WITH o { mid := Mid[Inner["x", 1], "newmid"] }
+  io::print(o.mid.inner.label & "/" & o.mid.name & "/" & o.tag)
+  io::print(o2.mid.inner.label & "/" & o2.tag)
+  io::print(o3.mid.inner.label & "/" & o3.mid.name & "/" & o3.tag)
+  io::print(o4.mid.inner.label & "/" & toString(o4.mid.inner.n) & "/" & o4.mid.name & "/" & o4.tag)
+
+  ' Nested records flowing through a List (append grows + offset-fixes the data
+  ' region); the source list and already-copied elements stay independent.
+  LET xs AS List OF Outer = [o, o4]
+  LET more AS List OF Outer = collections::append(xs, o3)
+  io::print(toString(len(xs)) & "," & toString(len(more)))
+  io::print(collections::get(xs, 0).mid.inner.label & "/" & collections::get(xs, 1).mid.inner.label)
+  io::print(collections::get(more, 1).mid.name & "/" & collections::get(more, 2).tag)
+
+  ' Equality of nested-record trees.
+  LET same AS Outer = Outer[Mid[Inner["deep", 7], "mid"], "top"]
+  LET diff AS Outer = Outer[Mid[Inner["deep", 8], "mid"], "top"]
+  io::print(toString(o = same) & "," & toString(o = diff))
+
+  RETURN 0
+END FUNC

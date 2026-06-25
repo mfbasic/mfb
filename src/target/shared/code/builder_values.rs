@@ -508,8 +508,6 @@ impl CodeBuilder<'_> {
                 let message_slot = self.allocate_stack_object("raw_result_message", 8);
                 let source_slot = self.allocate_stack_object("raw_result_source", 8);
                 let payload_slot = self.allocate_stack_object("raw_result_payload", 8);
-                let alloc_ok = self.label("result_construct_alloc_ok");
-                let error_alloc_ok = self.label("result_error_alloc_ok");
                 let wrap_error_label = self.label("result_wrap_error");
                 let have_payload_label = self.label("result_have_payload");
                 let result_slot = self.allocate_stack_object("raw_result", 8);
@@ -541,59 +539,22 @@ impl CodeBuilder<'_> {
                 self.emit(abi::branch_ne(&wrap_error_label));
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), value_slot));
                 self.emit(abi::store_u64("x9", abi::stack_pointer(), payload_slot));
+                let ok_result =
+                    self.emit_build_result_inline(tag_slot, &success_type, payload_slot)?;
+                self.emit(abi::store_u64(&ok_result, abi::stack_pointer(), result_slot));
                 self.emit(abi::branch(&have_payload_label));
                 self.emit(abi::label(&wrap_error_label));
-                self.emit(abi::move_immediate(
-                    abi::return_register(),
-                    "Integer",
-                    &ERROR_OBJECT_SIZE.to_string(),
+                let error_register =
+                    self.emit_build_error_inline(value_slot, message_slot, source_slot)?;
+                self.emit(abi::store_u64(
+                    &error_register,
+                    abi::stack_pointer(),
+                    payload_slot,
                 ));
-                self.emit(abi::move_immediate("x1", "Integer", "8"));
-                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                self.relocations.push(CodeRelocation {
-                    from: self.current_symbol.clone(),
-                    to: ARENA_ALLOC_SYMBOL.to_string(),
-                    kind: "branch26".to_string(),
-                    binding: "internal".to_string(),
-                    library: None,
-                });
-                self.emit(abi::compare_immediate(
-                    abi::return_register(),
-                    RESULT_OK_TAG,
-                ));
-                self.emit(abi::branch_eq(&error_alloc_ok));
-                self.emit_allocation_error_return()?;
-                self.emit(abi::label(&error_alloc_ok));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), value_slot));
-                self.emit(abi::store_u64("x9", "x1", 0));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), message_slot));
-                self.emit(abi::store_u64("x9", "x1", 8));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-                self.emit(abi::store_u64("x9", "x1", 16));
-                self.emit(abi::store_u64("x1", abi::stack_pointer(), payload_slot));
+                let err_result =
+                    self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+                self.emit(abi::store_u64(&err_result, abi::stack_pointer(), result_slot));
                 self.emit(abi::label(&have_payload_label));
-                self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
-                self.emit(abi::move_immediate("x1", "Integer", "8"));
-                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                self.relocations.push(CodeRelocation {
-                    from: self.current_symbol.clone(),
-                    to: ARENA_ALLOC_SYMBOL.to_string(),
-                    kind: "branch26".to_string(),
-                    binding: "internal".to_string(),
-                    library: None,
-                });
-                self.emit(abi::compare_immediate(
-                    abi::return_register(),
-                    RESULT_OK_TAG,
-                ));
-                self.emit(abi::branch_eq(&alloc_ok));
-                self.emit_allocation_error_return()?;
-                self.emit(abi::label(&alloc_ok));
-                self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
-                self.emit(abi::store_u64("x9", "x1", 0));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), payload_slot));
-                self.emit(abi::store_u64("x9", "x1", 8));
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
@@ -651,44 +612,18 @@ impl CodeBuilder<'_> {
                     arg_values.push(value);
                     arg_slots.push(slot);
                 }
-                let register = self.allocate_register()?;
                 if self.type_model.record_fields.contains_key(type_) {
-                    let result_slot = self.allocate_stack_object("record_result", 8);
-                    let alloc_ok = self.label("record_construct_alloc_ok");
-                    let object_size = 8 * arg_values.len();
-                    self.emit(abi::move_immediate(
-                        abi::return_register(),
-                        "Integer",
-                        &object_size.to_string(),
-                    ));
-                    self.emit(abi::move_immediate("x1", "Integer", "8"));
-                    self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                    self.relocations.push(CodeRelocation {
-                        from: self.current_symbol.clone(),
-                        to: ARENA_ALLOC_SYMBOL.to_string(),
-                        kind: "branch26".to_string(),
-                        binding: "internal".to_string(),
-                        library: None,
-                    });
-                    self.emit(abi::compare_immediate(
-                        abi::return_register(),
-                        RESULT_OK_TAG,
-                    ));
-                    self.emit(abi::branch_eq(&alloc_ok));
-                    self.emit_allocation_error_return()?;
-                    self.emit(abi::label(&alloc_ok));
-                    self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-                    for (index, slot) in arg_slots.iter().enumerate() {
-                        self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-                        self.emit(abi::store_u64("x9", "x1", 8 * index));
-                    }
-                    self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                    // A record inlines its `String` fields into a trailing data
+                    // region (the slot holds a block-relative offset); scalar and
+                    // pointer fields stay inline at `8*index` (plan-02 §4.2).
+                    let register = self.emit_build_inlined_record(type_, &arg_slots)?;
                     return Ok(ValueResult {
                         type_: type_.clone(),
                         location: register,
                         text: format!("construct {type_}({})", join_texts(&arg_values)),
                     });
                 }
+                let register = self.allocate_register()?;
                 let tag = self
                     .type_model
                     .union_variant_tags
@@ -793,6 +728,20 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| {
                         format!("native code union variant '{member_type}' does not resolve")
                     })?;
+                // Data variant: build a flat `{tag, size, variant-record-block}`
+                // union, inlining the wrapped variant record at +16 (plan-02
+                // §4.3). Resource variants fall through to the fixed
+                // `{tag, resource-ptr}` layout below.
+                if !is_resource_variant {
+                    let _ = &fields;
+                    let register =
+                        self.emit_wrap_record_in_union(member_type, tag, wrapped_slot)?;
+                    return Ok(ValueResult {
+                        type_: union_type.clone(),
+                        location: register,
+                        text: format!("wrap {member_type} as {union_type}"),
+                    });
+                }
                 // Payload words across all variants: a resource variant occupies
                 // one word (the handle pointer); a record variant occupies its
                 // field count.
@@ -849,8 +798,13 @@ impl CodeBuilder<'_> {
                     &tag.to_string(),
                 ));
                 self.emit(abi::store_u64(&tag_register, "x1", 0));
-                if is_resource_variant {
-                    // Store the resource handle pointer directly as the payload.
+                if is_resource_variant || self.record_has_inline_data(member_type) {
+                    // Resource variants store the handle pointer at +8. A record
+                    // variant whose record has inlined String data is also stored
+                    // as a single pointer at +8 (the inline-offset slots are
+                    // meaningless once detached from the record's data region);
+                    // the record stays a standalone flat block (plan-02 §4.2,
+                    // union reshape deferred to Phase 4).
                     self.emit(abi::load_u64("x9", abi::stack_pointer(), wrapped_slot));
                     self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
                     self.emit(abi::store_u64("x9", "x10", 8));
@@ -883,52 +837,12 @@ impl CodeBuilder<'_> {
                         text: format!("extract {type_} from {}", source.text),
                     });
                 }
-                let fields = self
-                    .type_model
-                    .record_fields
-                    .get(type_)
-                    .cloned()
-                    .ok_or_else(|| {
-                        format!("native code union extract target '{type_}' is not a record")
-                    })?;
+                // A data union inlines the active variant's flat record block at
+                // +16 (plan-02 §4.3); the extracted record is a borrow into the
+                // union at that offset.
                 let source = self.lower_value(value)?;
-                let source_slot = self.allocate_stack_object("union_extract_source", 8);
-                self.emit(abi::store_u64(
-                    &source.location,
-                    abi::stack_pointer(),
-                    source_slot,
-                ));
-                let result_slot = self.allocate_stack_object("union_extract_result", 8);
-                let alloc_ok = self.label("union_extract_alloc_ok");
-                self.emit(abi::move_immediate(
-                    abi::return_register(),
-                    "Integer",
-                    &(8 * fields.len()).to_string(),
-                ));
-                self.emit(abi::move_immediate("x1", "Integer", "8"));
-                self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-                self.relocations.push(CodeRelocation {
-                    from: self.current_symbol.clone(),
-                    to: ARENA_ALLOC_SYMBOL.to_string(),
-                    kind: "branch26".to_string(),
-                    binding: "internal".to_string(),
-                    library: None,
-                });
-                self.emit(abi::compare_immediate(
-                    abi::return_register(),
-                    RESULT_OK_TAG,
-                ));
-                self.emit(abi::branch_eq(&alloc_ok));
-                self.emit_allocation_error_return()?;
-                self.emit(abi::label(&alloc_ok));
-                self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-                for (index, _) in fields.iter().enumerate() {
-                    self.emit(abi::load_u64("x11", abi::stack_pointer(), source_slot));
-                    self.emit(abi::load_u64("x9", "x11", 8 * (index + 1)));
-                    self.emit(abi::store_u64("x9", "x1", 8 * index));
-                }
                 let register = self.allocate_register()?;
-                self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
+                self.emit(abi::add_immediate(&register, &source.location, 16));
                 Ok(ValueResult {
                     type_: type_.clone(),
                     location: register,
@@ -966,8 +880,15 @@ impl CodeBuilder<'_> {
                         )
                     })?
                     .to_string();
+                // The payload is inlined at +16 (plan-02 §4.3): a block payload
+                // yields a borrow pointer into the Result; a scalar payload is the
+                // 8-byte value.
                 let register = self.allocate_register()?;
-                self.emit(abi::load_u64(&register, &result.location, 8));
+                if self.result_payload_is_block(&type_) {
+                    self.emit(abi::add_immediate(&register, &result.location, 16));
+                } else {
+                    self.emit(abi::load_u64(&register, &result.location, 16));
+                }
                 Ok(ValueResult {
                     type_,
                     location: register,
@@ -976,8 +897,9 @@ impl CodeBuilder<'_> {
             }
             NirValue::ResultError { value } => {
                 let result = self.lower_value(value)?;
+                // The error payload (a flat Error block) is inlined at +16.
                 let register = self.allocate_register()?;
-                self.emit(abi::load_u64(&register, &result.location, 8));
+                self.emit(abi::add_immediate(&register, &result.location, 16));
                 Ok(ValueResult {
                     type_: "Error".to_string(),
                     location: register,

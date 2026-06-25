@@ -1,0 +1,61 @@
+' plan-02 Phase 2 proof: records inline their String fields as block-relative
+' offsets into a trailing data region. Exercises construction, multi-String
+' offset fixup, field read, WITH (shorter and longer resize), nested records,
+' records embedded/copied in List and Map (incl. record map keys), and the
+' empty-String boundary. Runs under always-on entropy poisoning, so any residual
+' aliasing or wrong offset surfaces as a loud crash rather than silent garbage.
+IMPORT io
+IMPORT collections
+
+TYPE Person
+  name AS String
+  city AS String
+END TYPE
+
+TYPE Wrapper
+  who AS Person
+  tag AS String
+END TYPE
+
+FUNC main AS Integer
+  ' Construct + read multiple inline String fields.
+  LET a AS Person = Person["Ada", "London"]
+  io::print(a.name & "/" & a.city)
+
+  ' Copy by assignment, then WITH-update (a longer and a shorter String) — the
+  ' original and the first copy must stay byte-for-byte intact.
+  LET b AS Person = a
+  LET c AS Person = WITH a { name := "Augusta" }
+  LET d AS Person = WITH a { city := "NY" }
+  io::print(a.name & "/" & a.city)
+  io::print(b.name & "/" & b.city)
+  io::print(c.name & "/" & c.city)
+  io::print(d.name & "/" & d.city)
+
+  ' Nested record carrying a String; WITH on the outer String field.
+  LET w AS Wrapper = Wrapper[a, "first"]
+  io::print(w.who.name & ":" & w.who.city & ":" & w.tag)
+  LET w2 AS Wrapper = WITH w { tag := "second-and-longer" }
+  io::print(w.tag & "|" & w2.tag)
+  io::print(w2.who.name & ":" & w2.who.city)
+
+  ' Records embedded in a List; appending grows the data region and must not
+  ' disturb the source list or the elements already copied in.
+  LET people AS List OF Person = [a, c]
+  LET more AS List OF Person = collections::append(people, Person["Grace", "Newport"])
+  io::print(toString(len(people)) & "," & toString(len(more)))
+  io::print(collections::get(people, 1).name & "/" & collections::get(people, 1).city)
+  io::print(collections::get(more, 2).name & "/" & collections::get(more, 2).city)
+
+  ' Records as Map keys (key payload is the inlined record block).
+  LET scores AS Map OF Person TO Integer = Map OF Person TO Integer { a := 1, c := 2 }
+  io::print(toString(collections::get(scores, Person["Ada", "London"])))
+  io::print(toString(collections::get(scores, Person["Augusta", "London"])))
+  io::print(toString(collections::hasKey(scores, Person["Grace", "Newport"])))
+
+  ' Empty-String field boundary (zero-length inlined block).
+  LET e AS Person = Person["", "x"]
+  io::print("[" & e.name & "][" & e.city & "]")
+
+  RETURN 0
+END FUNC
