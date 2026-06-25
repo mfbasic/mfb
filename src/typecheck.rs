@@ -165,6 +165,12 @@ struct TypeChecker<'a> {
     /// currently being checked. Drives borrow-only demotion of `RES` bindings
     /// whose ownership has floated into an outer-scope collection.
     current_resource_owners: crate::escape::FunctionEscape,
+    /// Set true only while inferring the argument in a compiler-known
+    /// *non-escaping* callback position (e.g. `forEach`'s action). A lambda
+    /// inferred here may capture an outer `MUT` binding as a call-bound borrow.
+    /// `infer_lambda` consumes (resets) it on entry so nested lambdas in the
+    /// callback body do not inherit the licence.
+    nonescaping_callback: bool,
 }
 
 #[derive(Clone)]
@@ -210,6 +216,7 @@ impl<'a> TypeChecker<'a> {
             resource_registry: builtins::ResourceRegistry::with_builtins(),
             close_op_aliases: HashMap::new(),
             current_resource_owners: crate::escape::FunctionEscape::default(),
+            nonescaping_callback: false,
         };
         checker.collect_types();
         checker.collect_package_types();
@@ -3113,9 +3120,11 @@ impl<'a> TypeChecker<'a> {
 
                 Type::Unknown
             }
-            Expression::Lambda { params, body } => {
-                self.infer_lambda(file, params, body, locals, line)
-            }
+            Expression::Lambda {
+                params,
+                body,
+                assign_target,
+            } => self.infer_lambda(file, params, body, assign_target.as_deref(), locals, line),
             Expression::ListLiteral(values) => {
                 self.infer_list_literal(file, values, locals, line, expected)
             }
@@ -4312,6 +4321,7 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         params: &[crate::ast::Param],
         body: &Expression,
+        assign_target: Option<&str>,
         outer_locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
@@ -4354,13 +4364,38 @@ impl<'a> TypeChecker<'a> {
             );
             param_types.push(type_);
         }
+        // Consume the non-escaping callback licence so it applies only to this
+        // lambda, never to a lambda nested inside its body.
+        let nonescaping = self.nonescaping_callback;
+        self.nonescaping_callback = false;
         let param_names = params
             .iter()
             .map(|param| param.name.clone())
             .collect::<HashSet<_>>();
-        let captures = captured_locals(body, outer_locals, &param_names);
-        for capture in captures {
-            if capture.mutable {
+        let mut captures = captured_locals(body, outer_locals, &param_names);
+        // An assignment-bodied lambda mutates its target, so the target is a
+        // capture too even when it never appears on the right-hand side (e.g.
+        // `LAMBDA(x) -> total = x`). A target that is a lambda parameter is an
+        // ordinary local, not a capture, and is rejected below as immutable.
+        if let Some(target) = assign_target {
+            if !param_names.contains(target)
+                && !captures.iter().any(|capture| capture.name == target)
+            {
+                if let Some(local) = outer_locals.get(target) {
+                    captures.push(CapturedLocal {
+                        name: target.to_string(),
+                        type_: local.type_.clone(),
+                        mutable: local.mutable,
+                    });
+                }
+            }
+        }
+        for capture in &captures {
+            if capture.mutable && !nonescaping {
+                // `MUT` capture is rejected by default: an ordinary closure would
+                // observe a frozen copy, never the live binding. The
+                // sole exception is a compiler-proven non-escaping callback
+                // position, handled below.
                 self.report(
                     "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
                     &format!(
@@ -4370,6 +4405,22 @@ impl<'a> TypeChecker<'a> {
                     file,
                     line,
                 );
+            } else if capture.mutable && self.is_resource_type(&capture.type_) {
+                // A non-escaping callback may borrow a `MUT` binding, but never a
+                // resource: resource ownership rules are unchanged (§12.4).
+                self.report(
+                    "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
+                    &format!(
+                        "Lambda captures resource local `{}`; resource captures are invalid.",
+                        capture.name
+                    ),
+                    file,
+                    line,
+                );
+            } else if capture.mutable {
+                // A permitted non-escaping `MUT` borrow: the binding is loaned to
+                // the callback for the duration of the synchronous call and is the
+                // outer binding's again once it returns.
             } else if self.is_resource_type(&capture.type_) {
                 self.report(
                     "TYPE_LAMBDA_CAPTURE_UNSUPPORTED",
@@ -4393,7 +4444,59 @@ impl<'a> TypeChecker<'a> {
                 );
             }
         }
-        let return_type = self.infer_expression(file, body, &mut locals, line, ExprMode::Read);
+        let return_type = match assign_target {
+            Some(target) => {
+                // `name = <body>`: validate the assignment the same way the
+                // statement form does — the target must be a mutable binding and
+                // the body type must match it — then yield `Nothing`.
+                let target_type = match locals.get(target).cloned() {
+                    Some(local) => {
+                        if !local.mutable {
+                            self.report(
+                                "TYPE_ASSIGN_REQUIRES_MUT",
+                                &format!(
+                                    "Binding `{target}` is immutable and cannot be assigned."
+                                ),
+                                file,
+                                line,
+                            );
+                        }
+                        Some(local.type_)
+                    }
+                    None => {
+                        self.report(
+                            "TYPE_UNKNOWN_VALUE",
+                            &format!("Assignment target `{target}` is not a local binding."),
+                            file,
+                            line,
+                        );
+                        None
+                    }
+                };
+                let actual =
+                    self.infer_expression(file, body, &mut locals, line, ExprMode::Transfer);
+                if let Some(target_type) = target_type {
+                    let reported_range_error =
+                        self.report_primitive_literal_range_error(&target_type, body, file, line);
+                    if !reported_range_error
+                        && !self.expression_compatible(&target_type, &actual, Some(body))
+                    {
+                        self.report(
+                            "TYPE_ASSIGNMENT_MISMATCH",
+                            &format!(
+                                "Assignment to `{target}` has type {}, expected {}.",
+                                self.type_name(&actual),
+                                self.type_name(&target_type)
+                            ),
+                            file,
+                            line,
+                        );
+                    }
+                }
+                Type::Nothing
+            }
+            None => self.infer_expression(file, body, &mut locals, line, ExprMode::Read),
+        };
         Type::Function {
             params: param_types,
             return_type: Box::new(return_type),
@@ -5399,13 +5502,20 @@ impl<'a> TypeChecker<'a> {
             .iter()
             .enumerate()
             .map(|(index, argument)| {
-                self.infer_expression(
+                // License a `MUT` borrow for a lambda in a non-escaping callback
+                // position (e.g. `forEach`'s action). `infer_lambda` consumes it;
+                // reset afterward so a non-lambda argument never carries it.
+                self.nonescaping_callback =
+                    builtins::is_nonescaping_callback_arg(member, index);
+                let arg_type = self.infer_expression(
                     file,
                     argument,
                     locals,
                     line,
                     self.general_argument_mode(member, index),
-                )
+                );
+                self.nonescaping_callback = false;
+                arg_type
             })
             .collect::<Vec<_>>();
         let arg_type_names = arg_types

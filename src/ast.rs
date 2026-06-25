@@ -470,6 +470,12 @@ pub enum Expression {
     Lambda {
         params: Vec<Param>,
         body: Box<Expression>,
+        /// Set when the lambda body is an assignment `name = <body>` rather than a
+        /// plain expression. Such a lambda evaluates `body`, assigns it to the
+        /// outer (or parameter) binding `name`, and yields `Nothing`. This is the
+        /// shape that lets a non-escaping callback mutate a captured `MUT`
+        /// binding, e.g. `LAMBDA(x) -> total = total + x`.
+        assign_target: Option<String>,
     },
     Constructor {
         type_name: String,
@@ -2839,10 +2845,31 @@ impl<'a> FileParser<'a> {
         ) {
             return None;
         }
+        // A lambda body of the form `name = <expr>` is an assignment (the same
+        // `identifier =` lookahead the statement parser uses to tell assignment
+        // from the `=` equality operator). It mutates `name` and yields Nothing;
+        // this is the shape a non-escaping callback uses to update a captured
+        // `MUT` binding.
+        let assign_target = if let TokenKind::Identifier(name) = self.peek().kind.clone() {
+            if self
+                .tokens
+                .get(self.current + 1)
+                .is_some_and(|token| matches!(token.kind, TokenKind::Equal))
+            {
+                self.advance();
+                self.advance();
+                Some(name)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let body = self.parse_expression()?;
         Some(Expression::Lambda {
             params,
             body: Box::new(body),
+            assign_target,
         })
     }
 
@@ -4724,17 +4751,29 @@ impl ToAstJson for Expression {
                     args
                 )
             }
-            Expression::Lambda { params, body } => {
+            Expression::Lambda {
+                params,
+                body,
+                assign_target,
+            } => {
                 let params = params
                     .iter()
                     .map(|param| param.to_json(0))
                     .collect::<Vec<_>>()
                     .join(", ");
-                format!(
-                    "{{ \"kind\": \"lambda\", \"params\": [{}], \"body\": {} }}",
-                    params,
-                    body.to_json(0)
-                )
+                match assign_target {
+                    Some(target) => format!(
+                        "{{ \"kind\": \"lambda\", \"params\": [{}], \"assignTarget\": {}, \"body\": {} }}",
+                        params,
+                        json_string(target),
+                        body.to_json(0)
+                    ),
+                    None => format!(
+                        "{{ \"kind\": \"lambda\", \"params\": [{}], \"body\": {} }}",
+                        params,
+                        body.to_json(0)
+                    ),
+                }
             }
             Expression::Constructor {
                 type_name,
@@ -5025,9 +5064,14 @@ fn substitute_placeholder(expression: Expression, input: &Expression) -> Express
             line,
             column,
         },
-        Expression::Lambda { params, body } => Expression::Lambda {
+        Expression::Lambda {
+            params,
+            body,
+            assign_target,
+        } => Expression::Lambda {
             params,
             body: Box::new(substitute_placeholder(*body, input)),
+            assign_target,
         },
         Expression::Constructor {
             type_name,

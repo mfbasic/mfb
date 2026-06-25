@@ -1,0 +1,17 @@
+$ mfb build -ast tests/lambda-mut-foreach-valid
+Wrote AST to tests/lambda-mut-foreach-valid/lambda_mut_foreach_valid.ast
+[exit 0]
+$ mfb build -ir tests/lambda-mut-foreach-valid
+Wrote IR to tests/lambda-mut-foreach-valid/lambda_mut_foreach_valid.ir
+[exit 0]
+$ mfb build tests/lambda-mut-foreach-valid
+Wrote executable to tests/lambda-mut-foreach-valid/lambda_mut_foreach_valid.out
+[exit 0]
+$ tests/lambda-mut-foreach-valid/lambda_mut_foreach_valid.out
+15
+2
+10
+5
+2
+1
+[exit 15]

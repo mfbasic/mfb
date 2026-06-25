@@ -754,6 +754,7 @@ fn collect_platform_imports_from_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
@@ -990,6 +991,7 @@ fn collect_runtime_symbols_from_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
@@ -1442,7 +1444,7 @@ impl FunctionPlanBuilder<'_> {
             NirValue::Capture { type_, .. } => {
                 storage_for_type(type_, self.type_storage)?;
             }
-            NirValue::Local(_) | NirValue::Global { .. } => {}
+            NirValue::Local(_) | NirValue::LocalRef { .. } | NirValue::Global { .. } => {}
         }
         Ok(())
     }
@@ -1637,6 +1639,7 @@ fn describe_value(value: &NirValue) -> String {
     match value {
         NirValue::Const { type_, value } => format!("{type_}({value})"),
         NirValue::Local(name) => format!("local {name}"),
+        NirValue::LocalRef { name, .. } => format!("localRef {name}"),
         NirValue::Global { name, .. } => format!("global {name}"),
         NirValue::FunctionRef { name, .. } => format!("functionRef {name}"),
         NirValue::Closure { name, captures, .. } => format!(
@@ -1823,6 +1826,7 @@ fn collect_string_literals(value: &NirValue, literals: &mut Vec<String>) {
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }

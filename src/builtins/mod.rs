@@ -109,6 +109,24 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| tls::call_return_type_name(name))
 }
 
+/// Whether parameter `index` of the built-in `callee` is a compiler-known
+/// *non-escaping* callback position: the callee is
+/// guaranteed to invoke the callback only synchronously during the call, never
+/// to store, forward, return, or concurrently/cross-thread invoke it. A lambda
+/// passed in such a position may capture an outer `MUT` binding as a temporary
+/// call-bound borrow of that binding's slot (§11.2). The callback argument is
+/// matched after normalization, so the index is the canonical parameter order.
+///
+/// `forEach`'s action (index 1) is the only such position today; `transform`,
+/// `filter`, and `reduce` deliberately stay out (§9) — broadening is a separate
+/// ergonomic decision, not a safety requirement.
+pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
+    matches!(
+        (callee, index),
+        ("forEach", 1) | ("collections.forEach", 1)
+    )
+}
+
 pub(crate) fn is_builtin_call(name: &str) -> bool {
     collections::is_collections_call(name)
         || general::is_general_call(name)

@@ -992,7 +992,7 @@ impl<'a> Resolver<'a> {
                     self.resolve_expression(file, call_arg_value(argument), line, imports, locals);
                 }
             }
-            Expression::Lambda { params, body } => {
+            Expression::Lambda { params, body, .. } => {
                 let mut lambda_locals = locals.clone();
                 for param in params {
                     if let Some(type_name) = &param.type_name {

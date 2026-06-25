@@ -2398,6 +2398,7 @@ fn ops_use_resource_type(ops: &[IrOp]) -> bool {
 fn value_uses_resource_type(value: &IrValue) -> bool {
     match value {
         IrValue::Const { type_, .. }
+        | IrValue::LocalRef { type_, .. }
         | IrValue::FunctionRef { type_, .. }
         | IrValue::Closure { type_, .. }
         | IrValue::Capture { type_, .. }
@@ -2537,6 +2538,7 @@ fn collect_resource_names_in_value(
 ) {
     match value {
         IrValue::Const { type_, .. }
+        | IrValue::LocalRef { type_, .. }
         | IrValue::FunctionRef { type_, .. }
         | IrValue::Closure { type_, .. }
         | IrValue::Capture { type_, .. }
@@ -2793,6 +2795,7 @@ fn collect_imported_calls_value(
         }
         IrValue::Const { .. }
         | IrValue::Local(_)
+        | IrValue::LocalRef { .. }
         | IrValue::Global(_)
         | IrValue::Capture { .. } => {}
     }

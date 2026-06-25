@@ -986,7 +986,11 @@ impl<'a> Monomorphizer<'a> {
                 line: *op_line,
                 column: *column,
             },
-            Expression::Lambda { params, body } => {
+            Expression::Lambda {
+                params,
+                body,
+                assign_target,
+            } => {
                 let mut nested = context.clone();
                 let lowered_params = params
                     .iter()
@@ -1011,6 +1015,7 @@ impl<'a> Monomorphizer<'a> {
                         None,
                         line,
                     )),
+                    assign_target: assign_target.clone(),
                 }
             }
             Expression::Trapped {
@@ -1324,7 +1329,11 @@ impl<'a> Monomorphizer<'a> {
                     .map(|field| field.type_name.clone())
             }
             Expression::Call { callee, .. } => context.function_returns.get(callee).cloned(),
-            Expression::Lambda { params, body } => {
+            Expression::Lambda {
+                params,
+                body,
+                assign_target,
+            } => {
                 let mut nested = context.clone();
                 let param_types = params
                     .iter()
@@ -1337,7 +1346,13 @@ impl<'a> Monomorphizer<'a> {
                         type_name
                     })
                     .collect::<Vec<_>>();
-                let returns = self.expression_type(body, &nested)?;
+                // An assignment-bodied lambda yields `Nothing`; otherwise its
+                // result type is the body expression's type.
+                let returns = if assign_target.is_some() {
+                    "Nothing".to_string()
+                } else {
+                    self.expression_type(body, &nested)?
+                };
                 Some(format!("FUNC({}) AS {returns}", param_types.join(", ")))
             }
             Expression::Binary {

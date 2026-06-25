@@ -626,6 +626,7 @@ impl CodeBuilder<'_> {
         match value {
             NirValue::Const { type_, .. } => Some(type_.clone()),
             NirValue::Local(name) => self.locals.get(name).map(|local| local.type_.clone()),
+            NirValue::LocalRef { type_, .. } => Some(type_.clone()),
             NirValue::Global { name, type_ } => {
                 if type_.is_empty() {
                     self.globals.get(name).map(|global| global.type_.clone())
@@ -2723,6 +2724,7 @@ impl CodeBuilder<'_> {
                     type_: "File".to_string(),
                     stack_offset: payload_slot,
                     constant: None,
+                    by_ref: false,
                 },
             );
             self.emit_raw_call(&symbol, std::slice::from_ref(&arg), "resource_union_drop_arg")?;

@@ -288,6 +288,14 @@ pub(crate) enum IrValue {
     },
     Local(String),
     Global(String),
+    /// The *address* of a local binding's slot (a borrow of the slot itself, not
+    /// a read of its value). Used to capture a `MUT` binding into a non-escaping
+    /// callback's environment so the callback observes and updates the live
+    /// binding through the slot.
+    LocalRef {
+        name: String,
+        type_: String,
+    },
     FunctionRef {
         name: String,
         type_: String,
@@ -300,6 +308,11 @@ pub(crate) enum IrValue {
     Capture {
         index: usize,
         type_: String,
+        /// When set, the env slot at `index` holds a pointer to the parent
+        /// binding's slot (a non-escaping `MUT` borrow), so the capture binds a
+        /// *reference* local: reads and writes deref through the slot pointer.
+        /// Otherwise it is an ordinary by-value capture.
+        by_ref: bool,
     },
     Call {
         target: String,
@@ -439,6 +452,8 @@ pub fn lower_project_with_external_functions(
         next_temp_id: 0,
         current_return_type: None,
         recover_targets: Vec::new(),
+        mutable_locals: HashSet::new(),
+        nonescaping_callback: false,
     };
     infer_binding_types(ast, &mut context);
     let bindings = lower_bindings(ast, &mut context);
@@ -900,6 +915,16 @@ struct LowerContext<'a> {
     /// is the local slot a `RECOVER` value should be stored into and its type,
     /// or `None` when the trapped value is discarded (bare-statement form).
     recover_targets: Vec<RecoverTarget>,
+    /// Names of `MUT` local bindings in scope. A lambda in a non-escaping
+    /// callback position captures these by slot-borrow rather than by value.
+    /// Not scope-precise — only ever consulted
+    /// for capture classification, where a stale non-`MUT` entry is impossible
+    /// (only `MUT` binds are inserted) and a borrow is memory-safe regardless.
+    mutable_locals: HashSet<String>,
+    /// Set true only while lowering the argument in a compiler-known
+    /// non-escaping callback position (e.g. `forEach`'s action). The lambda
+    /// lowering consumes it to license `MUT` slot-borrow captures.
+    nonescaping_callback: bool,
 }
 
 #[derive(Clone)]
@@ -982,6 +1007,11 @@ fn lower_statement(
                 None => lowered_type,
             };
             locals.insert(name.clone(), lowered_type.clone());
+            // Track `MUT` bindings so a non-escaping callback can borrow them by
+            // slot rather than copy them by value.
+            if *mutable {
+                context.mutable_locals.insert(name.clone());
+            }
             vec![IrOp::Bind {
                 mutable: *mutable,
                 name: name.clone(),
@@ -1428,6 +1458,9 @@ fn lower_inline_trap(
                 type_: type_.clone(),
                 value: Some(IrValue::Local(slot.expect("bind target has a value slot"))),
             });
+            if mutable {
+                context.mutable_locals.insert(name.clone());
+            }
             locals.insert(name, type_);
         }
         InlineTrapTarget::Assign { name } => {
@@ -2224,7 +2257,11 @@ fn expression_type(
                         .and_then(|type_| function_return_from_type(type_))
                 })
         }
-        Expression::Lambda { params, body } => {
+        Expression::Lambda {
+            params,
+            body,
+            assign_target,
+        } => {
             let mut nested = locals.clone();
             let param_types = params
                 .iter()
@@ -2237,7 +2274,12 @@ fn expression_type(
                     type_
                 })
                 .collect::<Vec<_>>();
-            let returns = expression_type(body, &nested, context)?;
+            // An assignment-bodied lambda yields `Nothing`.
+            let returns = if assign_target.is_some() {
+                "Nothing".to_string()
+            } else {
+                expression_type(body, &nested, context)?
+            };
             Some(format!("FUNC({}) AS {returns}", param_types.join(", ")))
         }
         Expression::Binary {
@@ -2635,12 +2677,20 @@ fn lower_expression_with_expected(
                     .map(|(index, argument)| {
                         let expected =
                             call_argument_expected_type(callee, index, arguments, locals, context);
-                        lower_expression_with_expected(
+                        // License a `MUT` slot-borrow capture for a lambda in a
+                        // non-escaping callback position (e.g. `forEach`'s action).
+                        // The lambda lowering consumes it; reset afterward so a
+                        // non-lambda argument never carries it.
+                        context.nonescaping_callback =
+                            builtins::is_nonescaping_callback_arg(&canonical_callee, index);
+                        let value = lower_expression_with_expected(
                             argument,
                             expected.as_deref(),
                             locals,
                             context,
-                        )
+                        );
+                        context.nonescaping_callback = false;
+                        value
                     })
                     .collect()
             };
@@ -2684,14 +2734,43 @@ fn lower_expression_with_expected(
                 loc,
             }
         }
-        Expression::Lambda { params, body } => {
+        Expression::Lambda {
+            params,
+            body,
+            assign_target,
+        } => {
+            // Consume the non-escaping callback licence so it applies only to this
+            // lambda, not to lambdas nested inside its body.
+            let nonescaping = context.nonescaping_callback;
+            context.nonescaping_callback = false;
             let name = format!("$lambda{}", context.next_lambda_id);
             context.next_lambda_id += 1;
             let param_names = params
                 .iter()
                 .map(|param| param.name.clone())
                 .collect::<HashSet<_>>();
-            let captures = captured_locals(body, locals, &param_names);
+            let mut captures = captured_locals(body, locals, &param_names);
+            // The assignment target is a capture too even if it never appears on
+            // the right-hand side (mirrors the type checker).
+            if let Some(target) = assign_target {
+                if !param_names.contains(target)
+                    && !captures.iter().any(|capture| &capture.name == target)
+                {
+                    if let Some(type_) = locals.get(target) {
+                        captures.push(CapturedLocal {
+                            name: target.clone(),
+                            type_: type_.clone(),
+                        });
+                    }
+                }
+            }
+            // A `MUT` capture in a proven non-escaping position is a borrow of the
+            // parent's slot, not a by-value copy. Everything else
+            // is an ordinary copy capture.
+            let by_ref = captures
+                .iter()
+                .map(|capture| nonescaping && context.mutable_locals.contains(&capture.name))
+                .collect::<Vec<_>>();
             let mut lambda_locals = HashMap::new();
             let ir_params = params
                 .iter()
@@ -2710,24 +2789,43 @@ fn lower_expression_with_expected(
                 .collect::<Vec<_>>();
             let mut body_ops = captures
                 .iter()
+                .zip(by_ref.iter())
                 .enumerate()
-                .map(|(index, capture)| IrOp::Bind {
-                    mutable: false,
+                .map(|(index, (capture, &by_ref))| IrOp::Bind {
+                    mutable: by_ref,
                     name: capture.name.clone(),
                     type_: capture.type_.clone(),
                     value: Some(IrValue::Capture {
                         index,
                         type_: capture.type_.clone(),
+                        by_ref,
                     }),
                 })
                 .collect::<Vec<_>>();
             for capture in &captures {
                 lambda_locals.insert(capture.name.clone(), capture.type_.clone());
             }
-            let returns = expression_type(body, &lambda_locals, context)
-                .expect("typecheck requires lambda return type before IR lowering");
-            let value = lower_expression(body, &lambda_locals, context);
-            body_ops.push(IrOp::Return { value: Some(value) });
+            // An assignment-bodied lambda lowers to `target = <body>` followed by a
+            // value-less return (it yields `Nothing`); a plain lambda returns its
+            // body value.
+            let returns = match assign_target {
+                Some(target) => {
+                    let value = lower_expression(body, &lambda_locals, context);
+                    body_ops.push(IrOp::Assign {
+                        name: target.clone(),
+                        value,
+                    });
+                    body_ops.push(IrOp::Return { value: None });
+                    "Nothing".to_string()
+                }
+                None => {
+                    let returns = expression_type(body, &lambda_locals, context)
+                        .expect("typecheck requires lambda return type before IR lowering");
+                    let value = lower_expression(body, &lambda_locals, context);
+                    body_ops.push(IrOp::Return { value: Some(value) });
+                    returns
+                }
+            };
             context.lambdas.push(IrFunction {
                 name: name.clone(),
                 visibility: "private".to_string(),
@@ -2758,12 +2856,22 @@ fn lower_expression_with_expected(
                     type_,
                     captures: captures
                         .iter()
-                        .map(|capture| {
-                            lower_expression(
-                                &Expression::Identifier(capture.name.clone()),
-                                locals,
-                                context,
-                            )
+                        .zip(by_ref.iter())
+                        .map(|(capture, &by_ref)| {
+                            if by_ref {
+                                // Capture the parent slot's address (a borrow), so
+                                // the callback observes and updates the live binding.
+                                IrValue::LocalRef {
+                                    name: capture.name.clone(),
+                                    type_: capture.type_.clone(),
+                                }
+                            } else {
+                                lower_expression(
+                                    &Expression::Identifier(capture.name.clone()),
+                                    locals,
+                                    context,
+                                )
+                            }
                         })
                         .collect(),
                 }
@@ -3838,6 +3946,13 @@ impl ToIrJson for IrValue {
                     json_string(name)
                 )
             }
+            IrValue::LocalRef { name, type_ } => {
+                format!(
+                    "{{ \"kind\": \"localRef\", \"name\": {}, \"type\": {} }}",
+                    json_string(name),
+                    json_string(type_)
+                )
+            }
             IrValue::FunctionRef { name, type_ } => {
                 format!(
                     "{{ \"kind\": \"functionRef\", \"name\": {}, \"type\": {} }}",
@@ -3862,12 +3977,26 @@ impl ToIrJson for IrValue {
                     captures
                 )
             }
-            IrValue::Capture { index, type_ } => {
-                format!(
-                    "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {} }}",
-                    index,
-                    json_string(type_)
-                )
+            IrValue::Capture {
+                index,
+                type_,
+                by_ref,
+            } => {
+                // Emit `byRef` only for a slot-borrow capture so ordinary by-value
+                // captures keep their existing serialization.
+                if *by_ref {
+                    format!(
+                        "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {}, \"byRef\": true }}",
+                        index,
+                        json_string(type_)
+                    )
+                } else {
+                    format!(
+                        "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {} }}",
+                        index,
+                        json_string(type_)
+                    )
+                }
             }
             IrValue::Call { target, args, .. } => {
                 let args = args
@@ -4884,9 +5013,19 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_str(out, type_);
             put_vec(out, captures, encode_value);
         }
-        IrValue::Capture { index, type_ } => {
+        IrValue::Capture {
+            index,
+            type_,
+            by_ref,
+        } => {
             put_u8(out, 5);
             put_u32(out, *index as u32);
+            put_str(out, type_);
+            put_bool(out, *by_ref);
+        }
+        IrValue::LocalRef { name, type_ } => {
+            put_u8(out, 20);
+            put_str(out, name);
             put_str(out, type_);
         }
         IrValue::Call { target, args, loc } => {
@@ -5017,6 +5156,7 @@ fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
         5 => IrValue::Capture {
             index: r.u32()? as usize,
             type_: r.string()?,
+            by_ref: r.bool()?,
         },
         6 => IrValue::Call {
             target: r.string()?,
@@ -5086,6 +5226,10 @@ fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
             op: r.string()?,
             operand: Box::new(decode_value(r)?),
             loc: get_loc(r)?,
+        },
+        20 => IrValue::LocalRef {
+            name: r.string()?,
+            type_: r.string()?,
         },
         other => {
             return Err(format!(
@@ -5492,7 +5636,10 @@ fn rewrite_value_targets(
             rewrite_value_targets(left, fns, globals, pkg);
             rewrite_value_targets(right, fns, globals, pkg);
         }
-        IrValue::Const { .. } | IrValue::Local(_) | IrValue::Capture { .. } => {}
+        IrValue::Const { .. }
+        | IrValue::Local(_)
+        | IrValue::LocalRef { .. }
+        | IrValue::Capture { .. } => {}
     }
 }
 
@@ -5525,6 +5672,10 @@ mod binary_repr_tests {
             },
             IrValue::Local("a".to_string()),
             IrValue::Global("g".to_string()),
+            IrValue::LocalRef {
+                name: "a".to_string(),
+                type_: "Integer".to_string(),
+            },
             IrValue::FunctionRef {
                 name: "f".to_string(),
                 type_: "() -> Integer".to_string(),
@@ -5537,6 +5688,7 @@ mod binary_repr_tests {
             IrValue::Capture {
                 index: 3,
                 type_: "Integer".to_string(),
+                by_ref: true,
             },
             IrValue::Call {
                 target: "g".to_string(),

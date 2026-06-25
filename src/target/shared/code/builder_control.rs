@@ -10,15 +10,31 @@ impl CodeBuilder<'_> {
                         name, type_, value, ..
                     } => {
                         let stack_offset = self.allocate_stack_object(name, 8);
-                        let constant = value
-                            .as_ref()
-                            .and_then(|value| self.local_constant_value(value));
+                        // A non-escaping `MUT` borrow capture: the env slot holds a
+                        // pointer to the parent binding's slot, so this binding is a
+                        // *reference* local — its slot stores that pointer and reads
+                        // /writes deref through it. It is a borrow:
+                        // never deep-copied and never freed here (the parent owns
+                        // and frees the value).
+                        let borrows_capture_slot =
+                            matches!(value, Some(NirValue::Capture { by_ref: true, .. }));
+                        // A reference local must never carry a folded constant: its
+                        // value lives in the parent slot and can change underneath
+                        // it, so every read must deref.
+                        let constant = if borrows_capture_slot {
+                            None
+                        } else {
+                            value
+                                .as_ref()
+                                .and_then(|value| self.local_constant_value(value))
+                        };
                         self.locals.insert(
                             name.clone(),
                             LocalValue {
                                 type_: type_.clone(),
                                 stack_offset,
                                 constant,
+                                by_ref: borrows_capture_slot,
                             },
                         );
                         // A `MATCH` variant binding (`UnionExtract`) is a borrow
@@ -34,8 +50,10 @@ impl CodeBuilder<'_> {
                             .as_ref()
                             .is_some_and(Self::value_is_runtime_managed);
                         // This binding owns a freeable flat block that scope-drop
-                        // must free (plan-02 Phase 8).
+                        // must free (plan-02 Phase 8). A borrowed capture slot is
+                        // not owned here — the parent binding remains the freer.
                         let owns_freeable_value = !borrows_union_variant
+                            && !borrows_capture_slot
                             && !runtime_managed
                             && self.is_freeable_flat_value(type_);
                         // Zero the slot before a (possibly fallible) initializer
@@ -49,8 +67,9 @@ impl CodeBuilder<'_> {
                         if let Some(value) = value {
                             // Deep-copy aliasing sources so this binding owns an
                             // independent flat block (plan-02 Phase 8); a borrowed
-                            // variant binding aliases the union deliberately.
-                            let result = if borrows_union_variant {
+                            // variant binding or borrowed capture slot aliases its
+                            // source deliberately and is stored without copying.
+                            let result = if borrows_union_variant || borrows_capture_slot {
                                 self.lower_value(value)?
                             } else {
                                 self.lower_value_owned(value)?
@@ -112,8 +131,8 @@ impl CodeBuilder<'_> {
                                     name: name.clone(),
                                     symbol: Self::thread_drop_symbol(),
                                 }));
-                        } else if borrows_union_variant {
-                            // Borrowed — no cleanup.
+                        } else if borrows_union_variant || borrows_capture_slot {
+                            // Borrowed — no cleanup (the parent binding frees it).
                         } else if let crate::escape::ResOwner::Float(collection) = &resource_owner {
                             // Ownership floated to an outer collection's scope:
                             // register the record in that owned-list. This binding
@@ -176,13 +195,12 @@ impl CodeBuilder<'_> {
                         self.emit(abi::store_u64(&result.location, &address, 0));
                     }
                     NirOp::Assign { name, value } => {
-                        let stack_offset = self
-                            .locals
-                            .get(name)
-                            .ok_or_else(|| {
+                        let (stack_offset, by_ref) = {
+                            let local = self.locals.get(name).ok_or_else(|| {
                                 format!("native code assignment unknown local '{name}'")
-                            })?
-                            .stack_offset;
+                            })?;
+                            (local.stack_offset, local.by_ref)
+                        };
                         // Reassignment installs a fresh independent block; the old
                         // block remains owned by this binding's scope-drop free
                         // (the slot is overwritten with the new owner). Deep-copy
@@ -212,12 +230,30 @@ impl CodeBuilder<'_> {
                         } else {
                             result.location.clone()
                         };
-                        self.emit(abi::store_u64(
-                            &result_location,
-                            abi::stack_pointer(),
-                            stack_offset,
-                        ));
-                        let constant = self.local_constant_value(value);
+                        if by_ref {
+                            // A reference local (non-escaping `MUT` borrow): write
+                            // through the slot pointer so the live parent binding is
+                            // updated, not a local copy.
+                            let slot_pointer = self.allocate_register()?;
+                            self.emit(abi::load_u64(
+                                &slot_pointer,
+                                abi::stack_pointer(),
+                                stack_offset,
+                            ));
+                            self.emit(abi::store_u64(&result_location, &slot_pointer, 0));
+                        } else {
+                            self.emit(abi::store_u64(
+                                &result_location,
+                                abi::stack_pointer(),
+                                stack_offset,
+                            ));
+                        }
+                        // A reference local never folds to a constant (see Bind).
+                        let constant = if by_ref {
+                            None
+                        } else {
+                            self.local_constant_value(value)
+                        };
                         if let Some(local) = self.locals.get_mut(name) {
                             local.constant = constant;
                         }
@@ -373,6 +409,7 @@ impl CodeBuilder<'_> {
                                             type_: type_.clone(),
                                             stack_offset: local.stack_offset,
                                             constant: local.constant,
+                                            by_ref: local.by_ref,
                                         },
                                     );
                                 }
@@ -539,6 +576,7 @@ impl CodeBuilder<'_> {
                 type_: type_.to_string(),
                 stack_offset: local_slot,
                 constant: None,
+                by_ref: false,
             },
         );
 
@@ -764,6 +802,7 @@ impl CodeBuilder<'_> {
                 type_: type_.to_string(),
                 stack_offset: local_slot,
                 constant: None,
+                by_ref: false,
             },
         );
         self.clear_local_constants();
@@ -817,6 +856,7 @@ fn nir_value_context(value: &NirValue) -> String {
         NirValue::Constructor { type_, .. } => format!("construct {type_}"),
         NirValue::MemberAccess { member, .. } => format!("member {member}"),
         NirValue::Local(name) => format!("local {name}"),
+        NirValue::LocalRef { name, .. } => format!("local ref {name}"),
         NirValue::Global { name, .. } => format!("global {name}"),
         NirValue::FunctionRef { name, .. } => format!("function {name}"),
         NirValue::Closure { name, .. } => format!("closure {name}"),

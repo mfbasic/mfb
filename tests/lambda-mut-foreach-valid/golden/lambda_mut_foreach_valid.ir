@@ -1,0 +1,81 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "lambda_mut_foreach_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "collections.forEach", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "closure", "name": "$lambda0", "type": "FUNC(Integer) AS Nothing", "captures": [{ "kind": "localRef", "name": "total", "type": "Integer" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "total" }] }] } },
+    { "op": "bind", "mutable": true, "name": "doubled", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "eval", "value": { "kind": "call", "target": "collections.forEach", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "closure", "name": "$lambda1", "type": "FUNC(Integer) AS Nothing", "captures": [{ "kind": "localRef", "name": "doubled", "type": "List OF Integer" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "const", "type": "Integer", "value": "4" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "doubled" }] }] }] } },
+    { "op": "bind", "mutable": true, "name": "counts", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [] } },
+    { "op": "bind", "mutable": false, "name": "words", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "String", "value": "a" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "collections.forEach", "args": [{ "kind": "local", "name": "words" }, { "kind": "closure", "name": "$lambda2", "type": "FUNC(String) AS Nothing", "captures": [{ "kind": "localRef", "name": "counts", "type": "Map OF String TO Integer" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.getOr", "args": [{ "kind": "local", "name": "counts" }, { "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.getOr", "args": [{ "kind": "local", "name": "counts" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "return", "value": { "kind": "local", "name": "total" } }
+    ]
+  },
+  {
+    "name": "$lambda0",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer", "byRef": true } },
+    { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "x" } } },
+    { "op": "return", "value": null }
+    ]
+  },
+  {
+    "name": "$lambda1",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "x", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "doubled", "type": "List OF Integer", "value": { "kind": "capture", "index": 0, "type": "List OF Integer", "byRef": true } },
+    { "op": "assign", "name": "doubled", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "x" } }] } },
+    { "op": "return", "value": null }
+    ]
+  },
+  {
+    "name": "$lambda2",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "w", "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "counts", "type": "Map OF String TO Integer", "value": { "kind": "capture", "index": 0, "type": "Map OF String TO Integer", "byRef": true } },
+    { "op": "assign", "name": "counts", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "counts" }, { "kind": "local", "name": "w" }, { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "collections.getOr", "args": [{ "kind": "local", "name": "counts" }, { "kind": "local", "name": "w" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "return", "value": null }
+    ]
+  }
+  ]
+}

@@ -794,6 +794,12 @@ struct LocalValue {
     type_: String,
     stack_offset: usize,
     constant: Option<NirValue>,
+    /// A *reference* local: the stack slot holds a pointer to another binding's
+    /// slot rather than the value/block itself. Set for a non-escaping `MUT`
+    /// borrow capture, where reads and writes deref through the slot pointer so
+    /// the live parent binding is observed and updated. False for every ordinary
+    /// binding.
+    by_ref: bool,
 }
 
 #[derive(Clone)]
@@ -3295,6 +3301,7 @@ fn lower_function(
                 type_: param.type_.clone(),
                 stack_offset,
                 constant: None,
+                by_ref: false,
             },
         );
         builder.emit(abi::store_u64(
@@ -3322,6 +3329,7 @@ fn lower_function(
                 type_: "Error".to_string(),
                 stack_offset,
                 constant: None,
+                by_ref: false,
             },
         );
         let label = builder.label("trap");
@@ -3419,6 +3427,7 @@ fn lower_builtin_function_wrapper(
             type_: param.type_.clone(),
             stack_offset,
             constant: None,
+            by_ref: false,
         },
     );
     builder.emit(abi::store_u64(
@@ -4517,6 +4526,7 @@ fn lower_direct_builtin_runtime_helper(
                     type_: param.type_.to_string(),
                     stack_offset: slot,
                     constant: None,
+                    by_ref: false,
                 },
             );
             builder.emit(abi::store_u64(
@@ -14776,6 +14786,7 @@ fn value_may_emit_float_arithmetic_error(
             .any(|value| value_may_emit_float_arithmetic_error(value, locals)),
         NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. }
         | NirValue::Capture { .. } => false,
@@ -14785,6 +14796,7 @@ fn value_may_emit_float_arithmetic_error(
 fn static_nir_value_type(value: &NirValue, locals: &HashMap<String, String>) -> Option<String> {
     match value {
         NirValue::Const { type_, .. }
+        | NirValue::LocalRef { type_, .. }
         | NirValue::Global { type_, .. }
         | NirValue::FunctionRef { type_, .. }
         | NirValue::Capture { type_, .. }
@@ -14932,6 +14944,7 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => false,
     }
@@ -15033,6 +15046,7 @@ fn value_uses_type_name(value: &NirValue) -> bool {
             NirValue::Capture { .. }
             | NirValue::Const { .. }
             | NirValue::Local(_)
+            | NirValue::LocalRef { .. }
             | NirValue::Global { .. }
             | NirValue::FunctionRef { .. } => false,
         }
@@ -15228,6 +15242,7 @@ fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
@@ -15490,6 +15505,7 @@ fn value_uses_unicode_runtime_tables(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => false,
     }
@@ -15901,6 +15917,7 @@ fn collect_string_values_from_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
@@ -16019,6 +16036,7 @@ fn value_may_return_invalid_format(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::FunctionRef { .. } => false,
     }
 }
@@ -16166,6 +16184,7 @@ fn static_type_name_with_types(
     match value {
         NirValue::Const { type_, .. } => Some(type_.clone()),
         NirValue::Local(name) => types.get(name).cloned(),
+        NirValue::LocalRef { type_, .. } => Some(type_.clone()),
         NirValue::Global { type_, .. } if !type_.is_empty() => Some(type_.clone()),
         NirValue::Global { .. } => None,
         NirValue::FunctionRef { type_, .. }
@@ -16487,6 +16506,7 @@ fn collect_builtin_function_refs_in_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. } => {}
     }
 }

@@ -41,6 +41,7 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
             "mfb man strings [function]",
         ),
         parse_package(include_str!("unicode/package.txt"), "mfb man unicode"),
+        parse_package(include_str!("lambda/package.txt"), "mfb man lambda"),
         parse_package(
             include_str!("builtins/io/package.txt"),
             "mfb man io [function]",

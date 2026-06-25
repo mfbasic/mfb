@@ -136,12 +136,45 @@ impl CodeBuilder<'_> {
                     .ok_or_else(|| format!("native code local '{name}' does not resolve"))?;
                 let type_ = local.type_.clone();
                 let stack_offset = local.stack_offset;
+                let by_ref = local.by_ref;
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), stack_offset));
+                if by_ref {
+                    // A reference local's slot holds a pointer to the parent
+                    // binding's slot; deref it to read the live value/block
+                    // pointer. For a scalar this yields the value; for a block it
+                    // yields the block pointer (a borrow into the block).
+                    self.emit(abi::load_u64(&register, &register, 0));
+                }
                 Ok(ValueResult {
                     type_,
                     location: register,
                     text: name.clone(),
+                })
+            }
+            NirValue::LocalRef { name, type_ } => {
+                // The address of the binding's slot (a borrow of the slot), used to
+                // seed a non-escaping callback's env so the callback observes and
+                // updates the live binding. The callback may
+                // change the binding through this borrow, so any folded constant the
+                // outer scope held for it is now stale and must be cleared, else a
+                // later read folds to the pre-call value.
+                let local = self
+                    .locals
+                    .get_mut(name)
+                    .ok_or_else(|| format!("native code local ref '{name}' does not resolve"))?;
+                let stack_offset = local.stack_offset;
+                local.constant = None;
+                let register = self.allocate_register()?;
+                self.emit(abi::add_immediate(
+                    &register,
+                    abi::stack_pointer(),
+                    stack_offset,
+                ));
+                Ok(ValueResult {
+                    type_: type_.clone(),
+                    location: register,
+                    text: format!("&{name}"),
                 })
             }
             NirValue::Global { name, type_ } => {
@@ -363,7 +396,11 @@ impl CodeBuilder<'_> {
                     text: name.clone(),
                 })
             }
-            NirValue::Capture { index, type_ } => {
+            NirValue::Capture { index, type_, .. } => {
+                // Load the env slot's raw word. For a by-value capture this is the
+                // value/block pointer; for a by-ref capture (`by_ref`) it is the
+                // pointer to the parent binding's slot, which `Bind` installs into
+                // a reference local that derefs on read/write.
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, CLOSURE_ENV_REGISTER, index * 8));
                 Ok(ValueResult {

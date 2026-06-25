@@ -1,0 +1,29 @@
+IMPORT collections
+IMPORT io
+
+FUNC main AS Integer
+  ' A non-escaping `forEach` callback may capture an outer `MUT` binding and
+  ' mutate it; the outer binding reflects the mutations after the call returns
+  ' (plan-08-lambda-mut.md §10, §13).
+  MUT total AS Integer = 0
+  LET numbers AS List OF Integer = [1, 2, 3, 4, 5]
+  collections::forEach(numbers, LAMBDA(x AS Integer) -> total = total + x)
+  io::print(toString(total))
+
+  ' A captured `MUT List` grows through the borrow; the grow (a reallocation)
+  ' is written back to the outer binding's slot (§12.3).
+  MUT doubled AS List OF Integer = []
+  collections::forEach(numbers, LAMBDA(x AS Integer) -> doubled = collections::append(doubled, x + x))
+  io::print(toString(collections::get(doubled, 0)))
+  io::print(toString(collections::get(doubled, 4)))
+  io::print(toString(len(doubled)))
+
+  ' A captured `MUT Map` accumulates per-key counts.
+  MUT counts AS Map OF String TO Integer = Map OF String TO Integer {}
+  LET words AS List OF String = ["a", "b", "a"]
+  collections::forEach(words, LAMBDA(w AS String) -> counts = collections::set(counts, w, collections::getOr(counts, w, 0) + 1))
+  io::print(toString(collections::getOr(counts, "a", 0)))
+  io::print(toString(collections::getOr(counts, "b", 0)))
+
+  RETURN total
+END FUNC

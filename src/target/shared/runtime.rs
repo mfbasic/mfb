@@ -2327,6 +2327,7 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
         IrValue::Capture { .. }
         | IrValue::Const { .. }
         | IrValue::Local(_)
+        | IrValue::LocalRef { .. }
         | IrValue::Global(_)
         | IrValue::FunctionRef { .. } => {}
     }

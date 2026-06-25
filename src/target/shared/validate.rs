@@ -444,6 +444,7 @@ fn collect_runtime_calls_from_value(
         NirValue::Capture { .. }
         | NirValue::Const { .. }
         | NirValue::Local(_)
+        | NirValue::LocalRef { .. }
         | NirValue::Global { .. }
         | NirValue::FunctionRef { .. } => {}
     }
@@ -1212,6 +1213,14 @@ fn validate_value(
                 Ok(())
             } else {
                 Err(format!("NIR local reference '{name}' does not resolve"))
+            }
+        }
+        NirValue::LocalRef { name, type_ } => {
+            validate_type_name(type_)?;
+            if locals.contains_key(name) {
+                Ok(())
+            } else {
+                Err(format!("NIR local ref '{name}' does not resolve"))
             }
         }
         NirValue::Global { name, type_ } => {

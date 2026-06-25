@@ -21,6 +21,7 @@ fn main() {
     let types_page = manifest_dir.join("src/man/types/package.txt");
     let errors_page = manifest_dir.join("src/man/errors/package.txt");
     let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
+    let lambda_page = manifest_dir.join("src/man/lambda/package.txt");
     let error_codes_doc = manifest_dir.join("specifications/error_codes.md");
     println!("cargo:rerun-if-changed={}", error_codes_doc.display());
     println!("cargo:rerun-if-changed={}", general_dir.display());
@@ -39,6 +40,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", types_page.display());
     println!("cargo:rerun-if-changed={}", errors_page.display());
     println!("cargo:rerun-if-changed={}", unicode_page.display());
+    println!("cargo:rerun-if-changed={}", lambda_page.display());
 
     let general_pages = man_pages(&general_dir, "general");
     let collections_pages = man_pages(&collections_dir, "collections");

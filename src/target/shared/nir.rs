@@ -224,6 +224,13 @@ pub(crate) enum NirValue {
         value: String,
     },
     Local(String),
+    /// The address of a local binding's slot — a borrow of the slot itself (not
+    /// a read of its value) used to capture a `MUT` binding into a non-escaping
+    /// callback's environment.
+    LocalRef {
+        name: String,
+        type_: String,
+    },
     Global {
         name: String,
         type_: String,
@@ -240,6 +247,10 @@ pub(crate) enum NirValue {
     Capture {
         index: usize,
         type_: String,
+        /// When set, the env slot holds a pointer to the parent binding's slot:
+        /// the capture binds a *reference* local whose reads and writes deref
+        /// through the slot pointer.
+        by_ref: bool,
     },
     Call {
         target: String,
@@ -683,6 +694,10 @@ fn lower_value(value: &IrValue) -> NirValue {
             value: value.clone(),
         },
         IrValue::Local(name) => NirValue::Local(name.clone()),
+        IrValue::LocalRef { name, type_ } => NirValue::LocalRef {
+            name: name.clone(),
+            type_: type_.clone(),
+        },
         IrValue::Global(name) => NirValue::Global {
             name: name.clone(),
             type_: String::new(),
@@ -700,9 +715,14 @@ fn lower_value(value: &IrValue) -> NirValue {
             type_: type_.clone(),
             captures: captures.iter().map(lower_value).collect(),
         },
-        IrValue::Capture { index, type_ } => NirValue::Capture {
+        IrValue::Capture {
+            index,
+            type_,
+            by_ref,
+        } => NirValue::Capture {
             index: *index,
             type_: type_.clone(),
+            by_ref: *by_ref,
         },
         IrValue::Call { target, args, loc } => {
             let loc = lower_loc(*loc);
@@ -1472,6 +1492,11 @@ impl ToNirJson for NirValue {
             NirValue::Local(name) => {
                 format!("{{ \"kind\": \"local\", \"name\": {} }}", json_string(name))
             }
+            NirValue::LocalRef { name, type_ } => format!(
+                "{{ \"kind\": \"localRef\", \"name\": {}, \"type\": {} }}",
+                json_string(name),
+                json_string(type_)
+            ),
             NirValue::Global { name, type_ } => format!(
                 "{{ \"kind\": \"global\", \"name\": {}, \"type\": {} }}",
                 json_string(name),
@@ -1492,11 +1517,25 @@ impl ToNirJson for NirValue {
                 json_string(type_),
                 join_values(captures)
             ),
-            NirValue::Capture { index, type_ } => format!(
-                "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {} }}",
+            NirValue::Capture {
                 index,
-                json_string(type_)
-            ),
+                type_,
+                by_ref,
+            } => {
+                if *by_ref {
+                    format!(
+                        "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {}, \"byRef\": true }}",
+                        index,
+                        json_string(type_)
+                    )
+                } else {
+                    format!(
+                        "{{ \"kind\": \"capture\", \"index\": {}, \"type\": {} }}",
+                        index,
+                        json_string(type_)
+                    )
+                }
+            }
             NirValue::Call { target, args, .. } => format!(
                 "{{ \"kind\": \"call\", \"target\": {}, \"args\": [{}] }}",
                 json_string(target),
