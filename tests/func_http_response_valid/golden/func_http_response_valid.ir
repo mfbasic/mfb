@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "func_http_header_valid",
+  "project": "func_http_response_valid",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -14,32 +14,14 @@
   {
     "kind": "type",
     "visibility": "export",
-    "name": "Header",
-    "fields": [
-    { "visibility": null, "name": "name", "type": "String" },
-    { "visibility": null, "name": "value", "type": "String" }
-    ]
-  },
-  {
-    "kind": "type",
-    "visibility": "export",
-    "name": "HttpResult",
+    "name": "Response",
     "fields": [
     { "visibility": null, "name": "status", "type": "Integer" },
     { "visibility": null, "name": "reason", "type": "String" },
     { "visibility": null, "name": "httpVersion", "type": "String" },
-    { "visibility": null, "name": "headers", "type": "List OF Header" },
+    { "visibility": null, "name": "headers", "type": "Map OF String TO String" },
     { "visibility": null, "name": "body", "type": "String" },
     { "visibility": null, "name": "ok", "type": "Boolean" }
-    ]
-  },
-  {
-    "kind": "type",
-    "visibility": "private",
-    "name": "#http_Lookup",
-    "fields": [
-    { "visibility": null, "name": "found", "type": "Boolean" },
-    { "visibility": null, "name": "value", "type": "String" }
     ]
   },
   {
@@ -67,17 +49,20 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "ct", "type": "Header", "value": { "kind": "constructor", "type": "Header", "args": [{ "kind": "const", "type": "String", "value": "Content-Type" }, { "kind": "const", "type": "String", "value": "text/html; charset=utf-8" }] } },
-    { "op": "bind", "mutable": false, "name": "h1", "type": "Header", "value": { "kind": "constructor", "type": "Header", "args": [{ "kind": "const", "type": "String", "value": "X-First" }, { "kind": "const", "type": "String", "value": "one" }] } },
-    { "op": "bind", "mutable": false, "name": "h2", "type": "Header", "value": { "kind": "constructor", "type": "Header", "args": [{ "kind": "const", "type": "String", "value": "x-first" }, { "kind": "const", "type": "String", "value": "two" }] } },
-    { "op": "bind", "mutable": false, "name": "headers", "type": "List OF Header", "value": { "kind": "list", "type": "List OF Header", "values": [{ "kind": "local", "name": "ct" }, { "kind": "local", "name": "h1" }, { "kind": "local", "name": "h2" }] } },
-    { "op": "bind", "mutable": false, "name": "r", "type": "HttpResult", "value": { "kind": "constructor", "type": "HttpResult", "args": [{ "kind": "const", "type": "Integer", "value": "200" }, { "kind": "const", "type": "String", "value": "OK" }, { "kind": "const", "type": "String", "value": "1.1" }, { "kind": "local", "name": "headers" }, { "kind": "const", "type": "String", "value": "body" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "exact=" }, "right": { "kind": "call", "target": "#http_header", "args": [{ "kind": "local", "name": "r" }, { "kind": "const", "type": "String", "value": "Content-Type" }] } }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "lower=" }, "right": { "kind": "call", "target": "#http_header", "args": [{ "kind": "local", "name": "r" }, { "kind": "const", "type": "String", "value": "content-type" }] } }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "upper=" }, "right": { "kind": "call", "target": "#http_header", "args": [{ "kind": "local", "name": "r" }, { "kind": "const", "type": "String", "value": "CONTENT-TYPE" }] } }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "first=" }, "right": { "kind": "call", "target": "#http_header", "args": [{ "kind": "local", "name": "r" }, { "kind": "const", "type": "String", "value": "X-First" }] } }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "orPresent=" }, "right": { "kind": "call", "target": "#http_headerOr", "args": [{ "kind": "local", "name": "r" }, { "kind": "const", "type": "String", "value": "x-first" }, { "kind": "const", "type": "String", "value": "fallback" }] } }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "orMissing=" }, "right": { "kind": "call", "target": "#http_headerOr", "args": [{ "kind": "local", "name": "r" }, { "kind": "const", "type": "String", "value": "X-Absent" }, { "kind": "const", "type": "String", "value": "fallback" }] } }] } },
+    { "op": "bind", "mutable": true, "name": "headers", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [] } },
+    { "op": "assign", "name": "headers", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "headers" }, { "kind": "const", "type": "String", "value": "content-type" }, { "kind": "const", "type": "String", "value": "text/html; charset=utf-8" }] } },
+    { "op": "assign", "name": "headers", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "headers" }, { "kind": "const", "type": "String", "value": "content-length" }, { "kind": "const", "type": "String", "value": "42" }] } },
+    { "op": "bind", "mutable": false, "name": "r", "type": "Response", "value": { "kind": "constructor", "type": "Response", "args": [{ "kind": "const", "type": "Integer", "value": "200" }, { "kind": "const", "type": "String", "value": "OK" }, { "kind": "const", "type": "String", "value": "1.1" }, { "kind": "local", "name": "headers" }, { "kind": "const", "type": "String", "value": "body" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "status=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "status" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "reason=" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "reason" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "version=" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "httpVersion" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "ok=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "ok" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "body=" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "body" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "ctype=" }, "right": { "kind": "call", "target": "collections.get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "headers" }, { "kind": "const", "type": "String", "value": "content-type" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "clen=" }, "right": { "kind": "call", "target": "collections.getOr", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "headers" }, { "kind": "const", "type": "String", "value": "content-length" }, { "kind": "const", "type": "String", "value": "?" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "missing=" }, "right": { "kind": "call", "target": "collections.getOr", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "headers" }, { "kind": "const", "type": "String", "value": "x-absent" }, { "kind": "const", "type": "String", "value": "fallback" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "hasCtype=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.hasKey", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "headers" }, { "kind": "const", "type": "String", "value": "content-type" }] }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "hasAbsent=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.hasKey", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "headers" }, { "kind": "const", "type": "String", "value": "x-absent" }] }] } }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
@@ -174,7 +159,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "method" }, "right": { "kind": "const", "type": "String", "value": "" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "empty HTTP method" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "76" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "empty HTTP method" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "65" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -183,7 +168,7 @@
       "op": "if",
       "condition": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "local", "name": "method" }, { "kind": "const", "type": "String", "value": " " }] },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "invalid HTTP method" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "79" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "invalid HTTP method" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "68" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -544,7 +529,7 @@
       }
       ]
     },
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid chunk size" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "189" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid chunk size" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "178" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   },
   {
@@ -561,7 +546,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "digits" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "empty chunk size" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "195" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "empty chunk size" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "184" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -593,7 +578,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "digits" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid status line" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "207" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid status line" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "196" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -711,7 +696,7 @@
       }
       ]
     },
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid status code" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "239" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid status code" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "228" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   },
   {
@@ -737,7 +722,7 @@
         "op": "if",
         "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "lineEnd" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
         "then": [
-        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "malformed chunk framing" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "251" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "malformed chunk framing" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "240" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
         ],
         "else": [
         ]
@@ -768,7 +753,7 @@
           "op": "if",
           "condition": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "dataEnd" }, "right": { "kind": "local", "name": "total" } },
           "then": [
-          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "truncated chunk data" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "266" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "truncated chunk data" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "255" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
@@ -789,14 +774,14 @@
     "params": [
     { "name": "line", "type": "String", "default": null }
     ],
-    "returns": "HttpResult",
+    "returns": "Response",
     "body": [
     { "op": "bind", "mutable": false, "name": "firstSpace", "type": "Integer", "value": { "kind": "call", "target": "#http_indexOf", "args": [{ "kind": "local", "name": "line" }, { "kind": "const", "type": "String", "value": " " }, { "kind": "const", "type": "Integer", "value": "0" }] } },
     {
       "op": "if",
       "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "firstSpace" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "malformed status line" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "278" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "malformed status line" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "267" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -806,7 +791,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "local", "name": "versionToken" }, { "kind": "const", "type": "String", "value": "HTTP/" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "malformed status line" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "282" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "malformed status line" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "271" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
@@ -828,8 +813,8 @@
     },
     { "op": "bind", "mutable": false, "name": "status", "type": "Integer", "value": { "kind": "call", "target": "#http_decToInt", "args": [{ "kind": "call", "target": "strings.trim", "args": [{ "kind": "local", "name": "statusText" }] }] } },
     { "op": "bind", "mutable": false, "name": "ok", "type": "Boolean", "value": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "status" }, "right": { "kind": "const", "type": "Integer", "value": "200" } }, "right": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "status" }, "right": { "kind": "const", "type": "Integer", "value": "299" } } } },
-    { "op": "bind", "mutable": false, "name": "emptyHeaders", "type": "List OF Header", "value": { "kind": "list", "type": "List OF Header", "values": [] } },
-    { "op": "return", "value": { "kind": "constructor", "type": "HttpResult", "args": [{ "kind": "local", "name": "status" }, { "kind": "local", "name": "reason" }, { "kind": "local", "name": "version" }, { "kind": "local", "name": "emptyHeaders" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "local", "name": "ok" }] } }
+    { "op": "bind", "mutable": false, "name": "emptyHeaders", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [] } },
+    { "op": "return", "value": { "kind": "constructor", "type": "Response", "args": [{ "kind": "local", "name": "status" }, { "kind": "local", "name": "reason" }, { "kind": "local", "name": "version" }, { "kind": "local", "name": "emptyHeaders" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "local", "name": "ok" }] } }
     ]
   },
   {
@@ -839,7 +824,7 @@
     "params": [
     { "name": "raw", "type": "String", "default": null }
     ],
-    "returns": "HttpResult",
+    "returns": "Response",
     "body": [
     { "op": "bind", "mutable": false, "name": "crlf", "type": "String", "value": { "kind": "call", "target": "#http_crlf", "args": [] } },
     { "op": "bind", "mutable": false, "name": "headerEnd", "type": "Integer", "value": { "kind": "call", "target": "#http_indexOf", "args": [{ "kind": "local", "name": "raw" }, { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "crlf" }, "right": { "kind": "local", "name": "crlf" } }, { "kind": "const", "type": "Integer", "value": "0" }] } },
@@ -860,13 +845,13 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "lines" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "empty response" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "311" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "empty response" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "300" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "mutable": true, "name": "base", "type": "HttpResult", "value": { "kind": "call", "target": "#http_parseStatusLine", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "lines" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
-    { "op": "bind", "mutable": true, "name": "headers", "type": "List OF Header", "value": { "kind": "list", "type": "List OF Header", "values": [] } },
+    { "op": "bind", "mutable": true, "name": "base", "type": "Response", "value": { "kind": "call", "target": "#http_parseStatusLine", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "lines" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "bind", "mutable": true, "name": "headers", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [] } },
     { "op": "bind", "mutable": true, "name": "index", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
     {
       "op": "while",
@@ -883,9 +868,9 @@
           "op": "if",
           "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "colon" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
           "then": [
-          { "op": "bind", "mutable": false, "name": "fieldName", "type": "String", "value": { "kind": "call", "target": "#http_slice", "args": [{ "kind": "local", "name": "line" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "colon" }] } },
+          { "op": "bind", "mutable": false, "name": "fieldName", "type": "String", "value": { "kind": "call", "target": "strings.lower", "args": [{ "kind": "call", "target": "strings.trim", "args": [{ "kind": "call", "target": "#http_slice", "args": [{ "kind": "local", "name": "line" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "colon" }] }] }] } },
           { "op": "bind", "mutable": false, "name": "fieldValue", "type": "String", "value": { "kind": "call", "target": "strings.trim", "args": [{ "kind": "call", "target": "#http_slice", "args": [{ "kind": "local", "name": "line" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "colon" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "line" }] }] }] } },
-          { "op": "assign", "name": "headers", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "headers" }, { "kind": "constructor", "type": "Header", "args": [{ "kind": "local", "name": "fieldName" }, { "kind": "local", "name": "fieldValue" }] }] } }
+          { "op": "assign", "name": "headers", "value": { "kind": "call", "target": "collections.set", "args": [{ "kind": "local", "name": "headers" }, { "kind": "local", "name": "fieldName" }, { "kind": "local", "name": "fieldValue" }] } }
           ],
           "else": [
           ]
@@ -898,38 +883,7 @@
       ]
     },
     { "op": "bind", "mutable": false, "name": "body", "type": "String", "value": { "kind": "call", "target": "#http_decodeBody", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "status" }, { "kind": "local", "name": "headers" }, { "kind": "local", "name": "bodySection" }] } },
-    { "op": "return", "value": { "kind": "constructor", "type": "HttpResult", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "status" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "reason" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "httpVersion" }, { "kind": "local", "name": "headers" }, { "kind": "local", "name": "body" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "ok" }] } }
-    ]
-  },
-  {
-    "name": "#http_headerFromList",
-    "visibility": "private",
-    "kind": "func",
-    "params": [
-    { "name": "headers", "type": "List OF Header", "default": null },
-    { "name": "name", "type": "String", "default": null }
-    ],
-    "returns": "#http_Lookup",
-    "body": [
-    { "op": "bind", "mutable": false, "name": "target", "type": "String", "value": { "kind": "call", "target": "strings.lower", "args": [{ "kind": "local", "name": "name" }] } },
-    {
-      "op": "forEach",
-      "name": "field",
-      "type": "Header",
-      "iterable": { "kind": "local", "name": "headers" },
-      "body": [
-      {
-        "op": "if",
-        "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "strings.lower", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "field" }, "member": "name" }] }, "right": { "kind": "local", "name": "target" } },
-        "then": [
-        { "op": "return", "value": { "kind": "constructor", "type": "#http_Lookup", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "field" }, "member": "value" }] } }
-        ],
-        "else": [
-        ]
-      }
-      ]
-    },
-    { "op": "return", "value": { "kind": "constructor", "type": "#http_Lookup", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }, { "kind": "const", "type": "String", "value": "" }] } }
+    { "op": "return", "value": { "kind": "constructor", "type": "Response", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "status" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "reason" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "httpVersion" }, { "kind": "local", "name": "headers" }, { "kind": "local", "name": "body" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "base" }, "member": "ok" }] } }
     ]
   },
   {
@@ -938,7 +892,7 @@
     "kind": "func",
     "params": [
     { "name": "status", "type": "Integer", "default": null },
-    { "name": "headers", "type": "List OF Header", "default": null },
+    { "name": "headers", "type": "Map OF String TO String", "default": null },
     { "name": "bodyRaw", "type": "String", "default": null }
     ],
     "returns": "String",
@@ -952,72 +906,17 @@
       "else": [
       ]
     },
-    { "op": "bind", "mutable": false, "name": "transferEncoding", "type": "#http_Lookup", "value": { "kind": "call", "target": "#http_headerFromList", "args": [{ "kind": "local", "name": "headers" }, { "kind": "const", "type": "String", "value": "Transfer-Encoding" }] } },
+    { "op": "bind", "mutable": false, "name": "transferEncoding", "type": "String", "value": { "kind": "call", "target": "collections.getOr", "args": [{ "kind": "local", "name": "headers" }, { "kind": "const", "type": "String", "value": "transfer-encoding" }, { "kind": "const", "type": "String", "value": "" }] } },
     {
       "op": "if",
-      "condition": { "kind": "memberAccess", "target": { "kind": "local", "name": "transferEncoding" }, "member": "found" },
+      "condition": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "call", "target": "strings.lower", "args": [{ "kind": "local", "name": "transferEncoding" }] }, { "kind": "const", "type": "String", "value": "chunked" }] },
       "then": [
-      {
-        "op": "if",
-        "condition": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "call", "target": "strings.lower", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "transferEncoding" }, "member": "value" }] }, { "kind": "const", "type": "String", "value": "chunked" }] },
-        "then": [
-        { "op": "return", "value": { "kind": "call", "target": "#http_dechunk", "args": [{ "kind": "local", "name": "bodyRaw" }] } }
-        ],
-        "else": [
-        ]
-      }
+      { "op": "return", "value": { "kind": "call", "target": "#http_dechunk", "args": [{ "kind": "local", "name": "bodyRaw" }] } }
       ],
       "else": [
       ]
     },
     { "op": "return", "value": { "kind": "local", "name": "bodyRaw" } }
-    ]
-  },
-  {
-    "name": "#http_header",
-    "visibility": "private",
-    "kind": "func",
-    "params": [
-    { "name": "result", "type": "HttpResult", "default": null },
-    { "name": "name", "type": "String", "default": null }
-    ],
-    "returns": "String",
-    "body": [
-    { "op": "bind", "mutable": false, "name": "found", "type": "#http_Lookup", "value": { "kind": "call", "target": "#http_headerFromList", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "result" }, "member": "headers" }, { "kind": "local", "name": "name" }] } },
-    {
-      "op": "if",
-      "condition": { "kind": "memberAccess", "target": { "kind": "local", "name": "found" }, "member": "found" },
-      "then": [
-      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "found" }, "member": "value" } }
-      ],
-      "else": [
-      ]
-    },
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050004" }, { "kind": "const", "type": "String", "value": "response header not found" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "364" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
-    ]
-  },
-  {
-    "name": "#http_headerOr",
-    "visibility": "private",
-    "kind": "func",
-    "params": [
-    { "name": "result", "type": "HttpResult", "default": null },
-    { "name": "name", "type": "String", "default": null },
-    { "name": "fallback", "type": "String", "default": null }
-    ],
-    "returns": "String",
-    "body": [
-    { "op": "bind", "mutable": false, "name": "found", "type": "#http_Lookup", "value": { "kind": "call", "target": "#http_headerFromList", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "result" }, "member": "headers" }, { "kind": "local", "name": "name" }] } },
-    {
-      "op": "if",
-      "condition": { "kind": "memberAccess", "target": { "kind": "local", "name": "found" }, "member": "found" },
-      "then": [
-      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "found" }, "member": "value" } }
-      ],
-      "else": [
-      ]
-    },
-    { "op": "return", "value": { "kind": "local", "name": "fallback" } }
     ]
   },
   {
@@ -1074,7 +973,7 @@
           "op": "if",
           "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "raw" }] }, "right": { "kind": "global", "name": "#HTTP_MAX_RESPONSE" } },
           "then": [
-          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050010" }, { "kind": "const", "type": "String", "value": "response too large" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "394" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050010" }, { "kind": "const", "type": "String", "value": "response too large" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "355" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
@@ -1140,7 +1039,7 @@
           "op": "if",
           "condition": { "kind": "binary", "op": ">", "left": { "kind": "call", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "raw" }] }, "right": { "kind": "global", "name": "#HTTP_MAX_RESPONSE" } },
           "then": [
-          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050010" }, { "kind": "const", "type": "String", "value": "response too large" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "418" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
+          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050010" }, { "kind": "const", "type": "String", "value": "response too large" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/http.mfb" }, { "kind": "const", "type": "Integer", "value": "379" }, { "kind": "const", "type": "Integer", "value": "14" }] }] } }
           ],
           "else": [
           ]
@@ -1183,7 +1082,7 @@
     { "name": "headers", "type": "Map OF String TO String", "default": null },
     { "name": "method", "type": "String", "default": null }
     ],
-    "returns": "HttpResult",
+    "returns": "Response",
     "body": [
     { "op": "bind", "mutable": false, "name": "verb", "type": "String", "value": { "kind": "call", "target": "#http_normalizeMethod", "args": [{ "kind": "local", "name": "method" }] } },
     { "op": "bind", "mutable": false, "name": "request", "type": "String", "value": { "kind": "call", "target": "#http_buildRequest", "args": [{ "kind": "local", "name": "verb" }, { "kind": "local", "name": "url" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "Boolean", "value": "false" }, { "kind": "local", "name": "headers" }] } },
@@ -1201,7 +1100,7 @@
     { "name": "headers", "type": "Map OF String TO String", "default": null },
     { "name": "method", "type": "String", "default": null }
     ],
-    "returns": "HttpResult",
+    "returns": "Response",
     "body": [
     { "op": "bind", "mutable": false, "name": "verb", "type": "String", "value": { "kind": "call", "target": "#http_normalizeMethod", "args": [{ "kind": "local", "name": "method" }] } },
     { "op": "bind", "mutable": false, "name": "request", "type": "String", "value": { "kind": "call", "target": "#http_buildRequest", "args": [{ "kind": "local", "name": "verb" }, { "kind": "local", "name": "url" }, { "kind": "local", "name": "body" }, { "kind": "const", "type": "Boolean", "value": "true" }, { "kind": "local", "name": "headers" }] } },

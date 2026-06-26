@@ -1,29 +1,22 @@
 //! Front-end definitions for the built-in `http` package (plan-03-http.md): a
-//! blocking HTTP/1.1 client (and, in later phases, a routing server). Like
-//! `json`/`csv`, `http` is a source package — this thin Rust shim plus the
-//! MFBASIC implementation in `http_package.mfb`, injected at compile time. Every
-//! byte on the wire goes through the existing native `net`/`tls` packages; `http`
-//! introduces no new intrinsics.
+//! blocking HTTP/1.1 client. Like `json`/`csv`, `http` is a source package — this
+//! thin Rust shim plus the MFBASIC implementation in `http_package.mfb`, injected
+//! at compile time. Every byte on the wire goes through the existing native
+//! `net`/`tls` packages; `http` introduces no new intrinsics.
 
 use std::borrow::Cow;
 use std::path::Path;
 
-// --- Client calls (Parts A–E) ---
 const READ: &str = "http.read";
 const WRITE: &str = "http.write";
-const HEADER: &str = "http.header";
-const HEADER_OR: &str = "http.headerOr";
 
 const INTERNAL_READ: &str = "__http_read";
 const INTERNAL_WRITE: &str = "__http_write";
-const INTERNAL_HEADER: &str = "__http_header";
-const INTERNAL_HEADER_OR: &str = "__http_headerOr";
 
-// Value records. The client response type is named `Result` in the spec but
-// stored as `HttpResult` so it never collides with the compiler's internal
-// `Result` success-wrapper; `qualified_builtin_type` maps `http::Result` to it.
-const HEADER_TYPE: &str = "Header";
-pub(crate) const RESULT_TYPE: &str = "HttpResult";
+// The response value record. A plain, copyable record whose `headers` field is a
+// standard `Map OF String TO String`, read with the ordinary collections
+// accessors; there is no dedicated header function.
+pub(crate) const RESPONSE_TYPE: &str = "Response";
 
 const URL_TYPE: &str = "Url";
 const HEADER_MAP: &str = "Map OF String TO String";
@@ -34,27 +27,24 @@ pub(crate) struct ResolvedCall<'a> {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    matches!(name, HEADER_TYPE | RESULT_TYPE)
+    name == RESPONSE_TYPE
 }
 
 pub(crate) fn is_http_call(name: &str) -> bool {
-    matches!(name, READ | WRITE | HEADER | HEADER_OR)
+    matches!(name, READ | WRITE)
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         READ => Some(&[&["url"], &["headers"], &["method"]]),
         WRITE => Some(&[&["url"], &["body"], &["headers"], &["method"]]),
-        HEADER => Some(&[&["result"], &["name"]]),
-        HEADER_OR => Some(&[&["result"], &["name"], &["default", "fallback"]]),
         _ => None,
     }
 }
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
-        READ | WRITE => Some(RESULT_TYPE),
-        HEADER | HEADER_OR => Some("String"),
+        READ | WRITE => Some(RESPONSE_TYPE),
         _ => None,
     }
 }
@@ -65,17 +55,15 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             || exact(arg_types, &[URL_TYPE, HEADER_MAP])
             || exact(arg_types, &[URL_TYPE, HEADER_MAP, "String"]) =>
         {
-            Cow::Borrowed(RESULT_TYPE)
+            Cow::Borrowed(RESPONSE_TYPE)
         }
         WRITE
             if exact(arg_types, &[URL_TYPE, "String"])
                 || exact(arg_types, &[URL_TYPE, "String", HEADER_MAP])
                 || exact(arg_types, &[URL_TYPE, "String", HEADER_MAP, "String"]) =>
         {
-            Cow::Borrowed(RESULT_TYPE)
+            Cow::Borrowed(RESPONSE_TYPE)
         }
-        HEADER if exact(arg_types, &[RESULT_TYPE, "String"]) => Cow::Borrowed("String"),
-        HEADER_OR if exact(arg_types, &[RESULT_TYPE, "String", "String"]) => Cow::Borrowed("String"),
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -85,8 +73,6 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         READ => Some("Url, Map OF String TO String, String"),
         WRITE => Some("Url, String, Map OF String TO String, String"),
-        HEADER => Some("Result, String"),
-        HEADER_OR => Some("Result, String, String"),
         _ => None,
     }
 }
@@ -95,8 +81,6 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
         READ => Some((1, 3)),
         WRITE => Some((2, 4)),
-        HEADER => Some((2, 2)),
-        HEADER_OR => Some((3, 3)),
         _ => None,
     }
 }
@@ -121,8 +105,6 @@ pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
     match name {
         READ => Some(INTERNAL_READ),
         WRITE => Some(INTERNAL_WRITE),
-        HEADER => Some(INTERNAL_HEADER),
-        HEADER_OR => Some(INTERNAL_HEADER_OR),
         _ => None,
     }
 }

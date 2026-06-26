@@ -4,10 +4,10 @@ NAME
 SYNOPSIS
   IMPORT net
   IMPORT http
+  IMPORT collections
   LET r = http::read(net::toUrl("http://example.com/"))
   LET p = http::write(net::toUrl("http://example.com/items"), body)
-  LET v = http::header(r, "Content-Type")
-  LET w = http::headerOr(r, "Content-Type", "application/octet-stream")
+  LET v = collections::getOr(r.headers, "content-type", "")
 
 DESCRIPTION
   The http package is a blocking HTTP/1.1 client. It layers on the native net and
@@ -25,25 +25,27 @@ DESCRIPTION
   request and response, and closes the connection before returning, so no socket
   handle escapes.
 
-  The package defines two flat, copyable value records. Header is one response
-  header field (name as received, value with surrounding whitespace trimmed).
-  Result is the response: status (Integer), reason (String), httpVersion (String),
-  headers (List OF Header in received order), body (String), and ok (Boolean, TRUE
-  when status is in 200..299). Because no resource is held, a Result can be
-  returned, copied, and sent across threads. The header and headerOr functions
-  look a response header up case-insensitively (first match wins); header fails
-  ErrNotFound when the field is absent, while headerOr returns a default instead.
+  Both return an http::Response, an ordinary copyable value record with fields
+  status (Integer), reason (String), httpVersion (String), headers (Map OF String
+  TO String), body (String), and ok (Boolean, TRUE when status is in 200..299).
+  The headers field is a standard map whose field names are lowercased (HTTP field
+  names are case-insensitive) with duplicate fields collapsed last-wins; read it
+  with the ordinary collections accessors, for example
+  collections::getOr(resp.headers, "content-type", "") or
+  collections::hasKey(resp.headers, "location"). There is no dedicated header
+  function. Because no resource is held, a Response can be returned, copied, and
+  sent across threads.
 
   The implementation always supplies Host, User-Agent (mfb-http/1), Accept (*/*),
   and Connection: close, and supplies Content-Length for http::write; a caller
   headers entry adds or overrides any request header case-insensitively, except
   the reserved Content-Length and Connection, which are controlled to preserve
   framing. The response is read to end of stream and parsed: the status line fills
-  status/reason/httpVersion, header lines become Header values, and the body is
+  status/reason/httpVersion, header lines fill the headers map, and the body is
   de-chunked when Transfer-Encoding is chunked, otherwise taken as received (204
   and 304 carry no body). The body is decoded as UTF-8 text; binary bodies are a
-  known v1 limitation. Redirects are returned as-is (ok is FALSE, Location is
-  available via header) rather than followed.
+  known v1 limitation. Redirects are returned as-is (ok is FALSE, the location is
+  in resp.headers) rather than followed.
 
 ERRORS
   77050002 (ErrInvalidArgument)
@@ -54,9 +56,6 @@ ERRORS
   Raised when the response status line, header block, or chunked framing is
   malformed.
 
-  77050004 (ErrNotFound)
-  Raised by http::header when the requested response header is absent.
-
   77050010 (ErrOverflow)
   Raised when the accumulated response exceeds the internal size cap (64 MiB).
 
@@ -65,4 +64,4 @@ ERRORS
   not an error.
 
 SEE ALSO
-  http::read, http::write, http::header, http::headerOr, net::toUrl, tls::connect
+  http::read, http::write, net::toUrl, tls::connect, collections::getOr

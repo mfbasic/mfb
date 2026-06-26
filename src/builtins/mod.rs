@@ -63,23 +63,16 @@ pub(crate) fn to_string_override_target(type_name: &str) -> Option<&'static str>
     }
 }
 
-/// Resolve a package-qualified built-in type reference (`net.Url`, `http.Result`)
-/// to its bare internal type id, or `None` when it is not a qualified built-in
-/// type. The `http` response type is written `Result` in the spec but stored as
-/// `HttpResult` so it never collides with the compiler's internal `Result`
-/// success-wrapper (plan-03-http.md §B.2); qualified `http::Result` is the only
-/// way to name it.
+/// Resolve a package-qualified built-in type reference (`net.Url`,
+/// `http.Response`) to its bare internal type id, or `None` when it is not a
+/// qualified built-in type (plan-03-http.md §A.1).
 pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
     let (package, member) = qualified.split_once('.')?;
     if !is_builtin_import(package) {
         return None;
     }
-    let bare = match (package, member) {
-        ("http", "Result") => "HttpResult",
-        _ => member,
-    };
-    if is_builtin_type(bare) {
-        Some(bare.to_string())
+    if is_builtin_type(member) {
+        Some(member.to_string())
     } else {
         None
     }

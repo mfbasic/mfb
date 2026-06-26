@@ -1,0 +1,21 @@
+$ mfb build -ast tests/func_http_response_valid
+Wrote AST to tests/func_http_response_valid/func_http_response_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_http_response_valid
+Wrote IR to tests/func_http_response_valid/func_http_response_valid.ir
+[exit 0]
+$ mfb build tests/func_http_response_valid
+Wrote executable to tests/func_http_response_valid/func_http_response_valid.out
+[exit 0]
+$ tests/func_http_response_valid/func_http_response_valid.out
+status=200
+reason=OK
+version=1.1
+ok=TRUE
+body=body
+ctype=text/html; charset=utf-8
+clen=42
+missing=fallback
+hasCtype=TRUE
+hasAbsent=FALSE
+[exit 0]

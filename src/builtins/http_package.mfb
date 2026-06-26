@@ -9,29 +9,18 @@ IMPORT strings
 IMPORT collections
 IMPORT errorCode
 
-' One response header field. Names are kept as received (case preserved); values
-' have leading/trailing optional whitespace trimmed.
-EXPORT TYPE Header
-  name  AS String
-  value AS String
-END TYPE
-
-' The client response. Named `HttpResult` internally; the spec name is
-' `http::Result` (the compiler maps the qualified reference to this type).
-EXPORT TYPE HttpResult
-  status      AS Integer
-  reason      AS String
-  httpVersion AS String
-  headers     AS List OF Header
-  body        AS String
-  ok          AS Boolean
-END TYPE
-
-' Case-insensitive lookup outcome (found + value), since a function returns one
-' value.
-TYPE __http_Lookup
-  found AS Boolean
-  value AS String
+' The client response. A plain, copyable value record. `headers` is a standard
+' map with field names lowercased (HTTP field names are case-insensitive), so a
+' program reads a header with the ordinary collections accessors, e.g.
+' `collections::getOr(resp.headers, "content-type", "")`. Duplicate fields
+' collapse last-wins.
+EXPORT TYPE Response
+  status      AS Integer          ' status code, e.g. 200, 404
+  reason      AS String           ' reason phrase, e.g. "OK" ("" if omitted)
+  httpVersion AS String           ' "1.0" or "1.1" from the status line
+  headers     AS Map OF String TO String   ' lowercased field name -> value
+  body        AS String           ' decoded response body
+  ok          AS Boolean          ' TRUE iff status is in 200..299
 END TYPE
 
 LET __HTTP_MAX_RESPONSE AS Integer = 67108864
@@ -272,7 +261,7 @@ FUNC __http_dechunk(raw AS String) AS String
   RETURN out
 END FUNC
 
-FUNC __http_parseStatusLine(line AS String) AS HttpResult
+FUNC __http_parseStatusLine(line AS String) AS Response
   LET firstSpace AS Integer = __http_indexOf(line, " ", 0)
   IF firstSpace < 0 THEN
     FAIL error(77050003, "malformed status line")
@@ -292,11 +281,11 @@ FUNC __http_parseStatusLine(line AS String) AS HttpResult
   END IF
   LET status AS Integer = __http_decToInt(strings::trim(statusText))
   LET ok AS Boolean = status >= 200 AND status <= 299
-  LET emptyHeaders AS List OF Header = []
-  RETURN HttpResult[status, reason, version, emptyHeaders, "", ok]
+  LET emptyHeaders AS Map OF String TO String = Map OF String TO String {}
+  RETURN Response[status, reason, version, emptyHeaders, "", ok]
 END FUNC
 
-FUNC __http_parseResponse(raw AS String) AS HttpResult
+FUNC __http_parseResponse(raw AS String) AS Response
   LET crlf AS String = __http_crlf()
   LET headerEnd AS Integer = __http_indexOf(raw, crlf & crlf, 0)
   MUT headSection AS String = raw
@@ -310,66 +299,38 @@ FUNC __http_parseResponse(raw AS String) AS HttpResult
   IF len(lines) = 0 THEN
     FAIL error(77050003, "empty response")
   END IF
-  MUT base AS HttpResult = __http_parseStatusLine(collections::get(lines, 0))
+  MUT base AS Response = __http_parseStatusLine(collections::get(lines, 0))
 
-  MUT headers AS List OF Header = []
+  ' Field names are lowercased so the standard map accessors find them
+  ' case-insensitively; duplicate fields collapse last-wins.
+  MUT headers AS Map OF String TO String = Map OF String TO String {}
   MUT index AS Integer = 1
   WHILE index < len(lines)
     LET line AS String = collections::get(lines, index)
     IF line <> "" THEN
       LET colon AS Integer = __http_indexOf(line, ":", 0)
       IF colon >= 0 THEN
-        LET fieldName AS String = __http_slice(line, 0, colon)
+        LET fieldName AS String = strings::lower(strings::trim(__http_slice(line, 0, colon)))
         LET fieldValue AS String = strings::trim(__http_slice(line, colon + 1, len(line)))
-        headers = collections::append(headers, Header[fieldName, fieldValue])
+        headers = collections::set(headers, fieldName, fieldValue)
       END IF
     END IF
     index = index + 1
   WEND
 
   LET body AS String = __http_decodeBody(base.status, headers, bodySection)
-  RETURN HttpResult[base.status, base.reason, base.httpVersion, headers, body, base.ok]
+  RETURN Response[base.status, base.reason, base.httpVersion, headers, body, base.ok]
 END FUNC
 
-FUNC __http_headerFromList(headers AS List OF Header, name AS String) AS __http_Lookup
-  LET target AS String = strings::lower(name)
-  FOR EACH field IN headers
-    IF strings::lower(field.name) = target THEN
-      RETURN __http_Lookup[TRUE, field.value]
-    END IF
-  NEXT
-  RETURN __http_Lookup[FALSE, ""]
-END FUNC
-
-FUNC __http_decodeBody(status AS Integer, headers AS List OF Header, bodyRaw AS String) AS String
+FUNC __http_decodeBody(status AS Integer, headers AS Map OF String TO String, bodyRaw AS String) AS String
   IF status = 204 OR status = 304 THEN
     RETURN ""
   END IF
-  LET transferEncoding AS __http_Lookup = __http_headerFromList(headers, "Transfer-Encoding")
-  IF transferEncoding.found THEN
-    IF strings::contains(strings::lower(transferEncoding.value), "chunked") THEN
-      RETURN __http_dechunk(bodyRaw)
-    END IF
+  LET transferEncoding AS String = collections::getOr(headers, "transfer-encoding", "")
+  IF strings::contains(strings::lower(transferEncoding), "chunked") THEN
+    RETURN __http_dechunk(bodyRaw)
   END IF
   RETURN bodyRaw
-END FUNC
-
-' ---- Header accessors (§B.1) ----
-
-FUNC __http_header(result AS HttpResult, name AS String) AS String
-  LET found AS __http_Lookup = __http_headerFromList(result.headers, name)
-  IF found.found THEN
-    RETURN found.value
-  END IF
-  FAIL error(77050004, "response header not found")
-END FUNC
-
-FUNC __http_headerOr(result AS HttpResult, name AS String, fallback AS String) AS String
-  LET found AS __http_Lookup = __http_headerFromList(result.headers, name)
-  IF found.found THEN
-    RETURN found.value
-  END IF
-  RETURN fallback
 END FUNC
 
 ' ---- Transport branches (§B.5) ----
@@ -431,14 +392,14 @@ END FUNC
 
 ' ---- Public entry points (§B.1) ----
 
-FUNC __http_read(url AS net::Url, headers AS Map OF String TO String, method AS String) AS HttpResult
+FUNC __http_read(url AS net::Url, headers AS Map OF String TO String, method AS String) AS Response
   LET verb AS String = __http_normalizeMethod(method)
   LET request AS String = __http_buildRequest(verb, url, "", FALSE, headers)
   LET raw AS String = __http_exchange(url, request)
   RETURN __http_parseResponse(raw)
 END FUNC
 
-FUNC __http_write(url AS net::Url, body AS String, headers AS Map OF String TO String, method AS String) AS HttpResult
+FUNC __http_write(url AS net::Url, body AS String, headers AS Map OF String TO String, method AS String) AS Response
   LET verb AS String = __http_normalizeMethod(method)
   LET request AS String = __http_buildRequest(verb, url, body, TRUE, headers)
   LET raw AS String = __http_exchange(url, request)

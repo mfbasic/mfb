@@ -1,0 +1,10 @@
+status=200
+reason=OK
+version=1.1
+ok=TRUE
+body=body
+ctype=text/html; charset=utf-8
+clen=42
+missing=fallback
+hasCtype=TRUE
+hasAbsent=FALSE

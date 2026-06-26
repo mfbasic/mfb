@@ -823,21 +823,23 @@ The `http` package is a **blocking** HTTP/1.1 **client**. It layers on `net` and
 `net::Url`, callers also `IMPORT net` (they never need `IMPORT tls`, which stays
 sealed inside `http`). Both `http://` and `https://` work on Linux and macOS.
 
-Two flat, copyable value records are returned; the transport socket is opened,
-used, and closed entirely inside each call, so no handle escapes and a `Result`
+A single flat, copyable value record is returned; the transport socket is opened,
+used, and closed entirely inside each call, so no handle escapes and a `Response`
 can be returned, copied, and sent across threads.
 
 | Type | Description |
 |------|-------------|
-| `http::Header` | One response header: `Header[name AS String, value AS String]` (name as received, value OWS-trimmed). |
-| `http::Result` | Response: `Result[status AS Integer, reason AS String, httpVersion AS String, headers AS List OF Header, body AS String, ok AS Boolean]`. `ok` is `TRUE` iff `status` is in `200..299`. |
+| `http::Response` | Response: `Response[status AS Integer, reason AS String, httpVersion AS String, headers AS Map OF String TO String, body AS String, ok AS Boolean]`. `ok` is `TRUE` iff `status` is in `200..299`. `headers` is a standard map whose field names are **lowercased** (HTTP field names are case-insensitive); duplicate fields collapse last-wins. |
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `http::read` | `FUNC read(url AS net::Url, headers AS Map OF String TO String = {}, method AS String = "GET") AS Result` | Performs a **body-less** request (`GET`, `HEAD`, `DELETE`, `OPTIONS`, …) and returns the response. Blocking. |
-| `http::write` | `FUNC write(url AS net::Url, body AS String, headers AS Map OF String TO String = {}, method AS String = "POST") AS Result` | Performs a request **with a body**, sending `body` (UTF-8) with a matching `Content-Length`. Blocking. |
-| `http::header` | `FUNC header(result AS Result, name AS String) AS String` | Case-insensitive lookup of one response header; the first occurrence wins. Fails `77050004` (`ErrNotFound`) when absent. |
-| `http::headerOr` | `FUNC headerOr(result AS Result, name AS String, default AS String) AS String` | Case-insensitive header lookup, or `default` when absent. |
+| `http::read` | `FUNC read(url AS net::Url, headers AS Map OF String TO String = {}, method AS String = "GET") AS Response` | Performs a **body-less** request (`GET`, `HEAD`, `DELETE`, `OPTIONS`, …) and returns the response. Blocking. |
+| `http::write` | `FUNC write(url AS net::Url, body AS String, headers AS Map OF String TO String = {}, method AS String = "POST") AS Response` | Performs a request **with a body**, sending `body` (UTF-8) with a matching `Content-Length`. Blocking. |
+
+There is **no** dedicated header accessor: `Response.headers` is an ordinary map,
+read with the standard `collections` functions
+(`collections::getOr(resp.headers, "content-type", "")`,
+`collections::hasKey(resp.headers, "location")`), always with **lowercase** names.
 
 The implementation always sends `Host`, `User-Agent: mfb-http/1`, `Accept: */*`,
 and `Connection: close`; `write` also sends `Content-Length`. A caller `headers`
@@ -847,24 +849,26 @@ framing. The empty method or a method with whitespace fails `77050002`
 (`ErrInvalidArgument`).
 
 The response is read to EOF, then parsed: the status line yields `status`,
-`reason`, and `httpVersion`; header lines become `Header` values; the body is
-de-chunked when `Transfer-Encoding: chunked`, otherwise taken as received.
-`204`/`304` carry no body. A malformed status line or chunk framing fails
-`77050003`; a response over the internal 64 MiB cap fails `77050010`. The body is
-decoded as UTF-8 text (binary bodies are a known v1 limitation). Redirects are
-returned as-is (`ok = FALSE`, `Location` available via `header`); they are not
-followed.
+`reason`, and `httpVersion`; header lines fill the `headers` map (names
+lowercased, last-wins on duplicates); the body is de-chunked when
+`Transfer-Encoding: chunked`, otherwise taken as received. `204`/`304` carry no
+body. A malformed status line or chunk framing fails `77050003`; a response over
+the internal 64 MiB cap fails `77050010`. The body is decoded as UTF-8 text
+(binary bodies are a known v1 limitation). Redirects are returned as-is
+(`ok = FALSE`, with `collections::getOr(resp.headers, "location", "")` available);
+they are not followed.
 
 ```basic
 IMPORT net
 IMPORT http
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
-  LET got AS http::Result = http::read(net::toUrl("http://example.com/"))
+  LET got AS http::Response = http::read(net::toUrl("http://example.com/"))
   io::print(toString(got.status) & " " & got.reason)        ' 200 OK
-  IF got.ok THEN io::print(http::headerOr(got, "Content-Type", "?"))
-  LET posted AS http::Result = http::write(net::toUrl("http://example.com/items"), "payload")
+  IF got.ok THEN io::print(collections::getOr(got.headers, "content-type", "?"))
+  LET posted AS http::Response = http::write(net::toUrl("http://example.com/items"), "payload")
   io::print(toString(posted.status))
   RETURN 0
 END FUNC

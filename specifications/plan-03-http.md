@@ -152,10 +152,13 @@ it from the `Url` fields in `net_package.mfb`.
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `http::read` | `FUNC read(url AS net::Url, headers AS Map OF String TO String = {}, method AS String = "GET") AS Result` | Performs a **body-less** request (`GET`, `HEAD`, `DELETE`, `OPTIONS`, …) and returns the response. `headers` are extra request headers. Blocking. |
-| `http::write` | `FUNC write(url AS net::Url, body AS String, headers AS Map OF String TO String = {}, method AS String = "POST") AS Result` | Performs a request **with a body** (`POST`, `PUT`, `PATCH`, …), sending `body`, and returns the response. `headers` are extra request headers. Blocking. |
-| `http::header` | `FUNC header(result AS Result, name AS String) AS String` | Case-insensitive lookup of one response header value. Fails `ErrNotFound` when absent. |
-| `http::headerOr` | `FUNC headerOr(result AS Result, name AS String, default AS String) AS String` | Case-insensitive header lookup, or `default` when absent. |
+| `http::read` | `FUNC read(url AS net::Url, headers AS Map OF String TO String = {}, method AS String = "GET") AS Response` | Performs a **body-less** request (`GET`, `HEAD`, `DELETE`, `OPTIONS`, …) and returns the response. `headers` are extra request headers. Blocking. |
+| `http::write` | `FUNC write(url AS net::Url, body AS String, headers AS Map OF String TO String = {}, method AS String = "POST") AS Response` | Performs a request **with a body** (`POST`, `PUT`, `PATCH`, …), sending `body`, and returns the response. `headers` are extra request headers. Blocking. |
+
+There is **no** dedicated header accessor. `Response.headers` is an ordinary `Map
+OF String TO String` (with **lowercased** field names — §B.4), read with the
+standard `collections` functions, e.g. `collections::getOr(resp.headers,
+"content-type", "")` or `collections::hasKey(resp.headers, "location")`.
 
 `IMPORT http` requires no manifest dependency — `http` is a built-in package.
 Imports are **file-scoped** (`src/resolver.rs:391` builds a fresh import map per
@@ -182,26 +185,24 @@ these are distinct, single-declaration names.
 ## B.2 Types
 
 ```basic
-EXPORT TYPE Header
-  name  AS String        ' field name as received (case preserved)
-  value AS String        ' field value, leading/trailing OWS trimmed
-END TYPE
-
-EXPORT TYPE Result
-  status      AS Integer          ' status code, e.g. 200, 404
-  reason      AS String           ' reason phrase, e.g. "OK" ("" if omitted)
-  httpVersion AS String           ' "1.0" or "1.1" from the status line
-  headers     AS List OF Header   ' response headers, in received order
-  body        AS String           ' decoded response body (§B.4)
-  ok          AS Boolean          ' TRUE iff status is in 200..299
+EXPORT TYPE Response
+  status      AS Integer                   ' status code, e.g. 200, 404
+  reason      AS String                    ' reason phrase, e.g. "OK" ("" if omitted)
+  httpVersion AS String                    ' "1.0" or "1.1" from the status line
+  headers     AS Map OF String TO String   ' lowercased field name -> value (§B.4)
+  body        AS String                    ' decoded response body (§B.4)
+  ok          AS Boolean                   ' TRUE iff status is in 200..299
 END TYPE
 ```
 
-Both are flat, **copyable value records**. The transport socket is opened, used,
-and closed entirely inside `read`/`write`; **no handle escapes**, so a `Result` is
-a plain value that can be returned, copied, and sent across threads. `Header` and
-`Result` are declared in `http_package.mfb` and registered through
-`http::is_builtin_type`.
+`Response` is an ordinary flat, **copyable value record** — `Response` is a normal
+name (unlike the reserved `Result`), so it is used bare or as `http::Response`.
+`headers` is a **standard map**, so a program reads a header with the ordinary
+`collections` accessors and there is no `http`-specific header function. The
+transport socket is opened, used, and closed entirely inside `read`/`write`; **no
+handle escapes**, so a `Response` is a plain value that can be returned, copied,
+and sent across threads. `Response` is declared in `http_package.mfb` and
+registered through `http::is_builtin_type`.
 
 ## B.3 Request model
 
@@ -252,11 +253,12 @@ With `Connection: close`, the client reads the socket to EOF, accumulating the
 
 - **Status line** `HTTP/<v> <status> [reason]` → `httpVersion`, `status`,
   `reason`. A non-status-line first line fails `ErrInvalidFormat`.
-- **Headers** read until the first empty line; each `name: value` becomes a
-  `Header` (value OWS-trimmed). Duplicates preserved in order;
-  `http::header`/`headerOr` match case-insensitively and return the first.
+- **Headers** read until the first empty line; each `name: value` fills the
+  `headers` map with the **name lowercased** (HTTP field names are
+  case-insensitive) and the value OWS-trimmed. Duplicates collapse **last-wins**;
+  callers read with `collections::getOr(resp.headers, "name", "")`.
 - **`ok`** = `status` in `200..=299`. **Redirects are not followed** (§E): a
-  `3xx` returns as-is with `ok = FALSE` and `Location` available via `header`.
+  `3xx` returns as-is with `ok = FALSE` and the location in `resp.headers`.
 - **Body**, by precedence:
   1. `Transfer-Encoding: chunked` → de-chunked (hex length line, data, `CRLF`;
      `0`-chunk terminates; trailers ignored). Malformed framing →
@@ -265,7 +267,7 @@ With `Connection: close`, the client reads the socket to EOF, accumulating the
      `ErrConnectionClosed` (`77070004`).
   3. else → everything until EOF (HTTP/1.0 `Connection: close`).
   A `HEAD` response and `204`/`304` carry no body (`body = ""`).
-- **Decoding:** v1 decodes the body as **UTF-8 text** into `Result.body`
+- **Decoding:** v1 decodes the body as **UTF-8 text** into `Response.body`
   (consistent with `net::readText`/`tls::readText`). The read loop accumulates
   **bytes** (`net::read`/`tls::read` → `List OF Byte`) so chunk/`Content-Length`
   accounting is byte-exact, then decodes once via the **existing**
@@ -332,7 +334,7 @@ The work parallels the `json`/`csv` source-package template, with two shims
 | Text → wire bytes (request) | `net::writeText`/`tls::writeText` (UTF-8 encode internally) | `net.rs:18`, `tls.rs:17` |
 | Body byte length for `Content-Length` | `strings::byteLen` | `mfbasic.md` §18 |
 | Case-insensitive header matching | `strings::lower`/`caseFold`, `strings::split`, `strings::trim`, `find`, `mid` | `mfbasic.md` §18 |
-| Headers map / header list / response building | `collections::*` (`get`, `hasKey`, `keys`, `append`, `Map`/`List`) | `collections` |
+| Headers map / response building / caller access | `collections::*` (`get`, `getOr`, `hasKey`, `set`, `Map`) | `collections` |
 | Source-package shim (all 11 hooks) | copy `src/builtins/json.rs` structure verbatim; embed via `crate::ast::parse_source_internal` | `json.rs:105` |
 | Trailing-default arguments | `default_argument_padding` | `regex.rs`, `tls.rs:112` |
 | Built-in record types with no reserved IDs | `EXPORT TYPE` in the `.mfb` + `is_builtin_type` | `json.rs:18`, `json_package.mfb:4` |
@@ -387,57 +389,53 @@ conversion, collections, the package scaffolding — is reused.
 
 Modeled on `json.rs` + `regex.rs`. `pub(crate)` surface:
 
-- Consts: `READ = "http.read"`, `WRITE = "http.write"`, `HEADER = "http.header"`,
-  `HEADER_OR = "http.headerOr"`; types `HEADER_TYPE = "Header"`,
-  `RESULT_TYPE = "Result"`; targets `__http_read`/`__http_write`/`__http_header`/
-  `__http_headerOr`.
-- `is_builtin_type` → `"Header" | "Result"`.
-- `is_http_call` → the four names.
+- Consts: `READ = "http.read"`, `WRITE = "http.write"`; type
+  `RESPONSE_TYPE = "Response"`; targets `__http_read`/`__http_write`.
+- `is_builtin_type` → `"Response"`.
+- `is_http_call` → the two names.
 - `call_param_names`: `read → &[&["url"],&["headers"],&["method"]]`,
-  `write → &[&["url"],&["body"],&["headers"],&["method"]]`,
-  `header → &[&["result"],&["name"]]`,
-  `headerOr → &[&["result"],&["name"],&["default","fallback"]]`.
-- `call_return_type_name`: `read`/`write` → `"Result"`; `header`/`headerOr` →
-  `"String"`.
+  `write → &[&["url"],&["body"],&["headers"],&["method"]]`.
+- `call_return_type_name`: `read`/`write` → `"Response"`.
 - `resolve_call` (let `M = "Map OF String TO String"`):
-  `read ["Url"]|["Url",M]|["Url",M,"String"] → "Result"`;
-  `write ["Url","String"]|["Url","String",M]|["Url","String",M,"String"] → "Result"`;
-  `header ["Result","String"] → "String"`;
-  `headerOr ["Result","String","String"] → "String"`.
+  `read ["Url"]|["Url",M]|["Url",M,"String"] → "Response"`;
+  `write ["Url","String"]|["Url","String",M]|["Url","String",M,"String"] → "Response"`.
 - `expected_arguments`: `"Url, Map OF String TO String, String"` /
-  `"Url, String, Map OF String TO String, String"` / `"Result, String"` /
-  `"Result, String, String"`.
-- `arity`: `read (1,3)`, `write (2,4)`, `header (2,2)`, `headerOr (3,3)`.
+  `"Url, String, Map OF String TO String, String"`.
+- `arity`: `read (1,3)`, `write (2,4)`.
 - `default_argument_padding` (defaults are the empty map then the method):
   `read` → `[("Map OF String TO String","{}"),("String","GET")][provided.saturating_sub(1)..]`;
   `write` → `[("Map OF String TO String","{}"),("String","POST")][provided.saturating_sub(2)..]`.
+  The empty-map default lowers to an empty map literal, not a scalar const.
 - `implementation_name` → the `__http_*` targets.
 - `source_file`/`uses_package`/`augmented_project` over
   `include_str!("http_package.mfb")` (same shape as `json.rs:105`, via
   `crate::ast::parse_source_internal`).
 
 > No reserved type IDs, no `consumes_argument`, no `resource_close_function`:
-> `http`'s types are plain records and it owns no resource handles.
+> `http`'s `Response` is a plain record and it owns no resource handles. `Response`
+> is a non-reserved name, so the qualified-type machinery maps `http::Response` to
+> the bare `Response` id with no rename.
 
 ## Phase 3 — `http` MFBASIC implementation: `src/builtins/http_package.mfb`
 
 Header: `IMPORT net`, `IMPORT tls`, `IMPORT strings`, `IMPORT collections`,
-`IMPORT errorCode`. Export `Header`/`Result`; implement the four `__http_*` plus
+`IMPORT errorCode`. Export `Response`; implement `__http_read`/`__http_write` plus
 private helpers:
 
 - **Pure (shared):** `__http_buildRequest(method, url, body, hasBody, headers)`
   (merges the automatic headers with the caller `headers` map per §B.3, forcing
   the reserved `Content-Length`/`Connection`),
-  `__http_parseResponse(raw AS String) AS Result`, `__http_dechunk`,
-  `__http_findHeader` (case-insensitive).
+  `__http_parseResponse(raw AS String) AS Response` (building the lowercased
+  `headers` map), and `__http_dechunk`.
 - **Transport branches:** `__http_exchangeTcp(url, requestText) AS String` (via
-  `net::*`, using `net::connectTcp(net::toAddress(url))`) and
-  `__http_exchangeTls(url, requestText) AS String` (via `tls::*`; opens with the
-  macOS `ErrUnsupported` capability check). Each: connect, `writeText`, loop
-  reads accumulating until `ErrConnectionClosed`, `close`, return the raw bytes.
+  `net::*`, using `net::connectTcp(url.host, url.port)`) and
+  `__http_exchangeTls(url, requestText) AS String` (via `tls::*`). Each: connect,
+  `writeText`, loop reads accumulating until `ErrConnectionClosed`, `close`, return
+  the raw bytes. Internal-mode lexing does not decode the `\r` escape, so CRLF is
+  built from bytes (`__http_crlf`).
 - `__http_read`/`__http_write` compose build (passing the `headers` map) →
-  exchange (branch on `url.scheme`) → parse → `Result`.
-  `__http_header`/`__http_headerOr` wrap `__http_findHeader`.
+  exchange (branch on `url.scheme`) → parse → `Response`. Header reads are the
+  caller's `collections::*` on `Response.headers` — no `http` header function.
 
 Read loop shape (per §B.5; `net` branch identical with `net::readText`):
 
@@ -501,19 +499,20 @@ needs `EXPORT`; escape `\r\n` in literals.
 - `src/man/builtins/net/`: add `toUrl.txt`, `toAddress.txt`, and a `Url`
   rendering note in `package.txt` (the `net` man dir already exists; just add
   pages and chain them in `build.rs`).
-- `src/man/builtins/http/`: `package.txt`, `read.txt`, `write.txt`, `header.txt`,
-  `headerOr.txt` (NAME / SYNOPSIS / DESCRIPTION / ERRORS / EXAMPLES; `read`/`write`
-  note the platform matrix). Wire `build.rs` (`http_dir`, `man_pages`,
-  `rerun-if-changed`, `write_pages(..., "HTTP_FUNCTION_PAGES", …)`) and
-  `src/man/mod.rs` (`parse_package(... "builtins/http/package.txt" …)` +
-  `"http" => Some(generated::HTTP_FUNCTION_PAGES)`).
+- `src/man/builtins/http/`: `package.txt`, `read.txt`, `write.txt` (NAME /
+  SYNOPSIS / DESCRIPTION / ERRORS / EXAMPLES; `read`/`write` note the platform
+  matrix and reading headers via `collections::*`). Wire `build.rs` (`http_dir`,
+  `man_pages`, `rerun-if-changed`, `write_pages(..., "HTTP_FUNCTION_PAGES", …)`)
+  and `src/man/mod.rs` (`parse_package(... "builtins/http/package.txt" …)` +
+  `"http" => Some(generated::HTTP_FUNCTION_PAGES)`). (`net`/`tls` man pages were
+  also unwired and are wired in by the same change.)
 
 ## Phase 6 — User documentation
 
 - `specifications/standard_package.md`: add `net::toUrl`/`toString(Url)`/
   `net::toAddress` and the `Url` type to §11 (Net); add a new "Built-in HTTP
-  Package" section after §12 (JSON) with the `Header`/`Result` blocks, the §B.1
-  table, and the request/response/transport/platform summaries.
+  Package" section with the `Response` block, the §B.1 table, and the
+  request/response/transport/platform summaries (headers read via `collections::*`).
 - `specifications/error_codes.md`: no new codes; add `net`(URL) and `http` to the
   "used by" notes for `ErrInvalidFormat`, `ErrUnsupported`, `ErrOverflow`,
   `ErrInvalidArgument`, `ErrNotFound`, and the `7-707-*` rows `http` propagates.
@@ -529,15 +528,13 @@ Mirror `tests/func_json_*`. Split by network dependence:
   (`ErrInvalidFormat`); non-`http(s)` scheme (`ErrUnsupported`).
 - `func_net_url_tostring_valid` — `toUrl`→`toString`→`toUrl` round-trip.
 - `func_net_toaddress_valid` — `Url` → `Address` host/port.
-- `func_http_parse_*` — drive `__http_parseResponse` over fixed raw responses:
-  `Content-Length`, chunked, EOF-framed, `HEAD`/`204`, malformed status line, bad
-  chunk; assert `status`/`reason`/`headers`/`body`/`ok`.
-- `func_http_header_valid` / `func_http_headerOr_valid` — case-insensitive
-  lookup; missing default and `ErrNotFound`.
-- `func_http_buildrequest_valid` — drive `__http_buildRequest` over an empty map,
-  a custom-header map, an override of `User-Agent`/`Host`, and an attempt to set
-  the reserved `Content-Length`/`Connection` (asserting they are forced); check
-  the serialized request line + header block byte-for-byte.
+- `func_http_response_valid` — construct a `http::Response` directly and read its
+  fields, exercising standard `collections` access over the lowercased `headers`
+  map (`get`/`getOr`/`hasKey`, present and absent). The internal
+  `__http_parseResponse`/`__http_buildRequest` helpers carry the internal sigil and
+  are not user-callable, so the request-build and response-parse paths
+  (`Content-Length`, chunked, status/header parsing) are covered by the gated
+  loopback test below rather than an offline golden.
 
 **Networked (gated; on-device, not the default sweep):**
 
@@ -557,6 +554,7 @@ Generate goldens with `scripts/sync-goldens.sh`; verify offline ones via
 ```basic
 IMPORT net
 IMPORT http
+IMPORT collections
 IMPORT io
 
 FUNC main AS Integer
@@ -566,30 +564,30 @@ FUNC main AS Integer
   io::print(toString(url.port))             ' 8443
   io::print(url.path)                       ' /v1/items
   io::print(toString(url))                  ' https://api.example.com:8443/v1/items?limit=10#frag
-  LET addr AS net::Address = net::toAddress(url)   ' Address[host:=api.example.com, port:=8443]
 
   ' GET with no extra headers (method defaults to GET).
-  LET got AS http::Result = http::read(url)
+  LET got AS http::Response = http::read(url)
   io::print(toString(got.status) & " " & got.reason)      ' 200 OK
-  IF got.ok THEN io::print(http::headerOr(got, "Content-Type", "?"))
+  IF got.ok THEN io::print(collections::getOr(got.headers, "content-type", "?"))
   io::print(got.body)
 
   ' GET with custom request headers.
-  LET auth AS Map OF String TO String = { "Authorization" := "Bearer xyz", "Accept" := "application/json" }
-  LET secured AS http::Result = http::read(url, auth)
+  LET auth AS Map OF String TO String = Map OF String TO String { "Authorization" := "Bearer xyz", "Accept" := "application/json" }
+  LET secured AS http::Response = http::read(url, auth)
 
   ' POST a body, with a content type (method defaults to POST).
-  LET posted AS http::Result = http::write(net::toUrl("https://api.example.com/v1/items"), "{\"name\":\"a\"}", { "Content-Type" := "application/json" })
+  LET ctype AS Map OF String TO String = Map OF String TO String { "Content-Type" := "application/json" }
+  LET posted AS http::Response = http::write(net::toUrl("https://api.example.com/v1/items"), "{\"name\":\"a\"}", ctype)
   io::print(toString(posted.status))                      ' 201
 
   ' Explicit method on the body-less verb (empty headers, then the method):
-  LET deleted AS http::Result = http::read(url, {}, "DELETE")
+  LET deleted AS http::Response = http::read(url, Map OF String TO String {}, "DELETE")
   RETURN 0
 END FUNC
 ```
 
 No socket is visible to the caller: each `http::read`/`write` opens, exchanges,
-and closes its connection internally, returning a plain `Result`.
+and closes its connection internally, returning a plain `Response`.
 
 ---
 
@@ -618,8 +616,10 @@ No new error codes; reuse `7-705-*` and propagate `7-707-*`:
 | Empty / non-token method | `ErrInvalidArgument` (`77050002`) |
 | Malformed status line / header block / chunk framing | `ErrInvalidFormat` (`77050003`) |
 | Response exceeds the size cap | `ErrOverflow` (`77050010`) |
-| `http::header` lookup miss | `ErrNotFound` (`77050004`) |
 | DNS / connect / TLS / read-write transport failures | propagated from `net`/`tls`: `77070001`–`77070006`, `77050008`, `77020004` |
+
+(`http` itself raises no `ErrNotFound`; a missing header is the caller's
+`collections::get` concern, or avoided with `collections::getOr`.)
 
 A short read against a declared `Content-Length` surfaces the underlying
 `ErrConnectionClosed` (`77070004`); a clean EOF for EOF-framed bodies is the
@@ -632,7 +632,7 @@ normal terminator, not an error (§B.5).
   remain implementation-controlled, and multi-value folding is not provided.
 - **Automatic redirect following** (`3xx` returned as-is).
 - **Authentication** (userinfo parsed but unused; no cookies/auth schemes).
-- **Binary response bodies** (`Result.body` is UTF-8 text; future
+- **Binary response bodies** (`Response.body` is UTF-8 text; future
   `http::readBytes → List OF Byte`).
 - **Per-call timeouts / streaming / keep-alive / pipelining** (each call is one
   connect-exchange-close; `timeoutMs` is the likely v1.1 add).
@@ -646,4 +646,4 @@ normal terminator, not an error (§B.5).
 These keep v1 a clean, blocking, batteries-light client while honoring the
 requested shape: a `Url` and `toUrl` in `net::` (with `toString` and `toAddress`),
 and `http::read`/`write` — each method-named-and-defaulted, each over a
-`net::Url`, each returning a `http::Result`.
+`net::Url`, each returning a `http::Response`.

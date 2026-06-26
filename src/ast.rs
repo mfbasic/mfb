@@ -2692,8 +2692,8 @@ impl<'a> FileParser<'a> {
             } else if self.match_kind(TokenKind::LBracket) {
                 let type_name = match expression {
                     // A package-qualified built-in type used as a constructor
-                    // (`http::Result[...]`) normalizes to its bare id, matching the
-                    // type-position rule (plan-03-http.md §B.2).
+                    // (`http::Response[...]`) normalizes to its bare id, matching
+                    // the type-position rule (plan-03-http.md §A.1/§B.2).
                     Expression::Identifier(value) => {
                         crate::builtins::qualified_builtin_type(&value).unwrap_or(value)
                     }
@@ -3089,10 +3089,9 @@ impl<'a> FileParser<'a> {
                 return None;
             }
         };
-        // A package-qualified built-in type (`net::Url`, `http::Result`) is
+        // A package-qualified built-in type (`net::Url`, `http::Response`) is
         // normalized to its bare internal id at parse time, so every downstream
-        // stage sees only bare ids (plan-03-http.md §A.1/§B.2). `http::Result`
-        // maps to `HttpResult`, dodging the reserved internal `Result`.
+        // stage sees only bare ids (plan-03-http.md §A.1/§B.2).
         self.finish_qualified_name(name).map(|qualified| {
             crate::builtins::qualified_builtin_type(&qualified).unwrap_or(qualified)
         })
