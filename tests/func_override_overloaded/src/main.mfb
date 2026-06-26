@@ -1,0 +1,27 @@
+IMPORT io
+
+TYPE Grid
+  cells AS List OF Integer
+END TYPE
+
+TYPE Ring
+  items AS List OF Integer
+END TYPE
+
+' Two overloads of the built-in name `len`, selected by argument type.
+FUNC len(g AS Grid) AS Integer
+  RETURN len(g.cells)
+END FUNC
+
+FUNC len(r AS Ring) AS Integer
+  RETURN len(r.items) * 2
+END FUNC
+
+FUNC main AS Integer
+  LET g AS Grid = Grid[[1, 2]]
+  LET r AS Ring = Ring[[1, 2, 3]]
+  io::print(toString(len(g)))        ' 2      len(Grid)
+  io::print(toString(len(r)))        ' 6      len(Ring)
+  io::print(toString(len("ab")))     ' 2      built-in
+  RETURN 0
+END FUNC

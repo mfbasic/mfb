@@ -1,0 +1,20 @@
+IMPORT io
+
+EXPORT TYPE Tag
+  id AS Integer
+END TYPE
+
+' An EXPORT override is visible across the whole project (and beyond).
+EXPORT FUNC toString(t AS Tag) AS String
+  RETURN "tag#" & toString(t.id)
+END FUNC
+
+' A PRIVATE override is visible only inside this file.
+PRIVATE FUNC len(t AS Tag) AS Integer
+  RETURN t.id
+END FUNC
+
+' Exercises the file-local PRIVATE len override.
+EXPORT FUNC describe(t AS Tag) AS String
+  RETURN toString(t) & " len=" & toString(len(t))
+END FUNC

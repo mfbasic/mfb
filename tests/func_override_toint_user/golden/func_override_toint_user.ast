@@ -1,0 +1,50 @@
+{
+  "project": "func_override_toint_user",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Money",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "cents", "type": "Integer", "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "toInt",
+      "line": 7,
+      "params": [
+      { "name": "m", "type": "Money", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "m" }, "member": "cents" }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "m", "type": "Money", "value": { "kind": "constructor", "type": "Money", "arguments": [{ "kind": "number", "value": "1995" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "m" }] }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "string", "value": "7" }] }] }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

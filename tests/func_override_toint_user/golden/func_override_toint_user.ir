@@ -1,0 +1,48 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_override_toint_user",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Money",
+    "fields": [
+    { "visibility": null, "name": "cents", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "toInt$Money",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "m", "type": "Money", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "m" }, "member": "cents" } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "m", "type": "Money", "value": { "kind": "constructor", "type": "Money", "args": [{ "kind": "const", "type": "Integer", "value": "1995" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "toInt$Money", "args": [{ "kind": "local", "name": "m" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "7" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

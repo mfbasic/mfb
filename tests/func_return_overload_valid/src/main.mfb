@@ -1,0 +1,36 @@
+IMPORT io
+
+' Two overloads with identical parameter lists differing ONLY by return type
+' (§F.1). The call's expected (contextual) type selects one (§F.2).
+FUNC encode(value AS String) AS List OF Byte
+  RETURN [toByte(65), toByte(66)]
+END FUNC
+
+FUNC encode(value AS String) AS List OF Integer
+  RETURN [1, 2, 3]
+END FUNC
+
+' A single-signature callee: its parameter type is the expected type of the
+' argument slot, so a nested return-type overload resolves there.
+FUNC sumBytes(data AS List OF Byte) AS Integer
+  MUT total AS Integer = 0
+  FOR EACH b IN data
+    total = total + toInt(b)
+  NEXT
+  RETURN total
+END FUNC
+
+' The enclosing function's declared return type selects the List OF Integer overload.
+FUNC asIntegers(s AS String) AS List OF Integer
+  RETURN encode(s)
+END FUNC
+
+FUNC main AS Integer
+  LET bytes AS List OF Byte = encode("hi")        ' annotation selects List OF Byte
+  io::print(toString(len(bytes)))                 ' 2
+  LET ints AS List OF Integer = encode("hi")      ' annotation selects List OF Integer
+  io::print(toString(len(ints)))                  ' 3
+  io::print(toString(sumBytes(encode("hi"))))     ' 131  arg slot selects List OF Byte
+  io::print(toString(len(asIntegers("hi"))))      ' 3    RETURN context selects List OF Integer
+  RETURN 0
+END FUNC

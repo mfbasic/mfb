@@ -1,0 +1,8 @@
+IMPORT io
+
+FUNC main AS Integer
+  LET t AS Tag = Tag[42]
+  io::print(toString(t))             ' tag#42        PACKAGE override seen cross-file
+  io::print(describe(t))             ' tag#42 len=42 PRIVATE override used inside helpers
+  RETURN 0
+END FUNC

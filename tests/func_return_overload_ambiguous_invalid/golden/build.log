@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_return_overload_ambiguous_invalid
+  12 |   ' No annotation supplies an expected type, so the return-type overload is
+  13 |   ' ambiguous (§F.3).
+  14 |   LET x = encode("hi")
+     | ^
+tests/func_return_overload_ambiguous_invalid/src/main.mfb:14 error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]: return-type overload cannot be resolved without an expected type
+               Call to `encode` matches 2 overloads that differ only by return type; supply the expected type (e.g. a `LET … AS` annotation) to select one.
+[exit 1]
+$ mfb build -ir tests/func_return_overload_ambiguous_invalid
+  12 |   ' No annotation supplies an expected type, so the return-type overload is
+  13 |   ' ambiguous (§F.3).
+  14 |   LET x = encode("hi")
+     | ^
+tests/func_return_overload_ambiguous_invalid/src/main.mfb:14 error[2-203-0101 TYPE_OVERLOAD_AMBIGUOUS]: return-type overload cannot be resolved without an expected type
+               Call to `encode` matches 2 overloads that differ only by return type; supply the expected type (e.g. a `LET … AS` annotation) to select one.
+[exit 1]

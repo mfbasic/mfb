@@ -1,0 +1,70 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_override_overloaded",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Grid",
+    "fields": [
+    { "visibility": null, "name": "cells", "type": "List OF Integer" }
+    ]
+  },
+  {
+    "kind": "type",
+    "visibility": "private",
+    "name": "Ring",
+    "fields": [
+    { "visibility": null, "name": "items", "type": "List OF Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "len$Grid",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "g", "type": "Grid", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "g" }, "member": "cells" }] } }
+    ]
+  },
+  {
+    "name": "len$Ring",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "r", "type": "Ring", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "*", "left": { "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "r" }, "member": "items" }] }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "g", "type": "Grid", "value": { "kind": "constructor", "type": "Grid", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "bind", "mutable": false, "name": "r", "type": "Ring", "value": { "kind": "constructor", "type": "Ring", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len$Grid", "args": [{ "kind": "local", "name": "g" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len$Ring", "args": [{ "kind": "local", "name": "r" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "const", "type": "String", "value": "ab" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

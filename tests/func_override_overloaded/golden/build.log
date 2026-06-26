@@ -1,0 +1,14 @@
+$ mfb build -ast tests/func_override_overloaded
+Wrote AST to tests/func_override_overloaded/func_override_overloaded.ast
+[exit 0]
+$ mfb build -ir tests/func_override_overloaded
+Wrote IR to tests/func_override_overloaded/func_override_overloaded.ir
+[exit 0]
+$ mfb build tests/func_override_overloaded
+Wrote executable to tests/func_override_overloaded/func_override_overloaded.out
+[exit 0]
+$ tests/func_override_overloaded/func_override_overloaded.out
+2
+6
+2
+[exit 0]

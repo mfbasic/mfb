@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_override_toint_user
+Wrote AST to tests/func_override_toint_user/func_override_toint_user.ast
+[exit 0]
+$ mfb build -ir tests/func_override_toint_user
+Wrote IR to tests/func_override_toint_user/func_override_toint_user.ir
+[exit 0]
+$ mfb build tests/func_override_toint_user
+Wrote executable to tests/func_override_toint_user/func_override_toint_user.out
+[exit 0]
+$ tests/func_override_toint_user/func_override_toint_user.out
+1995
+7
+[exit 0]

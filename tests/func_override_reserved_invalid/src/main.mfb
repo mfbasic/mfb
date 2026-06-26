@@ -1,0 +1,11 @@
+IMPORT io
+
+' `error` is a reserved language primitive (it builds the read-only Error record)
+' and may not be redeclared (§A.5).
+FUNC error(code AS Integer, message AS String) AS String
+  RETURN message
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

@@ -1,0 +1,80 @@
+{
+  "project": "func_override_len_user",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "type",
+      "visibility": "private",
+      "name": "Ring",
+      "line": 3,
+      "fields": [
+      { "visibility": null, "name": "items", "type": "List OF Integer", "line": 4 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "len",
+      "line": 7,
+      "params": [
+      { "name": "r", "type": "Ring", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "items" }] }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "isEmpty",
+      "line": 11,
+      "params": [
+      { "name": "r", "type": "Ring", "default": null }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "=", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "items" }] }, "right": { "kind": "number", "value": "0" } }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "isNotEmpty",
+      "line": 15,
+      "params": [
+      { "name": "r", "type": "Ring", "default": null }
+      ],
+      "returnType": "Boolean",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "isNotEmpty", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "r" }, "member": "items" }] }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Ring", "value": { "kind": "constructor", "type": "Ring", "arguments": [{ "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "r" }] }] }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "string", "value": "abcd" }] }] }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "isEmpty", "arguments": [{ "kind": "identifier", "value": "r" }] }] }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "isNotEmpty", "arguments": [{ "kind": "identifier", "value": "r" }] }] }] }, "line": 24 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "Ring", "value": { "kind": "constructor", "type": "Ring", "arguments": [{ "kind": "list", "values": [] }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "isEmpty", "arguments": [{ "kind": "identifier", "value": "empty" }] }] }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      ]
+    }
+    ]
+  }
+  ]
+}

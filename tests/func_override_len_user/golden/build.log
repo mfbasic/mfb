@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_override_len_user
+Wrote AST to tests/func_override_len_user/func_override_len_user.ast
+[exit 0]
+$ mfb build -ir tests/func_override_len_user
+Wrote IR to tests/func_override_len_user/func_override_len_user.ir
+[exit 0]
+$ mfb build tests/func_override_len_user
+Wrote executable to tests/func_override_len_user/func_override_len_user.out
+[exit 0]
+$ tests/func_override_len_user/func_override_len_user.out
+3
+4
+FALSE
+TRUE
+TRUE
+[exit 0]

@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_override_visibility
+Wrote AST to tests/func_override_visibility/func_override_visibility.ast
+[exit 0]
+$ mfb build -ir tests/func_override_visibility
+Wrote IR to tests/func_override_visibility/func_override_visibility.ir
+[exit 0]
+$ mfb build tests/func_override_visibility
+Wrote executable to tests/func_override_visibility/func_override_visibility.out
+[exit 0]
+$ tests/func_override_visibility/func_override_visibility.out
+tag#42
+tag#42 len=42
+[exit 0]

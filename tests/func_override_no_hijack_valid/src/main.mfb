@@ -1,0 +1,13 @@
+IMPORT io
+
+' A user overload whose parameter type the built-in already handles can never be
+' selected (gap-fill rule, §A.3.1): the built-in stays authoritative for Integer.
+' This overload is therefore dead code, but it is a legal declaration.
+FUNC toString(value AS Integer) AS String
+  RETURN "custom:" & toString(value + 1000)
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(42))            ' 42   built-in wins, NOT "custom:..."
+  RETURN 0
+END FUNC

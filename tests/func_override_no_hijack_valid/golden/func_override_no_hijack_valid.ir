@@ -1,0 +1,38 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_override_no_hijack_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "toString$Integer",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "custom:" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }] } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

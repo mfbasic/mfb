@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_override_no_hijack_valid
+Wrote AST to tests/func_override_no_hijack_valid/func_override_no_hijack_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_override_no_hijack_valid
+Wrote IR to tests/func_override_no_hijack_valid/func_override_no_hijack_valid.ir
+[exit 0]
+$ mfb build tests/func_override_no_hijack_valid
+Wrote executable to tests/func_override_no_hijack_valid/func_override_no_hijack_valid.out
+[exit 0]
+$ tests/func_override_no_hijack_valid/func_override_no_hijack_valid.out
+42
+[exit 0]

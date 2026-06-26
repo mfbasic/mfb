@@ -1,0 +1,72 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_override_visibility",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Tag",
+    "fields": [
+    { "visibility": null, "name": "id", "type": "Integer" }
+    ]
+  }
+  ],
+  "functions": [
+  {
+    "name": "toString$Tag",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "t", "type": "Tag", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "tag#" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "id" }] } } }
+    ]
+  },
+  {
+    "name": "len$Tag",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "t", "type": "Tag", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "id" } }
+    ]
+  },
+  {
+    "name": "describe",
+    "visibility": "export",
+    "kind": "func",
+    "params": [
+    { "name": "t", "type": "Tag", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString$Tag", "args": [{ "kind": "local", "name": "t" }] }, "right": { "kind": "const", "type": "String", "value": " len=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len$Tag", "args": [{ "kind": "local", "name": "t" }] }] } } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "t", "type": "Tag", "value": { "kind": "constructor", "type": "Tag", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString$Tag", "args": [{ "kind": "local", "name": "t" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "describe", "args": [{ "kind": "local", "name": "t" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

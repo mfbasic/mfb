@@ -1,0 +1,89 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_return_overload_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "encode$String$AS$List$OF$Byte",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "List OF Byte",
+    "body": [
+    { "op": "return", "value": { "kind": "list", "type": "List OF Unknown", "values": [{ "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "65" }] }, { "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "66" }] }] } }
+    ]
+  },
+  {
+    "name": "encode$String$AS$List$OF$Integer",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "List OF Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } }
+    ]
+  },
+  {
+    "name": "sumBytes",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "data", "type": "List OF Byte", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "name": "b",
+      "type": "Byte",
+      "iterable": { "kind": "local", "name": "data" },
+      "body": [
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "b" }] } } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "total" } }
+    ]
+  },
+  {
+    "name": "asIntegers",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null }
+    ],
+    "returns": "List OF Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "encode$String$AS$List$OF$Integer", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "call", "target": "encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "hi" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "bytes" }] }] }] } },
+    { "op": "bind", "mutable": false, "name": "ints", "type": "List OF Integer", "value": { "kind": "call", "target": "encode$String$AS$List$OF$Integer", "args": [{ "kind": "const", "type": "String", "value": "hi" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "ints" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "sumBytes", "args": [{ "kind": "call", "target": "encode$String$AS$List$OF$Byte", "args": [{ "kind": "const", "type": "String", "value": "hi" }] }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "asIntegers", "args": [{ "kind": "const", "type": "String", "value": "hi" }] }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
