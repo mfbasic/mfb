@@ -476,9 +476,11 @@ padding and alignment.
 - `valueType` identifies the list item type or map value type.
 - `flagsVersion` identifies the layout version and collection-level flags.
 - `count` is the number of live logical entries.
-- `capacity` is the number of lookup entries allocated.
+- `capacity` is the number of lookup entries allocated. It may exceed `count`:
+  the spare slots are working-buffer headroom (see *Capacity Headroom*).
 - `dataLength` is the number of used bytes in `Data`.
-- `dataCapacity` is the number of bytes allocated for `Data`.
+- `dataCapacity` is the number of bytes allocated for `Data`. It may exceed
+  `dataLength` for the same reason.
 
 `keyType` and `valueType` are compact runtime type identifiers.
 
@@ -524,6 +526,33 @@ relocates correctly under the enclosing block's `memcpy`. The **only** payloads
 that remain an 8-byte pointer handle are a **resource** and a **non-flat** nested
 collection (one whose own payloads include a resource or a recursive type) — see
 `is_pointer_collection_payload_type`.
+
+### Capacity Headroom and Growth
+
+`capacity` and `dataCapacity` carry **real headroom**: the codegen append grow
+path over-allocates so `capacity > count` and `dataCapacity > dataLength`, and a
+later append into the same uniquely-owned `MUT` buffer writes into the spare slot
+and bumps `count`/`dataLength` in place — amortized **O(1)** append instead of a
+realloc-and-copy per item. The growth shape (an implementation tuning detail, not
+an observable contract): lookup slots start at 4, double until 1024, then ×1.5;
+data bytes start at 32, double until 64 KiB, then ×1.5; each grows to at least
+what the appended element needs. Fixed-width element lists grow lookup and data
+in lockstep; variable-width lists grow them independently.
+
+Headroom is a property of a **mutable working buffer, never of a value**:
+
+- Because `LookupEntry[capacity]` precedes `Data`, the data region base is
+  `header + capacity * entryStride` — **always derive it from `capacity`, never
+  from `count`**. With headroom present a `count`-based base reads the spare
+  slots as payload bytes.
+- Literals and known-size builders (`transform`/`filter` outputs aside) allocate
+  exactly (`capacity == count`, `dataCapacity == dataLength`) — no headroom where
+  the final size is known up front.
+- Copying a collection value (pass-by-value, binding, embedding, thread
+  transfer) is **shrink-to-fit**: the copy is re-tightened to `capacity == count`
+  and `dataCapacity == dataLength`, so headroom never leaks into a snapshot or
+  across a thread boundary, and the "one contiguous `memcpy`" property holds over
+  the used prefix.
 
 ## List Examples
 

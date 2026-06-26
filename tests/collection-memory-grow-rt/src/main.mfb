@@ -1,0 +1,88 @@
+IMPORT collections
+IMPORT io
+
+' Runtime proof for plan-01 collection memory management:
+' amortized-O(1) append (capacity headroom + in-place MUT grow), offset-stable
+' insert/prepend, shrink-to-fit value copies, transform/filter at scale, and
+' removeAt on a grown buffer. Output is deterministic.
+
+FUNC sumList(xs AS List OF Integer) AS Integer
+  MUT t AS Integer = 0
+  FOR EACH v IN xs
+    t = t + v
+  NEXT
+  RETURN t
+END FUNC
+
+FUNC twice(x AS Integer) AS Integer
+  RETURN x * 2
+END FUNC
+
+FUNC odd(x AS Integer) AS Boolean
+  RETURN x MOD 2 = 1
+END FUNC
+
+FUNC main AS Integer
+  ' --- Amortized growth: 1000 in-place appends to a MUT list. ---
+  MUT nums AS List OF Integer = []
+  FOR i = 1 TO 1000
+    nums = collections::append(nums, i)
+  NEXT
+  LET nlen AS Integer = len(nums)
+  LET n0 AS Integer = collections::get(nums, 0)
+  LET n999 AS Integer = collections::get(nums, 999)
+  LET nsum AS Integer = sumList(nums)
+  io::print("grow len=" & toString(nlen) & " first=" & toString(n0) & " last=" & toString(n999) & " sum=" & toString(nsum))
+
+  ' --- Shrink-to-fit copy stays independent of further growth. ---
+  LET snap AS List OF Integer = nums
+  nums = collections::append(nums, 1234)
+  LET snlen AS Integer = len(snap)
+  LET nlen2 AS Integer = len(nums)
+  io::print("snap len=" & toString(snlen) & " nums len=" & toString(nlen2))
+
+  ' --- Variable-length (String) growth. ---
+  MUT words AS List OF String = []
+  FOR i = 1 TO 100
+    words = collections::append(words, "w" & toString(i))
+  NEXT
+  LET wlen AS Integer = len(words)
+  LET w0 AS String = collections::get(words, 0)
+  LET w99 AS String = collections::get(words, 99)
+  io::print("words len=" & toString(wlen) & " first=" & w0 & " last=" & w99)
+
+  ' --- Offset-stable prepend/insert on a grown buffer. ---
+  MUT seq AS List OF Integer = []
+  FOR i = 1 TO 8
+    seq = collections::append(seq, i)
+  NEXT
+  seq = collections::prepend(seq, 0)
+  seq = collections::insert(seq, 4, 99)
+  LET sq0 AS Integer = collections::get(seq, 0)
+  LET sq4 AS Integer = collections::get(seq, 4)
+  LET sqn AS Integer = collections::get(seq, len(seq) - 1)
+  io::print("seq len=" & toString(len(seq)) & " [0]=" & toString(sq0) & " [4]=" & toString(sq4) & " [last]=" & toString(sqn))
+
+  ' --- transform / filter accumulate via in-place append. ---
+  LET dbl AS List OF Integer = collections::transform(seq, twice)
+  LET odds AS List OF Integer = collections::filter(seq, odd)
+  LET d0 AS Integer = collections::get(dbl, 0)
+  LET dlen AS Integer = len(dbl)
+  LET olen AS Integer = len(odds)
+  io::print("transform len=" & toString(dlen) & " [0]=" & toString(d0) & " filter odd len=" & toString(olen))
+
+  ' --- removeAt on a grown buffer (eager repack stays correct). ---
+  MUT del AS List OF Integer = []
+  FOR i = 0 TO 9
+    del = collections::append(del, i)
+  NEXT
+  del = collections::removeAt(del, 0)
+  del = collections::removeAt(del, len(del) - 1)
+  del = collections::removeAt(del, 3)
+  LET dl AS Integer = len(del)
+  LET dx0 AS Integer = collections::get(del, 0)
+  LET dx3 AS Integer = collections::get(del, 3)
+  io::print("removeAt len=" & toString(dl) & " [0]=" & toString(dx0) & " [3]=" & toString(dx3))
+
+  RETURN 0
+END FUNC
