@@ -1,5 +1,7 @@
 use std::sync::LazyLock;
 
+// The generated `MAN_PACKAGES` table is a nested tuple slice by nature.
+#[allow(clippy::type_complexity)]
 mod generated {
     include!(concat!(env!("OUT_DIR"), "/man_generated.rs"));
 }
@@ -19,78 +21,49 @@ pub(crate) struct FunctionDoc {
     pub(crate) example: &'static str,
 }
 
+/// Display order and usage synopsis for `mfb man`, in the order packages are
+/// listed. The page content is generated from the `src/man` directory tree by
+/// build.rs (`generated::MAN_PACKAGES`); this table carries only the editorial
+/// bits the filesystem can't express. Dropping a `.txt` file adds a topic with
+/// no edit here; a brand-new package needs one row.
+const PACKAGE_ORDER: &[(&str, &str)] = &[
+    ("types", "mfb man types [topic]"),
+    ("flow", "mfb man flow [topic]"),
+    ("errors", "mfb man errors"),
+    ("general", "mfb man general [function]"),
+    ("collections", "mfb man collections [function]"),
+    ("filters", "mfb man filters [function]"),
+    ("strings", "mfb man strings [function]"),
+    ("unicode", "mfb man unicode"),
+    ("lambda", "mfb man lambda"),
+    ("io", "mfb man io [function]"),
+    ("math", "mfb man math [function]"),
+    ("fs", "mfb man fs [function]"),
+    ("thread", "mfb man thread [function]"),
+    ("json", "mfb man json [function]"),
+    ("csv", "mfb man csv [function]"),
+    ("regex", "mfb man regex [function]"),
+    ("term", "mfb man term [function]"),
+    ("datetime", "mfb man datetime [function]"),
+    ("net", "mfb man net [function]"),
+    ("tls", "mfb man tls [function]"),
+    ("http", "mfb man http [function]"),
+];
+
 static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
-    vec![
-        parse_package(include_str!("types/package.txt"), "mfb man types [topic]"),
-        parse_package(include_str!("flow/package.txt"), "mfb man flow [topic]"),
-        parse_package(include_str!("errors/package.txt"), "mfb man errors"),
-        parse_package(
-            include_str!("builtins/general/package.txt"),
-            "mfb man general [function]",
-        ),
-        parse_package(
-            include_str!("builtins/collections/package.txt"),
-            "mfb man collections [function]",
-        ),
-        parse_package(
-            include_str!("builtins/filters/package.txt"),
-            "mfb man filters [function]",
-        ),
-        parse_package(
-            include_str!("builtins/strings/package.txt"),
-            "mfb man strings [function]",
-        ),
-        parse_package(include_str!("unicode/package.txt"), "mfb man unicode"),
-        parse_package(include_str!("lambda/package.txt"), "mfb man lambda"),
-        parse_package(
-            include_str!("builtins/io/package.txt"),
-            "mfb man io [function]",
-        ),
-        parse_package(
-            include_str!("builtins/math/package.txt"),
-            "mfb man math [function]",
-        ),
-        parse_package(
-            include_str!("builtins/fs/package.txt"),
-            "mfb man fs [function]",
-        ),
-        parse_package(
-            include_str!("builtins/thread/package.txt"),
-            "mfb man thread [function]",
-        ),
-        parse_package(
-            include_str!("builtins/json/package.txt"),
-            "mfb man json [function]",
-        ),
-        parse_package(
-            include_str!("builtins/csv/package.txt"),
-            "mfb man csv [function]",
-        ),
-        parse_package(
-            include_str!("builtins/regex/package.txt"),
-            "mfb man regex [function]",
-        ),
-        parse_package(
-            include_str!("builtins/term/package.txt"),
-            "mfb man term [function]",
-        ),
-        parse_package(
-            include_str!("builtins/datetime/package.txt"),
-            "mfb man datetime [function]",
-        ),
-        parse_package(
-            include_str!("builtins/net/package.txt"),
-            "mfb man net [function]",
-        ),
-        parse_package(
-            include_str!("builtins/tls/package.txt"),
-            "mfb man tls [function]",
-        ),
-        parse_package(
-            include_str!("builtins/http/package.txt"),
-            "mfb man http [function]",
-        ),
-    ]
+    debug_assert_eq!(
+        PACKAGE_ORDER.len(),
+        generated::MAN_PACKAGES.len(),
+        "PACKAGE_ORDER is out of sync with the generated man packages",
+    );
+    PACKAGE_ORDER
+        .iter()
+        .map(|&(name, usage)| {
+            let page = package_page(name)
+                .unwrap_or_else(|| panic!("man package `{name}` missing generated docs"));
+            build_package(name, usage, page)
+        })
+        .collect()
 });
 
 pub(crate) fn packages() -> &'static [PackageDoc] {
@@ -119,54 +92,53 @@ pub(crate) fn function_page(package: &PackageDoc, name: &str) -> Option<&'static
         .unwrap_or(name);
 
     generated_pages(package.name)
-        .and_then(|pages| pages.iter().find(|(name, _)| *name == local_name))
+        .iter()
+        .find(|(name, _)| *name == local_name)
         .map(|(_, page)| *page)
 }
 
-fn parse_package(page: &'static str, usage: &'static str) -> PackageDoc {
-    let (name, summary) = parse_name_line(page).expect("package NAME line");
+fn build_package(
+    name: &'static str,
+    usage: &'static str,
+    page: &'static str,
+) -> PackageDoc {
+    let (parsed_name, summary) = parse_name_line(page).expect("package NAME line");
+    debug_assert_eq!(
+        parsed_name, name,
+        "man package directory name disagrees with its NAME line",
+    );
     let functions = generated_pages(name)
-        .map(|pages| {
-            let docs = pages
-                .iter()
-                .map(|(_, page)| parse_rendered_function_page(page))
-                .collect::<Vec<_>>()
-                .into_boxed_slice();
-            &*Box::leak(docs)
-        })
-        .unwrap_or(&[]);
+        .iter()
+        .map(|(_, page)| parse_rendered_function_page(page))
+        .collect::<Vec<_>>()
+        .into_boxed_slice();
 
     PackageDoc {
         name,
         summary,
         usage,
-        functions,
+        functions: Box::leak(functions),
         page: Some(page),
     }
 }
 
-fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    match package_name {
-        "types" => Some(generated::TYPES_TOPIC_PAGES),
-        "flow" => Some(generated::FLOW_TOPIC_PAGES),
-        "general" => Some(generated::GENERAL_FUNCTION_PAGES),
-        "collections" => Some(generated::COLLECTIONS_FUNCTION_PAGES),
-        "filters" => Some(generated::FILTERS_FUNCTION_PAGES),
-        "strings" => Some(generated::STRINGS_FUNCTION_PAGES),
-        "io" => Some(generated::IO_FUNCTION_PAGES),
-        "math" => Some(generated::MATH_FUNCTION_PAGES),
-        "fs" => Some(generated::FS_FUNCTION_PAGES),
-        "thread" => Some(generated::THREAD_FUNCTION_PAGES),
-        "json" => Some(generated::JSON_FUNCTION_PAGES),
-        "csv" => Some(generated::CSV_FUNCTION_PAGES),
-        "regex" => Some(generated::REGEX_FUNCTION_PAGES),
-        "term" => Some(generated::TERM_FUNCTION_PAGES),
-        "datetime" => Some(generated::DATETIME_FUNCTION_PAGES),
-        "net" => Some(generated::NET_FUNCTION_PAGES),
-        "tls" => Some(generated::TLS_FUNCTION_PAGES),
-        "http" => Some(generated::HTTP_FUNCTION_PAGES),
-        _ => None,
-    }
+/// The `package.txt` overview for `package_name`, or `None` if no such package
+/// was generated from the `src/man` tree.
+fn package_page(package_name: &str) -> Option<&'static str> {
+    generated::MAN_PACKAGES
+        .iter()
+        .find(|(name, _, _)| *name == package_name)
+        .map(|(_, page, _)| *page)
+}
+
+/// The topic/function pages for `package_name`, or an empty slice when the
+/// package has no pages (or does not exist).
+fn generated_pages(package_name: &str) -> &'static [(&'static str, &'static str)] {
+    generated::MAN_PACKAGES
+        .iter()
+        .find(|(name, _, _)| *name == package_name)
+        .map(|(_, _, pages)| *pages)
+        .unwrap_or(&[])
 }
 
 fn parse_rendered_function_page(page: &'static str) -> FunctionDoc {

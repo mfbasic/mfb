@@ -1,189 +1,32 @@
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
-    let general_dir = manifest_dir.join("src/man/builtins/general");
-    let collections_dir = manifest_dir.join("src/man/builtins/collections");
-    let filters_dir = manifest_dir.join("src/man/builtins/filters");
-    let strings_dir = manifest_dir.join("src/man/builtins/strings");
-    let types_dir = manifest_dir.join("src/man/types");
-    let flow_dir = manifest_dir.join("src/man/flow");
-    let io_dir = manifest_dir.join("src/man/builtins/io");
-    let math_dir = manifest_dir.join("src/man/builtins/math");
-    let fs_dir = manifest_dir.join("src/man/builtins/fs");
-    let thread_dir = manifest_dir.join("src/man/builtins/thread");
-    let json_dir = manifest_dir.join("src/man/builtins/json");
-    let csv_dir = manifest_dir.join("src/man/builtins/csv");
-    let regex_dir = manifest_dir.join("src/man/builtins/regex");
-    let term_dir = manifest_dir.join("src/man/builtins/term");
-    let datetime_dir = manifest_dir.join("src/man/builtins/datetime");
-    let net_dir = manifest_dir.join("src/man/builtins/net");
-    let tls_dir = manifest_dir.join("src/man/builtins/tls");
-    let http_dir = manifest_dir.join("src/man/builtins/http");
-    let types_page = manifest_dir.join("src/man/types/package.txt");
-    let errors_page = manifest_dir.join("src/man/errors/package.txt");
-    let unicode_page = manifest_dir.join("src/man/unicode/package.txt");
-    let lambda_page = manifest_dir.join("src/man/lambda/package.txt");
+    let man_dir = manifest_dir.join("src/man");
     let error_codes_doc = manifest_dir.join("specifications/error_codes.md");
     println!("cargo:rerun-if-changed={}", error_codes_doc.display());
-    println!("cargo:rerun-if-changed={}", general_dir.display());
-    println!("cargo:rerun-if-changed={}", collections_dir.display());
-    println!("cargo:rerun-if-changed={}", filters_dir.display());
-    println!("cargo:rerun-if-changed={}", strings_dir.display());
-    println!("cargo:rerun-if-changed={}", types_dir.display());
-    println!("cargo:rerun-if-changed={}", flow_dir.display());
-    println!("cargo:rerun-if-changed={}", io_dir.display());
-    println!("cargo:rerun-if-changed={}", math_dir.display());
-    println!("cargo:rerun-if-changed={}", fs_dir.display());
-    println!("cargo:rerun-if-changed={}", thread_dir.display());
-    println!("cargo:rerun-if-changed={}", json_dir.display());
-    println!("cargo:rerun-if-changed={}", csv_dir.display());
-    println!("cargo:rerun-if-changed={}", regex_dir.display());
-    println!("cargo:rerun-if-changed={}", term_dir.display());
-    println!("cargo:rerun-if-changed={}", datetime_dir.display());
-    println!("cargo:rerun-if-changed={}", net_dir.display());
-    println!("cargo:rerun-if-changed={}", tls_dir.display());
-    println!("cargo:rerun-if-changed={}", http_dir.display());
-    println!("cargo:rerun-if-changed={}", types_page.display());
-    println!("cargo:rerun-if-changed={}", errors_page.display());
-    println!("cargo:rerun-if-changed={}", unicode_page.display());
-    println!("cargo:rerun-if-changed={}", lambda_page.display());
 
-    let general_pages = man_pages(&general_dir, "general");
-    let collections_pages = man_pages(&collections_dir, "collections");
-    let filters_pages = man_pages(&filters_dir, "filters");
-    let strings_pages = man_pages(&strings_dir, "strings");
-    let types_pages = man_pages(&types_dir, "types");
-    let flow_pages = man_pages(&flow_dir, "flow");
-    let io_pages = man_pages(&io_dir, "io");
-    let math_pages = man_pages(&math_dir, "math");
-    let fs_pages = man_pages(&fs_dir, "fs");
-    let thread_pages = man_pages(&thread_dir, "thread");
-    let json_pages = man_pages(&json_dir, "json");
-    let csv_pages = man_pages(&csv_dir, "csv");
-    let regex_pages = man_pages(&regex_dir, "regex");
-    let term_pages = man_pages(&term_dir, "term");
-    let datetime_pages = man_pages(&datetime_dir, "datetime");
-    let net_pages = man_pages(&net_dir, "net");
-    let tls_pages = man_pages(&tls_dir, "tls");
-    let http_pages = man_pages(&http_dir, "http");
-
-    println!(
-        "cargo:rerun-if-changed={}",
-        general_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        filters_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        strings_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        types_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        flow_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        io_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        math_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        fs_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        thread_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        json_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        csv_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        regex_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        term_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        datetime_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        net_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        tls_dir.join("package.txt").display()
-    );
-    println!(
-        "cargo:rerun-if-changed={}",
-        http_dir.join("package.txt").display()
-    );
-    for page in general_pages
-        .iter()
-        .chain(collections_pages.iter())
-        .chain(filters_pages.iter())
-        .chain(strings_pages.iter())
-        .chain(types_pages.iter())
-        .chain(flow_pages.iter())
-        .chain(io_pages.iter())
-        .chain(math_pages.iter())
-        .chain(fs_pages.iter())
-        .chain(thread_pages.iter())
-        .chain(json_pages.iter())
-        .chain(csv_pages.iter())
-        .chain(regex_pages.iter())
-        .chain(term_pages.iter())
-        .chain(datetime_pages.iter())
-        .chain(net_pages.iter())
-        .chain(tls_pages.iter())
-        .chain(http_pages.iter())
-    {
-        println!("cargo:rerun-if-changed={}", page.display());
+    // Discover every man package by walking the tree: any directory holding a
+    // `package.txt` is a package, named after the directory. Adding a topic is
+    // "drop a `.txt` file"; adding a package is "create a directory" — no edits
+    // here. The display order and usage synopsis stay in `src/man/mod.rs`, the
+    // only editorial bits the filesystem can't express.
+    let packages = man_packages(&man_dir);
+    println!("cargo:rerun-if-changed={}", man_dir.display());
+    for package in &packages {
+        println!("cargo:rerun-if-changed={}", package.dir.display());
+        for page in std::iter::once(&package.package_txt).chain(&package.pages) {
+            println!("cargo:rerun-if-changed={}", page.display());
+        }
     }
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
     let out_path = out_dir.join("man_generated.rs");
     let mut output = fs::File::create(out_path).expect("create generated man source");
-
-    write_pages(&mut output, "GENERAL_FUNCTION_PAGES", general_pages);
-    write_pages(&mut output, "COLLECTIONS_FUNCTION_PAGES", collections_pages);
-    write_pages(&mut output, "FILTERS_FUNCTION_PAGES", filters_pages);
-    write_pages(&mut output, "STRINGS_FUNCTION_PAGES", strings_pages);
-    write_pages(&mut output, "TYPES_TOPIC_PAGES", types_pages);
-    write_pages(&mut output, "FLOW_TOPIC_PAGES", flow_pages);
-    write_pages(&mut output, "IO_FUNCTION_PAGES", io_pages);
-    write_pages(&mut output, "MATH_FUNCTION_PAGES", math_pages);
-    write_pages(&mut output, "FS_FUNCTION_PAGES", fs_pages);
-    write_pages(&mut output, "THREAD_FUNCTION_PAGES", thread_pages);
-    write_pages(&mut output, "JSON_FUNCTION_PAGES", json_pages);
-    write_pages(&mut output, "CSV_FUNCTION_PAGES", csv_pages);
-    write_pages(&mut output, "REGEX_FUNCTION_PAGES", regex_pages);
-    write_pages(&mut output, "TERM_FUNCTION_PAGES", term_pages);
-    write_pages(&mut output, "DATETIME_FUNCTION_PAGES", datetime_pages);
-    write_pages(&mut output, "NET_FUNCTION_PAGES", net_pages);
-    write_pages(&mut output, "TLS_FUNCTION_PAGES", tls_pages);
-    write_pages(&mut output, "HTTP_FUNCTION_PAGES", http_pages);
+    write_man_packages(&mut output, &packages);
 
     generate_errorcode_table(&error_codes_doc, &out_dir);
 }
@@ -255,33 +98,92 @@ fn generate_errorcode_table(doc_path: &PathBuf, out_dir: &PathBuf) {
     writeln!(output, "];").expect("write generated errorcode source");
 }
 
-fn man_pages(dir: &PathBuf, package: &str) -> Vec<PathBuf> {
-    let mut pages = fs::read_dir(dir)
-        .unwrap_or_else(|_| panic!("read {package} man directory"))
-        .map(|entry| entry.expect("read general man entry").path())
-        .filter(|path| path.extension().is_some_and(|extension| extension == "txt"))
-        .filter(|path| path.file_name().is_some_and(|name| name != "package.txt"))
-        .collect::<Vec<_>>();
-
-    pages.sort();
-    pages
+/// A documented man package discovered on disk: the directory, its `package.txt`
+/// overview, and the topic/function pages beside it (sorted, `package.txt`
+/// excluded).
+struct ManPackage {
+    name: String,
+    dir: PathBuf,
+    package_txt: PathBuf,
+    pages: Vec<PathBuf>,
 }
 
-fn write_pages(output: &mut fs::File, constant: &str, pages: Vec<PathBuf>) {
-    writeln!(output, "pub(crate) const {constant}: &[(&str, &str)] = &[")
-        .expect("write generated man source");
+/// Walk `src/man` and collect every package, sorted by name so the generated
+/// table is deterministic. The runtime imposes its own display order on top.
+fn man_packages(root: &Path) -> Vec<ManPackage> {
+    let mut packages = Vec::new();
+    collect_man_packages(root, &mut packages);
+    packages.sort_by(|a, b| a.name.cmp(&b.name));
+    packages
+}
 
-    for page in pages {
-        let name = page
-            .file_stem()
+fn collect_man_packages(dir: &Path, out: &mut Vec<ManPackage>) {
+    let package_txt = dir.join("package.txt");
+    if package_txt.is_file() {
+        let name = dir
+            .file_name()
             .and_then(|name| name.to_str())
-            .expect("general man page file stem");
+            .expect("man package directory name")
+            .to_string();
+        let mut pages = fs::read_dir(dir)
+            .unwrap_or_else(|_| panic!("read {name} man directory"))
+            .map(|entry| entry.expect("read man entry").path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "txt"))
+            .filter(|path| path.file_name().is_some_and(|name| name != "package.txt"))
+            .collect::<Vec<_>>();
+        pages.sort();
+        out.push(ManPackage {
+            name,
+            dir: dir.to_path_buf(),
+            package_txt,
+            pages,
+        });
+    }
+
+    let mut subdirs = fs::read_dir(dir)
+        .unwrap_or_else(|_| panic!("read man directory {}", dir.display()))
+        .map(|entry| entry.expect("read man entry").path())
+        .filter(|path| path.is_dir())
+        .collect::<Vec<_>>();
+    subdirs.sort();
+    for subdir in subdirs {
+        collect_man_packages(&subdir, out);
+    }
+}
+
+/// Emit a single self-contained table the runtime indexes by package name:
+/// `(name, package.txt, &[(page_name, page_text)])`. This replaces the former
+/// per-package constants plus their `match` arm in `mod.rs`.
+fn write_man_packages(output: &mut fs::File, packages: &[ManPackage]) {
+    writeln!(
+        output,
+        "/// `(name, package-overview, &[(page-name, page-text)])` for every man\n\
+         /// package, generated from `src/man` by build.rs. Do not edit by hand.\n\
+         pub(crate) const MAN_PACKAGES: &[(&str, &str, &[(&str, &str)])] = &["
+    )
+    .expect("write generated man source");
+
+    for package in packages {
         writeln!(
             output,
-            "    ({name:?}, include_str!({path:?})),",
-            path = page.display().to_string()
+            "    ({name:?}, include_str!({package_txt:?}), &[",
+            name = package.name,
+            package_txt = package.package_txt.display().to_string(),
         )
         .expect("write generated man source");
+        for page in &package.pages {
+            let page_name = page
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .expect("man page file stem");
+            writeln!(
+                output,
+                "        ({page_name:?}, include_str!({path:?})),",
+                path = page.display().to_string(),
+            )
+            .expect("write generated man source");
+        }
+        writeln!(output, "    ]),").expect("write generated man source");
     }
 
     writeln!(output, "];").expect("write generated man source");
