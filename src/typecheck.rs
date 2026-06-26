@@ -1369,6 +1369,7 @@ impl<'a> TypeChecker<'a> {
         file: &AstFile,
         name: &str,
         arguments: &[CallArg],
+        expected: Option<&Type>,
     ) -> Option<&'b FunctionSig> {
         let visible = self.visible_function_sigs(file, name);
         if visible.len() <= 1 {
@@ -1381,6 +1382,23 @@ impl<'a> TypeChecker<'a> {
             .collect::<Vec<_>>();
         if matching.len() == 1 {
             return matching.into_iter().next();
+        }
+        // More than one candidate survives the shape filter — a return-type
+        // overload set (param-distinguished sets resolve above, since the
+        // monomorphizer has already rewritten each call to a single mangled
+        // symbol). Disambiguate by the call's expected (contextual) type
+        // (plan-01-overload.md §F.2.3); fall back to the last candidate when no
+        // expected type uniquely selects one, preserving prior behaviour.
+        if let Some(expected) = expected {
+            let mut by_return = matching
+                .iter()
+                .filter(|sig| sig.return_type == *expected)
+                .copied();
+            if let Some(unique) = by_return.next() {
+                if by_return.next().is_none() {
+                    return Some(unique);
+                }
+            }
         }
         matching.into_iter().last()
     }
@@ -3085,10 +3103,10 @@ impl<'a> TypeChecker<'a> {
                 }
 
                 if let Some(sig) = self
-                    .lookup_visible_call_sig(file, callee, arguments)
+                    .lookup_visible_call_sig(file, callee, arguments, expected)
                     .cloned()
                     .or_else(|| {
-                        self.lookup_visible_call_sig(file, &canonical_callee, arguments)
+                        self.lookup_visible_call_sig(file, &canonical_callee, arguments, expected)
                             .cloned()
                     })
                 {
@@ -5633,14 +5651,20 @@ impl<'a> TypeChecker<'a> {
         }
 
         let Some(resolved) = builtins::general::resolve_call(callee, &arg_type_names) else {
-            // The universal `toString` is overridable for a built-in package value
-            // type (`net::Url`): a `toString(url)` call routes to the package's
-            // internal renderer (plan-03-http.md §A.3).
-            if callee == "toString"
+            // The built-in rejected these argument types, so an override may fill
+            // the gap (plan-01-overload.md §A.3.2). A *user* override has already
+            // been rewritten to its mangled concrete symbol by the monomorphizer
+            // (§B.1 / Phase 5), so it never reaches this bare-name path; only a
+            // *package*-provided override (the registry, §B.2) is resolved here —
+            // e.g. `toString(net::Url)` routes to the package's internal renderer
+            // and yields the built-in's conventional result type.
+            if builtins::general::is_overridable(callee)
                 && arg_type_names.len() == 1
-                && builtins::to_string_override_target(&arg_type_names[0]).is_some()
+                && builtins::general_override_target(callee, &arg_type_names[0]).is_some()
             {
-                return Type::String;
+                return self.parse_type(
+                    builtins::general::override_result_type(callee).unwrap_or("Unknown"),
+                );
             }
             let expected =
                 builtins::general::expected_arguments(callee).unwrap_or("supported overload");

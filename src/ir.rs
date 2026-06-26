@@ -2999,20 +2999,24 @@ fn lower_expression_with_expected(
             // `parse` select a distinct internal name by argument count (§5.1.1).
             // Its OS-seam intrinsics return `None`, staying `datetime.*` runtime
             // helper calls.
-            // A universal `toString(x)` over a built-in package value type routes
-            // to that package's internal renderer (plan-03-http.md §A.3), e.g.
-            // `toString(net::Url)` -> `#net_urlToString`.
-            let to_string_override = if canonical_callee == "toString" {
+            // A general built-in call (`toString(x)`, `len(x)`, …) over a built-in
+            // package value type routes to that package's internal override helper
+            // (plan-01-overload.md §B.2 / Phase 6), e.g. `toString(net::Url)` ->
+            // `#net_urlToString`. User overrides need no routing here — the
+            // monomorphizer already rewrote them to a concrete symbol (Phase 5).
+            let package_override = if builtins::general::is_overridable(&canonical_callee) {
                 arguments
                     .first()
                     .map(call_arg_value)
                     .and_then(|argument| expression_type(argument, locals, context))
-                    .and_then(|type_| builtins::to_string_override_target(&type_))
+                    .and_then(|type_| {
+                        builtins::general_override_target(&canonical_callee, &type_)
+                    })
                     .map(crate::internal_name::internalize)
             } else {
                 None
             };
-            let resolved_target = to_string_override
+            let resolved_target = package_override
                 .or_else(|| {
                     builtins::datetime::implementation_name(&canonical_callee, args.len())
                         .map(|name| crate::internal_name::internalize(&name))

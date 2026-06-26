@@ -177,6 +177,10 @@ struct Symbol {
 struct FunctionSymbol {
     symbol: Symbol,
     params: Vec<Option<String>>,
+    /// Declared return type (`None` for a `SUB`). Part of the duplicate-detection
+    /// key so two declarations sharing a name and parameter types but differing in
+    /// return type form a legal return-type overload set (plan-01-overload.md §F.1).
+    return_type: Option<String>,
 }
 
 impl<'a> Resolver<'a> {
@@ -331,10 +335,28 @@ impl<'a> Resolver<'a> {
                     visibility,
                 },
                 params,
+                // A re-export alias never participates in return-type overloading.
+                return_type: None,
             });
     }
 
     fn insert_function(&mut self, file: &AstFile, function: &crate::ast::Function) {
+        // A reserved general built-in (`error`) is a language primitive and may not
+        // be redeclared as a user `FUNC`/`SUB` (plan-01-overload.md §A.5). Every
+        // other overridable built-in name (`toString`, `len`, …) is accepted.
+        if builtins::general::reserved_builtin_name(&function.name) {
+            self.report(
+                "SYMBOL_RESERVED_BUILTIN_NAME",
+                &format!(
+                    "`{}` is a reserved built-in and cannot be redeclared.",
+                    function.name
+                ),
+                file,
+                function.line,
+            );
+            return;
+        }
+
         if let Some(previous) = self.top_levels.get(&function.name).cloned() {
             self.report(
                 "SYMBOL_DUPLICATE_TOP_LEVEL",
@@ -353,13 +375,20 @@ impl<'a> Resolver<'a> {
             .iter()
             .map(|param| param.type_name.clone())
             .collect::<Vec<_>>();
+        // The duplicate-detection key is (name, parameter types, return type): two
+        // declarations collide only when all three match. Sharing name + parameter
+        // types but differing in return type is a legal return-type overload set
+        // (plan-01-overload.md §F.1).
+        let return_type = function.return_type.clone();
         if let Some(previous) = self
             .functions
             .get(&function.name)
             .and_then(|functions| {
                 functions
                     .iter()
-                    .find(|candidate| candidate.params == params)
+                    .find(|candidate| {
+                        candidate.params == params && candidate.return_type == return_type
+                    })
             })
             .cloned()
         {
@@ -385,6 +414,7 @@ impl<'a> Resolver<'a> {
                     visibility: function.visibility,
                 },
                 params,
+                return_type,
             });
     }
 

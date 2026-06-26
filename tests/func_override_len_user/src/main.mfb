@@ -1,0 +1,28 @@
+IMPORT io
+
+TYPE Ring
+  items AS List OF Integer
+END TYPE
+
+FUNC len(r AS Ring) AS Integer
+  RETURN len(r.items)                ' inner len stays built-in (List OF Integer)
+END FUNC
+
+FUNC isEmpty(r AS Ring) AS Boolean
+  RETURN len(r.items) = 0
+END FUNC
+
+FUNC isNotEmpty(r AS Ring) AS Boolean
+  RETURN isNotEmpty(r.items)         ' inner predicate stays built-in
+END FUNC
+
+FUNC main AS Integer
+  LET r AS Ring = Ring[[10, 20, 30]]
+  io::print(toString(len(r)))        ' 3      override
+  io::print(toString(len("abcd")))   ' 4      built-in, unchanged
+  io::print(toString(isEmpty(r)))    ' FALSE  override
+  io::print(toString(isNotEmpty(r))) ' TRUE   override
+  LET empty AS Ring = Ring[[]]
+  io::print(toString(isEmpty(empty)))' TRUE
+  RETURN 0
+END FUNC

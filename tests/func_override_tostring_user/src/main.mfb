@@ -1,0 +1,36 @@
+IMPORT io
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+' Override the universal renderer for Point; the inner toString calls stay built-in.
+FUNC toString(p AS Point) AS String
+  RETURN "(" & toString(p.x) & "," & toString(p.y) & ")"
+END FUNC
+
+' A List OF Point renderer recurses through override resolution for each element.
+FUNC toString(ps AS List OF Point) AS String
+  MUT out AS String = "["
+  MUT first AS Boolean = TRUE
+  FOR EACH p IN ps
+    IF first THEN
+      first = FALSE
+    ELSE
+      out = out & ", "
+    END IF
+    out = out & toString(p)
+  NEXT
+  RETURN out & "]"
+END FUNC
+
+FUNC main AS Integer
+  LET p AS Point = Point[3, 4]
+  io::print(toString(p))             ' (3,4)         override
+  io::print(toString(42))            ' 42            built-in, unchanged
+  io::print(toString(TRUE))          ' TRUE          built-in, unchanged
+  LET ps AS List OF Point = [Point[1, 2], Point[3, 4]]
+  io::print(toString(ps))            ' [(1,2), (3,4)]
+  RETURN 0
+END FUNC

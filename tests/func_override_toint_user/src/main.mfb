@@ -1,0 +1,16 @@
+IMPORT io
+
+TYPE Money
+  cents AS Integer
+END TYPE
+
+FUNC toInt(m AS Money) AS Integer
+  RETURN m.cents
+END FUNC
+
+FUNC main AS Integer
+  LET m AS Money = Money[1995]
+  io::print(toString(toInt(m)))      ' 1995   override
+  io::print(toString(toInt("7")))    ' 7      built-in, unchanged
+  RETURN 0
+END FUNC

@@ -274,6 +274,12 @@ pub const RULES: &[Rule] = &[
         message: "type name could not be resolved",
     },
     Rule {
+        code: "2-201-0016",
+        name: "SYMBOL_RESERVED_BUILTIN_NAME",
+        severity: Severity::Error,
+        message: "function name is a reserved built-in and may not be redeclared",
+    },
+    Rule {
         code: "2-203-0001",
         name: "TYPE_BINARY_OPERATOR_MISMATCH",
         severity: Severity::Error,
@@ -608,6 +614,12 @@ pub const RULES: &[Rule] = &[
         name: "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
         severity: Severity::Error,
         message: "a borrowed collection element of resource type is not an owner",
+    },
+    Rule {
+        code: "2-203-0101",
+        name: "TYPE_OVERLOAD_AMBIGUOUS",
+        severity: Severity::Error,
+        message: "return-type overload cannot be resolved without an expected type",
     },
     Rule {
         code: "2-203-0058",

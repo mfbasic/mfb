@@ -62,6 +62,10 @@ struct FunctionContext {
     function_returns: HashMap<String, String>,
     function_types: HashMap<String, String>,
     record_fields: HashMap<String, Vec<TypeField>>,
+    /// Declared return type of the function whose body is being lowered. Supplies
+    /// the expected (contextual) type for a `RETURN` operand so a return-type
+    /// overload set resolves there (plan-01-overload.md §F.2).
+    enclosing_return: Option<String>,
 }
 
 impl<'a> Monomorphizer<'a> {
@@ -104,9 +108,29 @@ impl<'a> Monomorphizer<'a> {
 
         for functions in function_overloads.values() {
             for function in functions {
-                let concrete_name = overload_concrete_name(function, functions.len() > 1);
+                // A user `FUNC` whose name is an overridable general built-in is
+                // always force-mangled so its codegen symbol never equals the
+                // built-in dispatch name (plan-01-overload.md §C Phase 5.1).
+                let builtin_named = crate::builtins::general::is_overridable(&function.name);
+                // A return-type overload set: ≥2 declarations share this name *and*
+                // parameter types, differing only by return type (§F.1). Their
+                // concrete symbols must also encode the return type to stay distinct.
+                let return_disambiguated = functions
+                    .iter()
+                    .filter(|other| param_types_eq(other, function))
+                    .count()
+                    > 1;
+                let concrete_name = overload_concrete_name(
+                    function,
+                    functions.len() > 1 || builtin_named,
+                    return_disambiguated,
+                );
                 overload_names.insert(
-                    overload_key(&function.name, &function.params),
+                    overload_key(
+                        &function.name,
+                        &function.params,
+                        function.return_type.as_deref(),
+                    ),
                     concrete_name.clone(),
                 );
                 let mut concrete = function.clone();
@@ -243,7 +267,11 @@ impl<'a> Monomorphizer<'a> {
                         Item::Function(function) if function.template_params.is_empty() => {
                             let concrete_name = self
                                 .overload_names
-                                .get(&overload_key(&function.name, &function.params))
+                                .get(&overload_key(
+                                    &function.name,
+                                    &function.params,
+                                    function.return_type.as_deref(),
+                                ))
                                 .map(String::as_str)
                                 .unwrap_or(&function.name);
                             if let Some(concrete) = self.concrete_functions.get(concrete_name) {
@@ -376,6 +404,7 @@ impl<'a> Monomorphizer<'a> {
         }
 
         let mut context = self.function_context();
+        context.enclosing_return = function.return_type.clone();
         for param in &function.params {
             if let Some(type_name) = &param.type_name {
                 context.locals.insert(param.name.clone(), type_name.clone());
@@ -458,26 +487,106 @@ impl<'a> Monomorphizer<'a> {
         Some(concrete_name)
     }
 
-    fn resolve_overload(&self, name: &str, arg_types: &[String]) -> Option<String> {
+    fn resolve_overload(
+        &mut self,
+        name: &str,
+        arg_types: &[String],
+        expected: Option<&str>,
+        line: usize,
+    ) -> Option<String> {
+        // Built-in-named overrides are routed by `resolve_general_builtin_override`,
+        // which enforces the gap-fill rule (the built-in wins for its own types).
+        if crate::builtins::general::is_overridable(name) {
+            return None;
+        }
         let candidates = self.function_overloads.get(name)?;
         if candidates.len() <= 1 {
             return None;
         }
-        candidates
+        let param_matches = candidates
             .iter()
-            .find(|function| {
-                function.params.len() == arg_types.len()
-                    && function
-                        .params
-                        .iter()
-                        .zip(arg_types.iter())
-                        .all(|(param, actual)| param.type_name.as_deref() == Some(actual.as_str()))
-            })
-            .and_then(|function| {
-                self.overload_names
-                    .get(&overload_key(name, &function.params))
-            })
+            .filter(|function| params_match(function, arg_types))
             .cloned()
+            .collect::<Vec<_>>();
+        let chosen = match param_matches.len() {
+            0 => return None,
+            1 => param_matches.into_iter().next()?,
+            _ => {
+                // A return-type overload set: every candidate shares these
+                // parameter types and differs only by result type, so the call's
+                // expected (contextual) type selects one (plan-01-overload.md
+                // §F.2.3). With no expected type, or none uniquely matching, the
+                // call is ambiguous.
+                let mut by_return = param_matches
+                    .iter()
+                    .filter(|function| function.return_type.as_deref() == expected);
+                match (by_return.next(), by_return.next()) {
+                    (Some(unique), None) => unique.clone(),
+                    _ => {
+                        self.report(
+                            "TYPE_OVERLOAD_AMBIGUOUS",
+                            &format!(
+                                "Call to `{name}` matches {} overloads that differ only by return \
+                                 type; supply the expected type (e.g. a `LET … AS` annotation) to \
+                                 select one.",
+                                param_matches.len()
+                            ),
+                            line,
+                        );
+                        return None;
+                    }
+                }
+            }
+        };
+        self.overload_names
+            .get(&overload_key(
+                name,
+                &chosen.params,
+                chosen.return_type.as_deref(),
+            ))
+            .cloned()
+    }
+
+    /// Route a call whose callee is an **overridable general built-in** to a user
+    /// override (plan-01-overload.md §A.3 / Phase 5.2). The built-in is
+    /// authoritative for the types it already supports, so an override is selected
+    /// only when the built-in rejects the argument types — a non-matching call
+    /// (scalar/collection args) is left as the bare built-in name for codegen to
+    /// dispatch. Fires for a sole built-in-named overload too, unlike the ordinary
+    /// `resolve_overload`.
+    fn resolve_general_builtin_override(
+        &self,
+        name: &str,
+        arg_types: &[String],
+    ) -> Option<String> {
+        if !crate::builtins::general::is_overridable(name) {
+            return None;
+        }
+        if crate::builtins::general::resolve_call(name, arg_types).is_some() {
+            return None;
+        }
+        let chosen = self
+            .function_overloads
+            .get(name)?
+            .iter()
+            .find(|function| params_match(function, arg_types))?;
+        self.overload_names
+            .get(&overload_key(
+                name,
+                &chosen.params,
+                chosen.return_type.as_deref(),
+            ))
+            .cloned()
+    }
+
+    /// The parameter list of `callee` when it names exactly one user function (no
+    /// overloading). Supplies the expected (contextual) type for an argument slot
+    /// so a return-type-overloaded call passed as an argument resolves
+    /// (plan-01-overload.md §F.2); `None` when the callee is overloaded, a package
+    /// member, or unknown.
+    fn single_signature_params(&self, callee: &str) -> Option<Vec<crate::ast::Param>> {
+        let candidates = self.function_overloads.get(callee)?;
+        (candidates.len() == 1).then(|| candidates[0].params.clone())
     }
 
     fn instantiate_type(&mut self, name: &str, args: &[String]) -> String {
@@ -575,9 +684,15 @@ impl<'a> Monomorphizer<'a> {
                 }
             }
             Statement::Return { value, line } => Statement::Return {
-                value: value
-                    .as_ref()
-                    .map(|value| self.lower_expression(value, substitutions, context, None, *line)),
+                value: value.as_ref().map(|value| {
+                    // A `RETURN` of a call propagates the enclosing function's
+                    // declared return type as the expected type so a return-type
+                    // overload set resolves (plan-01-overload.md §F.2).
+                    let expected = matches!(value, Expression::Call { .. })
+                        .then(|| context.enclosing_return.clone())
+                        .flatten();
+                    self.lower_expression(value, substitutions, context, expected.as_deref(), *line)
+                }),
                 line: *line,
             },
             Statement::Exit { target, code, line } => Statement::Exit {
@@ -809,26 +924,46 @@ impl<'a> Monomorphizer<'a> {
                 line: call_line,
                 column,
             } => {
-                let lowered_args =
-                    arguments
-                        .iter()
-                        .map(|argument| match argument {
-                            CallArg::Positional(value) => CallArg::Positional(
-                                self.lower_expression(value, substitutions, context, None, line),
-                            ),
-                            CallArg::Named { name, value, line } => CallArg::Named {
+                // When the callee names exactly one user function, propagate each
+                // parameter type as the expected type of its argument slot, but
+                // only for a nested call argument — that is where a return-type
+                // overload set needs the context to resolve (plan-01-overload.md
+                // §F.2). Literals keep their own inferred typing.
+                let sig_params = self.single_signature_params(callee);
+                let lowered_args = arguments
+                    .iter()
+                    .enumerate()
+                    .map(|(index, argument)| match argument {
+                        CallArg::Positional(value) => {
+                            let expected = arg_slot_expected(value, sig_params.as_deref(), |params| {
+                                params.get(index)
+                            });
+                            CallArg::Positional(self.lower_expression(
+                                value,
+                                substitutions,
+                                context,
+                                expected,
+                                line,
+                            ))
+                        }
+                        CallArg::Named { name, value, line } => {
+                            let expected = arg_slot_expected(value, sig_params.as_deref(), |params| {
+                                params.iter().find(|param| param.name == *name)
+                            });
+                            CallArg::Named {
                                 name: name.clone(),
                                 value: self.lower_expression(
                                     value,
                                     substitutions,
                                     context,
-                                    None,
+                                    expected,
                                     *line,
                                 ),
                                 line: *line,
-                            },
-                        })
-                        .collect::<Vec<_>>();
+                            }
+                        }
+                    })
+                    .collect::<Vec<_>>();
                 let arg_types = lowered_args
                     .iter()
                     .filter_map(|argument| self.expression_type(call_arg_value(argument), context))
@@ -838,11 +973,23 @@ impl<'a> Monomorphizer<'a> {
                 let callee = &self
                     .collections_internal_callee(callee)
                     .unwrap_or_else(|| callee.clone());
-                let target = self
-                    .instantiate_function(callee, &arg_types, line)
-                    .or_else(|| self.resolve_overload(callee, &arg_types))
-                    .or_else(|| self.resolve_imported_overload(callee, &arg_types))
-                    .unwrap_or_else(|| callee.clone());
+                let target = if let Some(target) =
+                    self.instantiate_function(callee, &arg_types, line)
+                {
+                    target
+                } else if let Some(target) =
+                    self.resolve_general_builtin_override(callee, &arg_types)
+                {
+                    target
+                } else if let Some(target) =
+                    self.resolve_overload(callee, &arg_types, expected_type, line)
+                {
+                    target
+                } else if let Some(target) = self.resolve_imported_overload(callee, &arg_types) {
+                    target
+                } else {
+                    callee.clone()
+                };
                 if target != *callee {
                     self.add_function_to_context(&target, context);
                 }
@@ -1412,6 +1559,22 @@ impl<'a> Monomorphizer<'a> {
     }
 }
 
+/// The expected (contextual) type for an argument slot: the selected parameter's
+/// declared type, but only when the argument is itself a call — the one position
+/// where a return-type overload set needs the context to resolve
+/// (plan-01-overload.md §F.2). Returns `None` otherwise so literals keep their own
+/// inferred typing.
+fn arg_slot_expected<'a>(
+    value: &Expression,
+    params: Option<&'a [crate::ast::Param]>,
+    select: impl FnOnce(&'a [crate::ast::Param]) -> Option<&'a crate::ast::Param>,
+) -> Option<&'a str> {
+    if !matches!(value, Expression::Call { .. }) {
+        return None;
+    }
+    select(params?)?.type_name.as_deref()
+}
+
 fn call_arg_value(argument: &CallArg) -> &Expression {
     match argument {
         CallArg::Positional(value) => value,
@@ -1441,6 +1604,7 @@ impl Clone for FunctionContext {
             function_returns: self.function_returns.clone(),
             function_types: self.function_types.clone(),
             record_fields: self.record_fields.clone(),
+            enclosing_return: self.enclosing_return.clone(),
         }
     }
 }
@@ -1708,11 +1872,15 @@ fn mangle_name(name: &str, args: &[String]) -> String {
     format!("{name}${suffix}")
 }
 
-fn overload_concrete_name(function: &Function, overloaded: bool) -> String {
-    if !overloaded {
+fn overload_concrete_name(
+    function: &Function,
+    overloaded: bool,
+    return_disambiguated: bool,
+) -> String {
+    if !overloaded && !return_disambiguated {
         return function.name.clone();
     }
-    let args = function
+    let mut args = function
         .params
         .iter()
         .map(|param| {
@@ -1722,10 +1890,26 @@ fn overload_concrete_name(function: &Function, overloaded: bool) -> String {
                 .unwrap_or_else(|| "Unknown".to_string())
         })
         .collect::<Vec<_>>();
+    // Append an `AS <return type>` segment so two overloads differing only by
+    // result type get distinct concrete symbols (plan-01-overload.md §F). `AS` is
+    // a reserved keyword and can never be a parameter type, so the segment can
+    // never collide with a parameter-distinguished overload's mangled name.
+    if return_disambiguated {
+        args.push("AS".to_string());
+        args.push(
+            function
+                .return_type
+                .clone()
+                .unwrap_or_else(|| "Nothing".to_string()),
+        );
+    }
     mangle_name(&function.name, &args)
 }
 
-fn overload_key(name: &str, params: &[crate::ast::Param]) -> String {
+/// The internal overload-map key: `name(param,types) AS ReturnType`. The return
+/// type is part of the key so a return-type overload set (§F.1) maps each member
+/// to its own distinct concrete symbol.
+fn overload_key(name: &str, params: &[crate::ast::Param], return_type: Option<&str>) -> String {
     let params = params
         .iter()
         .map(|param| {
@@ -1736,7 +1920,28 @@ fn overload_key(name: &str, params: &[crate::ast::Param]) -> String {
         })
         .collect::<Vec<_>>()
         .join(",");
-    format!("{name}({params})")
+    format!("{name}({params}) AS {}", return_type.unwrap_or("Nothing"))
+}
+
+/// Whether two functions have identical ordered parameter type lists (the
+/// equivalence that defines a return-type overload set, §F.1).
+fn param_types_eq(a: &Function, b: &Function) -> bool {
+    a.params.len() == b.params.len()
+        && a.params
+            .iter()
+            .zip(&b.params)
+            .all(|(x, y)| x.type_name == y.type_name)
+}
+
+/// Whether a function's parameter types exactly match an argument-type list (the
+/// same exact-match rule ordinary overload resolution uses).
+fn params_match(function: &Function, arg_types: &[String]) -> bool {
+    function.params.len() == arg_types.len()
+        && function
+            .params
+            .iter()
+            .zip(arg_types.iter())
+            .all(|(param, actual)| param.type_name.as_deref() == Some(actual.as_str()))
 }
 
 fn sanitize_type_name(value: &str) -> String {

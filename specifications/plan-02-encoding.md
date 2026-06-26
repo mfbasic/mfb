@@ -59,16 +59,24 @@ directly on the BR path. All are **total** except shift/rotate count validation.
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
-| `bits::band` | `FUNC band(a AS Integer, b AS Integer) AS Integer` | Bitwise AND of all 64 bits. |
-| `bits::bor` | `FUNC bor(a AS Integer, b AS Integer) AS Integer` | Bitwise OR. |
-| `bits::bxor` | `FUNC bxor(a AS Integer, b AS Integer) AS Integer` | Bitwise XOR. |
-| `bits::bnot` | `FUNC bnot(a AS Integer) AS Integer` | One's-complement (all 64 bits inverted). |
-| `bits::shiftLeft` | `FUNC shiftLeft(value AS Integer, count AS Integer) AS Integer` | Logical left shift; vacated low bits are zero; bits past bit 63 are discarded. Fails `ErrInvalidArgument` (`77050002`) when `count` is outside `0 .. 63`. |
-| `bits::shiftRight` | `FUNC shiftRight(value AS Integer, count AS Integer) AS Integer` | **Logical** (unsigned) right shift; vacated high bits are zero. Fails `77050002` when `count` is outside `0 .. 63`. |
-| `bits::rotateLeft32` | `FUNC rotateLeft32(value AS Integer, count AS Integer) AS Integer` | Rotate the low 32 bits left by `count MOD 32`; result zero-extended into bits 32..63. |
-| `bits::rotateRight32` | `FUNC rotateRight32(value AS Integer, count AS Integer) AS Integer` | Rotate the low 32 bits right by `count MOD 32`; zero-extended. |
-| `bits::rotateLeft64` | `FUNC rotateLeft64(value AS Integer, count AS Integer) AS Integer` | Rotate all 64 bits left by `count MOD 64`. |
-| `bits::rotateRight64` | `FUNC rotateRight64(value AS Integer, count AS Integer) AS Integer` | Rotate all 64 bits right by `count MOD 64`. |
+| `bits::band` | `FUNC band(a AS Integer, b AS Integer) AS Integer` | Bitwise AND of all 64 bits. Total. |
+| `bits::bor` | `FUNC bor(a AS Integer, b AS Integer) AS Integer` | Bitwise OR of all 64 bits. Total. |
+| `bits::bxor` | `FUNC bxor(a AS Integer, b AS Integer) AS Integer` | Bitwise XOR of all 64 bits. Total. |
+| `bits::bnot` | `FUNC bnot(a AS Integer) AS Integer` | One's-complement (all 64 bits inverted). Total. |
+| `bits::sl` | `FUNC sl(value AS Integer, count AS Integer) AS Integer` | Logical left shift; vacated low bits are zero; bits past bit 63 are discarded. Fails `ErrInvalidArgument` (`77050002`) when `count` is outside `0 .. 63`. |
+| `bits::sr` | `FUNC sr(value AS Integer, count AS Integer) AS Integer` | **Logical** (unsigned) right shift; vacated high bits are zero. Fails `ErrInvalidArgument` (`77050002`) when `count` is outside `0 .. 63`. |
+| `bits::sra` | `FUNC sra(value AS Integer, count AS Integer) AS Integer` | **Arithmetic** (signed) right shift; vacated high bits are filled with the sign bit (bit 63 of `value`). Fails `ErrInvalidArgument` (`77050002`) when `count` is outside `0 .. 63`. |
+| `bits::rl32` | `FUNC rl32(value AS Integer, count AS Integer) AS Integer` | Rotate the low 32 bits left by `count MOD 32`; result zero-extended into bits 32..63. Total. |
+| `bits::rr32` | `FUNC rr32(value AS Integer, count AS Integer) AS Integer` | Rotate the low 32 bits right by `count MOD 32`; zero-extended. Total. |
+| `bits::rl64` | `FUNC rl64(value AS Integer, count AS Integer) AS Integer` | Rotate all 64 bits left by `count MOD 64`. Total. |
+| `bits::rr64` | `FUNC rr64(value AS Integer, count AS Integer) AS Integer` | Rotate all 64 bits right by `count MOD 64`. Total. |
+| `bits::clz` | `FUNC clz(value AS Integer) AS Integer` | Counts **Leading Zeros** (the number of zero bits before the most significant one-bit in the 64-bit representation). Returns `64` if `value` is `0`. Total. |
+| `bits::ctz` | `FUNC ctz(value AS Integer) AS Integer` | Counts **Trailing Zeros** (the number of zero bits after the least significant one-bit). Returns `64` if `value` is `0`. Total. |
+| `bits::popCount` | `FUNC popCount(value AS Integer) AS Integer` | Population count (Hamming weight); returns the number of set (`1`) bits in the 64-bit integer. Total. |
+| `bits::bswap16` | `FUNC bswap16(value AS Integer) AS Integer` | Reverses the bytes of the lower 16 bits of `value`; higher bits `16..63` are cleared to zero. Total. |
+| `bits::bswap32` | `FUNC bswap32(value AS Integer) AS Integer` | Reverses the bytes of the lower 32 bits of `value`; higher bits `32..63` are cleared to zero. Total. |
+| `bits::bswap64` | `FUNC bswap64(value AS Integer) AS Integer` | Reverses all 8 bytes of the 64-bit integer. Total. |
+
 
 > The boolean ops are `band`/`bor`/`bxor`/`bnot` because `and`/`or`/`xor`/`not`
 > are reserved logical operators (case-insensitive keywords, `mfbasic.md` §…) and

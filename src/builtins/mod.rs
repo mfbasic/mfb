@@ -51,14 +51,16 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
         || tls::is_builtin_type(name)
 }
 
-/// The internal renderer a built-in package provides for the universal
-/// `toString` over one of its value types (plan-03-http.md §A.3). A `toString(x)`
-/// call whose sole argument has such a type routes to this `__pkg_name` helper
-/// instead of the scalar builtin; the name is internalized at lowering so it
-/// never collides with the builtin `toString` symbol.
-pub(crate) fn to_string_override_target(type_name: &str) -> Option<&'static str> {
-    match type_name {
-        net::URL_TYPE => Some("__net_urlToString"),
+/// The internal helper a built-in package provides as an **override** of an
+/// overridable general built-in (`toString`, `len`, …) over one of its value
+/// types (plan-01-overload.md §B.2). A general call `f(x)` whose sole argument
+/// has such a type routes to this `__pkg_name` helper instead of the scalar
+/// builtin; the name is internalized at lowering so it never collides with the
+/// builtin dispatch symbol. Keyed by `(builtin, arg_type)`; the only row today is
+/// the `toString(net::Url)` renderer (plan-03-http.md §A.3).
+pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
+    match (builtin, arg_type) {
+        ("toString", t) if t == net::URL_TYPE => Some("__net_urlToString"),
         _ => None,
     }
 }

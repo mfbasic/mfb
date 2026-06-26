@@ -138,6 +138,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-201-0013` | `SYMBOL_NOT_VALUE` | error | `symbol is not a value` |
 | `2-201-0014` | `SYMBOL_UNKNOWN_IMPORT` | error | `package-qualified symbol uses an unknown import` |
 | `2-201-0015` | `SYMBOL_UNKNOWN_TYPE` | error | `type name could not be resolved` |
+| `2-201-0016` | `SYMBOL_RESERVED_BUILTIN_NAME` | error | `function name is a reserved built-in and may not be redeclared` |
 
 ### Type Checking and Static Semantics
 
@@ -243,6 +244,7 @@ These codes correspond to `src/rules.rs` and are emitted directly by the compile
 | `2-203-0098` | `NATIVE_CONST_UNKNOWN_SLOT` | error | `a CONST pin names an unknown ABI slot` |
 | `2-203-0099` | `NATIVE_FREE_INVALID` | error | `a FREE block is malformed: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid` |
 | `2-203-0100` | `TYPE_RESOURCE_ELEMENT_NOT_OWNER` | error | `a borrowed collection element of resource type is not an owner` |
+| `2-203-0101` | `TYPE_OVERLOAD_AMBIGUOUS` | error | `return-type overload cannot be resolved without an expected type` |
 
 ## Toolchain and Package Diagnostics
 

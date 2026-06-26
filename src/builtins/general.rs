@@ -59,6 +59,39 @@ pub(crate) fn is_general_call(name: &str) -> bool {
     )
 }
 
+/// Whether a general built-in may be **overridden** by a user- or package-defined
+/// `FUNC` of the same name for its own value types (plan-01-overload.md §A.2). Every
+/// general call is overridable except `error`, which builds the read-only `Error`
+/// record and is a reserved language primitive.
+pub(crate) fn is_overridable(name: &str) -> bool {
+    is_general_call(name) && name != ERROR
+}
+
+/// Whether a general built-in name is **reserved** and may not be declared as a
+/// user `FUNC`/`SUB` (plan-01-overload.md §A.5). The reserved set is exactly
+/// `{ error }`.
+pub(crate) fn reserved_builtin_name(name: &str) -> bool {
+    name == ERROR
+}
+
+/// The built-in's conventional result type for an overridable general call
+/// (plan-01-overload.md §C, Phase 4). A **package-provided** override (routed
+/// through the override registry) yields this declared result; a user override
+/// yields its own declared return type instead. Returns `None` for `error` and any
+/// non-general name.
+pub(crate) fn override_result_type(name: &str) -> Option<&'static str> {
+    match name {
+        TO_STRING | TYPE_NAME => Some("String"),
+        LEN | TO_INT => Some("Integer"),
+        TO_FLOAT => Some("Float"),
+        TO_FIXED => Some("Fixed"),
+        TO_BYTE => Some("Byte"),
+        IS_NUMERIC | IS_EVEN | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY
+        | IS_NOT_EMPTY => Some("Boolean"),
+        _ => None,
+    }
+}
+
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         ERROR => Some(&[&["code"], &["message"]]),
