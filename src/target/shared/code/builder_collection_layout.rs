@@ -189,6 +189,14 @@ impl CodeBuilder<'_> {
     /// only for types `emit_flat_block_size` supports; returns the destination
     /// pointer in a fresh register.
     pub(super) fn copy_flat_block(&mut self, type_: &str, source: &str) -> Result<String, String> {
+        // A collection value is copied **shrink-to-fit** (plan-01 §4.3): headroom
+        // is a property of a mutable working buffer, never of a value, so a copy
+        // drops any spare capacity. A whole-block `memcpy` would carry the
+        // headroom (and the gap between the live entries and the data region)
+        // into the snapshot; the tight copy compacts both.
+        if is_collection_type(type_) {
+            return self.copy_collection_tight(type_, source);
+        }
         let source_slot = self.allocate_stack_object("flat_copy_source", 8);
         let size_slot = self.allocate_stack_object("flat_copy_size", 8);
         let result_slot = self.allocate_stack_object("flat_copy_result", 8);
@@ -225,6 +233,102 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64("x10", abi::stack_pointer(), size_slot));
         self.emit_copy_bytes("x1", "x9", "x10", "flat_copy");
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(result)
+    }
+
+    /// Shrink-to-fit deep copy of a flat collection (plan-01 §4.3): allocate
+    /// exactly `HEADER + count*ENTRY + dataLength`, write a tight header
+    /// (`capacity == count`, `dataCapacity == dataLength`), then copy the live
+    /// lookup entries and the data region verbatim. Entry value/key offsets are
+    /// relative to the data base, so the verbatim data copy keeps them valid; the
+    /// source's spare capacity slots and any trailing data slack are dropped.
+    /// Returns the destination pointer in a fresh register.
+    pub(super) fn copy_collection_tight(
+        &mut self,
+        type_: &str,
+        source: &str,
+    ) -> Result<String, String> {
+        let layout = CollectionTypeLayout::from_type(type_)
+            .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let source_slot = self.allocate_stack_object("tight_copy_source", 8);
+        let result_slot = self.allocate_stack_object("tight_copy_result", 8);
+        let alloc_ok = self.label("tight_copy_alloc_ok");
+        self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
+
+        // alloc size = HEADER + count * ENTRY + dataLength.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::move_immediate(
+            "x11",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x12", "x9", "x11"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x12",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x10",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+
+        // Tight header: capacity == count, dataCapacity == dataLength.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit_write_list_header_from_registers(&layout, "x1", "x9", "x10");
+
+        // Copy the live lookup entries verbatim (count * ENTRY bytes).
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
+        self.emit(abi::add_immediate("x20", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x9", "x16"));
+        self.emit_block_copy_advance("x17", "x20", "x21", "x22", "tight_copy_entries");
+
+        // Copy the data region verbatim (dataLength bytes). Source base is
+        // capacity-based (it may have headroom); destination base is count-based
+        // (tight) — both resolve through emit_collection_data_pointer.
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit_collection_data_pointer("x17", "x1");
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance("x17", "x20", "x14", "x22", "tight_copy_data");
+
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
