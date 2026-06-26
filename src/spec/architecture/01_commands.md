@@ -20,6 +20,11 @@ The CLI supports these build-related commands:
 - `mfb build -ncode [location]` writes `<name>.ncode`.
 - `mfb build -target os-arch [location]` selects a native target instead of
   the host target.
+- `mfb build --sign owner [location]` signs the emitted artifact with the
+  registered repository owner's key. For package projects this produces a signed
+  `.mfp` container (ed25519, `signatureType = 1`); for executable projects it
+  records signing metadata. At most one `--sign` may be supplied. Without it,
+  packages are emitted unsigned.
 - `mfb build -app [location]` selects GUI app mode: the executable and native
   intermediate outputs target a windowing app runtime instead of the console
   runtime — AppKit on macOS, GTK4 on Linux. Shared lowering treats both uniformly
@@ -49,3 +54,14 @@ but keep their text and casing (prose bodies; the contextual `return` in `ABI`
 lines). `--indent` sets the indent width (default `2`); `--check` writes nothing
 and exits non-zero with an `FMT_CHECK_FAILED` diagnostic when any file is not
 already formatted.
+
+## Other commands
+
+The CLI also exposes non-build commands handled in `src/main.rs`: `mfb help`;
+`mfb pkg add|info|verify|publish|doc` (package management, see the `packages`
+topic); `mfb repo register|auth` (repository-owner key registration and
+authentication); `mfb doc [--out file] [location]` and `mfb pkg doc` (HTML
+documentation rendering via `src/doc.rs`); `mfb audit [--format text|json]
+[--locked] [path]` (project audit reporting via `src/audit`); `mfb man [package]
+[function]` (built-in help, `src/man`); and `mfb spec` (this embedded
+specification, `src/spec`). These are not part of the build pipeline.

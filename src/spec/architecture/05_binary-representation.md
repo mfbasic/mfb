@@ -44,6 +44,8 @@ sections include:
 - binary representation (the structured function bodies, `MFBR` payload)
 - resource table
 - ABI index
+- documentation table (section id `17`, written only when the package carries
+  `DOC` documentation)
 
 The binary representation writer builds:
 
@@ -82,19 +84,18 @@ Package metadata is derived from `project.json`:
 - `url`
 - dependency constraints from `packages`
 
-The current package writer emits an unsigned MFP container:
+The package writer emits an MFP container with:
 
 - container major/minor: `1.0`
 - binary representation major/minor: `1.0`
-- signature type: unsigned
-- signature length: zero
 - pre-release flag set when the version contains `-`
 
-*NOTE: `package_format.md` specifies a `signatureType` field that allows
-signed containers. The current writer always emits `signatureType = 0` and
-`signatureLength = 0`. The reader's `validate_signature_header` already accepts
-an ed25519 signature header (`signatureType = 1`, `signatureLength = 64`) in
-addition to the unsigned form, but no signed containers are produced yet.*
+Signing is selectable. Without `--sign`, `write_package` calls
+`build_package_bytes`, which emits an unsigned container (`signatureType = 0`,
+`signatureLength = 0`). With `--sign owner`, it calls `build_signed_package_bytes`,
+which signs the payload and emits an ed25519 header (`signatureType = 1`,
+`signatureLength = 64`). The reader's `validate_signature_header` accepts both
+forms.
 
 The package payload must start with `MFPC`. Metadata string lengths are checked
 before writing.

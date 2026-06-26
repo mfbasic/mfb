@@ -58,13 +58,16 @@ For a package project, `mfb build` performs this sequence:
 7. Resolve the concrete AST.
 8. Skip executable entry-point selection.
 9. Type-check the concrete AST.
-10. Lower the concrete AST to IR.
-11. Build binary representation metadata from the manifest.
-12. Lower IR to MFPC package binary representation.
-13. Validate package metadata and MFPC payload magic.
-14. Wrap binary representation in an unsigned MFP container.
-15. Write the package file.
-16. Print the output path.
+10. Read installed package files from `packages/<name>.mfp` and their export
+    signatures (packages may depend on other packages).
+11. Lower the concrete AST to IR with external package function types.
+12. Build binary representation metadata from the manifest.
+13. Lower IR to MFPC package binary representation.
+14. Validate package metadata and MFPC payload magic.
+15. Wrap binary representation in an MFP container — signed when `--sign` is
+    given, otherwise unsigned.
+16. Write the package file.
+17. Print the output path.
 
 The default output file is:
 

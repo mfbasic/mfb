@@ -10,7 +10,7 @@ Every build artifact, the flag that produces it, and what it contains.
 | `<name>.nir` | `mfb build -nir` | `src/target/shared/nir.rs` | Native IR for the selected target. |
 | `<name>.nplan` | `mfb build -nplan` | `src/target/shared/plan.rs` | Native function/storage/call plan. |
 | `<name>.nobj` | `mfb build -nobj` | `src/os/*/object.rs` | OS object/container layout plan. |
-| `<name>.ncode` | `mfb build -ncode` | `src/target/shared/code.rs` | AArch64 code-generation plan. |
+| `<name>.ncode` | `mfb build -ncode` | `src/target/shared/code/` | AArch64 code-generation plan. |
 | `<name>.out` | `mfb build` executable (macOS) | `src/os/macos/link.rs` | Native executable (Mach-O). |
 | `<name>-glibc.out` | `mfb build` executable (Linux) | `src/os/linux/link.rs` | Native executable (ELF, glibc). |
 | `<name>-musl.out` | `mfb build` executable (Linux) | `src/os/linux/link.rs` | Native executable (ELF, musl). |

@@ -18,9 +18,17 @@ and `src/target/shared/nir.rs`.
 The package entry written to `project.json` includes:
 
 - `name`
-- `version`, as an exact `=<version>` requirement
-- `pin`, as the concrete package version
-- `source`, as the original URL
+- `version`, the installed package's version string
+- `pin`, the concrete pinned package version (compared for exact string match)
+- `source`, the original URL
+
+Other `pkg` subcommands (`src/main.rs`) round out package management:
+
+- `mfb pkg info <package>` prints metadata from a compiled `.mfp`.
+- `mfb pkg publish <owner_name> <package>` builds, signs, and publishes a package
+  project under a registered repository owner.
+- `mfb pkg doc <name-or-path> [--out file]` renders HTML documentation from a
+  compiled package via `src/doc.rs`.
 
 ## Verifying Packages
 
@@ -41,12 +49,15 @@ packageName.exportName
 These signatures are passed into `ir::lower_project_with_external_functions`
 so calls to package functions survive lowering with proper function types.
 
-For native executable builds, package exports also become NIR imports with
-generated symbols:
-
-```text
-_mfb_pkg_<package>_<export>
-```
-
-For binary representation merging, package binary representation is decoded and appended to the
-application binary representation function/type/constant/import/export structures.
+For native executable builds, the package's bodies are not left as external
+symbols. `nir::merge_packages` (`src/target/shared/nir.rs`) decodes each
+installed package's binary representation **back into IR**
+(`binary_repr::read_package_ir_with_identity`), prefixes every package symbol
+with a per-package identity (`ir::prefix_package_symbols`), merges the functions,
+types, globals, and constants into the application IR, and rewrites the
+consumer's `package.symbol` references to the identity-prefixed definitions
+(`ir::apply_package_identity`). Package functions therefore flow through the
+single `IR → NIR → native` codegen as ordinary merged functions (emitted under
+the normal `_mfb_fn_…` symbol namespace), not as `_mfb_pkg_*` imports. The only
+true NIR imports are native `LINK` thunks and platform symbols. This is the same
+decode-and-merge path the binary-representation topic describes.

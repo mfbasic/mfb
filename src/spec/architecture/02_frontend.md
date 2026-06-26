@@ -17,10 +17,10 @@ The current implementation requires these string fields:
 - `mfb`
 
 It also requires `sources` to be a non-empty array of objects, each with a
-string `root` field. Optional `entry`, `author`, and `url` fields must be
-strings when present. Optional `kind` must be a string and is expected to be
-`"executable"` or `"package"`. Unknown kinds are diagnosed, but the current
-validator continues after that diagnostic.
+string `root` field. The `kind` field is also required and must be a string;
+it is expected to be `"executable"` or `"package"`, and unknown kinds are
+diagnosed (the validator continues after that diagnostic). Optional `entry`,
+`author`, and `url` fields must be strings when present.
 
 The current implementation does not enforce every field described in
 `specifications/project.md`. In particular, it primarily consumes:
@@ -63,8 +63,10 @@ Current discovery behavior:
 - If a source root is a file, it is included only when its extension is `.mfb`.
 - If a source root is a directory, all nested `.mfb` files are included.
 - Empty source roots are compile-time errors.
-- `include` and `exclude` manifest patterns are not currently applied by the
-  source collector.
+- Per-root `include`/`exclude` glob patterns are applied by the source collector
+  (`matches_source_patterns` in `src/ast.rs`). When unspecified, `include`
+  defaults to `["**/*.mfb"]` and `exclude` defaults to empty, so every nested
+  `.mfb` file is collected by default.
 
 ## Name Resolution
 
@@ -76,9 +78,14 @@ The resolver has two jobs:
 2. Validate references inside imports, type declarations, function bodies, and
    expressions.
 
-The resolver knows built-in type names such as `Boolean`, `Byte`, `Error`,
-`Fixed`, `Float`, `Integer`, `Json`, `Nothing`, `Result`, `String`,
-`TerminalSize`, and `FileHandle`.
+The resolver knows the built-in type names in `BUILTIN_TYPES` (`src/resolver.rs`):
+`Boolean`, `Byte`, `Error`, `ErrorLoc`, `Fixed`, `Float`, `Integer`, `Json`,
+`Nothing`, `Result`, `String`, plus the resource and record types contributed by
+built-in packages — `File` (fs), `TermColor` and `TermSize` (term), `Socket`,
+`Listener`, `Address`, `UdpSocket`, `Datagram`, `DatagramText` (net), and
+`TlsSocket` (tls). The package-contributed names are referenced by constant
+(e.g. `builtins::fs::FILE_TYPE`) so the resolver list and the packages stay in
+sync.
 
 Before resolving, the resolver calls `builtins::json::augmented_project` to
 expand `Json`-typed declarations into the augmented AST used for the rest of
@@ -173,17 +180,23 @@ The type model includes primitive and compound forms:
 - `Boolean`
 - `Byte`
 - `Error`
+- `ErrorLoc`
 - `Fixed`
 - `Float`
 - `Integer`
-- `List<T>`
-- `Map<K, V>`
+- `List(T)`
+- `Map(K, V)`
+- `Res(T)` — a `RES`-marked resource element of a collection (`List OF RES File`,
+  `Map ... TO RES File`); the collection holds a borrow and owns nothing
 - function values (with parameter types, return type, and isolated flag)
 - `Nothing`
-- `Result<T>`
+- `Result(T)`
 - `String`
-- `Thread<T, E>`
-- `ThreadWorker<T, E>`
-- user-defined types
+- `Thread(message, optional resource, output)` — the optional middle slot is the
+  resource-plane type carried by `thread::transfer`/`accept`; `None` for a
+  data-only thread
+- `ThreadWorker(message, optional resource, output)`
+- user-defined types (`User`)
+- `Unknown` — the inference placeholder for an as-yet-undetermined type
 
 Type checking is the last front-end validation pass before lowering to IR.

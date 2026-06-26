@@ -24,7 +24,7 @@ IR
   -> target/shared/plan.rs
   -> os/<os>/object.rs
   -> target/<os>_aarch64/code.rs
-  -> target/shared/code.rs
+  -> target/shared/code/ (directory module: mod.rs + builder_*.rs submodules)
   -> arch/aarch64/encode.rs
   -> os/<os>/link.rs
   -> <project>.out
@@ -51,14 +51,18 @@ also rewrites supported built-in calls into runtime-call forms where needed.
 Runtime-helper detection is implemented in `src/target/shared/runtime.rs`.
 
 The compiler scans IR values for calls into built-in packages. It records
-which helper families are needed:
+which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):
 
+- `datetime`
 - `fs`
 - `general`
 - `io`
 - `math`
+- `net`
 - `strings`
+- `term`
 - `thread`
+- `tls`
 
 `validate_capabilities` rejects native builds that require runtime calls not
 listed in the backend capability set. Both `macos-aarch64` and
@@ -68,7 +72,7 @@ calls:
 - All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.printError`,
   `io.writeError`, `io.flushError`, `io.input`, `io.readLine`, `io.readChar`,
   `io.readByte`, `io.pollInput`, `io.isInputTerminal`, `io.isOutputTerminal`,
-  `io.isErrorTerminal`, `io.terminalSize`
+  `io.isErrorTerminal`
 - Most `fs.*` calls: `fs.open`, `fs.openFile`, `fs.openFileNoFollow`,
   `fs.createTempFile`, `fs.close`, `fs.readLine`, `fs.readAll`,
   `fs.readAllBytes`, `fs.writeAll`, `fs.writeAllBytes`, `fs.readText`,
@@ -80,11 +84,27 @@ calls:
   `fs.currentDirectory`, `fs.tempDirectory`, `fs.setCurrentDirectory`
 - All `thread.*` calls: `thread.start`, `thread.isRunning`, `thread.waitFor`,
   `thread.cancel`, `thread.send`, `thread.poll`, `thread.receive`,
-  `thread.isCancelled`
+  `thread.isCancelled`, `thread.transferResource`, `thread.acceptResource`
+- All `datetime.*` calls: `datetime.nowNanos`, `datetime.monotonicNanos`,
+  `datetime.localOffset`
+- All `term.*` calls: `term.on`, `term.off`, `term.isOn`, `term.clear`,
+  `term.moveTo`, `term.hideCursor`, `term.showCursor`, `term.setForeground`,
+  `term.getForeground`, `term.setBackground`, `term.getBackground`,
+  `term.setBold`, `term.getBold`, `term.setUnderline`, `term.getUnderline`,
+  `term.terminalSize`
+- All `net.*` calls: `net.lookup`, `net.connectTcp`, `net.listenTcp`,
+  `net.accept`, `net.bindUdp`, `net.read`, `net.readText`, `net.write`,
+  `net.writeText`, `net.sendTo`, `net.sendTextTo`, `net.receiveFrom`,
+  `net.receiveTextFrom`, `net.localAddress`, `net.remoteAddress`, `net.close`,
+  `net.poll`, `net.setReadTimeout`, `net.setWriteTimeout`
+- All `tls.*` calls: `tls.connect`, `tls.read`, `tls.readText`, `tls.write`,
+  `tls.writeText`, `tls.close`
 
 `math` and `strings` operations are not listed as runtime helper calls because
 they are code-generated inline rather than dispatched through external runtime
-helpers.
+helpers. The complete, authoritative capability set is the `runtime_calls`
+declaration in each backend (`src/target/macos_aarch64/mod.rs`,
+`src/target/linux_aarch64/mod.rs`); both backends currently declare the same set.
 
 ## Native Validation
 
