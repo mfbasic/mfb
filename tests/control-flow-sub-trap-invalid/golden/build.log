@@ -7,7 +7,7 @@ tests/control-flow-sub-trap-invalid/src/main.mfb:3 error[2-203-0073 SUB_RETURN_F
                A SUB returns no value; use `EXIT SUB`.
    4 |   END IF
    5 |   TRAP(err)
-   6 |   RETURN
+   6 |     RETURN
      | ^
 tests/control-flow-sub-trap-invalid/src/main.mfb:6 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
                A SUB returns no value; use `EXIT SUB`.
@@ -27,7 +27,7 @@ tests/control-flow-sub-trap-invalid/src/main.mfb:3 error[2-203-0073 SUB_RETURN_F
                A SUB returns no value; use `EXIT SUB`.
    4 |   END IF
    5 |   TRAP(err)
-   6 |   RETURN
+   6 |     RETURN
      | ^
 tests/control-flow-sub-trap-invalid/src/main.mfb:6 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
                A SUB returns no value; use `EXIT SUB`.

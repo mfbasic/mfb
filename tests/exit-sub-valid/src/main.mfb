@@ -11,7 +11,7 @@ SUB swallow(flag AS Boolean)
   END IF
   FAIL error(11, "swallowed")
   TRAP(err)
-  EXIT SUB
+    EXIT SUB
   END TRAP
 END SUB
 

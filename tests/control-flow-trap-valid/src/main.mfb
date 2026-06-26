@@ -5,7 +5,7 @@ END FUNC
 FUNC relay AS Integer
   RETURN leaf()
   TRAP(err)
-  PROPAGATE
+    PROPAGATE
   END TRAP
 END FUNC
 
@@ -13,6 +13,6 @@ FUNC main AS Integer
   LET value = relay()
   RETURN value + 1
   TRAP(err)
-  RETURN err.code
+    RETURN err.code
   END TRAP
 END FUNC

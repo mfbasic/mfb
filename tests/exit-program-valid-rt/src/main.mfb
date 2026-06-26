@@ -10,7 +10,7 @@ FUNC main AS Integer
   io::print("caught")
   RETURN 99
   TRAP(err)
-  io::print("trap")
-  RETURN err.code
+    io::print("trap")
+    RETURN err.code
   END TRAP
 END FUNC

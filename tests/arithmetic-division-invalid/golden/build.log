@@ -1,12 +1,12 @@
 $ mfb build -ast tests/arithmetic-division-invalid
    1 | FUNC main AS Integer
-   2 |   LET flag AS Boolean = true
+   2 |   LET flag AS Boolean = TRUE
    3 |   RETURN flag / 2
      | ^
 tests/arithmetic-division-invalid/src/main.mfb:3 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
                Operator `/` requires numeric operands, got Boolean and Integer.
    1 | FUNC main AS Integer
-   2 |   LET flag AS Boolean = true
+   2 |   LET flag AS Boolean = TRUE
    3 |   RETURN flag / 2
      | ^
 tests/arithmetic-division-invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
@@ -14,13 +14,13 @@ tests/arithmetic-division-invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_V
 [exit 1]
 $ mfb build -ir tests/arithmetic-division-invalid
    1 | FUNC main AS Integer
-   2 |   LET flag AS Boolean = true
+   2 |   LET flag AS Boolean = TRUE
    3 |   RETURN flag / 2
      | ^
 tests/arithmetic-division-invalid/src/main.mfb:3 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
                Operator `/` requires numeric operands, got Boolean and Integer.
    1 | FUNC main AS Integer
-   2 |   LET flag AS Boolean = true
+   2 |   LET flag AS Boolean = TRUE
    3 |   RETURN flag / 2
      | ^
 tests/arithmetic-division-invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined

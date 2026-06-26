@@ -7,20 +7,20 @@ tests/control-flow-invalid/src/main.mfb:7 error[1-102-0005 MFB_PARSE_UNEXPECTED_
                Inline IF branches must use a simple statement.
    6 |   DO WHILE "ready" : LOOP
    7 |   IF TRUE THEN IF FALSE THEN RETURN 1 END IF ELSE RETURN 2
-   8 |   IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
-     |                              ^^^^^
+   8 | IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
+     |                            ^^^^^
 tests/control-flow-invalid/src/main.mfb:8 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
                Inline IF branches must use a simple statement.
    6 |   DO WHILE "ready" : LOOP
    7 |   IF TRUE THEN IF FALSE THEN RETURN 1 END IF ELSE RETURN 2
-   8 |   IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
-     |                                            ^^^^
+   8 | IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
+     |                                          ^^^^
 tests/control-flow-invalid/src/main.mfb:8 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
                Expected an expression.
    6 |   DO WHILE "ready" : LOOP
    7 |   IF TRUE THEN IF FALSE THEN RETURN 1 END IF ELSE RETURN 2
-   8 |   IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
-     |                                            ^^^^
+   8 | IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
+     |                                          ^^^^
 tests/control-flow-invalid/src/main.mfb:8 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
                Statement is not recognized by the current parser.
 [exit 1]
@@ -33,20 +33,20 @@ tests/control-flow-invalid/src/main.mfb:7 error[1-102-0005 MFB_PARSE_UNEXPECTED_
                Inline IF branches must use a simple statement.
    6 |   DO WHILE "ready" : LOOP
    7 |   IF TRUE THEN IF FALSE THEN RETURN 1 END IF ELSE RETURN 2
-   8 |   IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
-     |                              ^^^^^
+   8 | IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
+     |                            ^^^^^
 tests/control-flow-invalid/src/main.mfb:8 error[1-102-0005 MFB_PARSE_UNEXPECTED_TOKEN]: parser found an unexpected token
                Inline IF branches must use a simple statement.
    6 |   DO WHILE "ready" : LOOP
    7 |   IF TRUE THEN IF FALSE THEN RETURN 1 END IF ELSE RETURN 2
-   8 |   IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
-     |                                            ^^^^
+   8 | IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
+     |                                          ^^^^
 tests/control-flow-invalid/src/main.mfb:8 error[1-102-0001 MFB_PARSE_EXPECTED_EXPRESSION]: parser expected an expression
                Expected an expression.
    6 |   DO WHILE "ready" : LOOP
    7 |   IF TRUE THEN IF FALSE THEN RETURN 1 END IF ELSE RETURN 2
-   8 |   IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
-     |                                            ^^^^
+   8 | IF TRUE THEN RETURN 3 ELSE WHILE FALSE : WEND
+     |                                          ^^^^
 tests/control-flow-invalid/src/main.mfb:8 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
                Statement is not recognized by the current parser.
 [exit 1]

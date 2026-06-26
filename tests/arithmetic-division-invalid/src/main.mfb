@@ -1,4 +1,4 @@
 FUNC main AS Integer
-  LET flag AS Boolean = true
+  LET flag AS Boolean = TRUE
   RETURN flag / 2
 END FUNC

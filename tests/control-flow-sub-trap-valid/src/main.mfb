@@ -5,7 +5,7 @@ SUB viaReturn(flag AS Boolean)
     FAIL error(10, "return path failed")
   END IF
   TRAP(err)
-  EXIT SUB
+    EXIT SUB
   END TRAP
 END SUB
 
@@ -16,7 +16,7 @@ SUB viaTrapReturn(flag AS Boolean)
     FAIL error(11, "trap path failed")
   END IF
   TRAP(err)
-  EXIT SUB
+    EXIT SUB
   END TRAP
 END SUB
 

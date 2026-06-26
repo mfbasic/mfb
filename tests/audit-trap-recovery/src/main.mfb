@@ -5,21 +5,21 @@ END FUNC
 FUNC propagates AS Integer
   RETURN leaf()
   TRAP(err)
-  PROPAGATE
+    PROPAGATE
   END TRAP
 END FUNC
 
 FUNC reraises AS Integer
   RETURN leaf()
   TRAP(err)
-  FAIL error(2, "wrapped")
+    FAIL error(2, "wrapped")
   END TRAP
 END FUNC
 
 FUNC recovers AS Integer
   RETURN leaf()
   TRAP(err)
-  RETURN 0
+    RETURN 0
   END TRAP
 END FUNC
 

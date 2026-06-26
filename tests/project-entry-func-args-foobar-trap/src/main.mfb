@@ -2,6 +2,6 @@ FUNC foobar(args AS List OF String) AS Integer
   FAIL error(100, "This is a message")
 
   TRAP(err)
-  RETURN 0
+    RETURN 0
   END TRAP
 END FUNC

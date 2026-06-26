@@ -2,6 +2,6 @@ SUB foobar(args AS List OF String)
   FAIL error(100, "This is a message")
 
   TRAP(err)
-  EXIT SUB
+    EXIT SUB
   END TRAP
 END SUB

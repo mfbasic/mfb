@@ -11,7 +11,7 @@ FUNC main AS Integer
   io::print(line)
   RETURN 0
   TRAP(err)
-  io::print("failed")
-  RETURN 1
+    io::print("failed")
+    RETURN 1
   END TRAP
 END FUNC
