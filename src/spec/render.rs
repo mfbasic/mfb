@@ -313,7 +313,29 @@ fn split_cells(line: &str) -> Vec<String> {
     let t = line.trim();
     let t = t.strip_prefix('|').unwrap_or(t);
     let t = t.strip_suffix('|').unwrap_or(t);
-    t.split('|').map(|c| c.trim().to_string()).collect()
+    // Split on unescaped `|` only, leaving `\|` in the cell for `parse_inline`
+    // to turn back into a literal pipe — so a pipe inside cell text cannot break
+    // the column count.
+    let mut cells = Vec::new();
+    let mut cur = String::new();
+    let mut chars = t.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => {
+                cur.push('\\');
+                if let Some(next) = chars.next() {
+                    cur.push(next);
+                }
+            }
+            '|' => {
+                cells.push(cur.trim().to_string());
+                cur.clear();
+            }
+            _ => cur.push(c),
+        }
+    }
+    cells.push(cur.trim().to_string());
+    cells
 }
 
 fn parse_aligns(line: &str) -> Vec<Align> {

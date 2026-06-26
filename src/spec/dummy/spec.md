@@ -1,8 +1,9 @@
 # Dummy Specification
 
-A throwaway spec package that exercises the `mfb spec` Markdown renderer. It is
-the analog of a man `package.txt`: `mfb spec dummy` prints this overview and
-lists the subtopics beside it.
+A throwaway spec package that exercises the `mfb spec` Markdown renderer.
+
+It is the analog of a man `package.txt`: `mfb spec dummy` prints this overview
+and lists the subtopics beside it.
 
 This file deliberately uses every supported construct so you can eyeball the
 terminal rendering at different widths, e.g. `mfb spec dummy --width 100` versus

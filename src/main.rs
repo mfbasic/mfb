@@ -1769,7 +1769,7 @@ fn show_spec(args: &[String]) -> Result<(), String> {
 
     match positional.as_slice() {
         [] => {
-            print_spec_index();
+            print_spec_index(&style);
             Ok(())
         }
         [package_name] => {
@@ -1810,33 +1810,61 @@ fn detect_terminal_width() -> usize {
         .unwrap_or(80)
 }
 
-fn print_spec_index() {
+fn print_spec_index(style: &spec::render::Style) {
     println!("Usage: mfb spec [topic] [subtopic]");
     println!();
     println!("Show the MFBASIC language specification.");
     println!();
     println!("Examples:");
     println!("  mfb spec");
-    println!("  mfb spec dummy");
-    println!("  mfb spec dummy tables");
+    println!("  mfb spec architecture");
+    println!("  mfb spec architecture native");
     println!();
     println!("Topics:");
-    for package in spec::packages() {
-        println!("  {:<12} {}", package.name, package.summary);
-    }
+    println!();
+    let entries: Vec<(&str, &str)> = spec::packages()
+        .iter()
+        .map(|package| (package.name, package.summary.as_str()))
+        .collect();
+    print_spec_listing("Topic", &entries, style);
 }
 
 fn print_spec_package(package: &spec::SpecPackage, style: &spec::render::Style) {
     println!("{}", spec::render::render(package.overview, style));
     if !package.topics.is_empty() {
         println!();
-        println!("SUBTOPICS");
-        for topic in &package.topics {
-            println!("  {:<12} {}", topic.name, topic.summary);
-        }
+        let entries: Vec<(&str, &str)> = package
+            .topics
+            .iter()
+            .map(|topic| (topic.name, topic.summary.as_str()))
+            .collect();
+        print_spec_listing("Subtopic", &entries, style);
         println!();
         println!("Run `mfb spec {} <subtopic>` for details.", package.name);
     }
+}
+
+/// Render a `(name, summary)` listing as a width-aware table through the spec
+/// renderer, so the summary column wraps instead of running off the terminal.
+fn print_spec_listing(heading: &str, entries: &[(&str, &str)], style: &spec::render::Style) {
+    if entries.is_empty() {
+        return;
+    }
+    let mut markdown = format!("| {heading} | Summary |\n| --- | --- |\n");
+    for (name, summary) in entries {
+        markdown.push_str(&format!(
+            "| {} | {} |\n",
+            escape_spec_cell(name),
+            escape_spec_cell(summary),
+        ));
+    }
+    println!("{}", spec::render::render(&markdown, style));
+}
+
+/// Escape a literal `|` so it stays inside its table cell rather than starting a
+/// new column.
+fn escape_spec_cell(text: &str) -> String {
+    text.replace('|', "\\|")
 }
 
 fn unknown_spec_package_error(package_name: &str) -> String {
