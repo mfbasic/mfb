@@ -30,7 +30,7 @@ use std::process;
 use tinyjson::JsonValue;
 
 const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package\n  doc [--out file] [location]          Render HTML docs from package or file source\n  fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help
-  spec [topic] [subtopic]              Show the MFBASIC language specification";
+  spec [topic] [subtopic] [--all]      Show the MFBASIC language specification";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -1739,11 +1739,13 @@ fn unknown_package_error(package_name: &str) -> String {
 fn show_spec(args: &[String]) -> Result<(), String> {
     let mut width: Option<usize> = None;
     let mut color: Option<bool> = None;
+    let mut all = false;
     let mut positional: Vec<&str> = Vec::new();
 
     let mut iter = args.iter();
     while let Some(arg) = iter.next() {
         match arg.as_str() {
+            "--all" => all = true,
             "--no-color" => color = Some(false),
             "--color" => color = Some(true),
             "--width" => {
@@ -1769,16 +1771,28 @@ fn show_spec(args: &[String]) -> Result<(), String> {
 
     match positional.as_slice() {
         [] => {
+            if all {
+                return Err(format!("mfb spec --all requires a topic\n\n{USAGE}"));
+            }
             print_spec_index(&style);
             Ok(())
         }
         [package_name] => {
             let package = spec::package(package_name)
                 .ok_or_else(|| unknown_spec_package_error(package_name))?;
-            print_spec_package(package, &style);
+            if all {
+                print_spec_all(package, &style);
+            } else {
+                print_spec_package(package, &style);
+            }
             Ok(())
         }
         [package_name, topic_name] => {
+            if all {
+                return Err(
+                    "mfb spec --all cannot be combined with a subtopic".to_string()
+                );
+            }
             let package = spec::package(package_name)
                 .ok_or_else(|| unknown_spec_package_error(package_name))?;
             let topic = spec::topic(package, topic_name).ok_or_else(|| {
@@ -1800,18 +1814,63 @@ fn parse_spec_width(value: &str) -> Result<usize, String> {
         .map(|width| width.clamp(20, 1000))
 }
 
-/// Terminal width for spec rendering: honour `COLUMNS` when a shell exports it,
-/// otherwise fall back to the classic 80. (Compiler-side; no ioctl dependency.)
+/// Terminal width for spec rendering. Prefer an explicit `COLUMNS` override,
+/// then ask the terminal itself via `TIOCGWINSZ`, then fall back to the classic
+/// 80 (also used when stdout is piped/redirected and has no window size).
 fn detect_terminal_width() -> usize {
-    env::var("COLUMNS")
+    if let Some(width) = env::var("COLUMNS")
         .ok()
         .and_then(|value| value.trim().parse::<usize>().ok())
-        .map(|width| width.clamp(20, 1000))
-        .unwrap_or(80)
+    {
+        return width.clamp(20, 1000);
+    }
+    if let Some(width) = terminal_width_from_ioctl() {
+        return width.clamp(20, 1000);
+    }
+    80
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn terminal_width_from_ioctl() -> Option<usize> {
+    use std::os::raw::{c_int, c_ulong};
+
+    #[repr(C)]
+    struct Winsize {
+        rows: u16,
+        cols: u16,
+        xpixel: u16,
+        ypixel: u16,
+    }
+
+    extern "C" {
+        fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
+    }
+
+    #[cfg(target_os = "macos")]
+    const TIOCGWINSZ: c_ulong = 0x4008_7468;
+    #[cfg(target_os = "linux")]
+    const TIOCGWINSZ: c_ulong = 0x5413;
+
+    let mut ws = Winsize {
+        rows: 0,
+        cols: 0,
+        xpixel: 0,
+        ypixel: 0,
+    };
+    // SAFETY: `ws` is a valid, properly aligned `winsize` that lives across the
+    // call; `ioctl` only writes into it. Querying stdout (fd 1) on a non-tty
+    // returns a non-zero status, which we treat as "unknown".
+    let rc = unsafe { ioctl(1, TIOCGWINSZ, std::ptr::addr_of_mut!(ws)) };
+    (rc == 0 && ws.cols > 0).then_some(ws.cols as usize)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+fn terminal_width_from_ioctl() -> Option<usize> {
+    None
 }
 
 fn print_spec_index(style: &spec::render::Style) {
-    println!("Usage: mfb spec [topic] [subtopic]");
+    println!("Usage: mfb spec [topic] [subtopic] [--all]");
     println!();
     println!("Show the MFBASIC language specification.");
     println!();
@@ -1819,6 +1878,7 @@ fn print_spec_index(style: &spec::render::Style) {
     println!("  mfb spec");
     println!("  mfb spec architecture");
     println!("  mfb spec architecture native");
+    println!("  mfb spec architecture --all");
     println!();
     println!("Topics:");
     println!();
@@ -1841,6 +1901,18 @@ fn print_spec_package(package: &spec::SpecPackage, style: &spec::render::Style) 
         print_spec_listing("Subtopic", &entries, style);
         println!();
         println!("Run `mfb spec {} <subtopic>` for details.", package.name);
+    }
+}
+
+/// `mfb spec <topic> --all`: print the overview followed by every subtopic page,
+/// each separated by a full-width rule, as one continuous document.
+fn print_spec_all(package: &spec::SpecPackage, style: &spec::render::Style) {
+    println!("{}", spec::render::render(package.overview, style));
+    for topic in &package.topics {
+        println!();
+        println!("{}", "─".repeat(style.width));
+        println!();
+        println!("{}", spec::render::render(topic.page, style));
     }
 }
 

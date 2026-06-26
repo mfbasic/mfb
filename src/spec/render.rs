@@ -195,23 +195,28 @@ struct ListItem {
     content: String,
 }
 
+/// Base indent applied to every list item, on top of any source nesting, so
+/// bullets sit slightly inside the surrounding prose (` • item`, not `• item`).
+const LIST_INDENT: usize = 1;
+
 fn render_list_item(item: &ListItem, width: usize, color: bool) -> Vec<String> {
+    let indent = LIST_INDENT + item.indent;
     let marker_width = item.marker.chars().count();
-    let avail = width.saturating_sub(item.indent + marker_width).max(1);
+    let avail = width.saturating_sub(indent + marker_width).max(1);
     let words = pieces_to_words(parse_inline(&item.content));
     let wrapped = wrap_words(words, avail, color);
 
     let mut res = Vec::new();
     for (k, vl) in wrapped.iter().enumerate() {
         let prefix = if k == 0 {
-            format!("{}{}", " ".repeat(item.indent), item.marker)
+            format!("{}{}", " ".repeat(indent), item.marker)
         } else {
-            " ".repeat(item.indent + marker_width)
+            " ".repeat(indent + marker_width)
         };
         res.push(format!("{prefix}{}", vl.styled));
     }
     if res.is_empty() {
-        res.push(format!("{}{}", " ".repeat(item.indent), item.marker));
+        res.push(format!("{}{}", " ".repeat(indent), item.marker));
     }
     res
 }
@@ -816,16 +821,16 @@ mod tests {
     fn bullet_list_renders_marker() {
         let out = render("- first\n- second", &plain_style(80));
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines[0], "• first");
-        assert_eq!(lines[1], "• second");
+        assert_eq!(lines[0], " • first");
+        assert_eq!(lines[1], " • second");
     }
 
     #[test]
     fn ordered_list_keeps_numbers() {
         let out = render("1. one\n2. two", &plain_style(80));
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines[0], "1. one");
-        assert_eq!(lines[1], "2. two");
+        assert_eq!(lines[0], " 1. one");
+        assert_eq!(lines[1], " 2. two");
     }
 
     #[test]
