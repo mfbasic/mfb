@@ -130,8 +130,7 @@ fn encode_executable_bytes(project_name: &str, image: &EncodedImage) -> Result<V
 
 /// Write executable bytes to `path` and mark the file executable (0o755).
 fn write_executable_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    fs::write(path, bytes)
-        .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
+    fs::write(path, bytes).map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
     let mut permissions = fs::metadata(path)
         .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
         .permissions();
@@ -407,7 +406,13 @@ fn append_import_stubs(
     // the total across a `PAGE_SIZE` boundary, which sends each stub's `br` to a
     // garbage address.
     let final_code_len = text.len() + image.imports.len() * IMPORT_STUB_SIZE;
-    let layout = macho_layout(code_offset, final_code_len, data_len, data_const_size(image), 0);
+    let layout = macho_layout(
+        code_offset,
+        final_code_len,
+        data_len,
+        data_const_size(image),
+        0,
+    );
     for (index, import) in image.imports.iter().enumerate() {
         let stub_offset = text.len();
         let stub_vmaddr = text_vmaddr + stub_offset as u64;
@@ -460,15 +465,8 @@ fn encode_mach_o(
     libraries: &[(String, String)],
     image: &EncodedImage,
 ) -> Vec<u8> {
-    let unsigned = encode_unsigned_mach_o(
-        code_offset,
-        entry_offset,
-        code,
-        data,
-        0,
-        libraries,
-        image,
-    );
+    let unsigned =
+        encode_unsigned_mach_o(code_offset, entry_offset, code, data, 0, libraries, image);
     let signature = code_signature(&unsigned, name);
     let unsigned = encode_unsigned_mach_o(
         code_offset,
@@ -1326,7 +1324,9 @@ fn put_uleb128(bytes: &mut Vec<u8>, mut value: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::arch::aarch64::encode::{EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind};
+    use crate::arch::aarch64::encode::{
+        EncodedImport, EncodedRelocation, EncodedSymbol, ImportKind,
+    };
 
     fn import(library: &str, symbol: &str) -> EncodedImport {
         EncodedImport {
@@ -1542,8 +1542,8 @@ mod tests {
         };
         let dir = std::env::temp_dir().join(format!("mfb_modinit_imp_{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("temp dir");
-        let path =
-            write_executable(&dir, "modinitimp", &image).expect("link initializer+import executable");
+        let path = write_executable(&dir, "modinitimp", &image)
+            .expect("link initializer+import executable");
         let status = std::process::Command::new(&path)
             .status()
             .expect("run initializer+import executable");
@@ -1574,8 +1574,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = write_executable(dir.path(), "signed", &image).expect("link signed mach-o");
         let bytes = std::fs::read(path).unwrap();
-        assert!(bytes.windows(b"__MFB".len()).any(|window| window == b"__MFB"));
-        assert!(bytes.windows(b"__sign".len()).any(|window| window == b"__sign"));
+        assert!(bytes
+            .windows(b"__MFB".len())
+            .any(|window| window == b"__MFB"));
+        assert!(bytes
+            .windows(b"__sign".len())
+            .any(|window| window == b"__sign"));
         assert!(bytes
             .windows(br#"{"owner":"alice"}"#.len())
             .any(|window| window == br#"{"owner":"alice"}"#));

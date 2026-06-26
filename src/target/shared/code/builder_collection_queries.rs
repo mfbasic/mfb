@@ -49,12 +49,8 @@ impl CodeBuilder<'_> {
                     key.type_
                 ));
             }
-            let result = self.lower_list_get(
-                collection_slot,
-                key_slot,
-                &collection.type_,
-                &element_type,
-            )?;
+            let result =
+                self.lower_list_get(collection_slot, key_slot, &collection.type_, &element_type)?;
             return self.materialize_owned_element(result);
         }
 
@@ -795,39 +791,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             item_slot,
         ));
-        let singleton = self.lower_collection_values(
-            &output_list_type,
-            vec![CollectionValueSlot {
-                key: None,
-                value: PayloadSlot {
-                    slot: item_slot,
-                    type_: output_type.clone(),
-                },
-            }],
-            "transform item",
-        )?;
-        let singleton_slot = self.allocate_stack_object("transform_singleton", 8);
-        self.emit(abi::store_u64(
-            &singleton.location,
-            abi::stack_pointer(),
-            singleton_slot,
-        ));
-        let index_slot = self.allocate_stack_object("transform_append_index", 8);
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), output_slot));
-        self.emit(abi::load_u64("x8", "x8", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), index_slot));
-        let updated = self.lower_list_insert_collection(
-            output_slot,
-            index_slot,
-            singleton_slot,
-            &output_list_type,
-            &output_type,
-        )?;
-        self.emit(abi::store_u64(
-            &updated.location,
-            abi::stack_pointer(),
-            output_slot,
-        ));
+        // The output accumulator is a private, uniquely-owned buffer, so append
+        // each transformed item in place with geometric headroom (plan-01 §4.2)
+        // — amortized O(1) instead of the O(n) splice the singleton+insert did.
+        self.lower_list_append_in_place(output_slot, item_slot, &output_list_type, &output_type)?;
         self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
         self.emit(abi::label(&done));
         let result = self.allocate_register()?;
@@ -909,39 +876,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&keep_label));
         self.emit(abi::branch(&skip_label));
         self.emit(abi::label(&keep_label));
-        let singleton = self.lower_collection_values(
-            &collection.type_,
-            vec![CollectionValueSlot {
-                key: None,
-                value: PayloadSlot {
-                    slot: item_slot,
-                    type_: element_type.clone(),
-                },
-            }],
-            "filter item",
-        )?;
-        let singleton_slot = self.allocate_stack_object("filter_singleton", 8);
-        self.emit(abi::store_u64(
-            &singleton.location,
-            abi::stack_pointer(),
-            singleton_slot,
-        ));
-        let index_slot = self.allocate_stack_object("filter_append_index", 8);
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), output_slot));
-        self.emit(abi::load_u64("x8", "x8", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), index_slot));
-        let updated = self.lower_list_insert_collection(
-            output_slot,
-            index_slot,
-            singleton_slot,
-            &collection.type_,
-            &element_type,
-        )?;
-        self.emit(abi::store_u64(
-            &updated.location,
-            abi::stack_pointer(),
-            output_slot,
-        ));
+        // Private accumulator → append in place with headroom (plan-01 §4.2).
+        self.lower_list_append_in_place(output_slot, item_slot, &collection.type_, &element_type)?;
         self.emit(abi::label(&skip_label));
         self.advance_collection_loop(cursor_slot, remaining_slot, &loop_label);
         self.emit(abi::label(&done));

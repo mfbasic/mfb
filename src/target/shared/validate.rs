@@ -159,7 +159,10 @@ fn validate_resource_rules(module: &NirModule) -> Result<(), String> {
                 let mut has_data = false;
                 for variant in &type_.variants {
                     let is_resource = crate::builtins::is_resource_type(&variant.name)
-                        || variant.fields.iter().any(|field| type_owns_resource(&field.type_));
+                        || variant
+                            .fields
+                            .iter()
+                            .any(|field| type_owns_resource(&field.type_));
                     if is_resource {
                         has_resource = true;
                     } else {
@@ -498,7 +501,9 @@ fn native_static_string_value(
         NirValue::Call { target, args, .. } | NirValue::RuntimeCall { target, args, .. } => {
             native_strings_package_static_string_value(target, args, constants)
         }
-        NirValue::Binary { op, left, right, .. } if op == "&" => {
+        NirValue::Binary {
+            op, left, right, ..
+        } if op == "&" => {
             let left = native_static_string_value(left, constants)?;
             let right = native_static_string_value(right, constants)?;
             Some(format!("{left}{right}"))
@@ -1315,7 +1320,7 @@ fn validate_value(
             helper,
             target,
             args,
-                ..
+            ..
         } => {
             for arg in args {
                 validate_value(

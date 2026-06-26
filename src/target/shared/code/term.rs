@@ -189,7 +189,11 @@ fn emit_write_decimal(
 }
 
 /// Load `active` and branch to `target` when TUI mode is off (the §4.2.1 gate).
-fn emit_gate_inactive(term_state_offset: usize, target: &str, instructions: &mut Vec<CodeInstruction>) {
+fn emit_gate_inactive(
+    term_state_offset: usize,
+    target: &str,
+    instructions: &mut Vec<CodeInstruction>,
+) {
     instructions.push(abi::load_u64(
         "x9",
         ARENA_STATE_REGISTER,
@@ -237,8 +241,23 @@ pub(super) fn lower_term_helper(
     }
 
     match call {
-        "term.on" => emit_on(symbol, term_state_offset, platform, platform_imports, &mut instructions, &mut relocations)?,
-        "term.off" => emit_off(symbol, term_state_offset, &done, platform, platform_imports, &mut instructions, &mut relocations)?,
+        "term.on" => emit_on(
+            symbol,
+            term_state_offset,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?,
+        "term.off" => emit_off(
+            symbol,
+            term_state_offset,
+            &done,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?,
         "term.isOn" => emit_is_on(term_state_offset, &mut instructions),
         "term.setForeground" => emit_set_color(
             symbol,
@@ -324,7 +343,15 @@ pub(super) fn lower_term_helper(
             &mut instructions,
             &mut relocations,
         )?,
-        "term.moveTo" => emit_move_to(symbol, term_state_offset, &done, platform, platform_imports, &mut instructions, &mut relocations)?,
+        "term.moveTo" => emit_move_to(
+            symbol,
+            term_state_offset,
+            &done,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?,
         "term.getForeground" => emit_get_color(
             symbol,
             term_state_offset,
@@ -343,9 +370,27 @@ pub(super) fn lower_term_helper(
             &mut instructions,
             &mut relocations,
         ),
-        "term.getBold" => emit_get_attr(term_state_offset, term_state_offset + TERM_STATE_BOLD_OFFSET, &done, &mut instructions),
-        "term.getUnderline" => emit_get_attr(term_state_offset, term_state_offset + TERM_STATE_UNDERLINE_OFFSET, &done, &mut instructions),
-        "term.terminalSize" => emit_terminal_size(symbol, term_state_offset, &done, platform, platform_imports, &mut instructions, &mut relocations)?,
+        "term.getBold" => emit_get_attr(
+            term_state_offset,
+            term_state_offset + TERM_STATE_BOLD_OFFSET,
+            &done,
+            &mut instructions,
+        ),
+        "term.getUnderline" => emit_get_attr(
+            term_state_offset,
+            term_state_offset + TERM_STATE_UNDERLINE_OFFSET,
+            &done,
+            &mut instructions,
+        ),
+        "term.terminalSize" => emit_terminal_size(
+            symbol,
+            term_state_offset,
+            &done,
+            platform,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?,
         other => return Err(format!("unknown term runtime helper '{other}'")),
     }
 
@@ -395,7 +440,11 @@ fn emit_on(
     ];
     for (offset, value) in writes {
         instructions.push(abi::move_immediate("x9", "Integer", value));
-        instructions.push(abi::store_u64("x9", ARENA_STATE_REGISTER, term_state_offset + offset));
+        instructions.push(abi::store_u64(
+            "x9",
+            ARENA_STATE_REGISTER,
+            term_state_offset + offset,
+        ));
     }
     emit_write_const(
         symbol,
@@ -406,7 +455,11 @@ fn emit_on(
         instructions,
         relocations,
     )?;
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     Ok(())
 }
 
@@ -438,7 +491,11 @@ fn emit_off(
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
     ));
     instructions.push(abi::label(&inactive));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     let _ = done;
     Ok(())
 }
@@ -449,7 +506,11 @@ fn emit_is_on(term_state_offset: usize, instructions: &mut Vec<CodeInstruction>)
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
     ));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -481,18 +542,78 @@ fn emit_set_color(
         abi::or_registers("x9", "x9", "x11"),
         abi::store_u64("x9", ARENA_STATE_REGISTER, state_offset),
     ]);
-    emit_write_const(symbol, prefix_symbol, prefix_len, platform, platform_imports, instructions, relocations)?;
+    emit_write_const(
+        symbol,
+        prefix_symbol,
+        prefix_len,
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::load_u64("x15", abi::stack_pointer(), ARG0_OFFSET));
-    emit_write_decimal(symbol, "x15", "r", platform, platform_imports, instructions, relocations)?;
-    emit_write_const(symbol, ESC_SEMICOLON_SYMBOL, ESC_SEMICOLON.len(), platform, platform_imports, instructions, relocations)?;
+    emit_write_decimal(
+        symbol,
+        "x15",
+        "r",
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    emit_write_const(
+        symbol,
+        ESC_SEMICOLON_SYMBOL,
+        ESC_SEMICOLON.len(),
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::load_u64("x15", abi::stack_pointer(), ARG1_OFFSET));
-    emit_write_decimal(symbol, "x15", "g", platform, platform_imports, instructions, relocations)?;
-    emit_write_const(symbol, ESC_SEMICOLON_SYMBOL, ESC_SEMICOLON.len(), platform, platform_imports, instructions, relocations)?;
+    emit_write_decimal(
+        symbol,
+        "x15",
+        "g",
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    emit_write_const(
+        symbol,
+        ESC_SEMICOLON_SYMBOL,
+        ESC_SEMICOLON.len(),
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::load_u64("x15", abi::stack_pointer(), ARG2_OFFSET));
-    emit_write_decimal(symbol, "x15", "b", platform, platform_imports, instructions, relocations)?;
-    emit_write_const(symbol, ESC_LETTER_M_SYMBOL, ESC_LETTER_M.len(), platform, platform_imports, instructions, relocations)?;
+    emit_write_decimal(
+        symbol,
+        "x15",
+        "b",
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    emit_write_const(
+        symbol,
+        ESC_LETTER_M_SYMBOL,
+        ESC_LETTER_M.len(),
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::label(&inactive));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     Ok(())
 }
 
@@ -520,13 +641,33 @@ fn emit_set_attr(
     instructions.push(abi::load_u64("x9", abi::stack_pointer(), ARG0_OFFSET));
     instructions.push(abi::compare_immediate("x9", "0"));
     instructions.push(abi::branch_eq(&off_label));
-    emit_write_const(symbol, on_symbol, on_len, platform, platform_imports, instructions, relocations)?;
+    emit_write_const(
+        symbol,
+        on_symbol,
+        on_len,
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::branch(&written));
     instructions.push(abi::label(&off_label));
-    emit_write_const(symbol, off_symbol, off_len, platform, platform_imports, instructions, relocations)?;
+    emit_write_const(
+        symbol,
+        off_symbol,
+        off_len,
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::label(&written));
     instructions.push(abi::label(&inactive));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     Ok(())
 }
 
@@ -549,9 +690,21 @@ fn emit_surface(
         instructions.push(abi::move_immediate("x9", "Integer", &value.to_string()));
         instructions.push(abi::store_u64("x9", ARENA_STATE_REGISTER, offset));
     }
-    emit_write_const(symbol, esc_symbol, esc_len, platform, platform_imports, instructions, relocations)?;
+    emit_write_const(
+        symbol,
+        esc_symbol,
+        esc_len,
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::label(&inactive));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     let _ = done;
     Ok(())
 }
@@ -572,7 +725,15 @@ fn emit_move_to(
     instructions.push(abi::store_u64("x0", abi::stack_pointer(), ARG0_OFFSET));
     instructions.push(abi::store_u64("x1", abi::stack_pointer(), ARG1_OFFSET));
     emit_gate_inactive(term_state_offset, &inactive, instructions);
-    emit_write_const(symbol, ESC_BRACKET_SYMBOL, ESC_BRACKET.len(), platform, platform_imports, instructions, relocations)?;
+    emit_write_const(
+        symbol,
+        ESC_BRACKET_SYMBOL,
+        ESC_BRACKET.len(),
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     // row (0-based) clamped to >= 0, then +1 for 1-based ANSI.
     instructions.extend([
         abi::load_u64("x15", abi::stack_pointer(), ARG0_OFFSET),
@@ -582,8 +743,24 @@ fn emit_move_to(
         abi::label(&row_clamp),
         abi::add_immediate("x15", "x15", 1),
     ]);
-    emit_write_decimal(symbol, "x15", "row", platform, platform_imports, instructions, relocations)?;
-    emit_write_const(symbol, ESC_SEMICOLON_SYMBOL, ESC_SEMICOLON.len(), platform, platform_imports, instructions, relocations)?;
+    emit_write_decimal(
+        symbol,
+        "x15",
+        "row",
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    emit_write_const(
+        symbol,
+        ESC_SEMICOLON_SYMBOL,
+        ESC_SEMICOLON.len(),
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::load_u64("x15", abi::stack_pointer(), ARG1_OFFSET),
         abi::compare_immediate("x15", "0"),
@@ -592,10 +769,30 @@ fn emit_move_to(
         abi::label(&col_clamp),
         abi::add_immediate("x15", "x15", 1),
     ]);
-    emit_write_decimal(symbol, "x15", "col", platform, platform_imports, instructions, relocations)?;
-    emit_write_const(symbol, ESC_LETTER_H_SYMBOL, ESC_LETTER_H.len(), platform, platform_imports, instructions, relocations)?;
+    emit_write_decimal(
+        symbol,
+        "x15",
+        "col",
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
+    emit_write_const(
+        symbol,
+        ESC_LETTER_H_SYMBOL,
+        ESC_LETTER_H.len(),
+        platform,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.push(abi::label(&inactive));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     let _ = done;
     Ok(())
 }
@@ -624,7 +821,11 @@ fn emit_get_color(
     instructions.push(abi::store_u64("x10", abi::stack_pointer(), ARG0_OFFSET));
     // Allocate the 3-field TermColor record.
     instructions.extend([
-        abi::move_immediate(abi::return_register(), "Integer", &TERM_COLOR_RECORD_SIZE.to_string()),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &TERM_COLOR_RECORD_SIZE.to_string(),
+        ),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -663,12 +864,24 @@ fn emit_get_attr(
 ) {
     let inert = format!("term_get_attr_inert_{state_offset}");
     emit_gate_inactive(term_state_offset, &inert, instructions);
-    instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, ARENA_STATE_REGISTER, state_offset));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::load_u64(
+        RESULT_VALUE_REGISTER,
+        ARENA_STATE_REGISTER,
+        state_offset,
+    ));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
     instructions.push(abi::branch(done));
     instructions.push(abi::label(&inert));
     instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
-    instructions.push(abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG));
+    instructions.push(abi::move_immediate(
+        RESULT_TAG_REGISTER,
+        "Integer",
+        RESULT_OK_TAG,
+    ));
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -719,7 +932,11 @@ fn emit_terminal_size(
         abi::branch_eq(&unsupported),
         abi::store_u64("x10", abi::stack_pointer(), ARG0_OFFSET),
         abi::store_u64("x11", abi::stack_pointer(), ARG1_OFFSET),
-        abi::move_immediate(abi::return_register(), "Integer", &TERM_SIZE_RECORD_SIZE.to_string()),
+        abi::move_immediate(
+            abi::return_register(),
+            "Integer",
+            &TERM_SIZE_RECORD_SIZE.to_string(),
+        ),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);

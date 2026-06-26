@@ -60,10 +60,7 @@ pub fn collect(inputs: &AuditInputs) -> AuditReport {
 /// (plan-link-update.md §13). Each reports its declaring package, close op,
 /// whether close may fail (derived from the close wrapper's `SUCCESS_ON` gate),
 /// and thread sendability. Native pointer values are never exposed.
-fn collect_native_resources(
-    package: &str,
-    ast: &ast::AstProject,
-) -> Vec<NativeResourceEntry> {
+fn collect_native_resources(package: &str, ast: &ast::AstProject) -> Vec<NativeResourceEntry> {
     use std::collections::HashMap;
     let mut close_may_fail: HashMap<String, bool> = HashMap::new();
     for file in &ast.files {

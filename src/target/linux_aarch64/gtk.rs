@@ -79,15 +79,15 @@ const ST_TERM_CUR_BG: usize = ST_TERM_CUR_FG + 8; // current bg (packed | COLOR_
 const ST_TERM_CUR_BOLD: usize = ST_TERM_CUR_BG + 8; // current bold flag
 const ST_TERM_CUR_UNDERLINE: usize = ST_TERM_CUR_BOLD + 8; // current underline flag
 const ST_TERM_CURSOR_VISIBLE: usize = ST_TERM_CUR_UNDERLINE + 8; // cursor visibility
-// Grid geometry DERIVED from the window size + monospace cell metrics (like macOS),
-// computed once at activate. cols/rows are the active extent; the backing arrays use
-// a fixed TERM_MAX_COLS stride so storage is static (no per-resize realloc).
+                                                                 // Grid geometry DERIVED from the window size + monospace cell metrics (like macOS),
+                                                                 // computed once at activate. cols/rows are the active extent; the backing arrays use
+                                                                 // a fixed TERM_MAX_COLS stride so storage is static (no per-resize realloc).
 const ST_TERM_COLS: usize = ST_TERM_CURSOR_VISIBLE + 8; // active columns
 const ST_TERM_ROWS: usize = ST_TERM_COLS + 8; // active rows
 const ST_TERM_CELL_W: usize = ST_TERM_ROWS + 8; // cell width in px
 const ST_TERM_CELL_H: usize = ST_TERM_CELL_W + 8; // cell height in px
-// Parallel per-cell grids: chars (1B), fg (u32 packed | flags), bg (u32 packed).
-// Row stride is TERM_MAX_COLS; only the top-left cols x rows are active.
+                                                  // Parallel per-cell grids: chars (1B), fg (u32 packed | flags), bg (u32 packed).
+                                                  // Row stride is TERM_MAX_COLS; only the top-left cols x rows are active.
 const ST_TERM_CHARS: usize = ST_TERM_CELL_H + 8;
 const ST_TERM_FG: usize = ST_TERM_CHARS + TERM_MAX_COLS * TERM_MAX_ROWS;
 const ST_TERM_BG: usize = ST_TERM_FG + TERM_MAX_COLS * TERM_MAX_ROWS * 4;
@@ -201,8 +201,8 @@ fn lib_for(symbol: &str) -> &'static str {
         "g_signal_connect_data" => GOBJECT,
         "g_idle_add" => GLIB,
         "pthread_create" | "pthread_detach" => LIBPTHREAD,
-        "pipe" | "dup2" | "getenv" | "setenv" | "write" | "_exit" | "__libc_start_main" | "malloc"
-        | "free" | "memcpy" | "memset" | "memmove" | "pause" => LIBC,
+        "pipe" | "dup2" | "getenv" | "setenv" | "write" | "_exit" | "__libc_start_main"
+        | "malloc" | "free" | "memcpy" | "memset" | "memmove" | "pause" => LIBC,
         // GDK is part of libgtk-4.so.1 in GTK4 (no separate libgdk).
         "gdk_keyval_to_unicode" => GTK,
         "g_object_ref_sink" => GOBJECT,
@@ -281,7 +281,6 @@ impl Asm {
             });
         }
     }
-
 
     /// Materialize the address of a runtime-state field/array at `offset` into
     /// `dst` (clobbers `x9` for large offsets past the 12-bit add immediate).
@@ -389,7 +388,11 @@ fn emit_main_bootstrap() -> CodeFunction {
     // lr@0, argc@8, argv@16.
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(32));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // argc
     asm.push(abi::store_u64("x1", abi::stack_pointer(), 16)); // argv
 
@@ -449,7 +452,11 @@ fn emit_activate_handler() -> CodeFunction {
     let frame = 32;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 24));
 
     // window = gtk_application_window_new(app)  (app is the incoming x0)
@@ -577,7 +584,11 @@ fn emit_worker_shim(spec: &AppEntrySpec) -> CodeFunction {
     let mut asm = Asm::new(WORKER_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     if spec.language_entry_accepts_args {
         // Scaffold: no argv plumbing yet (TODO(plan-05)); pass argc=0/argv=NULL.
         asm.push(abi::move_immediate("x0", "Integer", "0"));
@@ -611,7 +622,11 @@ fn emit_key_pressed_handler() -> CodeFunction {
     let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 40));
     asm.push(abi::move_register("x19", "x1")); // keyval
 
@@ -637,7 +652,7 @@ fn emit_key_pressed_handler() -> CodeFunction {
     asm.push(abi::compare_immediate("x0", "0"));
     asm.push(abi::branch_eq("ignore"));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 24)); // unichar
-    // oldlen = line_len; dst = &line_buf[oldlen]; count = g_unichar_to_utf8(unichar, dst)
+                                                              // oldlen = line_len; dst = &line_buf[oldlen]; count = g_unichar_to_utf8(unichar, dst)
     asm.load_state("x9", ST_LINE_LEN);
     asm.push(abi::store_u64("x9", abi::stack_pointer(), 8)); // oldlen
     asm.local_address("x10", STATE_SYMBOL);
@@ -646,7 +661,7 @@ fn emit_key_pressed_handler() -> CodeFunction {
     asm.push(abi::load_u64("x0", abi::stack_pointer(), 24));
     asm.call_external("g_unichar_to_utf8");
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // count
-    // line_len = oldlen + count
+                                                              // line_len = oldlen + count
     asm.push(abi::load_u64("x9", abi::stack_pointer(), 8));
     asm.push(abi::add_registers("x9", "x9", "x0"));
     asm.local_address("x10", STATE_SYMBOL);
@@ -733,7 +748,11 @@ fn emit_window_closed_handler() -> CodeFunction {
     let mut asm = Asm::new(WINDOW_CLOSED_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.load_state("x0", ST_APPLICATION);
     asm.call_external("g_application_quit");
     asm.push(abi::move_immediate("x0", "Boolean", FALSE)); // allow default close
@@ -757,7 +776,11 @@ fn emit_finish_helper() -> CodeFunction {
     // lr@0, x19(exit code)@8, x20(chunk)@16.
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(32));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::move_register("x19", "x0")); // exit code
@@ -778,7 +801,11 @@ fn emit_finish_helper() -> CodeFunction {
     asm.push(abi::move_register("x20", "x0")); // chunk
     asm.push(abi::add_immediate("x0", "x20", 16)); // memcpy(chunk+16, prefix, prefix_len)
     asm.local_address("x1", STR_EXIT_PREFIX.0);
-    asm.push(abi::move_immediate("x2", "Integer", &prefix_len.to_string()));
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &prefix_len.to_string(),
+    ));
     asm.call_external("memcpy");
     // Format the exit code as decimal ASCII at chunk+16+prefix_len; '\n'; store len.
     asm.push(abi::add_immediate("x13", "x20", 16 + prefix_len)); // digit write ptr
@@ -814,7 +841,7 @@ fn emit_format_exit_code(asm: &mut Asm, code: &str, dst: &str) {
     asm.push(abi::move_immediate("x11", "Integer", "10"));
     asm.push(abi::unsigned_divide_registers("x12", "x9", "x11")); // tens
     asm.push(abi::multiply_subtract_registers("x9", "x12", "x11", "x9")); // ones
-    // hundreds != 0 -> emit hundreds then always tens+ones.
+                                                                          // hundreds != 0 -> emit hundreds then always tens+ones.
     asm.push(abi::compare_immediate("x10", "0"));
     asm.push(abi::branch_eq("fmt_skip_h"));
     asm.push(abi::add_immediate("x14", "x10", 48));
@@ -847,7 +874,11 @@ fn emit_append_helper() -> CodeFunction {
     let iter = 40;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x1", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x2", abi::stack_pointer(), 24));
@@ -897,7 +928,11 @@ fn emit_append_idle_helper() -> CodeFunction {
     // lr@0, x20(chunk)@8.
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::move_register("x20", "x0")); // chunk (survives load_state's x9 use)
 
@@ -964,7 +999,11 @@ fn emit_term_draw_helper() -> CodeFunction {
     ];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in saved {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
@@ -997,11 +1036,15 @@ fn emit_term_draw_helper() -> CodeFunction {
     asm.push(abi::compare_registers("x21", "x26")); // col < cols?
     asm.push(abi::branch_ge("d_row_next"));
     // idx = row*MAX_COLS + col (fixed backing stride)
-    asm.push(abi::move_immediate("x9", "Integer", &TERM_MAX_COLS.to_string()));
+    asm.push(abi::move_immediate(
+        "x9",
+        "Integer",
+        &TERM_MAX_COLS.to_string(),
+    ));
     asm.push(abi::multiply_registers("x10", "x20", "x9"));
     asm.push(abi::add_registers("x10", "x10", "x21")); // idx
     asm.push(abi::shift_left_immediate("x11", "x10", 2)); // idx*4
-    // char -> charbuf; fg, bg -> stack (survive cairo calls)
+                                                          // char -> charbuf; fg, bg -> stack (survive cairo calls)
     asm.push(abi::add_registers("x12", "x23", "x10"));
     asm.push(abi::load_u8("x13", "x12", 0));
     asm.push(abi::store_u8("x13", abi::stack_pointer(), off_buf));
@@ -1080,7 +1123,11 @@ fn emit_term_draw_helper() -> CodeFunction {
     asm.call_external("cairo_show_text");
     // Underline: a 2px rect at the cell bottom in the (already-set) fg color.
     asm.push(abi::load_u64("x14", abi::stack_pointer(), off_fg));
-    asm.push(abi::move_immediate("x9", "Integer", &UNDERLINE_FLAG.to_string()));
+    asm.push(abi::move_immediate(
+        "x9",
+        "Integer",
+        &UNDERLINE_FLAG.to_string(),
+    ));
     asm.push(abi::and_registers("x9", "x14", "x9"));
     asm.push(abi::compare_immediate("x9", "0"));
     asm.push(abi::branch_eq("d_next"));
@@ -1122,7 +1169,11 @@ fn emit_term_select_font(asm: &mut Asm, cr: &str, bold: bool) {
     asm.push(abi::move_register("x0", cr));
     asm.local_address("x1", STR_MONOSPACE.0);
     asm.push(abi::move_immediate("x2", "Integer", "0")); // CAIRO_FONT_SLANT_NORMAL
-    asm.push(abi::move_immediate("x3", "Integer", if bold { "1" } else { "0" }));
+    asm.push(abi::move_immediate(
+        "x3",
+        "Integer",
+        if bold { "1" } else { "0" },
+    ));
     asm.call_external("cairo_select_font_face");
     asm.push(abi::move_register("x0", cr));
     asm.push(abi::move_immediate("x9", "Integer", TERM_FONT_SIZE));
@@ -1155,7 +1206,7 @@ fn emit_const_to_d(asm: &mut Asm, dst: &str, value: usize) {
 fn emit_term_cell_rect(asm: &mut Asm, cr: &str, col: &str, row: &str) {
     asm.push(abi::move_register("x0", cr));
     emit_cell_dim_to_d(asm, "d0", col, ST_TERM_CELL_W); // x = col*cellW
-    // Load cellH before forming row+1 in x9 (load_state clobbers x9).
+                                                        // Load cellH before forming row+1 in x9 (load_state clobbers x9).
     asm.load_state("x10", ST_TERM_CELL_H);
     asm.push(abi::add_immediate("x9", row, 1)); // y = (row+1)*cellH - 2
     asm.push(abi::multiply_registers("x9", "x9", "x10"));
@@ -1175,13 +1226,21 @@ fn emit_term_scroll_helper() -> CodeFunction {
     // lr@0, x19(cells = (rows-1)*MAX_COLS, the chars to move / last-row offset)@8.
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.load_state("x19", ST_TERM_ROWS);
     asm.push(abi::subtract_immediate("x19", "x19", 1)); // rows-1
-    asm.push(abi::move_immediate("x9", "Integer", &TERM_MAX_COLS.to_string()));
+    asm.push(abi::move_immediate(
+        "x9",
+        "Integer",
+        &TERM_MAX_COLS.to_string(),
+    ));
     asm.push(abi::multiply_registers("x19", "x19", "x9")); // cells = (rows-1)*MAX_COLS
-    // memmove each array up one (fixed-stride) row: chars 1B, fg/bg 4B per cell.
+                                                           // memmove each array up one (fixed-stride) row: chars 1B, fg/bg 4B per cell.
     for (base, shift) in [(ST_TERM_CHARS, 0u8), (ST_TERM_FG, 2), (ST_TERM_BG, 2)] {
         asm.state_array("x0", base); // dst = row 0
         asm.state_array("x1", base + TERM_MAX_COLS * (1 << shift)); // src = row 1
@@ -1192,14 +1251,22 @@ fn emit_term_scroll_helper() -> CodeFunction {
     asm.state_array("x0", ST_TERM_CHARS);
     asm.push(abi::add_registers("x0", "x0", "x19"));
     asm.push(abi::move_immediate("x1", "Integer", "32"));
-    asm.push(abi::move_immediate("x2", "Integer", &TERM_MAX_COLS.to_string()));
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        &TERM_MAX_COLS.to_string(),
+    ));
     asm.call_external("memset");
     for base in [ST_TERM_FG, ST_TERM_BG] {
         asm.state_array("x0", base);
         asm.push(abi::shift_left_immediate("x9", "x19", 2)); // cells*4
         asm.push(abi::add_registers("x0", "x0", "x9"));
         asm.push(abi::move_immediate("x1", "Integer", "0"));
-        asm.push(abi::move_immediate("x2", "Integer", &(TERM_MAX_COLS * 4).to_string()));
+        asm.push(abi::move_immediate(
+            "x2",
+            "Integer",
+            &(TERM_MAX_COLS * 4).to_string(),
+        ));
         asm.call_external("memset");
     }
     asm.push(abi::load_u64(abi::link_register(), abi::stack_pointer(), 0));
@@ -1223,7 +1290,11 @@ fn emit_term_init_helper() -> CodeFunction {
     let fe = 24usize;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     // surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32=0, 8, 8); cr = create(surf)
@@ -1235,7 +1306,7 @@ fn emit_term_init_helper() -> CodeFunction {
     asm.push(abi::move_register("x0", "x20"));
     asm.call_external("cairo_create");
     asm.push(abi::move_register("x19", "x0")); // cr
-    // select monospace at TERM_FONT_SIZE.
+                                               // select monospace at TERM_FONT_SIZE.
     emit_term_select_font(&mut asm, "x19", false);
     // cell_h = ceil(font_extents.height @ +16). font_extents_t: ascent,descent,
     // height,max_x_advance,max_y_advance.
@@ -1266,12 +1337,20 @@ fn emit_term_init_helper() -> CodeFunction {
     asm.call_external("cairo_surface_destroy");
     // cols = clamp(AREA_W / cell_w, 1, MAX_COLS); rows likewise.
     asm.load_state("x10", ST_TERM_CELL_W);
-    asm.push(abi::move_immediate("x9", "Integer", &TERM_AREA_W.to_string()));
+    asm.push(abi::move_immediate(
+        "x9",
+        "Integer",
+        &TERM_AREA_W.to_string(),
+    ));
     asm.push(abi::unsigned_divide_registers("x11", "x9", "x10"));
     emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_COLS, "cols");
     asm.store_state("x11", ST_TERM_COLS);
     asm.load_state("x10", ST_TERM_CELL_H);
-    asm.push(abi::move_immediate("x9", "Integer", &TERM_AREA_H.to_string()));
+    asm.push(abi::move_immediate(
+        "x9",
+        "Integer",
+        &TERM_AREA_H.to_string(),
+    ));
     asm.push(abi::unsigned_divide_registers("x11", "x9", "x10"));
     emit_clamp_range(&mut asm, "x11", 1, TERM_MAX_ROWS, "rows");
     asm.store_state("x11", ST_TERM_ROWS);
@@ -1320,7 +1399,11 @@ fn emit_term_show_idle_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_SHOW_IDLE_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.load_state("x0", ST_WINDOW);
     asm.load_state("x1", ST_TERM_AREA);
     asm.call_external("gtk_window_set_child");
@@ -1338,7 +1421,11 @@ fn emit_term_hide_idle_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_HIDE_IDLE_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.load_state("x0", ST_WINDOW);
     asm.load_state("x1", ST_SCROLLED);
     asm.call_external("gtk_window_set_child");
@@ -1354,7 +1441,11 @@ fn emit_term_redraw_idle_helper() -> CodeFunction {
     let mut asm = Asm::new(TERM_REDRAW_IDLE_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.load_state("x0", ST_TERM_AREA);
     asm.call_external("gtk_widget_queue_draw");
     asm.push(abi::move_immediate("x0", "Boolean", FALSE));
@@ -1377,7 +1468,11 @@ fn emit_term_write_helper() -> CodeFunction {
     let (off_fgval, off_bgval) = (80usize, 88usize);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in [
         ("x20", 8),
         ("x21", 16),
@@ -1411,7 +1506,11 @@ fn emit_term_write_helper() -> CodeFunction {
     asm.load_state("x10", ST_TERM_CUR_UNDERLINE);
     asm.push(abi::compare_immediate("x10", "0"));
     asm.push(abi::branch_eq("tw_no_ul"));
-    asm.push(abi::move_immediate("x9", "Integer", &UNDERLINE_FLAG.to_string()));
+    asm.push(abi::move_immediate(
+        "x9",
+        "Integer",
+        &UNDERLINE_FLAG.to_string(),
+    ));
     asm.push(abi::or_registers("x11", "x11", "x9"));
     asm.push(abi::label("tw_no_ul"));
     asm.push(abi::store_u64("x11", abi::stack_pointer(), off_fgval));
@@ -1427,7 +1526,11 @@ fn emit_term_write_helper() -> CodeFunction {
     asm.push(abi::compare_immediate("x10", "10")); // '\n'
     asm.push(abi::branch_eq("tw_newline"));
     // idx = row*MAX_COLS + col; chars[idx]=byte; fg[idx]=fgval; bg[idx]=bgval.
-    asm.push(abi::move_immediate("x11", "Integer", &TERM_MAX_COLS.to_string()));
+    asm.push(abi::move_immediate(
+        "x11",
+        "Integer",
+        &TERM_MAX_COLS.to_string(),
+    ));
     asm.push(abi::multiply_registers("x12", "x25", "x11"));
     asm.push(abi::add_registers("x12", "x12", "x26")); // idx
     asm.push(abi::add_registers("x9", "x24", "x12"));
@@ -1547,7 +1650,11 @@ fn emit_app_term_terminal_size(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     // record = arena_alloc(16, 8) -> x0=tag, x1=ptr (clobbers caller-saved).
     asm.push(abi::move_immediate("x0", "Integer", "16"));
     asm.push(abi::move_immediate("x1", "Integer", "8"));
@@ -1583,7 +1690,11 @@ fn emit_app_term_set_color(
     asm.push(abi::or_registers("x10", "x0", "x10")); // r | g<<8
     asm.push(abi::or_registers("x10", "x10", "x11")); // | b<<16 -> packed (pure)
     asm.push(abi::store_u64("x10", ARENA_REG, tso + arena_field)); // arena (no flags)
-    asm.push(abi::move_immediate("x11", "Integer", &COLOR_SET.to_string()));
+    asm.push(abi::move_immediate(
+        "x11",
+        "Integer",
+        &COLOR_SET.to_string(),
+    ));
     asm.push(abi::or_registers("x11", "x10", "x11")); // packed | COLOR_SET
     asm.store_state("x11", field); // app current color (x9 = store_state scratch)
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
@@ -1616,7 +1727,11 @@ fn emit_app_term_set_cursor(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::move_immediate("x10", "Integer", visible));
     asm.store_state("x10", ST_TERM_CURSOR_VISIBLE);
     asm.local_address("x0", TERM_REDRAW_IDLE_SYMBOL);
@@ -1638,7 +1753,11 @@ fn emit_app_term_on(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     // App current attributes -> defaults (fg/bg/bold/underline cleared, cursor on).
     asm.push(abi::move_immediate("x10", "Integer", "0"));
     for field in [
@@ -1654,9 +1773,17 @@ fn emit_app_term_on(
     asm.store_state("x10", ST_TERM_ACTIVE);
     // Arena term-state defaults so the console getters report them (plan §4.2.1).
     asm.push(abi::move_immediate("x10", "Integer", "1"));
-    asm.push(abi::store_u64("x10", ARENA_REG, tso + code::TERM_STATE_ACTIVE_OFFSET));
+    asm.push(abi::store_u64(
+        "x10",
+        ARENA_REG,
+        tso + code::TERM_STATE_ACTIVE_OFFSET,
+    ));
     asm.push(abi::move_immediate("x10", "Integer", TERM_DEFAULT_FG));
-    asm.push(abi::store_u64("x10", ARENA_REG, tso + code::TERM_STATE_FG_OFFSET));
+    asm.push(abi::store_u64(
+        "x10",
+        ARENA_REG,
+        tso + code::TERM_STATE_FG_OFFSET,
+    ));
     asm.push(abi::move_immediate("x10", "Integer", "0"));
     for field in [
         code::TERM_STATE_BG_OFFSET,
@@ -1683,10 +1810,18 @@ fn emit_app_term_off(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::move_immediate("x10", "Integer", "0"));
     asm.store_state("x10", ST_TERM_ACTIVE);
-    asm.push(abi::store_u64("x10", ARENA_REG, tso + code::TERM_STATE_ACTIVE_OFFSET));
+    asm.push(abi::store_u64(
+        "x10",
+        ARENA_REG,
+        tso + code::TERM_STATE_ACTIVE_OFFSET,
+    ));
     asm.local_address("x0", TERM_HIDE_IDLE_SYMBOL);
     asm.push(abi::move_immediate("x1", "Integer", "0"));
     asm.call_external("g_idle_add");
@@ -1713,7 +1848,11 @@ fn emit_app_term_clear(symbol: &str) -> (CodeFrame, Vec<CodeInstruction>, Vec<Co
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     // Blank the whole backing store (chars=' ', fg/bg=0).
     asm.state_array("x0", ST_TERM_CHARS);
     asm.push(abi::move_immediate("x1", "Integer", "32"));
@@ -1810,7 +1949,11 @@ pub(crate) fn emit_app_io_write_helper(
     let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
@@ -1821,7 +1964,11 @@ pub(crate) fn emit_app_io_write_helper(
     asm.push(abi::compare_immediate("x9", "0"));
     asm.push(abi::branch_eq("not_term"));
     asm.push(abi::move_register("x0", "x19")); // string obj
-    asm.push(abi::move_immediate("x1", "Integer", if newline { "1" } else { "0" }));
+    asm.push(abi::move_immediate(
+        "x1",
+        "Integer",
+        if newline { "1" } else { "0" },
+    ));
     asm.call_internal(TERM_WRITE_SYMBOL);
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
     asm.push(abi::branch("done"));
@@ -1846,7 +1993,11 @@ pub(crate) fn emit_app_io_write_helper(
     if stderr {
         asm.push(abi::add_immediate("x0", "x21", 16)); // memcpy(chunk+16, "[stderr] ", 9)
         asm.local_address("x1", STR_STDERR_PREFIX.0);
-        asm.push(abi::move_immediate("x2", "Integer", &prefix_len.to_string()));
+        asm.push(abi::move_immediate(
+            "x2",
+            "Integer",
+            &prefix_len.to_string(),
+        ));
         asm.call_external("memcpy");
     }
     asm.push(abi::add_immediate("x0", "x21", 16 + prefix_len)); // memcpy(dst=chunk+16+prefix,
@@ -1930,7 +2081,11 @@ pub(crate) fn emit_app_io_input_helper(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 8)); // preserve prompt
     asm.push(abi::move_immediate("x10", "Integer", MODE_LINE_ECHO));
     asm.store_state("x10", ST_INPUT_MODE);
@@ -2000,8 +2155,9 @@ pub(crate) fn app_mode_data_objects() -> Vec<CodeDataObject> {
     objects.push(CodeDataObject {
         symbol: STATE_SYMBOL.to_string(),
         kind: "raw".to_string(),
-        layout: "mfb.runtime.gtkapp_state.v1 { u64 handles[7]; u64 mode; u64 lineLen; u8 lineBuf[] }"
-            .to_string(),
+        layout:
+            "mfb.runtime.gtkapp_state.v1 { u64 handles[7]; u64 mode; u64 lineLen; u8 lineBuf[] }"
+                .to_string(),
         align: 8,
         size: STATE_SIZE,
         value: "00".repeat(STATE_SIZE),

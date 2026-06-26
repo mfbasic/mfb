@@ -1607,7 +1607,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x13", abi::stack_pointer(), ptr_slot));
         self.emit(abi::load_u64("x12", abi::stack_pointer(), len_slot));
         let result = self.emit_materialize_string_from_bytes("x13", "x12")?;
-        let label = if right { "strings.right" } else { "strings.left" };
+        let label = if right {
+            "strings.right"
+        } else {
+            "strings.left"
+        };
         Ok(ValueResult {
             type_: "String".to_string(),
             location: result,
@@ -1718,11 +1722,7 @@ impl CodeBuilder<'_> {
     /// padLeft / padRight: pad `value` with `padChar` to total scalar `width`.
     /// width<0 -> error 77050002. padChar must be exactly one scalar else error
     /// 77050002. When 2 args, padChar defaults to a single space.
-    fn lower_strings_pad(
-        &mut self,
-        args: &[NirValue],
-        right: bool,
-    ) -> Result<ValueResult, String> {
+    fn lower_strings_pad(&mut self, args: &[NirValue], right: bool) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
         self.require_string("strings.pad value", &value)?;
         let value_slot = self.store_string_pointer("strings_pad_value", &value.location);
@@ -1952,10 +1952,7 @@ impl CodeBuilder<'_> {
     }
 
     /// graphemesCount: number of extended grapheme clusters in `value`.
-    fn lower_strings_graphemes_count(
-        &mut self,
-        value: &NirValue,
-    ) -> Result<ValueResult, String> {
+    fn lower_strings_graphemes_count(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let list = self.lower_strings_graphemes(value)?;
         let list_slot = self.store_string_pointer("strings_graphemes_count_list", &list.location);
         let result = self.allocate_register()?;

@@ -177,11 +177,7 @@ pub(crate) fn signed_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) ->
         .field("rhs", rhs)
 }
 
-pub(crate) fn unsigned_multiply_high_registers(
-    dst: &str,
-    lhs: &str,
-    rhs: &str,
-) -> CodeInstruction {
+pub(crate) fn unsigned_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("umulh")
         .field("dst", dst)
         .field("lhs", lhs)

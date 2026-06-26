@@ -217,7 +217,11 @@ fn lower_link_initializer(
 
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME)];
     let mut relocations = Vec::new();
-    instructions.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFF));
+    instructions.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        LR_OFF,
+    ));
 
     for (lib_idx, library) in library_index.iter().enumerate() {
         // handle = dlopen(filename, RTLD_NOW)
@@ -229,7 +233,13 @@ fn lower_link_initializer(
             &mut relocations,
         );
         instructions.push(abi::move_immediate("x1", "Integer", "2")); // RTLD_NOW
-        platform.emit_libc_call("dlopen", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "dlopen",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&fail),
@@ -240,7 +250,11 @@ fn lower_link_initializer(
                 continue;
             }
             // slot = dlsym(handle, symbolName)
-            instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF));
+            instructions.push(abi::load_u64(
+                abi::return_register(),
+                abi::stack_pointer(),
+                HANDLE_OFF,
+            ));
             emit_data_address(
                 symbol,
                 "x1",
@@ -248,7 +262,13 @@ fn lower_link_initializer(
                 &mut instructions,
                 &mut relocations,
             );
-            platform.emit_libc_call("dlsym", symbol, platform_imports, &mut instructions, &mut relocations)?;
+            platform.emit_libc_call(
+                "dlsym",
+                symbol,
+                platform_imports,
+                &mut instructions,
+                &mut relocations,
+            )?;
             instructions.extend([
                 abi::compare_immediate(abi::return_register(), "0"),
                 abi::branch_eq(&fail),
@@ -261,7 +281,11 @@ fn lower_link_initializer(
             // A FREE deallocator lives in the same library; resolve it into its
             // own slot (reserved past the per-function slots).
             if let Some(k) = free_index_of[fn_idx] {
-                instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF));
+                instructions.push(abi::load_u64(
+                    abi::return_register(),
+                    abi::stack_pointer(),
+                    HANDLE_OFF,
+                ));
                 emit_data_address(
                     symbol,
                     "x1",
@@ -269,7 +293,13 @@ fn lower_link_initializer(
                     &mut instructions,
                     &mut relocations,
                 );
-                platform.emit_libc_call("dlsym", symbol, platform_imports, &mut instructions, &mut relocations)?;
+                platform.emit_libc_call(
+                    "dlsym",
+                    symbol,
+                    platform_imports,
+                    &mut instructions,
+                    &mut relocations,
+                )?;
                 instructions.extend([
                     abi::compare_immediate(abi::return_register(), "0"),
                     abi::branch_eq(&fail),
@@ -378,7 +408,11 @@ fn lower_link_thunk(
 
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(frame)];
     let mut relocations = Vec::new();
-    instructions.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFF));
+    instructions.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        LR_OFF,
+    ));
     // Save incoming wrapper arguments before any clobbering call.
     for index in 0..n_params {
         instructions.push(abi::store_u64(
@@ -468,7 +502,11 @@ fn lower_link_thunk(
         }
     }
     instructions.extend([
-        abi::load_u64("x16", ARENA_STATE_REGISTER, slot_offset(globals_base, index)),
+        abi::load_u64(
+            "x16",
+            ARENA_STATE_REGISTER,
+            slot_offset(globals_base, index),
+        ),
         abi::branch_link_register("x16"),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CRET_OFF),
     ]);
@@ -493,7 +531,14 @@ fn lower_link_thunk(
     // SUCCESS_ON gate: a failing status produces an Error result.
     if let Some(success) = &function.success_on {
         let mut counter = 0usize;
-        emit_link_expr(success, STATUS_OFF, 9, &symbol, &mut counter, &mut instructions);
+        emit_link_expr(
+            success,
+            STATUS_OFF,
+            9,
+            &symbol,
+            &mut counter,
+            &mut instructions,
+        );
         instructions.extend([
             abi::compare_immediate("x9", "0"),
             abi::branch_eq(&call_fail),
@@ -502,7 +547,11 @@ fn lower_link_thunk(
 
     // Produce the wrapper result value in RESULT_VALUE_REGISTER (x1).
     if let Some(out_off) = result_out_off {
-        instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), out_off));
+        instructions.push(abi::load_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            out_off,
+        ));
     } else if function.abi_return_name == "return" {
         emit_return_passthrough(
             function,
@@ -521,7 +570,14 @@ fn lower_link_thunk(
         );
     } else if let Some(result) = &function.result {
         let mut counter = 0usize;
-        emit_link_expr(result, STATUS_OFF, 9, &symbol, &mut counter, &mut instructions);
+        emit_link_expr(
+            result,
+            STATUS_OFF,
+            9,
+            &symbol,
+            &mut counter,
+            &mut instructions,
+        );
         instructions.push(abi::move_register(RESULT_VALUE_REGISTER, "x9"));
     } else {
         instructions.push(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
@@ -537,7 +593,11 @@ fn lower_link_thunk(
         instructions.extend([
             abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STATUS_OFF),
             abi::load_u64(&abi::argument_register(0)?, abi::stack_pointer(), CRET_OFF),
-            abi::load_u64("x16", ARENA_STATE_REGISTER, slot_offset(globals_base, free_slot)),
+            abi::load_u64(
+                "x16",
+                ARENA_STATE_REGISTER,
+                slot_offset(globals_base, free_slot),
+            ),
             abi::branch_link_register("x16"),
             abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), STATUS_OFF),
         ]);
@@ -580,15 +640,30 @@ fn lower_link_thunk(
     // Boundary-validation failure epilogues (plan-linker.md §12.3/§12.4), emitted
     // only when the signature can reach them.
     for (needed, label, code, message) in [
-        (needs_range, &range_fail, ERR_OVERFLOW_CODE, ERR_OVERFLOW_SYMBOL),
+        (
+            needs_range,
+            &range_fail,
+            ERR_OVERFLOW_CODE,
+            ERR_OVERFLOW_SYMBOL,
+        ),
         (
             needs_encoding,
             &encoding_fail,
             ERR_ENCODING_CODE,
             ERR_ENCODING_SYMBOL,
         ),
-        (needs_float, &nan_fail, ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_SYMBOL),
-        (needs_float, &inf_fail, ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_SYMBOL),
+        (
+            needs_float,
+            &nan_fail,
+            ERR_FLOAT_NAN_CODE,
+            ERR_FLOAT_NAN_SYMBOL,
+        ),
+        (
+            needs_float,
+            &inf_fail,
+            ERR_FLOAT_INF_CODE,
+            ERR_FLOAT_INF_SYMBOL,
+        ),
     ] {
         if !needed {
             continue;
@@ -694,10 +769,18 @@ fn emit_return_passthrough(
             ]);
         }
         "CPtr" | "CInt64" => {
-            instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), cret_off));
+            instructions.push(abi::load_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                cret_off,
+            ));
         }
         "CInt32" => {
-            instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), status_off));
+            instructions.push(abi::load_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                status_off,
+            ));
         }
         "CBool" => {
             let set = format!("{symbol}_bool_true");
@@ -721,7 +804,11 @@ fn emit_return_passthrough(
             ]);
         }
         _ => {
-            instructions.push(abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), cret_off));
+            instructions.push(abi::load_u64(
+                RESULT_VALUE_REGISTER,
+                abi::stack_pointer(),
+                cret_off,
+            ));
         }
     }
 }
@@ -861,7 +948,11 @@ fn emit_link_expr(
     let dst = format!("x{base}");
     match expr {
         IrLinkExpr::Int(value) => {
-            instructions.push(abi::move_immediate(&dst, "Integer", &(*value as u64).to_string()));
+            instructions.push(abi::move_immediate(
+                &dst,
+                "Integer",
+                &(*value as u64).to_string(),
+            ));
         }
         IrLinkExpr::Var => {
             instructions.push(abi::load_u64(&dst, abi::stack_pointer(), status_off));

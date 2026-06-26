@@ -123,7 +123,11 @@ fn emit_hints(
     instructions: &mut Vec<CodeInstruction>,
 ) {
     for offset in (0..48).step_by(8) {
-        instructions.push(abi::store_u64("x31", abi::stack_pointer(), hints_off + offset));
+        instructions.push(abi::store_u64(
+            "x31",
+            abi::stack_pointer(),
+            hints_off + offset,
+        ));
     }
     let family_word = if passive {
         HINTS_FAMILY_WORD_PASSIVE
@@ -178,7 +182,13 @@ fn emit_address_from_sockaddr(
         abi::load_u64("x2", abi::stack_pointer(), dst_off),
         abi::move_immediate("x3", "Integer", &ADDR_STR_CAP.to_string()),
     ]);
-    platform.emit_libc_call("inet_ntop", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "inet_ntop",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(addr_fail),
@@ -380,7 +390,13 @@ fn lower_net_endpoint_helper(
         abi::load_u32("x1", "x9", 8),
         abi::load_u32("x2", "x9", 12),
     ]);
-    platform.emit_libc_call("socket", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "socket",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&socket_fail),
@@ -419,7 +435,13 @@ fn lower_net_endpoint_helper(
             abi::load_u64("x1", "x9", platform.addrinfo_addr_offset()),
             abi::load_u32("x2", "x9", 16),
         ]);
-        platform.emit_libc_call("bind", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "bind",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
@@ -427,7 +449,13 @@ fn lower_net_endpoint_helper(
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
             abi::load_u64("x1", abi::stack_pointer(), EXTRA_OFFSET),
         ]);
-        platform.emit_libc_call("listen", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "listen",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
@@ -445,7 +473,13 @@ fn lower_net_endpoint_helper(
             abi::move_immediate("x1", "Integer", "3"),
             abi::move_immediate("x2", "Integer", "0"),
         ]);
-        platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_variadic_call(
+            "fcntl",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), FLAGS_OFFSET),
             // fcntl(fd, F_SETFL, flags | O_NONBLOCK)
@@ -455,7 +489,13 @@ fn lower_net_endpoint_helper(
             abi::move_immediate("x9", "Integer", platform.o_nonblock()),
             abi::or_registers("x2", "x2", "x9"),
         ]);
-        platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_variadic_call(
+            "fcntl",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         // connect(fd, ai_addr, ai_addrlen)
         instructions.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
@@ -463,13 +503,24 @@ fn lower_net_endpoint_helper(
             abi::load_u64("x1", "x9", platform.addrinfo_addr_offset()),
             abi::load_u32("x2", "x9", 16),
         ]);
-        platform.emit_libc_call("connect", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "connect",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&nb_connected),
         ]);
         // In progress? Anything other than EINPROGRESS is a hard failure.
-        platform.emit_errno(symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_errno(
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate("x9", platform.einprogress()),
             abi::branch_ne(&op_fail),
@@ -485,7 +536,13 @@ fn lower_net_endpoint_helper(
             abi::move_immediate("x1", "Integer", "1"),
             abi::load_u64("x2", abi::stack_pointer(), EXTRA_OFFSET),
         ]);
-        platform.emit_libc_call("poll", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "poll",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
@@ -500,7 +557,13 @@ fn lower_net_endpoint_helper(
             abi::add_immediate("x3", abi::stack_pointer(), SOERR_OFFSET),
             abi::add_immediate("x4", abi::stack_pointer(), SOLEN_OFFSET),
         ]);
-        platform.emit_libc_call("getsockopt", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "getsockopt",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
@@ -513,7 +576,13 @@ fn lower_net_endpoint_helper(
             abi::move_immediate("x1", "Integer", "4"),
             abi::load_u64("x2", abi::stack_pointer(), FLAGS_OFFSET),
         ]);
-        platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_variadic_call(
+            "fcntl",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::branch(&connected_done),
             // Blocking connect path (timeoutMs <= 0).
@@ -523,7 +592,13 @@ fn lower_net_endpoint_helper(
             abi::load_u64("x1", "x9", platform.addrinfo_addr_offset()),
             abi::load_u32("x2", "x9", 16),
         ]);
-        platform.emit_libc_call("connect", symbol, platform_imports, &mut instructions, &mut relocations)?;
+        platform.emit_libc_call(
+            "connect",
+            symbol,
+            platform_imports,
+            &mut instructions,
+            &mut relocations,
+        )?;
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&op_fail),
@@ -531,7 +606,11 @@ fn lower_net_endpoint_helper(
         ]);
     }
     // freeaddrinfo(res)
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RES_OFFSET,
+    ));
     platform.emit_libc_call(
         "freeaddrinfo",
         symbol,
@@ -539,7 +618,13 @@ fn lower_net_endpoint_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_make_handle(symbol, FD_OFFSET, &mut instructions, &mut relocations, &alloc_fail);
+    emit_make_handle(
+        symbol,
+        FD_OFFSET,
+        &mut instructions,
+        &mut relocations,
+        &alloc_fail,
+    );
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -548,10 +633,24 @@ fn lower_net_endpoint_helper(
     // socket fd (if any) leaks on these rare error paths; the process-level
     // failure is surfaced to the caller as a network error.
     instructions.push(abi::label(&op_fail));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET));
-    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&socket_fail));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RES_OFFSET,
+    ));
     platform.emit_libc_call(
         "freeaddrinfo",
         symbol,
@@ -575,7 +674,13 @@ fn lower_net_endpoint_helper(
         abi::stack_pointer(),
         FD_OFFSET,
     ));
-    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::load_u64(
         abi::return_register(),
         abi::stack_pointer(),
@@ -692,13 +797,25 @@ pub(super) fn lower_net_accept_helper(
         abi::move_immediate("x1", "Integer", "0"),
         abi::move_immediate("x2", "Integer", "0"),
     ]);
-    platform.emit_libc_call("accept", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "accept",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&accept_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
     ]);
-    emit_make_handle(symbol, FD_OFFSET, &mut instructions, &mut relocations, &alloc_fail);
+    emit_make_handle(
+        symbol,
+        FD_OFFSET,
+        &mut instructions,
+        &mut relocations,
+        &alloc_fail,
+    );
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -781,7 +898,13 @@ pub(super) fn lower_net_address_helper(
         abi::add_immediate("x2", abi::stack_pointer(), LEN_OFFSET),
     ]);
     let call = if remote { "getpeername" } else { "getsockname" };
-    platform.emit_libc_call(call, symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        call,
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&name_fail),
@@ -908,7 +1031,12 @@ pub(super) fn lower_net_read_helper(
         abi::load_u64("x1", abi::stack_pointer(), BUF_OFFSET),
         abi::load_u64("x2", abi::stack_pointer(), MAX_OFFSET),
     ]);
-    platform.emit_read_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_read_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
@@ -1029,7 +1157,12 @@ pub(super) fn lower_net_read_helper(
     );
     // read_fail: distinguish a read timeout (EAGAIN) from a closed connection.
     instructions.push(abi::label(&read_fail));
-    platform.emit_errno(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("x9", platform.eagain()),
         abi::branch_eq(&timeout),
@@ -1151,7 +1284,12 @@ pub(super) fn lower_net_write_helper(
         abi::load_u64("x1", abi::stack_pointer(), SRC_OFFSET),
         abi::move_register("x2", "x10"),
     ]);
-    platform.emit_write(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_write(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&write_fail),
@@ -1167,7 +1305,12 @@ pub(super) fn lower_net_write_helper(
         abi::branch(&done),
         abi::label(&write_fail),
     ]);
-    platform.emit_errno(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("x9", platform.eagain()),
         abi::branch_eq(&timeout),
@@ -1250,7 +1393,13 @@ pub(super) fn lower_net_poll_helper(
         abi::move_immediate("x1", "Integer", "1"),
         abi::move_register("x2", "x12"),
     ]);
-    platform.emit_libc_call("poll", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "poll",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&poll_fail),
@@ -1727,7 +1876,13 @@ pub(super) fn lower_net_bind_udp_helper(
         abi::load_u32("x1", "x9", 8),
         abi::load_u32("x2", "x9", 12),
     ]);
-    platform.emit_libc_call("socket", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "socket",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&socket_fail),
@@ -1745,7 +1900,13 @@ pub(super) fn lower_net_bind_udp_helper(
         abi::load_u64("x1", "x9", platform.addrinfo_addr_offset()),
         abi::load_u32("x2", "x9", 16),
     ]);
-    platform.emit_libc_call("bind", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "bind",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&op_fail),
@@ -1759,17 +1920,37 @@ pub(super) fn lower_net_bind_udp_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    emit_make_handle(symbol, FD_OFFSET, &mut instructions, &mut relocations, &alloc_fail);
+    emit_make_handle(
+        symbol,
+        FD_OFFSET,
+        &mut instructions,
+        &mut relocations,
+        &alloc_fail,
+    );
     instructions.extend([
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
     // op_fail: close the socket, free the resolver results, report failure.
     instructions.push(abi::label(&op_fail));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET));
-    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&socket_fail));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RES_OFFSET,
+    ));
     platform.emit_libc_call(
         "freeaddrinfo",
         symbol,
@@ -1888,7 +2069,13 @@ pub(super) fn lower_net_receive_from_helper(
         abi::add_immediate("x4", abi::stack_pointer(), ADDR_STORAGE_OFFSET),
         abi::add_immediate("x5", abi::stack_pointer(), ADDRLEN_OFFSET),
     ]);
-    platform.emit_libc_call("recvfrom", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "recvfrom",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&recv_fail),
@@ -2019,7 +2206,12 @@ pub(super) fn lower_net_receive_from_helper(
     // recv_fail: EAGAIN/EWOULDBLOCK is a read timeout; anything else is a
     // network failure.
     instructions.push(abi::label(&recv_fail));
-    platform.emit_errno(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("x9", platform.eagain()),
         abi::branch_eq(&timeout),
@@ -2220,12 +2412,31 @@ pub(super) fn lower_net_send_to_helper(
         abi::load_u64("x2", abi::stack_pointer(), DLEN_OFFSET),
         abi::move_immediate("x3", "Integer", "0"),
     ]);
-    platform.emit_libc_call("sendto", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    instructions.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), RET_OFFSET));
+    platform.emit_libc_call(
+        "sendto",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RET_OFFSET,
+    ));
     // Capture errno before freeaddrinfo can disturb it.
-    platform.emit_errno(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::store_u64("x9", abi::stack_pointer(), ERRNO_OFFSET));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RES_OFFSET,
+    ));
     platform.emit_libc_call(
         "freeaddrinfo",
         symbol,

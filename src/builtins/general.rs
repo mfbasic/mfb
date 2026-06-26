@@ -303,9 +303,9 @@ pub(crate) fn resolve_find_list<'a>(arg_types: &'a [String]) -> Option<ResolvedC
     let element = list_element(&arg_types[0])?;
     (arg_types.get(2).is_none_or(|type_| type_ == "Integer")
         && (arg_types[1] == element || arg_types[1] == arg_types[0]))
-    .then_some(ResolvedCall {
-        return_type: Cow::Borrowed("Integer"),
-    })
+        .then_some(ResolvedCall {
+            return_type: Cow::Borrowed("Integer"),
+        })
 }
 
 pub(crate) fn resolve_mid_list<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {
@@ -313,9 +313,9 @@ pub(crate) fn resolve_mid_list<'a>(arg_types: &'a [String]) -> Option<ResolvedCa
         && list_element(&arg_types[0]).is_some()
         && arg_types[1] == "Integer"
         && arg_types[2] == "Integer")
-    .then_some(ResolvedCall {
-        return_type: Cow::Borrowed(&arg_types[0]),
-    })
+        .then_some(ResolvedCall {
+            return_type: Cow::Borrowed(&arg_types[0]),
+        })
 }
 
 pub(crate) fn resolve_replace_list<'a>(arg_types: &'a [String]) -> Option<ResolvedCall<'a>> {

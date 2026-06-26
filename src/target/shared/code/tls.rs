@@ -243,17 +243,41 @@ fn emit_dlopen_libssl(
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     let loaded = format!("{symbol}_dlopen_done");
-    emit_data_address(symbol, abi::return_register(), &lib_data_symbol(0), instructions, relocations);
+    emit_data_address(
+        symbol,
+        abi::return_register(),
+        &lib_data_symbol(0),
+        instructions,
+        relocations,
+    );
     instructions.push(abi::move_immediate("x1", "Integer", RTLD_NOW));
-    platform.emit_libc_call("dlopen", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "dlopen",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&loaded),
     ]);
-    emit_data_address(symbol, abi::return_register(), &lib_data_symbol(1), instructions, relocations);
+    emit_data_address(
+        symbol,
+        abi::return_register(),
+        &lib_data_symbol(1),
+        instructions,
+        relocations,
+    );
     instructions.push(abi::move_immediate("x1", "Integer", RTLD_NOW));
-    platform.emit_libc_call("dlopen", symbol, platform_imports, instructions, relocations)?;
+    platform.emit_libc_call(
+        "dlopen",
+        symbol,
+        platform_imports,
+        instructions,
+        relocations,
+    )?;
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
         abi::compare_immediate(abi::return_register(), "0"),
@@ -275,8 +299,18 @@ fn emit_dlsym(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), handle_off));
-    emit_data_address(symbol, "x1", &sym_data_symbol(name), instructions, relocations);
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        handle_off,
+    ));
+    emit_data_address(
+        symbol,
+        "x1",
+        &sym_data_symbol(name),
+        instructions,
+        relocations,
+    );
     platform.emit_libc_call("dlsym", symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
@@ -308,7 +342,13 @@ fn emit_set_sock_timeouts(
             abi::add_immediate("x3", abi::stack_pointer(), tv_off),
             abi::move_immediate("x4", "Integer", "16"),
         ]);
-        platform.emit_libc_call("setsockopt", symbol, platform_imports, instructions, relocations)?;
+        platform.emit_libc_call(
+            "setsockopt",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
     }
     Ok(())
 }
@@ -365,7 +405,11 @@ pub(super) fn lower_tls_connect_helper(
     let addr_off = platform.addrinfo_addr_offset();
     let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
     let mut relocations = Vec::new();
-    instructions.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET));
+    instructions.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        LR_OFFSET,
+    ));
 
     // x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
     instructions.extend([
@@ -377,7 +421,11 @@ pub(super) fn lower_tls_connect_helper(
     // Resolve + connect a TCP socket. Zero a 48-byte hints block and set
     // ai_family = AF_INET, ai_socktype = SOCK_STREAM.
     for offset in (0..48).step_by(8) {
-        instructions.push(abi::store_u64("x31", abi::stack_pointer(), HINTS_OFFSET + offset));
+        instructions.push(abi::store_u64(
+            "x31",
+            abi::stack_pointer(),
+            HINTS_OFFSET + offset,
+        ));
     }
     instructions.extend([
         abi::move_immediate("x9", "Integer", HINTS_FAMILY_WORD),
@@ -395,12 +443,22 @@ pub(super) fn lower_tls_connect_helper(
         &mut relocations,
     );
     instructions.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR_OFFSET),
+        abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            HOSTCSTR_OFFSET,
+        ),
         abi::move_immediate("x1", "Integer", "0"),
         abi::add_immediate("x2", abi::stack_pointer(), HINTS_OFFSET),
         abi::add_immediate("x3", abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call("getaddrinfo", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "getaddrinfo",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
@@ -410,7 +468,13 @@ pub(super) fn lower_tls_connect_helper(
         abi::load_u32("x1", "x9", 8),
         abi::load_u32("x2", "x9", 12),
     ]);
-    platform.emit_libc_call("socket", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "socket",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail),
@@ -435,7 +499,13 @@ pub(super) fn lower_tls_connect_helper(
         abi::move_immediate("x1", "Integer", "3"),
         abi::move_immediate("x2", "Integer", "0"),
     ]);
-    platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_variadic_call(
+        "fcntl",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FLAGS_OFFSET),
         // fcntl(fd, F_SETFL, flags | O_NONBLOCK)
@@ -445,7 +515,13 @@ pub(super) fn lower_tls_connect_helper(
         abi::move_immediate("x9", "Integer", platform.o_nonblock()),
         abi::or_registers("x2", "x2", "x9"),
     ]);
-    platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_variadic_call(
+        "fcntl",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // connect(fd, ai_addr, ai_addrlen)
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
@@ -453,13 +529,24 @@ pub(super) fn lower_tls_connect_helper(
         abi::load_u64("x1", "x9", addr_off),
         abi::load_u32("x2", "x9", 16),
     ]);
-    platform.emit_libc_call("connect", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "connect",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&nb_connected),
     ]);
     // In progress? Anything other than EINPROGRESS is a hard failure.
-    platform.emit_errno(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_errno(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate("x9", platform.einprogress()),
         abi::branch_ne(&net_fail_fd),
@@ -475,7 +562,13 @@ pub(super) fn lower_tls_connect_helper(
         abi::move_immediate("x1", "Integer", "1"),
         abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET),
     ]);
-    platform.emit_libc_call("poll", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "poll",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail_fd),
@@ -490,7 +583,13 @@ pub(super) fn lower_tls_connect_helper(
         abi::add_immediate("x3", abi::stack_pointer(), SOERR_OFFSET),
         abi::add_immediate("x4", abi::stack_pointer(), SOLEN_OFFSET),
     ]);
-    platform.emit_libc_call("getsockopt", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "getsockopt",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail_fd),
@@ -503,7 +602,13 @@ pub(super) fn lower_tls_connect_helper(
         abi::move_immediate("x1", "Integer", "4"),
         abi::load_u64("x2", abi::stack_pointer(), FLAGS_OFFSET),
     ]);
-    platform.emit_variadic_call("fcntl", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_variadic_call(
+        "fcntl",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::branch(&connected),
         // Blocking connect path (timeoutMs <= 0).
@@ -513,7 +618,13 @@ pub(super) fn lower_tls_connect_helper(
         abi::load_u64("x1", "x9", addr_off),
         abi::load_u32("x2", "x9", 16),
     ]);
-    platform.emit_libc_call("connect", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "connect",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail_fd),
@@ -521,7 +632,13 @@ pub(super) fn lower_tls_connect_helper(
         // freeaddrinfo(res)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
     ]);
-    platform.emit_libc_call("freeaddrinfo", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_libc_call(
+        "freeaddrinfo",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Bound the blocking TLS handshake by timeoutMs (SO_RCVTIMEO/SO_SNDTIMEO),
     // cleared again after the handshake so read/write stay unbounded.
     instructions.extend([
@@ -537,7 +654,15 @@ pub(super) fn lower_tls_connect_helper(
         abi::store_u64("x11", abi::stack_pointer(), TIMEVAL_OFFSET),
         abi::store_u64("x12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
-    emit_set_sock_timeouts(symbol, FD_OFFSET, TIMEVAL_OFFSET, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_set_sock_timeouts(
+        symbol,
+        FD_OFFSET,
+        TIMEVAL_OFFSET,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&hs_timeout_set));
     // SNI/validation name = serverName if non-empty, else host.
     instructions.extend([
@@ -579,14 +704,34 @@ pub(super) fn lower_tls_connect_helper(
         &mut relocations,
     )?;
     // method = TLS_client_method(); stash transiently in the CTX slot.
-    emit_dlsym(symbol, HANDLE_OFFSET, "TLS_client_method", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "TLS_client_method",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("x9"),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
     ]);
     // ctx = SSL_CTX_new(method)
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_CTX_new", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_new",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
@@ -596,14 +741,34 @@ pub(super) fn lower_tls_connect_helper(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
     ]);
     // SSL_CTX_set_default_verify_paths(ctx) -- best effort, ignore result.
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_CTX_set_default_verify_paths", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_set_default_verify_paths",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("x9"),
     ]);
     // ssl = SSL_new(ctx)
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_new", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_new",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
@@ -613,7 +778,17 @@ pub(super) fn lower_tls_connect_helper(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
     ]);
     // SSL_set_fd(ssl, fd)
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_set_fd", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_set_fd",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x1", abi::stack_pointer(), FD_OFFSET),
@@ -623,7 +798,17 @@ pub(super) fn lower_tls_connect_helper(
         abi::branch_ne(&tls_fail),
     ]);
     // SSL_set_verify(ssl, SSL_VERIFY_PEER, NULL)
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_set_verify", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_set_verify",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::move_immediate("x1", "Integer", SSL_VERIFY_PEER),
@@ -632,7 +817,17 @@ pub(super) fn lower_tls_connect_helper(
         abi::branch_link_register("x9"),
     ]);
     // SSL_set1_host(ssl, sniCstr)
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_set1_host", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_set1_host",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x1", abi::stack_pointer(), SNICSTR_OFFSET),
@@ -642,7 +837,17 @@ pub(super) fn lower_tls_connect_helper(
         abi::branch_ne(&tls_fail),
     ]);
     // SSL_ctrl(ssl, SSL_CTRL_SET_TLSEXT_HOSTNAME, TLSEXT_NAMETYPE_host_name, sniCstr) -- SNI
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_ctrl", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_ctrl",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::move_immediate("x1", "Integer", SSL_CTRL_SET_TLSEXT_HOSTNAME),
@@ -659,7 +864,17 @@ pub(super) fn lower_tls_connect_helper(
         abi::branch_link_register("x9"),
     ]);
     // r = SSL_connect(ssl); require 1.
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_connect", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_connect",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
@@ -668,7 +883,17 @@ pub(super) fn lower_tls_connect_helper(
         abi::branch_ne(&tls_fail),
     ]);
     // v = SSL_get_verify_result(ssl); require X509_V_OK (0).
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_get_verify_result", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_get_verify_result",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
@@ -684,7 +909,15 @@ pub(super) fn lower_tls_connect_helper(
         abi::store_u64("x31", abi::stack_pointer(), TIMEVAL_OFFSET),
         abi::store_u64("x31", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
-    emit_set_sock_timeouts(symbol, FD_OFFSET, TIMEVAL_OFFSET, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_set_sock_timeouts(
+        symbol,
+        FD_OFFSET,
+        TIMEVAL_OFFSET,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&hs_timeout_clear));
     // Build the TlsSocket record { fd, closed = 0, ssl, ctx }.
     instructions.extend([
@@ -707,32 +940,124 @@ pub(super) fn lower_tls_connect_helper(
 
     // Error paths.
     instructions.push(abi::label(&tls_fail));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET));
-    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
 
     instructions.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
 
     instructions.push(abi::label(&net_fail_fd));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET));
-    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.push(abi::label(&net_fail));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET));
-    platform.emit_libc_call("freeaddrinfo", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RES_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "freeaddrinfo",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_NETWORK_FAILED_CODE,
+        ERR_NETWORK_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     // The TCP connect did not complete before timeoutMs: close the pending
     // socket, release the resolver results, and report a timeout.
     instructions.push(abi::label(&connect_timeout));
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET));
-    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET));
-    platform.emit_libc_call("freeaddrinfo", symbol, platform_imports, &mut instructions, &mut relocations)?;
-    emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut instructions, &mut relocations, &done);
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RES_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "freeaddrinfo",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&resolve_fail));
-    emit_fail(symbol, ERR_ADDRESS_NOT_FOUND_CODE, ERR_ADDRESS_NOT_FOUND_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_ADDRESS_NOT_FOUND_CODE,
+        ERR_ADDRESS_NOT_FOUND_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
 
     instructions.extend([
         abi::label(&done),
@@ -798,8 +1123,26 @@ pub(super) fn lower_tls_read_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.push(abi::store_u64("x1", abi::stack_pointer(), BUF_OFFSET));
-    emit_dlopen_libssl(symbol, HANDLE_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_read", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlopen_libssl(
+        symbol,
+        HANDLE_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_read",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // n = SSL_read(ssl, buf, maxBytes)
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -848,7 +1191,14 @@ pub(super) fn lower_tls_read_helper(
             abi::branch(&done),
             abi::label(&encoding_error),
         ]);
-        emit_fail(symbol, ERR_ENCODING_CODE, ERR_ENCODING_SYMBOL, &mut instructions, &mut relocations, &done);
+        emit_fail(
+            symbol,
+            ERR_ENCODING_CODE,
+            ERR_ENCODING_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+            &done,
+        );
     } else {
         instructions.extend([
             abi::load_u64("x10", abi::stack_pointer(), N_OFFSET),
@@ -903,17 +1253,59 @@ pub(super) fn lower_tls_read_helper(
         ]);
     }
     instructions.push(abi::label(&peer_closed));
-    emit_fail(symbol, ERR_CONNECTION_CLOSED_CODE, ERR_CONNECTION_CLOSED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_CONNECTION_CLOSED_CODE,
+        ERR_CONNECTION_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&read_fail));
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&invalid));
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&closed));
-    emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&done),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
@@ -979,8 +1371,26 @@ pub(super) fn lower_tls_write_helper(
             abi::store_u64("x11", abi::stack_pointer(), SRC_OFFSET),
         ]);
     }
-    emit_dlopen_libssl(symbol, HANDLE_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_write", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlopen_libssl(
+        symbol,
+        HANDLE_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_write",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::label(&write_loop),
         abi::load_u64("x10", abi::stack_pointer(), REMAINING_OFFSET),
@@ -1006,11 +1416,32 @@ pub(super) fn lower_tls_write_helper(
         abi::branch(&done),
     ]);
     instructions.push(abi::label(&write_fail));
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.push(abi::label(&closed));
-    emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&done),
         abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
@@ -1061,31 +1492,79 @@ pub(super) fn lower_tls_close_helper(
         abi::load_u64("x9", abi::return_register(), TLS_OFFSET_FD),
         abi::store_u64("x9", abi::stack_pointer(), FD_OFFSET),
     ]);
-    emit_dlopen_libssl(symbol, HANDLE_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlopen_libssl(
+        symbol,
+        HANDLE_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // SSL_shutdown(ssl)
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_shutdown", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_shutdown",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("x9"),
     ]);
     // SSL_free(ssl)
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_free", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_free",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("x9"),
     ]);
     // SSL_CTX_free(ctx)
-    emit_dlsym(symbol, HANDLE_OFFSET, "SSL_CTX_free", FNPTR_OFFSET, &load_fail, platform_imports, platform, &mut instructions, &mut relocations)?;
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_free",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
         abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("x9"),
     ]);
     // close(fd)
-    instructions.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET));
-    platform.emit_libc_call("close", symbol, platform_imports, &mut instructions, &mut relocations)?;
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     // Mark the record closed.
     instructions.extend([
         abi::load_u64("x9", abi::stack_pointer(), REC_OFFSET),
@@ -1098,7 +1577,14 @@ pub(super) fn lower_tls_close_helper(
     // success-ish OK (the session is gone); but to surface load problems we map
     // it to ErrTlsFailed.
     instructions.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut instructions, &mut relocations, &done);
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
     instructions.extend([
         abi::label(&already),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1378,7 +1864,17 @@ mod macos {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_dlsym(symbol, handle_off, name, fnptr_off, fail, platform_imports, platform, instructions, relocations)
+        emit_dlsym(
+            symbol,
+            handle_off,
+            name,
+            fnptr_off,
+            fail,
+            platform_imports,
+            platform,
+            instructions,
+            relocations,
+        )
     }
 
     /// Build a 40-byte block literal at `sp + block_off` whose `invoke` is
@@ -1398,16 +1894,34 @@ mod macos {
         ins: &mut Vec<CodeInstruction>,
         rel: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        dlsym(symbol, handle_off, "_NSConcreteStackBlock", fnptr_off, fail, platform_imports, platform, ins, rel)?;
+        dlsym(
+            symbol,
+            handle_off,
+            "_NSConcreteStackBlock",
+            fnptr_off,
+            fail,
+            platform_imports,
+            platform,
+            ins,
+            rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), fnptr_off),
             abi::store_u64("x9", abi::stack_pointer(), block_off + BLK_ISA),
             abi::store_u64("x31", abi::stack_pointer(), block_off + BLK_FLAGS),
         ]);
         emit_data_address(symbol, "x9", invoke_symbol, ins, rel);
-        ins.push(abi::store_u64("x9", abi::stack_pointer(), block_off + BLK_INVOKE));
+        ins.push(abi::store_u64(
+            "x9",
+            abi::stack_pointer(),
+            block_off + BLK_INVOKE,
+        ));
         emit_data_address(symbol, "x9", DESC_SYMBOL, ins, rel);
-        ins.push(abi::store_u64("x9", abi::stack_pointer(), block_off + BLK_DESC));
+        ins.push(abi::store_u64(
+            "x9",
+            abi::stack_pointer(),
+            block_off + BLK_DESC,
+        ));
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), ctx_off),
             abi::store_u64("x9", abi::stack_pointer(), block_off + BLK_CAP),
@@ -1431,7 +1945,17 @@ mod macos {
         ins: &mut Vec<CodeInstruction>,
         rel: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        dlsym(symbol, handle_off, "dispatch_semaphore_create", fnptr_off, fail, platform_imports, platform, ins, rel)?;
+        dlsym(
+            symbol,
+            handle_off,
+            "dispatch_semaphore_create",
+            fnptr_off,
+            fail,
+            platform_imports,
+            platform,
+            ins,
+            rel,
+        )?;
         ins.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::load_u64("x9", abi::stack_pointer(), fnptr_off),
@@ -1457,7 +1981,17 @@ mod macos {
         ins: &mut Vec<CodeInstruction>,
         rel: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        dlsym(symbol, handle_off, "dispatch_semaphore_wait", fnptr_off, fail, platform_imports, platform, ins, rel)?;
+        dlsym(
+            symbol,
+            handle_off,
+            "dispatch_semaphore_wait",
+            fnptr_off,
+            fail,
+            platform_imports,
+            platform,
+            ins,
+            rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), ctx_off),
             abi::load_u64(abi::return_register(), "x9", CTX_SEM),
@@ -1540,7 +2074,13 @@ mod macos {
             abi::store_u64("x13", abi::stack_pointer(), PORTCSTR),
         ]);
         // dlopen Network.framework.
-        emit_data_address(symbol, abi::return_register(), MACLIB_SYMBOL, &mut ins, &mut rel);
+        emit_data_address(
+            symbol,
+            abi::return_register(),
+            MACLIB_SYMBOL,
+            &mut ins,
+            &mut rel,
+        );
         ins.push(abi::move_immediate("x1", "Integer", RTLD_NOW));
         platform.emit_libc_call("dlopen", symbol, platform_imports, &mut ins, &mut rel)?;
         ins.extend([
@@ -1548,7 +2088,15 @@ mod macos {
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&load_fail),
         ]);
-        emit_cstring(symbol, "host", HOST, HOSTCSTR, &alloc_fail, &mut ins, &mut rel);
+        emit_cstring(
+            symbol,
+            "host",
+            HOST,
+            HOSTCSTR,
+            &alloc_fail,
+            &mut ins,
+            &mut rel,
+        );
         // Allocate the block context.
         ins.extend([
             abi::move_immediate(abi::return_register(), "Integer", CTX_SIZE),
@@ -1557,7 +2105,17 @@ mod macos {
         emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
         ins.push(abi::store_u64("x1", abi::stack_pointer(), CTX));
         // endpoint = nw_endpoint_create_host(host, port)
-        dlsym(symbol, HANDLE, "nw_endpoint_create_host", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_endpoint_create_host",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
             abi::load_u64("x1", abi::stack_pointer(), PORTCSTR),
@@ -1568,7 +2126,17 @@ mod macos {
             abi::store_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
         ]);
         // cfg = *_nw_parameters_configure_protocol_default_configuration
-        dlsym(symbol, HANDLE, "_nw_parameters_configure_protocol_default_configuration", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "_nw_parameters_configure_protocol_default_configuration",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::load_u64("x9", "x9", 0),
@@ -1586,27 +2154,73 @@ mod macos {
         // whose invoke calls sec_protocol_options_set_tls_server_name. The block
         // is invoked synchronously during nw_parameters_create_secure_tcp, so the
         // stack literal stays live for its whole lifetime.
-        emit_cstring(symbol, "sni", SNAME, SNICSTR, &alloc_fail, &mut ins, &mut rel);
-        dlsym(symbol, HANDLE, "_NSConcreteStackBlock", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        emit_cstring(
+            symbol,
+            "sni",
+            SNAME,
+            SNICSTR,
+            &alloc_fail,
+            &mut ins,
+            &mut rel,
+        );
+        dlsym(
+            symbol,
+            HANDLE,
+            "_NSConcreteStackBlock",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + BLK_ISA),
             abi::store_u64("x31", abi::stack_pointer(), CFGBLOCK + BLK_FLAGS),
         ]);
         emit_data_address(symbol, "x9", CFG_INVOKE, &mut ins, &mut rel);
-        ins.push(abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + BLK_INVOKE));
+        ins.push(abi::store_u64(
+            "x9",
+            abi::stack_pointer(),
+            CFGBLOCK + BLK_INVOKE,
+        ));
         emit_data_address(symbol, "x9", CFG_DESC_SYMBOL, &mut ins, &mut rel);
-        ins.push(abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + BLK_DESC));
+        ins.push(abi::store_u64(
+            "x9",
+            abi::stack_pointer(),
+            CFGBLOCK + BLK_DESC,
+        ));
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), SNICSTR),
             abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SNAME),
         ]);
-        dlsym(symbol, HANDLE, "nw_tls_copy_sec_protocol_options", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_tls_copy_sec_protocol_options",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_COPYFN),
         ]);
-        dlsym(symbol, HANDLE, "sec_protocol_options_set_tls_server_name", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "sec_protocol_options_set_tls_server_name",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::store_u64("x9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETFN),
@@ -1616,7 +2230,17 @@ mod macos {
         ]);
         ins.push(abi::label(&sni_default));
         // params = nw_parameters_create_secure_tcp(tlscfg, cfg)
-        dlsym(symbol, HANDLE, "nw_parameters_create_secure_tcp", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_parameters_create_secure_tcp",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), TLSCFG),
             abi::load_u64("x1", abi::stack_pointer(), CFG),
@@ -1627,7 +2251,17 @@ mod macos {
             abi::store_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
         ]);
         // conn = nw_connection_create(endpoint, params)
-        dlsym(symbol, HANDLE, "nw_connection_create", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_create",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
             abi::load_u64("x1", abi::stack_pointer(), PARAMS),
@@ -1638,8 +2272,24 @@ mod macos {
             abi::store_u64(abi::return_register(), abi::stack_pointer(), CONN),
         ]);
         // queue = dispatch_queue_create("mfb.tls", NULL)
-        dlsym(symbol, HANDLE, "dispatch_queue_create", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
-        emit_data_address(symbol, abi::return_register(), QLABEL_SYMBOL, &mut ins, &mut rel);
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_queue_create",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
+        emit_data_address(
+            symbol,
+            abi::return_register(),
+            QLABEL_SYMBOL,
+            &mut ins,
+            &mut rel,
+        );
         ins.extend([
             abi::move_immediate("x1", "Integer", "0"),
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
@@ -1647,7 +2297,17 @@ mod macos {
             abi::store_u64(abi::return_register(), abi::stack_pointer(), QUEUE),
         ]);
         // ctx->sem = dispatch_semaphore_create(0)
-        dlsym(symbol, HANDLE, "dispatch_semaphore_create", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_semaphore_create",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"),
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
@@ -1656,14 +2316,34 @@ mod macos {
             abi::store_u64(abi::return_register(), "x9", CTX_SEM),
         ]);
         // ctx->signal = &dispatch_semaphore_signal
-        dlsym(symbol, HANDLE, "dispatch_semaphore_signal", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_semaphore_signal",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x10", abi::stack_pointer(), FNPTR),
             abi::load_u64("x9", abi::stack_pointer(), CTX),
             abi::store_u64("x10", "x9", CTX_SIGNAL),
         ]);
         // nw_connection_set_queue(conn, queue)
-        dlsym(symbol, HANDLE, "nw_connection_set_queue", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_set_queue",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
             abi::load_u64("x1", abi::stack_pointer(), QUEUE),
@@ -1671,14 +2351,28 @@ mod macos {
             abi::branch_link_register("x9"),
         ]);
         // Build the state-changed block literal on the stack.
-        dlsym(symbol, HANDLE, "_NSConcreteStackBlock", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "_NSConcreteStackBlock",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::store_u64("x9", abi::stack_pointer(), BLOCK + BLK_ISA),
             abi::store_u64("x31", abi::stack_pointer(), BLOCK + BLK_FLAGS),
         ]);
         emit_data_address(symbol, "x9", STATE_INVOKE, &mut ins, &mut rel);
-        ins.push(abi::store_u64("x9", abi::stack_pointer(), BLOCK + BLK_INVOKE));
+        ins.push(abi::store_u64(
+            "x9",
+            abi::stack_pointer(),
+            BLOCK + BLK_INVOKE,
+        ));
         emit_data_address(symbol, "x9", DESC_SYMBOL, &mut ins, &mut rel);
         ins.push(abi::store_u64("x9", abi::stack_pointer(), BLOCK + BLK_DESC));
         ins.extend([
@@ -1686,7 +2380,17 @@ mod macos {
             abi::store_u64("x9", abi::stack_pointer(), BLOCK + BLK_CAP),
         ]);
         // nw_connection_set_state_changed_handler(conn, &block)
-        dlsym(symbol, HANDLE, "nw_connection_set_state_changed_handler", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_set_state_changed_handler",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
             abi::add_immediate("x1", abi::stack_pointer(), BLOCK),
@@ -1694,7 +2398,17 @@ mod macos {
             abi::branch_link_register("x9"),
         ]);
         // nw_connection_start(conn)
-        dlsym(symbol, HANDLE, "nw_connection_start", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_start",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
@@ -1708,7 +2422,17 @@ mod macos {
             abi::compare_immediate("x9", "0"),
             abi::branch_le(&wait_forever),
         ]);
-        dlsym(symbol, HANDLE, "dispatch_time", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_time",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"), // DISPATCH_TIME_NOW
             abi::load_u64("x1", abi::stack_pointer(), TIMEOUT),
@@ -1725,7 +2449,17 @@ mod macos {
             abi::label(&deadline_ready),
         ]);
         // Wait for a terminal state, bounded by the deadline.
-        dlsym(symbol, HANDLE, "dispatch_semaphore_wait", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_semaphore_wait",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::store_u64("x9", abi::stack_pointer(), WAITFN),
@@ -1769,29 +2503,84 @@ mod macos {
         ]);
         // conn_fail: cancel the connection, report a TLS failure.
         ins.push(abi::label(&conn_fail));
-        dlsym(symbol, HANDLE, "nw_connection_cancel", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_cancel",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::branch_link_register("x9"),
         ]);
-        emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_TLS_FAILED_CODE,
+            ERR_TLS_FAILED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         // conn_timeout: the deadline elapsed; cancel the connection, report a
         // timeout.
         ins.push(abi::label(&conn_timeout));
-        dlsym(symbol, HANDLE, "nw_connection_cancel", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_cancel",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::branch_link_register("x9"),
         ]);
-        emit_fail(symbol, ERR_TIMEOUT_CODE, ERR_TIMEOUT_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_TIMEOUT_CODE,
+            ERR_TIMEOUT_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&net_fail));
-        emit_fail(symbol, ERR_NETWORK_FAILED_CODE, ERR_NETWORK_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_NETWORK_FAILED_CODE,
+            ERR_NETWORK_FAILED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&load_fail));
-        emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_TLS_FAILED_CODE,
+            ERR_TLS_FAILED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&alloc_fail));
-        emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_OUT_OF_MEMORY_CODE,
+            ERR_ALLOCATION_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.extend([
             abi::label(&done),
             abi::load_u64(abi::link_register(), abi::stack_pointer(), LR),
@@ -1851,18 +2640,68 @@ mod macos {
             abi::compare_immediate("x10", "0"),
             abi::branch_le(&invalid),
         ]);
-        emit_dlopen_libssl_macos(symbol, HANDLE, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
-        emit_fresh_sem(symbol, HANDLE, CTX, FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        emit_dlopen_libssl_macos(
+            symbol,
+            HANDLE,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
+        emit_fresh_sem(
+            symbol,
+            HANDLE,
+            CTX,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         // ctx->retain = &dispatch_retain (used inside the receive block).
-        dlsym(symbol, HANDLE, "dispatch_retain", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_retain",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x10", abi::stack_pointer(), FNPTR),
             abi::load_u64("x9", abi::stack_pointer(), CTX),
             abi::store_u64("x10", "x9", CTX_RETAIN),
         ]);
-        emit_build_block(symbol, HANDLE, RECV_INVOKE, CTX, BLOCK, FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        emit_build_block(
+            symbol,
+            HANDLE,
+            RECV_INVOKE,
+            CTX,
+            BLOCK,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         // nw_connection_receive(conn, min=1, max=maxBytes, &block)
-        dlsym(symbol, HANDLE, "nw_connection_receive", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_receive",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
             abi::move_immediate("x1", "Integer", "1"),
@@ -1871,7 +2710,17 @@ mod macos {
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::branch_link_register("x9"),
         ]);
-        emit_wait(symbol, HANDLE, CTX, FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        emit_wait(
+            symbol,
+            HANDLE,
+            CTX,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         // A null content is end-of-stream.
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), CTX),
@@ -1880,7 +2729,17 @@ mod macos {
             abi::branch_eq(&peer_closed),
         ]);
         // dispatch_data_create_map(content, &ptr, &size) -> mapped (contiguous)
-        dlsym(symbol, HANDLE, "dispatch_data_create_map", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_data_create_map",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), CTX),
             abi::load_u64(abi::return_register(), "x9", CTX_CONTENT),
@@ -1974,7 +2833,17 @@ mod macos {
             ]);
         }
         // Release the mapped data and the retained content, then return.
-        dlsym(symbol, HANDLE, "dispatch_release", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_release",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), MAPPED),
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
@@ -1989,18 +2858,60 @@ mod macos {
         ]);
         if text {
             ins.push(abi::label(&encoding_error));
-            emit_fail(symbol, ERR_ENCODING_CODE, ERR_ENCODING_SYMBOL, &mut ins, &mut rel, &done);
+            emit_fail(
+                symbol,
+                ERR_ENCODING_CODE,
+                ERR_ENCODING_SYMBOL,
+                &mut ins,
+                &mut rel,
+                &done,
+            );
         }
         ins.push(abi::label(&peer_closed));
-        emit_fail(symbol, ERR_CONNECTION_CLOSED_CODE, ERR_CONNECTION_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_CONNECTION_CLOSED_CODE,
+            ERR_CONNECTION_CLOSED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&invalid));
-        emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_INVALID_ARGUMENT_CODE,
+            ERR_INVALID_ARGUMENT_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&load_fail));
-        emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_TLS_FAILED_CODE,
+            ERR_TLS_FAILED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&closed));
-        emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_RESOURCE_CLOSED_CODE,
+            ERR_RESOURCE_CLOSED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&alloc_fail));
-        emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_OUT_OF_MEMORY_CODE,
+            ERR_ALLOCATION_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.extend([
             abi::label(&done),
             abi::load_u64(abi::link_register(), abi::stack_pointer(), LR),
@@ -2072,10 +2983,38 @@ mod macos {
             abi::compare_immediate("x10", "0"),
             abi::branch_eq(&empty),
         ]);
-        emit_dlopen_libssl_macos(symbol, HANDLE, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
-        emit_fresh_sem(symbol, HANDLE, CTX, FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        emit_dlopen_libssl_macos(
+            symbol,
+            HANDLE,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
+        emit_fresh_sem(
+            symbol,
+            HANDLE,
+            CTX,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         // content = dispatch_data_create(data, len, NULL, NULL)  (NULL = copy)
-        dlsym(symbol, HANDLE, "dispatch_data_create", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_data_create",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), DATA),
             abi::load_u64("x1", abi::stack_pointer(), DLEN),
@@ -2086,15 +3025,47 @@ mod macos {
             abi::store_u64(abi::return_register(), abi::stack_pointer(), CONTENT),
         ]);
         // ctxdef = *_nw_content_context_default_message
-        dlsym(symbol, HANDLE, "_nw_content_context_default_message", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "_nw_content_context_default_message",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::load_u64("x9", "x9", 0),
             abi::store_u64("x9", abi::stack_pointer(), CTXDEF),
         ]);
-        emit_build_block(symbol, HANDLE, SEND_INVOKE, CTX, BLOCK, FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        emit_build_block(
+            symbol,
+            HANDLE,
+            SEND_INVOKE,
+            CTX,
+            BLOCK,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         // nw_connection_send(conn, content, context, is_complete=true, &block)
-        dlsym(symbol, HANDLE, "nw_connection_send", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_send",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
             abi::load_u64("x1", abi::stack_pointer(), CONTENT),
@@ -2104,9 +3075,29 @@ mod macos {
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
             abi::branch_link_register("x9"),
         ]);
-        emit_wait(symbol, HANDLE, CTX, FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        emit_wait(
+            symbol,
+            HANDLE,
+            CTX,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         // Release the content we created.
-        dlsym(symbol, HANDLE, "dispatch_release", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "dispatch_release",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64(abi::return_register(), abi::stack_pointer(), CONTENT),
             abi::load_u64("x9", abi::stack_pointer(), FNPTR),
@@ -2121,11 +3112,32 @@ mod macos {
             abi::branch(&done),
         ]);
         ins.push(abi::label(&write_fail));
-        emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_TLS_FAILED_CODE,
+            ERR_TLS_FAILED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&load_fail));
-        emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_TLS_FAILED_CODE,
+            ERR_TLS_FAILED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.push(abi::label(&closed));
-        emit_fail(symbol, ERR_RESOURCE_CLOSED_CODE, ERR_RESOURCE_CLOSED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_RESOURCE_CLOSED_CODE,
+            ERR_RESOURCE_CLOSED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.extend([
             abi::label(&done),
             abi::load_u64(abi::link_register(), abi::stack_pointer(), LR),
@@ -2158,9 +3170,27 @@ mod macos {
             abi::compare_immediate("x9", "0"),
             abi::branch_ne(&already),
         ]);
-        emit_dlopen_libssl_macos(symbol, HANDLE, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        emit_dlopen_libssl_macos(
+            symbol,
+            HANDLE,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         // nw_connection_cancel(conn)
-        dlsym(symbol, HANDLE, "nw_connection_cancel", FNPTR, &load_fail, platform_imports, platform, &mut ins, &mut rel)?;
+        dlsym(
+            symbol,
+            HANDLE,
+            "nw_connection_cancel",
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
         ins.extend([
             abi::load_u64("x9", abi::stack_pointer(), REC),
             abi::load_u64(abi::return_register(), "x9", REC_CONN),
@@ -2174,7 +3204,14 @@ mod macos {
             abi::branch(&done),
         ]);
         ins.push(abi::label(&load_fail));
-        emit_fail(symbol, ERR_TLS_FAILED_CODE, ERR_TLS_FAILED_SYMBOL, &mut ins, &mut rel, &done);
+        emit_fail(
+            symbol,
+            ERR_TLS_FAILED_CODE,
+            ERR_TLS_FAILED_SYMBOL,
+            &mut ins,
+            &mut rel,
+            &done,
+        );
         ins.extend([
             abi::label(&already),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -2195,9 +3232,21 @@ mod macos {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        emit_data_address(symbol, abi::return_register(), MACLIB_SYMBOL, instructions, relocations);
+        emit_data_address(
+            symbol,
+            abi::return_register(),
+            MACLIB_SYMBOL,
+            instructions,
+            relocations,
+        );
         instructions.push(abi::move_immediate("x1", "Integer", RTLD_NOW));
-        platform.emit_libc_call("dlopen", symbol, platform_imports, instructions, relocations)?;
+        platform.emit_libc_call(
+            "dlopen",
+            symbol,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
         instructions.extend([
             abi::store_u64(abi::return_register(), abi::stack_pointer(), handle_off),
             abi::compare_immediate(abi::return_register(), "0"),

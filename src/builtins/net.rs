@@ -251,8 +251,8 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         LISTEN_TCP => Some((2, 3)),
         ACCEPT => Some((1, 2)),
         POLL => Some((1, 2)),
-        READ | READ_TEXT | WRITE | WRITE_TEXT | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT
-        | BIND_UDP | RECEIVE_FROM | RECEIVE_TEXT_FROM => Some((2, 2)),
+        READ | READ_TEXT | WRITE | WRITE_TEXT | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT | BIND_UDP
+        | RECEIVE_FROM | RECEIVE_TEXT_FROM => Some((2, 2)),
         SEND_TO | SEND_TEXT_TO => Some((3, 3)),
         CLOSE | LOCAL_ADDRESS | REMOTE_ADDRESS => Some((1, 1)),
         _ => None,

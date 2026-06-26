@@ -625,9 +625,21 @@ impl CodeBuilder<'_> {
         right: &ValueResult,
     ) -> Result<ValueResult, String> {
         // Boolean outcome for each of the three orderings, per operator.
-        let less_value = if matches!(op, "<" | "<=") { "true" } else { "false" };
-        let greater_value = if matches!(op, ">" | ">=") { "true" } else { "false" };
-        let equal_value = if matches!(op, "<=" | ">=") { "true" } else { "false" };
+        let less_value = if matches!(op, "<" | "<=") {
+            "true"
+        } else {
+            "false"
+        };
+        let greater_value = if matches!(op, ">" | ">=") {
+            "true"
+        } else {
+            "false"
+        };
+        let equal_value = if matches!(op, "<=" | ">=") {
+            "true"
+        } else {
+            "false"
+        };
 
         let result = self.allocate_register()?;
         let min_done_label = self.label("cmp_string_ord_min");

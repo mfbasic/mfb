@@ -1875,8 +1875,10 @@ fn function_returns(ast: &AstProject) -> HashMap<String, String> {
                 }
                 Item::Link(link) => {
                     for native in &link.functions {
-                        let return_type =
-                            native.return_type.clone().unwrap_or_else(|| "Nothing".to_string());
+                        let return_type = native
+                            .return_type
+                            .clone()
+                            .unwrap_or_else(|| "Nothing".to_string());
                         native_returns
                             .insert(format!("{}.{}", link.alias, native.name), return_type);
                     }
@@ -1941,10 +1943,18 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
                     let params = native
                         .params
                         .iter()
-                        .map(|param| param.type_name.clone().unwrap_or_else(|| "Unknown".to_string()))
+                        .map(|param| {
+                            param
+                                .type_name
+                                .clone()
+                                .unwrap_or_else(|| "Unknown".to_string())
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
-                    let returns = native.return_type.clone().unwrap_or_else(|| "Nothing".to_string());
+                    let returns = native
+                        .return_type
+                        .clone()
+                        .unwrap_or_else(|| "Nothing".to_string());
                     types.insert(
                         format!("{}.{}", link.alias, native.name),
                         format!("FUNC({params}) AS {returns}"),
@@ -2647,7 +2657,8 @@ fn lower_expression_with_expected(
             }
             let normalized_builtin =
                 normalize_builtin_call_arguments(canonical_callee.as_str(), arguments);
-            let args = if canonical_callee == "collections.filter" && normalized_builtin.len() == 2 {
+            let args = if canonical_callee == "collections.filter" && normalized_builtin.len() == 2
+            {
                 if let Expression::Identifier(predicate) = normalized_builtin[1] {
                     let predicate_type = expression_type(normalized_builtin[0], locals, context)
                         .and_then(|collection_type| {
@@ -2748,17 +2759,15 @@ fn lower_expression_with_expected(
             // `parse` select a distinct internal name by argument count (§5.1.1).
             // Its OS-seam intrinsics return `None`, staying `datetime.*` runtime
             // helper calls.
-            let resolved_target = builtins::datetime::implementation_name(
-                &canonical_callee,
-                args.len(),
-            )
-            .map(|name| crate::internal_name::internalize(&name))
-            .or_else(|| {
-                builtins::json::implementation_name(&canonical_callee)
-                    .or_else(|| builtins::regex::implementation_name(&canonical_callee))
-                    .map(crate::internal_name::internalize)
-            })
-            .unwrap_or_else(|| canonical_callee.clone());
+            let resolved_target =
+                builtins::datetime::implementation_name(&canonical_callee, args.len())
+                    .map(|name| crate::internal_name::internalize(&name))
+                    .or_else(|| {
+                        builtins::json::implementation_name(&canonical_callee)
+                            .or_else(|| builtins::regex::implementation_name(&canonical_callee))
+                            .map(crate::internal_name::internalize)
+                    })
+                    .unwrap_or_else(|| canonical_callee.clone());
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`

@@ -1820,11 +1820,7 @@ impl<'a> FileParser<'a> {
                             target: Box::new(Expression::Identifier(resource.clone())),
                             member: "state".to_string(),
                         }),
-                        updates: vec![RecordUpdate {
-                            field,
-                            value,
-                            line,
-                        }],
+                        updates: vec![RecordUpdate { field, value, line }],
                     },
                     None => value,
                 };
@@ -3217,9 +3213,10 @@ impl<'a> FileParser<'a> {
 
     fn parse_link_function(&mut self) -> Option<LinkFunction> {
         let func_token = self.advance().clone(); // FUNC
-        // A native function may be named after a keyword (e.g. `step`, which
-        // collides with `STEP`); accept a keyword token in this name position.
-        let Some(name) = self.consume_name_or_keyword("Native function name must be an identifier.")
+                                                 // A native function may be named after a keyword (e.g. `step`, which
+                                                 // collides with `STEP`); accept a keyword token in this name position.
+        let Some(name) =
+            self.consume_name_or_keyword("Native function name must be an identifier.")
         else {
             self.synchronize();
             return None;
@@ -3295,8 +3292,7 @@ impl<'a> FileParser<'a> {
             if self.match_identifier_ci("ERROR_ON") {
                 // ERROR_ON is the De Morgan complement of SUCCESS_ON; store the
                 // negation so downstream stages see a single success condition.
-                let (error_line, error_column) =
-                    (self.previous().line, self.previous().start);
+                let (error_line, error_column) = (self.previous().line, self.previous().start);
                 if let Some(expr) = self.parse_expression() {
                     success_on = Some(Expression::Unary {
                         operator: "NOT".to_string(),
@@ -3397,7 +3393,10 @@ impl<'a> FileParser<'a> {
                 continue;
             }
             if self.match_identifier_ci("ABI") {
-                if !self.consume_kind(TokenKind::LParen, "FREE ABI requires a `(` to open its slot.") {
+                if !self.consume_kind(
+                    TokenKind::LParen,
+                    "FREE ABI requires a `(` to open its slot.",
+                ) {
                     self.synchronize();
                     return None;
                 }
@@ -3407,7 +3406,10 @@ impl<'a> FileParser<'a> {
                     self.synchronize();
                     return None;
                 }
-                if !self.consume_keyword(Keyword::As, "FREE ABI requires `AS <ctype>` for the deallocator return.") {
+                if !self.consume_keyword(
+                    Keyword::As,
+                    "FREE ABI requires `AS <ctype>` for the deallocator return.",
+                ) {
                     self.synchronize();
                     return None;
                 }
@@ -3442,7 +3444,10 @@ impl<'a> FileParser<'a> {
 
     fn parse_abi_spec(&mut self) -> Option<AbiSpec> {
         let line = self.previous().line;
-        if !self.consume_kind(TokenKind::LParen, "ABI requires a `(` to open its slot list.") {
+        if !self.consume_kind(
+            TokenKind::LParen,
+            "ABI requires a `(` to open its slot list.",
+        ) {
             self.synchronize();
             return None;
         }
@@ -3468,7 +3473,10 @@ impl<'a> FileParser<'a> {
             self.synchronize();
             return None;
         }
-        if !self.consume_keyword(Keyword::As, "ABI requires `AS <name> <ctype>` for the native return.") {
+        if !self.consume_keyword(
+            Keyword::As,
+            "ABI requires `AS <name> <ctype>` for the native return.",
+        ) {
             self.synchronize();
             return None;
         }

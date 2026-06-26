@@ -111,8 +111,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         GRAPHEMES | SPLIT => Some("List OF String"),
         STARTS_WITH | ENDS_WITH | CONTAINS | STARTS_WITH_ANY | ENDS_WITH_ANY => Some("Boolean"),
         BYTE_LEN | COUNT | GRAPHEMES_COUNT => Some("Integer"),
-        STRIP_PREFIX | STRIP_SUFFIX | LEFT | RIGHT | REPEAT | PAD_LEFT | PAD_RIGHT | GRAPHEME_AT
-        | TRIM_CHARS | MID | REPLACE => Some("String"),
+        STRIP_PREFIX | STRIP_SUFFIX | LEFT | RIGHT | REPEAT | PAD_LEFT | PAD_RIGHT
+        | GRAPHEME_AT | TRIM_CHARS | MID | REPLACE => Some("String"),
         FIND => Some("Integer"),
         _ => None,
     }
@@ -150,9 +150,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         GRAPHEME_AT if exact(arg_types, &["String", "Integer"]) => Cow::Borrowed("String"),
         GRAPHEMES_COUNT if exact(arg_types, &["String"]) => Cow::Borrowed("Integer"),
-        FIND
-            if exact(arg_types, &["String", "String"])
-                || exact(arg_types, &["String", "String", "Integer"]) =>
+        FIND if exact(arg_types, &["String", "String"])
+            || exact(arg_types, &["String", "String", "Integer"]) =>
         {
             Cow::Borrowed("Integer")
         }

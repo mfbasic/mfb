@@ -1637,7 +1637,9 @@ impl ToNirJson for NirValue {
                 target.to_json(0),
                 json_string(member)
             ),
-            NirValue::Binary { op, left, right, .. } => format!(
+            NirValue::Binary {
+                op, left, right, ..
+            } => format!(
                 "{{ \"kind\": \"binary\", \"op\": {}, \"left\": {}, \"right\": {} }}",
                 json_string(op),
                 left.to_json(0),

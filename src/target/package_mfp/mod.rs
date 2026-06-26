@@ -333,10 +333,13 @@ mod tests {
             dependencies: Vec::new(),
         };
 
-        let package =
-            build_signed_package_bytes(&metadata, b"MFPCpayload", &private).expect("signed package");
+        let package = build_signed_package_bytes(&metadata, b"MFPCpayload", &private)
+            .expect("signed package");
 
-        assert_eq!(u16::from_le_bytes([package[20], package[21]]), SIGNATURE_ED25519);
+        assert_eq!(
+            u16::from_le_bytes([package[20], package[21]]),
+            SIGNATURE_ED25519
+        );
         assert_eq!(
             u32::from_le_bytes([package[22], package[23], package[24], package[25]]),
             64
@@ -344,7 +347,11 @@ mod tests {
         let hash = package_content_hash(&package).expect("content hash");
         let message = package_signature_message(&hash, b"ada#shape", b"1.2.3");
         let public = mfb_repository::crypto::public_from_private(&private).unwrap();
-        mfb_repository::crypto::verify(&public, &message, &package[HEADER_PREFIX_LEN..HEADER_PREFIX_LEN + 64])
-            .expect("signature verifies");
+        mfb_repository::crypto::verify(
+            &public,
+            &message,
+            &package[HEADER_PREFIX_LEN..HEADER_PREFIX_LEN + 64],
+        )
+        .expect("signature verifies");
     }
 }

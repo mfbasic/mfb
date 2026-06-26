@@ -233,7 +233,13 @@ impl<'a> Resolver<'a> {
                             .link_target_signature(&alias.target)
                             .map(|sig| sig.params.clone())
                             .unwrap_or_default();
-                        self.insert_alias_function(file, &alias.name, alias.line, alias.visibility, params);
+                        self.insert_alias_function(
+                            file,
+                            &alias.name,
+                            alias.line,
+                            alias.visibility,
+                            params,
+                        );
                     }
                     Item::Link(_) => {}
                 }

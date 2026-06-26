@@ -350,10 +350,16 @@ impl<'a> TypeChecker<'a> {
         // Every ABI slot must be satisfied by exactly one of: a wrapper parameter
         // (matched by name), the OUT/return result marker, or a CONST pin
         // (plan-link-update.md §5c).
-        let const_slots: HashSet<&str> =
-            function.consts.iter().map(|pin| pin.slot.as_str()).collect();
-        let param_names: HashSet<&str> =
-            function.params.iter().map(|param| param.name.as_str()).collect();
+        let const_slots: HashSet<&str> = function
+            .consts
+            .iter()
+            .map(|pin| pin.slot.as_str())
+            .collect();
+        let param_names: HashSet<&str> = function
+            .params
+            .iter()
+            .map(|param| param.name.as_str())
+            .collect();
 
         let mut result_markers = 0;
         for slot in &function.abi.slots {
@@ -1968,7 +1974,8 @@ impl<'a> TypeChecker<'a> {
             // A resource union abstracts over *which* resource it holds, so a
             // union-level STATE is undefined — it would vary by tag and be absent
             // for stateless variants. STATE belongs to one concrete resource.
-            let on_resource_union = matches!(declared, Some(Type::User(name)) if self.is_resource_union(name));
+            let on_resource_union =
+                matches!(declared, Some(Type::User(name)) if self.is_resource_union(name));
             if on_resource_union {
                 let type_name = self.type_name(declared.unwrap());
                 self.report(
@@ -1982,8 +1989,7 @@ impl<'a> TypeChecker<'a> {
             }
             let state_resolved = self.parse_type(state);
             self.check_type_reference(file, &state_resolved, line);
-            if !self.is_copyable_type(&state_resolved)
-                || !self.is_defaultable_type(&state_resolved)
+            if !self.is_copyable_type(&state_resolved) || !self.is_defaultable_type(&state_resolved)
             {
                 self.report(
                     "TYPE_STATE_INVALID",
@@ -3488,7 +3494,14 @@ impl<'a> TypeChecker<'a> {
             }
             let value_mode = self.collection_element_mode(value, locals);
             let actual_value = self.infer_expression(file, value, locals, line, value_mode);
-            self.check_collection_resource_element(file, line, "value", value, &actual_value, locals);
+            self.check_collection_resource_element(
+                file,
+                line,
+                "value",
+                value,
+                &actual_value,
+                locals,
+            );
             if !self.expression_compatible(&value_type, &actual_value, Some(value)) {
                 self.report(
                     "TYPE_MAP_VALUE_MISMATCH",
@@ -4455,9 +4468,7 @@ impl<'a> TypeChecker<'a> {
                         if !local.mutable {
                             self.report(
                                 "TYPE_ASSIGN_REQUIRES_MUT",
-                                &format!(
-                                    "Binding `{target}` is immutable and cannot be assigned."
-                                ),
+                                &format!("Binding `{target}` is immutable and cannot be assigned."),
                                 file,
                                 line,
                             );
@@ -5124,8 +5135,8 @@ impl<'a> TypeChecker<'a> {
         }
 
         if mismatch {
-            let expected =
-                builtins::term::expected_arguments(callee).unwrap_or_else(|| "no arguments".to_string());
+            let expected = builtins::term::expected_arguments(callee)
+                .unwrap_or_else(|| "no arguments".to_string());
             let actual = arg_types
                 .iter()
                 .map(|type_| self.type_name(type_))
@@ -5450,8 +5461,7 @@ impl<'a> TypeChecker<'a> {
             crate::builtins::collections::native_member_bare(callee),
             Some("append" | "prepend" | "insert" | "set")
         ) {
-            for (index, (argument, arg_type)) in
-                arguments.iter().zip(arg_types.iter()).enumerate()
+            for (index, (argument, arg_type)) in arguments.iter().zip(arg_types.iter()).enumerate()
             {
                 if index == 0 {
                     continue;
@@ -5573,8 +5583,7 @@ impl<'a> TypeChecker<'a> {
                 // License a `MUT` borrow for a lambda in a non-escaping callback
                 // position (e.g. `forEach`'s action). `infer_lambda` consumes it;
                 // reset afterward so a non-lambda argument never carries it.
-                self.nonescaping_callback =
-                    builtins::is_nonescaping_callback_arg(member, index);
+                self.nonescaping_callback = builtins::is_nonescaping_callback_arg(member, index);
                 let arg_type = self.infer_expression(
                     file,
                     argument,
@@ -5592,8 +5601,7 @@ impl<'a> TypeChecker<'a> {
             .collect::<Vec<_>>();
 
         if matches!(member, "append" | "prepend" | "insert" | "set") {
-            for (index, (argument, arg_type)) in
-                arguments.iter().zip(arg_types.iter()).enumerate()
+            for (index, (argument, arg_type)) in arguments.iter().zip(arg_types.iter()).enumerate()
             {
                 if index == 0 {
                     continue;
@@ -6040,7 +6048,11 @@ impl<'a> TypeChecker<'a> {
 
     /// Compatibility for the optional resource plane of a thread type: both
     /// absent, or both present and compatible.
-    fn compatible_optional(&self, expected: &Option<Box<Type>>, actual: &Option<Box<Type>>) -> bool {
+    fn compatible_optional(
+        &self,
+        expected: &Option<Box<Type>>,
+        actual: &Option<Box<Type>>,
+    ) -> bool {
         match (expected, actual) {
             (None, None) => true,
             (Some(expected), Some(actual)) => self.compatible(expected, actual),
@@ -6203,9 +6215,7 @@ impl<'a> TypeChecker<'a> {
         match (callee, index) {
             // `thread.transfer` is resource-plane invalidation event #2: the
             // resource moves to the worker, so the sender binding is consumed.
-            ("thread.start", 1) | ("thread.send", 1) | ("thread.transfer", 1) => {
-                ExprMode::Transfer
-            }
+            ("thread.start", 1) | ("thread.send", 1) | ("thread.transfer", 1) => ExprMode::Transfer,
             ("thread.start", _) | ("thread.send", _) | ("thread.transfer", _) => ExprMode::Borrow,
             _ => ExprMode::Borrow,
         }
@@ -6742,7 +6752,8 @@ impl<'a> TypeChecker<'a> {
             }
             "thread.transfer" | "thread.accept" => {
                 if let Some(handle) = arg_types.first() {
-                    if let Type::Thread(_, resource, _) | Type::ThreadWorker(_, resource, _) = handle
+                    if let Type::Thread(_, resource, _) | Type::ThreadWorker(_, resource, _) =
+                        handle
                     {
                         match resource {
                             // The resource plane carries only thread-sendable
@@ -6863,12 +6874,7 @@ impl<'a> TypeChecker<'a> {
                 }
                 if let Some(resource) = resource {
                     self.check_type_reference(file, resource, line);
-                    self.require_thread_sendable_type(
-                        file,
-                        line,
-                        "Thread resource type",
-                        resource,
-                    );
+                    self.require_thread_sendable_type(file, line, "Thread resource type", resource);
                 }
             }
             Type::User(name) => {
@@ -6947,9 +6953,12 @@ impl<'a> TypeChecker<'a> {
             Type::Nothing => "Nothing".to_string(),
             Type::Result(success) => format!("Result OF {}", self.type_name(success)),
             Type::String => "String".to_string(),
-            Type::Thread(message, resource, output) => {
-                self.format_thread_type_name(builtins::thread::THREAD_TYPE, message, resource, output)
-            }
+            Type::Thread(message, resource, output) => self.format_thread_type_name(
+                builtins::thread::THREAD_TYPE,
+                message,
+                resource,
+                output,
+            ),
             Type::ThreadWorker(message, resource, output) => self.format_thread_type_name(
                 builtins::thread::THREAD_WORKER_TYPE,
                 message,
@@ -7083,7 +7092,9 @@ fn byte_literal_range_error(expression: &Expression) -> Option<ByteLiteralRangeE
             .map_or(Some(ByteLiteralRangeError::Overflow(value)), |number| {
                 (number > u8::MAX as u16).then_some(ByteLiteralRangeError::Overflow(value))
             }),
-        Expression::Unary { operator, operand, .. } if operator == "-" => {
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" => {
             let Expression::Number(value) = operand.as_ref() else {
                 return None;
             };
@@ -7157,9 +7168,9 @@ fn loop_kind_keyword(kind: LoopKind) -> &'static str {
 fn integer_constant_value(expression: &Expression) -> Option<i128> {
     match expression {
         Expression::Number(value) => value.parse::<i128>().ok(),
-        Expression::Unary { operator, operand, .. } if operator == "-" => {
-            integer_constant_value(operand).map(|value| -value)
-        }
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" => integer_constant_value(operand).map(|value| -value),
         _ => None,
     }
 }
@@ -7167,7 +7178,9 @@ fn integer_constant_value(expression: &Expression) -> Option<i128> {
 fn signed_numeric_literal(expression: &Expression) -> Option<(&str, bool)> {
     match expression {
         Expression::Number(value) => Some((value.as_str(), false)),
-        Expression::Unary { operator, operand, .. } if operator == "-" => {
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" => {
             let Expression::Number(value) = operand.as_ref() else {
                 return None;
             };
@@ -7180,7 +7193,9 @@ fn signed_numeric_literal(expression: &Expression) -> Option<(&str, bool)> {
 fn integer_literal_in_range(expression: &Expression) -> bool {
     match expression {
         Expression::Number(value) if !value.contains('.') => value.parse::<i64>().is_ok(),
-        Expression::Unary { operator, operand, .. } if operator == "-" => {
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" => {
             let Expression::Number(value) = operand.as_ref() else {
                 return true;
             };
@@ -7388,9 +7403,9 @@ fn numeric_literal_type(expression: &Expression) -> Option<Type> {
     match expression {
         Expression::Number(number) if number.contains('.') => Some(Type::Float),
         Expression::Number(_) => Some(Type::Integer),
-        Expression::Unary { operator, operand, .. }
-            if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) =>
-        {
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => {
             numeric_literal_type(operand)
         }
         _ => None,
@@ -7400,9 +7415,9 @@ fn numeric_literal_type(expression: &Expression) -> Option<Type> {
 fn numeric_literal_is_zero(expression: &Expression) -> bool {
     match expression {
         Expression::Number(value) => value.parse::<f64>().is_ok_and(|number| number == 0.0),
-        Expression::Unary { operator, operand, .. }
-            if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) =>
-        {
+        Expression::Unary {
+            operator, operand, ..
+        } if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => {
             numeric_literal_is_zero(operand)
         }
         _ => false,

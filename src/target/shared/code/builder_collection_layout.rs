@@ -188,11 +188,7 @@ impl CodeBuilder<'_> {
     /// block has no internal pointers, the byte copy **is** a deep copy. Valid
     /// only for types `emit_flat_block_size` supports; returns the destination
     /// pointer in a fresh register.
-    pub(super) fn copy_flat_block(
-        &mut self,
-        type_: &str,
-        source: &str,
-    ) -> Result<String, String> {
+    pub(super) fn copy_flat_block(&mut self, type_: &str, source: &str) -> Result<String, String> {
         let source_slot = self.allocate_stack_object("flat_copy_source", 8);
         let size_slot = self.allocate_stack_object("flat_copy_size", 8);
         let result_slot = self.allocate_stack_object("flat_copy_result", 8);
@@ -631,7 +627,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
                 self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
                 self.emit(abi::add_registers("x11", "x10", "x9"));
-                self.emit(abi::load_u64("x12", abi::stack_pointer(), field_slots[index]));
+                self.emit(abi::load_u64(
+                    "x12",
+                    abi::stack_pointer(),
+                    field_slots[index],
+                ));
                 self.emit(abi::load_u64("x13", abi::stack_pointer(), block_size_slot));
                 self.emit_copy_bytes("x11", "x12", "x13", "record_inline_block");
                 // Advance the cursor by the same block length.
@@ -640,7 +640,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::add_registers("x9", "x9", "x13"));
                 self.emit(abi::store_u64("x9", abi::stack_pointer(), cursor_slot));
             } else {
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), field_slots[index]));
+                self.emit(abi::load_u64(
+                    "x9",
+                    abi::stack_pointer(),
+                    field_slots[index],
+                ));
                 self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
                 self.emit(abi::store_u64("x9", "x10", 8 * index));
             }

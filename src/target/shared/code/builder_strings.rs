@@ -277,7 +277,11 @@ impl CodeBuilder<'_> {
         // may be a caller local or a static constant — freeing either would
         // double-free or fault). Deep-copy the input into the arena.
         let original_ptr = self.allocate_register()?;
-        self.emit(abi::load_u64(&original_ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(
+            &original_ptr,
+            abi::stack_pointer(),
+            value_slot,
+        ));
         let copied = self.copy_flat_block("String", &original_ptr)?;
         self.emit(abi::move_register(&result, &copied));
         self.emit(abi::label(&done));

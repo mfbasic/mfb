@@ -232,9 +232,9 @@ fn write_executable(
         }
         // `LinuxApp` is a Linux toolkit selection; it never reaches the macOS
         // backend (the CLI picks the build mode from the target OS).
-        NativeBuildMode::LinuxApp => Err(
-            "internal error: macOS backend received a Linux app build mode".to_string(),
-        ),
+        NativeBuildMode::LinuxApp => {
+            Err("internal error: macOS backend received a Linux app build mode".to_string())
+        }
     }
 }
 

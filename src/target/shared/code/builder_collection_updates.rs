@@ -477,8 +477,16 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8("x22", "x17", COLLECTION_ENTRY_OFFSET_FLAGS));
         self.emit(abi::move_immediate("x22", "Integer", "0"));
-        self.emit(abi::store_u64("x22", "x17", COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
-        self.emit(abi::store_u64("x22", "x17", COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
         self.emit(abi::load_u64(
             "x22",
             "x12",
@@ -530,6 +538,234 @@ impl CodeBuilder<'_> {
             type_: list_type.to_string(),
             location: result,
             text: format!("list update {list_type} over {element_type}"),
+        })
+    }
+
+    /// Append a single element (held in `item_slot`) to the list buffer whose
+    /// pointer lives in `buffer_slot`, **mutating `buffer_slot` in place**
+    /// (plan-01 §4.2). When the live buffer has a spare lookup slot and spare
+    /// data bytes, the element is written into the spare slot and `count` /
+    /// `dataLength` are bumped — no allocation, no copy: the amortized-O(1)
+    /// lever. Otherwise a geometric-headroom buffer is allocated, the entries
+    /// and data region are copied verbatim, and `buffer_slot` is repointed at it;
+    /// the element is then written into the now-spare slot. The caller guarantees
+    /// the buffer is uniquely owned (see the Assign-site / private-accumulator
+    /// call sites). Returns the (possibly new) buffer pointer.
+    pub(super) fn lower_list_append_in_place(
+        &mut self,
+        buffer_slot: usize,
+        item_slot: usize,
+        list_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        let layout = CollectionTypeLayout::from_type(list_type)
+            .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let item = PayloadSlot {
+            slot: item_slot,
+            type_: element_type.to_string(),
+        };
+        // Byte size of the new payload (its required data bytes).
+        let need_slot = self.emit_payload_length_to_stack(&item, "append_inplace_need")?;
+        let data_offset_slot = self.allocate_stack_object("append_inplace_doff", 8);
+        let new_cap_slot = self.allocate_stack_object("append_inplace_newcap", 8);
+        let new_dcap_slot = self.allocate_stack_object("append_inplace_newdcap", 8);
+        let new_buf_slot = self.allocate_stack_object("append_inplace_newbuf", 8);
+
+        let realloc = self.label("append_inplace_realloc");
+        let write = self.label("append_inplace_write");
+        let alloc_ok = self.label("append_inplace_alloc_ok");
+        let dcap_keep = self.label("append_inplace_dcap_keep");
+
+        // Room check: count < capacity AND dataLength + need <= dataCapacity.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::compare_registers("x9", "x10"));
+        self.emit(abi::branch_ge(&realloc));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), need_slot));
+        self.emit(abi::add_registers("x11", "x11", "x12"));
+        self.emit(abi::load_u64("x13", "x8", COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::compare_registers("x11", "x13"));
+        self.emit(abi::branch_hi(&realloc));
+        self.emit(abi::branch(&write));
+
+        // --- Grow: allocate a headroom buffer; copy entries + data verbatim. ---
+        self.emit(abi::label(&realloc));
+        // newCapacity = step(capacity).
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_CAPACITY));
+        self.emit_geometric_step(
+            "x10",
+            "x14",
+            "x15",
+            COLLECTION_GROW_LOOKUP_INIT,
+            COLLECTION_GROW_LOOKUP_TAPER,
+            "append_grow_cap",
+        );
+        self.emit(abi::store_u64("x14", abi::stack_pointer(), new_cap_slot));
+        // newDataCapacity = max(step(dataCapacity), dataLength + need).
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit_geometric_step(
+            "x10",
+            "x14",
+            "x15",
+            COLLECTION_GROW_DATA_INIT,
+            COLLECTION_GROW_DATA_TAPER,
+            "append_grow_dcap",
+        );
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), need_slot));
+        self.emit(abi::add_registers("x11", "x11", "x12")); // required
+        self.emit(abi::compare_registers("x14", "x11"));
+        self.emit(abi::branch_hi(&dcap_keep));
+        self.emit(abi::branch_eq(&dcap_keep));
+        self.emit(abi::move_register("x14", "x11")); // step < required → use required
+        self.emit(abi::label(&dcap_keep));
+        self.emit(abi::store_u64("x14", abi::stack_pointer(), new_dcap_slot));
+
+        // alloc size = HEADER + newCapacity * ENTRY + newDataCapacity.
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x17", "x14", "x16"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x17",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::load_u64("x15", abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x15",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), new_buf_slot));
+
+        // Header: old count / old dataLength, new capacity / data capacity.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::load_u64("x15", abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit_write_collection_header_full(&layout, "x1", "x9", "x14", "x11", "x15");
+
+        // Copy the data region verbatim (dataLength bytes), capacity-based base.
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit_collection_data_pointer("x17", "x1");
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance("x17", "x20", "x14", "x22", "append_grow_data");
+
+        // Copy the live lookup entries verbatim (count * ENTRY bytes).
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::add_immediate("x20", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x9", "x16"));
+        self.emit_block_copy_advance("x17", "x20", "x21", "x22", "append_grow_entries");
+
+        // Install the grown buffer; fall through to write the new element.
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::branch(&write));
+
+        // --- Write the new element into slot[count], payload at dataLength. ---
+        self.emit(abi::label(&write));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x13", "x9", "x16"));
+        self.emit(abi::add_registers("x12", "x12", "x13")); // entry addr
+        self.emit(abi::move_immediate(
+            "x13",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8("x13", "x12", COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::move_immediate("x13", "Integer", "0"));
+        self.emit(abi::store_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            "x11",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        )); // valueOffset = dataLength
+        self.emit(abi::load_u64("x13", abi::stack_pointer(), need_slot));
+        self.emit(abi::store_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        )); // valueLength = need
+            // Copy the payload bytes to data base + dataLength.
+        self.emit(abi::store_u64(
+            "x11",
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
+        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, data_offset_slot)?;
+        // Bump count and dataLength.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate("x9", "x9", 1));
+        self.emit(abi::store_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x13", abi::stack_pointer(), need_slot));
+        self.emit(abi::add_registers("x9", "x9", "x13"));
+        self.emit(abi::store_u64("x9", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
+        Ok(ValueResult {
+            type_: list_type.to_string(),
+            location: result,
+            text: format!("append in place {list_type} over {element_type}"),
         })
     }
 
@@ -667,12 +903,34 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Write a tight collection header: `capacity == count`, `dataCapacity ==
+    /// dataLength` (no headroom). Used by the splice/remove paths that produce a
+    /// fresh exact-sized buffer (plan-01 §4.3 — snapshots stay tight).
     pub(super) fn emit_write_list_header_from_registers(
         &mut self,
         layout: &CollectionTypeLayout,
         collection: &str,
         count: &str,
         data_len: &str,
+    ) {
+        self.emit_write_collection_header_full(
+            layout, collection, count, count, data_len, data_len,
+        );
+    }
+
+    /// Write a collection header with `capacity`/`dataCapacity` distinct from the
+    /// live `count`/`dataLength` — the headroom form used by the append grow path
+    /// (plan-01 §4.2). `capacity >= count` and `dataCapacity >= dataLength` must
+    /// hold; the data region base is computed from `capacity`, so the writer and
+    /// every reader agree via `emit_collection_data_pointer`. Uses x22 scratch.
+    pub(super) fn emit_write_collection_header_full(
+        &mut self,
+        layout: &CollectionTypeLayout,
+        collection: &str,
+        count: &str,
+        capacity: &str,
+        data_len: &str,
+        data_cap: &str,
     ) {
         self.emit(abi::move_immediate("x22", "Byte", &layout.kind.to_string()));
         self.emit(abi::store_u8("x22", collection, COLLECTION_OFFSET_KIND));
@@ -700,7 +958,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(count, collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(
-            count,
+            capacity,
             collection,
             COLLECTION_OFFSET_CAPACITY,
         ));
@@ -710,10 +968,48 @@ impl CodeBuilder<'_> {
             COLLECTION_OFFSET_DATA_LENGTH,
         ));
         self.emit(abi::store_u64(
-            data_len,
+            data_cap,
             collection,
             COLLECTION_OFFSET_DATA_CAPACITY,
         ));
+    }
+
+    /// Emit `out_reg = geometric_step(value_reg)` per the plan-01 §5 growth shape:
+    /// `0 -> init`; `value < threshold -> value * 2`; otherwise `value * 1.5`
+    /// (taper the multiplier once large). All-integer, rounds down on the ×1.5
+    /// (still strictly larger than `value`). `value_reg`, `out_reg`, and `scratch`
+    /// must be three distinct registers; `value_reg` is preserved.
+    pub(super) fn emit_geometric_step(
+        &mut self,
+        value_reg: &str,
+        out_reg: &str,
+        scratch: &str,
+        init: usize,
+        threshold: usize,
+        prefix: &str,
+    ) {
+        let small = self.label(&format!("{prefix}_double"));
+        let init_label = self.label(&format!("{prefix}_init"));
+        let after = self.label(&format!("{prefix}_after"));
+        self.emit(abi::compare_immediate(value_reg, "0"));
+        self.emit(abi::branch_eq(&init_label));
+        self.emit(abi::move_immediate(
+            scratch,
+            "Integer",
+            &threshold.to_string(),
+        ));
+        self.emit(abi::compare_registers(value_reg, scratch));
+        self.emit(abi::branch_lo(&small));
+        // ×1.5: out = value + value/2.
+        self.emit(abi::shift_right_immediate(out_reg, value_reg, 1));
+        self.emit(abi::add_registers(out_reg, value_reg, out_reg));
+        self.emit(abi::branch(&after));
+        self.emit(abi::label(&small));
+        self.emit(abi::shift_left_immediate(out_reg, value_reg, 1)); // ×2
+        self.emit(abi::branch(&after));
+        self.emit(abi::label(&init_label));
+        self.emit(abi::move_immediate(out_reg, "Integer", &init.to_string()));
+        self.emit(abi::label(&after));
     }
 
     pub(super) fn emit_copy_collection_entries(
@@ -930,11 +1226,27 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
         self.emit(abi::store_u8("x22", "x17", COLLECTION_ENTRY_OFFSET_FLAGS));
-        self.emit(abi::load_u64("x22", "x12", COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
+        self.emit(abi::load_u64(
+            "x22",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
         self.emit(abi::add_registers("x22", "x22", "x14"));
-        self.emit(abi::store_u64("x22", "x17", COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
-        self.emit(abi::load_u64("x22", "x12", COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
-        self.emit(abi::store_u64("x22", "x17", COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x22",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
         self.emit(abi::load_u64(
             "x22",
             "x12",

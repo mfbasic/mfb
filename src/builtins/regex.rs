@@ -113,7 +113,11 @@ pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
         include_str!("regex_package.mfb"),
         include_str!("regex_unicode.mfb"),
     );
-    crate::ast::parse_source_internal(Path::new("<builtin-regex>"), "builtins/regex.mfb", &combined)
+    crate::ast::parse_source_internal(
+        Path::new("<builtin-regex>"),
+        "builtins/regex.mfb",
+        &combined,
+    )
 }
 
 pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {

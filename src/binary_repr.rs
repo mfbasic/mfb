@@ -2557,9 +2557,7 @@ fn collect_resource_names_in_value(
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
         | IrValue::ResultValue { value }
-        | IrValue::ResultError { value } => {
-            collect_resource_names_in_value(value, names, record)
-        }
+        | IrValue::ResultError { value } => collect_resource_names_in_value(value, names, record),
         IrValue::MemberAccess { target, .. } => {
             collect_resource_names_in_value(target, names, record)
         }
@@ -2575,9 +2573,7 @@ fn collect_resource_names_in_value(
             collect_resource_names_in_value(left, names, record);
             collect_resource_names_in_value(right, names, record);
         }
-        IrValue::Unary { operand, .. } => {
-            collect_resource_names_in_value(operand, names, record)
-        }
+        IrValue::Unary { operand, .. } => collect_resource_names_in_value(operand, names, record),
         IrValue::Local(_) | IrValue::Global(_) => {}
     }
 }
@@ -2949,8 +2945,7 @@ impl TypeTable {
             name if name.starts_with("List OF ") => {
                 // `strip_prefix` (not `trim_start_matches`, which is greedy and
                 // would collapse `List OF List OF X` to `List OF X`).
-                let element =
-                    self.type_id(strings, name.strip_prefix("List OF ").unwrap_or(name));
+                let element = self.type_id(strings, name.strip_prefix("List OF ").unwrap_or(name));
                 self.list_type(strings, element)
             }
             name if name.starts_with("Result OF ") => {
@@ -3853,7 +3848,10 @@ mod resource_table_tests {
         let socket = standard_resource_flags(builtins::net::SOCKET_TYPE);
         let listener = standard_resource_flags(builtins::net::LISTENER_TYPE);
         assert!(file & RESOURCE_FLAG_SENDABLE != 0, "File must be sendable");
-        assert!(socket & RESOURCE_FLAG_SENDABLE != 0, "Socket must be sendable");
+        assert!(
+            socket & RESOURCE_FLAG_SENDABLE != 0,
+            "Socket must be sendable"
+        );
         assert!(
             listener & RESOURCE_FLAG_SENDABLE == 0,
             "Listener must not be sendable"
@@ -3892,7 +3890,10 @@ mod resource_table_tests {
         );
         assert!(decoded.entries[0].flags & RESOURCE_FLAG_SENDABLE != 0);
         assert!(decoded.entries[1].flags & RESOURCE_FLAG_SENDABLE == 0);
-        assert_eq!(decoded.entries[1].close_function_id, BUILTIN_NET_CLOSE_FUNCTION_ID);
+        assert_eq!(
+            decoded.entries[1].close_function_id,
+            BUILTIN_NET_CLOSE_FUNCTION_ID
+        );
     }
 
     #[test]

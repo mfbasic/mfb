@@ -101,9 +101,21 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
-        FILE_EXISTS | DIRECTORY_EXISTS | EXISTS | READ_BYTES | READ_TEXT | CANONICAL_PATH
-        | PATH_DIR_NAME | PATH_BASE_NAME | PATH_EXTENSION | PATH_NORMALIZE | DELETE_FILE
-        | CREATE_DIRECTORY | CREATE_DIRECTORIES | DELETE_DIRECTORY | LIST_DIRECTORY
+        FILE_EXISTS
+        | DIRECTORY_EXISTS
+        | EXISTS
+        | READ_BYTES
+        | READ_TEXT
+        | CANONICAL_PATH
+        | PATH_DIR_NAME
+        | PATH_BASE_NAME
+        | PATH_EXTENSION
+        | PATH_NORMALIZE
+        | DELETE_FILE
+        | CREATE_DIRECTORY
+        | CREATE_DIRECTORIES
+        | DELETE_DIRECTORY
+        | LIST_DIRECTORY
         | SET_CURRENT_DIRECTORY => Some(&[&["path"]]),
         WRITE_BYTES | WRITE_BYTES_ATOMIC | APPEND_BYTES => Some(&[&["path"], &["bytes", "value"]]),
         WRITE_TEXT | WRITE_TEXT_ATOMIC | APPEND_TEXT => Some(&[&["path"], &["value"]]),

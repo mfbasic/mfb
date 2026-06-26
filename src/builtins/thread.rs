@@ -36,7 +36,8 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_thread_call(name: &str) -> bool {
     matches!(
         name,
-        START | IS_RUNNING
+        START
+            | IS_RUNNING
             | WAIT_FOR
             | CANCEL
             | SEND

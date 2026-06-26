@@ -528,14 +528,14 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &external_functions,
                 &external_params,
             );
-            let nir_path = match target::write_nir(&options.location, &ir, &target, &packages, build_mode)
-            {
-                Ok(path) => path,
-                Err(err) => {
-                    eprintln!("error: {err}");
-                    return Err(());
-                }
-            };
+            let nir_path =
+                match target::write_nir(&options.location, &ir, &target, &packages, build_mode) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        eprintln!("error: {err}");
+                        return Err(());
+                    }
+                };
             println!("Wrote native IR to {}", nir_path.display());
         }
         BuildOutput::NativePlan => {
@@ -561,15 +561,19 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &external_functions,
                 &external_params,
             );
-            let plan_path =
-                match target::write_native_plan(&options.location, &ir, &target, &packages, build_mode)
-                {
-                    Ok(path) => path,
-                    Err(err) => {
-                        eprintln!("error: {err}");
-                        return Err(());
-                    }
-                };
+            let plan_path = match target::write_native_plan(
+                &options.location,
+                &ir,
+                &target,
+                &packages,
+                build_mode,
+            ) {
+                Ok(path) => path,
+                Err(err) => {
+                    eprintln!("error: {err}");
+                    return Err(());
+                }
+            };
             println!("Wrote native plan to {}", plan_path.display());
         }
         BuildOutput::NativeObjectPlan => {
@@ -2668,8 +2672,8 @@ mod tests {
 
     #[test]
     fn parse_build_options_accepts_app_flag() {
-        let options =
-            parse_build_options(vec!["-app".to_string(), "some/project".to_string()]).expect("options");
+        let options = parse_build_options(vec!["-app".to_string(), "some/project".to_string()])
+            .expect("options");
         assert!(options.app_mode);
     }
 
@@ -2684,8 +2688,8 @@ mod tests {
 
     #[test]
     fn parse_build_options_app_flag_composes_with_native_output() {
-        let options = parse_build_options(vec!["-app".to_string(), "-nir".to_string()])
-            .expect("options");
+        let options =
+            parse_build_options(vec!["-app".to_string(), "-nir".to_string()]).expect("options");
         assert!(options.app_mode);
         assert!(matches!(options.output, BuildOutput::NativeIr));
     }

@@ -42,7 +42,12 @@ pub(crate) fn write_executable(
     )?;
     let entry_offset = main_entry_offset;
     let bytes = if image.imports.is_empty() {
-        encode_static_elf(entry_offset, &text, &image.data, image.signing_metadata.as_deref())
+        encode_static_elf(
+            entry_offset,
+            &text,
+            &image.data,
+            image.signing_metadata.as_deref(),
+        )
     } else {
         encode_dynamic_elf(flavor, entry_offset, &text, &image.data, image)?
     };
@@ -400,7 +405,19 @@ fn append_elf_signing_section(bytes: &mut Vec<u8>, metadata: &[u8]) {
     bytes.resize(shoff, 0);
 
     bytes.resize(bytes.len() + SHDR_SIZE, 0);
-    section_header(bytes, 1, 1, 0, 0, metadata_offset as u64, metadata.len() as u64, 0, 0, 1, 0);
+    section_header(
+        bytes,
+        1,
+        1,
+        0,
+        0,
+        metadata_offset as u64,
+        metadata.len() as u64,
+        0,
+        0,
+        1,
+        0,
+    );
     section_header(
         bytes,
         11,
@@ -567,7 +584,9 @@ impl DynamicPayload {
                 .find(|(lib, _)| lib == library_index);
             match entry {
                 Some((_, versions)) => versions.push((version.clone(), global + 2)),
-                None => needs_by_library.push((*library_index, vec![(version.clone(), global + 2)])),
+                None => {
+                    needs_by_library.push((*library_index, vec![(version.clone(), global + 2)]))
+                }
             }
         }
         let verneed_offset = align(versym_offset + versym_size, 8);
@@ -639,7 +658,10 @@ impl DynamicPayload {
                 &mut bytes,
                 data_vmaddr + got_offset as u64 + (index * 8) as u64,
             );
-            put_u64(&mut bytes, ((symbol_index as u64) << 32) | reloc_type as u64);
+            put_u64(
+                &mut bytes,
+                ((symbol_index as u64) << 32) | reloc_type as u64,
+            );
             put_u64(&mut bytes, 0);
         }
 
@@ -686,9 +708,7 @@ impl DynamicPayload {
                 let symbol = image
                     .symbols
                     .iter()
-                    .find(|symbol| {
-                        symbol.name == *name && symbol.section == EncodedSection::Text
-                    })
+                    .find(|symbol| symbol.name == *name && symbol.section == EncodedSection::Text)
                     .ok_or_else(|| {
                         format!("initializer '{name}' does not resolve to a text symbol")
                     })?;
@@ -794,7 +814,7 @@ mod tests {
         put_u32(&mut text, 0xd280_0541); // movz x1, #42
         put_u32(&mut text, 0xf900_0001); // str  x1, [x0]
         put_u32(&mut text, 0xd65f_03c0); // ret
-        // _main @20: exit(_flag == 42 ? 0 : 1).
+                                         // _main @20: exit(_flag == 42 ? 0 : 1).
         put_u32(&mut text, 0x9000_0000); // adrp x0, _flag         (page21)
         put_u32(&mut text, 0x9100_0000); // add  x0, x0, :lo12:_flag (pageoff12)
         put_u32(&mut text, 0xf940_0000); // ldr  x0, [x0]
@@ -914,7 +934,8 @@ mod tests {
         let image = glob_dat_image("libc.so.6");
         let dir = std::path::PathBuf::from("tmp/globlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
-        write_executable(&dir, "glob", LinuxFlavor::Glibc, false, &image).expect("link glob_dat elf");
+        write_executable(&dir, "glob", LinuxFlavor::Glibc, false, &image)
+            .expect("link glob_dat elf");
     }
 
     #[test]
@@ -922,7 +943,8 @@ mod tests {
         let image = glob_dat_image("libc.musl-aarch64.so.1");
         let dir = std::path::PathBuf::from("tmp/globlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
-        write_executable(&dir, "globmusl", LinuxFlavor::Musl, false, &image).expect("link musl glob_dat");
+        write_executable(&dir, "globmusl", LinuxFlavor::Musl, false, &image)
+            .expect("link musl glob_dat");
     }
 
     #[test]
@@ -945,7 +967,9 @@ mod tests {
         let path = write_executable(dir.path(), "signed", LinuxFlavor::Glibc, false, &image)
             .expect("link signed elf");
         let bytes = std::fs::read(path).unwrap();
-        assert!(bytes.windows(b".mfb_sign".len()).any(|window| window == b".mfb_sign"));
+        assert!(bytes
+            .windows(b".mfb_sign".len())
+            .any(|window| window == b".mfb_sign"));
         assert!(bytes
             .windows(br#"{"owner":"alice"}"#.len())
             .any(|window| window == br#"{"owner":"alice"}"#));
@@ -967,7 +991,8 @@ mod tests {
         let image = init_array_image();
         let dir = std::path::PathBuf::from("tmp/initlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
-        write_executable(&dir, "init", LinuxFlavor::Glibc, false, &image).expect("link init-array elf");
+        write_executable(&dir, "init", LinuxFlavor::Glibc, false, &image)
+            .expect("link init-array elf");
     }
 
     // Emits a dynamic glibc ELF whose single import requires `_exit@GLIBC_2.17`,
@@ -980,8 +1005,8 @@ mod tests {
         let image = versioned_exit_image();
         let dir = std::path::PathBuf::from("tmp/verlx");
         std::fs::create_dir_all(&dir).expect("temp dir");
-        let path =
-            write_executable(&dir, "ver", LinuxFlavor::Glibc, false, &image).expect("link versioned elf");
+        let path = write_executable(&dir, "ver", LinuxFlavor::Glibc, false, &image)
+            .expect("link versioned elf");
         let bytes = std::fs::read(&path).expect("read elf");
         assert!(
             bytes

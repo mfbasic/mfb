@@ -294,6 +294,13 @@ const COLLECTION_ENTRY_OFFSET_KEY_LENGTH: usize = 16;
 const COLLECTION_ENTRY_OFFSET_VALUE_OFFSET: usize = 24;
 const COLLECTION_ENTRY_OFFSET_VALUE_LENGTH: usize = 32;
 const COLLECTION_ENTRY_FLAG_USED: usize = 1;
+// Geometric growth shape for the append grow path (plan-01 §5): start small,
+// double until a taper threshold, then ×1.5. Lookup slots and data bytes grow
+// independently. Literals and known-size builders ignore these (exact alloc).
+const COLLECTION_GROW_LOOKUP_INIT: usize = 4;
+const COLLECTION_GROW_LOOKUP_TAPER: usize = 1024;
+const COLLECTION_GROW_DATA_INIT: usize = 32;
+const COLLECTION_GROW_DATA_TAPER: usize = 65536;
 const COLLECTION_TYPE_NONE: usize = 0;
 const COLLECTION_TYPE_BOOLEAN: usize = 2;
 const COLLECTION_TYPE_INTEGER: usize = 3;
@@ -1155,8 +1162,7 @@ pub(crate) fn lower_module_for_platform(
     // Whether the program uses the `math::` random generator. When it does we
     // emit the PCG64 helpers, seed each thread's arena, and draw a fresh
     // per-thread stream on spawn.
-    let uses_rng =
-        module_uses_call(module, "math.rand") || module_uses_call(module, "math.seed");
+    let uses_rng = module_uses_call(module, "math.rand") || module_uses_call(module, "math.seed");
     // The auto-restore on exit (§6.5) and a program that only calls `term::on()`
     // both need the `off` helper emitted; ensure it is present whenever `term::`
     // is used.
@@ -1194,12 +1200,14 @@ pub(crate) fn lower_module_for_platform(
                 language_entry_accepts_args: entry.accepts_args,
                 uses_term,
             };
-            let app_entry = platform.emit_app_program_entry(&app_spec, &platform_imports).ok_or_else(|| {
-                format!(
-                    "native target '{}' does not support app mode codegen",
-                    platform.target()
-                )
-            })??;
+            let app_entry = platform
+                .emit_app_program_entry(&app_spec, &platform_imports)
+                .ok_or_else(|| {
+                    format!(
+                        "native target '{}' does not support app mode codegen",
+                        platform.target()
+                    )
+                })??;
             // The worker runs the standard program-entry logic under its own symbol.
             code_functions.push(lower_program_entry(
                 MACAPP_PROGRAM_SYMBOL,
@@ -1976,8 +1984,16 @@ fn lower_program_entry(
     // the arena address so a `getentropy` failure still yields a varying seed.
     if seed_rng {
         instructions.extend([
-            abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), ENTRY_ARGC_OFFSET),
-            abi::add_immediate(abi::return_register(), abi::stack_pointer(), ENTRY_ARGC_OFFSET),
+            abi::store_u64(
+                ARENA_STATE_REGISTER,
+                abi::stack_pointer(),
+                ENTRY_ARGC_OFFSET,
+            ),
+            abi::add_immediate(
+                abi::return_register(),
+                abi::stack_pointer(),
+                ENTRY_ARGC_OFFSET,
+            ),
             abi::move_immediate("x1", "Integer", "8"),
         ]);
         platform.emit_random_bytes(
@@ -2021,7 +2037,7 @@ fn lower_program_entry(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), 0), // tv_sec
+        abi::load_u64("x9", abi::stack_pointer(), 0),  // tv_sec
         abi::load_u64("x10", abi::stack_pointer(), 8), // tv_nsec
         abi::move_immediate("x11", "Integer", "1000000000"),
         abi::multiply_registers("x9", "x9", "x11"),
@@ -2488,7 +2504,7 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         abi::label("arena_alloc_walk_loop"),
         abi::compare_immediate("x22", "0"),
         abi::branch_eq("arena_alloc_grow"),
-        abi::load_u64("x24", "x22", 8), // cur_size
+        abi::load_u64("x24", "x22", 8),          // cur_size
         abi::subtract_immediate("x9", "x21", 1), // align mask
         abi::add_registers("x25", "x22", "x9"),
         abi::compare_registers("x25", "x22"),
@@ -2510,7 +2526,7 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         // cur=x22, prev=x23, cur_size=x24, aligned=x25, end_needed=x26,
         // cur_end=x27, next=x9, front_pad=x14, tail_size=x15, link target=x10.
         abi::label("arena_alloc_found"),
-        abi::load_u64("x9", "x22", 0), // next
+        abi::load_u64("x9", "x22", 0),                // next
         abi::subtract_registers("x14", "x25", "x22"), // front_pad
         abi::subtract_registers("x15", "x27", "x26"), // tail_size
         abi::compare_immediate("x14", "0"),
@@ -2538,7 +2554,7 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         // case: both front and tail remainders → two free nodes
         abi::store_u64("x26", "x22", 0), // cur.next → tail node
         abi::store_u64("x14", "x22", 8), // cur.size = front_pad
-        abi::store_u64("x9", "x26", 0), // tail.next = next
+        abi::store_u64("x9", "x26", 0),  // tail.next = next
         abi::store_u64("x15", "x26", 8), // tail.size = tail_size
         abi::move_register("x10", "x22"),
         abi::label("arena_alloc_set_prev_link"),
@@ -2609,7 +2625,7 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         // order. A fresh block is never adjacent to an existing chunk (the 32-byte
         // header always separates blocks), so no coalescing is required here.
         abi::load_u64("x14", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET), // cur
-        abi::move_immediate("x15", "Integer", "0"), // prev
+        abi::move_immediate("x15", "Integer", "0"),                              // prev
         abi::label("arena_alloc_ins_loop"),
         abi::compare_immediate("x14", "0"),
         abi::branch_eq("arena_alloc_ins_do"),
@@ -2640,7 +2656,10 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    relocations.push(internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FILL_RANDOM_SYMBOL));
+    relocations.push(internal_branch(
+        ARENA_ALLOC_SYMBOL,
+        ARENA_FILL_RANDOM_SYMBOL,
+    ));
     Ok(CodeFunction {
         name: "runtime.arena_alloc".to_string(),
         symbol: ARENA_ALLOC_SYMBOL.to_string(),
@@ -2681,7 +2700,7 @@ fn lower_arena_insert_free() -> CodeFunction {
         abi::move_immediate("x13", "Integer", "0"),
         abi::compare_immediate("x10", "0"),
         abi::branch_eq("insert_check_next"),
-        abi::load_u64("x11", "x10", 8), // prev.size
+        abi::load_u64("x11", "x10", 8),          // prev.size
         abi::add_registers("x12", "x10", "x11"), // prev_end
         abi::compare_registers("x12", "x0"),
         abi::branch_ne("insert_check_next"),
@@ -2700,7 +2719,7 @@ fn lower_arena_insert_free() -> CodeFunction {
         abi::compare_registers("x12", "x9"),
         abi::branch_ne("insert_done"),
         // Absorb cur into prev too (three-way merge).
-        abi::load_u64("x11", "x9", 8), // cur.size
+        abi::load_u64("x11", "x9", 8),  // cur.size
         abi::load_u64("x12", "x10", 8), // prev.size
         abi::add_registers("x12", "x12", "x11"),
         abi::store_u64("x12", "x10", 8),
@@ -3599,9 +3618,13 @@ fn lower_runtime_helper(
         };
         let (frame, instructions, relocations) = match app_term_helper {
             Some(result) => result?,
-            None => {
-                term::lower_term_helper(spec.call, symbol, term_state_offset, platform_imports, platform)?
-            }
+            None => term::lower_term_helper(
+                spec.call,
+                symbol,
+                term_state_offset,
+                platform_imports,
+                platform,
+            )?,
         };
         return Ok(CodeFunction {
             name: format!("runtime.{}", spec.call),
@@ -3654,7 +3677,13 @@ fn lower_runtime_helper(
             // (plan-04-macos-app.md §5.4) instead of a file descriptor.
             let (frame, instructions, relocations) = if app_mode {
                 platform
-                    .emit_app_io_write_helper(symbol, stderr, newline, term_state_offset, platform_imports)
+                    .emit_app_io_write_helper(
+                        symbol,
+                        stderr,
+                        newline,
+                        term_state_offset,
+                        platform_imports,
+                    )
                     .ok_or_else(|| {
                         format!(
                             "native target '{}' does not support app-mode io helpers",
@@ -3689,14 +3718,12 @@ fn lower_runtime_helper(
             // the main thread via performSelectorOnMainThread), so output is
             // already visible; flush succeeds immediately (plan §5.4).
             let (frame, instructions, relocations) = if app_mode {
-                platform
-                    .emit_app_io_flush_helper(symbol)
-                    .ok_or_else(|| {
-                        format!(
-                            "native target '{}' does not support app-mode io helpers",
-                            platform.target()
-                        )
-                    })??
+                platform.emit_app_io_flush_helper(symbol).ok_or_else(|| {
+                    format!(
+                        "native target '{}' does not support app-mode io helpers",
+                        platform.target()
+                    )
+                })??
             } else {
                 lower_io_flush_helper(
                     symbol,
@@ -3818,12 +3845,14 @@ fn lower_runtime_helper(
             // App mode: the window is the interactive console, so these return
             // TRUE rather than probing a file descriptor (plan §5.4).
             let (frame, instructions, relocations) = if app_mode {
-                platform.emit_app_io_is_terminal_helper(symbol).ok_or_else(|| {
-                    format!(
-                        "native target '{}' does not support app-mode io helpers",
-                        platform.target()
-                    )
-                })??
+                platform
+                    .emit_app_io_is_terminal_helper(symbol)
+                    .ok_or_else(|| {
+                        format!(
+                            "native target '{}' does not support app-mode io helpers",
+                            platform.target()
+                        )
+                    })??
             } else {
                 lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
             };
@@ -4375,10 +4404,20 @@ fn lower_runtime_helper(
         | "strings.split"
         | "strings.join"
         | "strings.byteLen" => lower_direct_builtin_runtime_helper(symbol, spec, platform_imports),
-        "thread.start" | "thread.isRunning" | "thread.waitFor" | "thread.cancel"
-        | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
-        | "thread.emit" | "thread.transferResource" | "thread.acceptResource"
-        | "thread.emitResource" | "thread.readResource"
+        "thread.start"
+        | "thread.isRunning"
+        | "thread.waitFor"
+        | "thread.cancel"
+        | "thread.drop"
+        | "thread.send"
+        | "thread.poll"
+        | "thread.read"
+        | "thread.receive"
+        | "thread.emit"
+        | "thread.transferResource"
+        | "thread.acceptResource"
+        | "thread.emitResource"
+        | "thread.readResource"
         | "thread.isCancelled" => {
             let (frame, instructions, relocations) =
                 lower_thread_helper(symbol, spec.call, uses_rng, platform_imports, platform)?;
@@ -4486,9 +4525,7 @@ fn lower_runtime_helper(
         }
         call if call.starts_with("tls.") => {
             let (frame, instructions, relocations) = match call {
-                "tls.connect" => {
-                    tls::lower_tls_connect_helper(symbol, platform_imports, platform)?
-                }
+                "tls.connect" => tls::lower_tls_connect_helper(symbol, platform_imports, platform)?,
                 "tls.read" => {
                     tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
                 }
@@ -7262,7 +7299,11 @@ fn emit_restore_stdin_terminal(
     let restore_failed = format!("{symbol}_terminal_mode_restore_failed");
     instructions.extend([
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), slots.saved_tag),
-        abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), slots.saved_value),
+        abi::store_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            slots.saved_value,
+        ),
         abi::store_u64(
             RESULT_ERROR_MESSAGE_REGISTER,
             abi::stack_pointer(),
@@ -7287,7 +7328,11 @@ fn emit_restore_stdin_terminal(
         abi::branch_lt(&restore_failed),
         abi::label(&restored),
         abi::load_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), slots.saved_tag),
-        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), slots.saved_value),
+        abi::load_u64(
+            RESULT_VALUE_REGISTER,
+            abi::stack_pointer(),
+            slots.saved_value,
+        ),
         abi::load_u64(
             RESULT_ERROR_MESSAGE_REGISTER,
             abi::stack_pointer(),
@@ -7298,15 +7343,8 @@ fn emit_restore_stdin_terminal(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_INPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(
-        symbol,
-        ERR_INPUT_SYMBOL,
-        instructions,
-        relocations,
-    );
-    instructions.push(abi::label(&format!(
-        "{symbol}_terminal_mode_restore_done"
-    )));
+    push_error_message_address(symbol, ERR_INPUT_SYMBOL, instructions, relocations);
+    instructions.push(abi::label(&format!("{symbol}_terminal_mode_restore_done")));
     Ok(())
 }
 
@@ -13865,11 +13903,6 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
     }
 }
 
-mod datetime;
-mod net;
-mod term;
-mod tls;
-mod link_thunk;
 mod builder_collection_layout;
 mod builder_collection_queries;
 mod builder_collection_updates;
@@ -13884,7 +13917,12 @@ mod builder_search;
 mod builder_strings;
 mod builder_strings_package;
 mod builder_values;
+mod datetime;
+mod link_thunk;
+mod net;
 mod private;
+mod term;
+mod tls;
 
 impl CodeInstruction {
     pub(crate) fn new(op: &str) -> Self {
@@ -14395,8 +14433,16 @@ fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'stat
         // Boundary validations (plan-linker.md §12.3/§12.4).
         (ERR_OVERFLOW_CODE, ERR_OVERFLOW_MESSAGE, ERR_OVERFLOW_SYMBOL),
         (ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE, ERR_ENCODING_SYMBOL),
-        (ERR_FLOAT_NAN_CODE, ERR_FLOAT_NAN_MESSAGE, ERR_FLOAT_NAN_SYMBOL),
-        (ERR_FLOAT_INF_CODE, ERR_FLOAT_INF_MESSAGE, ERR_FLOAT_INF_SYMBOL),
+        (
+            ERR_FLOAT_NAN_CODE,
+            ERR_FLOAT_NAN_MESSAGE,
+            ERR_FLOAT_NAN_SYMBOL,
+        ),
+        (
+            ERR_FLOAT_INF_CODE,
+            ERR_FLOAT_INF_MESSAGE,
+            ERR_FLOAT_INF_SYMBOL,
+        ),
     ]
 }
 
@@ -14591,10 +14637,9 @@ fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
                     .variants
                     .iter()
                     .all(|variant| crate::builtins::is_resource_type(&variant.name))
-                && type_
-                    .variants
-                    .iter()
-                    .any(|variant| crate::builtins::resource_close_function(&variant.name) == Some(target))
+                && type_.variants.iter().any(|variant| {
+                    crate::builtins::resource_close_function(&variant.name) == Some(target)
+                })
         })
         .map(|type_| type_.name.as_str())
         .collect();
@@ -14615,9 +14660,7 @@ fn ops_bind_type_in(ops: &[NirOp], names: &std::collections::HashSet<&str>) -> b
             else_body,
             ..
         } => ops_bind_type_in(then_body, names) || ops_bind_type_in(else_body, names),
-        NirOp::Match { cases, .. } => {
-            cases.iter().any(|case| ops_bind_type_in(&case.body, names))
-        }
+        NirOp::Match { cases, .. } => cases.iter().any(|case| ops_bind_type_in(&case.body, names)),
         NirOp::While { body, .. }
         | NirOp::For { body, .. }
         | NirOp::DoUntil { body, .. }
@@ -14729,9 +14772,9 @@ fn ops_may_emit_float_arithmetic_error(
             NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
             NirOp::ExitProgram { code } => value_may_emit_float_arithmetic_error(code, locals),
             NirOp::Fail { error } => value_may_emit_float_arithmetic_error(error, locals),
-            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => {
-                value_may_emit_float_arithmetic_error(value, locals)
-            }
+            NirOp::Assign { value, .. }
+            | NirOp::StateAssign { value, .. }
+            | NirOp::Eval { value } => value_may_emit_float_arithmetic_error(value, locals),
             NirOp::If {
                 condition,
                 then_body,
@@ -14805,7 +14848,9 @@ fn value_may_emit_float_arithmetic_error(
     locals: &HashMap<String, String>,
 ) -> bool {
     match value {
-        NirValue::Binary { op, left, right, .. } => {
+        NirValue::Binary {
+            op, left, right, ..
+        } => {
             let result_type = static_nir_value_type(left, locals)
                 .zip(static_nir_value_type(right, locals))
                 .map(|(left_type, right_type)| {
@@ -14874,7 +14919,9 @@ fn static_nir_value_type(value: &NirValue, locals: &HashMap<String, String>) -> 
         | NirValue::ListLiteral { type_, .. }
         | NirValue::MapLiteral { type_, .. } => Some(type_.clone()),
         NirValue::Local(name) => locals.get(name).cloned(),
-        NirValue::Binary { op, left, right, .. } => static_nir_value_type(left, locals)
+        NirValue::Binary {
+            op, left, right, ..
+        } => static_nir_value_type(left, locals)
             .zip(static_nir_value_type(right, locals))
             .map(|(left_type, right_type)| {
                 numeric_binary_result_type(op, &left_type, &right_type).to_string()
@@ -15026,7 +15073,9 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
         NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => false,
         NirOp::ExitProgram { code } => value_uses_type_name(code),
         NirOp::Fail { error } => value_uses_type_name(error),
-        NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => value_uses_type_name(value),
+        NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => {
+            value_uses_type_name(value)
+        }
         NirOp::If {
             condition,
             then_body,
@@ -15172,7 +15221,9 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
             NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
             NirOp::ExitProgram { code } => collect_type_name_values_from_value(code, values),
             NirOp::Fail { error } => collect_type_name_values_from_value(error, values),
-            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } => {
+            NirOp::Assign { value, .. }
+            | NirOp::StateAssign { value, .. }
+            | NirOp::Eval { value } => {
                 collect_type_name_values_from_value(value, values);
             }
             NirOp::If {
@@ -16089,7 +16140,9 @@ fn value_may_return_invalid_format(
         NirValue::MemberAccess { target, .. } => {
             value_may_return_invalid_format(target, constants, types)
         }
-        NirValue::Binary { op, left, right, .. } => {
+        NirValue::Binary {
+            op, left, right, ..
+        } => {
             binary_may_promote_float_to_fixed(op, left, right, types)
                 || value_may_return_invalid_format(left, constants, types)
                 || value_may_return_invalid_format(right, constants, types)
@@ -16197,7 +16250,9 @@ fn static_string_value_with_constants(
         | NirValue::RuntimeCall { target, args, .. } => {
             strings_package_static_string_value(target, args, constants, types)
         }
-        NirValue::Binary { op, left, right, .. } if op == "&" => {
+        NirValue::Binary {
+            op, left, right, ..
+        } if op == "&" => {
             let left = static_string_value_with_constants(left, constants, types)?;
             let right = static_string_value_with_constants(right, constants, types)?;
             Some(format!("{left}{right}"))
@@ -16299,7 +16354,9 @@ fn static_type_name_with_types(
             .and_then(|type_| type_.strip_prefix("Result OF ").map(str::to_string))
             .or_else(|| static_type_name_with_types(value, types)),
         NirValue::ResultError { .. } => Some("Error".to_string()),
-        NirValue::Binary { op, left, right, .. } => {
+        NirValue::Binary {
+            op, left, right, ..
+        } => {
             if matches!(
                 op.as_str(),
                 "=" | "<>" | "<" | ">" | "<=" | ">=" | "AND" | "OR" | "XOR"
@@ -16441,7 +16498,10 @@ fn collect_builtin_function_refs_in_ops(
                     collect_builtin_function_refs_in_value(value, refs, seen);
                 }
             }
-            NirOp::Assign { value, .. } | NirOp::StateAssign { value, .. } | NirOp::Eval { value } | NirOp::Fail { error: value } => {
+            NirOp::Assign { value, .. }
+            | NirOp::StateAssign { value, .. }
+            | NirOp::Eval { value }
+            | NirOp::Fail { error: value } => {
                 collect_builtin_function_refs_in_value(value, refs, seen);
             }
             NirOp::Return { value } => {
@@ -16901,7 +16961,6 @@ mod tests {
         sim.assert_invariants();
         assert_eq!(sim.free_bytes(), before + 32);
     }
-
 
     #[test]
     fn arena_rejects_invalid_alignment() {

@@ -125,10 +125,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 /// `filter`, and `reduce` deliberately stay out (§9) — broadening is a separate
 /// ergonomic decision, not a safety requirement.
 pub(crate) fn is_nonescaping_callback_arg(callee: &str, index: usize) -> bool {
-    matches!(
-        (callee, index),
-        ("forEach", 1) | ("collections.forEach", 1)
-    )
+    matches!((callee, index), ("forEach", 1) | ("collections.forEach", 1))
 }
 
 pub(crate) fn is_builtin_call(name: &str) -> bool {

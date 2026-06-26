@@ -47,7 +47,10 @@ pub struct FunctionEscape {
 impl FunctionEscape {
     /// The owner of a `RES` binding; [`ResOwner::Local`] when it does not float.
     pub fn owner(&self, res_name: &str) -> ResOwner {
-        self.owners.get(res_name).cloned().unwrap_or(ResOwner::Local)
+        self.owners
+            .get(res_name)
+            .cloned()
+            .unwrap_or(ResOwner::Local)
     }
 
     /// Whether the binding's ownership has floated away from its own scope (into
@@ -62,7 +65,6 @@ impl FunctionEscape {
     pub fn owners(&self) -> &HashMap<String, ResOwner> {
         &self.owners
     }
-
 }
 
 /// The destination a collection value flows into.
@@ -123,13 +125,11 @@ pub fn analyze_function(function: &Function) -> FunctionEscape {
 impl Analyzer {
     fn declare(&mut self, name: &str, depth: usize) {
         self.decl_depth.entry(name.to_string()).or_insert(depth);
-        self.decl_order
-            .entry(name.to_string())
-            .or_insert_with(|| {
-                let order = self.next_order;
-                self.next_order += 1;
-                order
-            });
+        self.decl_order.entry(name.to_string()).or_insert_with(|| {
+            let order = self.next_order;
+            self.next_order += 1;
+            order
+        });
     }
 
     fn walk(&mut self, body: &[Statement], depth: usize) {
@@ -280,8 +280,7 @@ impl Analyzer {
         loop {
             let mut changed = false;
             for routing in &self.routings {
-                let mut incoming: HashSet<String> =
-                    routing.res_elems.iter().cloned().collect();
+                let mut incoming: HashSet<String> = routing.res_elems.iter().cloned().collect();
                 for source in &routing.src_collections {
                     if let Some(members) = membership.get(source) {
                         incoming.extend(members.iter().cloned());

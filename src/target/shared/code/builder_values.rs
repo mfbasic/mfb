@@ -667,7 +667,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::store_u64("x9", abi::stack_pointer(), payload_slot));
                 let ok_result =
                     self.emit_build_result_inline(tag_slot, &success_type, payload_slot)?;
-                self.emit(abi::store_u64(&ok_result, abi::stack_pointer(), result_slot));
+                self.emit(abi::store_u64(
+                    &ok_result,
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
                 self.emit(abi::branch(&have_payload_label));
                 self.emit(abi::label(&wrap_error_label));
                 let error_register =
@@ -677,9 +681,12 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     payload_slot,
                 ));
-                let err_result =
-                    self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
-                self.emit(abi::store_u64(&err_result, abi::stack_pointer(), result_slot));
+                let err_result = self.emit_build_result_inline(tag_slot, "Error", payload_slot)?;
+                self.emit(abi::store_u64(
+                    &err_result,
+                    abi::stack_pointer(),
+                    result_slot,
+                ));
                 self.emit(abi::label(&have_payload_label));
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
@@ -1050,8 +1057,11 @@ impl CodeBuilder<'_> {
                             std::slice::from_ref(target.as_ref()),
                             "thread_result_arg",
                         )?;
-                        return self
-                            .materialize_current_result(&output_type, "thread.result".to_string(), true);
+                        return self.materialize_current_result(
+                            &output_type,
+                            "thread.result".to_string(),
+                            true,
+                        );
                     }
                     self.lower_field_access(target, member)
                 }
@@ -1078,7 +1088,9 @@ impl CodeBuilder<'_> {
                 }
                 _ => self.lower_field_access(target, member),
             },
-            NirValue::Binary { op, left, right, .. } => {
+            NirValue::Binary {
+                op, left, right, ..
+            } => {
                 if op == "&" {
                     return self.lower_string_concat(left, right);
                 }
@@ -1176,7 +1188,9 @@ impl CodeBuilder<'_> {
         match args.len() {
             1 => true,
             2 => {
-                args.first().and_then(|arg| self.static_type_name(arg)).as_deref()
+                args.first()
+                    .and_then(|arg| self.static_type_name(arg))
+                    .as_deref()
                     == Some("Address")
             }
             _ => false,

@@ -13,7 +13,9 @@
 //! AppKit/Foundation). No private API is used (plan §4.4).
 
 use crate::arch::aarch64::abi;
-use crate::target::shared::code::{self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation};
+use crate::target::shared::code::{
+    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
+};
 
 const MAIN_SYMBOL: &str = "_main";
 const WORKER_SYMBOL: &str = "_mfb_macapp_worker";
@@ -26,19 +28,26 @@ const WINDOW_STYLE_MASK: &str = "15";
 const BACKING_BUFFERED: &str = "2";
 
 // Read-only C-string data symbols referenced by the bootstrap.
-const SEL_SHARED_APPLICATION: (&str, &str) = ("_mfb_macapp_sel_sharedApplication", "sharedApplication");
-const SEL_SET_ACTIVATION_POLICY: (&str, &str) =
-    ("_mfb_macapp_sel_setActivationPolicy", "setActivationPolicy:");
+const SEL_SHARED_APPLICATION: (&str, &str) =
+    ("_mfb_macapp_sel_sharedApplication", "sharedApplication");
+const SEL_SET_ACTIVATION_POLICY: (&str, &str) = (
+    "_mfb_macapp_sel_setActivationPolicy",
+    "setActivationPolicy:",
+);
 const SEL_ALLOC: (&str, &str) = ("_mfb_macapp_sel_alloc", "alloc");
 const SEL_INIT_WINDOW: (&str, &str) = (
     "_mfb_macapp_sel_initWindow",
     "initWithContentRect:styleMask:backing:defer:",
 );
-const SEL_STRING_WITH_UTF8: (&str, &str) =
-    ("_mfb_macapp_sel_stringWithUTF8String", "stringWithUTF8String:");
+const SEL_STRING_WITH_UTF8: (&str, &str) = (
+    "_mfb_macapp_sel_stringWithUTF8String",
+    "stringWithUTF8String:",
+);
 const SEL_SET_TITLE: (&str, &str) = ("_mfb_macapp_sel_setTitle", "setTitle:");
-const SEL_MAKE_KEY_AND_ORDER_FRONT: (&str, &str) =
-    ("_mfb_macapp_sel_makeKeyAndOrderFront", "makeKeyAndOrderFront:");
+const SEL_MAKE_KEY_AND_ORDER_FRONT: (&str, &str) = (
+    "_mfb_macapp_sel_makeKeyAndOrderFront",
+    "makeKeyAndOrderFront:",
+);
 const SEL_ACTIVATE: (&str, &str) = (
     "_mfb_macapp_sel_activateIgnoringOtherApps",
     "activateIgnoringOtherApps:",
@@ -56,12 +65,15 @@ const SEL_CONTENT_VIEW: (&str, &str) = ("_mfb_macapp_sel_contentView", "contentV
 const SEL_INIT_FRAME: (&str, &str) = ("_mfb_macapp_sel_initWithFrame", "initWithFrame:");
 const SEL_SET_EDITABLE: (&str, &str) = ("_mfb_macapp_sel_setEditable", "setEditable:");
 const SEL_SET_SELECTABLE: (&str, &str) = ("_mfb_macapp_sel_setSelectable", "setSelectable:");
-const SEL_SET_DOCUMENT_VIEW: (&str, &str) =
-    ("_mfb_macapp_sel_setDocumentView", "setDocumentView:");
-const SEL_SET_HAS_VSCROLLER: (&str, &str) =
-    ("_mfb_macapp_sel_setHasVerticalScroller", "setHasVerticalScroller:");
-const SEL_SET_AUTORESIZING_MASK: (&str, &str) =
-    ("_mfb_macapp_sel_setAutoresizingMask", "setAutoresizingMask:");
+const SEL_SET_DOCUMENT_VIEW: (&str, &str) = ("_mfb_macapp_sel_setDocumentView", "setDocumentView:");
+const SEL_SET_HAS_VSCROLLER: (&str, &str) = (
+    "_mfb_macapp_sel_setHasVerticalScroller",
+    "setHasVerticalScroller:",
+);
+const SEL_SET_AUTORESIZING_MASK: (&str, &str) = (
+    "_mfb_macapp_sel_setAutoresizingMask",
+    "setAutoresizingMask:",
+);
 const SEL_ADD_SUBVIEW: (&str, &str) = ("_mfb_macapp_sel_addSubview", "addSubview:");
 
 /// NSViewWidthSizable(2) | NSViewHeightSizable(16): the scroll view tracks the
@@ -71,18 +83,26 @@ const AUTORESIZE_WIDTH_HEIGHT: &str = "18";
 const AUTORESIZE_WIDTH: &str = "2";
 // Transcript append selectors.
 const SEL_TEXT_STORAGE: (&str, &str) = ("_mfb_macapp_sel_textStorage", "textStorage");
-const SEL_APPEND_ATTRIBUTED: (&str, &str) =
-    ("_mfb_macapp_sel_appendAttributed", "appendAttributedString:");
-const SEL_DICTIONARY_WITH_OBJECT: (&str, &str) =
-    ("_mfb_macapp_sel_dictWithObject", "dictionaryWithObject:forKey:");
-const SEL_INIT_WITH_STRING_ATTRS: (&str, &str) =
-    ("_mfb_macapp_sel_initWithStringAttrs", "initWithString:attributes:");
+const SEL_APPEND_ATTRIBUTED: (&str, &str) = (
+    "_mfb_macapp_sel_appendAttributed",
+    "appendAttributedString:",
+);
+const SEL_DICTIONARY_WITH_OBJECT: (&str, &str) = (
+    "_mfb_macapp_sel_dictWithObject",
+    "dictionaryWithObject:forKey:",
+);
+const SEL_INIT_WITH_STRING_ATTRS: (&str, &str) = (
+    "_mfb_macapp_sel_initWithStringAttrs",
+    "initWithString:attributes:",
+);
 const SEL_PERFORM_ON_MAIN: (&str, &str) = (
     "_mfb_macapp_sel_performOnMain",
     "performSelectorOnMainThread:withObject:waitUntilDone:",
 );
-const SEL_INIT_WITH_BYTES: (&str, &str) =
-    ("_mfb_macapp_sel_initWithBytes", "initWithBytes:length:encoding:");
+const SEL_INIT_WITH_BYTES: (&str, &str) = (
+    "_mfb_macapp_sel_initWithBytes",
+    "initWithBytes:length:encoding:",
+);
 const STR_STDERR_PREFIX: (&str, &str) = ("_mfb_macapp_str_stderr_prefix", "[stderr] ");
 const STR_NEWLINE: (&str, &str) = ("_mfb_macapp_str_newline", "\n");
 /// The address of this 1-byte read-only symbol is the unique key under which the
@@ -115,8 +135,7 @@ const DID_FINISH_LAUNCHING_SYMBOL: &str = "_mfb_macapp_did_finish_launching";
 /// Associated-object key (its address) under which the bootstrap stashes the
 /// `{argc, argv}` block pointer so the launch handler can pass it to the worker.
 const ARG_ASSOC_KEY: &str = "_mfb_macapp_argblock_key";
-const STR_EXIT_PREFIX: (&str, &str) =
-    ("_mfb_macapp_str_exitPrefix", "\nProgram exited with code ");
+const STR_EXIT_PREFIX: (&str, &str) = ("_mfb_macapp_str_exitPrefix", "\nProgram exited with code ");
 
 // Monospaced transcript font (plan §5.5).
 const SEL_USER_FIXED_FONT: (&str, &str) =
@@ -151,12 +170,13 @@ const SEL_MAKE_FIRST_RESPONDER: (&str, &str) =
 const SEL_KEY_DOWN: (&str, &str) = ("_mfb_macapp_sel_keyDown", "keyDown:");
 const SEL_CHARACTERS: (&str, &str) = ("_mfb_macapp_sel_characters", "characters");
 const SEL_LENGTH: (&str, &str) = ("_mfb_macapp_sel_length", "length");
-const SEL_CHAR_AT_INDEX: (&str, &str) =
-    ("_mfb_macapp_sel_characterAtIndex", "characterAtIndex:");
+const SEL_CHAR_AT_INDEX: (&str, &str) = ("_mfb_macapp_sel_characterAtIndex", "characterAtIndex:");
 const SEL_APPEND_STRING: (&str, &str) = ("_mfb_macapp_sel_appendString", "appendString:");
 const SEL_SET_STRING: (&str, &str) = ("_mfb_macapp_sel_setString", "setString:");
-const SEL_DELETE_RANGE: (&str, &str) =
-    ("_mfb_macapp_sel_deleteCharsInRange", "deleteCharactersInRange:");
+const SEL_DELETE_RANGE: (&str, &str) = (
+    "_mfb_macapp_sel_deleteCharsInRange",
+    "deleteCharactersInRange:",
+);
 const SEL_STRING: (&str, &str) = ("_mfb_macapp_sel_string", "string");
 const STR_TEXTVIEW_CLASS: (&str, &str) = ("_mfb_macapp_str_textviewClass", "MFBTextView");
 /// Objective-C method type encoding for `void (id self, SEL _cmd, id arg)`.
@@ -190,8 +210,10 @@ const SEL_CONTENT_SIZE: (&str, &str) = ("_mfb_macapp_sel_contentSize", "contentS
 const SEL_MAX_ADVANCEMENT: (&str, &str) =
     ("_mfb_macapp_sel_maximumAdvancement", "maximumAdvancement");
 const SEL_LAYOUT_MANAGER: (&str, &str) = ("_mfb_macapp_sel_layoutManager", "layoutManager");
-const SEL_DEFAULT_LINE_HEIGHT: (&str, &str) =
-    ("_mfb_macapp_sel_defaultLineHeight", "defaultLineHeightForFont:");
+const SEL_DEFAULT_LINE_HEIGHT: (&str, &str) = (
+    "_mfb_macapp_sel_defaultLineHeight",
+    "defaultLineHeightForFont:",
+);
 /// The arena allocator (`lower_arena_alloc`): size in x0, align in x1; returns a
 /// result tag in x0 and the block pointer in x1.
 // Kept for plan-01-term.md Phase 5: the app-mode `term::terminalSize` retargets
@@ -221,8 +243,7 @@ const SHOULD_TERMINATE_SYMBOL: &str = "_mfb_macapp_should_terminate";
 // TUI mode is active and restored to the transcript scroll view on `term::off`.
 const SEL_DRAW_RECT: (&str, &str) = ("_mfb_macapp_sel_drawRect", "drawRect:");
 const SEL_IS_FLIPPED: (&str, &str) = ("_mfb_macapp_sel_isFlipped", "isFlipped");
-const SEL_SET_CONTENT_VIEW: (&str, &str) =
-    ("_mfb_macapp_sel_setContentView", "setContentView:");
+const SEL_SET_CONTENT_VIEW: (&str, &str) = ("_mfb_macapp_sel_setContentView", "setContentView:");
 const SEL_COLOR_WITH_RGBA: (&str, &str) = (
     "_mfb_macapp_sel_colorWithRGBA",
     "colorWithCalibratedRed:green:blue:alpha:",
@@ -232,8 +253,10 @@ const SEL_WHITE_COLOR: (&str, &str) = ("_mfb_macapp_sel_whiteColor", "whiteColor
 const SEL_BLACK_COLOR: (&str, &str) = ("_mfb_macapp_sel_blackColor", "blackColor");
 const SEL_DRAW_AT_POINT: (&str, &str) =
     ("_mfb_macapp_sel_drawAtPoint", "drawAtPoint:withAttributes:");
-const SEL_STRING_WITH_CHARS: (&str, &str) =
-    ("_mfb_macapp_sel_stringWithChars", "stringWithCharacters:length:");
+const SEL_STRING_WITH_CHARS: (&str, &str) = (
+    "_mfb_macapp_sel_stringWithChars",
+    "stringWithCharacters:length:",
+);
 const SEL_DICTIONARY: (&str, &str) = ("_mfb_macapp_sel_dictionary", "dictionary");
 const SEL_SET_OBJECT_FOR_KEY: (&str, &str) =
     ("_mfb_macapp_sel_setObjectForKey", "setObject:forKey:");
@@ -247,8 +270,7 @@ const SEL_NUMBER_WITH_DOUBLE: (&str, &str) =
 /// attributed-string keys used to render per-cell underline/bold (plan §4.3).
 const NS_UNDERLINE_STYLE_ATTRIBUTE_NAME: &str = "_NSUnderlineStyleAttributeName";
 const NS_STROKE_WIDTH_ATTRIBUTE_NAME: &str = "_NSStrokeWidthAttributeName";
-const SEL_SET_NEEDS_DISPLAY: (&str, &str) =
-    ("_mfb_macapp_sel_setNeedsDisplay", "setNeedsDisplay:");
+const SEL_SET_NEEDS_DISPLAY: (&str, &str) = ("_mfb_macapp_sel_setNeedsDisplay", "setNeedsDisplay:");
 const SEL_MFB_WRITE_STRING: (&str, &str) = ("_mfb_macapp_sel_mfbWriteString", "mfbWriteString:");
 /// `NSForegroundColorAttributeName` — attributed-string key for the glyph colour.
 const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeName";
@@ -256,8 +278,10 @@ const NS_FOREGROUND_COLOR_ATTRIBUTE_NAME: &str = "_NSForegroundColorAttributeNam
 const MFB_WRITE_STRING_SYMBOL: &str = "_mfb_macapp_term_writeString";
 /// `acceptsFirstResponder` — TermView must return YES so it can become the
 /// window's first responder and receive `keyDown:` while TUI mode is active.
-const SEL_ACCEPTS_FIRST_RESPONDER: (&str, &str) =
-    ("_mfb_macapp_sel_acceptsFirstResponder", "acceptsFirstResponder");
+const SEL_ACCEPTS_FIRST_RESPONDER: (&str, &str) = (
+    "_mfb_macapp_sel_acceptsFirstResponder",
+    "acceptsFirstResponder",
+);
 /// IMP for TermView `acceptsFirstResponder` (returns YES).
 const TERM_ACCEPTS_FR_SYMBOL: &str = "_mfb_macapp_term_acceptsFR";
 /// IMP for TermView `keyDown:` (routes typed keys to the window input pipe).
@@ -303,8 +327,8 @@ const TV_CURSOR_COL_OFFSET: usize = 32; // i64 cursor column (0-based)
 const TV_CELL_W_OFFSET: usize = 40; // f64 cell width in points
 const TV_CELL_H_OFFSET: usize = 48; // f64 cell height in points
 const TV_CURSOR_VISIBLE_OFFSET: usize = 56; // i64 cursor-visible flag
-// Current attributes applied to cells as they are written (the app-mode mirror of
-// the term-state global; readable from the main-thread write/draw path).
+                                            // Current attributes applied to cells as they are written (the app-mode mirror of
+                                            // the term-state global; readable from the main-thread write/draw path).
 const TV_CUR_FG_OFFSET: usize = 64; // u32 packed r|g<<8|b<<16 (default white)
 const TV_CUR_BG_OFFSET: usize = 72; // u32 packed (default black = 0)
 const TV_CUR_BOLD_OFFSET: usize = 80; // i64 bold flag
@@ -525,7 +549,11 @@ fn emit_main_bootstrap() -> CodeFunction {
 
     // [app setActivationPolicy:NSApplicationActivationPolicyRegular]
     asm.load_selector(SEL_SET_ACTIVATION_POLICY.0);
-    asm.push(abi::move_immediate("x2", "Integer", ACTIVATION_POLICY_REGULAR));
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        ACTIVATION_POLICY_REGULAR,
+    ));
     asm.push(abi::move_register("x0", REG_APP));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
@@ -592,10 +620,14 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x23", "x0")); // scroll view
-    // [scroll setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable] -- track
-    // the window content view so the transcript fills the window on resize.
+                                               // [scroll setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable] -- track
+                                               // the window content view so the transcript fills the window on resize.
     asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
-    asm.push(abi::move_immediate("x2", "Integer", AUTORESIZE_WIDTH_HEIGHT));
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        AUTORESIZE_WIDTH_HEIGHT,
+    ));
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
@@ -609,7 +641,7 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_allocateClassPair", LIB_OBJC);
     asm.push(abi::move_register("x25", "x0")); // new class
-    // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
+                                               // class_addMethod(cls, @selector(keyDown:), imp, "v@:@")
     asm.load_selector(SEL_KEY_DOWN.0);
     asm.local_address("x2", KEY_DOWN_SYMBOL);
     asm.local_address("x3", STR_INPUT_TYPES.0);
@@ -708,7 +740,7 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_allocateClassPair", LIB_OBJC);
     asm.push(abi::move_register("x25", "x0")); // new class
-    // class_addMethod(cls, @selector(drawRect:), imp, "v@:{CGRect=dddd}")
+                                               // class_addMethod(cls, @selector(drawRect:), imp, "v@:{CGRect=dddd}")
     asm.load_selector(SEL_DRAW_RECT.0);
     asm.local_address("x2", TERM_VIEW_DRAW_RECT_SYMBOL);
     asm.local_address("x3", STR_DRAW_RECT_TYPES.0);
@@ -755,9 +787,13 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x26"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x26", "x0")); // TermView instance
-    // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
+                                               // [tv setAutoresizingMask:NSViewWidthSizable|NSViewHeightSizable]
     asm.load_selector(SEL_SET_AUTORESIZING_MASK.0);
-    asm.push(abi::move_immediate("x2", "Integer", AUTORESIZE_WIDTH_HEIGHT));
+    asm.push(abi::move_immediate(
+        "x2",
+        "Integer",
+        AUTORESIZE_WIDTH_HEIGHT,
+    ));
     asm.push(abi::move_register("x0", "x26"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     // Size + allocate the cell grid from the font metrics.
@@ -781,7 +817,7 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_allocateClassPair", LIB_OBJC);
     asm.push(abi::move_register("x23", "x0")); // new class
-    // class_addMethod(cls, @selector(applicationShouldTerminate...), imp, "c@:@")
+                                               // class_addMethod(cls, @selector(applicationShouldTerminate...), imp, "c@:@")
     asm.load_selector(SEL_APP_SHOULD_TERMINATE.0);
     asm.local_address("x2", SHOULD_TERMINATE_SYMBOL);
     asm.local_address("x3", STR_DELEGATE_TYPES.0);
@@ -850,7 +886,7 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x23"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x23", "x0")); // main menu
-    // appMenuItem = [[NSMenuItem alloc] init]
+                                               // appMenuItem = [[NSMenuItem alloc] init]
     asm.external_data("x24", CLASS_NS_MENU_ITEM, LIB_APPKIT);
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register("x0", "x24"));
@@ -860,7 +896,7 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x24"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x24", "x0")); // app menu item
-    // [mainMenu addItem:appMenuItem]
+                                               // [mainMenu addItem:appMenuItem]
     asm.load_selector(SEL_ADD_ITEM.0);
     asm.push(abi::move_register("x2", "x24"));
     asm.push(abi::move_register("x0", "x23"));
@@ -875,7 +911,7 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x25"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x25", "x0")); // app submenu
-    // quitItem = [[NSMenuItem alloc] init]
+                                               // quitItem = [[NSMenuItem alloc] init]
     asm.external_data("x26", CLASS_NS_MENU_ITEM, LIB_APPKIT);
     asm.load_selector(SEL_ALLOC.0);
     asm.push(abi::move_register("x0", "x26"));
@@ -885,7 +921,7 @@ fn emit_main_bootstrap() -> CodeFunction {
     asm.push(abi::move_register("x0", "x26"));
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::move_register("x26", "x0")); // quit item
-    // [quitItem setTitle:@"Quit"]
+                                               // [quitItem setTitle:@"Quit"]
     build_nsstring_from_cstring(&mut asm, "x27", STR_QUIT.0);
     asm.push(abi::move_register("x27", "x0"));
     asm.load_selector(SEL_SET_TITLE.0);
@@ -1051,7 +1087,11 @@ fn emit_append_helper() -> CodeFunction {
     let mut asm = Asm::new(APPEND_SYMBOL);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(48));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
@@ -1071,8 +1111,8 @@ fn emit_append_helper() -> CodeFunction {
     asm.external_data("x22", CLASS_NS_DICTIONARY, LIB_FOUNDATION);
     asm.load_selector(SEL_DICTIONARY_WITH_OBJECT.0);
     asm.push(abi::move_register("x2", "x21")); // object: font
-    // NSFontAttributeName is a `NSString * const` global: external_data yields the
-    // address of that variable, so dereference once more to get the NSString key.
+                                               // NSFontAttributeName is a `NSString * const` global: external_data yields the
+                                               // address of that variable, so dereference once more to get the NSString key.
     asm.external_data("x3", NS_FONT_ATTRIBUTE_NAME, LIB_APPKIT);
     asm.push(abi::load_u64("x3", "x3", 0));
     asm.push(abi::move_register("x0", "x22"));
@@ -1149,7 +1189,11 @@ fn emit_finish_helper(uses_term: bool) -> CodeFunction {
     let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
@@ -1251,7 +1295,7 @@ fn emit_format_exit_code(asm: &mut Asm, _frame: usize) {
     asm.push(abi::move_immediate("x11", "Integer", "10"));
     asm.push(abi::unsigned_divide_registers("x12", "x9", "x11")); // tens
     asm.push(abi::multiply_subtract_registers("x9", "x12", "x11", "x9")); // ones
-    // write pointer x13 = sp+40; start x16 = x13.
+                                                                          // write pointer x13 = sp+40; start x16 = x13.
     asm.push(abi::add_immediate("x13", abi::stack_pointer(), 40));
     asm.push(abi::move_register("x16", "x13"));
     // if hundreds != 0: emit hundreds, then always emit tens + ones.
@@ -1286,7 +1330,11 @@ fn emit_did_finish_launching_helper() -> CodeFunction {
     let frame = 32;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
 
     // app = [NSApplication sharedApplication]
     asm.load_selector(SEL_SHARED_APPLICATION.0);
@@ -1359,7 +1407,11 @@ fn emit_key_down_helper() -> CodeFunction {
     let frame = 96;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
@@ -1567,7 +1619,11 @@ pub(crate) fn emit_app_io_write_helper(
     let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
@@ -1660,7 +1716,7 @@ pub(crate) fn emit_app_io_write_helper(
         asm.push(abi::move_register("x20", "x0")); // termview or nil
         asm.push(abi::compare_immediate("x20", "0"));
         asm.push(abi::branch_eq("fd_path")); // headless: no surface -> fd
-        // text = [[NSString alloc] initWithBytes:(str+8) length:str[0] encoding:UTF8]
+                                             // text = [[NSString alloc] initWithBytes:(str+8) length:str[0] encoding:UTF8]
         asm.external_data("x21", CLASS_NS_STRING, LIB_FOUNDATION);
         asm.load_selector(SEL_ALLOC.0);
         asm.push(abi::move_register("x0", "x21"));
@@ -1673,7 +1729,7 @@ pub(crate) fn emit_app_io_write_helper(
         asm.push(abi::move_register("x0", "x21"));
         asm.call_external("_objc_msgSend", LIB_OBJC);
         asm.push(abi::move_register("x21", "x0")); // text nsstring
-        // [tv performSelectorOnMainThread:@selector(mfbWriteString:) withObject:text waitUntilDone:YES]
+                                                   // [tv performSelectorOnMainThread:@selector(mfbWriteString:) withObject:text waitUntilDone:YES]
         asm.load_selector(SEL_MFB_WRITE_STRING.0);
         asm.push(abi::move_register("x22", "x1")); // mfbWriteString: sel
         asm.load_selector(SEL_PERFORM_ON_MAIN.0);
@@ -1746,7 +1802,11 @@ pub(crate) fn emit_app_io_input_helper(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(16));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.call_internal(IO_WRITE_SYMBOL); // x0 = prompt; renders it, result ignored
     emit_set_input_mode_instructions(&mut asm, INPUT_MODE_LINE_ECHO);
     asm.call_internal(IO_READ_LINE_SYMBOL); // result in x0/x1/x2
@@ -1825,7 +1885,11 @@ pub(crate) fn emit_app_io_terminal_size_helper(
     let mut asm = Asm::new(symbol);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
@@ -2051,12 +2115,21 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     ];
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in saved {
         asm.push(abi::store_u64(reg, abi::stack_pointer(), off));
     }
     // Spill the dirty rect (d0..d3) before any call clobbers the FP arg regs.
-    for (reg, off) in [("d0", off_rx), ("d1", off_ry), ("d2", off_rw), ("d3", off_rh)] {
+    for (reg, off) in [
+        ("d0", off_rx),
+        ("d1", off_ry),
+        ("d2", off_rw),
+        ("d3", off_rh),
+    ] {
         asm.push(abi::float_move_x_from_d("x9", reg));
         asm.push(abi::store_u64("x9", abi::stack_pointer(), off));
     }
@@ -2080,7 +2153,12 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     asm.call_external("_objc_msgSend", LIB_OBJC);
     asm.push(abi::load_u64("x1", abi::stack_pointer(), off_set_sel));
     asm.call_external("_objc_msgSend", LIB_OBJC); // [black set]
-    for (reg, off) in [("d0", off_rx), ("d1", off_ry), ("d2", off_rw), ("d3", off_rh)] {
+    for (reg, off) in [
+        ("d0", off_rx),
+        ("d1", off_ry),
+        ("d2", off_rw),
+        ("d3", off_rh),
+    ] {
         asm.push(abi::load_u64("x9", abi::stack_pointer(), off));
         asm.push(abi::float_move_d_from_x(reg, "x9"));
     }
@@ -2151,7 +2229,11 @@ fn emit_term_view_draw_rect() -> CodeFunction {
     asm.push(abi::load_u64("x3", "x3", 0));
     asm.push(abi::store_u64("x3", abi::stack_pointer(), off_ulkey));
     asm.load_selector(SEL_REMOVE_OBJECT_FOR_KEY.0);
-    asm.push(abi::store_u64("x1", abi::stack_pointer(), off_removeobj_sel));
+    asm.push(abi::store_u64(
+        "x1",
+        abi::stack_pointer(),
+        off_removeobj_sel,
+    ));
 
     // for row in 0..rows: for col in 0..cols
     asm.push(abi::move_immediate("x23", "Integer", "0"));
@@ -2296,7 +2378,11 @@ fn emit_term_init_helper() -> CodeFunction {
     let (off_cw, off_lh) = (40, 48);
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
@@ -2305,7 +2391,11 @@ fn emit_term_init_helper() -> CodeFunction {
 
     // state = calloc(1, TV_STATE_SIZE) — zero-initialized grid state struct.
     asm.push(abi::move_immediate("x0", "Integer", "1"));
-    asm.push(abi::move_immediate("x1", "Integer", &TV_STATE_SIZE.to_string()));
+    asm.push(abi::move_immediate(
+        "x1",
+        "Integer",
+        &TV_STATE_SIZE.to_string(),
+    ));
     asm.call_external("_calloc", LIB_SYSTEM);
     asm.push(abi::move_register("x20", "x0")); // state struct ptr
 
@@ -2344,14 +2434,22 @@ fn emit_term_init_helper() -> CodeFunction {
     // cols = floor(WIDTH / cellW); rows = floor(HEIGHT / cellH).
     asm.push(abi::load_u64("x9", abi::stack_pointer(), off_cw));
     asm.push(abi::float_move_d_from_x("d1", "x9"));
-    asm.push(abi::move_immediate("x9", "Integer", &TERM_VIEW_WIDTH.to_string()));
+    asm.push(abi::move_immediate(
+        "x9",
+        "Integer",
+        &TERM_VIEW_WIDTH.to_string(),
+    ));
     asm.push(abi::signed_convert_to_float_d("d0", "x9"));
     asm.push(abi::float_divide_d("d0", "d0", "d1"));
     asm.push(abi::float_floor_to_signed_x("x9", "d0"));
     asm.push(abi::store_u64("x9", "x20", TV_COLS_OFFSET));
     asm.push(abi::load_u64("x9", abi::stack_pointer(), off_lh));
     asm.push(abi::float_move_d_from_x("d1", "x9"));
-    asm.push(abi::move_immediate("x9", "Integer", &TERM_VIEW_HEIGHT.to_string()));
+    asm.push(abi::move_immediate(
+        "x9",
+        "Integer",
+        &TERM_VIEW_HEIGHT.to_string(),
+    ));
     asm.push(abi::signed_convert_to_float_d("d0", "x9"));
     asm.push(abi::float_divide_d("d0", "d0", "d1"));
     asm.push(abi::float_floor_to_signed_x("x9", "d0"));
@@ -2417,7 +2515,11 @@ fn emit_term_clear_helper() -> CodeFunction {
     let frame = 32;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
 
     // state = objc_getAssociatedObject(termView, &TVSTATE_KEY)  (x0 = termView)
@@ -2473,7 +2575,11 @@ fn emit_term_scroll_helper() -> CodeFunction {
     let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x19", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 24));
@@ -2532,7 +2638,11 @@ fn emit_term_write_string_helper() -> CodeFunction {
     let frame = 96;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in [
         ("x19", 8),
         ("x20", 16),
@@ -2746,7 +2856,11 @@ fn emit_term_key_down_helper() -> CodeFunction {
     let frame = 96;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     for (reg, off) in [
         ("x19", 8),
         ("x20", 16),
@@ -2950,7 +3064,11 @@ pub(crate) fn emit_app_term_on_helper(
     let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x22", abi::stack_pointer(), 24));
@@ -2958,7 +3076,12 @@ pub(crate) fn emit_app_term_on_helper(
 
     // Reset all term state to defaults (active on, fg white, bg black, bold and
     // underline off, cursor visible). x19 is the pinned arena-state base.
-    store_term_state(&mut asm, term_state_offset, code::TERM_STATE_ACTIVE_OFFSET, "1");
+    store_term_state(
+        &mut asm,
+        term_state_offset,
+        code::TERM_STATE_ACTIVE_OFFSET,
+        "1",
+    );
     store_term_state(
         &mut asm,
         term_state_offset,
@@ -2966,7 +3089,12 @@ pub(crate) fn emit_app_term_on_helper(
         "16777215",
     );
     store_term_state(&mut asm, term_state_offset, code::TERM_STATE_BG_OFFSET, "0");
-    store_term_state(&mut asm, term_state_offset, code::TERM_STATE_BOLD_OFFSET, "0");
+    store_term_state(
+        &mut asm,
+        term_state_offset,
+        code::TERM_STATE_BOLD_OFFSET,
+        "0",
+    );
     store_term_state(
         &mut asm,
         term_state_offset,
@@ -3059,7 +3187,11 @@ pub(crate) fn emit_app_term_off_helper(
     let frame = 48;
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
     asm.push(abi::store_u64("x22", abi::stack_pointer(), 24));
@@ -3121,7 +3253,12 @@ pub(crate) fn emit_app_term_off_helper(
     asm.call_external("_objc_msgSend", LIB_OBJC);
 
     asm.push(abi::label("term_off_inactive"));
-    store_term_state(&mut asm, term_state_offset, code::TERM_STATE_ACTIVE_OFFSET, "0");
+    store_term_state(
+        &mut asm,
+        term_state_offset,
+        code::TERM_STATE_ACTIVE_OFFSET,
+        "0",
+    );
 
     asm.push(abi::label("term_off_done"));
     asm.push(abi::move_immediate("x0", "Integer", "0")); // RESULT_OK_TAG
@@ -3246,7 +3383,11 @@ fn emit_app_set_color(
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // r
     asm.push(abi::store_u64("x1", abi::stack_pointer(), 24)); // g
@@ -3294,7 +3435,11 @@ fn emit_app_set_attr(
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // enabled
     emit_term_active_gate(&mut asm, term_state_offset, &done);
@@ -3330,7 +3475,11 @@ fn emit_app_move_to(
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x0", abi::stack_pointer(), 16)); // row
     asm.push(abi::store_u64("x1", abi::stack_pointer(), 24)); // col
@@ -3389,7 +3538,11 @@ fn emit_app_clear(
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     asm.push(abi::store_u64("x21", abi::stack_pointer(), 16));
     emit_term_active_gate(&mut asm, term_state_offset, &done);
@@ -3441,7 +3594,11 @@ fn emit_app_set_cursor_visible(
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     emit_term_active_gate(&mut asm, term_state_offset, &done);
     asm.push(abi::move_immediate("x9", "Integer", value));
@@ -3478,7 +3635,11 @@ fn emit_app_terminal_size(
     let done = format!("{symbol}_done");
     asm.push(abi::label("entry"));
     asm.push(abi::subtract_stack(frame));
-    asm.push(abi::store_u64(abi::link_register(), abi::stack_pointer(), 0));
+    asm.push(abi::store_u64(
+        abi::link_register(),
+        abi::stack_pointer(),
+        0,
+    ));
     asm.push(abi::store_u64("x20", abi::stack_pointer(), 8));
     // Requires active TUI mode (plan §4.7).
     asm.push(abi::load_u64(

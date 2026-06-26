@@ -222,16 +222,9 @@ impl plan::NativePlanPlatform for Platform {
             }
             // `term::` console helpers that emit ANSI escape sequences write to
             // stdout (plan-01-term.md §6.1).
-            "term.on"
-            | "term.off"
-            | "term.setForeground"
-            | "term.setBackground"
-            | "term.setBold"
-            | "term.setUnderline"
-            | "term.showCursor"
-            | "term.hideCursor"
-            | "term.clear"
-            | "term.moveTo" => vec![PlatformImport {
+            "term.on" | "term.off" | "term.setForeground" | "term.setBackground"
+            | "term.setBold" | "term.setUnderline" | "term.showCursor" | "term.hideCursor"
+            | "term.clear" | "term.moveTo" => vec![PlatformImport {
                 library: "libSystem".to_string(),
                 symbol: "_write".to_string(),
                 required_by: spec.symbol.to_string(),

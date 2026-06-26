@@ -173,7 +173,11 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         "sum" => Some(&[&["value", "collection"]]),
         "find" => Some(&[&["value", "list"], &["item", "needle"], &["start"]]),
         "mid" => Some(&[&["value", "list"], &["start"], &["count"]]),
-        "replace" => Some(&[&["value", "list"], &["old", "needle"], &["new", "replacement"]]),
+        "replace" => Some(&[
+            &["value", "list"],
+            &["old", "needle"],
+            &["new", "replacement"],
+        ]),
         _ => None,
     }
 }

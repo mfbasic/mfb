@@ -323,13 +323,21 @@ impl CodeBuilder<'_> {
             return Err(format!("math.rand does not accept {}", min.type_));
         }
         let min_slot = self.allocate_stack_object("math_rand_min", 8);
-        self.emit(abi::store_u64(&min.location, abi::stack_pointer(), min_slot));
+        self.emit(abi::store_u64(
+            &min.location,
+            abi::stack_pointer(),
+            min_slot,
+        ));
         let max = self.lower_value(&args[1])?;
         if max.type_ != "Integer" {
             return Err(format!("math.rand does not accept {}", max.type_));
         }
         let max_slot = self.allocate_stack_object("math_rand_max", 8);
-        self.emit(abi::store_u64(&max.location, abi::stack_pointer(), max_slot));
+        self.emit(abi::store_u64(
+            &max.location,
+            abi::stack_pointer(),
+            max_slot,
+        ));
         let range_slot = self.allocate_stack_object("math_rand_range", 8);
 
         // Validate min <= max and compute the inclusive span before the call;

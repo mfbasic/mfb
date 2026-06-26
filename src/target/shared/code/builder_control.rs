@@ -9,11 +9,7 @@ impl CodeBuilder<'_> {
         result
     }
 
-    fn lower_ops_inner(
-        &mut self,
-        ops: &[NirOp],
-        cleanup_scope_start: usize,
-    ) -> Result<(), String> {
+    fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
         for op in ops {
             let result = (|| -> Result<(), String> {
                 match op {
@@ -57,9 +53,8 @@ impl CodeBuilder<'_> {
                         // A thread-boundary result (`thread::receive`/`waitFor`/…)
                         // is owned by the thread runtime / worker arena, not this
                         // scope, so it is neither zero-initialized nor freed here.
-                        let runtime_managed = value
-                            .as_ref()
-                            .is_some_and(Self::value_is_runtime_managed);
+                        let runtime_managed =
+                            value.as_ref().is_some_and(Self::value_is_runtime_managed);
                         // This binding owns a freeable flat block that scope-drop
                         // must free (plan-02 Phase 8). A borrowed capture slot is
                         // not owned here — the parent binding remains the freer.
@@ -159,30 +154,31 @@ impl CodeBuilder<'_> {
                         } else if let Some(variants) = self.resource_union_cleanup(type_) {
                             // A resource union drops by dispatching on its tag to
                             // the active variant's registered close op.
-                            self.active_cleanups
-                                .push(ActiveCleanup::ResourceUnion(ResourceUnionCleanup {
+                            self.active_cleanups.push(ActiveCleanup::ResourceUnion(
+                                ResourceUnionCleanup {
                                     name: name.clone(),
                                     variants,
-                                }));
+                                },
+                            ));
                         } else if owns_freeable_value {
                             // An owned, non-escaping flat value (plan-01 Phase 5 /
                             // plan-02 Phase 8): a single `arena_free` of its block
                             // reclaims everything at scope-drop. Copy-insertion
                             // (`lower_value_owned`) guarantees this block is
                             // unaliased, so the free is sound and once-only.
-                            self.active_cleanups
-                                .push(ActiveCleanup::OwnedValue(OwnedValueCleanup {
+                            self.active_cleanups.push(ActiveCleanup::OwnedValue(
+                                OwnedValueCleanup {
                                     type_: type_.clone(),
                                     stack_offset,
-                                }));
+                                },
+                            ));
                             self.owned_value_slots.push(stack_offset);
                         }
                         // Default-initialize a `RES` binding's `STATE` payload.
                         // The owning binding allocates the state record on first
                         // bind; a moved/returned resource that already carries a
                         // state keeps it (the slot is non-null).
-                        if let Some(state_type) =
-                            crate::builtins::resource::state_type_name(type_)
+                        if let Some(state_type) = crate::builtins::resource::state_type_name(type_)
                         {
                             let state_type = state_type.to_string();
                             self.emit_resource_state_init(stack_offset, &state_type)?;
@@ -213,61 +209,76 @@ impl CodeBuilder<'_> {
                             })?;
                             (local.stack_offset, local.by_ref)
                         };
-                        // Reassignment installs a fresh independent block; the old
-                        // block remains owned by this binding's scope-drop free
-                        // (the slot is overwritten with the new owner). Deep-copy
-                        // an aliasing source so the binding stays unaliased.
-                        let result = self.lower_value_owned(value)?;
-                        let assign_slot = if Self::is_thread_type(&result.type_) {
-                            let slot = self.allocate_stack_object("thread_assign_value", 8);
-                            self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
-                            self.emit_thread_cleanup_for_name(name)?;
-                            Some(slot)
-                        } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_) {
-                            let slot = self.allocate_stack_object("resource_assign_value", 8);
-                            self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
-                            let cleanup = ResourceCleanup {
-                                name: name.clone(),
-                                symbol,
+                        // `name = collections::append(name, item)` on a uniquely
+                        // owned `MUT` list mutates the live buffer in place
+                        // (plan-01 §4.2): the helper updates the slot, so skip the
+                        // general reassignment path entirely.
+                        if !self.try_inplace_append_assign(name, value, stack_offset, by_ref)? {
+                            // Reassignment installs a fresh independent block; the old
+                            // block remains owned by this binding's scope-drop free
+                            // (the slot is overwritten with the new owner). Deep-copy
+                            // an aliasing source so the binding stays unaliased.
+                            let result = self.lower_value_owned(value)?;
+                            let assign_slot = if Self::is_thread_type(&result.type_) {
+                                let slot = self.allocate_stack_object("thread_assign_value", 8);
+                                self.emit(abi::store_u64(
+                                    &result.location,
+                                    abi::stack_pointer(),
+                                    slot,
+                                ));
+                                self.emit_thread_cleanup_for_name(name)?;
+                                Some(slot)
+                            } else if let Some(symbol) = self.resource_cleanup_symbol(&result.type_)
+                            {
+                                let slot = self.allocate_stack_object("resource_assign_value", 8);
+                                self.emit(abi::store_u64(
+                                    &result.location,
+                                    abi::stack_pointer(),
+                                    slot,
+                                ));
+                                let cleanup = ResourceCleanup {
+                                    name: name.clone(),
+                                    symbol,
+                                };
+                                self.emit_resource_cleanup_call(&cleanup)?;
+                                Some(slot)
+                            } else {
+                                None
                             };
-                            self.emit_resource_cleanup_call(&cleanup)?;
-                            Some(slot)
-                        } else {
-                            None
-                        };
-                        let result_location = if let Some(slot) = assign_slot {
-                            let register = self.allocate_register()?;
-                            self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
-                            register
-                        } else {
-                            result.location.clone()
-                        };
-                        if by_ref {
-                            // A reference local (non-escaping `MUT` borrow): write
-                            // through the slot pointer so the live parent binding is
-                            // updated, not a local copy.
-                            let slot_pointer = self.allocate_register()?;
-                            self.emit(abi::load_u64(
-                                &slot_pointer,
-                                abi::stack_pointer(),
-                                stack_offset,
-                            ));
-                            self.emit(abi::store_u64(&result_location, &slot_pointer, 0));
-                        } else {
-                            self.emit(abi::store_u64(
-                                &result_location,
-                                abi::stack_pointer(),
-                                stack_offset,
-                            ));
-                        }
-                        // A reference local never folds to a constant (see Bind).
-                        let constant = if by_ref {
-                            None
-                        } else {
-                            self.local_constant_value(value)
-                        };
-                        if let Some(local) = self.locals.get_mut(name) {
-                            local.constant = constant;
+                            let result_location = if let Some(slot) = assign_slot {
+                                let register = self.allocate_register()?;
+                                self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
+                                register
+                            } else {
+                                result.location.clone()
+                            };
+                            if by_ref {
+                                // A reference local (non-escaping `MUT` borrow): write
+                                // through the slot pointer so the live parent binding is
+                                // updated, not a local copy.
+                                let slot_pointer = self.allocate_register()?;
+                                self.emit(abi::load_u64(
+                                    &slot_pointer,
+                                    abi::stack_pointer(),
+                                    stack_offset,
+                                ));
+                                self.emit(abi::store_u64(&result_location, &slot_pointer, 0));
+                            } else {
+                                self.emit(abi::store_u64(
+                                    &result_location,
+                                    abi::stack_pointer(),
+                                    stack_offset,
+                                ));
+                            }
+                            // A reference local never folds to a constant (see Bind).
+                            let constant = if by_ref {
+                                None
+                            } else {
+                                self.local_constant_value(value)
+                            };
+                            if let Some(local) = self.locals.get_mut(name) {
+                                local.constant = constant;
+                            }
                         }
                     }
                     NirOp::StateAssign { resource, value } => {
@@ -279,14 +290,11 @@ impl CodeBuilder<'_> {
                             .locals
                             .get(resource)
                             .ok_or_else(|| {
-                                format!(
-                                    "native code state assignment unknown local '{resource}'"
-                                )
+                                format!("native code state assignment unknown local '{resource}'")
                             })?
                             .stack_offset;
                         let result = self.lower_value(value)?;
-                        let value_slot =
-                            self.allocate_stack_object("state_assign_value", 8);
+                        let value_slot = self.allocate_stack_object("state_assign_value", 8);
                         self.emit(abi::store_u64(
                             &result.location,
                             abi::stack_pointer(),
@@ -553,12 +561,8 @@ impl CodeBuilder<'_> {
                     ActiveCleanup::ResourceUnion(cleanup) => {
                         self.emit_resource_union_cleanup_call(&cleanup)?
                     }
-                    ActiveCleanup::OwnedList(cleanup) => {
-                        self.emit_owned_list_drain(&cleanup)?
-                    }
-                    ActiveCleanup::OwnedValue(cleanup) => {
-                        self.emit_owned_value_drop(&cleanup)?
-                    }
+                    ActiveCleanup::OwnedList(cleanup) => self.emit_owned_list_drain(&cleanup)?,
+                    ActiveCleanup::OwnedValue(cleanup) => self.emit_owned_value_drop(&cleanup)?,
                 }
             }
         }
@@ -675,6 +679,72 @@ impl CodeBuilder<'_> {
         }
         self.clear_local_constants();
         Ok(())
+    }
+
+    /// Recognize `name = collections::append(name, item)` for a single element
+    /// appended to a uniquely-owned `MUT` list local, and lower it as an in-place
+    /// grow (plan-01 §4.2). Returns `true` when handled (the local's slot was
+    /// updated in place); `false` to fall back to the general reassignment path.
+    ///
+    /// Soundness: under MFBASIC value semantics every binding owns its buffer and
+    /// copy-insertion deep-copies any aliasing assignment, so the local's buffer
+    /// has no live alias. `FOR EACH` snapshots the buffer pointer and count at
+    /// loop entry, and in-place append only writes *beyond* that snapshot count
+    /// without moving existing entries or payloads, so iteration is unaffected.
+    /// Reference (`by_ref`) locals are excluded — their slot holds a pointer to
+    /// the parent slot, not the buffer — and bulk `append(list, otherList)` is
+    /// excluded (the item must be a single element).
+    fn try_inplace_append_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        if by_ref {
+            return Ok(false);
+        }
+        let NirValue::Call { target, args, .. } = value else {
+            return Ok(false);
+        };
+        if crate::builtins::native_builtin_target(target) != Some("append") || args.len() != 2 {
+            return Ok(false);
+        }
+        let NirValue::Local(arg0) = &args[0] else {
+            return Ok(false);
+        };
+        if arg0 != name {
+            return Ok(false);
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let list_type = local.type_.clone();
+        let Some(element_type) = super::list_element_type(&list_type) else {
+            return Ok(false);
+        };
+        if super::CollectionTypeLayout::from_type(&list_type).is_none() {
+            return Ok(false);
+        }
+        // Commit only for a statically-known single element of the list's element
+        // type. A bulk `append(list, otherList)` has item type == list_type and
+        // falls through to the general (concatenating) path.
+        match self.static_type_name(&args[1]) {
+            Some(item_type) if item_type == element_type => {}
+            _ => return Ok(false),
+        }
+        let item = self.lower_value(&args[1])?;
+        let item_slot = self.allocate_stack_object("inplace_append_item", 8);
+        self.emit(abi::store_u64(
+            &item.location,
+            abi::stack_pointer(),
+            item_slot,
+        ));
+        self.lower_list_append_in_place(stack_offset, item_slot, &list_type, &element_type)?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
     }
 
     pub(super) fn lower_for_each(

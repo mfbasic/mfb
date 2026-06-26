@@ -24,7 +24,10 @@ pub(crate) struct ResolvedCall<'a> {
 }
 
 pub(crate) fn is_tls_call(name: &str) -> bool {
-    matches!(name, CONNECT | READ | READ_TEXT | WRITE | WRITE_TEXT | CLOSE)
+    matches!(
+        name,
+        CONNECT | READ | READ_TEXT | WRITE | WRITE_TEXT | CLOSE
+    )
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {

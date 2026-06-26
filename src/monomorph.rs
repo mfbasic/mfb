@@ -1649,14 +1649,13 @@ fn collect_imported_overloads(
         }
     }
     for (binding, package) in &bindings {
-        let package_file = project_dir
-            .join("packages")
-            .join(format!("{package}.mfp"));
+        let package_file = project_dir.join("packages").join(format!("{package}.mfp"));
         let Ok(exports) = crate::binary_repr::read_package_exports(&package_file) else {
             continue;
         };
         // Group exported functions/subs by base name (the part before `$`).
-        let mut by_base: HashMap<String, Vec<crate::binary_repr::BinaryReprExport>> = HashMap::new();
+        let mut by_base: HashMap<String, Vec<crate::binary_repr::BinaryReprExport>> =
+            HashMap::new();
         for export in exports {
             if !matches!(
                 export.kind,
