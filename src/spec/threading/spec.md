@@ -6,9 +6,12 @@ It complements:
 - `specifications/mfbasic.md`
 - `specifications/standard_package.md`
 - `specifications/package_format.md`
-- `specifications/memory_layouts.md`
+- `src/spec/memory` (the memory-layout spec)
+- `src/spec/linker` (the linker spec)
+- The `thread` package man pages under `src/man/builtins/thread/`, which are the
+  authoritative source-level API reference.
 
-Last updated: 2026-06-17
+Last updated: 2026-06-26
 
 The source-level API is the built-in `thread` package. This document describes
 the implementation contract behind that API.
@@ -16,16 +19,20 @@ the implementation contract behind that API.
 ## Goals
 
 MFBASIC threads provide isolated package workers with typed input, output, and
-message channels.
+two communication channels: a **data plane** (`thread::send`/`thread::receive`/
+`thread::poll`) carrying copyable values, and a **resource plane**
+(`thread::transfer`/`thread::accept`) carrying move-only resource handles.
 
 The model has these requirements:
 
 - A thread entry point is an exported `ISOLATED FUNC` from an imported package.
 - The worker runs in a native OS thread.
 - The worker receives its own thread handle and one input value.
-- The parent communicates with the worker through bounded typed queues.
+- The parent communicates with the worker through bounded typed queues, split by
+  direction (inbound parent→worker, outbound worker→parent) on each plane.
 - All values that cross a thread boundary have thread-sendable types.
-- Sendable resource handles move across thread queues without being copied.
+- The data plane is resource-free; sendable resource handles move on the
+  dedicated resource plane without being copied.
 - The worker outcome is stored internally and retrieved exactly once by `thread::waitFor(t)`, closing the parent `Thread` handle.
 - Package imports used by the worker must work inside the worker thread exactly
   as they work outside a thread.
@@ -35,16 +42,19 @@ The model has these requirements:
 ## Reading order
 
 The topics below follow the worker lifecycle from source to execution.
-`source-model` defines the thread entry shape and thread-sendability rules;
-`isolation` specifies what an `ISOLATED` worker may touch and how boundary values
-are transferred. `package-requirements`, `function-ids-and-package-calls`, and
-`worker-and-package-functions` cover how thread workers live in `.mfp` packages,
-how calls reference functions across packages, and how every merged package
-function lowers through the single `IR -> NIR -> native` codegen path.
-`thread-runtime-helpers`, `control-block`, and `queue-semantics` specify the
-runtime contract: helper symbols, the native control-block layout, and the
-bounded-queue, cancellation, and cleanup behavior. `os-integration` and
-`linking-requirements` give the concrete macOS/Linux thread creation and the
-native linking obligations; `error-propagation` covers how worker results flow
+`source-model` defines the thread entry shape, the `Thread`/`ThreadWorker` type
+grammar (including the optional `RES Res` resource plane), and the
+thread-sendability rules; `isolation` specifies what an `ISOLATED` worker may
+touch and how boundary values are transferred. `package-requirements`,
+`function-ids-and-package-calls`, and `worker-and-package-functions` cover how
+thread workers live in `.mfp` packages, how calls reference functions across
+packages, and how every merged package function lowers through the single
+`IR -> NIR -> native` codegen path. `thread-runtime-helpers`, `control-block`,
+and `queue-semantics` specify the runtime contract: the full helper-symbol set,
+the native control-block and queue-record layouts, the direction-split internal
+lowering of the data and resource planes, and the bounded-queue, cancellation,
+and cleanup behavior. `os-integration` and `linking-requirements` give the
+concrete macOS/Linux thread creation and the native linking obligations;
+`error-propagation` covers how worker results (and their source locations) flow
 back through `thread::waitFor`; and `validation` lists the runtime test coverage
 a complete implementation must include.

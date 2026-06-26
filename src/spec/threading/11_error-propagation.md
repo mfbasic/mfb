@@ -7,12 +7,16 @@ whose `Ok` value flows on and whose `Error` propagates to the enclosing `TRAP`
 over the call — not an opcode pair.
 
 The thread trampoline stores the worker's returned result tag and value/error in
-the control block. `thread::waitFor` reads that stored result, materializes any
+the control block, and also captures the error's `ErrorLoc` origin pointer into
+the dedicated `result error source` field (control-block offset 96). This
+preserves the worker's terminal-error source location (file, line, char) across
+the thread boundary. `thread::waitFor` reads the stored result, materializes any
 heap-backed payload into the caller's arena before user code observes it, and
 closes the parent `Thread` handle before behaving like a normal fallible call:
 
 - `Ok(value)` returns `value`.
-- `Error(error)` propagates as the caller's error.
+- `Error(error)` propagates as the caller's error, with its source location
+  recovered from the captured origin pointer.
 
 `thread::waitFor` is the only retrieval path; there is no `t.result` field. After
 it retrieves the outcome, later use of the same `Thread` handle fails with

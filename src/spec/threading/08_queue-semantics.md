@@ -1,14 +1,44 @@
 # Queue Semantics
 
-Each thread has:
+Each thread has four bounded queues, two per plane, split by direction.
 
-- An inbound queue: parent sends with `thread::send(Thread, ...)`; worker
-  receives with `thread::receive(ThreadWorker, ...)`.
-- An outbound queue: worker sends with `thread::send(ThreadWorker, ...)`;
-  parent observes with `thread::poll` and reads with
-  `thread::receive(Thread, ...)`.
+Data plane (copyable values):
+
+- Inbound: parent sends with `thread::send(Thread, ...)` (lowers to
+  `thread.send`); worker receives with `thread::receive(ThreadWorker, ...)`
+  (lowers to `thread.receive`).
+- Outbound: worker sends with `thread::send(ThreadWorker, ...)` (lowers to
+  `thread.emit`); parent observes with `thread::poll` and reads with
+  `thread::receive(Thread, ...)` (lowers to `thread.read`).
+
+Resource plane (move-only resource handles):
+
+- Inbound: parent transfers with `thread::transfer(Thread, ...)` (lowers to
+  `thread.transferResource`); worker takes with `thread::accept(ThreadWorker, ...)`
+  (lowers to `thread.acceptResource`).
+- Outbound: worker transfers with `thread::transfer(ThreadWorker, ...)` (lowers to
+  `thread.emitResource`); parent takes with `thread::accept(Thread, ...)` (lowers
+  to `thread.readResource`).
+
+The resource plane carries resource handles only and the data plane is kept
+resource-free; the two planes are independent queues so a thread can use both
+concurrently.
 
 `thread::start` rejects queue limits below `1`.
+
+## Arena materialization
+
+A boundary value must end up in the *receiving* side's arena, since each side
+allocates from its own arena. The runtime copies the value into the receiver's
+arena at send time, then the reader just dequeues the already-materialized value:
+
+- Worker→parent (`thread.emit`) loads the parent arena state from control-block
+  offset 88 and copies the message into it.
+- Parent→worker (`thread.send`) and all reads use the worker arena state at
+  offset 80.
+
+Resource handles move as scalar handles through the resource queues without the
+flat-block deep copy used for data-plane values.
 
 `timeoutMs = 0` means non-blocking. Positive timeouts wait up to that many
 milliseconds. Negative timeouts are invalid except where a specific overload
@@ -16,17 +46,21 @@ documents an indefinite worker-side wait. `thread::receive(ThreadWorker, -1)`
 waits until a message, queue closure, or cancellation; if cancellation is
 requested before or during that wait, it fails with `ErrInterrupted`.
 
-For `thread::send`, ownership transfer is atomic with enqueue success:
+For `thread::send` and `thread::transfer`, ownership transfer is atomic with
+enqueue success:
 
-- If enqueue succeeds, the destination side owns `data` immediately. While the
+- If enqueue succeeds, the destination side owns the value immediately. While the
   value is queued, the destination queue owns it in receiver-valid storage or
   runtime transfer storage independent of the sender arena.
 - If enqueue fails because the queue is full, closed, cancelled, timed out, or
   the timeout is invalid, ownership is not transferred and the sender still owns
-  `data`.
-- Code may attach an inline `TRAP` to `thread::send(...)` to separate the
-  success path, where a non-copyable sent binding is moved, from the error
-  handler, where it remains owned by the sender and can be released.
+  the value.
+- Code may attach an inline `TRAP` to `thread::send(...)`/`thread::transfer(...)`
+  to separate the success path, where the sent/transferred binding is moved, from
+  the error handler, where it remains owned by the sender and can be released. The
+  typechecker treats the argument at index 1 of `thread.start`, `thread.send`, and
+  `thread.transfer` as a move (`ExprMode::Transfer`); a borrowed resource cannot be
+  transferred (`OWNERSHIP_BORROWED_RESOURCE_OPERATION`).
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal
@@ -45,7 +79,8 @@ Cancellation is cooperative:
 Cancellation points are built-in operations whose implementations can safely
 return an error without abandoning partially moved values or held runtime locks.
 The current runtime cancellation points are indefinitely blocking or timed waits
-in `thread::receive` and `thread::send` on a `ThreadWorker`. If cancellation is
+in the worker-side channel ops — `thread::receive`, `thread::send`,
+`thread::accept`, and `thread::transfer` on a `ThreadWorker`. If cancellation is
 already requested before a worker enters one of these operations, the operation
 fails immediately with `ErrInterrupted`. If cancellation is requested while the
 operation is blocked, the runtime wakes the wait and the operation fails with
@@ -77,12 +112,16 @@ to abandon a worker that still owns resources or queued values.
 
 The compiler lowers ordinary lexical ownership cleanup for every live parent
 `Thread` handle. Scope exit, `RETURN`, `FAIL`, `PROPAGATE`, auto-propagated
-errors, and trap routing run the same drop helper in reverse declaration order.
-Reassigning a `MUT Thread` evaluates the new value first, then drops the old
-handle before storing the replacement. Bindings that have moved out through
-return or another consuming operation are removed from the cleanup set. Handles
-closed by `thread::waitFor(t)` remain safe for compiler-generated cleanup; the
-drop helper is idempotent for an already closed handle.
+errors, and trap routing run the same drop helper (`thread.drop`,
+`_mfb_rt_thread_thread_drop`) in reverse declaration order. The drop helper marks
+the control block `CLOSED` (state 2), sets the cancellation flag, closes and
+clears both data queues (broadcasting their waiters), and `pthread_detach`s the OS
+thread so the runtime reclaims it on exit. Reassigning a `MUT Thread` evaluates the
+new value first, then drops the old handle before storing the replacement.
+Bindings that have moved out through return or another consuming operation are
+removed from the cleanup set. Handles closed by `thread::waitFor(t)` remain safe
+for compiler-generated cleanup; the drop helper is idempotent for an already
+closed handle.
 
 The same scope-drop cleanup mechanism also frees ordinary owned **values** (flat
 `String`/`Record`/`Union`/`List`/`Map`/`Error`/`Result` blocks) with one

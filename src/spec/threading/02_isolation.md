@@ -3,6 +3,12 @@
 `ISOLATED` means the worker is callable from a separate runtime thread without
 capturing current stack locals, closures, or current-package private state.
 
+An `ISOLATED` declaration must itself be an exported `FUNC` (not a `SUB`, and not
+private/package-visible). `typecheck.rs` enforces this at declaration time,
+reporting `ISOLATED function `<name>` must be an exported FUNC declaration.` for a
+violation. This is independent of the call-site check in `thread::start`, which
+additionally requires the entry to come from an *imported* package.
+
 An isolated worker may still call:
 
 - Built-in package functions such as `io::print`, `fs::readText`, and
@@ -19,7 +25,7 @@ ownership rules.
 For copyable sendable values, crossing a thread boundary copies or freezes the
 value as required by the representation. The sender's original binding remains
 usable. Because every non-resource value is a flat, pointer-free block
-(`memory_layouts.md`), this copy is a single `arena_alloc` + `memcpy`
+(see the `src/spec/memory` spec), this copy is a single `arena_alloc` + `memcpy`
 (`copy_flat_block`) into the receiver's arena — the same generic routine ordinary
 value copies use, with no per-type deep-copy glue. The sender keeps its own block
 and frees it on its own scope-drop; the receiver owns and reclaims the copy.

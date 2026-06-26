@@ -13,13 +13,18 @@ A worker body's `CallResult` of a built-in is just an IR node; there is no flat
 built-in dispatch to fail on.
 
 Each merged package function still receives a stable internal native symbol so
-the linker can resolve cross-package and worker entry points:
+the linker can resolve cross-package and worker entry points. There is **no**
+separate `_mfb_pkg_*` namespace: every merged package function — like the
+executable's own functions — routes through the ordinary `_mfb_fn_` namespace
+(`nir::function_symbol`). The symbol is `_mfb_fn_<fragment>`, where `<fragment>`
+is the function's merged IR name with every character outside ASCII letters,
+digits, and underscore replaced by underscore (`nir::symbol_fragment`). Because
+the merge has already rewritten each package definition into its identity-prefixed
+`<id>.package.symbol` form, the resulting symbol is
+`_mfb_fn_<id>_package_symbol`. (Compiler-internal sigil-prefixed functions use a
+reserved `_mfb_ifn_` namespace instead, which user and package functions can
+never reach.)
 
-```text
-_mfb_pkg_<package>_<export>
-```
-
-Characters outside ASCII letters, digits, and underscore are sanitized to
-underscore. Cross-package calls and worker entry points resolve to these symbols
-after the IR merge, with `Nothing` results initialized to the canonical zero
-value, the same as for the executable's own functions.
+Cross-package calls and worker entry points resolve to these symbols after the IR
+merge, with `Nothing` results initialized to the canonical zero value, the same
+as for the executable's own functions.
