@@ -1,12 +1,25 @@
-# plan-01 — User- and Package-Overridable General Built-in Functions
+# plan-01 — Function Overload Resolution: Overridable Built-ins & Return-Type Overloads
 
 Last updated: 2026-06-26
 
-This document is the **normative definition and implementation plan** for making
-the **general (universal, unqualified) built-in functions** — `toString`, `len`,
-`typeName`, the `to*` conversions, and the `is*` predicates — **overridable** by
-ordinary user- or package-defined functions, exactly the way `net::Url` already
-overrides `toString` (plan-03-http.md §A.3). A program (or a package) may declare
+This document is the **normative definition and implementation plan** for two
+related extensions to MFBASIC's function overload resolution. Both touch the same
+machinery (`src/resolver.rs` duplicate detection, `src/typecheck.rs`
+`lookup_visible_call_sig` / `call_shape_matches_sig`, `mfbasic.md` §6) and are
+specified together so the resolution rule stays coherent:
+
+- **Parts A–E — Overridable general built-ins.** Make the **general (universal,
+  unqualified) built-in functions** — `toString`, `len`, `typeName`, the `to*`
+  conversions, and the `is*` predicates — **overridable** by ordinary user- or
+  package-defined functions, the way `net::Url` already overrides `toString`.
+- **Part F — Return-type-distinguished overloads.** Allow an overload set to be
+  distinguished by **return type** when the parameter lists are identical, resolved
+  by the call's expected (contextual) type. First consumer:
+  `encoding::utf8Encode` (plan-02-encoding.md).
+
+## Part A–E overview — overridable general built-ins
+
+A program (or a package) may declare
 `FUNC toString(value AS MyType) AS String`, `FUNC len(value AS Grid) AS Integer`,
 or `FUNC isEmpty(value AS Ring) AS Boolean`, and a plain `toString(x)` / `len(x)` /
 `isEmpty(x)` call binds to that declaration whenever its argument types match — the
@@ -21,6 +34,8 @@ It complements:
 
 - `specifications/mfbasic.md` §6 (FUNC/SUB overloading), §18 (the universal builtins)
 - `specifications/plan-03-http.md` §A.3 (the `toString(net::Url)` precedent)
+- `specifications/plan-02-encoding.md` (`encoding::utf8Encode`, the first consumer
+  of the Part F return-type overloads)
 - the existing `toString` override machinery: `builtins::to_string_override_target`
   (`src/builtins/mod.rs`), the gap-fill check in `check_general_builtin_call`
   (`src/typecheck.rs`), and the call-target routing in IR lowering (`src/ir.rs`).
@@ -363,3 +378,112 @@ These keep the feature a clean, zero-regression extension: every general built-i
 becomes a name a program or package can **extend** for its own types, selected by
 argument type, with the scalar built-ins untouched — exactly the shape `toString`
 already demonstrated for `net::Url`.
+
+---
+
+# Part F — Return-type-distinguished overload resolution
+
+A second, independent extension to overload resolution. Its first consumer is
+`encoding::utf8Encode` (plan-02-encoding.md), which needs two overloads with the
+**same** parameter list (`value AS String`) differing **only** in result type —
+`List OF Byte` vs `List OF Integer`. Today this is illegal: `mfbasic.md` §6 states
+"the return type is not part of the signature and never distinguishes an overload,"
+so the second declaration is a `SYMBOL_DUPLICATE_TOP_LEVEL` error, and overload
+resolution (`src/typecheck.rs` `lookup_visible_call_sig`) selects purely bottom-up
+by argument count and positional argument types, never consulting the caller's
+expected type. This part extends both, narrowly and back-compatibly.
+
+## F.1 Declaration rule
+
+The symbol identity for duplicate detection becomes **(name, ordered parameter
+types, return type)**. Two declarations collide (`SYMBOL_DUPLICATE_TOP_LEVEL`) only
+when all three match. Declarations that share a name and parameter types but differ
+in return type are legal and form a **return-type overload set**. (Default values
+still never distinguish an overload, unchanged.)
+
+`src/resolver.rs` `insert_function` (the `candidate.params == params` check) adds
+the return type to the comparison key; the stored `FunctionSymbol` gains the return
+type it does not record today.
+
+## F.2 Resolution rule
+
+Resolution stays a filter, with one appended tie-break:
+
+1. **Shape + positional types** — filter candidates by argument count, named-arg
+   names, and positional argument types. (This is the same type-directed selection
+   §A.4 / Phase 3 introduce for the override feature — the two extensions share one
+   resolution path.)
+2. If **one** candidate remains, bind it. *(Unchanged: every existing
+   param-distinguished overload set resolves here and never reaches step 3, so the
+   expected type stays optional for all of today's code.)*
+3. If **more than one** remains — they necessarily differ only by return type —
+   bind the unique candidate whose return type equals the call's **expected
+   (contextual) type**.
+
+The **expected type** is propagated to the call expression from:
+
+- the declared type of the assignment / `LET` / `DIM` target
+  (`LET b AS List OF Byte = encoding::utf8Encode(s)`);
+- the declared parameter type of the argument slot when the call is itself a call
+  argument (`crypto::hmacSha256(encoding::utf8Encode(s), …)` → the `key`
+  parameter's `List OF Byte`);
+- the enclosing function's declared return type when the call is a `RETURN` operand;
+- the declared element/field type when the call initializes a typed collection
+  element or record field.
+
+## F.3 Ambiguity
+
+If step 3 is reached and there is **no** expected type, or the expected type matches
+**zero or more than one** candidate, the call is a compile error,
+`TYPE_OVERLOAD_AMBIGUOUS` (a new typecheck diagnostic, peer of
+`TYPE_CALL_ARGUMENT_MISMATCH` — **not** a `7-705` runtime code). The fix is a type
+annotation that supplies the expected type, e.g.
+`LET b AS List OF Byte = encoding::utf8Encode(s)`. Bare
+`LET x = encoding::utf8Encode(s)` (no annotation, inferred local) is therefore an
+ambiguity error by design.
+
+## F.4 Composition and scope
+
+- **Shared path with Parts A–E.** Both extensions modify the one resolution
+  pipeline. Order: the general-built-in gap-fill (§A.3) decides built-in-vs-override
+  first; ordinary positional-type filtering selects among same-name candidates; the
+  return-type tie-break (§F.2.3) runs **last**, only when ≥2 candidates remain
+  indistinguishable by parameters. A name is never simultaneously a gap-filled
+  built-in and a return-type set in practice, so the rules do not interact.
+- **SUBs** have no return type and are unaffected.
+- Existing param-distinguished overloading, default arguments, and named arguments
+  are unchanged — return type is consulted **only** as a final tie-break among
+  otherwise-indistinguishable candidates; it adds no implicit conversions or
+  candidate ranking.
+
+## F.5 Implementation
+
+- **`src/resolver.rs`** `insert_function`: add the return type to the
+  duplicate-detection key; store it on `FunctionSymbol` (§F.1).
+- **`src/typecheck.rs`**: thread the (already-available) `expected` type into
+  `lookup_visible_call_sig` — presently ignored for `Call` expressions — and apply
+  it as the step-3 tie-break among return-type-only candidates, reusing each
+  candidate's `FunctionSig::return_type` (already carried, cf. Phase 4). Emit
+  `TYPE_OVERLOAD_AMBIGUOUS` when there is no expected type or it does not uniquely
+  match. Propagate `expected` from assignment/`LET`/`DIM` targets, call argument
+  slots, `RETURN` operands, and typed element/field initializers.
+- **`mfbasic.md` §6:** replace the "return type is not part of the signature"
+  sentence with the §F.1/§F.2 rule, citing the `TYPE_OVERLOAD_AMBIGUOUS` diagnostic
+  and the annotation fix.
+
+## F.6 Tests (golden)
+
+- A return-type overload set resolves to each member by annotation, by
+  argument-slot type, and by `RETURN` context.
+- The unannotated/inferred-`LET` case reports `TYPE_OVERLOAD_AMBIGUOUS`.
+- Existing param-distinguished overloads and the Parts A–E built-in overrides are
+  unchanged (no new ambiguity on any call that compiles today).
+- Integration: `encoding::utf8Encode` selects `List OF Byte` vs `List OF Integer`
+  (cross-referenced from plan-02-encoding.md).
+
+## F.7 Errors
+
+| Condition | Code |
+|-----------|------|
+| Two declarations share name + parameter types + return type | existing `SYMBOL_DUPLICATE_TOP_LEVEL` |
+| ≥2 return-type candidates with no / non-unique expected type | `TYPE_OVERLOAD_AMBIGUOUS` (new, typecheck-time) |

@@ -1,6 +1,6 @@
-# plan-04 — Built-in `crypto` Package (library-backed) with `bits` and `encoding` companions
+# plan-04 — Built-in `crypto` Package (library-backed)
 
-Last updated: 2026-06-25
+Last updated: 2026-06-26
 
 This document is the **normative definition and implementation plan** for a new
 built-in `crypto` package: cryptographic hashes, HMAC, key-derivation functions,
@@ -14,31 +14,27 @@ Those libraries internally dispatch to the CPU's crypto instructions (ARMv8 Cryp
 Extensions on AArch64; SHA-NI/AES-NI on x86_64), so **hardware acceleration is
 inherited automatically** — this plan does not emit SIMD crypto instructions or
 implement CPU feature detection. A small **portable software core** (built on the
-new `bits` package) is used only where a library has no usable C ABI on macOS —
+`bits` package from plan-02) is used only where a library has no usable C ABI on macOS —
 **Ed25519** and **ChaCha20-Poly1305** — and as the implementation for primitives
-that are pure glue (HKDF, `randomInt`, `uuid4`) or pure data transforms (`encoding`).
+that are pure glue (HKDF, `randomInt`, `uuid4`).
 
 Outputs are standardized, so the **native and Binary Representation (BR) execution
 paths produce identical results** by virtue of computing the same standard
 algorithm — a SHA-256 digest is a SHA-256 digest regardless of which library or
 core produced it.
 
-The plan delivers **three packages**, lowest layer first:
+This plan delivers the **`crypto`** package (§A) — the cryptographic surface,
+backed by the system libraries with the narrow software exceptions noted above. It
+builds on two foundational packages defined separately in
+**`specifications/plan-02-encoding.md`** and assumed to be in place:
 
-- **`bits`** (§A) — integer bitwise/shift/rotate operations. A discovered
-  prerequisite: MFBASIC today has *no* bitwise integer ops (the `AND`/`OR`/`XOR`
-  operators are logical/boolean), so `encoding` and the two macOS software cores
-  cannot be written without it. Each function lowers to a single AArch64
-  instruction (`AND`/`ORR`/`EOR`/`MVN`/`LSLV`/`LSRV`/`RORV` — `RORV` already
-  exists from PCG64) and is trivially supported on the BR path. Independently
-  useful beyond crypto.
-- **`encoding`** (§B) — hex and Base64/Base64url byte↔text. Hash/MAC/key/random
-  outputs are raw `List OF Byte` and are unusable without these, and the stdlib
-  has neither today. Implemented in source on `bits` (the codecs are trivial and
-  benefit from a single uniform implementation incl. Base64url, which the
-  libraries do not all expose).
-- **`crypto`** (§C) — the cryptographic surface, backed by the system libraries
-  with the narrow software exceptions noted above.
+- **`bits`** — integer bitwise/shift/rotate operations. A discovered prerequisite:
+  MFBASIC has *no* bitwise integer ops (the `AND`/`OR`/`XOR` operators are
+  logical/boolean), so `encoding` and the two macOS software cores
+  (ChaCha20-Poly1305, Ed25519) cannot be written without it.
+- **`encoding`** — hex and Base64/Base64url byte↔text. Hash/MAC/key/random outputs
+  are raw `List OF Byte` and are unusable as text without these; `crypto`
+  stringifies through `encoding`.
 
 > **Why library-backed, not self-emitted.** The earlier draft of this plan emitted
 > ARMv8 crypto instructions directly and shipped a `bits`-based software core for
@@ -47,7 +43,7 @@ The plan delivers **three packages**, lowest layer first:
 > hardware-accelerated. Binding to them removes the SIMD-encoder and
 > feature-detection phases entirely and is the project's stated preference
 > ("rather use standard libs than roll my own"). We roll our own **only** for the
-> macOS C-ABI gaps (Ed25519, ChaCha20-Poly1305) and trivial transforms.
+> macOS C-ABI gaps (Ed25519, ChaCha20-Poly1305).
 
 It complements:
 
@@ -55,69 +51,25 @@ It complements:
   (the PCG64 RNG — explicitly **not** cryptographic; `crypto` ships its own CSPRNG),
   §10.4 (`tls`, which already binds OpenSSL3 / Network.framework)
 - `specifications/error_codes.md` (the `7-705-*` generic runtime range; this plan
-  reserves one new code, §D)
+  reserves one new code, §B)
 - `specifications/mfbasic.md` (`TRAP`/`RECOVER`/`FAIL`; the native `LINK` binding
   mechanism §17; host-capability surfacing for randomness)
-- `specifications/plan-03-http.md` / `plan-02-csv.md` (the source-package shim and
-  wiring template `bits`/`encoding` mirror)
+- `specifications/plan-02-encoding.md` (the `bits` and `encoding` packages this
+  plan consumes — for the software cores and for stringifying digests/keys)
+- `specifications/plan-03-http.md` / the `csv`/`json` source packages (the
+  source-package shim and wiring template `crypto`'s source layer mirrors)
 - the native linking already in place (OpenSSL libcrypto on Linux, libSystem on
   macOS) and the OS-entropy seeding via `getentropy`/`_getentropy`
 
 ---
 
-# Part A — `bits` package
-
-Integer bitwise operations on the 64-bit `Integer`. No types or enums. Each lowers
-to a single native instruction inline (like `math::abs`) and is interpreted
-directly on the BR path. All are **total** except shift/rotate count validation.
-
-| Function | Signature | Behavior |
-|----------|-----------|----------|
-| `bits::band` | `FUNC band(a AS Integer, b AS Integer) AS Integer` | Bitwise AND of all 64 bits. |
-| `bits::bor` | `FUNC bor(a AS Integer, b AS Integer) AS Integer` | Bitwise OR. |
-| `bits::bxor` | `FUNC bxor(a AS Integer, b AS Integer) AS Integer` | Bitwise XOR. |
-| `bits::bnot` | `FUNC bnot(a AS Integer) AS Integer` | One's-complement (all 64 bits inverted). |
-| `bits::shiftLeft` | `FUNC shiftLeft(value AS Integer, count AS Integer) AS Integer` | Logical left shift; vacated low bits are zero; bits past bit 63 are discarded. Fails `ErrInvalidArgument` (`77050002`) when `count` is outside `0 .. 63`. |
-| `bits::shiftRight` | `FUNC shiftRight(value AS Integer, count AS Integer) AS Integer` | **Logical** (unsigned) right shift; vacated high bits are zero. Fails `77050002` when `count` is outside `0 .. 63`. |
-| `bits::rotateLeft32` | `FUNC rotateLeft32(value AS Integer, count AS Integer) AS Integer` | Rotate the low 32 bits left by `count MOD 32`; result zero-extended into bits 32..63. |
-| `bits::rotateRight32` | `FUNC rotateRight32(value AS Integer, count AS Integer) AS Integer` | Rotate the low 32 bits right by `count MOD 32`; zero-extended. |
-| `bits::rotateLeft64` | `FUNC rotateLeft64(value AS Integer, count AS Integer) AS Integer` | Rotate all 64 bits left by `count MOD 64`. |
-| `bits::rotateRight64` | `FUNC rotateRight64(value AS Integer, count AS Integer) AS Integer` | Rotate all 64 bits right by `count MOD 64`. |
-
-> The boolean ops are `band`/`bor`/`bxor`/`bnot` because `and`/`or`/`xor`/`not`
-> are reserved logical operators (case-insensitive keywords, `mfbasic.md` §…) and
-> cannot be package member identifiers (`qualifiedIdent = ident "::" ident`).
-> Operands are raw two's-complement bit patterns; `bits` functions do not interpret
-> sign. The 32-bit rotates target ChaCha20; the 64-bit rotates target the Curve25519
-> arithmetic. The four named rotate variants map one-to-one to hardware (`RORV`,
-> 32-/64-bit forms) and avoid a `width` parameter.
-
----
-
-# Part B — `encoding` package
-
-Byte↔text codecs. No types or enums. Decoders fail with `ErrInvalidFormat`
-(`77050003`). Pure source on `bits`.
-
-| Function | Signature | Behavior |
-|----------|-----------|----------|
-| `encoding::utf8Bytes` | `FUNC utf8Bytes(value AS String) AS List OF Byte` | UTF-8 encodes `value` to raw bytes. Inverse of the built-in `toString(List OF Byte)`; supplies the String→bytes direction crypto inputs need. Total. |
-| `encoding::hexEncode` | `FUNC hexEncode(data AS List OF Byte) AS String` | Lowercase hex (two chars/byte, no separators). Total. `strings::upper` for uppercase. |
-| `encoding::hexDecode` | `FUNC hexDecode(text AS String) AS List OF Byte` | Decodes hex (upper or lower). Fails `77050003` on a non-hex character or odd length. |
-| `encoding::base64Encode` | `FUNC base64Encode(data AS List OF Byte) AS String` | Standard Base64 (RFC 4648 §4), `+`/`/`, `=` padding. Total. |
-| `encoding::base64Decode` | `FUNC base64Decode(text AS String) AS List OF Byte` | Decodes standard Base64; padding required. Fails `77050003` on invalid alphabet/length/padding. |
-| `encoding::base64UrlEncode` | `FUNC base64UrlEncode(data AS List OF Byte) AS String` | URL-safe Base64 (RFC 4648 §5), `-`/`_`, **no** padding. Total. |
-| `encoding::base64UrlDecode` | `FUNC base64UrlDecode(text AS String) AS List OF Byte` | Decodes URL-safe Base64; accepts input with or without `=` padding. Fails `77050003`. |
-
----
-
-# Part C — `crypto` package
+# Part A — `crypto` package
 
 Called with the `crypto::` qualifier; `IMPORT crypto` needs no manifest
 dependency. Inputs/outputs are `List OF Byte`; text overloads UTF-8-encode
 internally. Stringification is via `encoding`.
 
-## C.1 Types
+## A.1 Types
 
 ```basic
 TYPE Sealed
@@ -126,7 +78,7 @@ TYPE Sealed
 END TYPE
 
 TYPE KeyPair
-  privateKey AS List OF Byte   ' sensitive — see the secret-safety note in §C.7
+  privateKey AS List OF Byte   ' sensitive — see the secret-safety note in §A.7
   publicKey  AS List OF Byte
 END TYPE
 ```
@@ -135,7 +87,7 @@ Both are plain copyable records — public, constructible, thread-sendable. **No
 enums** are defined (algorithms are concrete named functions, matching the `math` /
 `datetime` style). Keys are raw bytes, **not** resource handles.
 
-## C.2 Hashes
+## A.2 Hashes
 
 Output is the raw digest. Each has a `List OF Byte` and a `String` (UTF-8) overload.
 Library-backed both platforms (OpenSSL `EVP_Digest`; CommonCrypto `CC_SHA*`).
@@ -147,7 +99,7 @@ Library-backed both platforms (OpenSSL `EVP_Digest`; CommonCrypto `CC_SHA*`).
 | `crypto::sha512` | `FUNC sha512(data AS List OF Byte) AS List OF Byte` · `FUNC sha512(data AS String) AS List OF Byte` | SHA-512; 64-byte digest. |
 | `crypto::sha384` | `FUNC sha384(data AS List OF Byte) AS List OF Byte` · `FUNC sha384(data AS String) AS List OF Byte` | SHA-384; 48-byte digest. |
 
-## C.3 HMAC (RFC 2104)
+## A.3 HMAC (RFC 2104)
 
 Library-backed both platforms (OpenSSL `HMAC`; CommonCrypto `CCHmac`).
 
@@ -156,7 +108,7 @@ Library-backed both platforms (OpenSSL `HMAC`; CommonCrypto `CCHmac`).
 | `crypto::hmacSha256` | `FUNC hmacSha256(key AS List OF Byte, data AS List OF Byte) AS List OF Byte` · `FUNC hmacSha256(key AS List OF Byte, data AS String) AS List OF Byte` | HMAC-SHA-256; 32-byte MAC. |
 | `crypto::hmacSha512` | `FUNC hmacSha512(key AS List OF Byte, data AS List OF Byte) AS List OF Byte` · `FUNC hmacSha512(key AS List OF Byte, data AS String) AS List OF Byte` | HMAC-SHA-512; 64-byte MAC. |
 
-## C.4 Key derivation
+## A.4 Key derivation
 
 PBKDF2 is library-backed (OpenSSL `PKCS5_PBKDF2_HMAC`; CommonCrypto
 `CCKeyDerivationPBKDF`) — the iteration loop stays in native code for speed. HKDF
@@ -170,10 +122,10 @@ on `crypto::hmacSha256/512` is uniform across platforms and trivially correct).
 | `crypto::pbkdf2Sha256` | `FUNC pbkdf2Sha256(password AS List OF Byte, salt AS List OF Byte, iterations AS Integer, length AS Integer) AS List OF Byte` · `FUNC pbkdf2Sha256(password AS String, salt AS List OF Byte, iterations AS Integer, length AS Integer) AS List OF Byte` | PBKDF2-HMAC-SHA-256 (RFC 8018). Fails `77050002` when `iterations < 1` or `length < 1`. |
 | `crypto::pbkdf2Sha512` | `FUNC pbkdf2Sha512(password AS List OF Byte, salt AS List OF Byte, iterations AS Integer, length AS Integer) AS List OF Byte` · `FUNC pbkdf2Sha512(password AS String, salt AS List OF Byte, iterations AS Integer, length AS Integer) AS List OF Byte` | PBKDF2-HMAC-SHA-512. |
 
-## C.5 Authenticated encryption (AEAD)
+## A.5 Authenticated encryption (AEAD)
 
 `seal` returns ciphertext + a 16-byte tag. `open` verifies the tag in constant
-time and **fails closed** with `ErrAuthenticationFailed` (`77050016`, §D) on
+time and **fails closed** with `ErrAuthenticationFailed` (`77050016`, §B) on
 mismatch, returning plaintext only on success. `aad` defaults to empty.
 
 | Function | Signature | Behavior |
@@ -189,11 +141,11 @@ mismatch, returning plaintext only on success. `aad` defaults to empty.
 > this invariant.
 >
 > **macOS ChaCha20-Poly1305.** CommonCrypto exposes no ChaCha20-Poly1305 C ABI
-> (only Swift CryptoKit), so macOS uses the portable software core (Phase 4); §C is
+> (only Swift CryptoKit), so macOS uses the portable software core (Phase 3); §A is
 > otherwise all-library on macOS. Linux uses OpenSSL. AES-256-GCM remains
 > library-backed and hardware-accelerated on both platforms.
 
-## C.6 Secure random
+## A.6 Secure random
 
 A cryptographically-secure generator from the OS/library CSPRNG (OpenSSL
 `RAND_bytes`; macOS `getentropy`/`SecRandomCopyBytes`) — **distinct from
@@ -205,11 +157,11 @@ A cryptographically-secure generator from the OS/library CSPRNG (OpenSSL
 | `crypto::randomInt` | `FUNC randomInt(min AS Integer, max AS Integer) AS Integer` | Uniform, **unbiased** (rejection-sampled) integer in inclusive `[min, max]`. Fails `77050002` when `min > max`. |
 | `crypto::uuid4` | `FUNC uuid4() AS String` | A random (version-4) UUID, canonical lowercase `8-4-4-4-12` (RFC 4122). |
 
-## C.7 Public-key — key generation & signatures
+## A.7 Public-key — key generation & signatures
 
 Keys are raw byte encodings (plain copyable `List OF Byte`, not resources) that
 interoperate directly between OpenSSL and Security.framework. Key generation
-returns both halves as a `KeyPair` (§C.1).
+returns both halves as a `KeyPair` (§A.1).
 
 Raw encodings (fixed so every target agrees on the wire format):
 
@@ -250,7 +202,7 @@ Raw encodings (fixed so every target agrees on the wire format):
 > §3.1, `typeName`/`toString`/diagnostics are not security boundaries — never log a
 > `KeyPair`; redact private keys in any application output.
 
-## C.8 Verification
+## A.8 Verification
 
 | Function | Signature | Behavior |
 |----------|-----------|----------|
@@ -258,7 +210,7 @@ Raw encodings (fixed so every target agrees on the wire format):
 
 ---
 
-# Part D — Error codes
+# Part B — Error codes
 
 One new runtime code is reserved in `error_codes.md` and exported by `errorCode`:
 
@@ -274,33 +226,21 @@ no plaintext on tag mismatch — failing closed is a security requirement.
 
 ---
 
-# Part E — Implementation Plan
+# Part C — Implementation Plan
 
 Library bindings use the native `LINK` mechanism (`mfbasic.md` §17; the
 native-link binding codegen). The `tls` package already links OpenSSL3 on Linux
 and Network.framework/libSystem on macOS, so the linking and capability machinery
 exists; this plan adds libcrypto / CommonCrypto / Security.framework symbols to it.
 
-## Phase 0 — `bits` foundation
+## Phase 0 — Prerequisites: `bits` and `encoding`
 
-- **`src/builtins/bits.rs`** (new shim, modeled on `math.rs`): the ten functions,
-  arities, param names, `resolve_call` (`Integer`-typed), `implementation_name`.
-- **Codegen** in a new `src/target/shared/code/builder_bits.rs` (peer of
-  `builder_math.rs`): lower each to a single instruction inline —
-  `AND`/`ORR`/`EOR` (register form), `MVN`, `LSLV`, `LSRV`, `RORV` (reuse
-  `emit_rorv`; 32-bit rotates use the `W` form, zero-extended). Shift-count
-  validation (`0..63`) emits the `ErrInvalidArgument` range check.
-- **BR path:** add the ten ops to the BR interpreter's integer op set.
-- Tests: per-op golden values incl. sign-bit/boundary counts; native↔BR equality.
+The `bits` and `encoding` packages (`specifications/plan-02-encoding.md`) must be
+in place first: `crypto` stringifies through `encoding::hexEncode`/`base64*`, and
+the macOS software cores (Phase 3) and `uuid4` are written on `bits`. No work in
+this plan beyond confirming plan-02 has landed.
 
-## Phase 1 — `encoding` source package
-
-- **`src/builtins/encoding.rs`** + **`src/builtins/encoding_package.mfb`**
-  (source-package idiom from `json.rs`/`csv`). `IMPORT bits`, `IMPORT strings`,
-  `IMPORT collections`. Implements `utf8Bytes`, hex, and the Base64 family on
-  `bits` + byte lists. No codegen.
-
-## Phase 2 — `crypto` library bindings (the core)
+## Phase 1 — `crypto` library bindings (the core)
 
 Native `LINK` bindings + the `crypto` shim/source package skeleton.
 
@@ -316,7 +256,7 @@ Native `LINK` bindings + the `crypto` shim/source package skeleton.
   bindings on both platforms. Surface the **randomness** host capability for the
   CSPRNG, as `math::rand` does.
 
-## Phase 3 — source glue over library primitives
+## Phase 2 — source glue over library primitives
 
 Pure source in `crypto_package.mfb` (works on native + BR, no new bindings):
 
@@ -326,7 +266,7 @@ Pure source in `crypto_package.mfb` (works on native + BR, no new bindings):
 - **`uuid4`** — 16 `randomBytes`, set version/variant nibbles via `bits`, format
   with `encoding::hexEncode` + dashes.
 
-## Phase 4 — macOS software cores (the C-ABI gaps)
+## Phase 3 — macOS software cores (the C-ABI gaps)
 
 Portable, constant-time implementations on `bits` (+ the existing `UMULH`
 encoder), used on macOS and as the BR/no-library fallback; **Linux uses OpenSSL**
@@ -337,39 +277,40 @@ for both.
 - **Ed25519** (RFC 8032): Curve25519 field/scalar arithmetic on `bits` + `UMULH`,
   reusing `crypto::sha512`. Deterministic signing; seed from `randomBytes(32)`.
 
-## Phase 5 — public-key bindings + dispatch
+## Phase 4 — public-key bindings + dispatch
 
 - **Linux (OpenSSL):** `EVP_PKEY_keygen`/`EVP_EC_gen` for keygen;
   `EVP_PKEY_get_raw_private_key`/`get_raw_public_key` (Ed25519) and EC scalar/point
-  getters for the §C.7 raw encodings; `EVP_DigestSign`/`Verify` for Ed25519 (no
+  getters for the §A.7 raw encodings; `EVP_DigestSign`/`Verify` for Ed25519 (no
   prehash) and ECDSA (SHA-256/384/512).
 - **macOS NIST (Security.framework):** `SecKeyCreateRandomKey`
   (`kSecAttrKeyTypeECSECPrimeRandom`, 256/384/521), `SecKeyCopyExternalRepresentation`
   (normalize Apple's `04‖X‖Y‖K` to scalar + `04‖X‖Y`), `SecKeyCreateWithData`,
   `SecKeyCreateSignature`/`SecKeyVerifySignature` (`ECDSASignatureMessageX962SHA*`).
-- **macOS Ed25519:** route to the Phase-4 software core.
+- **macOS Ed25519:** route to the Phase-3 software core.
 - `crypto_package.mfb`: `generate*`/`*Sign`/`*Verify` validate key lengths
   (`ErrInvalidArgument`) and dispatch per target.
 
-## Phase 6 — Man pages
+## Phase 5 — Man pages
 
-- `mfb man bits`, `mfb man encoding`, `mfb man crypto` via the existing
+- `mfb man crypto` via the existing
   `man_pages`/`write_pages`/`parse_package` pipeline (`build.rs`, `src/man/mod.rs`).
   Cite FIPS 180-4, FIPS 186 (ECDSA), RFC 2104/5869/8018/8439/8032/4122/4648, and
   include the nonce-uniqueness, private-key secret-safety, and constant-time
-  warnings.
+  warnings. (`mfb man bits` / `mfb man encoding` ship with plan-02.)
 
-## Phase 7 — User documentation
+## Phase 6 — User documentation
 
-- `standard_package.md`: new sections for `bits`, `encoding`, `crypto` (mirroring
-  §10 `math` / §12 `json`); cross-reference §10.1 noting `math::rand` is
-  non-cryptographic and pointing to `crypto::randomBytes`.
+- `standard_package.md`: new section for `crypto` (mirroring §10 `math` / §12
+  `json`); cross-reference §10.1 noting `math::rand` is non-cryptographic and
+  pointing to `crypto::randomBytes`. (The `bits` / `encoding` sections ship with
+  plan-02.)
 - `error_codes.md`: add `7-705-0016 ErrAuthenticationFailed`.
-- `mfbasic.md`: list the three packages; note `bits` provides the integer bitwise
-  operations the operator set intentionally omits; note `crypto` links libcrypto
-  (Linux) / CommonCrypto+Security.framework (macOS).
+- `mfbasic.md`: list the `crypto` package; note it links libcrypto
+  (Linux) / CommonCrypto+Security.framework (macOS), and that it depends on
+  `bits`/`encoding` (plan-02).
 
-## Phase 8 — Tests (golden)
+## Phase 7 — Tests (golden)
 
 - **Known-answer vectors:** FIPS 180-4 (SHA-2), RFC 4231 (HMAC), RFC 5869 (HKDF),
   RFC 6070 (PBKDF2), NIST GCM vectors (AES-256-GCM), RFC 8439 §2.8.2
@@ -386,7 +327,7 @@ for both.
 
 ---
 
-# Part F — Worked examples
+# Part D — Worked examples
 
 ```basic
 IMPORT crypto
@@ -396,15 +337,17 @@ IMPORT encoding
 LET digest = crypto::sha256("hello world")
 io::print(encoding::hexEncode(digest))      ' b94d27b9...
 
-' HMAC and a timing-safe check.
-LET key = encoding::utf8Bytes("secret")
+' HMAC and a timing-safe check. The annotation selects utf8Encode's
+' List OF Byte overload (plan-02 §C); in argument position the parameter
+' type selects it without one.
+LET key AS List OF Byte = encoding::utf8Encode("secret")
 LET mac = crypto::hmacSha256(key, "message")
 LET ok  = crypto::constantTimeEqual(mac, expectedMac)
 
 ' Authenticated encryption with a fresh random nonce.
 LET k     = crypto::randomBytes(32)
 LET nonce = crypto::randomBytes(12)
-LET box   = crypto::aes256GcmSeal(k, nonce, encoding::utf8Bytes("attack at dawn"))
+LET box   = crypto::aes256GcmSeal(k, nonce, encoding::utf8Encode("attack at dawn"))
 LET plain = crypto::aes256GcmOpen(k, nonce, box.ciphertext, box.tag) TRAP(e)
   IF e.code = errorCode::ErrAuthenticationFailed THEN RECOVER []   ' tampered
   FAIL e
@@ -412,30 +355,30 @@ END TRAP
 
 ' Ed25519 sign / verify.
 LET kp  = crypto::generateEd25519()
-LET sig = crypto::ed25519Sign(kp.privateKey, encoding::utf8Bytes("release v1"))
-LET good = crypto::ed25519Verify(kp.publicKey, encoding::utf8Bytes("release v1"), sig)
+LET sig = crypto::ed25519Sign(kp.privateKey, encoding::utf8Encode("release v1"))
+LET good = crypto::ed25519Verify(kp.publicKey, encoding::utf8Encode("release v1"), sig)
 
 io::print(crypto::uuid4())
 ```
 
 ---
 
-# Part G — Divergences, errors, and non-goals
+# Part E — Divergences, errors, and non-goals
 
-## G.1 Divergences from the source-package template
+## E.1 Divergences from the source-package template
 
 - `crypto` is the first **library-backed** standard package built on the native
   `LINK` mechanism plus a thin source layer — distinct from the pure-source
-  `json`/`csv`/`regex`/`http` packages and from native-only `net`/`tls`. `bits` is
-  the first package to add the integer bitwise operations the language operators
-  omit; `encoding` is conventional pure source.
+  `json`/`csv`/`regex`/`http` packages and from native-only `net`/`tls`. It depends
+  on the `bits` and `encoding` packages (plan-02) for its software cores and for
+  stringifying outputs.
 - AEAD `open` returns plaintext on success but **fails closed** on tag mismatch —
   no "bytes plus a boolean" shape; verification is not optional.
 - Hardware acceleration is **inherited from the system libraries** (which dispatch
   to ARMv8 Crypto Extensions / SHA-NI / AES-NI internally); this plan emits no SIMD
   crypto instructions and implements no CPU feature detection.
 
-## G.2 Non-goals for this version
+## E.2 Non-goals for this version
 
 - **No legacy digests** (`md5`, `sha1`). May be added later, explicitly labeled
   "for legacy/checksum interop, not security."
@@ -448,7 +391,7 @@ io::print(crypto::uuid4())
   detached-nonce sugar.
 - **No insecure or configurable modes** (raw AES-CBC/ECB, custom GCM tag lengths).
 
-## G.3 Future: x86_64
+## E.3 Future: x86_64
 
 Because the cryptography is delegated to the system libraries, an x86_64 port
 inherits hardware acceleration (SHA-NI / AES-NI / PCLMULQDQ) **for free** once the
