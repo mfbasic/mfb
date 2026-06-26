@@ -3,6 +3,7 @@ mod ast;
 mod audit;
 mod binary_repr;
 mod builtins;
+mod doc;
 mod escape;
 mod internal_name;
 mod ir;
@@ -25,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package\n  doc [--out file] [location]          Render HTML docs from package or file source\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -127,6 +128,10 @@ fn main() {
                 eprintln!("error: {err}");
                 process::exit(2);
             }
+        }
+        Some("doc") => {
+            let doc_args = args.collect::<Vec<_>>();
+            process::exit(run_doc_command(&doc_args));
         }
         Some(command) => {
             eprintln!("error: unknown command '{command}'\n\n{USAGE}");
@@ -362,7 +367,10 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let ast = ast::parse_project(project_name, &options.location, &manifest)?;
     resolver::resolve_project(&options.location, &manifest, &ast)?;
     let concrete_ast = monomorph::monomorphize_project(&options.location, &ast)?;
-    resolver::resolve_project(&options.location, &manifest, &concrete_ast)?;
+    // Skip DOC validation on the post-monomorph pass: monomorphization renames
+    // overloaded/generic declarations, so their doc headers would falsely appear
+    // unresolved. The original-AST pass above already validated them.
+    resolver::resolve_project_with(&options.location, &manifest, &concrete_ast, false)?;
     let entry = validate_entry_point(&options.location, &manifest, &concrete_ast)?;
     typecheck::check_project(&options.location, &concrete_ast)?;
     let signing = match &options.sign_owner {
@@ -422,12 +430,17 @@ fn build_project(options: &BuildOptions) -> Result<(), ()> {
                     external_package_function_types_from_files(&packages).map_err(|err| {
                         eprintln!("error: {err}");
                     })?;
-                let ir = ir::lower_project_with_external_functions(
+                let mut ir = ir::lower_project_with_external_functions(
                     &concrete_ast,
                     entry.clone(),
                     &external_functions,
                     &external_params,
                 );
+                // Collect documentation from the pre-monomorphization AST: it keeps
+                // the original declaration names (and every overload), which the
+                // monomorphized AST renames away, so overloaded/generic exported
+                // declarations still get a `.mfp` doc entry (plan-09-doc.md §5).
+                ir.docs = ir::collect_project_docs(&ast);
                 let mut metadata = package_metadata(&manifest);
                 if let Some(signing) = &signing {
                     apply_signing_metadata(&mut metadata, signing);
@@ -746,6 +759,7 @@ fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, package] if command == "info" => {
             print_package_info(Path::new(package)).map_err(PkgCommandError::Failed)
         }
+        [command, rest @ ..] if command == "doc" => run_pkg_doc(rest),
         [command] if command == "verify" => {
             verify_packages(Path::new(".")).map_err(PkgCommandError::Failed)
         }
@@ -919,6 +933,172 @@ fn verify_packages(project_dir: &Path) -> Result<(), String> {
         println!("{}", package_verify_line(&dependency, &result));
     }
 
+    Ok(())
+}
+
+/// `mfb doc <path> [--out <file>]` — render HTML documentation from source
+/// (plan-09-doc.md §6.1). Returns a process exit code.
+fn run_doc_command(args: &[String]) -> i32 {
+    let mut path: Option<&String> = None;
+    let mut out: Option<&String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--out" => {
+                index += 1;
+                let Some(file) = args.get(index) else {
+                    eprintln!("error: mfb doc --out requires a file\n\n{USAGE}");
+                    return 2;
+                };
+                out = Some(file);
+            }
+            flag if flag.starts_with("--") => {
+                eprintln!("error: unknown flag `{flag}`\n\n{USAGE}");
+                return 2;
+            }
+            _ => {
+                if path.is_some() {
+                    eprintln!("error: mfb doc accepts exactly one <path>\n\n{USAGE}");
+                    return 2;
+                }
+                path = Some(&args[index]);
+            }
+        }
+        index += 1;
+    }
+    // Like `mfb build`, the path defaults to the current directory.
+    let path = path.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let out_path = out
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("doc.html"));
+
+    match build_source_doc_page(&path) {
+        Ok((page, valid)) => {
+            let html = doc::render_html(&page);
+            if let Err(err) = fs::write(&out_path, html) {
+                eprintln!("error: failed to write '{}': {err}", out_path.display());
+                return 1;
+            }
+            println!("Wrote documentation to {}", out_path.display());
+            // Diagnostics for invalid blocks were already printed to stderr.
+            if valid {
+                0
+            } else {
+                1
+            }
+        }
+        Err(err) => {
+            eprintln!("error: {err}");
+            1
+        }
+    }
+}
+
+/// Parse a source path (project directory or single `.mfb` file), validate its
+/// `DOC` blocks, and build a renderable page. The bool is `false` when any block
+/// failed validation (diagnostics already emitted).
+fn build_source_doc_page(path: &Path) -> Result<(doc::DocPage, bool), String> {
+    if path.is_dir() {
+        let project_path = path.join("project.json");
+        let manifest = validate_project_manifest(&project_path)
+            .map_err(|_| "project validation failed".to_string())?;
+        let name = manifest
+            .get("name")
+            .and_then(|value| value.get::<String>())
+            .cloned()
+            .unwrap_or_else(|| "package".to_string());
+        let ast = ast::parse_project(&name, path, &manifest)
+            .map_err(|_| "failed to parse project source".to_string())?;
+        let valid = resolver::resolve_project(path, &manifest, &ast).is_ok();
+        Ok((doc::from_source(&ast), valid))
+    } else {
+        let contents = fs::read_to_string(path)
+            .map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("doc")
+            .to_string();
+        let display = path.to_string_lossy().replace('\\', "/");
+        let file = ast::parse_source(path, &display, &contents)
+            .map_err(|_| "failed to parse source file".to_string())?;
+        let project = ast::AstProject {
+            name: stem,
+            files: vec![file],
+        };
+        let parent = path.parent().unwrap_or_else(|| Path::new("."));
+        let valid = resolver::validate_project_docs(parent, &project);
+        Ok((doc::from_source(&project), valid))
+    }
+}
+
+/// `mfb pkg doc <name-or-path> [--out <file>]` — render HTML from a compiled
+/// package's doc section (plan-09-doc.md §6.2).
+fn run_pkg_doc(args: &[String]) -> Result<(), PkgCommandError> {
+    let mut target: Option<String> = None;
+    let mut out: Option<String> = None;
+    let mut index = 0;
+    while index < args.len() {
+        match args[index].as_str() {
+            "--out" => {
+                index += 1;
+                let file = args.get(index).ok_or_else(|| {
+                    PkgCommandError::Usage("mfb pkg doc --out requires a file".to_string())
+                })?;
+                out = Some(file.clone());
+            }
+            flag if flag.starts_with("--") => {
+                return Err(PkgCommandError::Usage(format!("unknown flag `{flag}`")));
+            }
+            value => {
+                if target.is_some() {
+                    return Err(PkgCommandError::Usage(
+                        "mfb pkg doc accepts exactly one <name-or-path>".to_string(),
+                    ));
+                }
+                target = Some(value.to_string());
+            }
+        }
+        index += 1;
+    }
+    let target = target.ok_or_else(|| {
+        PkgCommandError::Usage(format!("mfb pkg doc requires <name-or-path>\n\n{USAGE}"))
+    })?;
+    let out_path = out
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("doc.html"));
+    write_package_doc(&target, &out_path).map_err(PkgCommandError::Failed)
+}
+
+/// Resolve a package name or path to its `.mfp`, decode the doc section, and
+/// render it. A package with no doc section yields a minimal page (exit 0).
+fn write_package_doc(target: &str, out_path: &Path) -> Result<(), String> {
+    let direct = Path::new(target);
+    let package_path = if target.ends_with(".mfp") || direct.is_file() {
+        direct.to_path_buf()
+    } else {
+        let candidate = Path::new("packages").join(format!("{target}.mfp"));
+        if candidate.is_file() {
+            candidate
+        } else {
+            return Err(format!(
+                "no package named `{target}` found (looked for '{}')",
+                candidate.display()
+            ));
+        }
+    };
+
+    let header = read_mfp_header(&package_path)?;
+    let docs = binary_repr::read_package_docs(&package_path)?;
+    let html = if docs.is_empty() {
+        doc::render_empty_html(&header.name)
+    } else {
+        let page = doc::from_package(docs, &header.name);
+        doc::render_html(&page)
+    };
+    fs::write(out_path, html)
+        .map_err(|err| format!("failed to write '{}': {err}", out_path.display()))?;
+    println!("Wrote documentation to {}", out_path.display());
     Ok(())
 }
 

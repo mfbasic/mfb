@@ -32,8 +32,31 @@ pub enum TokenKind {
     Caret,
     PipeGreater,
     Arrow,
+    /// A whole `DOC ... END DOC` block, captured verbatim. The free-form text in
+    /// a documentation block (descriptions, error notes, example source) must not
+    /// be tokenized like code, so the lexer slurps the entire block into one token
+    /// and the parser turns its raw lines into a `DocBlock` AST node.
+    Doc(DocRaw),
     Newline,
     Eof,
+}
+
+/// Raw, untokenized contents of a `DOC ... END DOC` block.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DocRaw {
+    /// Source line of the `DOC` keyword.
+    pub line: usize,
+    /// Whitespace-separated words after `DOC` on the keyword line (e.g. `INTERNAL`).
+    pub attrs: Vec<String>,
+    /// Body lines between the `DOC` line and the closing `END DOC`, verbatim.
+    pub lines: Vec<DocRawLine>,
+}
+
+/// One verbatim body line of a `DOC` block, with its source line number.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DocRawLine {
+    pub line: usize,
+    pub text: String,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -361,6 +384,26 @@ impl Lexer<'_> {
             return;
         }
 
+        // `DOC` at the start of a statement begins a documentation block whose
+        // body is captured verbatim (see [`TokenKind::Doc`]). The keyword line may
+        // only carry attribute words (e.g. `INTERNAL`); anything else (`DOC = 1`,
+        // `DOC(x)`) is an ordinary identifier and falls through below.
+        if value.eq_ignore_ascii_case("DOC") && self.is_statement_start() {
+            if let Some(doc) = self.try_capture_doc_block(line) {
+                self.tokens.push(Token {
+                    kind: TokenKind::Doc(doc),
+                    line,
+                    start,
+                    end: self.column,
+                });
+                // The block's trailing newline was consumed during capture; emit a
+                // synthetic separator so the next line still counts as a statement
+                // start (for a following DOC/REM) and the parser sees a terminator.
+                self.push_simple(TokenKind::Newline, 1);
+                return;
+            }
+        }
+
         // In an internal file, rewrite a leading `__` to the untypeable internal
         // sigil so the resulting name cannot collide with any user identifier
         // (keywords never carry a `__` prefix, so this only ever affects names).
@@ -377,6 +420,97 @@ impl Lexer<'_> {
             start,
             end: self.column,
         });
+    }
+
+    /// Attempt to slurp a `DOC ... END DOC` block beginning just after the `DOC`
+    /// keyword. Returns `None` (leaving the cursor untouched) when the keyword
+    /// line carries non-attribute text, so the caller can treat `DOC` as a plain
+    /// identifier instead.
+    fn try_capture_doc_block(&mut self, doc_line: usize) -> Option<DocRaw> {
+        let saved_index = self.index;
+        let saved_line = self.line;
+        let saved_column = self.column;
+
+        // Read the remainder of the keyword line: only attribute words allowed.
+        let mut rest = String::new();
+        while !self.is_at_end() && self.peek() != '\n' {
+            rest.push(self.peek());
+            self.advance();
+        }
+        let trimmed = rest.trim();
+        let attrs = if trimmed.is_empty() {
+            Vec::new()
+        } else if trimmed
+            .chars()
+            .all(|ch| ch.is_ascii_alphabetic() || ch == ' ' || ch == '\t')
+        {
+            trimmed.split_whitespace().map(str::to_string).collect()
+        } else {
+            // Not a doc-block keyword line; roll back and let `DOC` lex normally.
+            self.index = saved_index;
+            self.line = saved_line;
+            self.column = saved_column;
+            return None;
+        };
+
+        // Consume the newline ending the keyword line.
+        if !self.is_at_end() {
+            self.advance_line();
+        }
+
+        let mut lines = Vec::new();
+        let mut in_example = false;
+        let mut terminated = false;
+        while !self.is_at_end() {
+            let line_no = self.line;
+            let mut text = String::new();
+            while !self.is_at_end() && self.peek() != '\n' {
+                text.push(self.peek());
+                self.advance();
+            }
+            if text.ends_with('\r') {
+                text.pop();
+            }
+            if !self.is_at_end() {
+                self.advance_line();
+            }
+
+            let words: Vec<&str> = text.split_whitespace().collect();
+            let is_end = |kw: &str| {
+                words.len() == 2
+                    && words[0].eq_ignore_ascii_case("END")
+                    && words[1].eq_ignore_ascii_case(kw)
+            };
+            if !in_example && is_end("DOC") {
+                terminated = true;
+                break;
+            }
+            if !in_example && words.len() == 1 && words[0].eq_ignore_ascii_case("EXAMPLE") {
+                in_example = true;
+            } else if in_example && is_end("EXAMPLE") {
+                in_example = false;
+            }
+            lines.push(DocRawLine {
+                line: line_no,
+                text,
+            });
+        }
+
+        if !terminated {
+            self.report(
+                "DOC_UNTERMINATED",
+                "DOC block reached end of file before its `END DOC` line.",
+                doc_line,
+                1,
+                1,
+            );
+        }
+
+        Some(DocRaw {
+            line: doc_line,
+            attrs,
+            lines,
+        })
     }
 
     fn lex_line_continuation(&mut self) -> bool {

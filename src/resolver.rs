@@ -1,6 +1,7 @@
 use crate::ast::{
-    AstFile, AstProject, ConstructorArg, Expression, Item, MatchPattern, Statement,
-    TopLevelBinding, TypeDecl, TypeDeclKind, TypeField, Visibility,
+    AstFile, AstProject, ConstructorArg, DocBlock, DocHeaderKind, Expression, Function,
+    FunctionKind, Item, MatchPattern, Statement, TopLevelBinding, TypeDecl, TypeDeclKind, TypeField,
+    Visibility,
 };
 use crate::binary_repr;
 use crate::builtins;
@@ -39,12 +40,38 @@ pub fn resolve_project(
     manifest: &HashMap<String, JsonValue>,
     ast: &AstProject,
 ) -> Result<(), ()> {
+    resolve_project_with(project_dir, manifest, ast, true)
+}
+
+/// Validate only the `DOC` blocks of an already-parsed project, without running
+/// full name resolution. Used by `mfb doc` on a single source file, where the
+/// surrounding project context (and lockfile) is unavailable. Returns `true`
+/// when every block is valid.
+pub fn validate_project_docs(project_dir: &Path, ast: &AstProject) -> bool {
+    let mut resolver = Resolver::new(project_dir, &HashMap::new(), ast);
+    resolver.resolve_doc_blocks();
+    !resolver.had_error
+}
+
+/// Resolve the project. `validate_docs` enables `DOC` block validation; it must
+/// be set only for the pre-monomorphization pass, since monomorphization renames
+/// overloaded and generic declarations and would make their doc headers appear
+/// unresolved on a second pass.
+pub fn resolve_project_with(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+    ast: &AstProject,
+    validate_docs: bool,
+) -> Result<(), ()> {
     let augmented = builtins::json::augmented_project(ast)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
     let mut resolver = Resolver::new(project_dir, manifest, &augmented);
     resolver.resolve();
+    if validate_docs {
+        resolver.resolve_doc_blocks();
+    }
     if resolver.had_error {
         Err(())
     } else {
@@ -57,6 +84,18 @@ fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
         ConstructorArg::Positional(value) => value,
         ConstructorArg::Named { value, .. } => value,
     }
+}
+
+/// Whether a function overload's parameter types match the type list a `DOC`
+/// header named (whitespace-normalized, in order).
+fn overload_types_match(function: &Function, wanted: &[String]) -> bool {
+    if function.params.len() != wanted.len() {
+        return false;
+    }
+    function.params.iter().zip(wanted).all(|(param, want)| {
+        crate::ast::normalize_ws(param.type_name.as_deref().unwrap_or(""))
+            == crate::ast::normalize_ws(want)
+    })
 }
 
 fn call_arg_value(argument: &crate::ast::CallArg) -> &Expression {
@@ -243,6 +282,9 @@ impl<'a> Resolver<'a> {
                         );
                     }
                     Item::Link(_) => {}
+                    // DOC blocks declare no symbols; they are resolved separately
+                    // after symbol collection (see `resolve_doc_blocks`).
+                    Item::Doc(_) => {}
                 }
             }
         }
@@ -395,6 +437,416 @@ impl<'a> Resolver<'a> {
         }
     }
 
+    /// Validate every `DOC` block in the package (plan-09-doc.md §2/§4): resolve
+    /// each header to a declaration of the right kind, then check the body's
+    /// `ARG`/`PROP`/`RET`/`ERROR`/`EXAMPLE` lines, attributes, and `DEPRECATED`
+    /// against that declaration.
+    fn resolve_doc_blocks(&mut self) {
+        let ast = self.ast;
+
+        // Index user declarations by name. Functions and subs share a namespace,
+        // and a name may carry several overloads.
+        let mut funcs: HashMap<&str, Vec<&Function>> = HashMap::new();
+        let mut types: HashMap<&str, &TypeDecl> = HashMap::new();
+        for file in &ast.files {
+            for item in &file.items {
+                match item {
+                    Item::Function(function) => {
+                        funcs.entry(function.name.as_str()).or_default().push(function);
+                    }
+                    Item::Type(type_decl) => {
+                        types.entry(type_decl.name.as_str()).or_insert(type_decl);
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Dedup key: (kind, name, overload-signature). The signature is the
+        // parenthesized header parameter types (empty when none), so each overload
+        // can carry its own DOC block.
+        let mut seen: HashSet<(DocHeaderKind, String, String)> = HashSet::new();
+        let mut package_doc_seen = false;
+        for file in &ast.files {
+            for item in &file.items {
+                let Item::Doc(doc) = item else {
+                    continue;
+                };
+                self.validate_doc_block(
+                    file,
+                    doc,
+                    &funcs,
+                    &types,
+                    &mut seen,
+                    &mut package_doc_seen,
+                );
+            }
+        }
+    }
+
+    fn validate_doc_block(
+        &mut self,
+        file: &AstFile,
+        doc: &DocBlock,
+        funcs: &HashMap<&str, Vec<&Function>>,
+        types: &HashMap<&str, &TypeDecl>,
+        seen: &mut HashSet<(DocHeaderKind, String, String)>,
+        package_doc_seen: &mut bool,
+    ) {
+        // --- Attributes (only INTERNAL is recognized) ---
+        let mut internal_count = 0;
+        for attr in &doc.attrs {
+            if attr.eq_ignore_ascii_case("INTERNAL") {
+                internal_count += 1;
+            } else {
+                self.report(
+                    "DOC_UNKNOWN_ATTR",
+                    &format!("`{attr}` is not a valid DOC attribute; only INTERNAL is recognized."),
+                    file,
+                    doc.line,
+                );
+            }
+        }
+        if internal_count > 1 {
+            self.report(
+                "DOC_DUPLICATE_ATTR",
+                "The INTERNAL attribute may appear at most once on a DOC line.",
+                file,
+                doc.line,
+            );
+        }
+
+        let kind = doc.header_kind;
+        let is_callable = matches!(kind, DocHeaderKind::Func | DocHeaderKind::Sub);
+        let is_member_kind = matches!(
+            kind,
+            DocHeaderKind::Type | DocHeaderKind::Union | DocHeaderKind::Enum
+        );
+
+        // --- Context restrictions ---
+        if !is_callable {
+            if let Some(arg) = doc.args.first() {
+                self.report(
+                    "DOC_ARG_INVALID_CONTEXT",
+                    "ARG is valid only on FUNC and SUB doc blocks.",
+                    file,
+                    arg.line,
+                );
+            }
+            if let Some((_, line)) = doc.rets.first() {
+                self.report(
+                    "DOC_RET_INVALID_CONTEXT",
+                    "RET is valid only on FUNC and SUB doc blocks.",
+                    file,
+                    *line,
+                );
+            }
+            if let Some(error) = doc.errors.first() {
+                self.report(
+                    "DOC_ERROR_INVALID_CONTEXT",
+                    "ERROR is valid only on FUNC and SUB doc blocks.",
+                    file,
+                    error.line,
+                );
+            }
+        }
+        if !is_member_kind {
+            if let Some(prop) = doc.props.first() {
+                self.report(
+                    "DOC_PROP_INVALID_CONTEXT",
+                    "PROP is valid only on TYPE, UNION, and ENUM doc blocks.",
+                    file,
+                    prop.line,
+                );
+            }
+        }
+        if !is_callable {
+            if let Some((_, line)) = doc.groups.first() {
+                self.report(
+                    "DOC_GROUP_INVALID_CONTEXT",
+                    "GROUP is valid only on FUNC and SUB doc blocks.",
+                    file,
+                    *line,
+                );
+            }
+        }
+
+        // --- Duplicate body lines ---
+        if let Some((_, line)) = doc.rets.get(1) {
+            self.report(
+                "DOC_DUPLICATE_RET",
+                "A DOC block may have at most one RET line.",
+                file,
+                *line,
+            );
+        }
+        if let Some((_, line)) = doc.examples.get(1) {
+            self.report(
+                "DOC_DUPLICATE_EXAMPLE",
+                "A DOC block may have at most one EXAMPLE block.",
+                file,
+                *line,
+            );
+        }
+        if let Some((_, line)) = doc.deprecated.get(1) {
+            self.report(
+                "DOC_DUPLICATE_DEPRECATED",
+                "A DOC block may have at most one DEPRECATED line.",
+                file,
+                *line,
+            );
+        }
+        if let Some((_, line)) = doc.groups.get(1) {
+            self.report(
+                "DOC_DUPLICATE_GROUP",
+                "A DOC block may have at most one GROUP line.",
+                file,
+                *line,
+            );
+        }
+
+        // --- Header resolution & member checks ---
+        match kind {
+            DocHeaderKind::Package => {
+                if internal_count > 0 {
+                    self.report(
+                        "DOC_INTERNAL_INVALID_CONTEXT",
+                        "INTERNAL is not valid on a PACKAGE doc block.",
+                        file,
+                        doc.line,
+                    );
+                }
+                if *package_doc_seen {
+                    self.report(
+                        "DOC_DUPLICATE_PACKAGE",
+                        "Only one PACKAGE doc block is allowed per package.",
+                        file,
+                        doc.header_line,
+                    );
+                } else {
+                    *package_doc_seen = true;
+                }
+            }
+            DocHeaderKind::Func | DocHeaderKind::Sub => {
+                let want_sub = kind == DocHeaderKind::Sub;
+                let resolved = match funcs.get(doc.header_name.as_str()) {
+                    Some(list) => {
+                        let matching: Vec<&&Function> = list
+                            .iter()
+                            .filter(|f| (f.kind == FunctionKind::Sub) == want_sub)
+                            .collect();
+                        if matching.is_empty() {
+                            self.report(
+                                "DOC_NAME_MISMATCH",
+                                &format!(
+                                    "`{}` is not a {} in this package.",
+                                    doc.header_name,
+                                    kind.keyword()
+                                ),
+                                file,
+                                doc.header_line,
+                            );
+                            false
+                        } else if let Some(types_wanted) = &doc.header_params {
+                            // The header named a specific overload by its parameter
+                            // types; validate ARGs against exactly that overload.
+                            match matching
+                                .iter()
+                                .find(|f| overload_types_match(f, types_wanted))
+                            {
+                                Some(target) => {
+                                    let valid: HashSet<&str> =
+                                        target.params.iter().map(|p| p.name.as_str()).collect();
+                                    self.check_doc_named(
+                                        file,
+                                        &doc.args,
+                                        &valid,
+                                        "DOC_ARG_UNKNOWN",
+                                        "DOC_ARG_DUPLICATE",
+                                        "parameter",
+                                    );
+                                    true
+                                }
+                                None => {
+                                    self.report(
+                                        "DOC_OVERLOAD_UNRESOLVED",
+                                        &format!(
+                                            "No overload of `{}` has parameter types ({}).",
+                                            doc.header_name,
+                                            types_wanted.join(", ")
+                                        ),
+                                        file,
+                                        doc.header_line,
+                                    );
+                                    false
+                                }
+                            }
+                        } else {
+                            // No disambiguator: validate ARGs against the union of
+                            // every matching overload's parameters.
+                            let valid: HashSet<&str> = matching
+                                .iter()
+                                .flat_map(|f| f.params.iter().map(|p| p.name.as_str()))
+                                .collect();
+                            self.check_doc_named(
+                                file,
+                                &doc.args,
+                                &valid,
+                                "DOC_ARG_UNKNOWN",
+                                "DOC_ARG_DUPLICATE",
+                                "parameter",
+                            );
+                            true
+                        }
+                    }
+                    None => {
+                        let rule = if types.contains_key(doc.header_name.as_str()) {
+                            "DOC_NAME_MISMATCH"
+                        } else {
+                            "DOC_UNRESOLVED"
+                        };
+                        self.report(
+                            rule,
+                            &format!(
+                                "DOC header `{} {}` does not name a {} in this package.",
+                                kind.keyword(),
+                                doc.header_name,
+                                kind.keyword()
+                            ),
+                            file,
+                            doc.header_line,
+                        );
+                        false
+                    }
+                };
+                if resolved {
+                    self.note_doc_target(file, doc, seen);
+                }
+            }
+            DocHeaderKind::Type | DocHeaderKind::Union | DocHeaderKind::Enum => {
+                let want = match kind {
+                    DocHeaderKind::Type => TypeDeclKind::Type,
+                    DocHeaderKind::Union => TypeDeclKind::Union,
+                    _ => TypeDeclKind::Enum,
+                };
+                let resolved = match types.get(doc.header_name.as_str()) {
+                    Some(type_decl) if type_decl.kind == want => {
+                        let valid: HashSet<&str> = match want {
+                            TypeDeclKind::Type => {
+                                type_decl.fields.iter().map(|f| f.name.as_str()).collect()
+                            }
+                            TypeDeclKind::Union => {
+                                type_decl.variants.iter().map(|v| v.name.as_str()).collect()
+                            }
+                            TypeDeclKind::Enum => {
+                                type_decl.members.iter().map(|m| m.name.as_str()).collect()
+                            }
+                        };
+                        self.check_doc_named(
+                            file,
+                            &doc.props,
+                            &valid,
+                            "DOC_PROP_UNKNOWN",
+                            "DOC_PROP_DUPLICATE",
+                            "member",
+                        );
+                        true
+                    }
+                    Some(_) => {
+                        self.report(
+                            "DOC_NAME_MISMATCH",
+                            &format!("`{}` is not a {} in this package.", doc.header_name, kind.keyword()),
+                            file,
+                            doc.header_line,
+                        );
+                        false
+                    }
+                    None => {
+                        let rule = if funcs.contains_key(doc.header_name.as_str()) {
+                            "DOC_NAME_MISMATCH"
+                        } else {
+                            "DOC_UNRESOLVED"
+                        };
+                        self.report(
+                            rule,
+                            &format!(
+                                "DOC header `{} {}` does not name a {} in this package.",
+                                kind.keyword(),
+                                doc.header_name,
+                                kind.keyword()
+                            ),
+                            file,
+                            doc.header_line,
+                        );
+                        false
+                    }
+                };
+                if resolved {
+                    self.note_doc_target(file, doc, seen);
+                }
+            }
+        }
+    }
+
+    /// (See free function `overload_types_match`.)
+    ///
+    /// Record a successfully resolved doc target and flag a second block naming
+    /// the same declaration (same overload signature) as `DOC_DUPLICATE`.
+    fn note_doc_target(
+        &mut self,
+        file: &AstFile,
+        doc: &DocBlock,
+        seen: &mut HashSet<(DocHeaderKind, String, String)>,
+    ) {
+        let signature = match &doc.header_params {
+            Some(types) => types.join(", "),
+            None => String::new(),
+        };
+        if !seen.insert((doc.header_kind, doc.header_name.clone(), signature)) {
+            let which = match &doc.header_params {
+                Some(types) => format!("`{} {}({})`", doc.header_kind.keyword(), doc.header_name, types.join(", ")),
+                None => format!("`{} {}`", doc.header_kind.keyword(), doc.header_name),
+            };
+            self.report(
+                "DOC_DUPLICATE",
+                &format!("{which} already has a DOC block in this package."),
+                file,
+                doc.header_line,
+            );
+        }
+    }
+
+    /// Validate `ARG`/`PROP` lines against the set of valid names, reporting
+    /// duplicates and unknown names.
+    fn check_doc_named(
+        &mut self,
+        file: &AstFile,
+        named: &[crate::ast::DocNamed],
+        valid: &HashSet<&str>,
+        unknown_rule: &str,
+        duplicate_rule: &str,
+        noun: &str,
+    ) {
+        let mut documented: HashSet<&str> = HashSet::new();
+        for entry in named {
+            if !documented.insert(entry.name.as_str()) {
+                self.report(
+                    duplicate_rule,
+                    &format!("{noun} `{}` is documented more than once.", entry.name),
+                    file,
+                    entry.line,
+                );
+            } else if !valid.contains(entry.name.as_str()) {
+                self.report(
+                    unknown_rule,
+                    &format!("`{}` is not a {noun} of the documented declaration.", entry.name),
+                    file,
+                    entry.line,
+                );
+            }
+        }
+    }
+
     fn resolve_file(&mut self, file: &AstFile) {
         let mut imports = HashMap::new();
 
@@ -448,6 +900,8 @@ impl<'a> Resolver<'a> {
                 Item::Resource(resource) => self.resolve_resource_decl(file, resource, &imports),
                 Item::FuncAlias(alias) => self.resolve_func_alias(file, alias, &imports),
                 Item::Link(link) => self.resolve_link_block(file, link, &imports),
+                // DOC blocks are validated package-wide in `resolve_doc_blocks`.
+                Item::Doc(_) => {}
             }
         }
     }

@@ -927,6 +927,158 @@ pub const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "package projects do not support the requested native output mode",
     },
+    // --- DOC block structure (lexer/parser), plan-09-doc.md ---
+    Rule {
+        code: "1-103-0001",
+        name: "DOC_UNTERMINATED",
+        severity: Severity::Error,
+        message: "DOC block was not closed with END DOC",
+    },
+    Rule {
+        code: "1-103-0002",
+        name: "DOC_BAD_HEADER",
+        severity: Severity::Error,
+        message: "DOC block header must be FUNC, SUB, TYPE, UNION, ENUM, or PACKAGE",
+    },
+    Rule {
+        code: "1-103-0003",
+        name: "DOC_UNKNOWN_LINE",
+        severity: Severity::Error,
+        message: "DOC line keyword is not recognized",
+    },
+    Rule {
+        code: "1-103-0004",
+        name: "DOC_EXAMPLE_UNTERMINATED",
+        severity: Severity::Error,
+        message: "EXAMPLE block was not closed with END EXAMPLE",
+    },
+    // --- DOC block semantics (resolver), plan-09-doc.md §4 ---
+    Rule {
+        code: "2-205-0001",
+        name: "DOC_UNRESOLVED",
+        severity: Severity::Error,
+        message: "DOC header name does not resolve to any declaration in the package",
+    },
+    Rule {
+        code: "2-205-0002",
+        name: "DOC_NAME_MISMATCH",
+        severity: Severity::Error,
+        message: "DOC header keyword does not match the kind of the named declaration",
+    },
+    Rule {
+        code: "2-205-0003",
+        name: "DOC_DUPLICATE",
+        severity: Severity::Error,
+        message: "two DOC blocks name the same declaration",
+    },
+    Rule {
+        code: "2-205-0004",
+        name: "DOC_ARG_UNKNOWN",
+        severity: Severity::Error,
+        message: "ARG name does not match any parameter in the target signature",
+    },
+    Rule {
+        code: "2-205-0005",
+        name: "DOC_ARG_DUPLICATE",
+        severity: Severity::Error,
+        message: "two ARG lines document the same parameter",
+    },
+    Rule {
+        code: "2-205-0006",
+        name: "DOC_ARG_INVALID_CONTEXT",
+        severity: Severity::Error,
+        message: "ARG is not valid in a TYPE, UNION, ENUM, or PACKAGE doc block",
+    },
+    Rule {
+        code: "2-205-0007",
+        name: "DOC_PROP_UNKNOWN",
+        severity: Severity::Error,
+        message: "PROP name does not match any member of the target type",
+    },
+    Rule {
+        code: "2-205-0008",
+        name: "DOC_PROP_DUPLICATE",
+        severity: Severity::Error,
+        message: "two PROP lines document the same member",
+    },
+    Rule {
+        code: "2-205-0009",
+        name: "DOC_PROP_INVALID_CONTEXT",
+        severity: Severity::Error,
+        message: "PROP is valid only in TYPE, UNION, and ENUM doc blocks",
+    },
+    Rule {
+        code: "2-205-0010",
+        name: "DOC_RET_INVALID_CONTEXT",
+        severity: Severity::Error,
+        message: "RET is not valid in a TYPE, UNION, ENUM, or PACKAGE doc block",
+    },
+    Rule {
+        code: "2-205-0011",
+        name: "DOC_DUPLICATE_RET",
+        severity: Severity::Error,
+        message: "more than one RET line in a doc block",
+    },
+    Rule {
+        code: "2-205-0012",
+        name: "DOC_ERROR_INVALID_CONTEXT",
+        severity: Severity::Error,
+        message: "ERROR is not valid in a TYPE, UNION, ENUM, or PACKAGE doc block",
+    },
+    Rule {
+        code: "2-205-0013",
+        name: "DOC_DUPLICATE_EXAMPLE",
+        severity: Severity::Error,
+        message: "more than one EXAMPLE block in a doc block",
+    },
+    Rule {
+        code: "2-205-0014",
+        name: "DOC_DUPLICATE_PACKAGE",
+        severity: Severity::Error,
+        message: "more than one PACKAGE doc block in the package",
+    },
+    Rule {
+        code: "2-205-0015",
+        name: "DOC_DUPLICATE_ATTR",
+        severity: Severity::Error,
+        message: "the INTERNAL attribute appears more than once on one DOC line",
+    },
+    Rule {
+        code: "2-205-0016",
+        name: "DOC_UNKNOWN_ATTR",
+        severity: Severity::Error,
+        message: "unrecognized keyword in the DOC-line attribute position",
+    },
+    Rule {
+        code: "2-205-0017",
+        name: "DOC_INTERNAL_INVALID_CONTEXT",
+        severity: Severity::Error,
+        message: "INTERNAL is not valid on a PACKAGE doc block",
+    },
+    Rule {
+        code: "2-205-0018",
+        name: "DOC_DUPLICATE_DEPRECATED",
+        severity: Severity::Error,
+        message: "more than one DEPRECATED line in a doc block",
+    },
+    Rule {
+        code: "2-205-0019",
+        name: "DOC_GROUP_INVALID_CONTEXT",
+        severity: Severity::Error,
+        message: "GROUP is valid only on FUNC and SUB doc blocks",
+    },
+    Rule {
+        code: "2-205-0020",
+        name: "DOC_DUPLICATE_GROUP",
+        severity: Severity::Error,
+        message: "more than one GROUP line in a doc block",
+    },
+    Rule {
+        code: "2-205-0021",
+        name: "DOC_OVERLOAD_UNRESOLVED",
+        severity: Severity::Error,
+        message: "DOC header parameter types match no overload of the declaration",
+    },
 ];
 
 pub fn show_diagnostic(

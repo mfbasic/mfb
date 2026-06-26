@@ -1423,6 +1423,8 @@ impl<'a> TypeChecker<'a> {
                     // A re-export alias carries no body to check; its target was
                     // validated during resolve (plan-link-update.md §5a).
                     Item::FuncAlias(_) => {}
+                    // DOC blocks carry no executable code to typecheck.
+                    Item::Doc(_) => {}
                 }
             }
         }

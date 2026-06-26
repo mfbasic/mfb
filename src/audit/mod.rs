@@ -94,7 +94,9 @@ pub fn run(options: &AuditOptions) -> i32 {
     let Ok(concrete_ast) = crate::monomorph::monomorphize_project(&options.location, &ast) else {
         return 3;
     };
-    if crate::resolver::resolve_project(&options.location, &manifest, &concrete_ast).is_err() {
+    if crate::resolver::resolve_project_with(&options.location, &manifest, &concrete_ast, false)
+        .is_err()
+    {
         return 3;
     }
     let Ok(entry) = crate::validate_entry_point(&options.location, &manifest, &concrete_ast) else {

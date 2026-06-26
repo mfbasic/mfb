@@ -96,6 +96,8 @@ impl<'a> Monomorphizer<'a> {
                     // carry no template parameters and are passed through
                     // unchanged (plan-link-update.md §15 Phase 1).
                     Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) => {}
+                    // DOC blocks carry no template parameters; passed through below.
+                    Item::Doc(_) => {}
                 }
             }
         }
@@ -260,6 +262,11 @@ impl<'a> Monomorphizer<'a> {
                         }
                         Item::Link(link) => {
                             items.push(Item::Link(link.clone()));
+                        }
+                        // Preserve DOC blocks verbatim so the post-monomorph
+                        // resolve and IR lowering still see the documentation.
+                        Item::Doc(doc) => {
+                            items.push(Item::Doc(doc.clone()));
                         }
                         _ => {}
                     }

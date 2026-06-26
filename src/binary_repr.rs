@@ -14,6 +14,11 @@ const SECTION_EXPORT_TABLE: u16 = 6;
 const SECTION_GLOBAL_TABLE: u16 = 7;
 const SECTION_FUNCTION_TABLE: u16 = 8;
 const SECTION_RESOURCE_TABLE: u16 = 11;
+/// Optional documentation section (plan-09-doc.md §5). Self-describing and
+/// length-prefixed; a consumer that does not understand it skips it entirely.
+/// Ids 12-14 are reserved by the format for DEBUG_INFO/SOURCE_MAP/AUDIT_INFO,
+/// so the doc table takes the next free id past the IR section.
+const SECTION_DOC_TABLE: u16 = 17;
 const SECTION_ABI_INDEX: u16 = 15;
 /// Structured Binary Representation payload section. Replaces the old flat code section as
 /// the carrier of function bodies; see `crate::ir::encode_binary_repr`.
@@ -232,6 +237,259 @@ pub struct BinaryReprPackageInfoImport {
 pub struct BinaryReprPackageInfoUsedSymbol {
     pub name: String,
     pub sig_hash: String,
+}
+
+/// The decoded `doc` section of a compiled package (plan-09-doc.md §5). Empty
+/// when the package was built without any exported `DOC` blocks.
+#[derive(Clone, Default)]
+pub struct PackageDocs {
+    pub package: Option<PackageDocEntry>,
+    pub decls: Vec<DeclDocEntry>,
+}
+
+impl PackageDocs {
+    pub fn is_empty(&self) -> bool {
+        self.package.is_none() && self.decls.is_empty()
+    }
+}
+
+#[derive(Clone)]
+pub struct PackageDocEntry {
+    pub name: String,
+    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind`.
+    pub desc: Vec<(u8, String)>,
+    pub deprecated: Option<String>,
+}
+
+#[derive(Clone)]
+pub struct DeclDocEntry {
+    /// One of `func`, `sub`, `type`, `union`, `enum`.
+    pub kind: String,
+    pub name: String,
+    pub signature: String,
+    /// `GROUP` name (FUNC/SUB), or empty.
+    pub group: String,
+    /// Prose blocks as `(kind code, text)` — see `crate::ast::DocProseKind`.
+    pub desc: Vec<(u8, String)>,
+    pub args: Vec<(String, String)>,
+    pub props: Vec<(String, String)>,
+    pub ret: String,
+    pub errors: Vec<(String, String)>,
+    pub example: String,
+    pub internal: bool,
+    pub deprecated: Option<String>,
+}
+
+const DOC_KIND_FUNC: u16 = 0;
+const DOC_KIND_SUB: u16 = 1;
+const DOC_KIND_TYPE: u16 = 2;
+const DOC_KIND_UNION: u16 = 3;
+const DOC_KIND_ENUM: u16 = 4;
+
+fn doc_kind_name(kind: u16) -> &'static str {
+    match kind {
+        DOC_KIND_SUB => "sub",
+        DOC_KIND_TYPE => "type",
+        DOC_KIND_UNION => "union",
+        DOC_KIND_ENUM => "enum",
+        _ => "func",
+    }
+}
+
+/// Read the optional `doc` section from a compiled `.mfp` package. Returns an
+/// empty [`PackageDocs`] when the package carries no documentation.
+pub fn read_package_docs(path: &Path) -> Result<PackageDocs, String> {
+    let package = read_package_binary_repr(path)?;
+    Ok(package.project.docs)
+}
+
+fn put_pair_list(bytes: &mut Vec<u8>, pairs: &[(String, String)]) {
+    put_u32(bytes, pairs.len() as u32);
+    for (first, second) in pairs {
+        put_bytes(bytes, first.as_bytes());
+        put_bytes(bytes, second.as_bytes());
+    }
+}
+
+fn put_optional_str(bytes: &mut Vec<u8>, value: &Option<String>) {
+    match value {
+        Some(message) => {
+            bytes.push(1);
+            put_bytes(bytes, message.as_bytes());
+        }
+        None => bytes.push(0),
+    }
+}
+
+/// Prose blocks are stored as a count followed by `(u8 kind, str text)` pairs.
+fn put_prose_list(bytes: &mut Vec<u8>, prose: &[(u8, String)]) {
+    put_u32(bytes, prose.len() as u32);
+    for (kind, text) in prose {
+        bytes.push(*kind);
+        put_bytes(bytes, text.as_bytes());
+    }
+}
+
+fn cursor_prose_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<(u8, String)>, String> {
+    let count = cursor_u32(bytes, offset)? as usize;
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        let kind = *bytes
+            .get(*offset)
+            .ok_or_else(|| "truncated prose kind".to_string())?;
+        *offset += 1;
+        values.push((kind, cursor_string(bytes, offset)?));
+    }
+    Ok(values)
+}
+
+fn cursor_pair_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<(String, String)>, String> {
+    let count = cursor_u32(bytes, offset)? as usize;
+    let mut values = Vec::with_capacity(count);
+    for _ in 0..count {
+        let first = cursor_string(bytes, offset)?;
+        let second = cursor_string(bytes, offset)?;
+        values.push((first, second));
+    }
+    Ok(values)
+}
+
+fn cursor_optional_str(bytes: &[u8], offset: &mut usize) -> Result<Option<String>, String> {
+    let flag = *bytes
+        .get(*offset)
+        .ok_or_else(|| "truncated optional string flag".to_string())?;
+    *offset += 1;
+    if flag == 0 {
+        Ok(None)
+    } else {
+        Ok(Some(cursor_string(bytes, offset)?))
+    }
+}
+
+fn encode_doc_table(docs: &PackageDocs) -> Vec<u8> {
+    let mut bytes = Vec::new();
+    match &docs.package {
+        Some(package) => {
+            bytes.push(1);
+            put_bytes(&mut bytes, package.name.as_bytes());
+            put_prose_list(&mut bytes, &package.desc);
+            put_optional_str(&mut bytes, &package.deprecated);
+        }
+        None => bytes.push(0),
+    }
+    put_u32(&mut bytes, docs.decls.len() as u32);
+    for decl in &docs.decls {
+        let kind = match decl.kind.as_str() {
+            "sub" => DOC_KIND_SUB,
+            "type" => DOC_KIND_TYPE,
+            "union" => DOC_KIND_UNION,
+            "enum" => DOC_KIND_ENUM,
+            _ => DOC_KIND_FUNC,
+        };
+        put_u16(&mut bytes, kind);
+        put_bytes(&mut bytes, decl.name.as_bytes());
+        put_bytes(&mut bytes, decl.signature.as_bytes());
+        put_bytes(&mut bytes, decl.group.as_bytes());
+        put_prose_list(&mut bytes, &decl.desc);
+        put_pair_list(&mut bytes, &decl.args);
+        put_pair_list(&mut bytes, &decl.props);
+        put_bytes(&mut bytes, decl.ret.as_bytes());
+        put_pair_list(&mut bytes, &decl.errors);
+        put_bytes(&mut bytes, decl.example.as_bytes());
+        bytes.push(u8::from(decl.internal));
+        put_optional_str(&mut bytes, &decl.deprecated);
+    }
+    bytes
+}
+
+fn read_doc_table(bytes: &[u8]) -> Result<PackageDocs, String> {
+    let mut offset = 0;
+    let has_package = *bytes
+        .get(offset)
+        .ok_or_else(|| "truncated doc table".to_string())?;
+    offset += 1;
+    let package = if has_package == 0 {
+        None
+    } else {
+        let name = cursor_string(bytes, &mut offset)?;
+        let desc = cursor_prose_list(bytes, &mut offset)?;
+        let deprecated = cursor_optional_str(bytes, &mut offset)?;
+        Some(PackageDocEntry {
+            name,
+            desc,
+            deprecated,
+        })
+    };
+    let count = cursor_u32(bytes, &mut offset)? as usize;
+    let mut decls = Vec::with_capacity(count);
+    for _ in 0..count {
+        let kind = doc_kind_name(cursor_u16(bytes, &mut offset)?).to_string();
+        let name = cursor_string(bytes, &mut offset)?;
+        let signature = cursor_string(bytes, &mut offset)?;
+        let group = cursor_string(bytes, &mut offset)?;
+        let desc = cursor_prose_list(bytes, &mut offset)?;
+        let args = cursor_pair_list(bytes, &mut offset)?;
+        let props = cursor_pair_list(bytes, &mut offset)?;
+        let ret = cursor_string(bytes, &mut offset)?;
+        let errors = cursor_pair_list(bytes, &mut offset)?;
+        let example = cursor_string(bytes, &mut offset)?;
+        let internal = *bytes
+            .get(offset)
+            .ok_or_else(|| "truncated doc entry".to_string())?
+            != 0;
+        offset += 1;
+        let deprecated = cursor_optional_str(bytes, &mut offset)?;
+        decls.push(DeclDocEntry {
+            kind,
+            name,
+            signature,
+            group,
+            desc,
+            args,
+            props,
+            ret,
+            errors,
+            example,
+            internal,
+            deprecated,
+        });
+    }
+    Ok(PackageDocs { package, decls })
+}
+
+fn docs_from_ir(docs: &crate::ir::ProjectDocs) -> PackageDocs {
+    use crate::ir::IrDocKind;
+    let package = docs.package.as_ref().map(|package| PackageDocEntry {
+        name: package.name.clone(),
+        desc: package.desc.clone(),
+        deprecated: package.deprecated.clone(),
+    });
+    let decls = docs
+        .decls
+        .iter()
+        .map(|decl| DeclDocEntry {
+            kind: match decl.kind {
+                IrDocKind::Func => "func",
+                IrDocKind::Sub => "sub",
+                IrDocKind::Type => "type",
+                IrDocKind::Union => "union",
+                IrDocKind::Enum => "enum",
+            }
+            .to_string(),
+            name: decl.name.clone(),
+            signature: decl.signature.clone(),
+            group: decl.group.clone(),
+            desc: decl.desc.clone(),
+            args: decl.args.clone(),
+            props: decl.props.clone(),
+            ret: decl.ret.clone(),
+            errors: decl.errors.clone(),
+            example: decl.example.clone(),
+            internal: decl.internal,
+            deprecated: decl.deprecated.clone(),
+        })
+        .collect();
+    PackageDocs { package, decls }
 }
 
 const RESOURCE_FLAG_NATIVE: u32 = 1 << 0;
@@ -593,6 +851,10 @@ fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr, String> {
         Some(section) => read_global_table(section)?,
         None => Vec::new(),
     };
+    let docs = match sections.get(&SECTION_DOC_TABLE).copied() {
+        Some(section) => read_doc_table(section)?,
+        None => PackageDocs::default(),
+    };
     let manifest = read_manifest(
         sections
             .get(&SECTION_MANIFEST)
@@ -635,6 +897,7 @@ fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr, String> {
             entry_flags: 0,
             functions,
             binary_repr,
+            docs,
         },
         exports,
     })
@@ -1906,6 +2169,22 @@ fn cursor_u64(bytes: &[u8], offset: &mut usize) -> Result<u64, String> {
     Ok(value)
 }
 
+/// Read a `u32`-length-prefixed UTF-8 string (as written by [`put_bytes`]).
+fn cursor_string(bytes: &[u8], offset: &mut usize) -> Result<String, String> {
+    let length = cursor_u32(bytes, offset)? as usize;
+    let end = offset
+        .checked_add(length)
+        .ok_or_else(|| "invalid length-prefixed string".to_string())?;
+    let value = bytes
+        .get(*offset..end)
+        .ok_or_else(|| "truncated length-prefixed string".to_string())?;
+    let value = std::str::from_utf8(value)
+        .map_err(|_| "length-prefixed string is not valid UTF-8".to_string())?
+        .to_string();
+    *offset = end;
+    Ok(value)
+}
+
 fn checked_u16_at(bytes: &[u8], offset: usize) -> Result<u16, String> {
     let value = bytes
         .get(offset..offset + 2)
@@ -1946,6 +2225,9 @@ struct BinaryReprProject {
     /// lowers through the single `IR -> NIR -> native` path. Function bodies are
     /// no longer flattened to opcodes; this blob is the body source of truth.
     binary_repr: Vec<u8>,
+    /// Optional documentation surface emitted as the `doc` section
+    /// (plan-09-doc.md §5). Empty for projects without exported `DOC` blocks.
+    docs: PackageDocs,
 }
 
 struct GlobalEntry {
@@ -2323,6 +2605,7 @@ fn lower_project_with_external_functions(
         entry_flags,
         functions,
         binary_repr: crate::ir::encode_binary_repr(ir),
+        docs: docs_from_ir(&ir.docs),
     })
 }
 
@@ -3650,6 +3933,11 @@ impl BinaryReprProject {
                 self.resources.encode(),
             ));
         }
+        // The doc section is emitted only when the package has documentation
+        // (plan-09-doc.md §5); it does not affect execution or the ABI.
+        if !self.docs.is_empty() {
+            sections.push(Section::new(SECTION_DOC_TABLE, encode_doc_table(&self.docs)));
+        }
 
         encode_sections(&sections)
     }
@@ -3836,6 +4124,82 @@ fn put_u32(dst: &mut Vec<u8>, value: u32) {
 
 fn put_u64(dst: &mut Vec<u8>, value: u64) {
     dst.extend_from_slice(&value.to_le_bytes());
+}
+
+#[cfg(test)]
+mod doc_table_tests {
+    use super::*;
+
+    #[test]
+    fn doc_table_round_trips() {
+        let docs = PackageDocs {
+            package: Some(PackageDocEntry {
+                name: "mathx".to_string(),
+                desc: vec![(0, "First paragraph.".to_string()), (0, "Second.".to_string())],
+                deprecated: Some(String::new()),
+            }),
+            decls: vec![
+                DeclDocEntry {
+                    kind: "func".to_string(),
+                    name: "addUp".to_string(),
+                    signature: "EXPORT FUNC addUp(a AS Integer, b AS Integer) AS Integer"
+                        .to_string(),
+                    group: "Math".to_string(),
+                    desc: vec![(0, "Adds.".to_string()), (1, "Overflows.".to_string())],
+                    args: vec![
+                        ("a".to_string(), "first".to_string()),
+                        ("b".to_string(), "second".to_string()),
+                    ],
+                    props: vec![],
+                    ret: "the sum".to_string(),
+                    errors: vec![("5001".to_string(), "overflow".to_string())],
+                    example: "LET x AS Integer = addUp(1, 2)".to_string(),
+                    internal: false,
+                    deprecated: None,
+                },
+                DeclDocEntry {
+                    kind: "type".to_string(),
+                    name: "Point".to_string(),
+                    signature: "EXPORT TYPE Point".to_string(),
+                    group: String::new(),
+                    desc: vec![],
+                    args: vec![],
+                    props: vec![("x".to_string(), "the x".to_string())],
+                    ret: String::new(),
+                    errors: vec![],
+                    example: String::new(),
+                    internal: true,
+                    deprecated: Some("use Coord".to_string()),
+                },
+            ],
+        };
+
+        let bytes = encode_doc_table(&docs);
+        let decoded = read_doc_table(&bytes).expect("doc table decodes");
+
+        let package = decoded.package.expect("package entry");
+        assert_eq!(package.name, "mathx");
+        assert_eq!(package.desc, docs.package.as_ref().unwrap().desc);
+        assert_eq!(package.deprecated, Some(String::new()));
+
+        assert_eq!(decoded.decls.len(), 2);
+        let add = &decoded.decls[0];
+        assert_eq!(add.kind, "func");
+        assert_eq!(add.name, "addUp");
+        assert_eq!(add.group, "Math");
+        assert_eq!(add.desc, vec![(0, "Adds.".to_string()), (1, "Overflows.".to_string())]);
+        assert_eq!(add.args, docs.decls[0].args);
+        assert_eq!(add.errors, docs.decls[0].errors);
+        assert_eq!(add.ret, "the sum");
+        assert!(!add.internal);
+        assert_eq!(add.deprecated, None);
+
+        let point = &decoded.decls[1];
+        assert_eq!(point.kind, "type");
+        assert_eq!(point.props, docs.decls[1].props);
+        assert!(point.internal);
+        assert_eq!(point.deprecated, Some("use Coord".to_string()));
+    }
 }
 
 #[cfg(test)]

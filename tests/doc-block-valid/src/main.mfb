@@ -1,0 +1,70 @@
+DOC
+  PACKAGE
+  DESC A program that exercises DOC blocks.
+  DESC
+  DESC Each paragraph renders separately; `code` spans are inline.
+END DOC
+
+DOC
+  FUNC add(Integer, Integer)
+  GROUP Math
+  DESC Add two integers and return the sum.
+  INFO This is the integer overload.
+  WARN Overflow is not checked.
+  ARG a The first addend.
+  ARG b The second addend.
+  RET The sum of `a` and `b`.
+  ERROR 1001 Reserved overflow code (not emitted in v1).
+  EXAMPLE
+    LET total AS Integer = add(2, 3)
+  END EXAMPLE
+END DOC
+EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+DOC
+  FUNC add(Float, Float)
+  GROUP Math
+  DESC Add two floats and return the sum.
+  SEC Do not add untrusted non-finite values.
+  ARG a The first addend.
+  ARG b The second addend.
+  RET The floating-point sum.
+END DOC
+EXPORT FUNC add(a AS Float, b AS Float) AS Float
+  RETURN a + b
+END FUNC
+
+DOC INTERNAL
+  SUB logIt
+  DESC Internal logging helper, exported for tests.
+  ARG value The value to log.
+  DEPRECATED Use the structured logger instead.
+END DOC
+EXPORT SUB logIt(value AS Integer)
+  LET ignored AS Integer = value
+END SUB
+
+DOC
+  TYPE Point
+  DESC A two-dimensional point.
+  PROP x The horizontal coordinate.
+  PROP y The vertical coordinate.
+END DOC
+EXPORT TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+DOC
+  FUNC helper
+  DESC A non-exported helper, implicitly internal.
+END DOC
+FUNC helper() AS Integer
+  RETURN 7
+END FUNC
+
+FUNC main() AS Integer
+  RETURN add(2, 3)
+END FUNC

@@ -1,0 +1,11 @@
+$ mfb build -ast tests/doc-block-valid
+Wrote AST to tests/doc-block-valid/doc_block_valid.ast
+[exit 0]
+$ mfb build -ir tests/doc-block-valid
+Wrote IR to tests/doc-block-valid/doc_block_valid.ir
+[exit 0]
+$ mfb build tests/doc-block-valid
+Wrote executable to tests/doc-block-valid/doc_block_valid.out
+[exit 0]
+$ tests/doc-block-valid/doc_block_valid.out
+[exit 5]

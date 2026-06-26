@@ -1,3 +1,5 @@
+IMPORT collections
+
 ' ---------------------------------------------------------------------------
 ' sqlite3 — a reusable native binding package for SQLite3.
 '
@@ -25,6 +27,26 @@
 '   END FUNC
 ' ---------------------------------------------------------------------------
 
+DOC
+  PACKAGE
+  DESC A reusable native binding package for SQLite3.
+  DESC
+  DESC Importers `IMPORT sqlite3` and call its wrapper functions; they never
+  DESC repeat the underlying `LINK` block. A connection is a `Db` resource: bind
+  DESC it with `RES`, and it is closed automatically by lexical drop on every
+  DESC exit path, or explicitly with `close`.
+  EXAMPLE
+    IMPORT sqlite3
+
+    FUNC main() AS Integer
+      RES db AS sqlite3::Db = sqlite3::create("app.db")
+      sqlite3::execute(db, "CREATE TABLE t (id INTEGER, name TEXT)")
+      sqlite3::query(db, "INSERT INTO t VALUES (?, ?)", [SqlInt[1], SqlText["a"]])
+      RETURN 0
+    END FUNC
+  END EXAMPLE
+END DOC
+
 ' Db and Stmt are opaque unique native handles, backed by `sqlite3*` and
 ' `sqlite3_stmt*`. Source code cannot inspect, copy, compare, store, or send
 ' them; each only flows through functions whose signatures name it, and only in
@@ -36,27 +58,68 @@
 EXPORT RESOURCE Db CLOSE BY sqliteLink::close
 RESOURCE Stmt CLOSE BY sqliteLink::finalize
 
+DOC
+  TYPE SqlInt
+  DESC The `INTEGER` member of `SqlValue`, wrapping a 64-bit integer cell.
+  PROP value The integer value of the cell.
+END DOC
 TYPE SqlInt
   value AS Integer
 END TYPE
+
+DOC
+  TYPE SqlFloat
+  DESC The `FLOAT` member of `SqlValue`, wrapping a floating-point cell.
+  PROP value The floating-point value of the cell.
+END DOC
 TYPE SqlFloat
   value AS Float
 END TYPE
+
+DOC
+  TYPE SqlText
+  DESC The `TEXT` member of `SqlValue`, wrapping a UTF-8 string cell. A NULL read
+  DESC also surfaces here as the empty string.
+  PROP value The text value of the cell.
+END DOC
 TYPE SqlText
   value AS String
 END TYPE
+
+DOC
+  TYPE SqlBlob
+  DESC The `BLOB` member of `SqlValue`, wrapping a byte-list cell. Reserved:
+  DESC faithful binary BLOB reads and binds are not yet supported.
+  PROP value The raw bytes of the cell.
+END DOC
 TYPE SqlBlob
   value AS List OF Byte
 END TYPE
-' A SQL NULL. Modelled on `json::JsonNull`: a one-field record over `Nothing`,
-' since MFBASIC has no null value of its own. It lets a NULL be expressed as an
-' ordinary `SqlValue` so the typed-parameter binders below can bind one, distinct
-' from an empty string. (Result reads still surface NULL as `SqlText[""]`; faithful
-' NULL *reads* are a separate gap from NULL *binds*.)
+
+DOC
+  TYPE SqlNull
+  DESC The SQL `NULL` member of `SqlValue`. Modelled on `json::JsonNull`: a
+  DESC one-field record over `Nothing`, since MFBASIC has no null value of its
+  DESC own. It lets a NULL be expressed as an ordinary `SqlValue` so the typed
+  DESC binders can bind one, distinct from an empty string. (Result reads still
+  DESC surface NULL as `SqlText[""]`; faithful NULL reads are a separate gap.)
+  PROP value The absent value (`Nothing`).
+END DOC
 TYPE SqlNull
   value AS Nothing
 END TYPE
 
+DOC
+  UNION SqlValue
+  DESC A dynamically typed SQLite cell value. Result rows surface each cell as
+  DESC one of these members, chosen by the column's runtime type; typed query
+  DESC binders accept the same members to bind a parameter with its true type.
+  PROP SqlInt   A 64-bit `INTEGER` cell.
+  PROP SqlFloat A `FLOAT` cell.
+  PROP SqlText  A UTF-8 `TEXT` cell. A NULL read also surfaces here as `""`.
+  PROP SqlBlob  A `BLOB` cell (reserved; faithful binary BLOB reads/binds are not yet supported).
+  PROP SqlNull  A SQL `NULL`, distinct from an empty string.
+END DOC
 EXPORT UNION SqlValue
   SqlInt
   SqlFloat
@@ -374,14 +437,16 @@ LET ERR_NATIVE_CALL_FAILED = 77030008
 ' and borrows it by default.
 ' ---------------------------------------------------------------------------
 
-' Open an EXISTING database and apply a default 5-second busy timeout. Never
-' creates: SQLITE_OPEN_CREATE is omitted, so opening a path that does not yet
-' exist fails rather than silently creating an empty database — call `create` for
-' that. `readOnly` (default FALSE) selects the open mode: FALSE uses
-' SQLITE_OPEN_READWRITE, TRUE uses SQLITE_OPEN_READONLY so every write attempt on
-' the returned handle fails. Both native calls auto-propagate: if the open fails
-' the function returns its error; if `busyTimeout` fails, the already-open `db` is
-' closed by lexical drop on the error exit before the error propagates — no leak.
+DOC
+  FUNC open
+  GROUP Connection
+  DESC Open an EXISTING database and apply a default 5-second busy timeout.
+  WARN Never creates: opening a path that does not yet exist fails rather than
+  WARN silently creating an empty database — call `create` for that.
+  ARG path     Filesystem path of the database to open.
+  ARG readOnly When `TRUE`, open read-only so every write attempt fails. Defaults to `FALSE` (read/write).
+  RET An open connection handle; ownership moves to the caller.
+END DOC
 EXPORT FUNC open(path AS String, readOnly AS Boolean = FALSE) AS RES Db
   LET SQLITE_OPEN_READONLY = 1           ' open for reading only; writes fail
   LET SQLITE_OPEN_READWRITE = 2          ' open for reading and writing
@@ -394,14 +459,17 @@ EXPORT FUNC open(path AS String, readOnly AS Boolean = FALSE) AS RES Db
   RETURN db                              ' ownership moves to the caller (event #3)
 END FUNC
 
-' Create a NEW database and apply the same default 5-second busy timeout. Uses
-' SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE; the two flag bits are disjoint, so a
-' plain `+` composes them exactly as a bitwise OR would (MFBASIC has no bitwise
-' operators). SQLite has no portable "fail if the file already exists" flag for
-' the main database, so `create` opens the existing file if one is already there;
-' it differs from `open` only in that a missing file is created instead of being
-' an error. Native calls auto-propagate and lexical drop closes `db` on any error
-' exit, exactly as in `open`.
+DOC
+  FUNC create
+  GROUP Connection
+  DESC Create a NEW database (or open it if it already exists) and apply a
+  DESC default 5-second busy timeout.
+  INFO SQLite has no portable "fail if the file already exists" flag, so `create`
+  INFO differs from `open` only in that a missing file is created rather than an
+  INFO error.
+  ARG path Filesystem path of the database to create or open.
+  RET An open connection handle; ownership moves to the caller.
+END DOC
 EXPORT FUNC create(path AS String) AS RES Db
   LET SQLITE_OPEN_READWRITE = 2          ' open for reading and writing
   LET SQLITE_OPEN_CREATE = 4             ' create the file if it does not exist
@@ -410,11 +478,16 @@ EXPORT FUNC create(path AS String) AS RES Db
   RETURN db                              ' ownership moves to the caller (event #3)
 END FUNC
 
-' Open an existing database OR create one if the path does not yet exist — the
-' original `open` behavior, preserved under an explicit name. Builds on the bare
-' `sqlite3_open` symbol, which always creates-or-opens, so there is no flag to
-' set. Use this when "give me a usable handle either way" is what you mean and
-' the open/create distinction does not matter.
+DOC
+  FUNC openOrCreate
+  GROUP Connection
+  DESC Open an existing database OR create one if the path does not yet exist,
+  DESC then apply the default 5-second busy timeout. Use this when "give me a
+  DESC usable handle either way" is what you mean and the open/create distinction
+  DESC does not matter.
+  ARG path Filesystem path of the database to open or create.
+  RET An open connection handle; ownership moves to the caller.
+END DOC
 EXPORT FUNC openOrCreate(path AS String) AS RES Db
   RES db AS Db = sqliteLink::open(path)
   sqliteLink::busyTimeout(db, 5000)      ' borrows db
@@ -449,21 +522,33 @@ EXPORT FUNC close AS sqliteLink::close
 ' for brevity.
 ' ---------------------------------------------------------------------------
 
-' Build the enriched error for the most recent failed call on `db`: the SQLite
-' extended result code as `Error.code`, plus the connection's error text. Borrows
-' db. Call this from a wrapper's error handler, before any other call on `db` (and
-' before `db` is closed), so SQLite's last-error state still reflects the failure.
+DOC
+  FUNC sqlError
+  DESC Build the enriched error for the most recent failed call on `db`: the
+  DESC SQLite extended result code as `Error.code`, plus the connection's error
+  DESC text. Call this from a wrapper's error handler, before any other call on
+  DESC `db` (and before `db` is closed), so SQLite's last-error state still
+  DESC reflects the failure.
+  ARG db The open connection whose last error is read (borrowed).
+  RET An `Error` carrying SQLite's extended code and message.
+END DOC
 FUNC sqlError(RES db AS Db) AS Error
   RETURN error(sqliteLink::extendedErrcode(db), "sqlite3: " & sqliteLink::errmsg(db))
 END FUNC
 
-' Run one or more SQL statements that produce no result rows, e.g. an INSERT,
-' UPDATE, DELETE, a `PRAGMA`, `CREATE INDEX`, or a `;`-separated batch. This is
-' the general escape hatch the query/createTable wrappers don't cover: it goes
-' through native `sqlite3_exec`, which (unlike `prepare`/`step`, which compile
-' only the first statement) executes EVERY statement in `sql` in order. Borrows
-' db. Values must NOT be concatenated into `sql` — use the parameterized `query`
-' overloads for anything containing user input, to avoid SQL injection.
+DOC
+  FUNC execute
+  GROUP Execution
+  DESC Run one or more SQL statements that produce no result rows — an `INSERT`,
+  DESC `UPDATE`, `DELETE`, `PRAGMA`, `CREATE INDEX`, or a `;`-separated batch.
+  INFO Unlike a prepared `query` (which compiles only the first statement), this
+  INFO executes every statement in `sql` in order.
+  SEC SQL injection safe: values must NOT be concatenated into `sql` — use the
+  SEC parameterized `query` overloads for anything containing user input.
+  ARG db  The open connection (borrowed).
+  ARG sql One or more SQL statements to run.
+  ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
+END DOC
 EXPORT FUNC execute(RES db AS Db, sql AS String) AS Nothing
   sqliteLink::exec(db, sql) TRAP(e)
     FAIL sqlError(db)
@@ -471,33 +556,83 @@ EXPORT FUNC execute(RES db AS Db, sql AS String) AS Nothing
 END FUNC
 
 ' Transaction helpers — thin, named wrappers over `execute`, so callers don't
-' hand-write the SQL keywords. Borrow db. Wrap a unit of work as
-' `begin(db)` ... `commit(db)`, and `rollback(db)` on the error path.
+' hand-write the SQL keywords. Wrap a unit of work as `begin(db)` ... `commit(db)`,
+' and `rollback(db)` on the error path.
+
+DOC
+  FUNC begin
+  GROUP Transactions
+  DESC Begin a transaction (`BEGIN`).
+  ARG db The open connection (borrowed).
+END DOC
 EXPORT FUNC begin(RES db AS Db) AS Nothing
   execute(db, "BEGIN")
 END FUNC
 
+DOC
+  FUNC commit
+  GROUP Transactions
+  DESC Commit the current transaction (`COMMIT`).
+  ARG db The open connection (borrowed).
+END DOC
 EXPORT FUNC commit(RES db AS Db) AS Nothing
   execute(db, "COMMIT")
 END FUNC
 
+DOC
+  FUNC rollback
+  GROUP Transactions
+  DESC Roll back the current transaction (`ROLLBACK`).
+  ARG db The open connection (borrowed).
+END DOC
 EXPORT FUNC rollback(RES db AS Db) AS Nothing
   execute(db, "ROLLBACK")
 END FUNC
 
-' The ROWID assigned by the most recent successful INSERT on `db` — typically the
-' new `INTEGER PRIMARY KEY`. Borrows db; returns 0 if no INSERT has run. Read it
-' immediately after the INSERT, before any other write on the connection.
+DOC
+  FUNC lastInsertRowId
+  GROUP Info
+  DESC The ROWID assigned by the most recent successful `INSERT` on `db` —
+  DESC typically the new `INTEGER PRIMARY KEY`.
+  WARN Read it immediately after the `INSERT`, before any other write on the
+  WARN connection.
+  ARG db The open connection (borrowed).
+  RET The last inserted ROWID, or 0 if no `INSERT` has run on the connection.
+END DOC
 EXPORT FUNC lastInsertRowId(RES db AS Db) AS Integer
   RETURN sqliteLink::lastInsertRowId(db)
 END FUNC
 
-' The number of rows changed, inserted, or deleted by the most recent
-' INSERT/UPDATE/DELETE on `db`. Borrows db. Read it immediately after that write.
+DOC
+  FUNC changes
+  GROUP Info
+  DESC The number of rows changed, inserted, or deleted by the most recent
+  DESC `INSERT`/`UPDATE`/`DELETE` on `db`.
+  WARN Read it immediately after that write.
+  ARG db The open connection (borrowed).
+  RET The number of rows affected by the last write.
+END DOC
 EXPORT FUNC changes(RES db AS Db) AS Integer
   RETURN sqliteLink::changes(db)
 END FUNC
 
+DOC
+  FUNC createTable
+  GROUP Schema
+  DESC `CREATE TABLE name (columns)`. Two overloads accept the column definitions
+  DESC either as a raw SQL string or as a column-name -> column-type map.
+  INFO With a `Map OF String TO String`, each entry becomes a `name type` column
+  INFO definition; iteration order is implementation-defined but stable, which is
+  INFO fine since column order in a `CREATE TABLE` is not significant.
+  ARG db      The open connection (borrowed).
+  ARG name    Name of the table to create.
+  ARG columns Column definitions: a raw SQL string, or a name -> SQLite-type map.
+  ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
+  EXAMPLE
+    createTable(db, "users", "id INTEGER PRIMARY KEY, name TEXT")
+    createTable(db, "items", Map OF String TO String { "id" := "INTEGER", "label" := "TEXT" })
+  END EXAMPLE
+END DOC
 ' CREATE TABLE <name> (<columns>), e.g. createTable(db, "users", "id INTEGER")
 EXPORT FUNC createTable(RES db AS Db, name AS String, columns AS String) AS Nothing
   ' The inline TRAP is scoped to exactly this native call, so the only error it can
@@ -528,24 +663,38 @@ EXPORT FUNC createTable(RES db AS Db, name AS String, columns AS Map OF String T
   createTable(db, name, defs)             ' delegate to the String overload (borrows db)
 END FUNC
 
-' DROP TABLE <name>
+DOC
+  FUNC dropTable
+  GROUP Schema
+  DESC `DROP TABLE name`.
+  ARG db   The open connection (borrowed).
+  ARG name Name of the table to drop.
+  ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
+END DOC
 EXPORT FUNC dropTable(RES db AS Db, name AS String) AS Nothing
   sqliteLink::exec(db, "DROP TABLE " & name) TRAP(e)
     FAIL sqlError(db)
   END TRAP
 END FUNC
 
-' Return the names of all tables in the database. Demonstrates a result-set
-' loop over a `RES Stmt`: prepare (produces the statement), step (borrows it,
-' once per row), columnText (borrows it), finalize (consumes it). Because
-' ordinary calls borrow, `stmt` stays live across every loop iteration. If `step`
-' fails partway, the still-owned `stmt` is finalized by lexical drop on the error
-' exit — no leak.
+DOC
+  FUNC listTables
+  GROUP Schema
+  DESC Return the names of all tables in the database, ordered by name.
+  ARG db The open connection (borrowed).
+  RET A list of table names.
+  ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
+END DOC
+' Demonstrates a result-set loop over a `RES Stmt`: prepare (produces the
+' statement), step (borrows it, once per row), columnText (borrows it), finalize
+' (consumes it). Because ordinary calls borrow, `stmt` stays live across every
+' loop iteration. If `step` fails partway, the still-owned `stmt` is finalized by
+' lexical drop on the error exit — no leak.
 EXPORT FUNC listTables(RES db AS Db) AS List OF String
   RES stmt AS Stmt = sqliteLink::prepare(db, "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
   MUT names AS List OF String = []
   WHILE sqliteLink::step(stmt)              ' borrows stmt each iteration
-    names = append(names, sqliteLink::columnText(stmt, 0))   ' borrows stmt
+    names = collections::append(names, sqliteLink::columnText(stmt, 0))   ' borrows stmt
   WEND
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN names
@@ -575,9 +724,17 @@ END FUNC
 ' member type to read the value.
 ' ---------------------------------------------------------------------------
 
-' Drain an already-prepared, already-bound statement into rows. Package-private:
-' it BORROWS `stmt` (ordinary call), so the caller keeps ownership and remains
-' responsible for finalizing it. Shared by both `query` overloads.
+DOC
+  FUNC rows
+  DESC Drain an already-prepared, already-bound statement into positional rows,
+  DESC one `List OF SqlValue` per result row. Each cell is typed by the column's
+  DESC runtime type (`columnType`): INTEGER -> `SqlInt`, FLOAT -> `SqlFloat`,
+  DESC TEXT/BLOB/NULL -> `SqlText`. Package-private; borrows `stmt`, so the caller
+  DESC keeps ownership and remains responsible for finalizing it. Shared by the
+  DESC `query` overloads.
+  ARG stmt The prepared, bound statement to drain (borrowed).
+  RET The result rows as a positional list of `SqlValue` lists.
+END DOC
 FUNC rows(RES stmt AS Stmt) AS List OF List OF SqlValue
   LET SQLITE_INTEGER = 1
   LET SQLITE_FLOAT = 2
@@ -605,23 +762,24 @@ FUNC rows(RES stmt AS Stmt) AS List OF List OF SqlValue
         ' declared `SqlBlob` member is reserved for when one lands.
         cell = SqlText[sqliteLink::columnText(stmt, i)]
       END IF
-      row = append(row, cell)
+      row = collections::append(row, cell)
     NEXT
-    out = append(out, row)
+    out = collections::append(out, row)
   WEND
   RETURN out
 END FUNC
 
-' Bind one `SqlValue` to a 1-based parameter slot, dispatching on its union member
-' to the correctly typed native binder. Package-private; shared by the typed
-' `query` overloads below. Borrows stmt.
-'   SqlInt   -> bindInt    (a real SQLite INTEGER, not affinity-coerced text)
-'   SqlFloat -> bindDouble
-'   SqlText  -> bindText
-'   SqlNull  -> bindNull   (a true NULL, distinct from an empty string)
-' SqlBlob is rejected: faithfully binding raw bytes needs a byte-list argument ABI
-' form that does not exist yet (the same gap that blocks faithful BLOB *reads*), so
-' it fails loudly rather than silently corrupting the value.
+DOC
+  FUNC bindValue
+  DESC Bind one `SqlValue` to a 1-based parameter slot, dispatching on its union
+  DESC member to the correctly typed native binder (`SqlInt` -> a real INTEGER,
+  DESC `SqlFloat` -> double, `SqlText` -> text, `SqlNull` -> a true NULL).
+  DESC Package-private; borrows `stmt`. Shared by the typed `query` overloads.
+  ARG stmt  The prepared statement to bind into (borrowed).
+  ARG idx   The 1-based parameter slot to bind.
+  ARG value The value to bind, typed by its `SqlValue` member.
+  ERROR 77050002 A `SqlBlob` value was passed; faithful byte-list binding is not yet supported.
+END DOC
 FUNC bindValue(RES stmt AS Stmt, idx AS Integer, value AS SqlValue) AS Nothing
   MATCH value
     CASE SqlInt(n)   : sqliteLink::bindInt(stmt, idx, n.value)
@@ -632,17 +790,20 @@ FUNC bindValue(RES stmt AS Stmt, idx AS Integer, value AS SqlValue) AS Nothing
   END MATCH
 END FUNC
 
-' Drain an already-prepared, already-bound statement into NAMED rows: one
-' `Map OF String TO SqlValue` per result row, keyed by each column's name
-' (`columnName`) instead of by position. The cell typing rule is identical to
-' `rows` (SQLITE_INTEGER -> SqlInt, SQLITE_FLOAT -> SqlFloat, TEXT/BLOB/NULL ->
-' SqlText). Package-private; BORROWS `stmt` (the caller still finalizes it). Shared
-' by the `queryMaps` overloads below.
-'
-' CAVEAT: a map key is unique, so if a result set has two columns with the same
-' name (e.g. `SELECT a, a` or an unqualified join column), the later column
-' overwrites the earlier one in that row's map. Use the positional `query`
-' overloads (`List OF List OF SqlValue`) when duplicate column names must survive.
+DOC
+  FUNC rowsAsMaps
+  DESC Drain an already-prepared, already-bound statement into NAMED rows: one
+  DESC `Map OF String TO SqlValue` per result row, keyed by each column's name
+  DESC (`columnName`) instead of by position. The cell typing rule is identical
+  DESC to `rows`. Package-private; borrows `stmt`. Shared by the `queryMaps`
+  DESC overloads.
+  DESC
+  DESC Caveat: a map key is unique, so when a result set has two columns of the
+  DESC same name the later one overwrites the earlier in that row's map. Use the
+  DESC positional `rows`/`query` path when duplicate column names must survive.
+  ARG stmt The prepared, bound statement to drain (borrowed).
+  RET The result rows, each a map of column name to `SqlValue`.
+END DOC
 FUNC rowsAsMaps(RES stmt AS Stmt) AS List OF Map OF String TO SqlValue
   LET SQLITE_INTEGER = 1
   LET SQLITE_FLOAT = 2
@@ -660,21 +821,45 @@ FUNC rowsAsMaps(RES stmt AS Stmt) AS List OF Map OF String TO SqlValue
       ELSE
         cell = SqlText[sqliteLink::columnText(stmt, i)]       ' TEXT/BLOB/NULL
       END IF
-      row = set(row, sqliteLink::columnName(stmt, i), cell)   ' key by column name
+      row = collections::set(row, sqliteLink::columnName(stmt, i), cell)   ' key by column name
     NEXT
-    out = append(out, row)
+    out = collections::append(out, row)
   WEND
   RETURN out
 END FUNC
 
-' Run SQL with positional `?` placeholders, e.g.
-'   query(db, "SELECT * FROM t WHERE a = ? AND b = ?", ["x", "y"])
+DOC
+  FUNC query
+  GROUP Execution
+  DESC Run a parameterized SQL statement and return its result rows.
+  SEC Values are NEVER concatenated into the SQL text — they are bound to
+  SEC placeholders, so a value containing quotes or SQL syntax can never alter
+  SEC the statement (no injection).
+  DESC Four overloads cover the placeholder style and value typing: positional
+  DESC `?` or named (`:name`/`@name`/`$name`) placeholders, with parameters
+  DESC supplied either as a list/map of `String` (bound as text) or of `SqlValue`
+  DESC (bound with its true SQLite type, so a real `NULL`, `INTEGER`, or `FLOAT`
+  DESC can be bound).
+  DESC
+  DESC Rows come back as `List OF List OF SqlValue` — one inner list per row, one
+  DESC `SqlValue` per column, typed by each column's runtime type. Works for
+  DESC `INSERT`/`UPDATE`/`DELETE` too (the row list is then empty).
+  ARG db     The open connection (borrowed).
+  ARG sql    The SQL to prepare and run, with `?` or named placeholders.
+  ARG params The values to bind, positional (list) or named (map), as text or `SqlValue`.
+  RET The result rows, each a positional list of `SqlValue` cells.
+  ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
+  EXAMPLE
+    LET rows = query(db, "SELECT id, name FROM t WHERE a = ?", ["x"])
+    query(db, "INSERT INTO t(a, b) VALUES (:a, :b)", Map OF String TO SqlValue { ":a" := SqlInt[7], ":b" := SqlNull[] })
+  END EXAMPLE
+END DOC
 ' SQLite numbers `?` placeholders left to right starting at 1, so the i-th list
 ' element (0-based) binds to parameter slot i + 1.
 EXPORT FUNC query(RES db AS Db, sql AS String, params AS List OF String) AS List OF List OF SqlValue
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR i = 0 TO len(params) - 1
-    sqliteLink::bindText(stmt, i + 1, get(params, i))   ' ? slots are 1-based
+    sqliteLink::bindText(stmt, i + 1, collections::get(params, i))   ' ? slots are 1-based
   NEXT
   LET result = rows(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
@@ -718,7 +903,7 @@ END FUNC
 EXPORT FUNC query(RES db AS Db, sql AS String, params AS List OF SqlValue) AS List OF List OF SqlValue
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR i = 0 TO len(params) - 1
-    bindValue(stmt, i + 1, get(params, i))   ' ? slots are 1-based
+    bindValue(stmt, i + 1, collections::get(params, i))   ' ? slots are 1-based
   NEXT
   LET result = rows(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
@@ -764,12 +949,30 @@ END FUNC
 ' shape needs a distinct name. The four parameter forms mirror `query` exactly.
 ' ---------------------------------------------------------------------------
 
-' Positional `?` placeholders bound from text, e.g.
-'   queryMaps(db, "SELECT id, name FROM t WHERE a = ?", ["x"])
+DOC
+  FUNC queryMaps
+  GROUP Execution
+  DESC Run a parameterized SQL statement and return each row keyed by column name.
+  INFO Identical to `query` — same SQL, same parameter binding and overloads, same
+  INFO finalize-on-every-path safety — but each row is a `Map OF String TO
+  INFO SqlValue` keyed by column name (via `columnName`) instead of a positional
+  INFO `List OF SqlValue`.
+  DESC Reach for this when the caller wants `row["name"]` rather than tracking
+  DESC column order; reach for `query` when columns may share a name, since a map
+  DESC collapses duplicate keys.
+  ARG db     The open connection (borrowed).
+  ARG sql    The SQL to prepare and run, with `?` or named placeholders.
+  ARG params The values to bind, positional (list) or named (map), as text or `SqlValue`.
+  RET The result rows, each a map of column name to `SqlValue`.
+  ERROR 77030008 The underlying SQLite call failed; the error carries SQLite's extended code and message.
+  EXAMPLE
+    LET rows = queryMaps(db, "SELECT id, name FROM t WHERE a = :a", Map OF String TO String { ":a" := "x" })
+  END EXAMPLE
+END DOC
 EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS List OF String) AS List OF Map OF String TO SqlValue
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR i = 0 TO len(params) - 1
-    sqliteLink::bindText(stmt, i + 1, get(params, i))   ' ? slots are 1-based
+    sqliteLink::bindText(stmt, i + 1, collections::get(params, i))   ' ? slots are 1-based
   NEXT
   LET result = rowsAsMaps(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
@@ -803,7 +1006,7 @@ END FUNC
 EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS List OF SqlValue) AS List OF Map OF String TO SqlValue
   RES stmt AS Stmt = sqliteLink::prepare(db, sql)
   FOR i = 0 TO len(params) - 1
-    bindValue(stmt, i + 1, get(params, i))   ' ? slots are 1-based
+    bindValue(stmt, i + 1, collections::get(params, i))   ' ? slots are 1-based
   NEXT
   LET result = rowsAsMaps(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise

@@ -1,0 +1,52 @@
+DOC BOGUS
+  FUNC missing
+  ARG q An argument on an unresolved function.
+  RET first return
+  RET second return
+  PROP p A property is not valid on a function.
+END DOC
+
+DOC
+  TYPE add
+  DESC `add` is a function, not a type.
+  GROUP Things
+END DOC
+
+DOC
+  FUNC add(Float, Float)
+  DESC No such overload of `add` exists.
+END DOC
+
+DOC
+  SUB noisy
+  GROUP A
+  GROUP B
+END DOC
+EXPORT SUB noisy()
+  LET x AS Integer = 0
+END SUB
+
+DOC
+  FUNC add
+  ARG a documented twice.
+  ARG a again.
+  ARG zzz not a parameter.
+END DOC
+DOC
+  FUNC add
+  DESC A duplicate DOC block for add.
+END DOC
+EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+DOC
+  PACKAGE
+END DOC
+DOC
+  PACKAGE
+END DOC
+
+FUNC main() AS Integer
+  RETURN add(1, 2)
+END FUNC

@@ -1,0 +1,93 @@
+{
+  "project": "doc_block_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    { "kind": "doc", "header": "PACKAGE", "name": "", "signature": null, "attrs": [], "desc": [{ "kind": "desc", "text": "A program that exercises DOC blocks." }, { "kind": "desc", "text": "Each paragraph renders separately; `code` spans are inline." }], "deprecated": [], "group": [], "args": [], "ret": [], "errors": [], "props": [], "example": [], "line": 1 },
+    { "kind": "doc", "header": "FUNC", "name": "add", "signature": ["Integer", "Integer"], "attrs": [], "desc": [{ "kind": "desc", "text": "Add two integers and return the sum." }, { "kind": "info", "text": "This is the integer overload." }, { "kind": "warn", "text": "Overflow is not checked." }], "deprecated": [], "group": ["Math"], "args": [{ "name": "a", "desc": "The first addend." }, { "name": "b", "desc": "The second addend." }], "ret": ["The sum of `a` and `b`."], "errors": [{ "code": "1001", "desc": "Reserved overflow code (not emitted in v1)." }], "props": [], "example": ["LET total AS Integer = add(2, 3)"], "line": 8 },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "add",
+      "line": 22,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 23 }
+      ]
+    },
+    { "kind": "doc", "header": "FUNC", "name": "add", "signature": ["Float", "Float"], "attrs": [], "desc": [{ "kind": "desc", "text": "Add two floats and return the sum." }, { "kind": "sec", "text": "Do not add untrusted non-finite values." }], "deprecated": [], "group": ["Math"], "args": [{ "name": "a", "desc": "The first addend." }, { "name": "b", "desc": "The second addend." }], "ret": ["The floating-point sum."], "errors": [], "props": [], "example": [], "line": 26 },
+    {
+      "kind": "func",
+      "visibility": "export",
+      "name": "add",
+      "line": 35,
+      "params": [
+      { "name": "a", "type": "Float", "default": null },
+      { "name": "b", "type": "Float", "default": null }
+      ],
+      "returnType": "Float",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 36 }
+      ]
+    },
+    { "kind": "doc", "header": "SUB", "name": "logIt", "signature": null, "attrs": ["INTERNAL"], "desc": [{ "kind": "desc", "text": "Internal logging helper, exported for tests." }], "deprecated": ["Use the structured logger instead."], "group": [], "args": [{ "name": "value", "desc": "The value to log." }], "ret": [], "errors": [], "props": [], "example": [], "line": 39 },
+    {
+      "kind": "sub",
+      "visibility": "export",
+      "name": "logIt",
+      "line": 45,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "ignored", "type": "Integer", "value": { "kind": "identifier", "value": "value" }, "line": 46 }
+      ]
+    },
+    { "kind": "doc", "header": "TYPE", "name": "Point", "signature": null, "attrs": [], "desc": [{ "kind": "desc", "text": "A two-dimensional point." }], "deprecated": [], "group": [], "args": [], "ret": [], "errors": [], "props": [{ "name": "x", "desc": "The horizontal coordinate." }, { "name": "y", "desc": "The vertical coordinate." }], "example": [], "line": 49 },
+    {
+      "kind": "type",
+      "visibility": "export",
+      "name": "Point",
+      "line": 55,
+      "fields": [
+      { "visibility": null, "name": "x", "type": "Integer", "line": 56 },
+      { "visibility": null, "name": "y", "type": "Integer", "line": 57 }
+      ]
+    },
+    { "kind": "doc", "header": "FUNC", "name": "helper", "signature": null, "attrs": [], "desc": [{ "kind": "desc", "text": "A non-exported helper, implicitly internal." }], "deprecated": [], "group": [], "args": [], "ret": [], "errors": [], "props": [], "example": [], "line": 60 },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "helper",
+      "line": 64,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "7" }, "line": 65 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 68,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 69 }
+      ]
+    }
+    ]
+  }
+  ]
+}
