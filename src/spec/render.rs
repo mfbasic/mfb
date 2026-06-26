@@ -551,6 +551,22 @@ fn parse_inline(s: &str) -> Vec<Span> {
                     i += 1;
                 }
             }
+            '[' if i + 1 < chars.len() && chars[i + 1] == '[' => {
+                // `[[file:symbol]]` provenance citations are maintainer-facing
+                // markers kept in the source Markdown for traceability; they
+                // never render in `mfb spec` output or one-line summaries.
+                if let Some(end) = find(&chars, i + 2, "]]") {
+                    i = end + 2;
+                    // Collapse the surrounding spaces of an inline citation so
+                    // "text [[..]] more" renders as "text more".
+                    if i < chars.len() && chars[i] == ' ' && cur.ends_with(' ') {
+                        i += 1;
+                    }
+                } else {
+                    cur.push(c);
+                    i += 1;
+                }
+            }
             '[' => {
                 if let Some(link) = parse_link(&chars, i) {
                     flush(&mut cur, &mut spans);
@@ -856,6 +872,17 @@ mod tests {
     #[test]
     fn plain_strips_markup() {
         assert_eq!(plain("a **b** `c`"), "a b c");
+    }
+
+    #[test]
+    fn provenance_citations_are_stripped() {
+        // Inline citations vanish and their surrounding spaces collapse.
+        let out = render("a value [[src/ir.rs:IrValue]] is flat", &plain_style(80));
+        assert_eq!(out, "a value is flat");
+        // Also stripped from one-line summaries.
+        assert_eq!(plain("Flat values [[src/foo.rs:bar]] only"), "Flat values only");
+        // A trailing citation leaves no dangling marker.
+        assert_eq!(plain("see the memory spec [[src/spec/memory/spec.md:1]]").trim(), "see the memory spec");
     }
 
     #[test]
