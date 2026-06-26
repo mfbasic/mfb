@@ -1,0 +1,9 @@
+IMPORT csv
+
+FUNC main AS Integer
+  LET missing AS List OF List OF String = csv::parse()
+  LET wrongType AS List OF List OF String = csv::parse(TRUE)
+  LET tooMany AS List OF List OF String = csv::parse("a", "b")
+  LET badName AS List OF List OF String = csv::parse(textValue := "a")
+  RETURN 0
+END FUNC

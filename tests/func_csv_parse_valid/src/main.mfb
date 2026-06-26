@@ -1,0 +1,50 @@
+IMPORT csv
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+' Carriage return (U+000D): the lexer does not decode a "\r" escape, so build CR
+' from its byte to exercise CRLF separators with a genuine CR.
+FUNC crChar AS String
+  LET bytes AS List OF Byte = [toByte(13)]
+  RETURN toString(bytes)
+END FUNC
+
+FUNC dump(label AS String, doc AS List OF List OF String) AS Nothing
+  io::print(label & " rows=" & toString(len(doc)))
+  FOR EACH row IN doc
+    MUT line AS String = "  cols=" & toString(len(row))
+    FOR EACH cell IN row
+      line = line & " [" & cell & "](" & toString(strings::byteLen(cell)) & ")"
+    NEXT
+    io::print(line)
+  NEXT
+  RETURN NOTHING
+END FUNC
+
+FUNC main AS Integer
+  LET cr AS String = crChar()
+
+  ' Mixed: bare header (CRLF separator), bare row (LF), a quoted cell holding a
+  ' comma, and a single trailing newline that must NOT add an empty final row.
+  LET mixed AS List OF List OF String = csv::parse("name,age" & cr & "\nAda,36\nGrace,\"Hop,per\"\n")
+  dump("mixed", mixed)
+
+  ' Quoted fields: an embedded LF (multiline cell), an embedded comma, and a
+  ' doubled quote that decodes to a single literal quote.
+  LET quoted AS List OF List OF String = csv::parse("\"a\nb\",\"x,y\",\"he said \"\"hi\"\"\"")
+  dump("quoted", quoted)
+
+  ' Empty fields and a blank middle line (one empty field).
+  LET empties AS List OF List OF String = csv::parse("a,,c\n\nz")
+  dump("empties", empties)
+
+  ' Empty input parses to zero rows.
+  LET none AS List OF List OF String = csv::parse("")
+  dump("none", none)
+
+  ' Round-trip back to text: CRLF normalizes to LF, only the comma cell re-quotes.
+  io::print("--stringify mixed--")
+  io::print(csv::stringify(mixed))
+  RETURN 0
+END FUNC

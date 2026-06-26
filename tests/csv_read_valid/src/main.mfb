@@ -1,0 +1,20 @@
+IMPORT csv
+IMPORT collections
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET path AS String = "target/csv_read_valid.csv"
+  fs::writeText(path, "name,age\nAda,36\nGrace,\"Hop,per\"")
+  LET doc AS List OF List OF String = csv::parse(fs::readText(path))
+  io::print("rows=" & toString(len(doc)))
+
+  ' Indexing is the collections package — no csv-specific accessors.
+  LET header AS List OF String = collections::get(doc, 0)
+  io::print(collections::get(header, 1))
+  LET grace AS List OF String = collections::get(doc, 2)
+  io::print(collections::get(grace, 1))
+
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC

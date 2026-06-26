@@ -16,6 +16,7 @@ fn main() {
     let fs_dir = manifest_dir.join("src/man/builtins/fs");
     let thread_dir = manifest_dir.join("src/man/builtins/thread");
     let json_dir = manifest_dir.join("src/man/builtins/json");
+    let csv_dir = manifest_dir.join("src/man/builtins/csv");
     let regex_dir = manifest_dir.join("src/man/builtins/regex");
     let term_dir = manifest_dir.join("src/man/builtins/term");
     let datetime_dir = manifest_dir.join("src/man/builtins/datetime");
@@ -36,6 +37,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", fs_dir.display());
     println!("cargo:rerun-if-changed={}", thread_dir.display());
     println!("cargo:rerun-if-changed={}", json_dir.display());
+    println!("cargo:rerun-if-changed={}", csv_dir.display());
     println!("cargo:rerun-if-changed={}", regex_dir.display());
     println!("cargo:rerun-if-changed={}", term_dir.display());
     println!("cargo:rerun-if-changed={}", datetime_dir.display());
@@ -55,6 +57,7 @@ fn main() {
     let fs_pages = man_pages(&fs_dir, "fs");
     let thread_pages = man_pages(&thread_dir, "thread");
     let json_pages = man_pages(&json_dir, "json");
+    let csv_pages = man_pages(&csv_dir, "csv");
     let regex_pages = man_pages(&regex_dir, "regex");
     let term_pages = man_pages(&term_dir, "term");
     let datetime_pages = man_pages(&datetime_dir, "datetime");
@@ -101,6 +104,10 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
+        csv_dir.join("package.txt").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
         regex_dir.join("package.txt").display()
     );
     println!(
@@ -123,6 +130,7 @@ fn main() {
         .chain(fs_pages.iter())
         .chain(thread_pages.iter())
         .chain(json_pages.iter())
+        .chain(csv_pages.iter())
         .chain(regex_pages.iter())
         .chain(term_pages.iter())
         .chain(datetime_pages.iter())
@@ -145,6 +153,7 @@ fn main() {
     write_pages(&mut output, "FS_FUNCTION_PAGES", fs_pages);
     write_pages(&mut output, "THREAD_FUNCTION_PAGES", thread_pages);
     write_pages(&mut output, "JSON_FUNCTION_PAGES", json_pages);
+    write_pages(&mut output, "CSV_FUNCTION_PAGES", csv_pages);
     write_pages(&mut output, "REGEX_FUNCTION_PAGES", regex_pages);
     write_pages(&mut output, "TERM_FUNCTION_PAGES", term_pages);
     write_pages(&mut output, "DATETIME_FUNCTION_PAGES", datetime_pages);

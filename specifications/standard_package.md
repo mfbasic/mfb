@@ -703,7 +703,26 @@ The `Json` union above is a built-in package type. JSON object member order is p
 | `json::get` | `FUNC get(value AS Json, path AS List OF String) AS Json` | Reads an object path from a JSON value. Fails with `ErrNotFound` when any component is absent or not an object. |
 | `json::getOr` | `FUNC getOr(value AS Json, path AS List OF String, default AS Json) AS Json` | Reads an object path or returns `default` when absent. |
 
-## 13. Built-in Datetime Package
+## 13. Built-in CSV Package
+
+CSV functions live in the `csv` package. `IMPORT csv` needs no manifest dependency.
+
+The package defines **no new types**. A CSV document is exactly a `List OF List OF String` — an ordered list of rows, each an ordered list of String cells. There is no wrapper record and no union, so the parsed grid composes directly with the `collections` package and `FOR EACH`, and cells are read positionally with `collections::get` (which raises `ErrIndexOutOfRange` on its own for a bad index). There are no package-specific accessors and no header concept: every parsed line is an ordinary row.
+
+Cells are plain Strings. There is **no type inference and no null**: `42`, `true`, and an empty field are just the Strings `"42"`, `"true"`, and `""`; callers convert to numbers explicitly with `toFloat`/`toInteger`. Rows are **not required to be rectangular** — `csv::parse` preserves whatever field count each row had.
+
+| Function | Signature | Behavior |
+|----------|-----------|----------|
+| `csv::parse` | `FUNC parse(value AS String) AS List OF List OF String` | Parses CSV text into a grid of rows of cells. Fails with `ErrInvalidFormat` for malformed input. |
+| `csv::stringify` | `FUNC stringify(value AS List OF List OF String) AS String` | Renders a grid back to CSV text, quoting fields only where required. |
+
+The dialect is RFC-4180-aligned. The field delimiter is always a comma. On input a record separator is `LF` or `CRLF`; a bare `CR` not followed by `LF` is ordinary data. A field may be wrapped in double quotes, inside which a literal double quote is doubled (`""`) and commas, `CR`, and `LF` are ordinary data. Whitespace is significant and never trimmed. A single trailing record separator does not create an empty final row (`"a\nb\n"` parses to two rows), but two consecutive separators produce an empty row in the middle. Empty input parses to zero rows.
+
+`csv::parse` fails with `ErrInvalidFormat` (`77050003`) in exactly two cases: a quoted field opened but never closed, or a closing quote followed by a byte that is neither a comma, a record separator, nor end-of-input. Every other byte sequence is accepted; rows of differing widths are not an error. The package allocates no new error codes.
+
+`csv::stringify` renders deterministically: rows are joined with a single `LF` with no trailing newline, fields within a row are joined with a comma, and a field is quoted if and only if it contains a comma, a double quote, a `CR`, or an `LF`. The empty document stringifies to the empty String. For any grid `x`, `csv::parse(csv::stringify(x))` yields a grid whose cells equal those of `x`, except that a trailing empty row produced only by separator placement is not reintroduced.
+
+## 14. Built-in Datetime Package
 
 Instants, civil dates and times, durations, time zones, and string formatting are
 exported by the `datetime` package. Package functions are called with their
@@ -770,7 +789,7 @@ unparseable strings or unknown pattern tokens fail with `ErrInvalidFormat`
 The `format`/`parse` pattern mini-language (`yyyy MM dd HH mm ss fff a EEE Z` …) is
 documented at `mfb man datetime format`.
 
-## 14. Built-in Error Codes
+## 15. Built-in Error Codes
 
 The built-in `errorCode` package exports named `Integer` constants for every standard runtime and toolchain error in the canonical registry at [error_codes.md](./error_codes.md). Programs should use these names instead of raw integer literals in source code, examples, tests, and diagnostics:
 

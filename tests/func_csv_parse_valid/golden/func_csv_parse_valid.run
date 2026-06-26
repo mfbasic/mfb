@@ -1,0 +1,16 @@
+mixed rows=3
+  cols=2 [name](4) [age](3)
+  cols=2 [Ada](3) [36](2)
+  cols=2 [Grace](5) [Hop,per](7)
+quoted rows=1
+  cols=3 [a
+b](3) [x,y](3) [he said "hi"](12)
+empties rows=3
+  cols=3 [a](1) [](0) [c](1)
+  cols=1 [](0)
+  cols=1 [z](1)
+none rows=0
+--stringify mixed--
+name,age
+Ada,36
+Grace,"Hop,per"

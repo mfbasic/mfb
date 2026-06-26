@@ -1,0 +1,190 @@
+IMPORT collections
+IMPORT strings
+
+' Carriage return (U+000D). The lexer only decodes the "\"", "\\", "\n", and
+' "\t" string escapes, so a "\r" literal would lex to the letter "r"; build CR
+' from its byte instead, mirroring json's "\b"/"\f" helpers.
+FUNC __csv_crChar AS String
+  LET bytes AS List OF Byte = [toByte(13)]
+  RETURN toString(bytes)
+END FUNC
+
+' csv::parse — scan CSV text into a grid of rows of String cells.
+'
+' The dialect is RFC-4180-aligned (see specifications/plan-02-csv.md §4):
+'   * comma is the only field delimiter;
+'   * a record separator is LF ("\n") or CRLF ("\r\n"); a bare CR is data;
+'   * a field may be wrapped in double quotes, inside which "" is a literal
+'     quote and commas / CR / LF are ordinary data;
+'   * a single trailing separator does not create an empty final row.
+' CRLF is handled by peeking (__csv_separatorLength): the runtime grapheme
+' splitter may yield "\r" and "\n" as two separate graphemes, so the scanner must
+' not assume CR+LF arrives as one cursor step.
+FUNC __csv_parse(value AS String) AS List OF List OF String
+  LET chars AS List OF String = strings::graphemes(value)
+  LET count AS Integer = len(chars)
+  MUT rows AS List OF List OF String = []
+  MUT row AS List OF String = []
+  MUT field AS String = ""
+  MUT index AS Integer = 0
+  MUT inQuotes AS Boolean = FALSE
+  MUT fieldStarted AS Boolean = FALSE
+  MUT wasQuoted AS Boolean = FALSE
+  MUT recordPending AS Boolean = FALSE
+
+  WHILE index < count
+    LET ch AS String = collections::get(chars, index)
+    IF inQuotes THEN
+      IF ch = "\"" THEN
+        IF __csv_isDoubledQuote(chars, count, index) THEN
+          field = field & "\""
+          index = index + 2
+        ELSE
+          inQuotes = FALSE
+          wasQuoted = TRUE
+          index = index + 1
+        END IF
+      ELSE
+        field = field & ch
+        index = index + 1
+      END IF
+    ELSEIF __csv_separatorLength(chars, count, index) > 0 THEN
+      row = collections::append(row, field)
+      rows = collections::append(rows, row)
+      row = []
+      field = ""
+      fieldStarted = FALSE
+      wasQuoted = FALSE
+      recordPending = FALSE
+      index = index + __csv_separatorLength(chars, count, index)
+    ELSEIF ch = "," THEN
+      row = collections::append(row, field)
+      field = ""
+      fieldStarted = FALSE
+      wasQuoted = FALSE
+      recordPending = TRUE
+      index = index + 1
+    ELSEIF wasQuoted THEN
+      FAIL error(77050003, "invalid CSV format")
+    ELSEIF ch = "\"" AND fieldStarted = FALSE THEN
+      inQuotes = TRUE
+      fieldStarted = TRUE
+      index = index + 1
+    ELSE
+      field = field & ch
+      fieldStarted = TRUE
+      index = index + 1
+    END IF
+  WEND
+
+  IF inQuotes THEN
+    FAIL error(77050003, "invalid CSV format")
+  END IF
+
+  IF fieldStarted OR recordPending OR wasQuoted THEN
+    row = collections::append(row, field)
+    rows = collections::append(rows, row)
+  END IF
+
+  RETURN rows
+END FUNC
+
+FUNC __csv_isDoubledQuote(chars AS List OF String, count AS Integer, index AS Integer) AS Boolean
+  IF index + 1 >= count THEN
+    RETURN FALSE
+  END IF
+  IF collections::get(chars, index + 1) = "\"" THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+' Length, in graphemes, of a record separator starting at index, or 0 if the
+' grapheme there is not a separator. A bare LF or a merged "\r\n" grapheme is one
+' step; a "\r" followed by a "\n" grapheme is two steps; a lone "\r" is data (0).
+FUNC __csv_separatorLength(chars AS List OF String, count AS Integer, index AS Integer) AS Integer
+  LET cr AS String = __csv_crChar()
+  LET crlf AS String = cr & "\n"
+  LET ch AS String = collections::get(chars, index)
+  IF ch = "\n" THEN
+    RETURN 1
+  END IF
+  IF ch = crlf THEN
+    RETURN 1
+  END IF
+  IF ch = cr THEN
+    IF index + 1 < count THEN
+      IF collections::get(chars, index + 1) = "\n" THEN
+        RETURN 2
+      END IF
+    END IF
+  END IF
+  RETURN 0
+END FUNC
+
+' csv::stringify — render a grid back to CSV text (see §6).
+' Rows are joined with a single LF (no trailing newline); fields are joined with
+' a comma and quoted only when they contain a comma, a double quote, a CR, or an
+' LF. Inside a quoted field every double quote is doubled.
+FUNC __csv_stringify(value AS List OF List OF String) AS String
+  MUT out AS String = ""
+  MUT firstRow AS Boolean = TRUE
+  FOR EACH row IN value
+    IF firstRow THEN
+      firstRow = FALSE
+    ELSE
+      out = out & "\n"
+    END IF
+    out = out & __csv_stringifyRow(row)
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC __csv_stringifyRow(row AS List OF String) AS String
+  MUT out AS String = ""
+  MUT firstField AS Boolean = TRUE
+  FOR EACH field IN row
+    IF firstField THEN
+      firstField = FALSE
+    ELSE
+      out = out & ","
+    END IF
+    out = out & __csv_encodeField(field)
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC __csv_encodeField(field AS String) AS String
+  IF __csv_needsQuote(field) THEN
+    RETURN __csv_quoteField(field)
+  END IF
+  RETURN field
+END FUNC
+
+FUNC __csv_needsQuote(field AS String) AS Boolean
+  IF strings::contains(field, ",") THEN
+    RETURN TRUE
+  END IF
+  IF strings::contains(field, "\"") THEN
+    RETURN TRUE
+  END IF
+  IF strings::contains(field, __csv_crChar()) THEN
+    RETURN TRUE
+  END IF
+  IF strings::contains(field, "\n") THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC __csv_quoteField(field AS String) AS String
+  MUT out AS String = "\""
+  FOR EACH ch IN strings::graphemes(field)
+    IF ch = "\"" THEN
+      out = out & "\"\""
+    ELSE
+      out = out & ch
+    END IF
+  NEXT
+  RETURN out & "\""
+END FUNC

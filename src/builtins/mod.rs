@@ -1,4 +1,5 @@
 pub(crate) mod collections;
+pub(crate) mod csv;
 pub(crate) mod datetime;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
@@ -20,6 +21,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
         "collections"
+            | "csv"
             | "datetime"
             | "errorCode"
             | "fs"
@@ -106,6 +108,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| fs::call_return_type_name(name))
         .or_else(|| io::call_return_type_name(name))
         .or_else(|| json::call_return_type_name(name))
+        .or_else(|| csv::call_return_type_name(name))
         .or_else(|| regex::call_return_type_name(name))
         .or_else(|| datetime::call_return_type_name(name))
         .or_else(|| net::call_return_type_name(name))
@@ -136,6 +139,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || fs::is_fs_call(name)
         || io::is_io_call(name)
         || json::is_json_call(name)
+        || csv::is_csv_call(name)
         || regex::is_regex_call(name)
         || datetime::is_datetime_call(name)
         || net::is_net_call(name)
@@ -172,6 +176,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
         .or_else(|| json::call_param_names(name))
+        .or_else(|| csv::call_param_names(name))
         .or_else(|| regex::call_param_names(name))
         .or_else(|| datetime::call_param_names(name))
         .or_else(|| net::call_param_names(name))

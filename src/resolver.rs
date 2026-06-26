@@ -40,6 +40,7 @@ pub fn resolve_project(
     ast: &AstProject,
 ) -> Result<(), ()> {
     let augmented = builtins::json::augmented_project(ast)?;
+    let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
     let mut resolver = Resolver::new(project_dir, manifest, &augmented);

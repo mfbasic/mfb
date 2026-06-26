@@ -1,0 +1,13 @@
+$ mfb build -ast tests/csv_write_valid
+Wrote AST to tests/csv_write_valid/csv_write_valid.ast
+[exit 0]
+$ mfb build -ir tests/csv_write_valid
+Wrote IR to tests/csv_write_valid/csv_write_valid.ir
+[exit 0]
+$ mfb build tests/csv_write_valid
+Wrote executable to tests/csv_write_valid/csv_write_valid.out
+[exit 0]
+$ tests/csv_write_valid/csv_write_valid.out
+rows=2
+roundtrip equal=TRUE
+[exit 0]

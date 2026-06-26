@@ -1,0 +1,52 @@
+NAME
+  stringify - encode a grid of String cells as CSV text
+
+SYNOPSIS
+  csv::stringify(value AS List OF List OF String) AS String
+
+PACKAGE
+  csv
+
+IMPORTS
+  IMPORT csv
+
+DESCRIPTION
+  csv::stringify renders a grid (a List OF List OF String of rows of String
+  cells) into CSV text. Rows are joined with a single line feed (LF) with no
+  trailing newline, and the fields within a row are joined with a comma.
+
+  A field is emitted quoted if and only if it contains a comma, a double quote, a
+  carriage return (CR), or a line feed (LF); otherwise it is emitted bare. Inside
+  a quoted field every double quote is doubled (""). The empty document, an empty
+  outer list, stringifies to the empty String.
+
+  For any grid x, csv::parse(csv::stringify(x)) yields a grid whose cells equal
+  those of x, with one normalization: a trailing empty row produced only by
+  separator placement is not reintroduced. A CRLF separator in the original text
+  is normalized to LF on output.
+
+  The argument may also be passed by the name value.
+
+PARAMETERS
+  value AS List OF List OF String
+    The grid to serialize. May also be supplied by the name value.
+
+RETURN VALUE
+  AS String
+    The CSV text for value, with rows separated by LF and no trailing newline.
+    The result can be read back with csv::parse.
+
+ERRORS
+  This function raises no errors. Any List OF List OF String is a valid grid.
+
+EXAMPLES
+  Serialize a grid, quoting only the cell that needs it:
+
+    LET text AS String = csv::stringify([["name", "age"], ["Grace", "Hop,per"]])
+
+  Pass the argument by name:
+
+    LET out AS String = csv::stringify(value := [["a", "b"]])
+
+SEE ALSO
+  parse

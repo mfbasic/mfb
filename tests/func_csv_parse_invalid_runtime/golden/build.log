@@ -1,0 +1,20 @@
+$ mfb build -ast tests/func_csv_parse_invalid_runtime
+Wrote AST to tests/func_csv_parse_invalid_runtime/func_csv_parse_invalid_runtime.ast
+[exit 0]
+$ mfb build -ir tests/func_csv_parse_invalid_runtime
+Wrote IR to tests/func_csv_parse_invalid_runtime/func_csv_parse_invalid_runtime.ir
+[exit 0]
+$ mfb build tests/func_csv_parse_invalid_runtime
+Wrote executable to tests/func_csv_parse_invalid_runtime/func_csv_parse_invalid_runtime.out
+[exit 0]
+$ tests/func_csv_parse_invalid_runtime/func_csv_parse_invalid_runtime.out
+BEGIN
+unterminated quote
+invalid
+BEGIN
+stray after close
+invalid
+BEGIN
+space after close
+invalid
+[exit 0]

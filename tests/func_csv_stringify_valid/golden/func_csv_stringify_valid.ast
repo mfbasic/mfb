@@ -1,0 +1,39 @@
+{
+  "project": "func_csv_stringify_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "csv", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "--bare--" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "b" }, { "kind": "string", "value": "c" }] }, { "kind": "list", "values": [{ "kind": "string", "value": "1" }, { "kind": "string", "value": "2" }, { "kind": "string", "value": "3" }] }] }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "--comma--" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "string", "value": "has,comma" }, { "kind": "string", "value": "plain" }] }] }] }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "--quote--" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "string", "value": "he said \"hi\"" }, { "kind": "string", "value": "x" }] }] }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "--newline--" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "string", "value": "line1\nline2" }, { "kind": "string", "value": "y" }] }] }] }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "--ragged--" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "list", "values": [{ "kind": "list", "values": [{ "kind": "string", "value": "one" }] }, { "kind": "list", "values": [{ "kind": "string", "value": "a" }, { "kind": "string", "value": "b" }] }, { "kind": "list", "values": [] }] }] }] }, "line": 23 },
+      { "kind": "binding", "mutable": false, "name": "empty", "type": "List OF List OF String", "value": { "kind": "list", "values": [] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "--empty--" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "[" }, "right": { "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "identifier", "value": "empty" }] } }, "right": { "kind": "string", "value": "]" } }] }, "line": 28 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 29 }
+      ]
+    }
+    ]
+  }
+  ]
+}

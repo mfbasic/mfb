@@ -63,6 +63,10 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
             "mfb man json [function]",
         ),
         parse_package(
+            include_str!("builtins/csv/package.txt"),
+            "mfb man csv [function]",
+        ),
+        parse_package(
             include_str!("builtins/regex/package.txt"),
             "mfb man regex [function]",
         ),
@@ -142,6 +146,7 @@ fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'stat
         "fs" => Some(generated::FS_FUNCTION_PAGES),
         "thread" => Some(generated::THREAD_FUNCTION_PAGES),
         "json" => Some(generated::JSON_FUNCTION_PAGES),
+        "csv" => Some(generated::CSV_FUNCTION_PAGES),
         "regex" => Some(generated::REGEX_FUNCTION_PAGES),
         "term" => Some(generated::TERM_FUNCTION_PAGES),
         "datetime" => Some(generated::DATETIME_FUNCTION_PAGES),

@@ -1,0 +1,24 @@
+IMPORT csv
+IMPORT io
+
+FUNC showInvalid(label AS String, value AS String) AS Nothing
+  io::print("BEGIN")
+  io::print(label)
+  LET doc AS List OF List OF String = csv::parse(value)
+  io::print("rows=" & toString(len(doc)))
+  RETURN NOTHING
+  TRAP(err)
+    io::print("invalid")
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' A quoted field opened but never closed.
+  showInvalid("unterminated quote", "\"abc")
+  ' A closing quote followed by stray data (neither comma, separator, nor EOF).
+  showInvalid("stray after close", "\"ab\"c")
+  ' A space after the closing quote is also stray data.
+  showInvalid("space after close", "\"ab\" ")
+  RETURN 0
+END FUNC

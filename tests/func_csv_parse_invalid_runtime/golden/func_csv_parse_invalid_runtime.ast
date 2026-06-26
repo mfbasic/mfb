@@ -1,0 +1,55 @@
+{
+  "project": "func_csv_parse_invalid_runtime",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "csv", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "showInvalid",
+      "line": 4,
+      "params": [
+      { "name": "label", "type": "String", "default": null },
+      { "name": "value", "type": "String", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "BEGIN" }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "label" }] }, "line": 6 },
+      { "kind": "binding", "mutable": false, "name": "doc", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "rows=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "doc" }] }] } }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 9 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 10,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "invalid" }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 12 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "string", "value": "unterminated quote" }, { "kind": "string", "value": "\"abc" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "string", "value": "stray after close" }, { "kind": "string", "value": "\"ab\"c" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "showInvalid", "arguments": [{ "kind": "string", "value": "space after close" }, { "kind": "string", "value": "\"ab\" " }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}

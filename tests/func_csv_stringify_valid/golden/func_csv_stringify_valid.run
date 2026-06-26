@@ -1,0 +1,16 @@
+--bare--
+a,b,c
+1,2,3
+--comma--
+"has,comma",plain
+--quote--
+"he said ""hi""",x
+--newline--
+"line1
+line2",y
+--ragged--
+one
+a,b
+
+--empty--
+[]

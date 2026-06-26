@@ -1,0 +1,86 @@
+{
+  "project": "func_csv_parse_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "csv", "line": 1 },
+    { "module": "collections", "line": 2 },
+    { "module": "io", "line": 3 },
+    { "module": "strings", "line": 4 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "crChar",
+      "line": 8,
+      "params": [
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "13" }] }] }, "line": 9 },
+      { "kind": "return", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bytes" }] }, "line": 10 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "dump",
+      "line": 13,
+      "params": [
+      { "name": "label", "type": "String", "default": null },
+      { "name": "doc", "type": "List OF List OF String", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " rows=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "doc" }] }] } }] }, "line": 14 },
+      {
+        "kind": "forEach",
+        "name": "row",
+        "iterable": { "kind": "identifier", "value": "doc" },
+        "line": 15,
+        "body": [
+        { "kind": "binding", "mutable": true, "name": "line", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  cols=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "row" }] }] } }, "line": 16 },
+        {
+          "kind": "forEach",
+          "name": "cell",
+          "iterable": { "kind": "identifier", "value": "row" },
+          "line": 17,
+          "body": [
+          { "kind": "assignment", "name": "line", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "line" }, "right": { "kind": "string", "value": " [" } }, "right": { "kind": "identifier", "value": "cell" } }, "right": { "kind": "string", "value": "](" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.byteLen", "arguments": [{ "kind": "identifier", "value": "cell" }] }] } }, "right": { "kind": "string", "value": ")" } }, "line": 18 }
+          ]
+        },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "line" }] }, "line": 20 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 22 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 25,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "cr", "type": "String", "value": { "kind": "call", "callee": "crChar", "arguments": [] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "mixed", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "name,age" }, "right": { "kind": "identifier", "value": "cr" } }, "right": { "kind": "string", "value": "\nAda,36\nGrace,\"Hop,per\"\n" } }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "mixed" }, { "kind": "identifier", "value": "mixed" }] }, "line": 31 },
+      { "kind": "binding", "mutable": false, "name": "quoted", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "string", "value": "\"a\nb\",\"x,y\",\"he said \"\"hi\"\"\"" }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "quoted" }, { "kind": "identifier", "value": "quoted" }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "empties", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "string", "value": "a,,c\n\nz" }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "empties" }, { "kind": "identifier", "value": "empties" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "none", "type": "List OF List OF String", "value": { "kind": "call", "callee": "csv.parse", "arguments": [{ "kind": "string", "value": "" }] }, "line": 43 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "none" }, { "kind": "identifier", "value": "none" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "--stringify mixed--" }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "csv.stringify", "arguments": [{ "kind": "identifier", "value": "mixed" }] }] }, "line": 48 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 49 }
+      ]
+    }
+    ]
+  }
+  ]
+}

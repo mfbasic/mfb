@@ -409,6 +409,8 @@ pub fn lower_project_with_external_functions(
 ) -> IrProject {
     let augmented =
         builtins::json::augmented_project(ast).expect("built-in json package source must parse");
+    let augmented = builtins::csv::augmented_project(&augmented)
+        .expect("built-in csv package source must parse");
     let augmented = builtins::regex::augmented_project(&augmented)
         .expect("built-in regex package source must parse");
     let augmented = builtins::datetime::augmented_project(&augmented)
@@ -2241,6 +2243,15 @@ fn expression_type(
                 return builtins::json::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::csv::is_csv_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::csv::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::regex::is_regex_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2410,6 +2421,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::fs::expected_arguments(callee))
         .or_else(|| builtins::io::expected_arguments(callee))
         .or_else(|| builtins::json::expected_arguments(callee))
+        .or_else(|| builtins::csv::expected_arguments(callee))
         .or_else(|| builtins::regex::expected_arguments(callee))
         .or_else(|| builtins::net::argument_types(callee))
         .or_else(|| builtins::tls::argument_types(callee))
@@ -2764,6 +2776,7 @@ fn lower_expression_with_expected(
                     .map(|name| crate::internal_name::internalize(&name))
                     .or_else(|| {
                         builtins::json::implementation_name(&canonical_callee)
+                            .or_else(|| builtins::csv::implementation_name(&canonical_callee))
                             .or_else(|| builtins::regex::implementation_name(&canonical_callee))
                             .map(crate::internal_name::internalize)
                     })
