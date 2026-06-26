@@ -179,6 +179,23 @@ fn collect_doc_packages(dir: &Path, index_name: &str, page_ext: &str, out: &mut 
     }
 }
 
+/// Strip a leading `<digits>_` ordering prefix from a page file stem. The digits
+/// set the on-disk sort order (and thus the listing/`--all` reading order) but
+/// are not part of the topic name used on the command line — `06_native.md`
+/// becomes the topic `native`. A stem without a numeric prefix is returned
+/// unchanged.
+fn strip_order_prefix(stem: &str) -> &str {
+    let rest = stem.trim_start_matches(|c: char| c.is_ascii_digit());
+    if rest.len() < stem.len() {
+        if let Some(name) = rest.strip_prefix('_') {
+            if !name.is_empty() {
+                return name;
+            }
+        }
+    }
+    stem
+}
+
 /// Emit a single self-contained table the runtime indexes by package name:
 /// `(name, index-text, &[(page_name, page_text)])`.
 fn write_doc_packages(output: &mut fs::File, const_name: &str, packages: &[DocPackage]) {
@@ -199,10 +216,11 @@ fn write_doc_packages(output: &mut fs::File, const_name: &str, packages: &[DocPa
         )
         .expect("write generated doc source");
         for page in &package.pages {
-            let page_name = page
+            let page_stem = page
                 .file_stem()
                 .and_then(|name| name.to_str())
                 .expect("doc page file stem");
+            let page_name = strip_order_prefix(page_stem);
             writeln!(
                 output,
                 "        ({page_name:?}, include_str!({path:?})),",
