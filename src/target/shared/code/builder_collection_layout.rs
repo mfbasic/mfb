@@ -86,20 +86,52 @@ impl CodeBuilder<'_> {
         self.emit(abi::and_registers(reg, reg, scratch));
     }
 
+    /// Block-copy `len` bytes from `src` to `dst`, advancing both pointers.
+    /// Copies 8 bytes per iteration with a byte tail for the remainder — an
+    /// order-of-magnitude fewer iterations than a pure byte loop on payloads
+    /// larger than a word. `len` is preserved (a private copy in x13 drives the
+    /// loop); `src`/`dst` are advanced past the copied region; x13/x14 are
+    /// clobbered. The destination region must not overlap the source ahead of
+    /// it (it never does here — collection buffers are freshly allocated).
     pub(super) fn emit_copy_bytes(&mut self, dst: &str, src: &str, len: &str, prefix: &str) {
         let remaining = "x13";
-        let loop_label = self.label(&format!("{prefix}_loop"));
-        let done_label = self.label(&format!("{prefix}_done"));
         self.emit(abi::move_register(remaining, len));
-        self.emit(abi::label(&loop_label));
+        self.emit_block_copy_advance(dst, src, remaining, "x14", prefix);
+    }
+
+    /// Word-then-byte block copy that advances `dst`, `src`, and consumes
+    /// `remaining` (decremented to 0). `scratch` holds the in-flight word/byte
+    /// and is clobbered. Shared by `emit_copy_bytes` and the collection
+    /// entry/payload copy loops so every payload move is word-sized.
+    pub(super) fn emit_block_copy_advance(
+        &mut self,
+        dst: &str,
+        src: &str,
+        remaining: &str,
+        scratch: &str,
+        prefix: &str,
+    ) {
+        let word_loop = self.label(&format!("{prefix}_wloop"));
+        let byte_tail = self.label(&format!("{prefix}_btail"));
+        let done_label = self.label(&format!("{prefix}_done"));
+        self.emit(abi::label(&word_loop));
+        self.emit(abi::compare_immediate(remaining, "8"));
+        self.emit(abi::branch_lo(&byte_tail));
+        self.emit(abi::load_u64(scratch, src, 0));
+        self.emit(abi::store_u64(scratch, dst, 0));
+        self.emit(abi::add_immediate(src, src, 8));
+        self.emit(abi::add_immediate(dst, dst, 8));
+        self.emit(abi::subtract_immediate(remaining, remaining, 8));
+        self.emit(abi::branch(&word_loop));
+        self.emit(abi::label(&byte_tail));
         self.emit(abi::compare_immediate(remaining, "0"));
         self.emit(abi::branch_eq(&done_label));
-        self.emit(abi::load_u8("x14", src, 0));
-        self.emit(abi::store_u8("x14", dst, 0));
+        self.emit(abi::load_u8(scratch, src, 0));
+        self.emit(abi::store_u8(scratch, dst, 0));
         self.emit(abi::add_immediate(src, src, 1));
         self.emit(abi::add_immediate(dst, dst, 1));
         self.emit(abi::subtract_immediate(remaining, remaining, 1));
-        self.emit(abi::branch(&loop_label));
+        self.emit(abi::branch(&byte_tail));
         self.emit(abi::label(&done_label));
     }
 

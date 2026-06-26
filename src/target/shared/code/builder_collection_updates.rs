@@ -687,8 +687,6 @@ impl CodeBuilder<'_> {
         label_prefix: &str,
     ) -> Result<(), String> {
         let loop_label = self.label(&format!("{label_prefix}_loop"));
-        let bytes_loop = self.label(&format!("{label_prefix}_bytes"));
-        let bytes_done = self.label(&format!("{label_prefix}_bytes_done"));
         let done = self.label(&format!("{label_prefix}_done"));
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_immediate(count, "0"));
@@ -736,16 +734,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers("x24", source_data, "x22"));
         self.emit(abi::add_registers("x25", dest_data, dest_data_offset));
-        self.emit(abi::label(&bytes_loop));
-        self.emit(abi::compare_immediate("x23", "0"));
-        self.emit(abi::branch_eq(&bytes_done));
-        self.emit(abi::load_u8("x22", "x24", 0));
-        self.emit(abi::store_u8("x22", "x25", 0));
-        self.emit(abi::add_immediate("x24", "x24", 1));
-        self.emit(abi::add_immediate("x25", "x25", 1));
-        self.emit(abi::subtract_immediate("x23", "x23", 1));
-        self.emit(abi::branch(&bytes_loop));
-        self.emit(abi::label(&bytes_done));
+        self.emit_block_copy_advance("x25", "x24", "x23", "x22", &format!("{label_prefix}_value"));
         self.emit(abi::load_u64(
             "x23",
             dest_entry,
@@ -1112,10 +1101,6 @@ impl CodeBuilder<'_> {
         key_align: usize,
         value_align: usize,
     ) {
-        let key_loop = self.label("map_entry_key_copy_loop");
-        let key_done = self.label("map_entry_key_copy_done");
-        let value_loop = self.label("map_entry_value_copy_loop");
-        let value_done = self.label("map_entry_value_copy_done");
         self.emit(abi::move_immediate(
             "x22",
             "Byte",
@@ -1152,16 +1137,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers("x24", source_data, "x22"));
         self.emit(abi::add_registers("x25", dest_data, dest_data_offset));
-        self.emit(abi::label(&key_loop));
-        self.emit(abi::compare_immediate("x23", "0"));
-        self.emit(abi::branch_eq(&key_done));
-        self.emit(abi::load_u8("x22", "x24", 0));
-        self.emit(abi::store_u8("x22", "x25", 0));
-        self.emit(abi::add_immediate("x24", "x24", 1));
-        self.emit(abi::add_immediate("x25", "x25", 1));
-        self.emit(abi::subtract_immediate("x23", "x23", 1));
-        self.emit(abi::branch(&key_loop));
-        self.emit(abi::label(&key_done));
+        self.emit_block_copy_advance("x25", "x24", "x23", "x22", "map_entry_key_copy");
         self.emit(abi::load_u64(
             "x23",
             dest_entry,
@@ -1198,16 +1174,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers("x24", source_data, "x22"));
         self.emit(abi::add_registers("x25", dest_data, dest_data_offset));
-        self.emit(abi::label(&value_loop));
-        self.emit(abi::compare_immediate("x23", "0"));
-        self.emit(abi::branch_eq(&value_done));
-        self.emit(abi::load_u8("x22", "x24", 0));
-        self.emit(abi::store_u8("x22", "x25", 0));
-        self.emit(abi::add_immediate("x24", "x24", 1));
-        self.emit(abi::add_immediate("x25", "x25", 1));
-        self.emit(abi::subtract_immediate("x23", "x23", 1));
-        self.emit(abi::branch(&value_loop));
-        self.emit(abi::label(&value_done));
+        self.emit_block_copy_advance("x25", "x24", "x23", "x22", "map_entry_value_copy");
         self.emit(abi::load_u64(
             "x23",
             dest_entry,
