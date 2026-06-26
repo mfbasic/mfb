@@ -96,12 +96,27 @@ Byte↔text and Unicode codecs. No types or enums. Decoders fail with
 | `encoding::utf32Decode` | `FUNC utf32Decode(value AS List OF Integer) AS String` | Decodes a UTF-32 codepoint sequence to a String. Fails `77050003` on a codepoint outside `0 .. 0x10FFFF` or inside the surrogate range `0xD800 .. 0xDFFF`. |
 | `encoding::hexEncode` | `FUNC hexEncode(data AS List OF Byte) AS String` | Lowercase hex (two chars/byte, no separators). Total. `strings::upper` for uppercase. |
 | `encoding::hexDecode` | `FUNC hexDecode(text AS String) AS List OF Byte` | Decodes hex (upper or lower). Fails `77050003` on a non-hex character or odd length. |
+| `encoding::base32Encode` | `FUNC base32Encode(data AS List OF Byte) AS String` | Encodes binary data into standard Base32 (RFC 4648 §6), uppercase with optional `=` padding. Total. |
+| `encoding::base32Decode` | `FUNC base32Decode(text AS String) AS List OF Byte` | Decodes a Base32 string (case-insensitive). Fails `77050003` on invalid characters or invalid alignment padding. |
 | `encoding::base64Encode` | `FUNC base64Encode(data AS List OF Byte) AS String` | Standard Base64 (RFC 4648 §4), `+`/`/`, `=` padding. Total. |
 | `encoding::base64Decode` | `FUNC base64Decode(text AS String) AS List OF Byte` | Decodes standard Base64; padding required. Fails `77050003` on invalid alphabet/length/padding. |
 | `encoding::base64UrlEncode` | `FUNC base64UrlEncode(data AS List OF Byte) AS String` | URL-safe Base64 (RFC 4648 §5), `-`/`_`, **no** padding. Total. |
 | `encoding::base64UrlDecode` | `FUNC base64UrlDecode(text AS String) AS List OF Byte` | Decodes URL-safe Base64; accepts input with or without `=` padding. Fails `77050003`. |
 | `encoding::percentEncode` | `FUNC percentEncode(text AS String) AS String` | Percent-encodes (URL-encodes) `text` per RFC 3986: the unreserved set `A–Z a–z 0–9 - . _ ~` passes through; every other byte of `text`'s UTF-8 encoding becomes `%XX` with uppercase hex. Total. |
 | `encoding::percentDecode` | `FUNC percentDecode(text AS String) AS String` | Decodes percent-encoded `text`, interpreting the decoded bytes as UTF-8. Fails `77050003` on a malformed `%XX` escape or on invalid UTF-8. |
+| `encoding::htmlEscape` | `FUNC htmlEscape(text AS String) AS String` | Replaces `<`, `>`, `&`, `"`, and `'` with their corresponding HTML entity equivalents (`&lt;`, `&gt;`, `&amp;`, `&quot;`, `&apos;`). Total. |
+| `encoding::htmlUnescape` | `FUNC htmlUnescape(text AS String) AS String` | Decodes named and numeric HTML entities (e.g., `&eacute;` or `&#233;`) back to their UTF-8 characters. Fails `77050003` on malformed entity structures. |
+| `encoding::formUrlEncode` | `FUNC formUrlEncode(text AS String) AS String` | Encodes standard string characters to form-urlencoded format. Spaces become `+`, and other non-alphanumeric characters are percent-encoded. Total. |
+| `encoding::formUrlDecode` | `FUNC formUrlDecode(text AS String) AS String` | Decodes form-urlencoded strings, transforming `+` back into spaces and decoding percent-escaped characters. Fails `77050003` on malformed sequences. |
+| `encoding::punycodeEncode` | `FUNC punycodeEncode(domain AS String) AS String` | Translates a Unicode hostname string to its ASCII Punycode representation. Total. |
+| `encoding::punycodeDecode` | `FUNC punycodeDecode(asciiDomain AS String) AS String` | Translates an ASCII Punycode hostname back to its Unicode equivalent. Fails `77050003` on malformed punycode formats. |
+| `encoding::uleb128Encode` | `FUNC uleb128Encode(value AS Integer) AS List OF Byte` | Encodes non-negative integers using unsigned LEB128. Fails `77050003` if `value < 0`. |
+| `encoding::uleb128Decode` | `FUNC uleb128Decode(data AS List OF Byte) AS Integer` | Decodes unsigned LEB128. Fails `77050003` on overflow (e.g., > 64-bit integer equivalent) or truncated data. |
+| `encoding::sleb128Encode` | `FUNC sleb128Encode(value AS Integer) AS List OF Byte` | Encodes signed integers using signed LEB128 (sign-extended representation). Total. |
+| `encoding::sleb128Decode` | `FUNC sleb128Decode(data AS List OF Byte) AS Integer` | Decodes signed LEB128 into a signed Integer. Fails `77050003` on format/size anomalies. |
+| `encoding::varintEncode` | `FUNC varintEncode(value AS Integer) AS List OF Byte` | Maps `value` via ZigZag encoding, then writes it as `uleb128`. Total. |
+| `encoding::varintDecode` | `FUNC varintDecode(data AS List OF Byte) AS Integer` | Decodes `uleb128` and reverses the ZigZag mapping back to a signed integer. Fails `77050003` on malformed sequences. |
+
 
 > **Naming directions.** `hex`/`base64` *Encode* serialize raw bytes **to** text
 > (and *Decode* back); the Unicode `utf*` *Encode* transform a String **to** its
