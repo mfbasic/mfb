@@ -19,7 +19,11 @@ ELSE
 END IF
 ```
 
-`FOR EACH` accepts `List OF T` and `Map OF K TO V` sources. A list loop binds the loop variable as `T`. A map loop binds the loop variable as `MapEntry OF K TO V`; `entry.key` has type `K` and `entry.value` has type `V`. Map loop order is implementation-defined but stable for a given unchanged map value, matching the order used by `keys` and `values`.
+A counted `FOR` loop variable takes the numeric type promoted across the start, end, and `STEP` operands; the result may be `Byte`, `Integer`, `Fixed`, or `Float`. Non-numeric operands are a compile error (`TYPE_FOR_REQUIRES_NUMERIC`). `STEP` is optional and defaults to `1`; a constant `STEP` of zero is a compile error (`TYPE_FOR_STEP_ZERO`).
+
+`FOR EACH` accepts `List OF T` and `Map OF K TO V` sources (any other source type is `TYPE_FOR_EACH_REQUIRES_COLLECTION`). A list loop binds the loop variable as `T`. A map loop binds the loop variable as `MapEntry OF K TO V`; `entry.key` has type `K` and `entry.value` has type `V` (any other field access is `TYPE_UNKNOWN_FIELD`). Map loop order is implementation-defined but stable for a given unchanged map value, matching the order used by `keys` and `values`.
+
+The accepted `DO`/`LOOP` shapes are closed to exactly two: pre-test `DO WHILE <cond> ... LOOP` and post-test `DO ... LOOP UNTIL <cond>`. There is no bare `DO ... LOOP`, no `DO UNTIL`, and no `LOOP WHILE`.
 
 `EXIT FOR`, `EXIT DO`, and `EXIT WHILE` leave the innermost enclosing loop whose
 kind matches the keyword and continue after that loop. `CONTINUE FOR`,
@@ -30,14 +34,20 @@ and `CONTINUE DO`. The named kind may target an outer matching loop through
 inner loops of other kinds; it is a compile error when no matching loop encloses
 the statement.
 
-`EXIT SUB` leaves the enclosing `SUB` successfully with no value. `EXIT FUNC` is
-always a compile error because a `FUNC` must `RETURN` a value.
+`EXIT SUB` leaves the enclosing `SUB` successfully with no value; it is a
+compile error inside a `FUNC` (`EXIT_SUB_IN_FUNC`). `EXIT FUNC` is always a
+compile error (`EXIT_FUNC_FORBIDDEN`) because a `FUNC` must `RETURN` a value.
 
 `EXIT PROGRAM <integer>` terminates the process with the given exit code from
-any call depth. It is not catchable by `TRAP`. Before termination, the runtime
-runs lexical cleanup for all live scopes in the current call chain up to the
-entry point. Constant exit codes outside the host process range are compile
-errors; non-constant values follow the host convention.
+any call depth. The integer code is required (other `EXIT` forms take no
+operand) and must be `Integer`-typed (`TYPE_EXIT_PROGRAM_REQUIRES_INTEGER`).
+`EXIT PROGRAM` is not catchable by `TRAP`: at each returning frame it bypasses
+any handler, so it propagates past every `TRAP` to the entry point. Before
+termination, the runtime runs lexical cleanup for all live scopes in the current
+call chain up to the entry point. A constant exit code outside the host process
+range (the implementation fixes this at `0..=255`) is a compile error
+(`EXIT_PROGRAM_CODE_OUT_OF_RANGE`); non-constant values follow the host
+convention.
 
 There is **no `GOTO`** and **no `SELECT CASE`** (use `MATCH`). `EXIT` and
 `CONTINUE` are structured, lexically scoped loop/routine exits, not arbitrary

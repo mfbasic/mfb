@@ -50,31 +50,38 @@ RES db AS Db = sqlite::open("app.db")
 
 `ABI (...) AS ...` gives the native C-facing call shape. The `FUNC` signature is the MFBASIC-facing wrapper type; the `ABI` signature is the host-library symbol's argument and return representation. Each ABI slot is `name type` in native C argument order, and slots bind to wrapper parameters **by name** (so `path` in the ABI matches the `path` parameter). One slot may be named `return` to mark the wrapper's result (an `OUT` slot for a produced handle/value, or the native return slot after `AS`). Every wrapper parameter must map to an ABI slot of the same name, and every ABI slot must be satisfied by exactly one of: a wrapper parameter, the `return` result marker, or a `CONST` pin — otherwise `NATIVE_ABI_UNBOUND_PARAM` / `NATIVE_ABI_UNBOUND_SLOT`.
 
-Native ABI types are separate from MFBASIC source types:
+Native ABI types are separate from MFBASIC source types. The names below are the ones the current compiler recognizes (`is_c_abi_type`, `src/typecheck.rs`, and the marshaling switch in `src/target/shared/code/link_thunk.rs`):
 
 | Type | Meaning |
 |------|---------|
 | `CInt8`, `CInt16`, `CInt32`, `CInt64` | Signed fixed-width C integer values. |
 | `CUInt8`, `CUInt16`, `CUInt32`, `CUInt64` | Unsigned fixed-width C integer values. |
-| `CBool` | C `_Bool` / `bool` value. |
-| `CFloat32`, `CFloat64` | 32-bit and 64-bit C floating-point values. |
-| `CIntPtr`, `CUIntPtr` | Signed and unsigned integer values with pointer width. |
-| `CSize` | Unsigned C size value, equivalent to `size_t`. |
-| `CString` | Null-terminated UTF-8 string pointer created from a MFBASIC `String` for the duration of the call. Embedded NUL bytes are rejected before the native call with `ErrInvalidArgument` (`77050002`). |
+| `CBool` | C `_Bool` / `bool` value (return marshals a nonzero value to `TRUE`, zero to `FALSE`). |
+| `CFloat`, `CDouble` | 32-bit (`float`) and 64-bit (`double`) C floating-point values. |
+| `CByte` | C `unsigned char` byte value (return marshals the low 8 bits). |
+| `CString` | Null-terminated UTF-8 string pointer created from a MFBASIC `String` for the duration of the call. |
 | `CPtr` | Opaque native pointer value used only inside native bindings. It cannot be inspected, manipulated, stored, returned, or named by ordinary MFBASIC code except as the hidden representation of a declared `RESOURCE`. |
-| `CVoid` | Native `void` return. Valid only as an ABI return type. Use MFBASIC `Nothing` for the wrapper's source-level return type. |
+| `CVoid` | Native `void` return. Valid only as an ABI return type (and the `FREE` deallocator return). Use MFBASIC `Nothing` for the wrapper's source-level return type. |
 
-The fixed-width names are preferred over C spellings such as `int` or `long`, because those spellings vary by platform. Bindings should map the platform header's actual ABI to one of the fixed or pointer-sized types.
+The fixed-width names are preferred over C spellings such as `int` or `long`, because those spellings vary by platform. Bindings should map the platform header's actual ABI to one of these types.
 
-The marshaling boundary validates values rather than silently corrupting them: an `Integer` argument that does not fit a narrower signed C integer fails with `ErrOverflow` (`77050010`) instead of truncating; a C floating-point **return** that is NaN or infinite is rejected with `ErrFloatNaN` (`77050013`) / `ErrFloatInf` (`77050014`), since an MFBASIC `Float` is always finite (§3); and the bytes of a returned C string are validated as UTF-8, failing with `ErrEncoding` (`77020004`) when malformed.
+> Implementation status: the spellings `CFloat32`/`CFloat64`, `CIntPtr`, `CUIntPtr`, and `CSize` are **not** recognized by the current compiler — use `CFloat`/`CDouble` and an explicit fixed-width integer instead. The ABI-slot C type is parsed as a free identifier (`parse_c_type_name`, `src/ast.rs`); only the names above are honored by the marshaling backend, and an unrecognized slot type silently falls through to a raw 64-bit register passthrough rather than being rejected.
 
-ABI parameters may use direction modifiers:
+The marshaling boundary aims to validate values rather than silently corrupting them. As implemented:
+
+* A `CInt32` **argument** is range-checked: a 64-bit MFBASIC `Integer` that does not fit signed 32-bit fails with `ErrOverflow` (`77050010`) instead of truncating. The other narrower integer ABI types (`CInt8`/`CInt16`, the `CUInt*` family) are currently passed through as raw 64-bit values without a narrowing check.
+* A `CDouble` **return** that is NaN or infinite is rejected with `ErrFloatNaN` (`77050013`) / `ErrFloatInf` (`77050014`), since an MFBASIC `Float` is always finite (§3).
+* The bytes of a returned `CPtr`-to-`String` (`emit_copy_cstring_to_string`) are validated as UTF-8, failing with `ErrEncoding` (`77020004`) when malformed; a NULL return yields an empty `String`.
+* Embedded NUL bytes in a `CString` **argument** are *intended* to be rejected with `ErrInvalidArgument` (`77050002`), but the current `emit_copy_string_to_cstring` copies the string bytes verbatim without scanning for an interior NUL, so this check is not yet enforced.
+
+ABI parameters may use a direction modifier:
 
 | Form | Meaning |
 |------|---------|
-| `REF T` | Pass a pointer to a temporary native value initialized from the MFBASIC argument. The pointer lifetime ends when the native call returns. |
-| `OUT T` | Pass a pointer to uninitialized native storage and copy the result back after the call. The pointer lifetime ends when the native call returns. |
+| `OUT T` | Pass a pointer to native storage and copy the produced value back after the call. The pointer lifetime ends when the native call returns. |
 | `CPtr` | Pass a resource handle or opaque pointer as-is inside the binding boundary. |
+
+> Implementation status: there is **no `REF` direction modifier** in the parser — `abiSlot` accepts only an optional `OUT`. An ordinary (input) slot is marshaled by value from its bound wrapper parameter or `CONST` pin.
 
 **Pinning constant and NULL arguments (`CONST slot = value`).** The `ABI (...)` line always states the true native signature — every C argument in C order. Some of those arguments are fixed values the caller never supplies (a `-1` length, a NULL callback, a sentinel destructor). `CONST <slot> = <value>` pins one ABI slot to a fixed value and removes it from the wrapper's parameter list. The value is checked against the slot's declared ABI type. `NOTHING` pins a C NULL on a pointer slot; a pointer-sized integer literal pins a sentinel pointer (e.g. `-1` for SQLite's `SQLITE_TRANSIENT`). A `CONST` slot is input-only — marking it `OUT` or as the result is rejected (`NATIVE_CONST_OUT`), and pinning an unknown slot is `NATIVE_CONST_UNKNOWN_SLOT`. A pin is call metadata baked into the native frame; it never materializes as a source value, so it cannot forge or leak a `CPtr`.
 
@@ -110,7 +117,7 @@ END FUNC
 
 A plain value-returning call needs neither gate nor mapping: name the native return slot `return` and the C return becomes the wrapper's result (e.g. `ABI (stmt CPtr, name CString) AS return CInt32`). A value-producing wrapper that marks no result (`return` / `RESULT`) is rejected (`NATIVE_ABI_NO_RESULT`).
 
-**Multiple outputs (`RETURN_OUT`).** When an ABI signature has more than one `OUT` slot, `RETURN_OUT` defines how those outputs become the success value, referencing slots by name. A single `OUT` slot named `return` is returned implicitly.
+**Multiple outputs (`RETURN_OUT`) — not yet implemented.** The intended design is that when an ABI signature has more than one `OUT` slot, `RETURN_OUT` defines how those outputs become the success value, referencing slots by name. A single `OUT` slot named `return` is returned implicitly.
 
 ```basic
 TYPE DivModResult
@@ -122,12 +129,12 @@ LINK "mylib" AS mylib
   FUNC divmod(a AS Integer, b AS Integer) AS DivModResult
     SYMBOL "divmod"
     ABI (a CInt32, b CInt32, quotient OUT CInt32, remainder OUT CInt32) AS CVoid
-    RETURN_OUT DivModResult[quotient, remainder]
+    RETURN_OUT DivModResult[quotient, remainder]   ' DEFERRED ABI FORM
   END FUNC
 END LINK
 ```
 
-`RETURN_OUT DivModResult[quotient, remainder]` means: after the native call succeeds, read the named `OUT` slots and succeed with `DivModResult[quotient, remainder]`.
+> Implementation status: the current compiler does **not** support multiple `OUT` slots or `RETURN_OUT`. The parser's native-FUNC body (`parse_link_function`, `src/ast.rs`) accepts only `SYMBOL`, `ABI`, `CONST`, `SUCCESS_ON`, `ERROR_ON`, `RESULT`, and `FREE` — there is no `RETURN_OUT` clause — and the typechecker rejects any `OUT` slot not named `return` with `NATIVE_ABI_UNBOUND_SLOT` (`src/typecheck.rs`). A wrapper may therefore declare at most one `OUT` slot, and it must be the result marker named `return`. The example above is documentation of the deferred form, not a compilable binding.
 
 **Freeing a caller-owned return (`FREE`).** A `CPtr` result mapped to an owned MFBASIC value (such as `AS String`) is **copied** out of the native buffer and the source pointer is then left untouched — *copy-and-leave*. That is correct when the native library **owns** the buffer and keeps it valid (a transient or static pointer), as with `sqlite3_column_text`. When the call instead returns a buffer the **caller owns and must release** — `sqlite3_expanded_sql`, `sqlite3_mprintf`, `strdup` — copy-and-leave would leak it. A `FREE` block names the produced slot and the deallocator that releases it:
 
@@ -148,13 +155,13 @@ END LINK
 
 Rules:
 
-- `LINK` names and all declared `SYMBOL` names are resolved before `main` starts. Native libraries are not lazy-loaded.
-- If a required native library or symbol cannot be loaded before `main`, the program terminates before entering `main`. The diagnostic is written to stderr and the process exits with `55000001` (`ErrLinkFailed`). This startup failure is outside the error/`TRAP` model because no MFBASIC function is running yet.
+- `LINK` names and all declared `SYMBOL` names are resolved before `main` starts. Native libraries are not lazy-loaded. The backend emits a load-time initializer `_mfb_linker_init` (`src/target/shared/code/link_thunk.rs`) that `dlopen`s each distinct library with `RTLD_NOW` and `dlsym`s every declared symbol (and every `FREE` deallocator) into a per-function global pointer slot.
+- If a required native library or symbol cannot be loaded before `main`, the initializer returns an error `Result` carrying `ErrNativeBindingUnavailable` (`77030007`, `ERR_NATIVE_LINK_LOAD_CODE`). The program entry handles this exactly like a failed global initializer and aborts before running `main`. (Note: this differs from `55000001`/`ErrLinkFailed`, which is a build-time linker diagnostic, not the runtime load-failure code.)
 - Linked names occupy a package-like namespace. A package-qualified name such as `sqlite::open` follows the same two-part rule as package access.
 - A native call may resolve only the symbols declared by `SYMBOL` entries in the binding package. Dynamic lookup by source strings or computed names is not available to ordinary MFBASIC code.
 - Native functions expose ordinary MFBASIC signatures. At call sites they auto-unwrap, auto-propagate, and participate in `MATCH` like any other fallible function.
 - Native functions may accept and return MFBASIC primitive values, strings, byte lists, and declared resource types through an explicit `ABI` mapping. Other conversions are implementation-defined unless specified by the binding.
-- If a native function has more than one `OUT` parameter and its MFBASIC return type is not `Nothing`, it must declare `RETURN_OUT`.
+- A value-returning native function must surface exactly one result: either an ABI slot named `return` (the C return slot, or a single `OUT return` slot) or a `RESULT <expr>` mapping; otherwise it is rejected with `NATIVE_ABI_NO_RESULT`. (The multi-`OUT` `RETURN_OUT` form is the deferred design above and is not accepted by the current compiler.)
 - A `FREE` block must name a `CPtr`-typed produced slot — the `return` slot or a declared `OUT` slot — and its deallocator must declare exactly one pointer parameter and a `CVoid` return. The deallocator is called once on the success path, after the produced value is copied into the wrapper's owned MFBASIC result, with the original (possibly NULL) native pointer; it is not called on a failed call. Without a `FREE` block a `CPtr` result is copied and the source pointer is left untouched (copy-and-leave), which leaks a caller-owned buffer — `FREE` is the only way to release one.
 - `RESOURCE` is a declaration form for concrete opaque unique-handle types; it is not an inheritance base type and cannot be used as a generic catch-all type.
 - Native resource ownership is declared at package scope with `RESOURCE <Name> CLOSE BY <closeFn>`. Raw C ABI types (`CPtr`, `CString`, `CInt32`, …) may appear only inside `ABI (...)` slots, never in a wrapper's MFBASIC-facing signature; a `CPtr` exists solely as the hidden representation of a declared resource and must not escape into an ordinary API (`NATIVE_CPTR_ESCAPE`).

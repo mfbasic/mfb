@@ -47,7 +47,14 @@ entryFlags        u32
 
 The manifest identity, `identKey`, `identFingerprint`, and `signingFingerprint` must match the `.mfp` header identity, `identKey`, `identFingerprint`, and `signingFingerprint`.
 
-`entryFunction` identifies the executable entry point when the binary representation payload is the root executable payload or has been produced by merging package binary representation into the root project binary representation. Reusable packages set it to `0xFFFFFFFF`. Entry flags:
+Current compiler values (`encode_manifest`):
+
+* `binaryReprMajor`/`binaryReprMinor` are written as `1`/`0`, `languageMajor`/`languageMinor` as `1`/`0`, and `minimumRuntimeMajor`/`minimumRuntimeMinor` as `1`/`0`. These are emitted as fixed constants, not derived, and the reader (`read_manifest`) reads past them without validating.
+* `dependencyCount` equals the number of `IMPORT_TABLE` entries.
+* `nativeLinkCount` is **always `0`** — native binding counts are not surfaced here (native `LINK` data lives in the `IR` payload trailer). The reader reads and discards it.
+* `exportCount` equals the number of exported callable functions (see `EXPORT_TABLE`).
+
+`entryFunction` identifies the executable entry point when the binary representation payload is the root executable payload or has been produced by merging package binary representation into the root project binary representation. Reusable packages set it to `0xFFFFFFFF` and `entryFlags` to `0`. Entry flags:
 
 ```text
 bit 0 = package has executable entry
@@ -56,6 +63,8 @@ bit 2 = entry is FUNC returning Integer
 ```
 
 The executable runtime maps `SUB` entry success to process exit code `0`, `FUNC ... AS Integer` entry success to the returned integer value, and an uncaught entry error result carrying `error` to stderr output of `error.message` plus process exit code `error.code`. When args are accepted, argument element zero is the program name as invoked by the host.
+
+When reading a **package** (as opposed to a root executable image), the current reader ignores the manifest's `entryFunction`/`entryFlags` and forces them to `0xFFFFFFFF`/`0` in the decoded project, since a reusable package has no entry point of its own.
 
 The manifest is the signed source of truth. The container header duplicates identity fields only so package managers can scan files without parsing every table.
 
@@ -105,20 +114,16 @@ repeated exportCount times:
   targetId        u32
 ```
 
-Export kinds:
+Export kinds the current compiler emits and the reader accepts:
 
 ```text
-1 = function
-2 = sub
-3 = top-level LET
-4 = top-level MUT
-5 = type
-6 = union
-7 = enum
-8 = union member constructor
-9 = record constructor
-10 = native wrapper function
+1 = function   (exported FUNC)
+2 = sub        (exported SUB)
 ```
+
+The current `EXPORT_TABLE` carries **only callable exports** — exported `FUNC` (kind `1`) and `SUB` (kind `2`). `encode_exports` walks the function table and writes one entry per exported (non-private) function; `targetId` is that function's index in `FUNCTION_TABLE`, `flags` is `0`. The reader (`read_export_table` → `decode_callable_export_kind`) accepts only kinds `1` and `2` and rejects any other value.
+
+Exported **types** (record/union/enum) are not listed in `EXPORT_TABLE`. They are surfaced through `TYPE_TABLE` and `ABI_INDEX` instead (the latter carrying their ABI hashes). Higher kind numbers for top-level `LET`/`MUT`, constructors, and native wrappers are not part of the current encoding.
 
 This preserves the source-level rule that importers see package-qualified names.
 
@@ -151,9 +156,9 @@ repeated dependencyAbiCount times:
     abiHash       byte[32]
 ```
 
-`abiFormatVersion = 1` uses SHA-256 hashes. The hash input for every exported ABI item begins with `MFBABI\0`, the ABI format version, the declaration kind, the fully qualified exported name, and the declaration-specific public shape described below. The hash input must use canonical type names/ids and canonical constant encodings so two compilers produce the same ABI hash for the same public surface.
+`abiFormatVersion = 1` uses SHA-256 hashes (`read_abi_index` rejects any other version). Each exported ABI entry is `name` (stringId), `kind` (u16, using the **export-kind numbering**, not a separate ABI numbering), and a 32-byte `abiHash`.
 
-ABI v1 covers all caller-visible exported surface. It is not function-only. The required v1 declaration kinds are:
+The current declaration kinds in `ABI_INDEX` are exactly the kinds `encode_export_kind` produces:
 
 ```text
 1 = exported FUNC
@@ -161,29 +166,25 @@ ABI v1 covers all caller-visible exported surface. It is not function-only. The 
 3 = exported record type
 4 = exported union type
 5 = exported enum type
-6 = exported constant
-7 = exported global LET
-8 = exported global MUT
-9 = exported native wrapper function
-10 = exported resource type
 ```
 
-For exported `FUNC`, `SUB`, and native wrapper functions, the hash input includes exported effect flags visible to callers, resource ownership annotations on parameters and returns, parameter count, parameter names when they are part of call syntax, parameter types, default argument presence and default constant values, return type for functions, and error/result behavior visible to callers.
+`AbiIndex::from_project` emits one entry per exported function (kinds `1`/`2`) followed by one entry per exported type whose `abi_export_kind` is set (kinds `3`/`4`/`5`). Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
 
-For exported record types, the hash input includes the record name, type parameters if any, field count, field order, field names, field types, visibility/export flags, mutability, default presence, and default constant values. Reordering exported fields is ABI-significant.
+The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed by `abiFormatVersion` (u16). For a **function or sub** (`function_sig_hash`) the remaining input is:
 
-For exported union types, the hash input includes the union name, type parameters if any, member count, member order or explicit tags, and each member type's exported identity.
+* the literal string `"function"`,
+* the export kind (u16),
+* the function flags **masked to `ISOLATED | SUB`** (u16) — only the isolated and sub bits are ABI-significant; other flags are excluded,
+* the parameter count (u32),
+* for each parameter, its structurally-serialized type, then a default-presence byte (`0`/`1`) and, when present, the serialized default constant,
+* the structurally-serialized return type.
 
-For exported enum types, the hash input includes the enum name, member count, member order, member names, and explicit ordinals/discriminants. Changing an exported ordinal is ABI-significant.
+Note what is **not** in the function hash today: parameter names, resource ownership/borrow/consume annotations, and explicit error/result behaviour. Two functions that differ only in those respects currently hash identically.
 
-For exported constants, the hash input includes the constant name, type, and canonical value when the value is visible to consumers at compile time.
+For an exported **type** (`type_sig_hash`) the input is `MFBABI\0`, `abiFormatVersion`, the literal `"type"`, the export kind (u16), and the structural serialization of the type. The structural serializer (`serialize_type`) encodes records as their field names + field types + visibility, unions as their variant names + variant fields, enums as their member names + ordinals, and the compiler-owned templates (`List`/`Map`/`Result`/`Thread`/`ThreadWorker`/`MapEntry`/function types) by a tag string plus their component types. Primitive types serialize by id + name; a back-reference scheme keeps recursive/shared types finite. Reordering record fields, union variants, or enum members — or changing an ordinal — therefore changes the hash.
 
-For exported global `LET` and `MUT`, the hash input includes the global name, declared type, mutability, initialization visibility, and caller-visible access shape. Changing `LET` to `MUT` or `MUT` to `LET` is ABI-significant.
+`exportAbiCount` is validated against `EXPORT_TABLE` by `validate_abi_index`: every `EXPORT_TABLE` entry must have a matching `ABI_INDEX` entry with the same `name` and `kind` **and** a `sigHash` equal to the hash recomputed from the function table. Because `EXPORT_TABLE` holds only callable exports while `ABI_INDEX` additionally holds type exports, the two are **not** required to have equal length or matching order — only that each callable export is covered.
 
-For exported resource types, the hash input includes the resource type name, close function signature, ownership/borrow/consume behavior, sendability flags, native/standard resource flag, and whether close may fail. These fields must agree with `RESOURCE_TABLE` and function metadata.
+`dependencyAbiCount` is validated against `IMPORT_TABLE` by package import name and package ident (`validate_abi_index` requires the sorted `(name, ident)` sets to match). Each dependency ABI entry repeats the requested `version` and `pin` state and records every imported symbol whose ABI shape was used while compiling this package, and the reader requires the dependency edge's `version`/`pin`/used-symbol list to match the corresponding `IMPORT_TABLE` entry exactly. These hashes are also present in `IMPORT_TABLE` so tools that only need dependency requirements can read one section.
 
-Future ABI index versions may add more declaration kinds or more detailed hashes, but v1 must include every exported declaration kind listed above so the resolver cannot report ABI compatibility while exported types, constants, globals, native wrappers, resource behavior, or caller-visible effects have changed.
-
-`exportAbiCount` must match the ABI-relevant entries in `EXPORT_TABLE` and must appear in the same order. The verifier must reject an `ABI_INDEX` whose export names, kinds, order, or hashes disagree with the binary representation metadata.
-
-`dependencyAbiCount` must match `IMPORT_TABLE` by package import name and package ident. Each dependency ABI entry repeats the requested `version` and `pin` state and records every imported symbol whose ABI shape was used while compiling this package, including imported functions/subs, exported types, constants, globals, native wrappers, resource behavior, and caller-visible effects. These hashes are also present in `IMPORT_TABLE` so tools that only need dependency requirements can read one section; `ABI_INDEX` is the canonical ABI compatibility section when the two disagree.
+A future ABI index version may add the missing declaration kinds (constants, globals, native wrappers, standalone resource entries) and richer per-declaration hashes; v1 as implemented covers callable functions and the three user type kinds.

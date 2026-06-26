@@ -24,8 +24,9 @@ export, and ABI index tables; `type-table`, `constant-pool`, `globals`, and
 `functions` specify the remaining metadata sections. `ir-section` describes the
 structured Binary Representation that carries every function body, and
 `resource-regions` covers how resource lifetime is encoded implicitly by lexical
-scope. `native-bindings` specifies the `LINK` metadata, runtime helpers, and
-resource table; `doc-section` covers the optional documentation payload.
+scope. `native-bindings` specifies how native `LINK` metadata is carried (as a trailer
+inside the `IR` payload, not a separate section) and the resource table;
+`doc-section` covers the optional documentation payload.
 `verifier-rules` lists the container, section, type, function, resource, and
 native checks a reader must run before import. `example-layout` walks a minimal
 package end to end, and `compact-summary` is the pasteable short-form spec.

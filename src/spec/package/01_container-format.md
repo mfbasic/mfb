@@ -69,8 +69,8 @@ The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers ar
 | `magic`           | File identification bytes.                                        |
 | `containerMajor`  | Major version of the `.mfp` container format.                     |
 | `containerMinor`  | Minor version of the `.mfp` container format.                     |
-| `binaryReprMajor`   | Required major version of the package Binary Representation format. Currently `2`. |
-| `binaryReprMinor`   | Required minor version of the package Binary Representation format.            |
+| `binaryReprMajor`   | Major version of the package Binary Representation format. The current compiler writes `1` here and the reader **does not validate this field** (see note below). |
+| `binaryReprMinor`   | Minor version of the package Binary Representation format. The current compiler writes `0`. |
 | `flags`           | Container-level flags. Unknown required flags reject the package. |
 | `signatureType`   | Signature algorithm identifier.                                   |
 | `signatureLength` | Number of bytes in `signature`.                                   |
@@ -87,6 +87,15 @@ The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers ar
 | `packageBinaryRepr` | Architecture-independent MFB Binary Representation image. |
 
 The header `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`, `author`, and `url` are for fast package scanning. The binary representation payload must also contain a signed manifest with the same package identity, owner ident key, owner ident fingerprint, and signing fingerprint. A verifier must reject the package if the header identity and binary representation manifest identity do not match.
+
+### Two distinct version numbers
+
+There are two independent version numbers, and the current compiler gives them different values:
+
+* The container header `binaryReprMajor`/`binaryReprMinor` fields above carry `1`/`0`. The current reader (`mfp_binary_repr_payload` in `src/binary_repr.rs`, and the `MfpHeader` reader in `src/main.rs`) reads past these fields without validating them.
+* The **MFPC payload** header inside `packageBinaryRepr` carries its own `bcMajor`, which is `2` (the clean break to the structured Binary Representation; see `binary-representation`). The reader validates **this** value, rejecting any payload whose `bcMajor` is not `2`.
+
+In other words, the "version 2" clean break lives in the MFPC payload, not in the container header field of the same name. Implementers should not conflate the two.
 
 ## Signature coverage
 
@@ -186,15 +195,17 @@ The `identKey`, `identFingerprint`, and `signingFingerprint` are not trusted mer
 ## Container flags
 
 ```text
-bit 0 = package contains native LINK metadata
-bit 1 = package contains debug metadata
-bit 2 = package contains source-map metadata
+bit 0 = package contains native LINK metadata   (reserved; not currently emitted)
+bit 1 = package contains debug metadata          (reserved; not currently emitted)
+bit 2 = package contains source-map metadata     (reserved; not currently emitted)
 bit 3 = package is pre-release
 bits 4-15 = reserved optional flags
 bits 16-31 = reserved required flags
 ```
 
-If an implementation sees an unknown required flag, it must reject the package before import or merge.
+Current compiler behaviour (`container_flags` in `src/target/package_mfp/mod.rs`): the only flag the compiler ever sets is **bit 3 (pre-release)**, and it sets it exactly when the package `version` string contains a `-` (a semantic-version pre-release tag). Bits 0-2 are defined by the format but are **not currently emitted** — native LINK metadata is carried inside the binary representation payload rather than signalled by a container flag (see `native-bindings`), and debug/source-map metadata are not produced. The current reader does not act on the flags field.
+
+The reserved-required-flag rule remains normative for forward compatibility: if an implementation sees an unknown required flag (bits 16-31), it must reject the package before import or merge.
 
 Current compiler source of truth:
 
@@ -203,19 +214,25 @@ Current compiler source of truth:
 
 ## Container validation
 
-A reader must reject an `.mfp` package when:
+The current container reader (`mfp_binary_repr_payload` in `src/binary_repr.rs`, mirrored by the `MfpHeader` reader in `src/main.rs`) rejects an `.mfp` package when:
 
+* The file is shorter than the 26-byte fixed prefix. The current compiler reports this as `package is too small to be a valid .mfp package`.
 * `magic` does not match. The current compiler reports this as `package does not have the MFP package magic`.
-* `containerMajor` is unsupported. The current compiler reports this as `unsupported MFP container major version <n>`.
-* `binaryReprMajor` is unsupported. The package Binary Representation format is now at major version `2`; this is a **clean break** from the old flat opcode payload (major `1`). A reader rejects any package that predates the structured Binary Representation format. The current compiler reports this as `unsupported MFPC major version <n> (expected 2); this package predates the structured Binary Representation format and must be rebuilt`.
+* `containerMajor` is not `1`. The current compiler reports this as `unsupported MFP container major version <n>`.
 * `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
 * `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`.
-* The signature fails verification under the selected trust policy.
-* Any string length exceeds the implementation limit.
-* `binaryReprLength` does not exactly match the remaining byte count. The current compiler reports this as `invalid .mfp binary representation length`.
-* There are trailing bytes after `packageBinaryRepr`.
-* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`.
-* The binary representation manifest package name, ident, version, identKey, identFingerprint, or signingFingerprint do not match the header name, ident, version, identKey, identFingerprint, or signingFingerprint.
+* The declared signature length runs past the end of the file. The current compiler reports this as `truncated .mfp signature`.
+* `binaryReprLength` does not exactly match the remaining byte count, or there are trailing bytes after `packageBinaryRepr`. The current compiler reports both as `invalid .mfp binary representation length`.
+* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`. The identity comparison covers `name`, `ident`, `version`, `identKey`, `identFingerprint`, and `signingFingerprint` (`validate_container_manifest_identity`).
+
+The MFPC payload's own `bcMajor` (which must be `2`) is checked separately when the payload is parsed (`read_binary_repr_package`), reported as `unsupported MFPC major version <n> (expected 2); this package predates the structured Binary Representation format and must be rebuilt`. This is a **clean break** from the old flat opcode payload (`bcMajor = 1`), which is rejected outright.
+
+What the container reader does **not** do:
+
+* It does **not** verify the cryptographic signature. Signature/trust-policy verification is performed by the package manager layer (`mfb_repository::crypto`) at install/resolve time, not by the binary-representation reader at import time. `package_content_hash` and `build_signed_package_bytes` in `src/target/package_mfp/mod.rs` produce and cover the signature; the import-time reader treats the signature bytes only as a region to skip over.
+* It does **not** validate the container header `binaryReprMajor`/`binaryReprMinor` fields.
+
+The `MfpHeader` reader in `src/main.rs` additionally enforces the recommended string-length limits below while reading the header strings; the binary-representation reader path does not re-check them.
 
 Recommended limits:
 

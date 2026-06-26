@@ -27,8 +27,64 @@ pts = collections::append(pts, v)               ' in-place append on the mutable
 - Containers own their contents. Adding a value to a collection stores an owned value in the collection, never a borrowed reference to an external binding. The one exception is a resource handle: a `List` element or `Map` value may hold a **borrow** of a resource (a copy of the handle pointer). The resource itself is owned by a *scope*, not by the collection; the collection closes nothing (§15.6).
 - Immutability is deep for the contained value graph. A `LET` collection does not allow mutation of its elements through the collection, and no element can be observed as shared mutable state through another collection or binding.
 
-Built-in collection helpers include the global `len`, plus the `collections` package functions `collections::get`, `collections::getOr`, `collections::find`, `collections::mid`, `collections::replace`, `collections::set`, `collections::append`, `collections::prepend`, `collections::insert`, `collections::removeAt`, `collections::removeKey`, `collections::keys`, `collections::values`, `collections::hasKey`, `collections::contains`, `collections::forEach`, `collections::transform`, `collections::filter`, `collections::reduce`, and `collections::sum`.
+The global `len` is always available. Every other helper lives in the
+`collections` package and requires `IMPORT collections` (a built-in package, so
+no manifest dependency is needed). The package members fall into two
+implementation groups (`src/builtins/collections.rs`).
 
-The native collection memory layout is specified in `specifications/memory_layouts.md`.
+**Native members** (`NATIVE_MEMBERS`) — code-generated list/map primitives whose
+IR target is dequalified back to the bare native name:
+`collections::get`, `collections::getOr`, `collections::set`,
+`collections::append`, `collections::prepend`, `collections::insert`,
+`collections::removeAt`, `collections::removeKey`, `collections::keys`,
+`collections::values`, `collections::hasKey`, `collections::contains`,
+`collections::forEach`, `collections::transform`, `collections::filter`,
+`collections::reduce`, `collections::sum`, `collections::find`,
+`collections::mid`, `collections::replace`. The `find`/`mid`/`replace` members
+here are the **List** overloads only; their `String` overloads live in
+`strings::`.
+
+**Source generics** (`FUNCTIONS`) — generic MFBASIC functions defined in
+`src/builtins/collections_package.mfb` and injected when the package is imported.
+A call `collections::sort(x)` is rewritten to `__collections_sort(x)` during
+monomorphization and instantiated like any generic function:
+`collections::sort`, `collections::sortBy`, `collections::take`,
+`collections::drop`, `collections::reduceRight`, `collections::any`,
+`collections::all`, `collections::findIndex`, `collections::findLastIndex`,
+`collections::groupBy`, `collections::mapValues`, `collections::flatten`,
+`collections::zip`, `collections::chunks`, `collections::window`,
+`collections::distinct`, `collections::merge`, `collections::partition`.
+
+Comparability/orderability constraints (`src/typecheck.rs`):
+
+- `collections::contains`, `collections::find`, and `collections::replace`
+  require a **comparable** element type, enforced by
+  `check_general_builtin_comparability`.
+- A `Map OF K TO V` key type `K` must be comparable, enforced by
+  `require_comparable_type` ("Map key type", `src/typecheck.rs`); a resource
+  handle may never be a `Map` key.
+- A type is comparable when it is `Boolean`, `Byte`, `Error`, `ErrorLoc`,
+  `Fixed`, `Float`, `Integer`, `Nothing`, `String`, an `ENUM`, or a `TYPE`
+  record whose fields are all comparable. `List`, `Map`, function values,
+  `Result`, resources, threads, and `UNION` types are not comparable
+  (`is_comparable_with_seen`).
+- `collections::sort`/`collections::sortBy` order their elements/keys with the
+  `<` operator, so the element (or key) type must be orderable; `distinct`
+  relies on `contains` and therefore requires a comparable element type.
+
+`collections::zip` produces a `List OF Pair OF A, B`, and
+`collections::partition` produces a `Partition OF T`. `Pair OF A, B` (fields
+`first`, `second`) and `Partition OF T` (fields `matched`, `unmatched`) are
+compiler-owned generic record templates in the always-in-scope builtin prelude
+(`src/ast.rs`, `builtin_prelude_file`); they are constructed and field-accessed
+like ordinary records. `MapEntry OF K TO V` (fields `key`, `value`) is the
+compiler-owned record yielded when iterating a `Map` with `FOR EACH`.
+
+Three §6.4 helpers (`toMap`, `zipWith`, `filterEntries`) are **not yet
+exported** because they need runtime capabilities the implementation lacks today
+(`src/builtins/collections.rs`).
+
+The native collection memory layout is specified in
+`specifications/memory_layouts.md`.
 
 `FOR EACH` over `List OF T` visits items left to right. `FOR EACH` over `Map OF K TO V` visits `MapEntry OF K TO V` values in the map's implementation-defined stable iteration order.

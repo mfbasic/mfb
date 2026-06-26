@@ -109,21 +109,13 @@ IR
 ABI_INDEX
 ```
 
-Optional sections are:
-
-```text
-NATIVE_LINK_TABLE
-RESOURCE_TABLE
-DEBUG_INFO
-SOURCE_MAP
-AUDIT_INFO
-```
+Optional sections actually emitted are `RESOURCE_TABLE` (id 11) and `DOC` (id 17). `GLOBAL_TABLE` is always emitted by the producer but tolerated as absent by the reader. Section ids `10` (`NATIVE_LINK_TABLE`), `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are reserved by the format but **not** emitted or read by the current compiler. Native `LINK` metadata is carried as a trailer inside the `IR` payload, not in a `NATIVE_LINK_TABLE` section.
 
 The binary representation is **structured Binary Representation**: a faithful, versioned serialization of the compiler's IR. It contains no machine code, native addresses, host pointers, platform-specific object layouts, opcodes, registers, or jumps. Control flow is nested (regions with explicit ends) and expressions are trees. Function bodies live in the `IR` section (id `16`, payload prefixed `"MFBR"` + `u16` version); the `FUNCTION_TABLE` describes functions and records zero-length code regions. Constants, strings, types, imports, exports, globals, functions, native bindings, and resources are referenced from the IR by table indexes.
 
 Every function returns `Result` at the IR level. Source-level auto-unwrapping, inline `TRAP`, and direct `MATCH` on a call are all encoded as ordinary IR nodes (`CallResult`, `ResultIsOk`/`ResultValue`/`ResultError`, `Trap`, `Match`). A consumer decodes the Binary Representation back to IR, applies the package identity prefix, merges it into the project, and lowers everything through the single `IR → NIR → native` path.
 
-The verifier checks the decoded IR: section bounds, type references, type-correctness, define-before-use, resource ownership/linearity, exhaustive `MATCH`, single bottom trap, declared return/effect agreement, native binding metadata, and package signature validity before the package may be imported or merged.
+At **import time** the reader checks: container magic/version/identity, MFPC `bcMajor == 2`, section bounds, presence of required sections, exact table parsing, and `ABI_INDEX` agreement with `EXPORT_TABLE`/`IMPORT_TABLE`. Type-correctness, define-before-use, resource ownership/linearity, exhaustive `MATCH`, and declared return/effect agreement are **compile-time** guarantees established when the package source was built, not re-checked on import. The cryptographic signature is verified by the package manager, not the binary-representation reader.
 
 ```
 

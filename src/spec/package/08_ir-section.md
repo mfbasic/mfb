@@ -17,9 +17,26 @@ Recommended `magic`:
 M  F  B  R
 ```
 
-The Binary Representation `version` is currently `1`. A reader rejects any payload whose magic is not `MFBR` or whose version it does not support (the package binary representation container is separately versioned at MFPC major `2`).
+The Binary Representation `version` is currently **`2`** (`BINARY_REPR_VERSION` in `src/ir.rs`). Version 2 added per-node source locations (`loc` on `Call`/`CallResult`/`Binary`/`Unary`/`For`) and a per-function source `file`, backing read-only `Error.source`/`ErrorLoc`. `decode_binary_repr` rejects any payload whose first four bytes are not `MFBR`, or whose version is not exactly `2`. (This is independent of the MFPC container version, which is major `2`.)
 
-The payload is self-contained: integers are little-endian, strings are inline length-prefixed (`u32` byte length followed by UTF-8 bytes). The in-memory IR is free to change behind this format; the encoding is the stable contract, and `IR → Binary Representation → IR` is an identity round-trip across every node kind.
+The payload is self-contained: integers are little-endian, strings are inline length-prefixed (`u32` byte length followed by UTF-8 bytes). Crucially, the payload does **not** reference the container's `STRING_POOL` or other interned tables — every name and type inside the `IrProject` is written inline, so a function body is fully reconstructable from this payload alone. The container's metadata sections (type table, const pool, function table, exports, ABI, …) are a **parallel, derived** view used for fast scanning, ABI compatibility, and identity checks; the consumer reconstructs executable IR from the `MFBR` payload, not from those tables. The in-memory IR is free to change behind this format; the encoding is the stable contract, and `IR → Binary Representation → IR` is an identity round-trip across every node kind.
+
+## Payload structure (`IrProject`)
+
+`encode_project`/`decode_project` lay the project out as:
+
+```text
+name            str
+entry           u8 present-flag, then if present: name str, returns str, acceptsArgs bool
+bindings        vec<Binding>     (top-level LET/MUT, with initializer values)
+types           vec<Type>
+functions       vec<Function>    (each with its full structured body)
+--- optional native LINK trailer (see native-bindings) ---
+linkFunctions   vec<IrLinkFunction>
+linkAliases     vec<(alias str, target str)>
+```
+
+`vec<T>` is a `u32` count followed by that many elements. The native `LINK` trailer is written only when the project has `LINK` functions or re-export aliases; a reader treats end-of-buffer after `functions` as "no trailer" (`at_end`), keeping `LINK`-free packages byte-identical to the pre-feature encoding.
 
 ## Structured control flow (no jumps)
 
@@ -39,7 +56,19 @@ Structured exit out of these regions is itself encoded as leaf ops rather than j
 
 ## Statements / ops
 
-`IrOp` is encoded faithfully, one tag byte per kind. The kinds are `Bind`, `Assign`, `AssignGlobal`, `Return`, `Fail`, `Eval`, the structured control-flow regions above (`If`, `Match`, `While`, `For`, `DoUntil`, `ForEach`, `Trap`), and the structured exit ops `ExitLoop`, `ContinueLoop`, and `ExitProgram`. Source-level `PROPAGATE` and `RECOVER` are lowered before serialization (`PROPAGATE` becomes `Fail`; `RECOVER` is lowered into ordinary ops), so they are not distinct Binary Representation ops. There are no resource ops: resource lifetime is implicit (see “Resource regions” below). The internal `Result`/`Ok` forms remain implementation-only — they appear in IR and therefore in Binary Representation, but are never user-visible.
+`IrOp` is encoded faithfully, one tag byte per kind (`encode_op`). The current tag assignment is:
+
+```text
+0  = Bind            1  = Assign          2  = AssignGlobal
+3  = Return          4  = Fail            5  = Eval
+6  = If              7  = Match           8  = While (conditional)
+9  = ForEach        10  = Trap           11  = ExitLoop
+12  = ContinueLoop  13  = ExitProgram    14  = For
+15  = DoUntil       16  = While (unconditional / loop forever)
+17  = StateAssign    (thread resource state assignment)
+```
+
+Source-level `PROPAGATE` and `RECOVER` are lowered before serialization (`PROPAGATE` becomes `Fail`; `RECOVER` is lowered into ordinary ops), so they are not distinct Binary Representation ops. There are no `RESOURCE_ENTER`/`LEAVE`/`CLOSE` ops: resource lifetime is implicit (see “Resource regions” below). The internal `Result`/`Ok` forms remain implementation-only — they appear in IR and therefore in Binary Representation, but are never user-visible.
 
 ## Expressions stay nested
 
@@ -47,10 +76,10 @@ Structured exit out of these regions is itself encoded as leaf ops rather than j
 
 ## Tables and references
 
-The Binary Representation rides alongside the container's interned tables (strings, types, constants, globals, imports, exports). IR nodes that reference declarations resolve against those tables. Concrete type instantiations (such as `List OF Integer` or `Result OF Out`) appear in the `TYPE_TABLE`; the Binary Representation references them.
+Unlike the container metadata sections, the `MFBR` payload does **not** reference declarations by index into the container's interned tables. Names and types inside IR nodes are written inline as strings (type references are canonical type-name strings such as `"List OF Integer"` or `"Result OF Out"`, the same canonical names the `TYPE_TABLE` interns). The `TYPE_TABLE`, `CONST_POOL`, and friends are derived from the same IR for scanning and ABI purposes, but the payload itself carries everything needed to rebuild the IR standalone. This is why `IR → Binary Representation → IR` round-trips without consulting any other section.
 
 ## Consumption
 
 A consumer **decodes** each imported package's `IR` section back into IR functions, applies the package identity prefix (`<id>.package.symbol`) as a link-time rename of every definition and reference, merges the package's types/constants/globals into the project, and lowers **everything** through the single `IR → NIR → native` path. There is no separate package binary representation→native bridge: package functions get every language feature — control flow, function-level and inline `TRAP`, all built-ins, inline-`TRAP`-on-built-in — for free, because they ride the same codegen as the executable's own code.
 
-`<id>` is a **deterministic content hash** of the package's identity (its header `name`, `version`, and `ident`) and its binary representation payload — never a per-build random value. Because it is content-addressed, the same package reached through two dependency paths produces the same `<id>` and de-duplicates to a single merged copy, while two distinct packages that happen to share a name receive different `<id>`s and stay separate instead of colliding. The prefix is applied by the *consumer* at merge time as a consistent rename of the package's definitions **and** of every reference to them (from the executable and from other packages).
+`<id>` is a **deterministic content hash** — never a per-build random value. Concretely (`package_identity_id`): it is the first **8 bytes of SHA-256**, rendered as **16 lowercase hex characters**, hashed over the package identity (`name`, `version`, `ident`, each prefixed by its `u64` length) followed by the inner `MFBR` payload bytes. Because it is content-addressed, the same package reached through two dependency paths produces the same `<id>` and de-duplicates to a single merged copy, while two distinct packages that happen to share a name receive different `<id>`s and stay separate instead of colliding. The prefix is applied by the *consumer* at merge time as a consistent rename of the package's definitions **and** of every reference to them (from the executable and from other packages).

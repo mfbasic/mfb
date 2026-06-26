@@ -373,7 +373,7 @@ Defaultability is recursive and finite: nested lists, maps, and records are defa
 
 ## 4.11 Comparable and Orderable Types
 
-Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. `List`, `Map`, unions, functions, lambdas, threads, and resource handles are not comparable.
+Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. The built-in `Error` and `ErrorLoc` record shapes are comparable (their fields are all comparable). `List`, `Map`, unions, functions, lambdas, threads, resource handles, and the internal fallible-result type are not comparable. Record comparability is computed structurally with a recursion guard: a record that reaches itself only through non-comparable members (a cycle through `List`/`Map`/`UNION`) is not comparable, and a resource-wrapped `TYPE` is never comparable.
 
 `Map` keys must be comparable. List helpers such as `find`, `contains`, and `replace` require comparable element types.
 

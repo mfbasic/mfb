@@ -26,16 +26,26 @@ Precedence, highest to lowest:
 | 11         | `OR`, `XOR` |
 | 12         | Pipeline: `|>` |
 
-`XOR` has the same precedence as `OR` and evaluates both operands.
+`XOR` has the same precedence as `OR` and evaluates both operands. Both `XOR` and `OR` are parsed at the same level (one `parse_or` loop), left-associative.
 
 Operator edge cases:
 
+- All binary operators except `^` are **left-associative**: each level is a `while`/loop in the recursive-descent parser, so `a - b - c` is `(a - b) - c`.
+- Comparison operators do **not** chain specially. `a < b < c` parses left-associatively as `(a < b) < c`; since `a < b` is `Boolean` and `Boolean` is not orderable, this is normally a type error (`TYPE_BINARY_OPERATOR_MISMATCH`). There is no Python-style chained-comparison sugar.
 - `&` has lower precedence than `+` and `-`, so `a & b + c` parses as `a & (b + c)`.
-- `^` is right-associative: `2 ^ 3 ^ 2` parses as `2 ^ (3 ^ 2)`.
-- Unary `-` has higher precedence than `^` in MFBASIC, so `-2^2` parses as `(-2) ^ 2`. Write `-(2 ^ 2)` when the negation should apply after exponentiation.
+- `&` requires both operands to already be `String`; there is no implicit `toString` coercion. `1 & "x"` is a type error — call `toString` explicitly.
+- `^` is right-associative: `2 ^ 3 ^ 2` parses as `2 ^ (3 ^ 2)`. It is the only right-associative operator (`parse_power` recurses on its right operand).
+- Unary `-` has higher precedence than `^` in MFBASIC, so `-2^2` parses as `(-2) ^ 2`. Write `-(2 ^ 2)` when the negation should apply after exponentiation. (`parse_power`'s left operand is `parse_unary`, so the `-` binds first.)
+- `AND`/`OR`/`XOR` require `Boolean` operands; there is no truthiness coercion from numbers or other types.
+- `NOT` is a prefix unary operator that binds tighter than `AND`/`OR`/`XOR` but looser than the comparison operators, so `NOT a = b` parses as `NOT (a = b)`.
 - Checked numeric failures from operators are ordinary failures and therefore auto-propagate unless handled by a `TRAP`.
-- `/` and `MOD` use the numeric promotion table in §4.1. `DIV` always returns `Float`.
-- `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder.
+- `/`, `MOD`, and `^` use the numeric promotion table in §4.1. `DIV` always returns `Float`.
+- `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`/`Fixed` `MOD` lowers through the platform `fmod` runtime call.
+
+Pipeline (`|>`) notes:
+
+- The right-hand side of each `|>` **must** contain the `_` placeholder, or the parser reports `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING`. The placeholder is the literal identifier `_`.
+- `|>` is the lowest-precedence operator and is left-associative; `a |> f(_) |> g(_)` is `g(f(a))`. It is purely syntactic sugar: the parser substitutes the left expression into the `_` placeholder at parse time, producing an ordinary call AST with no pipeline node remaining.
 
 ```basic
 LET result = nums |> collections::filter(_, isEven) |> collections::transform(_, square) |> collections::sum(_)

@@ -32,7 +32,16 @@ it does not choose it:
 
 Rules:
 
-- **No implicit declaration.** Using an undeclared name is a compile error.
+- **No implicit declaration.** Using an undeclared name is a compile error
+  (`SYMBOL_UNKNOWN_IDENTIFIER`).
+- **Initialization.** A binding must have a type annotation or an initializer;
+  neither is `TYPE_BINDING_REQUIRES_TYPE_OR_VALUE`. An immutable `LET` **must**
+  have an initializer — `LET x AS T` with no value is `TYPE_LET_REQUIRES_VALUE`.
+  A `MUT` *may* omit its initializer, but only when its declared type has a
+  defined default value: `MUT x AS T` (no value) starts at `T`'s default, and a
+  non-defaultable `T` is `TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE` (typecheck
+  `is_defaultable_type`). `RES` resources are not defaultable and must be bound
+  to a producing expression.
 - **Lexical, hierarchical scope.** Inner blocks may read and shadow bindings from enclosing scopes.
 - **Outer `MUT` reassignment.** An inner block may reassign an enclosing `MUT` (same live scope, same cell).
 - **Collection representation follows the binding.** A collection bound with `LET` is an immutable, fixed snapshot. A collection bound with `MUT` is a locally mutable, growable buffer while it remains in that live binding. Binding a `MUT` collection to `LET`, such as `LET snap = pts`, creates an immutable snapshot; if `pts` is used afterward the snapshot is an independent copy, and if `pts` is not used afterward the compiler may freeze and move the buffer.

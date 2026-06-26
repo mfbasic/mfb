@@ -2,156 +2,80 @@
 
 A package containing `LINK` declarations is still a normal `.mfp` package. The application imports it normally. The binding metadata lives inside the signed binary representation payload.
 
-The existing native interface separates MFBASIC-facing wrapper signatures from C-facing ABI signatures, with `CString`, `CPtr`, `OUT`, `REF`, `SUCCESS_ON`, and `ERROR_ON` rules.  The `.mfp` stores those rules so importers do not repeat the `LINK`.
+The native interface separates MFBASIC-facing wrapper signatures from C-facing ABI signatures, with `CString`/`CPtr`/`OUT`/`SUCCESS_ON`/`ERROR_ON`-style rules. The `.mfp` stores those rules so importers do not repeat the `LINK`.
 
-## `NATIVE_LINK_TABLE`
+## There is no `NATIVE_LINK_TABLE` section
 
-```text
-nativeLibraryCount   u32
-NativeLibrary[nativeLibraryCount]
+Section id `10` (`NATIVE_LINK_TABLE`) is **reserved but unused**. The current compiler does not emit a separate native-link section, and there is no `NativeLibrary`/`NativeSymbol`/`NativeAbi` table in the format. Instead, native `LINK` metadata rides as an **optional append-only trailer inside the `IR` (`MFBR`) payload**, after the `functions` vector (see `binary-representation` §IR payload structure). The trailer is present only when the project has `LINK` functions or re-export aliases, so `LINK`-free packages stay byte-identical to the pre-feature encoding.
 
-nativeSymbolCount    u32
-NativeSymbol[nativeSymbolCount]
-
-nativeAbiCount       u32
-NativeAbi[nativeAbiCount]
-```
-
-## Native library entry
+The trailer is two vectors:
 
 ```text
-namespaceName        stringId
-libraryName          stringId
-versionConstraint    stringId
-flags                u32
+linkFunctions   vec<IrLinkFunction>
+linkAliases     vec<(alias str, target str)>
 ```
 
-Flags:
+`vec<T>` is a `u32` count followed by that many elements; `str` is a `u32` byte length followed by UTF-8 bytes; `bool` is a single `0`/`1` byte. The consumer decodes these into the merged project so it can rebuild the marshaling thunks and the re-export routing.
+
+## `IrLinkFunction`
+
+Each `IrLinkFunction` (`encode_link_function` in `src/ir.rs`) is encoded in this exact field order:
 
 ```text
-bit 0 = required
-bit 1 = system library allowed
-bit 2 = vendored library allowed
-bit 3 = current-directory lookup forbidden
-bit 4 = thread-safe
+alias            str          MFBASIC-facing wrapper name as exported
+name             str          internal lowered name
+library          str          library/namespace this symbol is linked from
+symbol           str          C symbol name to bind
+params           vec<(name str, type str)>     MFBASIC-facing parameters
+returnType       str          MFBASIC-facing return type
+returnResource   bool         whether the return is an owned resource handle
+abiSlots         vec<(name str, ctype str, isOut bool)>   C-facing ABI slots
+abiReturnName    str          name of the C-facing return slot
+abiReturnCtype   str          C type of the return slot
+consts           vec<(slot str, value str)>    fixed constant arguments
+successOn        optional IrLinkExpr           SUCCESS_ON predicate
+result           optional IrLinkExpr           result/ERROR_ON mapping expression
+free             optional (slot str, symbol str)  paired free/close for a returned resource
 ```
 
-Current-directory lookup should be forbidden by default.
+`optional X` is a `u8` present-flag (`0`/`1`) followed by the encoding of `X` when present. Constant argument `value`s are serialized as their string form. C types (`ctype`, `abiReturnCtype`) are stored as **strings** (e.g. the source-level C type spelling), not as a numeric ABI-type enum — there is no `CInt8`/`CInt16`/… code table in the format. Likewise the `OUT`/value distinction for each slot is the per-slot `isOut` boolean, not a numeric direction enum.
 
-## Native symbol entry
+`free` records the paired deallocation/close symbol and the slot it applies to, so a returned native resource can be released by the generated lexical drop.
+
+## `IrLinkExpr`
+
+`successOn` and `result` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node:
 
 ```text
-libraryId            u32
-symbolName           stringId
-wrapperFunctionId    functionId
-abiId                u32
-returnRuleKind       u16
-returnRuleValue      i64
-flags                u32
+0 = Var                       the call's raw return value
+1 = Int(value str)            an integer literal (serialized as a string)
+2 = Compare { op str, lhs, rhs }
+3 = And(lhs, rhs)
+4 = Or(lhs, rhs)
+5 = Not(inner)
 ```
 
-Return rule kinds:
+These encode the `SUCCESS_ON`/`ERROR_ON` conditions and the success/error mapping in a portable form so the importer can regenerate the same success-test and result construction the original `LINK` block specified.
 
-```text
-0 = direct return
-1 = SUCCESS_ON
-2 = ERROR_ON
-```
+## Whitelisting and safety
 
-## Native ABI entry
-
-```text
-paramCount           u32
-
-repeated paramCount times:
-  direction          u16
-  nativeType         u16
-  sourceType         typeId
-
-returnNativeType     u16
-returnSourceType     typeId
-returnOutCount       u32
-```
-
-Directions:
-
-```text
-0 = value
-1 = REF
-2 = OUT
-3 = resource CPtr
-```
-
-Native ABI types:
-
-```text
-1  = CInt8
-2  = CInt16
-3  = CInt32
-4  = CInt64
-5  = CUInt8
-6  = CUInt16
-7  = CUInt32
-8  = CUInt64
-9  = CBool
-10 = CFloat32
-11 = CFloat64
-12 = CIntPtr
-13 = CUIntPtr
-14 = CSize
-15 = CString
-16 = CPtr
-17 = CVoid
-```
-
-Rules:
-
+* Native symbols are whitelisted by this trailer. A package cannot perform dynamic native symbol lookup; only the `symbol`/`library` pairs recorded here can be bound.
 * `CString` conversion rejects embedded NUL.
-* `CPtr` may appear only inside native binding metadata.
-* `CPtr` must not appear in ordinary exported MFBASIC function signatures.
-* `OUT` and `REF` storage lives only for the duration of the call unless explicitly converted into an owned MFBASIC value or resource.
-* Native symbols are whitelisted by this table. MFBASIC binary representation cannot perform dynamic native symbol lookup.
+* `CPtr`-style raw pointers may appear only inside native binding metadata, never in ordinary exported MFBASIC function signatures.
+* `OUT` storage lives only for the duration of the call unless explicitly converted into an owned MFBASIC value or resource.
 
-## Built-in native runtime helpers
-
-Executable native backends provide stable helper symbols for compiler-owned built-ins. These helpers are not user-callable `LINK` symbols and do not appear in source packages as dependencies. The arch emitter requests symbolic runtime imports; the OS layer supplies or links the implementation.
-
-```text
-mfb_io_open(path_ptr, path_len, mode_id) -> err_code, handle
-mfb_io_close(handle) -> err_code
-```
-
-Runtime helper ABI:
-
-```text
-mfb_io_open
-  input:
-    x0 = UTF-8 path pointer
-    x1 = path byte length
-    x2 = portable MFB open mode id
-  output:
-    x0 = MFB error code, 0 on success
-    x1 = opaque signed handle on success, unspecified on error
-
-mfb_io_close
-  input:
-    x0 = opaque signed handle
-  output:
-    x0 = MFB error code, 0 on success
-```
-
-The calling convention is the target platform ABI. Caller-saved and callee-saved registers follow that ABI. Helpers must not unwind or throw exceptions across the MFB frame. `path_ptr` remains owned by the MFB caller/runtime and no heap ownership transfers to the helper. Embedded NUL bytes are rejected before calling OS APIs. Portable open mode IDs are compiler-defined and map to source modes such as read, write, readWrite, and append; OS backends translate them to platform-specific flags.
-
-On macOS AArch64, the OS layer may implement these helpers by linking `/usr/lib/libSystem.B.dylib` and importing `_open`, `_close`, and `___error`, or by emitting equivalent OS-specific helper code. Linux and Windows backends must implement the same helper names and return convention while mapping to libc/syscalls or Win32 handles internally.
+> Note: runtime helper symbols for compiler-owned built-ins (arena allocation, I/O, etc.) are an architecture/runtime concern provided by the native backend and the OS layer — they are **not** part of the `.mfp` package format and are not described by package metadata. They are documented with the code generator and runtime, not here.
 
 ## `RESOURCE_TABLE`
+
+Resource types — both the built-in standard resources (`File`, `Socket`, `Listener`) and native `LINK` resources — are recorded in the optional `RESOURCE_TABLE` section (id `11`). A package that has any resource type emits it; a package with none omits it.
 
 ```text
 resourceCount       u32
 
 repeated resourceCount times:
   resourceType      typeId
-  closeFunctionId   functionId
+  closeFunctionId   u32
   flags             u32
 ```
 
@@ -164,4 +88,11 @@ bit 2 = sendable to thread
 bit 3 = close may fail
 ```
 
-Default rule: resources are not sendable to threads.
+`closeFunctionId` is interpreted by flags: for a **native** `LINK` resource (`native` set, `standard` clear) it is the **string id** of the close op's name; for a built-in **standard** resource (`native` and `standard` both set) it is a sentinel function id (e.g. the built-in fs/net close ids). This is exactly how `read_resource_table`'s decode distinguishes the two.
+
+The current compiler's flag assignment:
+
+* Standard built-in resources (`File`, `Socket`, `Listener`) get `native | standard | close-may-fail`, plus `sendable` when the registry marks the type sendable (`standard_resource_flags`).
+* A native `LINK` resource gets `native`, plus `sendable`/`close-may-fail` as declared by the `LINK` block (`add_native`).
+
+Default rule: resources are not sendable to threads unless explicitly marked sendable.

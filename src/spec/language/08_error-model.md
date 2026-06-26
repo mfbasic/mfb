@@ -99,6 +99,21 @@ END TRAP
 
 `RETURN v` **always** means function success with the value `v`, whether it appears in the body or in the `TRAP`. It does not resume at the failed expression. `RETURN` is forbidden in a `SUB`; use `EXIT SUB` for a value-less early success exit. A `SUB` with no `TRAP` may fall through to `END SUB`, which succeeds. `RETURN` never produces an error. `FAIL` and `PROPAGATE` produce errors.
 
+## 8.5a `Error` and `ErrorLoc` record shapes
+
+The trap payload is always the built-in read-only record `Error`:
+
+| Type | Field | Field type |
+|------|-------|------------|
+| `Error` | `code` | `Integer` |
+| `Error` | `message` | `String` |
+| `Error` | `source` | `ErrorLoc` |
+| `ErrorLoc` | `filename` | `String` |
+| `ErrorLoc` | `line` | `Integer` |
+| `ErrorLoc` | `char` | `Integer` |
+
+Both are read-only: an `Error`/`ErrorLoc` cannot be user-constructed or `WITH`-updated, and accessing any other field is a compile error (`TYPE_UNKNOWN_FIELD`). `Error.source` is stamped at the origin where the error is created (by `error(...)`, a trapping built-in, or a failing call) and is **not** rewritten as the error propagates, so it always points at the original failure site. `error(code AS Integer, message AS String) AS Error` is the only way to build an `Error` in source.
+
 ## 8.6 Rules
 
 1. At most one function-level `TRAP` per function, at the bottom, after normal flow.

@@ -2,6 +2,7 @@
 
 ```basic
 IMPORT collections
+IMPORT fs
 IMPORT io
 IMPORT strings
 
@@ -39,24 +40,33 @@ END FUNC
 SUB main()
   LET pts   = loadPoints("data.csv")
   io::print("Loaded " & toString(len(pts)) & " points")
-  LET total = pts |> collections::transform(_, LAMBDA(p) -> p.x) |> collections::sum(_)
+  LET total = pts |> collections::transform(_, LAMBDA(p AS Vec3) -> p.x) |> collections::sum(_)
   io::print("Sum of x: " & toString(total))
-  RETURN
+  EXIT SUB
 
   TRAP(err)
     io::print("Fatal: " & err.message)   ' otherwise exits with err.code
-    RETURN
+    EXIT SUB
   END TRAP
 END SUB
 ```
 
-## 20.1 Package Layering Example
+Two details a compiler implementer should note from this example: a `SUB` ends
+with `EXIT SUB`, not `RETURN` (a `RETURN` inside a `SUB` is rejected as
+`SUB_RETURN_FORBIDDEN`); and a `LAMBDA` parameter must declare its type
+(`LAMBDA(p AS Vec3) -> ...`), since lambda parameter types are not inferred from
+the pipeline.
 
-Package layering lets one package define a larger closed domain from another package's union without subtyping or open dispatch.
+## 20.1 Union Layering Example
+
+Layering lets one `UNION` define a larger closed domain from an existing union
+with `INCLUDES`, without subtyping or open dispatch. The example below compiles
+and runs today as a single program: `ExtraShape` includes every member of
+`Shape` and adds `Triangle`, and a `MATCH` over `ExtraShape` must cover the whole
+merged set.
 
 ```basic
-' shape/shapes.mfb
-IMPORT math
+IMPORT io
 
 TYPE Circle
   radius AS Float
@@ -72,61 +82,48 @@ UNION Shape
   Rect
 END UNION
 
-EXPORT FUNC area(s AS Shape) AS Float
-  MATCH s
-    CASE Circle(c)
-      RETURN math::pi * c.radius * c.radius
-
-    CASE Rect(r)
-      RETURN r.w * r.h
-  END MATCH
-END FUNC
-```
-
-```basic
-' extraShape/shapes.mfb
-IMPORT math
-IMPORT shape
-
 TYPE Triangle
-  a AS Float
-  b AS Float
-  c AS Float
+  base AS Float
+  height AS Float
 END TYPE
 
-UNION ExtraShape INCLUDES shape::Shape
+UNION ExtraShape INCLUDES Shape
   Triangle
 END UNION
 
-EXPORT FUNC area(s AS ExtraShape) AS Float
+FUNC name(s AS ExtraShape) AS String
   MATCH s
-    CASE Triangle(t)
-      RETURN triangleArea(t.a, t.b, t.c)
+    CASE Circle(c)
+      RETURN "circle"
 
-    CASE ELSE
-      FAIL error(77050004, "shape member not handled")
+    CASE Rect(r)
+      RETURN "rect"
+
+    CASE Triangle(t)
+      RETURN "triangle"
   END MATCH
 END FUNC
 
-PRIVATE FUNC triangleArea(a AS Float, b AS Float, c AS Float) AS Float
-  LET p = (a + b + c) / 2.0
-  RETURN math::sqrt(p * (p - a) * (p - b) * (p - c))
-END FUNC
-```
-
-Users import the larger package when they want the larger domain:
-
-```basic
-IMPORT extraShape
-IMPORT io
-
 SUB main()
-  LET s AS extraShape::ExtraShape = extraShape::Circle[radius := 10.0]
-  LET t AS extraShape::ExtraShape = extraShape::Triangle[a := 3.0, b := 4.0, c := 5.0]
-
-  io::print(toString(extraShape::area(s)))
-  io::print(toString(extraShape::area(t)))
+  LET a AS ExtraShape = Circle[radius := 10.0]
+  LET b AS ExtraShape = Triangle[base := 3.0, height := 4.0]
+  io::print(name(a))
+  io::print(name(b))
 END SUB
 ```
 
-The resulting model is `extraShape = shape + extraShape additions`, but the type system remains closed and explicit: `shape::Shape` is not a base class, `ExtraShape` is not a subtype, there is no virtual dispatch, and no package can retroactively add member types to another package's union.
+The resulting model is `ExtraShape = Shape + ExtraShape additions`, but the type
+system remains closed and explicit: `Shape` is not a base class, `ExtraShape` is
+not a subtype, there is no virtual dispatch, and the included union is named
+explicitly — there is no retroactive extension of a union from outside its
+definition.
+
+> **Cross-package layering is not yet fully wired.** The design intent is that a
+> consumer can `IMPORT shape`, then construct and name another package's exported
+> `Shape`/`Circle` by qualified name (`shape::Circle[radius := 10.0]`,
+> `UNION ExtraShape INCLUDES shape::Shape`). Today the compiler registers the
+> *names* of an imported package's exported `TYPE`/`UNION` (so a `pkg::Type`
+> annotation resolves) but does not yet carry their field layout into the
+> consumer, so constructing an imported type by qualified name fails with
+> `TYPE_UNKNOWN_VALUE`. The single-package form above is the working subset of
+> this feature.

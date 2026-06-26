@@ -44,9 +44,9 @@ offset         u64
 length         u64
 ```
 
-`offset` is relative to the start of `packageBinaryRepr`, not the start of the file.
+`offset` is relative to the start of `packageBinaryRepr`, not the start of the file. Each section-table entry is exactly 24 bytes (`sectionId` u16, `sectionFlags` u16, `reserved` u32, `offset` u64, `length` u64), so the table occupies `16 + sectionCount * 24` bytes and section payloads follow.
 
-Sections may appear in any order, but section ranges must not overlap. Required sections must be present exactly once.
+Sections may appear in any order. The current reader (`read_binary_repr_package`) loads the section table into a map keyed by `sectionId`, validates that each entry's `offset + length` stays within the payload, and then looks sections up by id. Note the gap between the format's intent and the current reader: it does **not** reject overlapping section ranges, and on a duplicate `sectionId` the **last** entry wins rather than being rejected. Producers must still emit each section at most once.
 
 ## Section IDs
 
@@ -59,19 +59,38 @@ Sections may appear in any order, but section ranges must not overlap. Required 
 6  = EXPORT_TABLE
 7  = GLOBAL_TABLE
 8  = FUNCTION_TABLE
-10 = NATIVE_LINK_TABLE
+10 = NATIVE_LINK_TABLE   (reserved id; not emitted or read — see below)
 11 = RESOURCE_TABLE
-12 = DEBUG_INFO
-13 = SOURCE_MAP
-14 = AUDIT_INFO
+12 = DEBUG_INFO          (reserved id; not emitted or read)
+13 = SOURCE_MAP          (reserved id; not emitted or read)
+14 = AUDIT_INFO          (reserved id; not emitted or read)
 15 = ABI_INDEX
 16 = IR
 17 = DOC
 ```
 
-Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary Representation; the function table records zero-length code regions.
+Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are now carried by the `IR` section (id `16`) as structured Binary Representation; the function table records zero-length code regions (the `FUNCTION_TABLE` entry format, however, still carries the legacy register/cleanup fields — see `functions`).
 
-Required sections:
+Ids `10` (`NATIVE_LINK_TABLE`), `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are **reserved by the format but never produced or consumed by the current compiler** — there is no `SECTION_NATIVE_LINK_TABLE` (or debug/source-map/audit) constant in `src/binary_repr.rs`. In particular, native `LINK` metadata is **not** carried in a `NATIVE_LINK_TABLE` section; it rides as an optional trailer inside the `IR` payload (see `native-bindings`).
+
+Sections the current compiler actually emits, via `BinaryReprProject::encode`:
+
+```text
+MANIFEST          (id 1,  always)
+STRING_POOL       (id 2,  always)
+TYPE_TABLE        (id 3,  always)
+CONST_POOL        (id 4,  always)
+IMPORT_TABLE      (id 5,  always)
+EXPORT_TABLE      (id 6,  always)
+GLOBAL_TABLE      (id 7,  always)
+FUNCTION_TABLE    (id 8,  always)
+IR                (id 16, always)
+ABI_INDEX         (id 15, always)
+RESOURCE_TABLE    (id 11, only when the package has resource types)
+DOC               (id 17, only when the package has documentation)
+```
+
+Sections the current reader (`read_binary_repr_package`) **requires** — rejecting the package if absent:
 
 ```text
 MANIFEST
@@ -80,21 +99,17 @@ TYPE_TABLE
 CONST_POOL
 IMPORT_TABLE
 EXPORT_TABLE
-GLOBAL_TABLE
 FUNCTION_TABLE
 IR
 ABI_INDEX
 ```
 
-Optional sections:
+Sections the reader treats as **optional** (defaulting to empty when absent):
 
 ```text
-NATIVE_LINK_TABLE
+GLOBAL_TABLE      (always emitted by the producer, but tolerated if missing)
 RESOURCE_TABLE
-DEBUG_INFO
-SOURCE_MAP
-AUDIT_INFO
 DOC
 ```
 
-A package containing `LINK` declarations must include `NATIVE_LINK_TABLE`. If a package contains resource types, including native resources, it must include `RESOURCE_TABLE`. A package with at least one exported `DOC` block (or a `PACKAGE` doc block) includes the optional `DOC` section.
+A package that contains resource types — including native `LINK` resources — emits `RESOURCE_TABLE`. A package with at least one exported `DOC` block (or a `PACKAGE` doc block) emits the optional `DOC` section.

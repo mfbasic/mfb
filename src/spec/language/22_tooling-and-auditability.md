@@ -1,8 +1,8 @@
 # 22. Tooling And Auditability
 
-The compiler and language server must make fallible control flow visible even though ordinary calls auto-unwrap and auto-propagate.
+Because ordinary calls auto-unwrap and auto-propagate, fallible control flow is otherwise invisible in source. The toolchain and a future language server are designed to surface it. The `mfb audit` command (below) implements the build-time half of this; the editor/LSP half is a design target (see the "Not yet implemented" note).
 
-Required diagnostics and tooling metadata:
+Designed diagnostics and tooling metadata:
 
 - Mark every fallible call site in editor diagnostics or semantic tokens, including calls hidden inside expressions and argument lists.
 - Show each auto-propagation edge from a fallible call to the enclosing `TRAP` or function return.
@@ -13,20 +13,31 @@ Required diagnostics and tooling metadata:
 - Lint dense or security-sensitive code for confusing identifier similarity. In the current ASCII-only identifier set this includes case-only near-collisions; if non-ASCII identifiers are ever enabled, it also includes Unicode normalization, case-fold, script-mixing, and confusable-character collisions.
 - Include fallible-call, propagation, `TRAP`, permission, native-link, and resource-cleanup metadata in `.mfp` packages when exported APIs contain or expose those behaviors.
 
-The toolchain must provide an audit command:
+The toolchain provides an audit command:
 
 ```text
 mfb audit [--format text|json] [--locked] [path]
 ```
 
-`mfb audit` reports fallible call sites, auto-propagation paths, `TRAP` recovery paths, resource cleanup behavior, native links, package permissions, dependency versions, lockfile mismatches, and verifier status. `--locked` requires the resolved dependency graph to match `mfb.lock`.
+`mfb audit` reports fallible call sites, auto-propagation paths (`trap`/`return`),
+`TRAP` recovery classifications, resource cleanup behavior (including native
+resource types and may-fail close edges), package permissions (host
+capabilities), dependency versions, lockfile mismatches, and per-package verifier
+status. `--format` accepts `text` (default) or `json` (both `--format json` and
+`--format=json` forms); `[path]` defaults to `.`. `--locked` elevates a stale or
+missing lockfile to an error: the lockfile is `mfb.lock`, and the check compares
+the lockfile's recorded `projectHash` against a hash over the current
+`project.json` package requests (it does not yet compare the full resolved
+dependency graph — resolved versions, content hashes, or transitive deps). The
+exit code is `0` when clean, `1` on error-severity findings, `2` on a usage
+error, and `3` on unreadable or malformed input. (Native-link reporting is a
+declared section but the current collector leaves it empty; native `LINK`
+metadata surfaces instead through the native-resource entries.)
 
-Additional required tooling commands:
+The formatter command:
 
 ```text
 mfb fmt [--check] [--indent N] [path]
-mfb test [--filter pattern] [--locked] [path]
-mfb lsp
 ```
 
 `mfb fmt` applies the standard formatter to every `.mfb` file selected by the
@@ -41,6 +52,14 @@ contextual lowercase `return`. `--indent N` sets the indent width in spaces
 (default `2`). `--check` writes nothing and exits with a toolchain diagnostic
 when any file is not already formatted.
 
-`mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the `project.json` test source entries. A test succeeds when it completes without failing and fails when it produces an error. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
+The complete current command set is discoverable via `mfb help`: `init`,
+`init-pkg`, `repo register`/`repo auth`, `pkg add`/`pkg info`/`pkg verify`/`pkg
+publish`/`pkg doc`, `doc`, `fmt`, `build`, `audit`, `man`, and `spec`.
 
-`mfb lsp` starts the language-server protocol implementation. It must expose diagnostics for fallible calls, auto-propagation paths, `TRAP` recovery, resource moves/use-after-move, unsafe or invalid native links, permissions, package-version conflicts, lockfile mismatches, dense security-sensitive lines, and identifier near-collisions.
+> **Not yet implemented.** A dedicated test runner (`mfb test`) and a
+> language-server entry point (`mfb lsp`) are intended but absent from the
+> current CLI. The language-server diagnostics described above — marking every
+> fallible call site, propagation edge, `TRAP` recovery, resource
+> move/use-after-move, native-link, permission, version-conflict, lockfile, and
+> identifier-similarity finding — are the design target for an LSP and editor
+> tooling, not a feature the present toolchain ships.
