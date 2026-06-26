@@ -84,7 +84,8 @@ Three §6.4 helpers (`toMap`, `zipWith`, `filterEntries`) are **not yet
 exported** because they need runtime capabilities the implementation lacks today
 (`src/builtins/collections.rs`).
 
-The native collection memory layout is specified in
-`specifications/memory_layouts.md`.
+The native collection memory layout — one uniform contiguous header + lookup
+table + packed data region for both `List` and `Map` — is specified in the
+memory-layout specification, "Collections" (`src/spec/memory/05_collections.md`).
 
 `FOR EACH` over `List OF T` visits items left to right. `FOR EACH` over `Map OF K TO V` visits `MapEntry OF K TO V` values in the map's implementation-defined stable iteration order.

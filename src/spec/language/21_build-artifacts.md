@@ -44,4 +44,19 @@ The verifier must check:
 
 Verification failure rejects the package with a toolchain diagnostic. It is not recoverable by program `TRAP` code because no package code has started running.
 
+> **Current implementation status.** The list above is the verifier contract this
+> format is designed to support. The shipping decoder already verifies the package
+> container before decoding — it checks the `MFP` package magic and container
+> major version, the inner `MFPC` payload magic and major version, and that the
+> header identity matches the binary-representation manifest identity
+> (`src/binary_repr.rs`) — and rejects malformed input before any merge. The
+> structural IR verifier (`ir::verify_package` in `src/ir.rs`) currently enforces a
+> subset of the invariants: function names are non-empty and unique, type names are
+> unique, and every `MATCH` carries at least one case. The remaining invariants
+> (full IR-node type-correctness, definite-assignment, linear resource ownership,
+> drop/cleanup validity, return/effect agreement, and native-link manifest
+> validity) are the design target and are partly enforced earlier by the
+> resolver/type-checker on the project's own IR before encoding; they are not yet
+> all re-checked on a decoded third-party package.
+
 A future VM is not foreclosed: it would either interpret the structured, typed Binary Representation directly or lower it through the same `IR -> NIR -> native` path. The artifact contract remains: packages are portable `.mfp` Binary Representation packages; executables are native platform binaries.

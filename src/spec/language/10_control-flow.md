@@ -32,7 +32,8 @@ the innermost enclosing matching loop. `FOR EACH` uses `EXIT FOR` and
 `CONTINUE FOR`; both `DO ... LOOP UNTIL` and `DO WHILE ... LOOP` use `EXIT DO`
 and `CONTINUE DO`. The named kind may target an outer matching loop through
 inner loops of other kinds; it is a compile error when no matching loop encloses
-the statement.
+the statement (`EXIT_NO_MATCHING_LOOP` for `EXIT`, `CONTINUE_NO_MATCHING_LOOP`
+for `CONTINUE`).
 
 `EXIT SUB` leaves the enclosing `SUB` successfully with no value; it is a
 compile error inside a `FUNC` (`EXIT_SUB_IN_FUNC`). `EXIT FUNC` is always a

@@ -11,24 +11,34 @@ resourceDecl   = declVis "RESOURCE" ident "CLOSE" "BY" qualifiedName
                    [ "THREAD_SENDABLE" ] ;
 funcAlias      = declVis "FUNC" ident "AS" qualifiedName ;
 linkDecl       = "LINK" string "AS" ident { nativeFuncDecl } "END" "LINK" ;
-nativeFuncDecl = "FUNC" ident "(" [ params ] ")" [ "AS" [ "RES" ] type ]
+(* The native FUNC name may be a keyword (e.g. `step`, colliding with `STEP`);
+   the parser accepts a keyword token in this position. The native return has no
+   STATE clause. *)
+nativeFuncDecl = "FUNC" name "(" [ params ] ")" [ "AS" [ "RES" ] type ]
                    nativeFuncBody "END" "FUNC" ;
+name           = ident | keyword ;
 (* The body clauses may appear in any order; SYMBOL and ABI are required. There
    is no RETURN_OUT clause in the parser (multi-OUT is a deferred design, §17). *)
 nativeFuncBody = { "SYMBOL" string
-                 | "ABI" "(" [ abiSlotList ] ")" "AS" abiSlot
+                 | "ABI" "(" [ abiSlotList ] ")" "AS" abiReturn
                  | constPin
                  | nativeReturnRule
                  | "RESULT" expr
                  | nativeFree } ;
 constPin       = "CONST" ident "=" expr ;
 nativeReturnRule = "SUCCESS_ON" expr | "ERROR_ON" expr ;
+(* In a FREE block both clauses may appear in any order; the deallocator's
+   ABI return after `AS` is a bare nativeType (no slot name). *)
 nativeFree     = "FREE" ( ident | "return" )
-                   "SYMBOL" string
-                   "ABI" "(" abiSlot ")" "AS" nativeType
+                   { "SYMBOL" string
+                   | "ABI" "(" abiSlot ")" "AS" nativeType }
                    "END" "FREE" ;
 abiSlotList    = abiSlot { "," abiSlot } ;
 abiSlot        = ( ident | "return" ) [ "OUT" ] nativeType ;
+(* The native-return slot (after `AS`) accepts NO `OUT` modifier — just a slot
+   name and a C type. An `OUT` return is instead an `abiSlot` named `return`
+   inside the slot list. *)
+abiReturn      = ( ident | "return" ) nativeType ;
 (* The ABI slot type is lexed as a free identifier; only the names below are
    honored by the marshaling backend (§17). *)
 nativeType     = "CInt8" | "CInt16" | "CInt32" | "CInt64"
@@ -55,8 +65,10 @@ trap           = "TRAP" ident block "END" "TRAP" ;
 templateParams = "OF" ident { "," ident } ;
 params         = param { "," param } ;
 (* `RES` marks a resource parameter; `STATE T` attaches a typed STATE payload
-   to a resource binding (§15). *)
-param          = [ "RES" ] ident "AS" type [ "STATE" type ] [ "=" expr ] ;
+   to a resource binding (§15) and is parsed ONLY when `RES` is present. The
+   `AS type` clause is syntactically optional in the parser. *)
+param          = [ "RES" ] ident [ "AS" type ] [ "STATE" type ] [ "=" expr ] ;
+(* STATE in a returnType is likewise honored only when `RES` is present. *)
 returnType     = "AS" [ "RES" ] type [ "STATE" type ] ;
 type           = templateType | funcType | "(" type ")" | ident | qualifiedIdent ;
 typeList       = type { "," type } ;

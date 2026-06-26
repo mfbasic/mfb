@@ -112,14 +112,14 @@ The trap payload is always the built-in read-only record `Error`:
 | `ErrorLoc` | `line` | `Integer` |
 | `ErrorLoc` | `char` | `Integer` |
 
-Both are read-only: an `Error`/`ErrorLoc` cannot be user-constructed or `WITH`-updated, and accessing any other field is a compile error (`TYPE_UNKNOWN_FIELD`). `Error.source` is stamped at the origin where the error is created (by `error(...)`, a trapping built-in, or a failing call) and is **not** rewritten as the error propagates, so it always points at the original failure site. `error(code AS Integer, message AS String) AS Error` is the only way to build an `Error` in source.
+Both are read-only: an `Error`/`ErrorLoc` cannot be user-constructed (`TYPE_READ_ONLY_RECORD_CONSTRUCTOR`) or `WITH`-updated (`TYPE_READ_ONLY_RECORD_UPDATE`), and accessing any other field is a compile error (`TYPE_UNKNOWN_FIELD`). `Error.source` is stamped at the origin where the error is created (by `error(...)`, a trapping built-in, or a failing call) and is **not** rewritten as the error propagates, so it always points at the original failure site. `error(code AS Integer, message AS String) AS Error` is the only way to build an `Error` in source.
 
 ## 8.6 Rules
 
 1. At most one function-level `TRAP` per function, at the bottom, after normal flow.
 2. The trap payload is always `Error`; written `TRAP(err)` with no type. The same spelling is used for the inline and function-level forms.
 3. The function-level trap block is reachable only via `FAIL` (in the body), an auto-propagated failure from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
-4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error; use `FAIL e` instead.
+4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error (`TYPE_PROPAGATE_REQUIRES_TRAP`); use `FAIL e` instead. `FAIL`'s operand must be `Error`-typed (`TYPE_FAIL_REQUIRES_ERROR`).
 5. With no enclosing `TRAP`, any failure (from `FAIL` or an auto-propagated call) becomes the function's failure to its caller.
 6. Every function-level `TRAP` path must end in `RETURN` (for a `FUNC`), `EXIT SUB` (for a `SUB`), `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
 7. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
@@ -128,7 +128,7 @@ Both are read-only: an `Error`/`ErrorLoc` cannot be user-constructed or `WITH`-u
 10. An executable entry point's uncaught failure terminates the process as an unhandled runtime error: the process exits with code `255`, and stderr receives `Code: <err.code> Message: <err.message>`. Give the entry point a `TRAP` for graceful handling.
 11. An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement, and traps exactly one expression. The trapped expression must be a fallible call; trapping an expression that cannot fail is a compile error.
 12. Every path through an inline `TRAP` handler must end in `RECOVER` or a diverging statement (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form). Falling through to `END TRAP` is a compile error.
-13. `RECOVER` is valid only inside an inline `TRAP` handler; it is a compile error in a function-level `TRAP` or anywhere else. `RECOVER`'s value must be assignable to the trapped expression's success type; it carries a value iff that type is not `Nothing`. The handler binding is scoped to the handler block only.
+13. `RECOVER` is valid only inside an inline `TRAP` handler; it is a compile error in a function-level `TRAP` or anywhere else (`TYPE_RECOVER_OUTSIDE_INLINE_TRAP`). `RECOVER`'s value must be assignable to the trapped expression's success type; it carries a value iff that type is not `Nothing`. Supplying the wrong type, omitting a value when one is required, or supplying a value for a value-less trapped expression is `TYPE_RECOVER_TYPE_MISMATCH`. The handler binding is scoped to the handler block only.
 
 ## 8.7 Program entry point
 
