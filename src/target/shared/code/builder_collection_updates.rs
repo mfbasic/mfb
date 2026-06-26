@@ -344,6 +344,13 @@ impl CodeBuilder<'_> {
         self.lower_map_remove_key(map_slot, key_slot, &map.type_, &key_type)
     }
 
+    /// Insert collection `B` (insert_slot) into list `A` (base_slot) at
+    /// `index_slot` using the offset-stable scheme (plan-01 §4.1): copy `A`'s and
+    /// `B`'s data regions verbatim (no per-entry repack), then splice the lookup
+    /// table with three block moves — head `A` entries verbatim, `B` entries with
+    /// each `valueOffset` shifted by `A.dataLength`, tail `A` entries verbatim.
+    /// Append is `index == count`, prepend is `index == 0`. Phase 2 keeps the
+    /// result tight (`capacity == count`).
     pub(super) fn lower_list_insert_collection(
         &mut self,
         base_slot: usize,
@@ -358,12 +365,13 @@ impl CodeBuilder<'_> {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("list_insert_result", 8);
-        let data_len_slot = self.allocate_stack_object("list_insert_data_len", 8);
         let valid_start = self.label("list_insert_valid_start");
         let alloc_ok = self.label("list_insert_alloc_ok");
         let invalid = self.label("list_insert_invalid");
         let done = self.label("list_insert_done");
 
+        // Validate 0 <= index <= count(A), then size the allocation:
+        //   HEADER + (count_A + count_B) * ENTRY + (dataLen_A + dataLen_B).
         self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), insert_slot));
         self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
@@ -379,11 +387,6 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::load_u64("x15", "x9", COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::add_registers("x15", "x14", "x15"));
-        // `arena_alloc` clobbers x15 (it is scratch in the block-grow path), so
-        // stash the freshly computed data length on the stack and reload it for
-        // the header write below; otherwise the new list's DATA_LENGTH field is
-        // poisoned with a pointer, which the next append reads as a huge size.
-        self.emit(abi::store_u64("x15", abi::stack_pointer(), data_len_slot));
         self.emit(abi::move_immediate(
             "x16",
             "Integer",
@@ -417,68 +420,105 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x15", abi::stack_pointer(), data_len_slot));
-        self.emit_write_list_header_from_registers(&layout, "x1", "x13", "x15");
 
+        // Header: total count / total data length (recomputed from the pointer
+        // slots, which survive `arena_alloc`; the pre-alloc registers do not).
         self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), insert_slot));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64("x13", "x1", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(
-            "x16",
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers("x21", "x13", "x16"));
-        self.emit(abi::add_registers("x21", "x17", "x21"));
-        self.emit(abi::move_immediate("x13", "Integer", "0"));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x12", "x9", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_registers("x13", "x11", "x12"));
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x15", "x9", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::add_registers("x15", "x14", "x15"));
+        self.emit_write_list_header_from_registers(&layout, "x1", "x13", "x15");
 
-        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
-        self.emit_collection_data_pointer("x20", "x8");
-        self.emit_copy_collection_entries(
-            "x12",
-            "x20",
-            "x17",
-            "x21",
-            "x13",
-            "x10",
-            "list_insert_prefix",
-        )?;
-        self.emit(abi::add_immediate("x12", "x9", COLLECTION_HEADER_SIZE));
-        self.emit_collection_data_pointer("x20", "x9");
-        self.emit(abi::load_u64("x14", "x9", COLLECTION_OFFSET_COUNT));
-        self.emit_copy_collection_entries(
-            "x12",
-            "x20",
-            "x17",
-            "x21",
-            "x13",
-            "x14",
-            "list_insert_inserted",
-        )?;
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::subtract_registers("x14", "x14", "x10"));
+        // --- Data region: A verbatim, then B verbatim at offset dataLen_A. ---
+        self.emit_collection_data_pointer("x17", "x1"); // dst data base
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+        self.emit_collection_data_pointer("x20", "x8"); // A data base
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance("x17", "x20", "x14", "x22", "list_insert_dataA");
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), insert_slot));
+        self.emit_collection_data_pointer("x20", "x9"); // B data base
+        self.emit(abi::load_u64("x15", "x9", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance("x17", "x20", "x15", "x22", "list_insert_dataB");
+
+        // --- Lookup table splice. ---
         self.emit(abi::move_immediate(
             "x16",
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers("x15", "x10", "x16"));
-        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
-        self.emit(abi::add_registers("x12", "x12", "x15"));
-        self.emit_collection_data_pointer("x20", "x8");
-        self.emit_copy_collection_entries(
+        // Head: dst.table[0..i) <- A.table[0..i) verbatim.
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE)); // dst table cursor
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+        self.emit(abi::add_immediate("x20", "x8", COLLECTION_HEADER_SIZE)); // A table cursor
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::multiply_registers("x21", "x10", "x16")); // i * ENTRY
+        self.emit_block_copy_advance("x17", "x20", "x21", "x22", "list_insert_head");
+
+        // Inserted: dst.table[i..i+count_B) <- B entries, valueOffset += dataLen_A.
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), insert_slot));
+        self.emit(abi::add_immediate("x12", "x9", COLLECTION_HEADER_SIZE)); // B table cursor
+        self.emit(abi::load_u64("x11", "x9", COLLECTION_OFFSET_COUNT)); // remaining B entries
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH)); // dataLen_A shift
+        let insert_loop = self.label("list_insert_b_loop");
+        let insert_done = self.label("list_insert_b_done");
+        self.emit(abi::label(&insert_loop));
+        self.emit(abi::compare_immediate("x11", "0"));
+        self.emit(abi::branch_eq(&insert_done));
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8("x22", "x17", COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::move_immediate("x22", "Integer", "0"));
+        self.emit(abi::store_u64("x22", "x17", COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
+        self.emit(abi::store_u64("x22", "x17", COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::load_u64(
+            "x22",
             "x12",
-            "x20",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::add_registers("x22", "x22", "x14"));
+        self.emit(abi::store_u64(
+            "x22",
             "x17",
-            "x21",
-            "x13",
-            "x14",
-            "list_insert_suffix",
-        )?;
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x22",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            "x22",
+            "x17",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_immediate("x17", "x17", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::subtract_immediate("x11", "x11", 1));
+        self.emit(abi::branch(&insert_loop));
+        self.emit(abi::label(&insert_done));
+
+        // Tail: dst.table[i+count_B..] <- A.table[i..) verbatim. x20 already points
+        // at A entry i (advanced past the head copy).
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
+        self.emit(abi::load_u64("x13", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::subtract_registers("x13", "x13", "x10")); // count_A - i
+        self.emit(abi::multiply_registers("x21", "x13", "x16"));
+        self.emit_block_copy_advance("x17", "x20", "x21", "x22", "list_insert_tail");
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
         self.emit_index_out_of_range_return()?;
@@ -776,23 +816,24 @@ impl CodeBuilder<'_> {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("map_concat_result", 8);
-        let data_len_slot = self.allocate_stack_object("map_concat_data_len", 8);
         let alloc_ok = self.label("map_concat_alloc_ok");
+
+        // Offset-stable merge (plan-01 §4.1): copy A's and B's data regions
+        // verbatim — B placed at `align(dataLen_A, map_max_align)` so its packed
+        // payloads keep their alignment relative to the new base — then concat the
+        // lookup tables, shifting every B key/value offset by that same boundary.
+        // The B boundary doubles as the per-entry offset shift.
+        //
+        // Size: HEADER + (count_A+count_B)*ENTRY + (align(dataLen_A)+dataLen_B).
         self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
         self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64("x11", "x9", COLLECTION_OFFSET_COUNT));
         self.emit(abi::add_registers("x12", "x10", "x11"));
         self.emit(abi::load_u64("x13", "x8", COLLECTION_OFFSET_DATA_LENGTH));
-        // The right map's payloads are re-packed starting at the left map's data
-        // length; round that boundary up to the map's maximum payload alignment
-        // so the right map's internal aligned layout is reproduced unchanged.
         self.emit_align_offset_register("x13", map_max_align, "x15");
         self.emit(abi::load_u64("x14", "x9", COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::add_registers("x14", "x13", "x14"));
-        // `arena_alloc` clobbers x14 in its block-grow path; persist the data
-        // length so the header write below does not store a stale pointer.
-        self.emit(abi::store_u64("x14", abi::stack_pointer(), data_len_slot));
         self.emit(abi::move_immediate(
             "x15",
             "Integer",
@@ -826,52 +867,101 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x14", abi::stack_pointer(), data_len_slot));
-        self.emit_write_list_header_from_registers(&layout, "x1", "x12", "x14");
+
+        // Header: recompute total count / total data length from the pointer slots
+        // (the pre-alloc registers do not survive `arena_alloc`).
         self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x11", "x9", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_registers("x12", "x10", "x11"));
+        self.emit(abi::load_u64("x13", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_align_offset_register("x13", map_max_align, "x15");
+        self.emit(abi::load_u64("x14", "x9", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::add_registers("x14", "x13", "x14"));
+        self.emit_write_list_header_from_registers(&layout, "x1", "x12", "x14");
+
+        // --- Data region: A verbatim at base, B verbatim at align(dataLen_A). ---
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
-        self.emit(abi::move_immediate("x13", "Integer", "0"));
-        self.emit(abi::load_u64("x12", "x1", COLLECTION_OFFSET_COUNT));
+        self.emit_collection_data_pointer("x17", "x1"); // x17 = dst data base (stable)
+        self.emit(abi::move_register("x23", "x17")); // moving copy dst
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
+        self.emit_collection_data_pointer("x20", "x8"); // A data base
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance("x23", "x20", "x14", "x22", "map_concat_dataA");
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
+        self.emit(abi::load_u64("x13", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_align_offset_register("x13", map_max_align, "x22"); // alignedA
+        self.emit(abi::add_registers("x23", "x17", "x13")); // B dest = base + alignedA
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
+        self.emit_collection_data_pointer("x20", "x9"); // B data base
+        self.emit(abi::load_u64("x15", "x9", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance("x23", "x20", "x15", "x22", "map_concat_dataB");
+
+        // --- Lookup table: A entries verbatim, then B entries shifted. ---
         self.emit(abi::move_immediate(
-            "x15",
+            "x16",
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers("x21", "x12", "x15"));
-        self.emit(abi::add_registers("x21", "x17", "x21"));
-        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
-        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE)); // dst table cursor
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
+        self.emit(abi::add_immediate("x20", "x8", COLLECTION_HEADER_SIZE)); // A table cursor
         self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_COUNT));
-        self.emit_copy_map_entries(
+        self.emit(abi::multiply_registers("x21", "x10", "x16")); // count_A * ENTRY
+        self.emit_block_copy_advance("x17", "x20", "x21", "x22", "map_concat_tableA");
+
+        // B entries: keyOffset and valueOffset each += align(dataLen_A).
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
+        self.emit(abi::add_immediate("x12", "x9", COLLECTION_HEADER_SIZE)); // B table cursor
+        self.emit(abi::load_u64("x11", "x9", COLLECTION_OFFSET_COUNT)); // remaining
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), left_slot));
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_align_offset_register("x14", map_max_align, "x22"); // shift = alignedA
+        let copy_loop = self.label("map_concat_b_loop");
+        let copy_done = self.label("map_concat_b_done");
+        self.emit(abi::label(&copy_loop));
+        self.emit(abi::compare_immediate("x11", "0"));
+        self.emit(abi::branch_eq(&copy_done));
+        self.emit(abi::move_immediate(
+            "x22",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8("x22", "x17", COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::load_u64("x22", "x12", COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
+        self.emit(abi::add_registers("x22", "x22", "x14"));
+        self.emit(abi::store_u64("x22", "x17", COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
+        self.emit(abi::load_u64("x22", "x12", COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::store_u64("x22", "x17", COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::load_u64(
+            "x22",
             "x12",
-            "x20",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::add_registers("x22", "x22", "x14"));
+        self.emit(abi::store_u64(
+            "x22",
             "x17",
-            "x21",
-            "x13",
-            "x10",
-            "map_concat_left",
-            key_payload_align,
-            value_payload_align,
-        )?;
-        // Round the destination cursor up to the map's maximum payload alignment
-        // before re-packing the right map, matching the precomputed data length.
-        self.emit_align_offset_register("x13", map_max_align, "x22");
-        self.emit(abi::add_immediate("x12", "x9", COLLECTION_HEADER_SIZE));
-        self.emit_collection_data_pointer("x20", "x9");
-        self.emit(abi::load_u64("x10", "x9", COLLECTION_OFFSET_COUNT));
-        self.emit_copy_map_entries(
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            "x22",
             "x12",
-            "x20",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            "x22",
             "x17",
-            "x21",
-            "x13",
-            "x10",
-            "map_concat_right",
-            key_payload_align,
-            value_payload_align,
-        )?;
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::add_immediate("x17", "x17", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate("x12", "x12", COLLECTION_ENTRY_SIZE));
+        self.emit(abi::subtract_immediate("x11", "x11", 1));
+        self.emit(abi::branch(&copy_loop));
+        self.emit(abi::label(&copy_done));
+
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
@@ -1052,43 +1142,6 @@ impl CodeBuilder<'_> {
             location: result,
             text: format!("removeKey({map_type}, {key_type})"),
         })
-    }
-
-    pub(super) fn emit_copy_map_entries(
-        &mut self,
-        source_entry: &str,
-        source_data: &str,
-        dest_entry: &str,
-        dest_data: &str,
-        dest_data_offset: &str,
-        count: &str,
-        label_prefix: &str,
-        key_align: usize,
-        value_align: usize,
-    ) -> Result<(), String> {
-        let loop_label = self.label(&format!("{label_prefix}_loop"));
-        let done = self.label(&format!("{label_prefix}_done"));
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate(count, "0"));
-        self.emit(abi::branch_eq(&done));
-        self.emit_copy_one_map_entry(
-            source_entry,
-            source_data,
-            dest_entry,
-            dest_data,
-            dest_data_offset,
-            key_align,
-            value_align,
-        );
-        self.emit(abi::add_immediate(
-            source_entry,
-            source_entry,
-            COLLECTION_ENTRY_SIZE,
-        ));
-        self.emit(abi::subtract_immediate(count, count, 1));
-        self.emit(abi::branch(&loop_label));
-        self.emit(abi::label(&done));
-        Ok(())
     }
 
     pub(super) fn emit_copy_one_map_entry(
