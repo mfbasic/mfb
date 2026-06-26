@@ -22,6 +22,8 @@ The merge happens in `nir::merge_packages` (`src/target/shared/nir.rs`):
 4. The consumer's `package.symbol` references are rewritten to the
    identity-prefixed definitions (`ir::apply_package_identity`).
 
+[[src/target/shared/nir.rs:merge_packages]]
+
 Package functions are therefore ordinary merged functions by the time the linker
 runs. A package-to-package call is an internal `branch26` to an `_mfb_fn_…`
 symbol, resolved through package identity rather than any raw binary-representation
@@ -34,9 +36,15 @@ The only true NIR imports are native `LINK` thunks and platform symbols (see
 ## Transitive platform imports
 
 Because a package body is real merged code, any runtime helper it uses pulls in
-that helper's implementation and platform imports exactly as if the application
-had called the helper directly. The final executable must include those imports
-even when the app package never names the helper itself.
+that helper's platform imports as if the application had called it directly. See
+./mfb spec linker import-selection for the canonical treatment.
 
 This decode-and-merge path is the same one the binary-representation topic of
 `mfb spec architecture` describes.
+
+## See Also
+
+* ./mfb spec linker import-selection — transitive platform imports from merged
+  package bodies
+* ./mfb spec architecture binary-representation — the decode-and-merge package
+  narrative

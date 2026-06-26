@@ -22,9 +22,10 @@ The CLI supports these build-related commands:
   the host target.
 - `mfb build --sign owner [location]` signs the emitted artifact with the
   registered repository owner's key. For package projects this produces a signed
-  `.mfp` container (ed25519, `signatureType = 1`); for executable projects it
-  records signing metadata. At most one `--sign` may be supplied. Without it,
-  packages are emitted unsigned.
+  `.mfp` container; for executable projects it records signing metadata. At most
+  one `--sign` may be supplied. Without it, packages are emitted unsigned. The
+  on-disk signature-header byte encoding is documented in
+  `./mfb spec package container-format`.
 - `mfb build -app [location]` selects GUI app mode: the executable and native
   intermediate outputs target a windowing app runtime instead of the console
   runtime — AppKit on macOS, GTK4 on Linux. Shared lowering treats both uniformly
@@ -32,7 +33,7 @@ The CLI supports these build-related commands:
   only for executable projects and only when `-target` resolves to a native target
   that supports app mode (`macos-aarch64` or `linux-aarch64`); it is rejected
   otherwise. App mode is recorded as the `buildMode` field in `-nir`, `-nplan`,
-  and `-ncode` output (`"console"`, `"macos-app"`, or `"linux-app"`).
+  and `-ncode` output (`"console"`, `"macos-app"`, or `"linux-app"`).[[src/target.rs:is_app]]
 
 The output flags are mutually exclusive. If no output flag is supplied,
 `mfb build` emits:
@@ -53,7 +54,7 @@ string contents. `DOC` and `LINK` blocks are re-indented from their own nesting
 but keep their text and casing (prose bodies; the contextual `return` in `ABI`
 lines). `--indent` sets the indent width (default `2`); `--check` writes nothing
 and exits non-zero with an `FMT_CHECK_FAILED` diagnostic when any file is not
-already formatted.
+already formatted.[[src/fmt.rs:format_source]]
 
 ## Other commands
 
@@ -65,3 +66,7 @@ documentation rendering via `src/doc.rs`); `mfb audit [--format text|json]
 [--locked] [path]` (project audit reporting via `src/audit`); `mfb man [package]
 [function]` (built-in help, `src/man`); and `mfb spec` (this embedded
 specification, `src/spec`). These are not part of the build pipeline.
+
+## See Also
+
+* ./mfb spec package container-format — the on-disk signature-header encoding

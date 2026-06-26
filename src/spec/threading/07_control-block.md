@@ -22,11 +22,12 @@ offset  field
 104     resource inbound queue handle (resource plane, parent -> worker)
 112     resource outbound queue handle (resource plane, worker -> parent)
 ```
+[[src/target/shared/code/mod.rs:THREAD_BLOCK_SIZE]]
 
 `state = 0` means running (`THREAD_STATE_RUNNING`). `state = 1` means complete
 with an unretrieved result (`THREAD_STATE_COMPLETED`). `state = 2` means the
 parent `Thread` handle is closed because the result was retrieved or the handle
-was dropped (`THREAD_STATE_CLOSED`).
+was dropped (`THREAD_STATE_CLOSED`). [[src/target/shared/code/mod.rs:THREAD_STATE_RUNNING]]
 
 The `result tag`, `result value`, and `result error` fields describe the
 completed `Result OF Out`. `result error source` (offset 96) holds the
@@ -73,6 +74,7 @@ offset  field
 224     closed flag
 232     values pointer                (ring buffer of capacity * 8-byte slots)
 ```
+[[src/target/shared/code/mod.rs:THREAD_QUEUE_BLOCK_SIZE]]
 
 The mutex and both condition variables are `pthread_*_init`-ed when the queue is
 allocated in `thread::start`. The values pointer is a separately arena-allocated

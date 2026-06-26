@@ -12,7 +12,7 @@ x3  source    error: pointer to the origin ErrorLoc (0 = no origin)
 The three tags are the constants `RESULT_OK_TAG` (`0`), `RESULT_ERR_TAG` (`1`),
 and `RESULT_PROGRAM_EXIT_TAG` (`2`); the four registers are `RESULT_TAG_REGISTER`
 (= the return register `x0`), `RESULT_VALUE_REGISTER` (`x1`),
-`RESULT_ERROR_MESSAGE_REGISTER` (`x2`), and `RESULT_ERROR_SOURCE_REGISTER` (`x3`).
+`RESULT_ERROR_MESSAGE_REGISTER` (`x2`), and `RESULT_ERROR_SOURCE_REGISTER` (`x3`). [[src/target/shared/code/mod.rs:RESULT_OK_TAG]]
 The program-exit tag is checked before the success/error split: at the program
 entry it routes `x1` (the exit code) to the process return register and jumps to
 exit, so it is distinct from both a normal success and an error.
@@ -32,4 +32,4 @@ the null sentinel. The two conversions bridge the forms: trapping materializes a
 3-field `Error` record from `x1`/`x2`/`x3` (absolute → offset), and
 `FAIL <error>` / `emit_load_error_fields` loads `x1`/`x2`/`x3` back from the
 `Error` value's `code`/`message`/`source` fields (offset → absolute, mapping a
-0 offset back to a null pointer).
+0 offset back to a null pointer). [[src/target/shared/code/builder_misc.rs:emit_load_error_fields]]

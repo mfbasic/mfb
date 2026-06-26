@@ -42,7 +42,7 @@ IR target is dequalified back to the bare native name:
 `collections::reduce`, `collections::sum`, `collections::find`,
 `collections::mid`, `collections::replace`. The `find`/`mid`/`replace` members
 here are the **List** overloads only; their `String` overloads live in
-`strings::`.
+`strings::`. [[src/builtins/collections.rs:NATIVE_MEMBERS]]
 
 **Source generics** (`FUNCTIONS`) — generic MFBASIC functions defined in
 `src/builtins/collections_package.mfb` and injected when the package is imported.
@@ -80,7 +80,7 @@ compiler-owned generic record templates in the always-in-scope builtin prelude
 like ordinary records. `MapEntry OF K TO V` (fields `key`, `value`) is the
 compiler-owned record yielded when iterating a `Map` with `FOR EACH`.
 
-Three §6.4 helpers (`toMap`, `zipWith`, `filterEntries`) are **not yet
+Three further helpers (`toMap`, `zipWith`, `filterEntries`) are **not yet
 exported** because they need runtime capabilities the implementation lacks today
 (`src/builtins/collections.rs`).
 

@@ -7,15 +7,14 @@ it. See the See Also section for the related specs.
 
 Last updated: 2026-06-26
 
-The source-level API is the built-in `thread` package. This document describes
-the implementation contract behind that API.
-
 ## Goals
 
 MFBASIC threads provide isolated package workers with typed input, output, and
 two communication channels: a **data plane** (`thread::send`/`thread::receive`/
 `thread::poll`) carrying copyable values, and a **resource plane**
-(`thread::transfer`/`thread::accept`) carrying move-only resource handles.
+(`thread::transfer`/`thread::accept`) carrying move-only resource handles. The
+source-level shape of those calls is owned by `./mfb spec language threads`; this
+document specifies what the implementation must do behind them.
 
 The model has these requirements:
 

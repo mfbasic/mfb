@@ -5,7 +5,7 @@ The native executable back end: lowering IR through NIR, plans, AArch64 encoding
 Native executable generation is implemented under `src/target`,
 `src/target/shared`, `src/arch`, and `src/os`.
 
-The active native backend registry is in `src/target.rs`:
+The active native backend registry is in `src/target.rs`:[[src/target.rs:NativeBackend]]
 
 - `macos-aarch64`
 - `linux-aarch64`
@@ -51,7 +51,7 @@ also rewrites supported built-in calls into runtime-call forms where needed.
 Runtime-helper detection is implemented in `src/target/shared/runtime.rs`.
 
 The compiler scans IR values for calls into built-in packages. It records
-which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):
+which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[src/target/shared/runtime.rs:RuntimeHelper]]
 
 - `datetime`
 - `fs`
@@ -65,9 +65,9 @@ which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):
 - `tls`
 
 `validate_capabilities` rejects native builds that require runtime calls not
-listed in the backend capability set. Both `macos-aarch64` and
-`linux-aarch64` currently declare the same set of supported native runtime
-calls:
+listed in the backend capability set.[[src/target/shared/validate.rs:validate_capabilities]]
+Both `macos-aarch64` and `linux-aarch64` currently declare the same set of
+supported native runtime calls:
 
 - All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.printError`,
   `io.writeError`, `io.flushError`, `io.input`, `io.readLine`, `io.readChar`,
@@ -100,11 +100,15 @@ calls:
 - All `tls.*` calls: `tls.connect`, `tls.read`, `tls.readText`, `tls.write`,
   `tls.writeText`, `tls.close`
 
-`math` and `strings` operations are not listed as runtime helper calls because
-they are code-generated inline rather than dispatched through external runtime
-helpers. The complete, authoritative capability set is the `runtime_calls`
-declaration in each backend (`src/target/macos_aarch64/mod.rs`,
-`src/target/linux_aarch64/mod.rs`); both backends currently declare the same set.
+`math`, `strings`, and `general` operations are not listed as runtime helper
+calls because they are code-generated inline rather than dispatched through
+external runtime helpers. The `RuntimeHelper::General` variant exists, but
+neither backend's `runtime_calls` contains any `general.*` call — `general.*`
+built-ins (like `math`/`strings`) are inline-codegen'd, not a gated runtime-call
+family.[[src/builtins/general.rs:is_general_call]] The complete, authoritative
+capability set is the `runtime_calls` declaration in each backend
+(`src/target/macos_aarch64/mod.rs`, `src/target/linux_aarch64/mod.rs`); both
+backends currently declare the same set.[[src/target/macos_aarch64/mod.rs:runtime_calls]]
 
 ## Native Validation
 
@@ -172,9 +176,9 @@ Mach-O or ELF terms:
 - symbol/string tables
 - relocations
 
-macOS object plans target a Mach-O layout with `__TEXT`, `__cstring`, and
-`__LINKEDIT` regions. Linux object plans target an ELF layout with a loadable
-text/rodata image.
+macOS object plans target a Mach-O layout; Linux object plans target an ELF
+layout. The concrete segment/section regions are owned by
+`./mfb spec linker object-plan`.
 
 `mfb build -nobj` writes `<project>.nobj`.
 
@@ -229,73 +233,34 @@ native code plan.
 
 ## Linking and Executable Writing
 
-The final OS-specific executable writers are:
+The final OS-specific executable writers are `src/os/macos/link.rs` and
+`src/os/linux/link.rs`. Both patch relocations in the encoded text, resolve the
+entry symbol to a text offset, encode the OS executable container, and write the
+output. macOS emits a single Mach-O `<project>.out`; Linux emits one ELF per
+flavor (`<project>-glibc.out`, `<project>-musl.out`) and chooses static vs.
+dynamic by whether external imports are present.
 
-- `src/os/macos/link.rs`
-- `src/os/linux/link.rs`
-
-Both writers:
-
-1. Patch relocations in encoded text.
-2. Resolve the entry symbol to a text offset.
-3. Encode the OS executable container.
-4. Write `<project>.out`.
-5. Set executable permissions to `0755`.
-
-macOS output:
-
-- Encodes a Mach-O executable.
-- Supports imports from `libSystem`.
-- Emits import stubs when platform imports are present.
-- Adds an ad hoc code signature.
-- Writes a single `<project>.out`.
-
-Linux output:
-
-- Emits two output files, one per flavor: `<project>-glibc.out` and
-  `<project>-musl.out`.
-- When external imports are present, encodes a dynamic ELF executable with
-  import stubs and a PLT/GOT; when there are no imports, encodes a static ELF.
-- The glibc flavor links against `libc.so.6`, `libm.so.6`, and
-  `libpthread.so.0`. The musl flavor links against `libc.musl-aarch64.so.1`
-  (which bundles pthread).
-- `LinuxFlavor` (`src/os/linux/flavor.rs`) selects interpreter path and
-  `DT_NEEDED` entries per flavor.
+The container byte details — Mach-O segments and the ad hoc code signature,
+`libSystem` imports and import stubs; the ELF static/dynamic split, PLT/GOT,
+per-flavor `DT_NEEDED`/interpreter selection, and `0755` permissions — are owned
+by the linker spec: `./mfb spec linker macos-aarch64`,
+`./mfb spec linker linux-aarch64`, `./mfb spec linker static-and-dynamic-output`.
 
 ## Runtime Value Memory Model
 
 Native code generation realizes the language's value semantics over a per-arena
-heap. The `memory` spec (`./mfb spec memory`) is the authority; the architectural
-shape:
-
-- **Flat values.** Every non-resource value (`String`, `Record`, `Union`, `List`,
-  `Map`, `Error`, `Result`) is a single self-describing, pointer-free arena block —
-  all composite sub-values are inlined by block-relative offset, not pointers. A
-  resource is the one exception: an opaque move-only handle to its single instance.
-- **Copy = `memcpy`.** Because a flat block has no internal pointers, copying any
-  value is one `arena_alloc` + one `memcpy` (`copy_flat_block`); there is no
-  per-type deep-copy glue. `thread::transfer`/`send` use the same routine to copy
-  into the receiver's arena.
-- **Ownership tree via copy-insertion.** Values are shared by pointer at most read
-  sites, so the lowering inserts a deep copy (`lower_value_owned`) at every site
-  that hands a value to a longer-lived owner — `Bind`/`Assign`, global store,
-  closure capture, and `Return` — whenever the source is an alias/borrow (a local,
-  global, capture, field/`MemberAccess` read, union/`Result` extract) or a static
-  `String` constant (rodata, not arena). After this every owned local owns an
-  independent block. Constructors, collection inserts, and `WITH` already inline
-  (copy) their flat payloads.
-- **Deterministic scope-drop frees.** Each owned, non-escaping flat local is freed
-  by one `arena_free(ptr, size)` at scope exit (normal drain, `EXIT`/`CONTINUE`,
-  `RETURN`, `TRAP`), reusing the resource-cleanup machinery. A returned local is
-  moved out (its free suppressed); resources, runtime-managed thread results
-  (`thread::receive`/`waitFor`), and recursive/non-flat composites are excluded.
-- **Arena reuse + entropy fill.** Freed blocks go onto a per-arena coalescing
-  free-list for reuse (never returned to the OS until bulk `arena_destroy` at
-  teardown), and freed/freshly-mapped memory is filled with PRNG bytes, always on,
-  so a use-after-free or uninitialized read fails loudly instead of silently.
+heap of flat, pointer-free blocks: copies are a single `arena_alloc` + byte copy,
+ownership is established by copy-insertion at long-lived store sites, and owned
+non-escaping locals are freed at scope exit. The `memory` spec is the authority
+for the value layout, arena mechanism, and scope-drop frees —
+`./mfb spec memory heap-values` and `./mfb spec memory arenas`.
 
 ## See Also
 
-* ./mfb spec memory — the authoritative runtime value memory model
-* ./mfb spec linker — object planning, encoding, and executable writing
+* ./mfb spec memory heap-values — the flat-block value layout
+* ./mfb spec memory arenas — the arena allocator and scope-drop frees
+* ./mfb spec linker object-plan — Mach-O/ELF object layout planning
+* ./mfb spec linker macos-aarch64 — Mach-O executable encoding
+* ./mfb spec linker linux-aarch64 — ELF flavors and dynamic linking
+* ./mfb spec linker static-and-dynamic-output — static vs. dynamic output selection
 * ./mfb spec language memory-semantics — the source-level ownership model

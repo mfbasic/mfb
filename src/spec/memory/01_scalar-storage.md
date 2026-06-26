@@ -12,4 +12,4 @@ collection data region.
 | `Fixed` | 8 bytes |
 
 Payloads in the data region are aligned so every payload begins at an offset
-valid for that payload's type. Padding bytes are not observable.
+valid for that payload's type. Padding bytes are not observable. [[src/target/shared/code/builder_collection_layout.rs:collection_payload_alignment]]

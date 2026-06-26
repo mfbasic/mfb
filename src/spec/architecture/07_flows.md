@@ -7,7 +7,7 @@ go through the native back end, packages through the binary representation path.
 
 ## Source to Executable
 
-For an executable project, `mfb build` performs this sequence:
+For an executable project, `mfb build` performs this sequence:[[src/main.rs:build_project]]
 
 1. Parse command-line options and select target.
 2. Read and validate `project.json`.

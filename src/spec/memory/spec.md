@@ -16,8 +16,9 @@ runtime. These layouts are implementation contracts, not source-level syntax.
 ## Reading order
 
 The topics below build up from the smallest units to the largest. `scalar-storage`
-fixes the payload sizes; `fallible-call-abi` is the register contract for native
-calls; `heap-values` specifies the compact object bodies (strings, records,
+fixes the payload sizes; `fallible-call-abi` is the **single source of truth for the
+four-register fallible-call result ABI** (other specs summarize and link here);
+`heap-values` specifies the compact object bodies (strings, records,
 errors, results, unions); `arenas` is where every heap value lives and how it is
 allocated, freed, filled, and reclaimed; and `collections` specifies the one
 uniform `List`/`Map` layout, its examples, operations, and compaction.

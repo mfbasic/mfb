@@ -29,7 +29,7 @@ fs::close(f)          ' registered close → f invalidated
 
 A resource value may be passed only to a function whose parameter is declared `RES` and explicitly names that concrete resource type, such as `RES f AS File`, `RES s AS Socket`, or a `LINK`-declared resource. A function returns a resource with an explicit `AS RES <Type>` return. There is no generic resource supertype, no structural matching of handles, and no implicit conversion between resource types.
 
-**Resources are atomic — records never hold them.** A record (product type) may never contain a resource field, directly or transitively (`TYPE_RESOURCE_FIELD_FORBIDDEN`): a resource field would either trap copyable data behind move-only semantics or let one value own several resources at once. Data that belongs *with* a resource travels in the resource's `STATE`, and to work with several resources you hold several `RES` bindings.
+**Resources are atomic — records never hold them.** A record (product type) may never contain a resource field, directly or transitively (`TYPE_RESOURCE_FIELD_FORBIDDEN`): [[src/rules.rs:782]] a resource field would either trap copyable data behind move-only semantics or let one value own several resources at once. Data that belongs *with* a resource travels in the resource's `STATE`, and to work with several resources you hold several `RES` bindings.
 
 **`STATE` — data carried by a resource.** A `RES` binding may attach an associated data value with `STATE T`:
 
@@ -95,6 +95,11 @@ Consequences:
 
 Because all references are within the owning scope, `get` and `FOR EACH` of a resource element yield a **borrow**, statically safe with no runtime dependence on the closed flag (the flag is only a backstop that keeps the single close idempotent when a handle is reachable by more than one path). Such a borrow is not an owner: binding it with `RES`, or closing/returning/transferring it, is an error (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`). Collections of resources are ordinary copyable collections of pointers — no move-only or linearity — and the helpers that require a comparable element (`find`, `contains`, `replace`) remain unavailable because handles are not comparable, the same reason resources cannot be `Map` keys.
 
-A resource element placed into a collection must be a named `RES` binding (the owner); a temporary or a borrowed element is not an owner and cannot be stored (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`).
+A resource element placed into a collection must be a named `RES` binding (the owner); a temporary or a borrowed element is not an owner and cannot be stored (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`). [[src/rules.rs:614]]
 
 **Returning a resource collection transfers scope-ownership to the caller**, exactly as `AS RES File` does for a single resource. A function returning `AS List OF RES File` releases the close obligations for the referenced resources — it does not close them — and the caller's binding scope **adopts** them, closing each once at its own exit. (A bare `List OF File` return is rejected for the missing `RES` marker.) On an error exit *before* the return, the resources are still closed by the function's scope, because they ride its owned-list until the `RETURN` transfers it. A resource collection may also be passed to a function, where the callee borrows its elements (and may not close them). The resources must be added to the collection at or after the collection's own binding so the obligation rides the collection. Sharing a resource collection across threads remains out of scope.
+
+## See Also
+
+* ./mfb spec package resource-regions — how resources are encoded in the `.mfp` `RESOURCE_TABLE`
+* ./mfb spec language threads — `thread::transfer`/`accept` resource plane

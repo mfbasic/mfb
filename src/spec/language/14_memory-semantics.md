@@ -7,10 +7,10 @@ The compiler may choose stack storage, inline storage, heap allocation, or destr
 ## 14.1 Copy, move, and freeze
 
 - **Copy** creates an independent value with no shared mutable state. Mutating the destination cannot affect the source.
-- **Move** transfers ownership from one place to another. After a move, the source binding is uninitialized and any later read, write, capture, comparison, print, return, or drop of that binding is a compile-time use-after-move error.
+- **Move** transfers ownership from one place to another. After a move, the source binding is uninitialized and any later read, write, capture, comparison, print, return, or drop of that binding is a compile-time use-after-move error. [[src/rules.rs:602]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
-Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions whose active payload is copyable are copyable. `List` and `Map` are copyable only when their element/key/value types are copyable; copying a collection copies its contents. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable.
+Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions whose active payload is copyable are copyable. `List` and `Map` are copyable only when their element/key/value types are copyable; copying a collection copies its contents. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/typecheck.rs:is_copyable_type]]
 
 The compiler may replace a semantic copy with a move when it proves the source is not used afterward. This is an optimization only; it must not change diagnostics or observable behavior except performance.
 
@@ -38,13 +38,9 @@ Default arguments are evaluated at the call site and then passed under the same 
 
 Native backends use one allocator-agnostic IR contract for heap-backed values. The IR names value operations; native lowering chooses whether a value is inline, static, stack-resident, or arena-backed.
 
-This language specification defines the ownership, aliasing, copy, move, and return behavior of heap-backed values; it does not define a universal per-object header or a byte-for-byte native representation for every value kind. Concrete runtime layouts for strings, records, unions, collections, and any future heap-backed value category are specified by the memory spec (`./mfb spec memory`) and in the corresponding package/native ABI specifications when values cross an ABI boundary. Native lowering must follow those layout contracts consistently for construction, field access, union wrapping and extraction, collection storage, helper calls, and package/native ABI interop.
+This language specification defines the ownership, aliasing, copy, move, and return behavior of heap-backed values; it does not define a universal per-object header or a byte-for-byte native representation for every value kind. Concrete runtime layouts for strings, records, unions, collections, and any future heap-backed value category — including the arena allocator, its block headers, the per-package-instance arena model, and drop/reclamation at instance shutdown — are specified by the memory spec (`./mfb spec memory heap-values`, `./mfb spec memory arenas`). Source code only observes the value-model rules above: copies are independent, returns never point into a shorter-lived frame or arena, and a value that crosses an execution context (e.g. a thread boundary) must reach storage valid for the receiver before the receiver observes it.
 
-Arena allocation is an implementation strategy for native backends. An arena allocator may maintain allocator-private block headers or bookkeeping, but those allocator structures are not part of the source-level value model and must not be treated as a required object prefix for all arena-backed values.
-
-Copy and move of arena-backed immutable values may be represented by copying the native value handle used by the active layout, provided the ownership rules above remain observable. Drop may be a no-op for individual values when all owned arena blocks are released at package-instance shutdown. Returning a heap-backed value copies or moves the native value into caller-owned storage according to the active layout, so returned values never point into the callee stack frame or into an arena whose lifetime is shorter than the caller-visible value.
-
-Each package instance owns one arena. Worker threads or future isolated package instances get distinct arenas. A value that crosses from one arena-owned execution context to another must be transferred into storage whose lifetime is valid for the receiver before the receiver observes it. The native representation must not expose a handle into the sender's arena as a receiver-owned value unless that arena is also kept alive by the transfer object for the full receiver-visible lifetime. A failed heap allocation surfaces as an ordinary language-level error — `ErrInvalidArgument` for an invalid request and `ErrOutOfMemory` on exhaustion — and auto-propagates like any other failure. The allocator mechanism is an implementation detail specified by the memory spec (`./mfb spec memory arenas`).
+A failed heap allocation surfaces as an ordinary language-level error — `ErrInvalidArgument` for an invalid request and `ErrOutOfMemory` on exhaustion — and auto-propagates like any other failure.
 
 ## 14.4 Closures and first-class functions
 
@@ -103,6 +99,7 @@ At minimum, exported type shape metadata must remain sufficient to reconstruct c
 
 ## See Also
 
-* ./mfb spec memory — concrete runtime value layouts and arenas
+* ./mfb spec memory heap-values — concrete runtime value layouts
+* ./mfb spec memory arenas — arena allocator and reclamation
 * ./mfb spec language resource-management — resource ownership and lexical drop
 * ./mfb spec architecture native — how these semantics are realized in codegen

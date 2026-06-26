@@ -27,7 +27,7 @@ The reader does **not** verify the cryptographic signature; that is the package 
 
 * `MFPC` magic and `bcMajor == 2` (the structured-Binary-Representation clean break; `1` is rejected as predating the format).
 * The section table fits within the payload, and each section's `offset + length` stays within the payload.
-* The required sections are present: `MANIFEST`, `STRING_POOL`, `TYPE_TABLE`, `CONST_POOL`, `IMPORT_TABLE`, `EXPORT_TABLE`, `FUNCTION_TABLE`, `IR`, `ABI_INDEX`. (`GLOBAL_TABLE`, `RESOURCE_TABLE`, `DOC` are optional on read.)
+* The required sections are present: `MANIFEST`, `STRING_POOL`, `TYPE_TABLE`, `CONST_POOL`, `IMPORT_TABLE`, `EXPORT_TABLE`, `FUNCTION_TABLE`, `IR`, `ABI_INDEX`. (`GLOBAL_TABLE`, `RESOURCE_TABLE`, `DOC` are optional on read.) [[src/binary_repr.rs:read_binary_repr_package]]
 * Each metadata table parses exactly — every `read_*` table function rejects leftover trailing bytes within its section.
 * `STRING_POOL` entries are valid UTF-8.
 * `EXPORT_TABLE` kinds are only `1` (func) / `2` (sub); `IMPORT_TABLE`/`ABI_INDEX` pin bytes are `0`/`1`.
@@ -36,7 +36,7 @@ The reader does **not** verify the cryptographic signature; that is the package 
 
 ### IR payload
 
-* `decode_binary_repr` checks the `MFBR` magic and `version == 2`, then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error.
+* `decode_binary_repr` checks the `MFBR` magic and `version == 2`, then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error. [[src/ir.rs:decode_binary_repr]]
 
 ## Compile-time guarantees (assumed on import, not re-checked)
 
@@ -54,6 +54,8 @@ These were enforced by the source compiler when the package was built and are **
 
 Because control flow is structured (nested regions with explicit ends), there are no branch targets to validate and no "jump into a trap or cleanup region" to reject — that whole class of flat-binary verification does not exist here.
 
+These guarantees are defined and enforced by the source compiler, not restated here. Their canonical specifications are `./mfb spec language error-model` (typing, `Result`/`PROPAGATE`/effect agreement), `./mfb spec language resource-management` (resource linearity, drop-once, sendability), and `./mfb spec language pattern-matching` (`MATCH` exhaustiveness).
+
 ## Not yet enforced by the reader
 
 The format anticipates these, but the current reader does **not** check them. An implementer should be aware they are gaps, not guarantees:
@@ -62,3 +64,9 @@ The format anticipates these, but the current reader does **not** check them. An
 * No re-typechecking, re-checking of resource linearity, exhaustiveness, or return/effect agreement on the decoded IR at import time (these rely on the compile-time guarantees above).
 * No native-binding verifier — there is no `NATIVE_LINK_TABLE` section to validate; native `LINK` metadata is carried in the IR payload trailer and validated, if at all, when that IR is merged and lowered.
 * No standalone signature verification in the reader (delegated to the package manager).
+
+## See Also
+
+* ./mfb spec language error-model — typing, `Result`, and effect-agreement guarantees
+* ./mfb spec language resource-management — resource linearity and drop-once guarantees
+* ./mfb spec language pattern-matching — `MATCH` exhaustiveness

@@ -1,16 +1,15 @@
 # Error Propagation
 
-Every MFBASIC function call returns a `Result` at the IR level. A source call
-that is not directly matched is the ordinary `Result` auto-unwrap: a `CallResult`
-whose `Ok` value flows on and whose `Error` propagates to the enclosing `TRAP`
-(or the function's error result). This is structured IR — a `MATCH`/`PROPAGATE`
-over the call — not an opcode pair.
+Every MFBASIC function call returns a `Result` at the IR level, auto-unwrapped via
+the structured `MATCH`/`PROPAGATE` desugaring owned by
+`./mfb spec language error-model`. This topic covers only how a worker's result —
+and its source location — survive the thread boundary.
 
 The thread trampoline stores the worker's returned result tag and value/error in
 the control block, and also captures the error's `ErrorLoc` origin pointer into
 the dedicated `result error source` field (control-block offset 96). This
 preserves the worker's terminal-error source location (file, line, char) across
-the thread boundary. `thread::waitFor` reads the stored result, materializes any
+the thread boundary. [[src/target/shared/code/mod.rs:THREAD_OFFSET_RESULT_SOURCE]] `thread::waitFor` reads the stored result, materializes any
 heap-backed payload into the caller's arena before user code observes it, and
 closes the parent `Thread` handle before behaving like a normal fallible call:
 
@@ -28,3 +27,8 @@ worker. If a worker calls an imported package function and that function returns
 `Err`, the worker returns or propagates the error according to the normal
 structured `Result`/`TRAP` semantics — there is no separate bridge to keep in
 sync.
+
+## See Also
+
+* ./mfb spec language error-model — the `Result` auto-unwrap and `TRAP` semantics
+* ./mfb spec threading control-block — the `result error source` field at offset 96

@@ -27,28 +27,12 @@ acceptable substitute for thread functionality.
 The Linux backend is cross-compiled and does not invoke an external system
 linker. The compiler emits dynamic ELF executables directly.
 
-```text
-<project>-glibc.out
-<project>-musl.out
-```
-
-The glibc executable uses:
-
-```text
-interpreter /lib/ld-linux-aarch64.so.1
-DT_NEEDED libc.so.6
-DT_NEEDED libpthread.so.0
-```
-
-The musl executable uses:
-
-```text
-interpreter /lib/ld-musl-aarch64.so.1
-DT_NEEDED libc.musl-aarch64.so.1
-```
-
-Musl exposes pthread entry points from libc, so a separate musl pthread library
-dependency is not required for the current backend.
+It emits both a glibc (`<project>-glibc.out`) and a musl (`<project>-musl.out`)
+flavor. Each carries the ELF interpreter path and `DT_NEEDED` list its libc
+requires; the glibc flavor names libpthread separately, while musl exposes pthread
+entry points from libc, so no separate musl pthread dependency is needed. The
+exact interpreter paths and soname list are owned by
+`./mfb spec linker linux-aarch64`.
 
 `thread::start` calls `pthread_create` with:
 
@@ -70,4 +54,9 @@ the OS reclaim the arena instead.
 Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
 `gettid`, `tgkill`, and thread-local raw `exit` are not the threading ABI for
 the current Linux backend. They may be used by libc internally, but generated
-thread helpers must call the libc/pthread interface.
+thread helpers must call the libc/pthread interface. [[src/target/shared/code/mod.rs:lower_thread_start_helper]]
+
+## See Also
+
+* ./mfb spec linker linux-aarch64 — ELF interpreter paths and `DT_NEEDED` soname list
+* ./mfb spec linker macos-aarch64 — libSystem branch-call and GOT relocation requirements

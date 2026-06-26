@@ -106,7 +106,7 @@ entry offsets are relative to its own base, an inlined nested collection
 relocates correctly under the enclosing block's `memcpy`. The **only** payloads
 that remain an 8-byte pointer handle are a **resource** and a **non-flat** nested
 collection (one whose own payloads include a resource or a recursive type) — see
-`is_pointer_collection_payload_type`.
+`is_pointer_collection_payload_type`. [[src/target/shared/code/builder_collection_layout.rs:is_pointer_collection_payload_type]]
 
 ### Capacity Headroom and Growth
 
@@ -227,7 +227,7 @@ leaving five unobservable padding bytes at offsets `3` through `7`.
 ### Copy
 
 A collection copy is **shrink-to-fit**: `copy_flat_block` routes a collection to
-`copy_collection_tight`, which allocates exactly
+`copy_collection_tight`, which allocates exactly [[src/target/shared/code/builder_collection_layout.rs:copy_collection_tight]]
 
 ```text
 CollectionHeader + LookupEntry[count] + Data[dataLength]
@@ -247,7 +247,7 @@ reads `LookupEntry[index]`, then reads the payload at `Data + valueOffset` with
 For a `Map`, `collections::get(value, key)` scans live lookup entries until the
 key payload matches; missing keys fail with `ErrNotFound`. A `String`-keyed map
 takes a dedicated comparison fast path (`lower_string_key_map_get`); other key
-types use the generic linear scan.
+types use the generic linear scan. [[src/target/shared/code/builder_collection_updates.rs:lower_string_key_map_get]]
 
 ### `append`
 
@@ -255,7 +255,7 @@ types use the generic linear scan.
 
 - **In-place (`MUT`, amortized O(1)).** When the buffer is a uniquely-owned `MUT`
   working buffer with headroom (`capacity > count` and enough `dataCapacity`),
-  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`,
+  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/target/shared/code/builder_collection_updates.rs:lower_list_append_in_place]]
   fills the next spare lookup entry, and bumps `count`/`dataLength` in place — no
   reallocation. If headroom is insufficient it first grows the buffer using the
   geometric shape in *Capacity Headroom and Growth* (reallocate-and-copy once,
@@ -266,7 +266,7 @@ types use the generic linear scan.
 ### `insert`
 
 `List` `insert` is **not** an in-place shift. `lower_list_insert_collection`
-allocates a fresh **tight** buffer sized for `count + insertedCount` entries and
+allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/target/shared/code/builder_collection_updates.rs:lower_list_insert_collection]]
 `dataLength + insertedDataLength` bytes, copies the pre-insertion data region then
 the inserted data region verbatim, splices the lookup table (head, inserted,
 tail), and writes a tight header (`capacity == count`, `dataCapacity ==
@@ -281,7 +281,7 @@ one), allocates a fresh tight buffer sized for `count - 1` entries and
 `dataLength - removedValueLength` bytes, and copies the surviving entries through
 `emit_copy_collection_entries`, which **re-packs each live payload at a running
 destination offset and rewrites each entry's `valueOffset`** to its compacted
-position.
+position. [[src/target/shared/code/builder_collection_updates.rs:lower_list_remove_at]]
 
 ### Map Updates
 

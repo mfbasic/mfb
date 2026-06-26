@@ -19,7 +19,7 @@ linkAliases     vec<(alias str, target str)>
 
 ## `IrLinkFunction`
 
-Each `IrLinkFunction` (`encode_link_function` in `src/ir.rs`) is encoded in this exact field order:
+Each `IrLinkFunction` (`encode_link_function` in `src/ir.rs`) is encoded in this exact field order: [[src/ir.rs:encode_link_function]]
 
 ```text
 alias            str          MFBASIC-facing wrapper name as exported
@@ -44,7 +44,7 @@ free             optional (slot str, symbol str)  paired free/close for a return
 
 ## `IrLinkExpr`
 
-`successOn` and `result` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node:
+`successOn` and `result` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node: [[src/ir.rs:encode_link_expr]]
 
 ```text
 0 = Var                       the call's raw return value
@@ -59,10 +59,7 @@ These encode the `SUCCESS_ON`/`ERROR_ON` conditions and the success/error mappin
 
 ## Whitelisting and safety
 
-* Native symbols are whitelisted by this trailer. A package cannot perform dynamic native symbol lookup; only the `symbol`/`library` pairs recorded here can be bound.
-* `CString` conversion rejects embedded NUL.
-* `CPtr`-style raw pointers may appear only inside native binding metadata, never in ordinary exported MFBASIC function signatures.
-* `OUT` storage lives only for the duration of the call unless explicitly converted into an owned MFBASIC value or resource.
+Native symbols are whitelisted by this trailer: a package cannot perform dynamic native symbol lookup, and only the `symbol`/`library` pairs recorded here can be bound. The marshaling-safety rules these slots encode — `CString` NUL handling, `CPtr` being usable only inside native bindings (never in ordinary exported signatures), and `OUT` storage living only for the call — are source-level rules owned by `./mfb spec language native-libraries`; this trailer is just their on-disk form.
 
 > Note: runtime helper symbols for compiler-owned built-ins (arena allocation, I/O, etc.) are an architecture/runtime concern provided by the native backend and the OS layer — they are **not** part of the `.mfp` package format and are not described by package metadata. They are documented with the code generator and runtime, not here.
 
@@ -88,11 +85,17 @@ bit 2 = sendable to thread
 bit 3 = close may fail
 ```
 
-`closeFunctionId` is interpreted by flags: for a **native** `LINK` resource (`native` set, `standard` clear) it is the **string id** of the close op's name; for a built-in **standard** resource (`native` and `standard` both set) it is a sentinel function id (e.g. the built-in fs/net close ids). This is exactly how `read_resource_table`'s decode distinguishes the two.
+`closeFunctionId` is interpreted by flags: for a **native** `LINK` resource (`native` set, `standard` clear) it is the **string id** of the close op's name; for a built-in **standard** resource (`native` and `standard` both set) it is a sentinel function id (e.g. the built-in fs/net close ids). This is exactly how `read_resource_table`'s decode distinguishes the two. [[src/binary_repr.rs:read_resource_table]]
 
 The current compiler's flag assignment:
 
-* Standard built-in resources (`File`, `Socket`, `Listener`) get `native | standard | close-may-fail`, plus `sendable` when the registry marks the type sendable (`standard_resource_flags`).
-* A native `LINK` resource gets `native`, plus `sendable`/`close-may-fail` as declared by the `LINK` block (`add_native`).
+* Standard built-in resources (`File`, `Socket`, `Listener`) get `native | standard | close-may-fail`, plus `sendable` when the registry marks the type sendable (`standard_resource_flags`). [[src/binary_repr.rs:standard_resource_flags]]
+* A native `LINK` resource gets `native`, plus `sendable`/`close-may-fail` as declared by the `LINK` block (`add_native`). [[src/binary_repr.rs:add_native]]
 
 Default rule: resources are not sendable to threads unless explicitly marked sendable.
+
+## See Also
+
+* ./mfb spec language native-libraries — the source-level `LINK` syntax and marshaling rules
+* ./mfb spec linker import-selection — how the bound `(library, symbol)` pairs resolve at link time
+* ./mfb spec package binary-representation — the `IR` payload and trailer that carry this metadata

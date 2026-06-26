@@ -14,9 +14,11 @@ _mfb_linker_init             the native LINK load-time initializer
 _mfb_linker_<alias>_<name>   native LINK marshaling thunks
 _main                        the program entry symbol
 ```
+[[src/target/shared/nir.rs:LINK_INIT_SYMBOL]]
 
 `symbol_fragment` rewrites any character that is not ASCII alphanumeric or `_`
-to `_`, so symbol names are always valid identifiers. Merged package exports use
+to `_`, so symbol names are always valid identifiers.
+[[src/target/shared/nir.rs:symbol_fragment]] Merged package exports use
 the same `_mfb_fn_…` namespace as ordinary functions (their per-package identity
 is folded into the name during the merge), *not* a distinct package-symbol
 namespace.
@@ -38,6 +40,7 @@ branch26    26-bit B/BL immediate, for calls
 page21      ADRP page address (PC-relative, 4 KiB granule)
 pageoff12   12-bit offset within a page, for ADD/LDR/STR
 ```
+[[src/arch/aarch64/encode.rs:EncodedRelocation]]
 
 with two bindings:
 
@@ -82,6 +85,8 @@ to reach the GOT slot directly.
   GOT slots deterministically without scanning relocations.
 - `version`: an optional symbol version (e.g. `GLIBC_2.17`). `None` emits an
   unversioned reference. Ignored on Mach-O, which binds by dylib ordinal.
+
+[[src/arch/aarch64/encode.rs:EncodedImport]] [[src/arch/aarch64/encode.rs:ImportKind]]
 
 `EncodedImage` also carries `initializers`: internal text symbols that must run,
 in order, before the program entry — materialized as ELF `DT_INIT_ARRAY` /

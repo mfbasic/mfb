@@ -6,6 +6,7 @@ of the *planned* container — segments, sections, symbol table, relocations —
 exists to validate that the `NativePlan` is structurally sound before the code
 plan and linker materialize real bytes. It is built by
 `os::<platform>::object::lower_plan` from a `NativePlan`.
+[[src/os/linux/object.rs:lower_plan]]
 
 The object plan is never consumed by the linker. The linker works only from the
 `EncodedImage`. The two models are deliberately parallel: the object plan
@@ -51,6 +52,7 @@ symbol_table      name/kind/section/value/string-table-offset entries
 string_table      symbol string table
 relocations       from/to/kind/section records
 ```
+[[src/os/linux/object.rs:NativeObjectPlan]]
 
 The JSON form is tagged `"mfb-native-object-plan"`, version 2. Each call's
 `CallKind` maps to an object-plan relocation kind: `Local` and `Runtime` become
@@ -69,6 +71,8 @@ thunk calls), and `Indirect` becomes `indirectCall`. Data references and the
   duplicates).
 - Every relocation's source is a defined symbol, and its target is defined,
   imported, or external.
+
+[[src/os/linux/object.rs:validate]]
 
 macOS additionally checks section layout:
 

@@ -1,10 +1,12 @@
 # Import And Library Selection
 
-Platform import decisions are made during native planning, in
-`plan::lower_module` (`src/target/shared/plan.rs`) with the per-target platform
-object choosing concrete library and symbol names
-(`src/target/macos_aarch64/plan.rs`, `src/target/linux_aarch64/plan.rs`). The
-linker does not pick libraries; it only materializes what the plan recorded.
+Platform import decisions are made during native planning, in the shared entry
+`plan::lower_module_for_platform` (`src/target/shared/plan.rs`); the per-target
+`plan::lower_module` wrappers (`src/target/macos_aarch64/plan.rs`,
+`src/target/linux_aarch64/plan.rs`) delegate to it. The concrete
+`(library, symbol)` selection lives in the per-target `plan.rs` platform object.
+The linker does not pick libraries; it only materializes what the plan recorded.
+[[src/target/shared/plan.rs:lower_module_for_platform]]
 
 ## The `PlatformImport` record
 
@@ -15,6 +17,7 @@ library      target library/soname the symbol must be resolved from
 symbol       the dynamic symbol name codegen references
 required_by  the internal symbol that caused the import
 ```
+[[src/target/shared/plan.rs:PlatformImport]]
 
 `platform_imports` collects imports, in order, from:
 
@@ -31,6 +34,7 @@ fields (`library`, `symbol`, `required_by`) already match an existing entry. The
 same symbol required by two different functions is kept twice at this layer; the
 linker later collapses imports to one dynamic dependency and one GOT slot per
 distinct `(library, symbol)`.
+[[src/target/shared/plan.rs:push_platform_import]]
 
 ## Target-specific library and symbol selection
 
@@ -91,11 +95,14 @@ These are not resolved as ordinary platform imports. Instead
 - `_mfb_linker_init` is invoked from the entry bootstrap, not from a load-time
   initializer array.
 
+[[src/target/shared/code/link_thunk.rs:emit_link_support]]
+
 A call to a `LINK` function is a `CallKind::Import` referencing the internal
 thunk symbol — an internal `branch26`, not an external relocation. The dynamic
 dependency on the user library is expressed only through `dlopen` at run time, so
 the `LINK` library name does not appear in the executable's dynamic dependency
 metadata.
+[[src/target/shared/plan.rs:CallKind]]
 
 ## Packages and transitive imports
 
@@ -104,3 +111,12 @@ A package export's body is merged into the program IR before lowering (see
 imports exactly as if the app package had called the helper directly. The final
 executable must include those imports even when the app package never names the
 helper itself.
+
+## See Also
+
+* ./mfb spec language native-libraries — the source-level `LINK` syntax and
+  marshaling contract
+* ./mfb spec package native-bindings — how `LINK` bindings are encoded in the
+  `.mfp` resource trailer
+* ./mfb spec linker package-linking — how merged package bodies contribute their
+  transitive platform imports

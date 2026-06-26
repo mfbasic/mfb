@@ -32,7 +32,7 @@ dependency graph — resolved versions, content hashes, or transitive deps). The
 exit code is `0` when clean, `1` on error-severity findings, `2` on a usage
 error, and `3` on unreadable or malformed input. (Native-link reporting is a
 declared section but the current collector leaves it empty; native `LINK`
-metadata surfaces instead through the native-resource entries.)
+metadata surfaces instead through the native-resource entries.) [[src/audit/mod.rs:run]]
 
 The formatter command:
 
@@ -52,9 +52,11 @@ contextual lowercase `return`. `--indent N` sets the indent width in spaces
 (default `2`). `--check` writes nothing and exits with a toolchain diagnostic
 when any file is not already formatted.
 
-The complete current command set is discoverable via `mfb help`: `init`,
-`init-pkg`, `repo register`/`repo auth`, `pkg add`/`pkg info`/`pkg verify`/`pkg
-publish`/`pkg doc`, `doc`, `fmt`, `build`, `audit`, `man`, and `spec`.
+The complete current command set is discoverable via `mfb help` and documented by
+`./mfb spec architecture commands`. The `audit`, `fmt`, and `doc` commands above
+are described here because they surface auditability as a language property; the
+remaining build, package-management, and repository commands are owned by that
+architecture topic.
 
 > **Not yet implemented.** A dedicated test runner (`mfb test`) and a
 > language-server entry point (`mfb lsp`) are intended but absent from the
@@ -63,3 +65,8 @@ publish`/`pkg doc`, `doc`, `fmt`, `build`, `audit`, `man`, and `spec`.
 > move/use-after-move, native-link, permission, version-conflict, lockfile, and
 > identifier-similarity finding — are the design target for an LSP and editor
 > tooling, not a feature the present toolchain ships.
+
+## See Also
+
+* ./mfb spec architecture commands — full CLI command set and build modes
+* ./mfb spec language documentation — `DOC` blocks and `mfb doc`

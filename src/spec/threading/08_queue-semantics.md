@@ -35,7 +35,7 @@ arena at send time, then the reader just dequeues the already-materialized value
 - Worker→parent (`thread.emit`) loads the parent arena state from control-block
   offset 88 and copies the message into it.
 - Parent→worker (`thread.send`) and all reads use the worker arena state at
-  offset 80.
+  offset 80. [[src/target/shared/code/mod.rs:thread_queue_write_helper]]
 
 Resource handles move as scalar handles through the resource queues without the
 flat-block deep copy used for data-plane values.
@@ -60,7 +60,7 @@ enqueue success:
   the error handler, where it remains owned by the sender and can be released. The
   typechecker treats the argument at index 1 of `thread.start`, `thread.send`, and
   `thread.transfer` as a move (`ExprMode::Transfer`); a borrowed resource cannot be
-  transferred (`OWNERSHIP_BORROWED_RESOURCE_OPERATION`).
+  transferred (`OWNERSHIP_BORROWED_RESOURCE_OPERATION`). [[src/typecheck.rs:Transfer]]
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal
@@ -123,11 +123,11 @@ removed from the cleanup set. Handles closed by `thread::waitFor(t)` remain safe
 for compiler-generated cleanup; the drop helper is idempotent for an already
 closed handle.
 
-The same scope-drop cleanup mechanism also frees ordinary owned **values** (flat
-`String`/`Record`/`Union`/`List`/`Map`/`Error`/`Result` blocks) with one
-`arena_free` each, in the same reverse order on the same exit paths. Two
-thread-specific exclusions apply, because those values are not plain blocks this
-scope owns:
+The same scope-drop cleanup mechanism also frees ordinary owned **values** with
+one `arena_free` each, in the same reverse order on the same exit paths — the
+general lexical value-cleanup rule owned by `./mfb spec language memory-semantics`.
+Two thread-specific exclusions apply, because those values are not plain blocks
+this scope owns:
 
 - **Thread-boundary results are runtime-managed.** Values produced by
   `thread::receive`, `thread::waitFor`, and the data-plane reads live in the
@@ -165,3 +165,8 @@ closes it exactly once:
   transferred out of that arena or the result has otherwise been retrieved, and
   every worker-to-parent message has either been transferred into outbound queue
   storage or dropped by cleanup.
+
+## See Also
+
+* ./mfb spec language memory-semantics — the general lexical scope-drop value-cleanup rule
+* ./mfb spec threading control-block — the queue record and control-block layout

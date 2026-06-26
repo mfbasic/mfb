@@ -13,7 +13,7 @@ bytes are identical in both cases.
 ## Container layout
 
 Constants: VM base `0x1_0000_0000`, page size `0x4000` (16 KiB), import stub size
-12 bytes. Segments are emitted in this order:
+12 bytes. Segments are emitted in this order: [[src/os/macos/link.rs:VM_BASE]]
 
 ```text
 __PAGEZERO     vm 0, size = VM base, no file backing, no access
@@ -68,6 +68,7 @@ Foundation   /System/Library/Frameworks/Foundation.framework/Foundation
 libobjc      /usr/lib/libobjc.A.dylib
 libz         /usr/lib/libz.1.dylib
 ```
+[[src/os/macos/link.rs:dylib_path]]
 
 Console builds draw their POSIX/pthread/math surface from `libSystem` using
 Darwin C ABI symbol names (leading underscore: `_write`, `_read`, `_open`,
@@ -90,7 +91,7 @@ ad-hoc code signature, even for a static, import-free image. The
   CodeDirectory page size is 4096, distinct from the 16 KiB Mach-O page size).
 
 The image is encoded once unsigned to compute the hashes, then re-encoded with
-the signature in place.
+the signature in place. [[src/os/macos/link.rs:code_signature]]
 
 This ad-hoc signature is distinct from the optional `__MFB,__sign` segment, which
 carries MFBASIC's own executable signing metadata when the build supplies it.
@@ -110,4 +111,14 @@ carries MFBASIC's own executable signing metadata when the build supplies it.
 (`dev.mfbasic.<project>`), `CFBundlePackageType` `APPL`, and `NSPrincipalClass`
 `NSApplication`. In app mode `_main` is an AppKit bootstrap that creates the
 window and spawns a worker thread running the language entry; console mode uses
-`_main` as the ordinary program entry.
+`_main` as the ordinary program entry. The worker bootstrap's runtime mechanics
+are owned by ./mfb spec threading os-integration.
+
+## See Also
+
+* ./mfb spec linker symbols-and-relocations — internal/external relocation
+  bindings, import stubs, and the GOT
+* ./mfb spec linker static-and-dynamic-output — the static-vs-dynamic image
+  choice and initializers
+* ./mfb spec threading os-integration — the app-mode worker-thread bootstrap
+  runtime detail

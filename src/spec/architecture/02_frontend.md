@@ -37,7 +37,7 @@ format. In particular, it primarily consumes:
 
 Fields such as `include`, `exclude`, `role`, `targets`, and richer repository
 metadata are documented for the project format but are not the active source of
-build behavior in the compiler code reviewed here.
+build behavior in the compiler code reviewed here.[[src/main.rs:validate_project_manifest]]
 
 ## Source Discovery and Parsing
 
@@ -66,7 +66,7 @@ Current discovery behavior:
 - Per-root `include`/`exclude` glob patterns are applied by the source collector
   (`matches_source_patterns` in `src/ast.rs`). When unspecified, `include`
   defaults to `["**/*.mfb"]` and `exclude` defaults to empty, so every nested
-  `.mfb` file is collected by default.
+  `.mfb` file is collected by default.[[src/ast.rs:matches_source_patterns]]
 
 ## Name Resolution
 
@@ -85,11 +85,11 @@ built-in packages — `File` (fs), `TermColor` and `TermSize` (term), `Socket`,
 `Listener`, `Address`, `UdpSocket`, `Datagram`, `DatagramText` (net), and
 `TlsSocket` (tls). The package-contributed names are referenced by constant
 (e.g. `builtins::fs::FILE_TYPE`) so the resolver list and the packages stay in
-sync.
+sync.[[src/resolver.rs:BUILTIN_TYPES]]
 
 Before resolving, the resolver calls `builtins::json::augmented_project` to
 expand `Json`-typed declarations into the augmented AST used for the rest of
-resolution.
+resolution.[[src/builtins/json.rs:augmented_project]]
 
 It also reads declared package dependencies from the manifest and uses those to
 validate imported package roots. For source imports, it detects duplicate
@@ -108,7 +108,7 @@ parsed AST
 
 The second resolution pass is important because monomorphization rewrites
 generic/template code into concrete declarations that must also obey normal
-symbol rules.
+symbol rules.[[src/monomorph.rs:monomorphize_project]]
 
 ## Monomorphization
 
@@ -152,7 +152,7 @@ Rules enforced by the implementation:
 - A `FUNC` executable entry must return `Integer`.
 - The entry may have zero parameters or one `List OF String` parameter.
 - The args parameter must not declare a default value.
-- Missing or invalid executable entries are compile-time errors.
+- Missing or invalid executable entries are compile-time errors.[[src/main.rs:validate_entry_point]]
 
 The resulting IR entry records the entry name, return type, and whether the
 program accepts command-line arguments.
@@ -175,28 +175,13 @@ It then validates declarations, statement flow, expression types, mutability,
 constructor usage, member access, function calls, built-in calls, package calls,
 return/fail behavior, isolated-function restrictions, and default values.
 
-The type model includes primitive and compound forms:
-
-- `Boolean`
-- `Byte`
-- `Error`
-- `ErrorLoc`
-- `Fixed`
-- `Float`
-- `Integer`
-- `List(T)`
-- `Map(K, V)`
-- `Res(T)` — a `RES`-marked resource element of a collection (`List OF RES File`,
-  `Map ... TO RES File`); the collection holds a borrow and owns nothing
-- function values (with parameter types, return type, and isolated flag)
-- `Nothing`
-- `Result(T)`
-- `String`
-- `Thread(message, optional resource, output)` — the optional middle slot is the
-  resource-plane type carried by `thread::transfer`/`accept`; `None` for a
-  data-only thread
-- `ThreadWorker(message, optional resource, output)`
-- user-defined types (`User`)
-- `Unknown` — the inference placeholder for an as-yet-undetermined type
+The type checker models the primitive and compound forms of the language —
+the scalars, `List`/`Map` collections, function values, `Result`, `Thread`/
+`ThreadWorker`, user-defined types, and the `Unknown` inference placeholder.
+The canonical enumeration of these forms is `./mfb spec language types`.
 
 Type checking is the last front-end validation pass before lowering to IR.
+
+## See Also
+
+* ./mfb spec language types — the source-level type model the type checker enforces

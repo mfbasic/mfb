@@ -11,7 +11,7 @@
 | `String` | UTF-8, immutable |
 | `Byte` | unsigned 8-bit |
 
-`Fixed` is a binary fixed-point number stored as a signed 32-bit integer part and a 32-bit fractional part. Its range is approximately `-2147483648.0` through `2147483647.9999999998`, with a resolution of `1 / 2^32`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces an error result with code `77050010`; divide-by-zero and invalid numeric domains produce an error result with code `77050002`.
+`Fixed` is a binary fixed-point number with an integer part and a `1 / 2^32` fractional part (the 8-byte runtime storage layout is specified by `./mfb spec memory scalar-storage`). Its range is approximately `-2147483648.0` through `2147483647.9999999998`. Fixed-point arithmetic is deterministic across targets, but it is not exact decimal currency arithmetic because most decimal fractions are rounded to binary fixed-point values. Overflow produces an error result with code `77050010`; divide-by-zero and invalid numeric domains produce an error result with code `77050002`.
 
 The name `Fixed` is retained for deterministic binary fixed-point arithmetic. A future exact base-10 financial type, if added, should use a distinct name such as `Decimal` and must specify decimal scale, rounding, and overflow rules separately.
 
@@ -57,7 +57,7 @@ Numeric edge cases:
 - `^` for `Integer` requires a non-negative integer exponent and fails with `ErrInvalidArgument` (`77050002`) for negative exponents. Overflow fails with `ErrOverflow` (`77050010`).
 - `Float` follows IEEE 754 binary64 representation, but MFBASIC does not expose successful non-finite arithmetic results. Floating-point domain failures, including division by zero and invalid `^` exponents, fail with `ErrFloatDomain` (`77050012`). Results that would be NaN fail with `ErrFloatNaN` (`77050013`). Results that would be infinity fail with `ErrFloatInf` (`77050014`), except arithmetic overflow to infinity fails with `ErrFloatOverflow` (`77050015`). Imported native `Float` values that are already NaN or infinity are rejected at the boundary with `ErrInvalidFormat` (`77050003`).
 - Float comparisons are total over finite values only. Comparing a non-finite `Float` is not possible in ordinary MFBASIC source because non-finite values cannot be constructed or imported successfully.
-- Converting `Float` or `Fixed` to `Integer` or `Byte` fails with `ErrOverflow` (`77050010`) when outside the destination range. Converting text to a numeric type fails with `ErrInvalidFormat` (`77050003`) when the text is malformed or names a non-finite value such as `NaN` or `Infinity`.
+- Converting `Float` or `Fixed` to `Integer` or `Byte` fails with `ErrOverflow` (`77050010`) when outside the destination range. Converting text to a numeric type fails with `ErrInvalidFormat` (`77050003`) when the text is malformed or names a non-finite value such as `NaN` or `Infinity`. [[src/target/shared/code/builder_misc.rs:emit_float_domain_return]]
 
 ## 4.2 Records (product types)
 
@@ -86,7 +86,7 @@ List literals use bare square brackets, such as `[1, 2, 3]`, and are parsed sepa
 
 `WITH value { field := expr, ... }` creates a copy of a record with the named fields replaced. The original value is unchanged.
 
-A record type may not contain itself, directly or transitively, except through a `List`, `Map`, or `UNION`. A field is a mandatory owned value with no null or absent form, so a record whose field cycles back to the same record only through other plain records has no base case and can never be constructed. Such a declaration is rejected with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`:
+A record type may not contain itself, directly or transitively, except through a `List`, `Map`, or `UNION`. A field is a mandatory owned value with no null or absent form, so a record whose field cycles back to the same record only through other plain records has no base case and can never be constructed. Such a declaration is rejected with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`: [[src/rules.rs:668]]
 
 ```basic
 TYPE Node          ' rejected: `next` always demands another Node
@@ -229,7 +229,7 @@ END TYPE
 
 Both are compiler/runtime-generated **read-only** record shapes. A program may
 read their fields, but may **not** construct them with `[...]`, update them with
-`WITH`, or assign to their fields. User-authored errors are created with the
+`WITH`, or assign to their fields. [[src/rules.rs:512]] User-authored errors are created with the
 `error` built-in function:
 
 ```basic
@@ -260,11 +260,11 @@ name, construct, or match.
   `error(code, message)`; use semantic error-code constants such as
   `errorCode::ErrNotFound` for not found.
 
-> **Implementation note.** Internally the runtime represents every fallible
-> outcome as a two-member union (a private success member plus the public
-> `Error`). That type is not nameable, constructible, or matchable in user code;
-> it exists only in compiler IR and binary representation metadata, and is never observable in
-> user syntax.
+> **Implementation note.** Internally every fallible outcome is a private
+> success-or-`Error` form that is not nameable, constructible, or matchable in
+> user code; it exists only in compiler IR and is never observable in user
+> syntax. The native register-level result ABI (success/error/exit tags) is
+> specified by `./mfb spec memory fallible-call-abi`.
 
 ## 4.5 Enums
 
@@ -374,7 +374,7 @@ Defaultability is recursive and finite: nested lists, maps, and records are defa
 
 ## 4.11 Comparable and Orderable Types
 
-Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. The built-in `Error` and `ErrorLoc` record shapes are comparable (their fields are all comparable). `List`, `Map`, unions, functions, lambdas, threads, resource handles, and the internal fallible-result type are not comparable. Record comparability is computed structurally with a recursion guard: a record that reaches itself only through non-comparable members (a cycle through `List`/`Map`/`UNION`) is not comparable, and a resource-wrapped `TYPE` is never comparable.
+Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. [[src/typecheck.rs:is_comparable]] The built-in `Error` and `ErrorLoc` record shapes are comparable (their fields are all comparable). `List`, `Map`, unions, functions, lambdas, threads, resource handles, and the internal fallible-result type are not comparable. Record comparability is computed structurally with a recursion guard: a record that reaches itself only through non-comparable members (a cycle through `List`/`Map`/`UNION`) is not comparable, and a resource-wrapped `TYPE` is never comparable.
 
 `Map` keys must be comparable. List helpers such as `find`, `contains`, and `replace` require comparable element types.
 
@@ -389,6 +389,8 @@ Equality operators `=` and `<>` require either numeric operands or any two compa
 
 ## See Also
 
+* ./mfb spec memory scalar-storage — runtime scalar payload sizes
+* ./mfb spec memory fallible-call-abi — native result register ABI
 * ./mfb spec memory collections — runtime `List`/`Map` storage
 * ./mfb spec language collections — collection operations and semantics
 * ./mfb man types — type-related built-in help

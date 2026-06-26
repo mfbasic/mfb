@@ -2,7 +2,7 @@
 
 The Linux backend (`src/os/linux/link.rs`) is cross-compiled and writes ELF64
 aarch64 executables directly. It does not invoke `ld`, `gold`, `lld`, `gcc`,
-`clang`, or any host linker.
+`clang`, or any host linker. [[src/os/linux/link.rs:encode_dynamic_elf]]
 
 A console build emits two flavors, one per dynamic loader / library naming:
 
@@ -53,6 +53,7 @@ relocation in `.rela`: `R_AARCH64_JUMP_SLOT` for `ImportKind::Function`,
 `R_AARCH64_GLOB_DAT` for `ImportKind::Data` (addend always 0). External
 `branch26` relocations are resolved to the stub; external `page21`/`pageoff12`
 to the GOT slot. The linker emits one `DT_NEEDED` per distinct imported library.
+[[src/os/linux/link.rs:R_AARCH64_JUMP_SLOT]]
 
 ## Symbol versioning
 
@@ -63,7 +64,7 @@ indices starting at 2 (1 = unversioned global). This is intended for versioned
 exports such as OpenSSL 3's `OPENSSL_3.0.0`. The current encode path emits all
 imports unversioned, so production builds produce no `.gnu.version*` sections;
 the path is exercised by the linker tests (validated against the glibc
-`GLIBC_2.17` aarch64 baseline).
+`GLIBC_2.17` aarch64 baseline). [[src/os/linux/link.rs:encode_dynamic_elf]]
 
 ## Initializers
 
@@ -81,12 +82,11 @@ libm.so.6        math functions (pow, sin, cos, atan2, …)
 libpthread.so.0  pthread_create for thread::start
 ```
 
-- `io::print` imports `write` from `libc.so.6`.
-- `math::sin` imports `sin` from `libm.so.6`.
-- `thread::start` imports `pthread_create` from `libpthread.so.0`.
-
-Imported symbols use plain ELF names with no leading underscore (`write`, `read`,
-`open`, `close`, `clock_gettime`, `pthread_create`, `pow`, `sin`, `cos`, …).
+These three sonames each become a `DT_NEEDED` entry. The per-call
+`(library, symbol)` mapping (e.g. `io::print`→`write` from `libc.so.6`,
+`math::sin`→`sin` from `libm.so.6`, `thread::start`→`pthread_create` from
+`libpthread.so.0`) is owned by ./mfb spec linker import-selection. Imported
+symbols use plain ELF names with no leading underscore.
 
 ## musl flavor
 
@@ -96,16 +96,23 @@ libc.musl-aarch64.so.1   C/POSIX runtime functions and pthread_create
 libm.so.1                math functions (pow, sin, cos, atan2, …)
 ```
 
-musl exposes the pthread entry points from libc, so `thread::start` imports
-`pthread_create` from `libc.musl-aarch64.so.1` rather than a separate pthread
-library.
-
-- `io::print` imports `write` from `libc.musl-aarch64.so.1`.
-- `math::sin` imports `sin` from `libm.so.1`.
-- `thread::start` imports `pthread_create` from `libc.musl-aarch64.so.1`.
+musl exposes the pthread entry points from libc, so the pthread surface
+(`pthread_create` for `thread::start`) is imported from
+`libc.musl-aarch64.so.1` rather than a separate pthread library, and the math
+surface from `libm.so.1`. The per-call symbol mapping is owned by ./mfb spec
+linker import-selection.
 
 ## Executable signing metadata
 
 When the build supplies executable signing metadata, the linker emits it as a
 `.mfb_sign` ELF section. Unlike macOS, Linux executables are not otherwise signed
 by the linker.
+
+## See Also
+
+* ./mfb spec linker import-selection — the per-call `(library, symbol)` mapping
+  and flavor soname selection
+* ./mfb spec linker symbols-and-relocations — relocation kinds, import stubs, and
+  the GOT
+* ./mfb spec linker static-and-dynamic-output — the static-vs-dynamic image
+  choice

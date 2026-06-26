@@ -12,7 +12,7 @@ internal text and data and no dynamic-loading metadata:
   and a (possibly empty) symbol table, with no `LC_LOAD_DYLIB`, no
   `__DATA_CONST`/GOT, and no dyld bind/rebase opcodes.
 - Linux: `encode_static_elf` emits a single `PT_LOAD`, no `PT_INTERP`, and no
-  `.dynamic` section.
+  `.dynamic` section. [[src/os/linux/link.rs:encode_static_elf]]
 
 A static image needs nothing from a dynamic loader, but on macOS it is still
 ad-hoc code-signed (see `macos-aarch64`).

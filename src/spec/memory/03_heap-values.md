@@ -4,14 +4,12 @@ Native heap values use layout-specific compact object bodies. The arena
 allocator may keep block-level bookkeeping, but values allocated inside the
 arena do not share a universal per-object header.
 
-Each package instance owns a distinct arena. Worker package instances therefore
+Each package instance owns a distinct arena, so worker package instances
 allocate strings, records, unions, collections, errors, and other heap-backed
 values in the worker arena by default. When such a value crosses a thread
-boundary as start input, a queued message, or a completed result, the runtime
-must materialize the value in transfer storage independent of the producer arena
-or in the receiver's arena before the receiver observes it. A thread control
-block or queue entry must not retain a bare layout handle into a worker arena
-after that arena is eligible for reclamation.
+boundary it is re-materialized in the receiver's arena (not retained as a bare
+handle into a soon-reclaimed worker arena) — see
+`./mfb spec threading isolation`.
 
 The arena allocator entry point `arena_alloc(size, align)` validates that
 alignment is a non-zero power of two, treats zero-size allocations as one byte,
@@ -36,7 +34,7 @@ The trailing NUL byte is a native helper convenience and is not part of the
 logical string length. A `String` object's total allocation size is therefore
 `byteLength + 9` (the 8-byte length word plus the bytes plus the NUL); this same
 `+9` formula sizes a `String` block inlined into a record or collection
-(`emit_inlined_block_size_from_ptr_slot`).
+(`emit_inlined_block_size_from_ptr_slot`). [[src/target/shared/code/builder_collection_layout.rs:emit_inlined_block_size_from_ptr_slot]]
 
 ## Record
 
@@ -67,7 +65,7 @@ stores, by field type:
   to that same base, a whole-block `memcpy` deep-copies the entire tree. A field is
   inlined into the data region iff it is a `String` or a flat composite — see
   `record_field_is_inlined` / `type_is_flat`
-  (`builder_collection_layout.rs`).
+  (`builder_collection_layout.rs`). [[src/target/shared/code/builder_collection_layout.rs:record_field_is_inlined]]
 - **non-flat composite** — a **resource** `Union`, a `List`/`Map` carrying a
   resource or recursive payload, a non-flat `Result`, or a nested record that is
   not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
@@ -84,7 +82,7 @@ separate allocation. The built-in helper-
 constructed `net::` records `Address`, `Datagram`, and `DatagramText` are
 **excluded**: their `String`/sub-record fields remain pointers to separate
 allocations (the socket helpers build them that way), so reads of those records
-do not rebase.
+do not rebase. [[src/target/shared/code/builder_collection_layout.rs:type_is_flat]]
 
 ## `Error` and `ErrorLoc`
 
@@ -105,7 +103,7 @@ Error                              ErrorLoc
 OOM-degraded error with no origin) is represented by an **offset-0 sentinel**
 (offset 0 can never address a real inlined block, since the data region starts at
 24); `emit_load_error_fields` maps it back to a null pointer when loading the
-fallible-call ABI registers. Construction, field access, copy, and
+fallible-call ABI registers. [[src/target/shared/code/builder_misc.rs:emit_load_error_fields]] Construction, field access, copy, and
 thread-transfer reuse the generic flat-record machinery — copying an `Error` is
 one `memcpy`.
 
@@ -150,6 +148,12 @@ stores each union block inline by its runtime `size`.
 
 A **resource** union (all variants are resource handles; a union is all-data or
 all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION` in `rules.rs`) is
-**not** reshaped — it keeps the fixed
+**not** reshaped [[src/rules.rs:TYPE_MIXED_RESOURCE_UNION]] — it keeps the fixed
 `{U64 activeMemberTag@0, resource-handle-ptr@8}` layout, and the handle is moved
 (never deep-copied) so the resource is closed exactly once.
+
+## See Also
+
+* ./mfb spec threading isolation — re-materializing a heap value across a thread boundary
+* ./mfb spec memory arenas — where these values are allocated and freed
+* ./mfb spec memory collections — the uniform `List`/`Map` layout

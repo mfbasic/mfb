@@ -4,9 +4,9 @@ The package binary representation is the architecture-independent payload stored
 
 The binary representation is not machine code. It contains no native addresses, host pointers, host object layouts, CPU instructions, or platform-specific calling conventions. It is the **structured Binary Representation** — a faithful, versioned serialization of the compiled program — plus the metadata tables that describe the package.
 
-The package container format is called **MFPC**. Its container major version is **2** (the clean break to the structured Binary Representation; the old flat opcode payload was major `1` and is rejected outright).
+The package container format is called **MFPC**. Its container major version is **2** (the clean break to the structured Binary Representation; the old flat opcode payload was major `1` and is rejected outright). [[src/binary_repr.rs:MFPC_MAJOR_VERSION]]
 
-The Binary Representation is *not* a flat opcode stream: control flow is encoded as nested regions with explicit ends (`IF/THEN/ELSE/END`, `WHILE/DO/END`, `FOREACH/IN/DO/END`, `MATCH/CASE/.../END`, `TRAP/.../END`) and expressions stay as trees (`Binary`, `Call`, `CallResult`, `ResultIsOk/Value/Error`, `Constructor`, `MemberAccess`, literals, identifiers, …). A reader walks the tree; structure is read, never reconstructed from jumps. This is the same principle WebAssembly uses (structured control flow, no arbitrary jumps), kept at MFBASIC's own semantic level so the encoding still knows `List`, `Map`, `Result`, owned `File`, and threads.
+The Binary Representation is *not* a flat opcode stream: control flow stays nested (regions with explicit ends) and expressions stay as trees, so a reader walks the tree rather than reconstructing it from jumps. That conceptual framing — and why it mirrors WebAssembly's structured control flow at MFBASIC's own semantic level — is owned by `./mfb spec architecture binary-representation`; this page specifies the on-disk byte layout. The concrete node encoding lives in `ir-section`.
 
 ```text
 packageBinaryRepr
@@ -46,7 +46,7 @@ length         u64
 
 `offset` is relative to the start of `packageBinaryRepr`, not the start of the file. Each section-table entry is exactly 24 bytes (`sectionId` u16, `sectionFlags` u16, `reserved` u32, `offset` u64, `length` u64), so the table occupies `16 + sectionCount * 24` bytes and section payloads follow.
 
-Sections may appear in any order. The current reader (`read_binary_repr_package`) loads the section table into a map keyed by `sectionId`, validates that each entry's `offset + length` stays within the payload, and then looks sections up by id. Note the gap between the format's intent and the current reader: it does **not** reject overlapping section ranges, and on a duplicate `sectionId` the **last** entry wins rather than being rejected. Producers must still emit each section at most once.
+Sections may appear in any order. The current reader (`read_binary_repr_package`) loads the section table into a map keyed by `sectionId`, validates that each entry's `offset + length` stays within the payload, and then looks sections up by id. Note the gap between the format's intent and the current reader: it does **not** reject overlapping section ranges, and on a duplicate `sectionId` the **last** entry wins rather than being rejected. Producers must still emit each section at most once. [[src/binary_repr.rs:read_binary_repr_package]]
 
 ## Section IDs
 
@@ -73,7 +73,7 @@ Section id `9` (the old flat `CODE` stream) is **retired**. Function bodies are 
 
 Ids `10` (`NATIVE_LINK_TABLE`), `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are **reserved by the format but never produced or consumed by the current compiler** — there is no `SECTION_NATIVE_LINK_TABLE` (or debug/source-map/audit) constant in `src/binary_repr.rs`. In particular, native `LINK` metadata is **not** carried in a `NATIVE_LINK_TABLE` section; it rides as an optional trailer inside the `IR` payload (see `native-bindings`).
 
-Sections the current compiler actually emits, via `BinaryReprProject::encode`:
+Sections the current compiler actually emits, via `BinaryReprProject::encode`: [[src/binary_repr.rs:3912]]
 
 ```text
 MANIFEST          (id 1,  always)

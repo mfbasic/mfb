@@ -185,12 +185,8 @@ Rules:
 * `signatureType = 1` means Ed25519.
 * If `signatureType = 1`, then `signatureLength` must be `64`.
 * Unknown `signatureType` values reject the package.
-* Public registry packages must be signed. `registry:mfb` rejects packages with `signatureType = 0`.
-* `mfb pkg install` rejects unsigned packages by default. The only default-permitted exception is a `path:` or `file:` source when the project policy explicitly enables `allowUnsignedLocal`.
-* `mfb.lock` must record any unsigned-local exception, including the source package, policy name, and reason.
-* A build policy may require a specific `identKey`, `identFingerprint`, `signingFingerprint`, or signing public key for a package ident, package URL, package registry, or package source.
 
-The `identKey`, `identFingerprint`, and `signingFingerprint` are not trusted merely because they appear in the package. Package trust comes from the package manager, registry, local trust store, project lockfile, or explicit user configuration. Registry publish policy must verify that `identFingerprint` is the fingerprint of `identKey`, that the ident key controls the owner in `ident`, and that `signingFingerprint` belongs to the current signing key for that owner.
+These on-disk encoding rules are all the `binary_repr` reader enforces. Whether an unsigned or untrusted package is *accepted* — registry signing requirements, `mfb pkg install` defaults, `allowUnsignedLocal` exceptions, `mfb.lock` recording, and per-ident/key trust policy — is package-manager policy, not part of this byte format. See `./mfb spec architecture packages`.
 
 ## Container flags
 
@@ -203,7 +199,7 @@ bits 4-15 = reserved optional flags
 bits 16-31 = reserved required flags
 ```
 
-Current compiler behaviour (`container_flags` in `src/target/package_mfp/mod.rs`): the only flag the compiler ever sets is **bit 3 (pre-release)**, and it sets it exactly when the package `version` string contains a `-` (a semantic-version pre-release tag). Bits 0-2 are defined by the format but are **not currently emitted** — native LINK metadata is carried inside the binary representation payload rather than signalled by a container flag (see `native-bindings`), and debug/source-map metadata are not produced. The current reader does not act on the flags field.
+Current compiler behaviour (`container_flags` in `src/target/package_mfp/mod.rs`): the only flag the compiler ever sets is **bit 3 (pre-release)**, and it sets it exactly when the package `version` string contains a `-` (a semantic-version pre-release tag). [[src/target/package_mfp/mod.rs:container_flags]] Bits 0-2 are defined by the format but are **not currently emitted** — native LINK metadata is carried inside the binary representation payload rather than signalled by a container flag (see `native-bindings`), and debug/source-map metadata are not produced. The current reader does not act on the flags field.
 
 The reserved-required-flag rule remains normative for forward compatibility: if an implementation sees an unknown required flag (bits 16-31), it must reject the package before import or merge.
 
@@ -220,16 +216,16 @@ The current container reader (`mfp_binary_repr_payload` in `src/binary_repr.rs`,
 * `magic` does not match. The current compiler reports this as `package does not have the MFP package magic`.
 * `containerMajor` is not `1`. The current compiler reports this as `unsupported MFP container major version <n>`.
 * `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
-* `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`.
+* `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`. [[src/binary_repr.rs:validate_mfp_signature_header]]
 * The declared signature length runs past the end of the file. The current compiler reports this as `truncated .mfp signature`.
 * `binaryReprLength` does not exactly match the remaining byte count, or there are trailing bytes after `packageBinaryRepr`. The current compiler reports both as `invalid .mfp binary representation length`.
-* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`. The identity comparison covers `name`, `ident`, `version`, `identKey`, `identFingerprint`, and `signingFingerprint` (`validate_container_manifest_identity`).
+* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`. The identity comparison covers `name`, `ident`, `version`, `identKey`, `identFingerprint`, and `signingFingerprint` (`validate_container_manifest_identity`). [[src/binary_repr.rs:validate_container_manifest_identity]]
 
 The MFPC payload's own `bcMajor` (which must be `2`) is checked separately when the payload is parsed (`read_binary_repr_package`), reported as `unsupported MFPC major version <n> (expected 2); this package predates the structured Binary Representation format and must be rebuilt`. This is a **clean break** from the old flat opcode payload (`bcMajor = 1`), which is rejected outright.
 
 What the container reader does **not** do:
 
-* It does **not** verify the cryptographic signature. Signature/trust-policy verification is performed by the package manager layer (`mfb_repository::crypto`) at install/resolve time, not by the binary-representation reader at import time. `package_content_hash` and `build_signed_package_bytes` in `src/target/package_mfp/mod.rs` produce and cover the signature; the import-time reader treats the signature bytes only as a region to skip over.
+* It does **not** verify the cryptographic signature. Signature/trust-policy verification is performed by the package manager layer (`mfb_repository::crypto`) at install/resolve time, not by the binary-representation reader at import time. `package_content_hash` and `build_signed_package_bytes` in `src/target/package_mfp/mod.rs` produce and cover the signature; the import-time reader treats the signature bytes only as a region to skip over. [[src/target/package_mfp/mod.rs:package_content_hash]]
 * It does **not** validate the container header `binaryReprMajor`/`binaryReprMinor` fields.
 
 The `MfpHeader` reader in `src/main.rs` additionally enforces the recommended string-length limits below while reading the header strings; the binary-representation reader path does not re-check them.

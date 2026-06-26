@@ -27,41 +27,44 @@ point of the boundary:
   versioned format. Because the encoding is a faithful, structure-preserving
   serialization, a consumer **decodes it straight back into IR** and lowers it
   through the single `IR → NIR → native` codegen used for the executable's own
-  code — no second, package-only code path.
+  code — no second, package-only code path.[[src/binary_repr.rs:read_binary_repr_package]]
 
 The binary representation layer lowers IR into an architecture-independent package
-image that starts with `MFPC` magic and contains sectioned data. The implemented
-sections include:
+image that starts with `MFPC` magic and contains sectioned data — a string pool,
+type table, constant pool, import/export tables, global and function tables, the
+structured function bodies (`MFBR` payload), a resource table, an ABI index, and
+an optional documentation table. The exact section catalog, section ids, and
+byte encodings are owned by `./mfb spec package container-format` and
+`./mfb spec package doc-section`.
 
-- manifest
-- string pool
-- type table
-- constant pool
-- import table
-- export table
-- global table
-- function table
-- binary representation (the structured function bodies, `MFBR` payload)
-- resource table
-- ABI index
-- documentation table (section id `17`, written only when the package carries
-  `DOC` documentation)
-
-The binary representation writer builds:
-
-- A string pool for names, literals, package metadata, and version data.
-- A type table with primitive and user-defined types.
-- A constant pool for literal values.
-- Import and dependency metadata.
-- Export metadata for non-private functions.
-- Function tables with parameters and cleanup metadata; each function body is the
-  structured Binary Representation node tree in the `MFBR` payload section.
-- ABI hashes used by package readers and dependency checks.
+Architecturally, the writer's job is to project the in-memory IR into that
+sectioned form: names/literals/metadata into the string pool, primitive and
+user-defined types into the type table, literal values into the constant pool,
+import/export and dependency metadata, function tables with parameters and
+cleanup metadata, and the ABI hashes package readers use for dependency checks.
 
 `mfb build -br` writes a hexadecimal dump of the binary representation to `<project>.hex`.
-When the executable project has package dependencies, the binary representation path
-decodes installed packages back into IR and merges them, so every function flows
-through the one codegen.
+
+## Decode-and-Merge of Package Dependencies
+
+This is the canonical description of how a native executable build folds its
+installed `.mfp` dependencies back into IR. Because the Binary Representation is
+a faithful, structure-preserving serialization of IR, an executable build does
+**not** keep package bodies as external symbols: `nir::merge_packages`
+(`src/target/shared/nir.rs`) decodes each installed package's binary
+representation back into IR (`binary_repr::read_package_ir_with_identity`),
+prefixes every package symbol with a per-package identity
+(`ir::prefix_package_symbols`), merges the functions, types, globals, and
+constants into the application IR, and rewrites the consumer's `package.symbol`
+references to the identity-prefixed definitions (`ir::apply_package_identity`).
+Package functions therefore flow through the single `IR → NIR → native` codegen
+as ordinary merged functions (emitted under the normal `_mfb_fn_…` symbol
+namespace), not as `_mfb_pkg_*` imports. The only true NIR imports are native
+`LINK` thunks and platform symbols.[[src/target/shared/nir.rs:merge_packages]]
+
+The per-package identity that `read_package_ir_with_identity` produces is a hash
+over the MFPC container; its byte derivation is documented in
+`./mfb spec package ir-section`.
 
 ## MFP Package Container
 
@@ -84,21 +87,19 @@ Package metadata is derived from `project.json`:
 - `url`
 - dependency constraints from `packages`
 
-The package writer emits an MFP container with:
-
-- container major/minor: `1.0`
-- binary representation major/minor: `1.0`
-- pre-release flag set when the version contains `-`
+The package writer emits the MFP container carrying its own container version
+(major/minor `1.0`) wrapping the inner MFPC `packageBinaryRepr` payload (whose
+own container major is `2`). The two version planes are independent: the outer
+MFP container format and the inner MFPC binary-representation format version
+separately. The exact container header byte fields are documented in
+`./mfb spec package container-format`.
 
 Signing is selectable. Without `--sign`, `write_package` calls
-`build_package_bytes`, which emits an unsigned container (`signatureType = 0`,
-`signatureLength = 0`). With `--sign owner`, it calls `build_signed_package_bytes`,
-which signs the payload and emits an ed25519 header (`signatureType = 1`,
-`signatureLength = 64`). The reader's `validate_signature_header` accepts both
-forms.
-
-The package payload must start with `MFPC`. Metadata string lengths are checked
-before writing.
+`build_package_bytes`, which emits an unsigned container; with `--sign owner`,
+it calls `build_signed_package_bytes`, which signs the payload and emits an
+ed25519 header. The reader's `validate_signature_header` accepts both forms; the
+on-disk signature-header byte encoding is owned by
+`./mfb spec package container-format`.[[src/target/package_mfp/mod.rs:validate_signature_header]]
 
 ## Error Source Locations
 
@@ -119,14 +120,18 @@ originated. The location flows through every layer:
 - **NIR** (`src/target/shared/nir.rs`): mirrors the IR fields (`NirSourceLoc`,
   `NirFunction::file`).
 - **Native runtime** (`src/target/shared/code`): the code generator tracks the
-  current function file and the current node location, builds a real `ErrorLoc`
-  at every error origin (user `error(...)`, arithmetic overflow/divide-by-zero,
-  failing built-in/helper calls), and threads the origin through the four-register
-  result ABI (see `./mfb spec memory fallible-call-abi`). Propagation preserves the
-  origin; trapping materializes the 3-field `Error`.
+  current function file and the current node location and builds a real
+  `ErrorLoc` at every error origin (user `error(...)`, arithmetic
+  overflow/divide-by-zero, failing built-in/helper calls). The origin is then
+  carried through the fallible-call result ABI — owned by
+  `./mfb spec memory fallible-call-abi` — and materialized into the 3-field
+  `Error` when a result traps.
 
 ## See Also
 
 * ./mfb spec memory fallible-call-abi — the four-register result ABI
 * ./mfb spec package binary-representation — the on-disk package payload
+* ./mfb spec package container-format — the MFP container header and section catalog
+* ./mfb spec package doc-section — the documentation-table encoding
+* ./mfb spec package ir-section — the package identity hash derivation
 * ./mfb spec architecture ir — the in-memory IR this representation serializes

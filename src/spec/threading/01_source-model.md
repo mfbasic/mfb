@@ -1,23 +1,14 @@
 # Source Model
 
-Thread entry points have this shape:
+The thread entry shape, the `thread::start`/`transfer`/`accept` signatures, the
+`Thread`/`ThreadWorker` type grammar, and the sendability rules are defined as a
+source-level API by `./mfb spec language threads` and `./mfb man thread`. A thread
+entry point is an exported `ISOLATED FUNC` whose first parameter is
+`ThreadWorker OF Msg TO Out`, passed to `thread::start` by bare function
+identifier. This topic specifies only the compiler-side *enforcement* of those
+rules.
 
-```text
-EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF Msg TO Out, input AS In) AS Out
-  ...
-END FUNC
-```
-
-`thread::start` accepts a function reference to such an exported function:
-
-```text
-thread::start OF In, Msg, Out(
-  f AS ISOLATED FUNC(ThreadWorker OF Msg TO Out, In) AS Out,
-  data AS In,
-  inboundLimit AS Integer = 64,
-  outboundLimit AS Integer = 64
-) AS Thread OF Msg TO Out
-```
+## Entry-point enforcement
 
 The compiler rejects:
 
@@ -36,90 +27,38 @@ signature that is simultaneously `imported_package_export`, `FunctionKind::Func`
 and `isolated`; failure reports `TYPE_CALL_ARGUMENT_MISMATCH` with the message
 `thread.start entry point must be an exported ISOLATED FUNC from an imported
 package.`. The parameter-shape and return-type checks are the ordinary
-function-reference signature match performed by `builtins::thread::resolve_call`.
+function-reference signature match performed by `builtins::thread::resolve_call`. [[src/typecheck.rs:check_thread_builtin_call]]
 
-## Thread type grammar
+## Thread type grammar (parsing)
 
-`Thread` and `ThreadWorker` types carry their channel types in the type spelling.
-The body after `Thread OF ` / `ThreadWorker OF ` has three shapes (parsed by
-`split_thread_types` in `builtins/thread.rs`):
+The three `Thread`/`ThreadWorker OF …` spellings — `<Msg> TO <Out>`,
+`<Msg> RES <Res> TO <Out>`, and resource-only `RES <Res> TO <Out>` (with `Msg`
+defaulting to `Nothing`) — are documented by `./mfb spec language threads`. The
+compiler parses them with `split_thread_types` in `builtins/thread.rs`, producing
+the internal structural view `(kind, message, resource, output)` where `resource`
+is an `Option`. `thread::start` derives the parent `Thread` type from the worker's
+`ThreadWorker` first parameter, preserving the `RES` clause. [[src/builtins/thread.rs:split_thread_types]]
 
-```text
-<Msg> TO <Out>                 ; data-only thread
-<Msg> RES <Res> TO <Out>       ; data plane + resource plane
-RES <Res> TO <Out>             ; resource-only (Msg defaults to Nothing)
-```
+## Sendability enforcement
 
-- `Msg` is the data-plane message type used by `thread::send`, `thread::receive`,
-  and `thread::poll`. For a resource-only thread it defaults to `Nothing`.
-- `Res` is the resource-plane type used by `thread::transfer`/`thread::accept`. It
-  is present only when the type carries a `RES Res` clause.
-- `Out` is the worker success type. `In` is the input value type passed to
-  `thread::start`.
+The `In`/`Msg`/`Out`/`Res` sendability rules (which scalar, collection, record,
+union, and resource types may cross a boundary) are owned by
+`./mfb spec language threads`. The compiler implements them as follows:
 
-The internal structural view is `(kind, message, resource, output)`, with
-`resource` an `Option`. `thread::start` derives the parent `Thread` type from the
-worker's `ThreadWorker` first parameter, preserving the `RES` clause.
-
-## Resource plane
-
-The resource plane is a second pair of queues for moving **resource handles**
-(`File`, `Socket`, …) across the boundary. It mirrors the data plane but is kept
-separate so the data channel stays resource-free:
-
-```text
-thread::transfer(t AS Thread/ThreadWorker OF [Msg] RES Res TO Out,
-                 res AS RES Res, timeoutMs AS Integer = 0) AS Nothing
-thread::accept(t AS Thread/ThreadWorker OF [Msg] RES Res TO Out,
-               timeoutMs AS Integer = 0) AS RES Res
-```
-
-`transfer` mirrors `send` and `accept` mirrors `receive`. `Res` must be a
-thread-sendable resource type; a thread typed with resource `Unknown` accepts any
-resource. Passing a non-resource value, or operating on a thread that carries no
-`RES` clause, fails to type-check (`TYPE_THREAD_NOT_SENDABLE`). See
-`queue-semantics` for the move/timeout/cancellation behavior and
-`./mfb man thread transfer` / `./mfb man thread accept` for the full source
-contract.
-
-## Sendability
-
-`Msg` is the data-plane message type. `Out` is the worker success type. `In` is
-the input value type passed to `thread::start`. `Res` is the resource-plane type.
-
-`In`, `Msg`, `Out`, and `Res` must be thread-sendable. Thread sendability is a
-type property decided by `is_thread_sendable_type` in `typecheck.rs`; it is not
-stored as a per-value flag in every value's memory block.
-
-Thread sendability is derived by type:
-
-- `Boolean`, `Byte`, `Integer`, `Float`, `Fixed`, `String`, `Nothing`, `Error`,
-  `ErrorLoc`, and `Unknown` are sendable.
-- `List OF T` is sendable when `T` is sendable.
-- `Map OF K TO V` is sendable when `K` and `V` are sendable.
-- `Result OF Success` is sendable when `Success` is — this is how a worker
-  outcome (internally a fallible result) is sendable.
-- Records are sendable when every field type is sendable.
-- Unions are sendable when every payload type in every variant is sendable; bare
-  enums are always sendable.
-- Opaque resource handles are not sendable by default. Each concrete handle type
-  opts in through resource metadata (`resource_registry.is_sendable`). Standard
-  `File`, `Socket`, and `UdpSocket` handles are sendable; `Listener` and
-  `TlsSocket` are not.
-- `Thread`, `ThreadWorker`, `Function` types, and `Res(...)` resource collections
-  are not sendable.
-
-The data plane is additionally **resource-free**: a `Msg` that is itself a
-resource type is rejected at `thread::send` with the guidance to use
-`thread::transfer` instead. Resources cross only on the resource plane.
-
-The compiler rejects statically known non-sendable `In`, `Msg`, `Out`, or `Res`
-types before lowering (`check_thread_boundary_sendability`, error code
-`TYPE_THREAD_NOT_SENDABLE`). Runtime helpers and the verifier still consult type
-metadata so queued values can be moved, dropped, or closed correctly.
+- Thread sendability is a type property decided by `is_thread_sendable_type` in
+  `typecheck.rs`; it is not stored as a per-value flag in every value's memory
+  block. Opaque resource handles opt in through resource metadata
+  (`resource_registry.is_sendable`). [[src/typecheck.rs:is_thread_sendable_type]]
+- Statically known non-sendable `In`, `Msg`, `Out`, or `Res` types are rejected
+  before lowering by `check_thread_boundary_sendability`, error code
+  `TYPE_THREAD_NOT_SENDABLE`. The data plane is additionally resource-free: a
+  `Msg` that is itself a resource type is rejected at `thread::send` with guidance
+  to use `thread::transfer`. [[src/typecheck.rs:check_thread_boundary_sendability]]
+- Runtime helpers and the verifier still consult type metadata so queued values
+  can be moved, dropped, or closed correctly.
 
 ## See Also
 
 * ./mfb man thread — the source-level thread API (`send`/`receive`/`transfer`/`accept`)
-* ./mfb spec language threads — the language-level thread model
+* ./mfb spec language threads — the source-level thread model, signatures, and sendability table
 * ./mfb spec threading queue-semantics — move, timeout, and cancellation behavior

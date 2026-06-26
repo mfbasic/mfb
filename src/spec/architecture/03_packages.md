@@ -47,17 +47,18 @@ packageName.exportName
 ```
 
 These signatures are passed into `ir::lower_project_with_external_functions`
-so calls to package functions survive lowering with proper function types.
+so calls to package functions survive lowering with proper function types.[[src/ir.rs:lower_project_with_external_functions]]
 
 For native executable builds, the package's bodies are not left as external
-symbols. `nir::merge_packages` (`src/target/shared/nir.rs`) decodes each
-installed package's binary representation **back into IR**
-(`binary_repr::read_package_ir_with_identity`), prefixes every package symbol
-with a per-package identity (`ir::prefix_package_symbols`), merges the functions,
-types, globals, and constants into the application IR, and rewrites the
-consumer's `package.symbol` references to the identity-prefixed definitions
-(`ir::apply_package_identity`). Package functions therefore flow through the
-single `IR → NIR → native` codegen as ordinary merged functions (emitted under
-the normal `_mfb_fn_…` symbol namespace), not as `_mfb_pkg_*` imports. The only
-true NIR imports are native `LINK` thunks and platform symbols. This is the same
-decode-and-merge path the binary-representation topic describes.
+symbols. The native back end decodes each installed package's binary
+representation back into IR, prefixes it with a per-package identity, merges it
+into the application IR, and rewrites the consumer's `package.symbol` references
+to the merged definitions, so package functions flow through the single
+`IR → NIR → native` codegen as ordinary functions rather than imports. The
+full decode-and-merge mechanic (and the four symbols it uses) is documented in
+`./mfb spec architecture binary-representation`.
+
+## See Also
+
+* ./mfb spec architecture binary-representation — the canonical decode-and-merge path
+* ./mfb spec package ir-section — the package identity hash derivation

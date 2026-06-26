@@ -94,6 +94,7 @@ compiler resolves the first identifier in the import using this order
    match the import and `kind` must be `package`.
 6. Otherwise, the declared package is missing from the package store and the
    import is a compile-time error (`IMPORT_PACKAGE_NOT_INSTALLED`).
+[[src/resolver.rs:resolve_imported_package]]
 
 `<project_root>/packages` is the resolved dependency store, similar in role to
 `node_modules` in Node projects. It is managed by the package manager. The
@@ -103,40 +104,27 @@ declarations are not inherited from importers and imports are not transitive.
 
 ## 13.1 Package identity, versions, and manifests
 
-A package has a stable identity independent of its local directory name. Source projects declare identity, source inputs, and dependencies in a project manifest file named `project.json` at the project root. Source selection follows the manifest's normalized file and directory roots, include and exclude globs, and in-project containment rules. Compiled packages embed the relevant manifest data in the `.mfp` file.
+A package has a stable identity independent of its local directory name. Source
+projects declare identity, source inputs, and dependencies in a project manifest
+file named `project.json` at the project root. The required fields a source file
+sees are `name` (the import name used by source), `version` (a semantic version
+`MAJOR.MINOR.PATCH`), `mfb` (the minimum compatible language version), `sources`
+(the selected file/directory roots), and `kind` (`package` for an imported
+package). Compiled packages embed the relevant manifest data in the `.mfp` file.
 
-Required manifest fields (validated by `validate_project_manifest`,
-`src/main.rs`):
-
-- `name`: the package import name used by source code.
-- `version`: a semantic version `MAJOR.MINOR.PATCH`.
-- `mfb`: the minimum compatible MFBASIC language version.
-- `sources`: source files and roots selected by the project (each entry needs a
-  `root`).
-- `kind`: must be `package` for an imported package (`IMPORT_PACKAGE_KIND_INVALID`).
-
-Optional string fields validated today: `entry`, `author`, `url`.
-
-Dependency fields:
-
-- `packages`: package dependency entries parsed by the resolver
-  (`dependency_packages`, `src/resolver.rs`) with a `name` and an optional
-  `source` locator.
-- `native`: *(spec-level, not yet implemented)* native dependency metadata for
-  packages that expose `LINK` bindings. The manifest parser does not currently
-  read or validate a `native` key.
-
-Per-dependency semantic-version *constraints* described below are part of the
-intended package model; the resolver records each dependency's `name`/`source`
-but the constraint-satisfaction and lockfile machinery is not exercised by the
-current build path.
-
-Version constraints use semantic-version ranges such as exact `=1.2.3`, compatible `^1.2.0`, patch-compatible `~1.2.0`, inequalities such as `>=1.2.0 <2.0.0`, or wildcard `1.2.*`. A dependency's selected version must satisfy every constraint that reaches it through the import graph.
-
-The package resolver produces one selected version for each package identity. If two constraints cannot be satisfied by the same version, resolution fails with a package-version diagnostic; the compiler does not load multiple versions of the same package identity into one program.
-
-A package may import a source package or an `.mfp` package. Imported `.mfp` packages must have a compatible binary representation/package format version, compatible public API metadata, and an MFBASIC language version supported by the compiler.
-
-Executable builds are intended to use a lockfile named `mfb.lock`. The lockfile records the exact selected package identity, version, source or registry alias, content hash, binary representation/package version, native dependency metadata hash, and transitive dependencies. Locked builds must use the lockfile selections exactly; a hash or version mismatch fails before compilation, IR merging, or native linking. *(Implementers: the `LOCKFILE_MISMATCH` audit rule names this contract, but the current build/import-resolution path does not read or enforce an `mfb.lock`.)*
+The full manifest field set, dependency entries, semantic-version constraint
+ranges, lockfile (`mfb.lock`) policy, and how the package manager installs and
+pins dependencies are tooling concerns documented by `./mfb spec architecture
+packages`. The on-disk byte encoding of identity/version/entry into the `.mfp`
+`MANIFEST` section is owned by `./mfb spec package metadata-encoding`. A package
+may import a source package or an `.mfp` package; imported `.mfp` packages must
+carry a compatible package-format version, compatible public API metadata, and a
+language version the compiler supports.
 
 An **isolated function** is an exported top-level `FUNC` declared with `ISOLATED`. When an isolated function is used as a thread entry point, the runtime starts it in a fresh instance of its package. Starting isolated functions from the same package multiple times creates multiple independent instances; their top-level `MUT` bindings are not shared with each other or with the importing package.
+
+## See Also
+
+* ./mfb spec architecture packages — manifest fields, version constraints, lockfile, install/pin policy
+* ./mfb spec package metadata-encoding — `.mfp` `MANIFEST` byte encoding
+* ./mfb spec language threads — isolated-function thread entry points

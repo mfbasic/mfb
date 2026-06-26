@@ -17,13 +17,13 @@ Recommended `magic`:
 M  F  B  R
 ```
 
-The Binary Representation `version` is currently **`2`** (`BINARY_REPR_VERSION` in `src/ir.rs`). Version 2 added per-node source locations (`loc` on `Call`/`CallResult`/`Binary`/`Unary`/`For`) and a per-function source `file`, backing read-only `Error.source`/`ErrorLoc`. `decode_binary_repr` rejects any payload whose first four bytes are not `MFBR`, or whose version is not exactly `2`. (This is independent of the MFPC container version, which is major `2`.)
+The Binary Representation `version` is currently **`2`** (`BINARY_REPR_VERSION` in `src/ir.rs`). Version 2 added per-node source locations (`loc` on `Call`/`CallResult`/`Binary`/`Unary`/`For`) and a per-function source `file`, backing read-only `Error.source`/`ErrorLoc`. `decode_binary_repr` rejects any payload whose first four bytes are not `MFBR`, or whose version is not exactly `2`. (This is independent of the MFPC container version, which is major `2`.) [[src/ir.rs:BINARY_REPR_VERSION]]
 
 The payload is self-contained: integers are little-endian, strings are inline length-prefixed (`u32` byte length followed by UTF-8 bytes). Crucially, the payload does **not** reference the container's `STRING_POOL` or other interned tables — every name and type inside the `IrProject` is written inline, so a function body is fully reconstructable from this payload alone. The container's metadata sections (type table, const pool, function table, exports, ABI, …) are a **parallel, derived** view used for fast scanning, ABI compatibility, and identity checks; the consumer reconstructs executable IR from the `MFBR` payload, not from those tables. The in-memory IR is free to change behind this format; the encoding is the stable contract, and `IR → Binary Representation → IR` is an identity round-trip across every node kind.
 
 ## Payload structure (`IrProject`)
 
-`encode_project`/`decode_project` lay the project out as:
+`encode_project`/`decode_project` lay the project out as: [[src/ir.rs:encode_project]]
 
 ```text
 name            str
@@ -56,7 +56,7 @@ Structured exit out of these regions is itself encoded as leaf ops rather than j
 
 ## Statements / ops
 
-`IrOp` is encoded faithfully, one tag byte per kind (`encode_op`). The current tag assignment is:
+`IrOp` is encoded faithfully, one tag byte per kind (`encode_op`). The current tag assignment is: [[src/ir.rs:encode_op]]
 
 ```text
 0  = Bind            1  = Assign          2  = AssignGlobal
@@ -82,4 +82,4 @@ Unlike the container metadata sections, the `MFBR` payload does **not** referenc
 
 A consumer **decodes** each imported package's `IR` section back into IR functions, applies the package identity prefix (`<id>.package.symbol`) as a link-time rename of every definition and reference, merges the package's types/constants/globals into the project, and lowers **everything** through the single `IR → NIR → native` path. There is no separate package binary representation→native bridge: package functions get every language feature — control flow, function-level and inline `TRAP`, all built-ins, inline-`TRAP`-on-built-in — for free, because they ride the same codegen as the executable's own code.
 
-`<id>` is a **deterministic content hash** — never a per-build random value. Concretely (`package_identity_id`): it is the first **8 bytes of SHA-256**, rendered as **16 lowercase hex characters**, hashed over the package identity (`name`, `version`, `ident`, each prefixed by its `u64` length) followed by the inner `MFBR` payload bytes. Because it is content-addressed, the same package reached through two dependency paths produces the same `<id>` and de-duplicates to a single merged copy, while two distinct packages that happen to share a name receive different `<id>`s and stay separate instead of colliding. The prefix is applied by the *consumer* at merge time as a consistent rename of the package's definitions **and** of every reference to them (from the executable and from other packages).
+`<id>` is a **deterministic content hash** — never a per-build random value. Concretely (`package_identity_id`): it is the first **8 bytes of SHA-256**, rendered as **16 lowercase hex characters**, hashed over the package identity (`name`, `version`, `ident`, each prefixed by its `u64` length) followed by the entire MFPC `packageBinaryRepr` (all sections), not just this inner `MFBR`/IR payload. [[src/binary_repr.rs:package_identity_id]] Because it is content-addressed, the same package reached through two dependency paths produces the same `<id>` and de-duplicates to a single merged copy, while two distinct packages that happen to share a name receive different `<id>`s and stay separate instead of colliding. The prefix is applied by the *consumer* at merge time as a consistent rename of the package's definitions **and** of every reference to them (from the executable and from other packages).

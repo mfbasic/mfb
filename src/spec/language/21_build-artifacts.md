@@ -8,48 +8,40 @@ MFBASIC uses source files for authoring, portable binary representation packages
 | Package | `.mfp` | Architecture-neutral binary representation package. Its payload is **structured Binary Representation** (a faithful, versioned serialization of the compiler's IR) plus an embedded package manifest, public API metadata, dependency metadata, and optional native-link metadata. A compiled package can be built on one platform and imported on any platform that supports the same MFB binary representation/package version. |
 | Executable | platform-native | Final application binary for the target OS/CPU. Executables compile application code plus imported `.mfp` packages to native code. |
 
-The backend pipeline is:
-
-```text
-.mfb source
-  -> IR (typed, structured program representation)
-  -> Binary Representation (.mfp package)
-       or
-  -> NIR -> native executable
-```
-
-A package build stops at Binary Representation: `IR -> Binary Representation (.mfp)`, a faithful structured serialization with no flattening or structure loss. An executable build lowers the project's own IR through `IR -> NIR -> native`. Consuming a package **decodes** its Binary Representation back into IR functions, merges them into the project IR, and lowers everything through that same single `IR -> NIR -> native` path — there is no separate package binary representation-to-native bridge.
+At the artifact level: a **package** build stops at Binary Representation
+(`IR -> Binary Representation (.mfp)`), a faithful structured serialization with no
+flattening or structure loss. An **executable** build lowers IR to native, and
+consuming a package decodes its Binary Representation back into IR, merges it into
+the project IR, and lowers everything through one native path — there is no separate
+package-to-native bridge. The full backend pipeline (IR → NIR → native), the
+package decode-and-merge-under-identity-prefix sequence, and native dependency
+resolution are owned by `./mfb spec architecture flows`.
 
 Package compilation emits `.mfp` packages containing portable Binary Representation plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, type checking, IR merging, and verification. This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfp`: importers consume the package API and do not repeat the `LINK` declarations.
-
-Executable compilation consumes `.mfb` application source, the resolved `mfb.lock`, and imported `.mfp` packages. The compiler decodes each imported package's Binary Representation and merges its IR functions into the project IR under the package's identity prefix, resolving package-qualified MFBASIC calls to functions in the merged IR. After the IR merge, the native backend lowers everything through `IR -> NIR -> native`, resolves all native dependencies declared by the merged packages, performs target OS/native linking as needed, and emits a native binary for the selected target platform.
 
 ## 21.1 `.mfp` Binary Representation verification
 
 Every `.mfp` package is verified before its Binary Representation can be decoded, merged into the project IR, or lowered. Verification operates on the **decoded IR**, not a flat opcode stream, and is deterministic: it must reject malformed packages before any package code runs. Because the Binary Representation is structured (nested regions with explicit ends), structure is explicit — there is no control-flow graph to reconstruct and no "jump into a trap or cleanup region" to reject — and most invariants reuse the compiler's existing IR-level passes.
 
-The verifier must check:
-
-- Package metadata is well-formed, uses a supported binary representation/package (Binary Representation) version, satisfies the resolved manifest and lockfile entries, and matches the Binary Representation body.
-- The package signature, hash, or trust record is valid when the build mode requires signed or locked dependencies.
-- Public API metadata is consistent with the IR definitions, including exported names, type shapes, function signatures, ownership properties, and native-link declarations.
-- Every IR node is type-correct. Operand types, result types, call signatures, record fields, union member types, collection element types, and `Result` handling (`CallResult`, `ResultIsOk`/`ResultValue`/`ResultError`) must match the typed metadata.
-- Every binding, local, and result value is definitely defined before read and is not read after move.
-- Resource ownership is linear. A resource handle has one owner, is not copied, is not stored in ordinary collections, is sent to threads only when its concrete type is thread-sendable, and is closed or moved exactly once on every control-flow path.
-- Drop and cleanup paths are valid. The verifier rejects double-drop, missing-drop, and use-after-drop paths. Because resource regions are nested in the IR, every exit path is bounded by the region's end.
-- Every `MATCH` is exhaustive (covers every value or has an `ELSE`).
-- All normal and error paths satisfy the function's declared return type and `Result` behavior (declared return/effect agreement).
-- There is at most one function-level bottom `TRAP`; error routing uses the structured `Result`/`TRAP`/`FAIL`/`PROPAGATE` form, never exception-like unwinding.
-- Native-link manifests are valid: every linked library and symbol referenced by the IR is declared in metadata, every resource close function exists and has the correct resource-consuming signature, and every ABI mapping uses supported native types.
+In outline, the verifier checks that package metadata and public API metadata are
+well-formed and consistent with the IR, that the signature/hash/trust record is
+valid when the build mode requires it, and that the decoded IR satisfies the same
+type-correctness, definite-assignment, resource-linearity, drop/cleanup,
+`MATCH`-exhaustiveness, return/effect-agreement, single-bottom-`TRAP`, and
+native-link-manifest invariants the compiler already enforces on the project's own
+IR. The complete invariant catalogue and which invariants are re-checked at import
+time are owned by `./mfb spec package verifier-rules`.
 
 Verification failure rejects the package with a toolchain diagnostic. It is not recoverable by program `TRAP` code because no package code has started running.
 
 > **Current implementation status.** The list above is the verifier contract this
 > format is designed to support. The shipping decoder already verifies the package
-> container before decoding — it checks the `MFP` package magic and container
-> major version, the inner `MFPC` payload magic and major version, and that the
-> header identity matches the binary-representation manifest identity
-> (`src/binary_repr.rs`) — and rejects malformed input before any merge. The
+> container before decoding. The outer `MFP` package magic and container major
+> version (required to be `1`) are checked when the header is read
+> (`read_mfp_header` in `src/main.rs`); the inner `MFPC` payload magic and MFPC
+> major version (required to be `2`, `MFPC_MAJOR_VERSION`) and the header-vs-manifest
+> identity match are checked when the binary representation is decoded
+> (`src/binary_repr.rs`) — and malformed input is rejected before any merge. The
 > structural IR verifier (`ir::verify_package` in `src/ir.rs`) currently enforces a
 > subset of the invariants: function names are non-empty and unique, type names are
 > unique, and every `MATCH` carries at least one case. The remaining invariants
@@ -57,6 +49,13 @@ Verification failure rejects the package with a toolchain diagnostic. It is not 
 > drop/cleanup validity, return/effect agreement, and native-link manifest
 > validity) are the design target and are partly enforced earlier by the
 > resolver/type-checker on the project's own IR before encoding; they are not yet
-> all re-checked on a decoded third-party package.
+> all re-checked on a decoded third-party package. The full verifier-invariant
+> catalogue is owned by `./mfb spec package verifier-rules`. [[src/main.rs:read_mfp_header]] [[src/binary_repr.rs:MFPC_MAJOR_VERSION]] [[src/ir.rs:verify_package]]
 
 A future VM is not foreclosed: it would either interpret the structured, typed Binary Representation directly or lower it through the same `IR -> NIR -> native` path. The artifact contract remains: packages are portable `.mfp` Binary Representation packages; executables are native platform binaries.
+
+## See Also
+
+* ./mfb spec architecture flows — end-to-end IR → NIR → native build and package decode/merge
+* ./mfb spec package verifier-rules — full `.mfp` verifier-invariant catalogue
+* ./mfb spec package container-format — `.mfp`/`MFPC` container byte layout

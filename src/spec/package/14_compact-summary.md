@@ -1,8 +1,7 @@
-# Pasteable short spec addition
+# Compact summary
 
-This is the compact version I would add to your current `Build Artifacts` section:
+This page is a deliberately redundant quick-reference: a compact, single-page restatement of the `.mfp` container and structured Binary Representation payload for readers who want the whole format at a glance. The canonical per-section detail lives in the other `package` topics.
 
-````markdown
 ### `.mfp` Container Format
 
 A `.mfp` package is a signed binary container followed by architecture-independent MFB binary representation.
@@ -50,7 +49,7 @@ url                byte[urlLength]
 binaryReprLength     u64
 
 packageBinaryRepr    byte[binaryReprLength]
-````
+```
 
 The package content hash and package signature use the entire `.mfp` file with only the `signature` byte range replaced by zero bytes of the same length:
 
@@ -64,7 +63,7 @@ signatureInput = "MFP-PACKAGE-v1" || contentHash || ident || version
 
 This covers the magic, container version, binary representation version, flags, signature type, signature length, header metadata, binary representation length, and binary representation. It excludes only the actual signature bytes.
 
-`signatureType = 0` means unsigned and requires `signatureLength = 0`. `signatureType = 1` means Ed25519 and requires `signatureLength = 64`. Unknown signature types reject the package. Public registry packages must use `signatureType = 1`; installs reject unsigned packages except for explicit `allowUnsignedLocal` exceptions on `path:` or `file:` sources.
+`signatureType = 0` means unsigned and requires `signatureLength = 0`. `signatureType = 1` means Ed25519 and requires `signatureLength = 64`. Unknown signature types reject the package. Whether an unsigned or untrusted package is *accepted* is package-manager policy, not part of this byte format (see `./mfb spec architecture packages`).
 
 The binary representation payload must contain a signed package manifest. The manifest package name, ident, version, identKey, identFingerprint, and signingFingerprint must match the header package name, ident, version, identKey, identFingerprint, and signingFingerprint.
 
@@ -94,7 +93,7 @@ length         u64
 
 The binary representation container is at MFPC major version `2` (the structured Binary Representation; the old flat opcode payload was major `1` and is rejected).
 
-Required sections are:
+Sections the reader requires (rejecting the package if absent) are:
 
 ```text
 MANIFEST
@@ -103,21 +102,22 @@ TYPE_TABLE
 CONST_POOL
 IMPORT_TABLE
 EXPORT_TABLE
-GLOBAL_TABLE
 FUNCTION_TABLE
 IR
 ABI_INDEX
 ```
 
-Optional sections actually emitted are `RESOURCE_TABLE` (id 11) and `DOC` (id 17). `GLOBAL_TABLE` is always emitted by the producer but tolerated as absent by the reader. Section ids `10` (`NATIVE_LINK_TABLE`), `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are reserved by the format but **not** emitted or read by the current compiler. Native `LINK` metadata is carried as a trailer inside the `IR` payload, not in a `NATIVE_LINK_TABLE` section.
+The reader treats `GLOBAL_TABLE` (id 7), `RESOURCE_TABLE` (id 11), and `DOC` (id 17) as optional, defaulting them to empty when absent. [[src/binary_repr.rs:read_binary_repr_package]] The producer always emits `GLOBAL_TABLE`, and emits `RESOURCE_TABLE`/`DOC` only when the package has resource types or documentation respectively. Section ids `10` (`NATIVE_LINK_TABLE`), `12` (`DEBUG_INFO`), `13` (`SOURCE_MAP`), and `14` (`AUDIT_INFO`) are reserved by the format but **not** emitted or read by the current compiler. Native `LINK` metadata is carried as a trailer inside the `IR` payload, not in a `NATIVE_LINK_TABLE` section.
 
-The binary representation is **structured Binary Representation**: a faithful, versioned serialization of the compiler's IR. It contains no machine code, native addresses, host pointers, platform-specific object layouts, opcodes, registers, or jumps. Control flow is nested (regions with explicit ends) and expressions are trees. Function bodies live in the `IR` section (id `16`, payload prefixed `"MFBR"` + `u16` version); the `FUNCTION_TABLE` describes functions and records zero-length code regions. Constants, strings, types, imports, exports, globals, functions, native bindings, and resources are referenced from the IR by table indexes.
+The binary representation is **structured Binary Representation**: a faithful, versioned serialization of the compiler's IR. It contains no machine code, native addresses, host pointers, platform-specific object layouts, opcodes, registers, or jumps. Control flow is nested (regions with explicit ends) and expressions are trees. Function bodies live in the `IR` section (id `16`, payload prefixed `"MFBR"` + `u16` version); the `FUNCTION_TABLE` describes functions and records zero-length code regions. The `MFBR`/IR payload carries every name and type **inline** and round-trips to IR standalone; the metadata tables (constants, strings, types, imports, exports, globals, functions, native bindings, resources) are a parallel, derived view used for scanning, ABI checks, and identity — the IR does not reference them by index. [[src/ir.rs:encode_project]]
 
 Every function returns `Result` at the IR level. Source-level auto-unwrapping, inline `TRAP`, and direct `MATCH` on a call are all encoded as ordinary IR nodes (`CallResult`, `ResultIsOk`/`ResultValue`/`ResultError`, `Trap`, `Match`). A consumer decodes the Binary Representation back to IR, applies the package identity prefix, merges it into the project, and lowers everything through the single `IR → NIR → native` path.
 
 At **import time** the reader checks: container magic/version/identity, MFPC `bcMajor == 2`, section bounds, presence of required sections, exact table parsing, and `ABI_INDEX` agreement with `EXPORT_TABLE`/`IMPORT_TABLE`. Type-correctness, define-before-use, resource ownership/linearity, exhaustive `MATCH`, and declared return/effect agreement are **compile-time** guarantees established when the package source was built, not re-checked on import. The cryptographic signature is verified by the package manager, not the binary-representation reader.
 
-```
+The result is a concrete `.mfp` container and a structured Binary Representation payload that rejoins the single native codegen, without a separate package VM or a second binary-representation→native bridge.
 
-That gives you a concrete `.mfp` container and a structured Binary Representation payload that rejoins the single native codegen, without a separate package VM or a second binary representation→native bridge.
-```
+## See Also
+
+* ./mfb spec package container-format — the canonical `.mfp` header and signature coverage
+* ./mfb spec package binary-representation — the canonical MFPC payload and section table
