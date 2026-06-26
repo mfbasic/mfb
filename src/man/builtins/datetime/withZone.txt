@@ -1,5 +1,5 @@
 NAME
-  withZone - re-project a DateTime into a different zone
+  withZone - re-project a DateTime into a different zone, preserving the instant
 
 SYNOPSIS
   datetime::withZone(dt AS DateTime, zone AS Zone) AS DateTime
@@ -11,9 +11,71 @@ IMPORTS
   IMPORT datetime
 
 DESCRIPTION
-  datetime::withZone returns the same instant as dt, re-projected into zone: the
-  wall-clock fields and offset change, but the underlying Instant
-  (datetime::resolve(dt)) does not.
+  datetime::withZone returns the civil DateTime that an observer in zone reads at
+  the very same absolute moment named by dt. The underlying point on the UTC
+  timeline is unchanged; only the wall-clock fields, the carried zone, and the
+  resolved UTC offset are re-derived for the new zone.
+
+  The function is exactly the composition of datetime::resolve and
+  datetime::inZone. It first collapses dt back to an Instant with
+  datetime::resolve, reading the offset already pinned on dt to reach the UTC
+  timeline without any zone lookup. It then projects that Instant into zone with
+  datetime::inZone, resolving the effective offset for zone at that instant (zero
+  for a UTC zone, the stored constant for a fixed-offset zone, and the
+  DST-correct host offset for a local zone), adding it to the instant's seconds,
+  and splitting the result into civil year/month/day and hour/minute/second with
+  the proleptic Gregorian calendar.
+
+  The returned DateTime carries the new civil date and time, zone itself, and the
+  offset resolved for zone. The sub-second nanos field is carried through both
+  steps verbatim, so it equals dt.time.nanos. Because the instant is preserved,
+  datetime::resolve on the result returns the same Instant as datetime::resolve on
+  dt: withZone is an identity on the absolute moment and changes only its civil
+  presentation. withZone is pure for UTC and fixed-offset zones; for a local zone
+  it reads the host's time-zone configuration to resolve the offset.
+
+PARAMETERS
+  dt AS DateTime
+    The source civil date-time. Its date, time, and pinned offset are used to
+    recover the absolute Instant it names (its zone field is not consulted for the
+    recovery). The nanos of dt.time are preserved into the result.
+
+  zone AS Zone
+    The zone to re-project into. Its kind selects how the new offset is resolved:
+    a UTC zone always contributes a zero offset, a fixed-offset zone
+    (datetime::fixedOffset) contributes its single constant offset, and a local
+    zone (datetime::local) contributes the host's DST-correct offset for the
+    recovered instant.
+
+RETURN VALUE
+  AS DateTime
+    A DateTime holding the civil date and wall-clock time observed in zone at the
+    same instant dt names, together with zone and the offset resolved for it. Its
+    nanos equal dt.time.nanos, and it resolves back to the same Instant as dt via
+    datetime::resolve.
+
+ERRORS
+  77050010 (ErrOverflow)
+  Raised when the internal civil-to-seconds arithmetic, the offset subtraction in
+  the resolve step, or the offset addition in the projection step produces a value
+  outside the signed Integer range, which can occur only for a DateTime at the
+  extreme edge of the representable timeline.
+
+EXAMPLES
+  Re-project a UTC DateTime into a fixed +05:30 zone:
+
+    IMPORT datetime
+
+    LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
+    LET z AS Zone = datetime::fixedOffset(5, 30)
+    LET shifted AS DateTime = datetime::withZone(dt, z)
+
+  Convert a DateTime to the host's local zone without changing the instant:
+
+    IMPORT datetime
+
+    LET dt AS DateTime = datetime::inZone(datetime::now(), datetime::utc())
+    LET local AS DateTime = datetime::withZone(dt, datetime::local())
 
 SEE ALSO
-  mfb man datetime inZone, mfb man datetime resolve
+  datetime::inZone, datetime::resolve, datetime::civil, datetime::toUtc, datetime::toLocal, datetime::offsetAt

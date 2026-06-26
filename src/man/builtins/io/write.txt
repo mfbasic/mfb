@@ -61,5 +61,3 @@ EXAMPLES
 
 SEE ALSO
   io::print, io::writeError, io::flush
-</content>
-</invoke>

@@ -54,5 +54,4 @@ EXAMPLES
     LET odds AS List OF Integer = filter([1, 2, 3, 4], isOdd)
 
 SEE ALSO
-  isEven
-  isNumeric
+  isEven, isNumeric

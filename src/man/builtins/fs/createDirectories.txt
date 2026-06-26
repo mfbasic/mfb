@@ -26,8 +26,9 @@ DESCRIPTION
 
   Unlike fs::createDirectory, which creates only the final component and fails
   when a parent is missing, createDirectories builds the entire chain of missing
-  parents. Each directory is requested with the host's default mkdir permission
-  bits, which are masked with the process umask in the usual way.
+  parents. Each directory is requested with permission bits 0755 (rwxr-xr-x),
+  which the host masks with the process umask in the usual way, so each
+  directory's actual mode is 0755 with the umask bits cleared.
 
   path is interpreted as UTF-8 bytes and passed to the host filesystem. It may be
   absolute or relative to the current working directory and may contain Unicode

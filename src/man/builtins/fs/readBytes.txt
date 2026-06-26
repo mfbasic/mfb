@@ -64,12 +64,12 @@ ERRORS
   a symlink loop while resolving the final component (host ENOTDIR, ENAMETOOLONG,
   EILSEQ, or ELOOP).
 
-  77020002 (ErrWriteFailed)
+  77020002 (ErrOutput)
   Raised when the file cannot be opened for any other host reason not classified
   above.
 
-  77020001 (ErrReadFailed)
-  Raised when seeking the file's length or reading its bytes fails partway
+  77020001 (ErrRead)
+  Raised when determining the file's length or reading its bytes fails partway
   through, before the full contents have been read.
 
 EXAMPLES

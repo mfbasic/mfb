@@ -25,11 +25,15 @@ DESCRIPTION
   The Fixed overload uses deterministic fixed-point (Q32.32) arithmetic, so its
   result is identical across all targets.
 
+  For the Float overload a non-finite input (NaN or positive/negative infinity)
+  has no representable Integer ceiling and is reported as an overflow.
+
 OVERLOADS
   math::ceil(value AS Float) AS Integer
     Rounds the Float value up to the nearest Integer toward positive infinity.
     Fails with ErrOverflow when the ceiled result lies outside the
-    representable Integer range.
+    representable Integer range, including a non-finite (NaN or infinite)
+    input.
 
   math::ceil(value AS Fixed) AS Integer
     Rounds the Fixed (Q32.32) value up to the nearest Integer toward positive
@@ -51,8 +55,9 @@ RETURN VALUE
 ERRORS
   77050010 (ErrOverflow)
   Raised by the Float overload when the ceiled result lies outside the
-  representable Integer range. The Fixed overload does not raise this error,
-  because every Fixed value ceils to an Integer that fits in range.
+  representable Integer range, or when value is non-finite (NaN or positive or
+  negative infinity). The Fixed overload does not raise this error, because
+  every Fixed value ceils to an Integer that fits in range.
 
 TYPE CHECKING
   value must be a single Float or Fixed. Passing any other type, such as an

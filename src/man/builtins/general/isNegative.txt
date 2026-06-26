@@ -73,6 +73,4 @@ EXAMPLES
     LET negatives AS List OF Integer = filter([-2, -1, 0, 1, 2], isNegative)
 
 SEE ALSO
-  isPositive
-  isZero
-  isNumeric
+  isPositive, isZero, isNumeric

@@ -71,6 +71,4 @@ EXAMPLES
     LET zeros AS List OF Integer = filter([-1, 0, 2, 0], isZero)
 
 SEE ALSO
-  isPositive
-  isNegative
-  isNumeric
+  isPositive, isNegative, isNumeric

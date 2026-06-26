@@ -11,14 +11,82 @@ IMPORTS
   IMPORT datetime
 
 DESCRIPTION
-  datetime::civil builds a DateTime from a Date and Time interpreted in zone,
-  resolving the UTC offset for that local time and returning the canonical
-  projection (so the result round-trips through datetime::resolve).
+  datetime::civil builds a DateTime by interpreting a calendar Date and a
+  wall-clock Time as a local time in zone, resolving the UTC offset that applies
+  to that local moment, and returning the canonical projection of the resulting
+  Instant back through zone. Because the result is the projection of a concrete
+  Instant, it round-trips: datetime::resolve on the returned DateTime recovers
+  the same Instant, and that Instant projected through zone with
+  datetime::inZone reproduces the same DateTime fields.
 
-  When the named local time does not exist (a spring-forward gap) or is ambiguous
-  (a fall-back overlap), civil resolves deterministically: a gap shifts forward by
-  the gap (the post-transition offset), and an overlap picks the earlier
-  (pre-transition) offset. This is the common "lenient" convention.
+  The date's year, month, and day and the time's hour, minute, and second are
+  combined into a count of seconds for that wall-clock moment, treated as a
+  civil (zone-local) time. The offset for that moment is then resolved from
+  zone. For a zone with a fixed offset (built by datetime::utc or
+  datetime::fixedOffset) the offset is constant. For the host's local zone
+  (datetime::local) the offset is resolved from the platform's zone table at the
+  named instant, so the result is daylight-saving correct.
+
+  When the named local time does not exist or is not unique because of a
+  daylight-saving transition, civil resolves it deterministically using the
+  lenient convention. To detect a transition it probes the zone's offset one day
+  before and one day after the named local time, bracketing any single nearby
+  transition. If both probes agree, that offset is used directly. If they
+  differ, the moment lies near a transition: a spring-forward gap, where the
+  named local time is skipped, shifts forward by the size of the gap onto the
+  post-transition offset; a fall-back overlap, where the named local time occurs
+  twice, picks the earlier (pre-transition) offset.
+
+  The time's sub-second nanoseconds are carried through unchanged into the
+  resulting Instant and DateTime; only the whole-second civil fields participate
+  in offset resolution.
+
+  datetime::civil is pure: it reads no host state beyond what zone itself
+  resolves and has no side effects.
+
+PARAMETERS
+  date AS Date
+    The calendar date (year, month, day) of the wall-clock moment, interpreted
+    as a local date in zone.
+
+  time AS Time
+    The wall-clock time of day (hour, minute, second, nanos) of the moment,
+    interpreted as a local time in zone. The nanos field is preserved in the
+    result.
+
+  zone AS Zone
+    The zone in which date and time are read as local civil fields and against
+    which the UTC offset is resolved. May be a fixed-offset zone (datetime::utc,
+    datetime::fixedOffset) or the host's local zone (datetime::local).
+
+RETURN VALUE
+  AS DateTime
+    The canonical DateTime naming the same moment as date and time in zone,
+    carrying the resolved UTC offset. The value round-trips through
+    datetime::resolve and datetime::inZone. For a spring-forward gap the fields
+    reflect the forward-shifted instant; for a fall-back overlap they reflect
+    the earlier of the two candidate offsets.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Combine a date and time into a DateTime in the local zone:
+
+    IMPORT datetime
+
+    LET d AS Date = datetime::date(2026, 6, 26)
+    LET tm AS Time = datetime::time(9, 30)
+    LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+
+  Build a DateTime in UTC and recover its Instant:
+
+    IMPORT datetime
+
+    LET d AS Date = datetime::date(2026, 1, 1)
+    LET tm AS Time = datetime::time(0, 0)
+    LET dt AS DateTime = datetime::civil(d, tm, datetime::utc())
+    LET t AS Instant = datetime::resolve(dt)
 
 SEE ALSO
-  mfb man datetime inZone, mfb man datetime resolve, mfb man datetime date
+  datetime::inZone, datetime::resolve, datetime::date, datetime::time, datetime::local

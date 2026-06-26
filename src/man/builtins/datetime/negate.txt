@@ -1,5 +1,5 @@
 NAME
-  negate - negate a duration
+  negate - return a Duration with the opposite sign
 
 SYNOPSIS
   datetime::negate(d AS Duration) AS Duration
@@ -11,8 +11,59 @@ IMPORTS
   IMPORT datetime
 
 DESCRIPTION
-  datetime::negate returns the Duration with the opposite sign, so a span of
-  +90s becomes -90s.
+  datetime::negate returns the additive inverse of a Duration: the span that
+  points the opposite way along a timeline and that, added to d, yields a zero
+  span. A forward span of +90s becomes a backward span of -90s, and a backward
+  span becomes forward. The zero Duration negates to itself.
+
+  Negation acts on the whole span, not on each field independently. Both the
+  seconds and the nanos field are negated and the result is re-normalized so the
+  stored nanos always lands back in the range 0 .. 999_999_999, with any borrow
+  carried into the seconds field. So a Duration whose seconds is 0 and whose
+  nanos is 250_000_000 (a quarter second forward) negates to a Duration whose
+  seconds is -1 and whose nanos is 750_000_000, which is the same magnitude
+  pointing backward.
+
+  Negation is the same operation as datetime::minus(zero, d). The arithmetic is
+  ordinary signed Integer arithmetic, so negating the most negative possible
+  seconds count has no positive counterpart in the Integer range and traps. The
+  function is pure: the same Duration always negates to the same result, and it
+  has no side effects.
+
+PARAMETERS
+  d AS Duration
+    The span to negate. May be a forward span (positive seconds), a backward
+    span (negative seconds), or the zero span. Its nanos field is assumed to be
+    a normalized sub-second remainder in 0 .. 999_999_999, as produced by every
+    datetime constructor.
+
+RETURN VALUE
+  AS Duration
+    The span of equal magnitude pointing the opposite way. The seconds field
+    holds the negated, re-normalized whole-second count and the nanos field
+    holds the sub-second remainder in 0 .. 999_999_999. The zero span returns
+    unchanged.
+
+ERRORS
+  77050010 (ErrOverflow)
+  Raised when negating the span overflows the signed Integer range, which
+  happens when the seconds count is the most negative representable Integer and
+  therefore has no positive counterpart.
+
+EXAMPLES
+  Negate a forward span to get the matching backward span:
+
+    IMPORT datetime
+
+    LET forward AS Duration = datetime::duration(90)
+    LET backward AS Duration = datetime::negate(forward)
+
+  Negation re-normalizes a sub-second span:
+
+    IMPORT datetime
+
+    LET quarter AS Duration = datetime::duration(0, 250_000_000)
+    LET back AS Duration = datetime::negate(quarter)
 
 SEE ALSO
-  mfb man datetime plus, mfb man datetime minus
+  datetime::duration, datetime::plus, datetime::minus, datetime::monotonic, datetime::formatDuration

@@ -1,5 +1,5 @@
 NAME
-  dayOfYear - the ordinal day within the year
+  dayOfYear - the ordinal day within the year of a DateTime's civil date
 
 SYNOPSIS
   datetime::dayOfYear(dt AS DateTime) AS Integer
@@ -11,8 +11,58 @@ IMPORTS
   IMPORT datetime
 
 DESCRIPTION
-  datetime::dayOfYear returns the ordinal day of dt's civil date, 1 .. 366
-  (366 only in a leap year).
+  datetime::dayOfYear returns the ordinal position of dt's civil date within its
+  calendar year: 1 for January 1, 2 for January 2, and so on through 365 in a
+  common year or 366 in a leap year (the value reached on December 31).
+
+  The result is derived solely from the calendar date fields carried by dt — its
+  year, month, and day as projected into dt's own zone. The day-of-year is
+  computed on the proleptic Gregorian calendar by counting the days from
+  January 1 of dt's year up to and including dt's date, so leap years correctly
+  extend the count past February. The time-of-day fields, the sub-second
+  nanoseconds, and the zone's UTC offset do not affect the result; no Instant is
+  resolved and no zone table is consulted.
+
+  Because the computation reads only dt's stored civil date, the same instant
+  projected into two different zones can report two different day-of-year values
+  whenever the zones place that instant on opposite sides of midnight, and on
+  December 31 / January 1 the two zones can even fall in different years.
+
+  datetime::dayOfYear is pure: it reads no host state and has no side effects.
+
+PARAMETERS
+  dt AS DateTime
+    The DateTime whose civil date is examined. Only the date's year, month, and
+    day are used; the time-of-day, nanoseconds, and zone offset are ignored for
+    the purpose of computing the ordinal day.
+
+RETURN VALUE
+  AS Integer
+    The 1-based ordinal day of dt's civil date within its year, from 1 for
+    January 1 through 365 (common year) or 366 (leap year) for December 31.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Find the day-of-year of a civil date in the local zone:
+
+    IMPORT datetime
+
+    LET d AS Date = datetime::date(2026, 6, 26)
+    LET tm AS Time = datetime::time(9, 30)
+    LET dt AS DateTime = datetime::civil(d, tm, datetime::local())
+    LET n AS Integer = datetime::dayOfYear(dt)
+
+  Compute how many days remain in the year:
+
+    IMPORT datetime
+
+    LET total AS Integer = 365
+    IF datetime::isLeapYear(dt.date.year) THEN
+      total = 366
+    END IF
+    LET remaining AS Integer = total - datetime::dayOfYear(dt)
 
 SEE ALSO
-  mfb man datetime weekday, mfb man datetime isLeapYear
+  datetime::weekday, datetime::isLeapYear, datetime::daysInMonth, datetime::civil

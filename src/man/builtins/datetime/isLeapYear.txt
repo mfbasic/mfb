@@ -11,9 +11,52 @@ IMPORTS
   IMPORT datetime
 
 DESCRIPTION
-  datetime::isLeapYear applies the proleptic-Gregorian leap rule: a year is a leap
-  year when it is divisible by 4, except centuries, which must be divisible by 400.
-  So 2000 is a leap year and 1900 is not.
+  datetime::isLeapYear applies the proleptic-Gregorian leap rule to year and
+  reports whether that year has 366 days. A year is a leap year when it is
+  divisible by 4, except for century years (those divisible by 100), which are
+  leap years only when also divisible by 400. So 2000 and 2024 are leap years,
+  while 1900 and 2023 are not.
+
+  The rule is purely arithmetic on the year number: no time zone, instant, or
+  current clock value is consulted. The proleptic Gregorian calendar extends the
+  same rule indefinitely into the past and future, so years before the calendar's
+  historical adoption and negative (BCE-style) year numbers are evaluated by the
+  identical divisibility test. The function has no side effects.
+
+PARAMETERS
+  year AS Integer
+    The calendar year to test, interpreted as a proleptic-Gregorian year number.
+    Any Integer is accepted, including zero and negative values; each is judged
+    solely by its divisibility by 4, 100, and 400.
+
+RETURN VALUE
+  AS Boolean
+    True when year is a leap year (366 days, with a 29-day February) under the
+    proleptic-Gregorian rule, and False otherwise.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Test individual years:
+
+    IMPORT datetime
+
+    PRINT datetime::isLeapYear(2000)   ' True  (divisible by 400)
+    PRINT datetime::isLeapYear(1900)   ' False (century, not /400)
+    PRINT datetime::isLeapYear(2024)   ' True  (divisible by 4)
+    PRINT datetime::isLeapYear(2023)   ' False
+
+  Pick February's length from the leap result:
+
+    IMPORT datetime
+
+    LET year AS Integer = 2024
+    LET days AS Integer = 28
+    IF datetime::isLeapYear(year) THEN
+      LET days = 29
+    END IF
+    PRINT days   ' 29
 
 SEE ALSO
   mfb man datetime daysInMonth, mfb man datetime dayOfYear

@@ -53,5 +53,4 @@ EXAMPLES
     LET evens AS List OF Integer = filter([1, 2, 3, 4], isEven)
 
 SEE ALSO
-  isOdd
-  isNumeric
+  isOdd, isNumeric

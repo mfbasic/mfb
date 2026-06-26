@@ -1,5 +1,5 @@
 NAME
-  minus - subtract two durations
+  minus - subtract one Duration from another
 
 SYNOPSIS
   datetime::minus(a AS Duration, b AS Duration) AS Duration
@@ -11,8 +11,65 @@ IMPORTS
   IMPORT datetime
 
 DESCRIPTION
-  datetime::minus returns the Duration a - b. A common use is measuring elapsed
-  time between two datetime::monotonic readings.
+  datetime::minus returns the Duration a - b, the signed span left after removing
+  one span of elapsed physical time from another. It subtracts the seconds field
+  of b from the seconds field of a and the nanos field of b from the nanos field
+  of a, independently, then normalizes the result so the stored nanos lands in
+  the range 0 .. 999_999_999, borrowing a whole second from the seconds field
+  when the nanosecond difference is negative.
+
+  Because both operands are signed Durations, minus handles spans of either
+  direction: subtracting a negative Duration lengthens the total, and subtracting
+  a larger span from a smaller one yields a negative Duration. minus pairs with
+  datetime::plus and datetime::negate, since datetime::minus(a, b) equals
+  datetime::plus(a, datetime::negate(b)). A common use is measuring elapsed time
+  between two datetime::monotonic readings.
+
+  The arithmetic is uniform second-and-nanosecond subtraction with no awareness
+  of calendars, time zones, or daylight-saving transitions; it simply differences
+  elapsed physical time. To shift a point on the timeline rather than combine two
+  spans, use datetime::subtract on an Instant. The subtraction is ordinary signed
+  Integer arithmetic, so a difference whose second count falls outside the Integer
+  range overflows and traps. minus is pure: the same two Durations always yield
+  the same Duration, and it has no side effects.
+
+PARAMETERS
+  a AS Duration
+    The span subtracted from. Its seconds field is a whole-second count (which
+    may be negative) and its nanos field is the sub-second remainder.
+
+  b AS Duration
+    The span to subtract. Its seconds and nanos fields are subtracted from those
+    of a. A negative Duration adds to the running total.
+
+RETURN VALUE
+  AS Duration
+    The Duration a - b, normalized so its seconds field holds the whole-second
+    count (which may be negative) and its nanos field holds the sub-second
+    remainder in 0 .. 999_999_999.
+
+ERRORS
+  77050010 (ErrOverflow)
+  Raised when subtracting the seconds fields, or borrowing the normalized
+  nanoseconds from the seconds field, produces a value outside the signed
+  Integer range.
+
+EXAMPLES
+  Subtract a 500-millisecond span from a 90-second span:
+
+    IMPORT datetime
+
+    LET a AS Duration = datetime::duration(90)
+    LET b AS Duration = datetime::duration(0, 500_000_000)
+    LET rest AS Duration = datetime::minus(a, b)
+
+  Measure the elapsed time between two monotonic readings:
+
+    IMPORT datetime
+
+    LET start AS Duration = datetime::monotonic()
+    LET finish AS Duration = datetime::monotonic()
+    LET elapsed AS Duration = datetime::minus(finish, start)
 
 SEE ALSO
-  mfb man datetime plus, mfb man datetime monotonic
+  datetime::plus, datetime::negate, datetime::duration, datetime::subtract, datetime::monotonic

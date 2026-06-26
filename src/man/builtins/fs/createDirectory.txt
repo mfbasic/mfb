@@ -74,7 +74,7 @@ ERRORS
   77030002 (ErrInvalidPath)
   Raised when path is unusable as a path, including a non-directory used as a
   directory component, an over-long path, an invalid byte sequence, or a symlink
-  loop (host EISDIR, ENAMETOOLONG, EILSEQ, or ELOOP).
+  loop (host ENOTDIR, ENAMETOOLONG, EILSEQ, or ELOOP).
 
   77020002 (ErrOutput)
   Raised when the host refuses the operation for any other reason.

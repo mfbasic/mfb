@@ -33,7 +33,7 @@ DESCRIPTION
 
 ERRORS
   77050002 (ErrInvalidArgument)
-  Raised when method is empty or contains whitespace.
+  Raised when method is empty or contains a space character.
 
   77050003 (ErrInvalidFormat)
   Raised when the response status line, header block, or chunked framing is

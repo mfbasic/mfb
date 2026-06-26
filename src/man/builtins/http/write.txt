@@ -15,22 +15,68 @@ IMPORTS
 
 DESCRIPTION
   write performs one blocking HTTP/1.1 request that carries a body and returns the
-  response as an http::Response. The body is sent as UTF-8 bytes with a Content-Length
-  header equal to its byte length; a caller-supplied Content-Length is ignored to
-  preserve framing. The method defaults to POST and may be any body-carrying verb
-  (PUT, PATCH, ...); it is sent uppercased. The optional headers map adds or
-  overrides request headers case-insensitively (Content-Type is commonly set this
-  way).
+  response as an http::Response. The body is sent as UTF-8 bytes with a
+  Content-Length header equal to its byte length; a caller-supplied Content-Length
+  is ignored to preserve framing. The method defaults to POST and may be any
+  body-carrying verb (PUT, PATCH, ...); it is normalized to uppercase before being
+  sent. The optional headers map adds or overrides request headers
+  case-insensitively (Content-Type is commonly set this way); the reserved framing
+  headers Content-Length and Connection are forced and cannot be overridden.
 
   Transport, parsing, and the returned Response are the same as http::read: the
-  connection is opened (net for http://, tls for https://), the request and body
-  are written, the response is read to end of stream, the connection is closed, and
-  a plain Response value is returned, whose headers field is a standard map read
-  with the collections accessors.
+  connection is opened to url.host on url.port (plaintext via net for http://, TLS
+  via tls for https://), the request line and headers are written followed by the
+  body, the response is read to end of stream, the connection is closed, and a
+  plain Response value is returned. The fragment of the URL is never sent; an empty
+  path is normalized to "/".
+
+  The returned Response exposes status, reason, httpVersion, headers, body, and ok
+  (TRUE when status is in 200..299). The headers field is a standard
+  Map OF String TO String with lowercased field names; read it with the collections
+  accessors, e.g. collections::getOr(resp.headers, "content-type", ""). Redirects
+  are not followed: a 3xx response is returned with ok FALSE and its location in
+  resp.headers.
+
+OVERLOADS
+  http::write(url AS net::Url, body AS String) AS Response
+    Sends body with the default POST method and no extra headers.
+
+  http::write(url AS net::Url, body AS String, headers AS Map OF String TO String) AS Response
+    Sends body with the given request headers, still using the default POST method.
+
+  http::write(url AS net::Url, body AS String, headers AS Map OF String TO String, method AS String) AS Response
+    Sends body with the given headers using an explicit body-carrying method.
+
+PARAMETERS
+  url AS net::Url
+    The target URL, as produced by net::toUrl. Its scheme selects the transport
+    (http:// uses net, https:// uses tls), and its host, port, path, and query
+    determine the connection and request target. Any fragment is ignored and an
+    empty path is sent as "/".
+
+  body AS String
+    The request payload. It is sent verbatim as UTF-8 bytes, and its byte length
+    becomes the Content-Length header.
+
+  headers AS Map OF String TO String
+    Optional request headers added or overridden case-insensitively. Defaults to an
+    empty map. The Content-Length and Connection headers it contains are ignored
+    because they are forced by the client.
+
+  method AS String
+    Optional request verb. Defaults to "POST" and is uppercased before sending. It
+    must be non-empty and contain no space character.
+
+RETURN VALUE
+  AS Response
+    The parsed HTTP response, a plain copyable record with fields status (Integer),
+    reason (String), httpVersion (String), headers (Map OF String TO String, field
+    names lowercased), body (String), and ok (Boolean, TRUE for a 2xx status). A 3xx
+    response is returned normally with ok FALSE; redirects are not followed.
 
 ERRORS
   77050002 (ErrInvalidArgument)
-  Raised when method is empty or contains whitespace.
+  Raised when method is empty or contains a space character.
 
   77050003 (ErrInvalidFormat)
   Raised when the response status line, header block, or chunked framing is
@@ -51,6 +97,16 @@ EXAMPLES
     LET ct = Map OF String TO String { "Content-Type" := "application/json" }
     LET r = http::write(net::toUrl("http://example.com/items"), "{\"name\":\"a\"}", ct)
     io::print(toString(r.status))
+
+  PUT a body with an explicit method, then check success:
+
+    IMPORT net
+    IMPORT http
+
+    LET r = http::write(net::toUrl("http://example.com/item/1"), "updated", {}, "PUT")
+    IF r.ok THEN
+      io::print("saved")
+    END IF
 
 SEE ALSO
   http::read, net::toUrl, collections::getOr

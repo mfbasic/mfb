@@ -37,7 +37,7 @@ RETURN VALUE
     The result can be read back with csv::parse.
 
 ERRORS
-  This function raises no errors. Any List OF List OF String is a valid grid.
+  No errors.
 
 EXAMPLES
   Serialize a grid, quoting only the cell that needs it:

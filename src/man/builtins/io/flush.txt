@@ -39,8 +39,10 @@ RETURN VALUE
 
 ERRORS
   77020002 (ErrOutput)
-  Raised when the underlying flush of standard output fails, for example when
-  the output stream is closed or a host write error occurs.
+  Raised when the underlying flush of standard output fails with a real I/O
+  error, for example when the output stream is closed or a host write error
+  occurs. Destinations that do not support syncing, such as terminals and
+  pipes, are treated as already flushed and do not raise this error.
 
 EXAMPLES
   Write a prompt and force it to appear before reading input:
