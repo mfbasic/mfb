@@ -3132,20 +3132,6 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// Suppress the scope-drop free of an owned flat local that is moved out
-    /// (`RETURN`/`FAIL` of the binding) so its block is not freed here — the
-    /// caller/trap now owns it. Mirrors `deactivate_resource_cleanup`.
-    pub(super) fn deactivate_owned_value_cleanup(&mut self, name: &str) {
-        let Some(offset) = self.locals.get(name).map(|local| local.stack_offset) else {
-            return;
-        };
-        if let Some(index) = self.active_cleanups.iter().rposition(|cleanup| {
-            matches!(cleanup, ActiveCleanup::OwnedValue(owned) if owned.stack_offset == offset)
-        }) {
-            self.active_cleanups.remove(index);
-        }
-    }
-
     fn emit_cleanup_sequence(&mut self) -> Result<(), String> {
         let cleanups = self.active_cleanups.clone();
         self.emit_cleanups(&cleanups)
