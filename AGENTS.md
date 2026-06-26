@@ -199,6 +199,13 @@ Guidelines:
 - NEVER create a branch unless the user explicitly asks for one. Always commit on
   the current branch, even when that is the default/main branch. Do not create,
   switch, or rename branches on your own initiative.
+- NEVER run tree-wide `git checkout` / `git reset` / `git restore` / `git stash`
+  (e.g. `git checkout .`, `git reset --hard`, `git restore .`). You may only
+  touch, edit, stage, and commit files that YOU modified during the current
+  session; leave every other file's working-tree state exactly as found. Multiple
+  clients may be working in this repo at once — tree-wide restores have destroyed
+  other clients' in-progress edits and lost real work. Scope every git operation
+  to your own specific paths.
 
 ## Remote Systems
 
