@@ -21,6 +21,7 @@ fn main() {
     let term_dir = manifest_dir.join("src/man/builtins/term");
     let datetime_dir = manifest_dir.join("src/man/builtins/datetime");
     let net_dir = manifest_dir.join("src/man/builtins/net");
+    let tls_dir = manifest_dir.join("src/man/builtins/tls");
     let http_dir = manifest_dir.join("src/man/builtins/http");
     let types_page = manifest_dir.join("src/man/types/package.txt");
     let errors_page = manifest_dir.join("src/man/errors/package.txt");
@@ -44,6 +45,7 @@ fn main() {
     println!("cargo:rerun-if-changed={}", term_dir.display());
     println!("cargo:rerun-if-changed={}", datetime_dir.display());
     println!("cargo:rerun-if-changed={}", net_dir.display());
+    println!("cargo:rerun-if-changed={}", tls_dir.display());
     println!("cargo:rerun-if-changed={}", http_dir.display());
     println!("cargo:rerun-if-changed={}", types_page.display());
     println!("cargo:rerun-if-changed={}", errors_page.display());
@@ -66,6 +68,7 @@ fn main() {
     let term_pages = man_pages(&term_dir, "term");
     let datetime_pages = man_pages(&datetime_dir, "datetime");
     let net_pages = man_pages(&net_dir, "net");
+    let tls_pages = man_pages(&tls_dir, "tls");
     let http_pages = man_pages(&http_dir, "http");
 
     println!(
@@ -130,6 +133,10 @@ fn main() {
     );
     println!(
         "cargo:rerun-if-changed={}",
+        tls_dir.join("package.txt").display()
+    );
+    println!(
+        "cargo:rerun-if-changed={}",
         http_dir.join("package.txt").display()
     );
     for page in general_pages
@@ -149,6 +156,7 @@ fn main() {
         .chain(term_pages.iter())
         .chain(datetime_pages.iter())
         .chain(net_pages.iter())
+        .chain(tls_pages.iter())
         .chain(http_pages.iter())
     {
         println!("cargo:rerun-if-changed={}", page.display());
@@ -174,6 +182,7 @@ fn main() {
     write_pages(&mut output, "TERM_FUNCTION_PAGES", term_pages);
     write_pages(&mut output, "DATETIME_FUNCTION_PAGES", datetime_pages);
     write_pages(&mut output, "NET_FUNCTION_PAGES", net_pages);
+    write_pages(&mut output, "TLS_FUNCTION_PAGES", tls_pages);
     write_pages(&mut output, "HTTP_FUNCTION_PAGES", http_pages);
 
     generate_errorcode_table(&error_codes_doc, &out_dir);

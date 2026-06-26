@@ -83,6 +83,10 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
             "mfb man net [function]",
         ),
         parse_package(
+            include_str!("builtins/tls/package.txt"),
+            "mfb man tls [function]",
+        ),
+        parse_package(
             include_str!("builtins/http/package.txt"),
             "mfb man http [function]",
         ),
@@ -159,6 +163,7 @@ fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'stat
         "term" => Some(generated::TERM_FUNCTION_PAGES),
         "datetime" => Some(generated::DATETIME_FUNCTION_PAGES),
         "net" => Some(generated::NET_FUNCTION_PAGES),
+        "tls" => Some(generated::TLS_FUNCTION_PAGES),
         "http" => Some(generated::HTTP_FUNCTION_PAGES),
         _ => None,
     }
