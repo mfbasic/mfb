@@ -13327,10 +13327,13 @@ fn lower_fs_path_join_helper(platform: &dyn CodegenPlatform) -> CodeFunction {
         // Pass 2: build the joined path.
         abi::load_u64("x16", abi::stack_pointer(), PARTS_OFFSET),
         abi::load_u64("x9", "x16", COLLECTION_OFFSET_COUNT),
-        // data base = collection + header + count * entry_size
+        // data base = collection + header + capacity * entry_size (plan-01 §4.2:
+        // a grown list has capacity > count, so the data region sits past the
+        // full lookup capacity, not just the live entries).
+        abi::load_u64("x8", "x16", COLLECTION_OFFSET_CAPACITY),
         abi::add_immediate("x14", "x16", COLLECTION_HEADER_SIZE),
         abi::move_immediate("x5", "Integer", &entry_size),
-        abi::multiply_registers("x5", "x9", "x5"),
+        abi::multiply_registers("x5", "x8", "x5"),
         abi::add_registers("x14", "x14", "x5"),
         abi::add_immediate("x15", "x16", COLLECTION_HEADER_SIZE),
         abi::load_u64("x1", abi::stack_pointer(), RESULT_OFFSET),
@@ -13447,7 +13450,10 @@ fn lower_sort_string_list_helper() -> CodeFunction {
         abi::branch_le(&done),
         abi::add_immediate("x9", "x0", COLLECTION_HEADER_SIZE),
         abi::move_immediate("x1", "Integer", &entry_size),
-        abi::multiply_registers("x11", "x10", "x1"),
+        // data region base = entries base + capacity * entry size (the data
+        // region sits past the full lookup capacity for a grown list; §4.2).
+        abi::load_u64("x8", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::multiply_registers("x11", "x8", "x1"),
         abi::add_registers("x11", "x9", "x11"),
         abi::move_immediate("x12", "Integer", "0"),
         // outer: for i in 0..count-1
