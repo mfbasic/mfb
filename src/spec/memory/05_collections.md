@@ -226,59 +226,86 @@ leaving five unobservable padding bytes at offsets `3` through `7`.
 
 ### Copy
 
-A collection copy copies the full contiguous allocation:
+A collection copy is **shrink-to-fit**: `copy_flat_block` routes a collection to
+`copy_collection_tight`, which allocates exactly
 
 ```text
-CollectionHeader + LookupEntry[capacity] + Data[dataCapacity]
+CollectionHeader + LookupEntry[count] + Data[dataLength]
 ```
 
-This preserves snapshot ownership semantics with one memory copy.
+(`capacity == count`, `dataCapacity == dataLength`) and copies the used prefix.
+Working-buffer headroom never leaks into a snapshot. The copy preserves snapshot
+ownership semantics, and over the tight used prefix it is a single contiguous
+memory copy.
 
 ### `get`
 
-For a `List`, `collections::get(value, index)` reads `LookupEntry[index]`, then reads the
-payload at `Data + valueOffset` with `valueLength`.
+For a `List`, `collections::get(value, index)` validates `0 <= index < count`,
+reads `LookupEntry[index]`, then reads the payload at `Data + valueOffset` with
+`valueLength`. An out-of-range or negative index fails with `ErrIndexOutOfRange`.
 
-For a `Map`, `collections::get(value, key)` scans live lookup entries until the key payload
-matches. Missing keys fail with `ErrNotFound`.
+For a `Map`, `collections::get(value, key)` scans live lookup entries until the
+key payload matches; missing keys fail with `ErrNotFound`. A `String`-keyed map
+takes a dedicated comparison fast path (`lower_string_key_map_get`); other key
+types use the generic linear scan.
 
 ### `append`
 
-For `List`, `append` writes the new item payload at `Data + dataLength`, appends
-one lookup entry, and increments `count`. If capacity is insufficient, a new
-larger contiguous allocation is created and the existing allocation is copied
-once before writing the new item.
+`List` `append` has two paths:
+
+- **In-place (`MUT`, amortized O(1)).** When the buffer is a uniquely-owned `MUT`
+  working buffer with headroom (`capacity > count` and enough `dataCapacity`),
+  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`,
+  fills the next spare lookup entry, and bumps `count`/`dataLength` in place — no
+  reallocation. If headroom is insufficient it first grows the buffer using the
+  geometric shape in *Capacity Headroom and Growth* (reallocate-and-copy once,
+  with fresh headroom).
+- **Snapshot/value path.** A value-semantic append produces a fresh allocation
+  holding the existing items plus the new one.
 
 ### `insert`
 
-For `List`, `insert` appends the new item payload to `Data`, shifts lookup
-entries right from the insertion point, writes the inserted lookup entry, and
-increments `count`. Existing payload bytes are not moved unless compaction is
-performed.
+`List` `insert` is **not** an in-place shift. `lower_list_insert_collection`
+allocates a fresh **tight** buffer sized for `count + insertedCount` entries and
+`dataLength + insertedDataLength` bytes, copies the pre-insertion data region then
+the inserted data region verbatim, splices the lookup table (head, inserted,
+tail), and writes a tight header (`capacity == count`, `dataCapacity ==
+dataLength`). No existing entry is shifted in place and no dead space is left. The
+inserted argument is first normalized to a singleton list.
 
 ### `removeAt`
 
-For `List`, `removeAt` shifts lookup entries left over the removed entry and
-decrements `count`. Payload bytes may remain in `Data` as unreachable dead
-space until compaction.
+`List` `removeAt` is **not** an in-place shift either, and leaves **no** dead
+space. `lower_list_remove_at` validates the index (`ErrIndexOutOfRange` on a bad
+one), allocates a fresh tight buffer sized for `count - 1` entries and
+`dataLength - removedValueLength` bytes, and copies the surviving entries through
+`emit_copy_collection_entries`, which **re-packs each live payload at a running
+destination offset and rewrites each entry's `valueOffset`** to its compacted
+position.
 
 ### Map Updates
 
 For `Map`, setting or removing keys updates lookup entries and packed key/value
-payloads. The first implementation may use linear lookup. Missing removed keys
-are ignored.
+payloads. The current implementation uses a linear scan. Missing removed keys are
+ignored.
 
 ## Compaction
 
-Removal and replacement may leave unreachable bytes in `Data`. Implementations
-may compact during an update when dead space crosses an implementation-defined
-threshold or when growing into a new allocation.
+The value-semantic update operations (`insert`, `removeAt`, and the value-path
+`append`) **always** produce a fresh, fully-packed, tight buffer with no dead
+space, so there is never accumulated garbage to reclaim. There is no deferred,
+threshold-triggered dead-space compactor in the codegen.
 
-Compaction rewrites live payload bytes into a new packed `Data` region and
-updates lookup offsets. The observable collection value is unchanged.
+The only `dataCapacity`/`capacity` slack the layout ever carries is the
+**intentional** headroom of an in-place `MUT` append working buffer (see *Capacity
+Headroom and Growth*) — not garbage, and tightened away the moment the value is
+copied (shrink-to-fit). The spare-byte invariant — derive the data-region base
+from `capacity`, never `count` — is what keeps that headroom unobservable.
 
 ## Open Questions
 
-- Whether map hashing should be added in layout version 1 or deferred.
-- Whether future layout versions should replace pointer-sized nested collection
-  handles with fully inline nested collection payloads.
+- Whether map lookup should gain hash/probe metadata (currently a linear scan)
+  in layout version 1 or a future version.
+- Whether future layout versions should also inline the **non-flat** nested
+  collection payloads that still remain 8-byte pointer handles (flat nested
+  collections are already inlined, since Phase 5a).

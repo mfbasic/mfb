@@ -103,9 +103,13 @@ all placement.
 `arena_alloc` (symbol `_mfb_arena_alloc`) takes a byte `size` in `x0` and a power-
 of-two `align` in `x1`, and returns a fallible result: `x0` is `0` on success
 with the aligned pointer in `x1`, or an error code in `x0` with `x1 = 0` on
-failure. It clobbers **x9, x10, x14, x15, x20–x28** (the OS map is emitted inline,
-so `arena_alloc` remains a leaf and never touches x11–x13/x17); callers must spill
-any live values held in the clobbered registers across the call.
+failure. The caller-visible clobber set is **x9, x10, x14, x15, x20–x28**; callers
+must spill any live values held in those registers across the call. The fast
+(first-fit) path makes no call, but the rare block-grow path calls
+`arena_fill_random` to poison the freshly mapped block, so `arena_alloc` is **not**
+a leaf — it carries a 64-byte frame and saves the link register. The grow path
+saves and restores x11–x13 around the fill call, so those registers (and x17) stay
+out of the caller-visible clobber set, preserving the historical contract.
 
 The algorithm:
 
@@ -134,9 +138,12 @@ source as ordinary language-level errors (see the language spec §14.3.1).
 ## `arena_free(ptr, size)`
 
 `arena_free` (symbol `_mfb_arena_free`) takes the chunk pointer in `x0` and its
-byte `size` in `x1` and returns nothing; it clobbers **x9–x13**. `size` is
+byte `size` in `x1` and returns nothing; it clobbers **x9–x16** (it carries a
+32-byte frame, saves the link register, and calls both `arena_fill_random` and
+`arena_insert_free`). `size` is
 normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
-so the freed extent matches the live chunk that was handed out. The chunk is
+so the freed extent matches the live chunk that was handed out. The chunk is first
+entropy-scrubbed (see *Entropy Fill*), then
 inserted into the address-ordered free-list (`_mfb_arena_insert_free`, the same
 ordered insert the grow path uses) and **coalesced** with the address-adjacent
 free neighbor on either side:

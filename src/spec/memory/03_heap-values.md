@@ -33,7 +33,10 @@ StringObject
 ```
 
 The trailing NUL byte is a native helper convenience and is not part of the
-logical string length.
+logical string length. A `String` object's total allocation size is therefore
+`byteLength + 9` (the 8-byte length word plus the bytes plus the NUL); this same
+`+9` formula sizes a `String` block inlined into a record or collection
+(`emit_inlined_block_size_from_ptr_slot`).
 
 ## Record
 
@@ -56,20 +59,28 @@ stores, by field type:
   is embedded inline. The field read recovers the borrow pointer as
   `recordBase + offset`; the offset is relative to the record base, so a whole-
   block `memcpy` is a correct deep copy and the inlined `String` comes along.
-- **fully-flat nested record** (a record whose every field is scalar, inlined
-  `String`, or another fully-flat record): inlined recursively as a `U64`
-  block-relative offset into the data region, exactly like a `String` — the field
-  read recovers `recordBase + offset` and the inlined record's own offsets are
-  relative to that same base, so a whole-block `memcpy` deep-copies the tree.
-- **other composite** (`Union`/`List`/`Map`/`Result`/`Error`, or a not-yet-flat
-  nested record): a pointer to a separate allocation (inlined by later phases).
+- **flat composite** — a nested record, a data `Union`, a `List`/`Map`, or a
+  `Result OF T` whose own payloads are all flat (`type_is_flat`), plus the built-in
+  flat records `Error`/`ErrorLoc`: inlined recursively as a `U64` block-relative
+  offset into the data region, exactly like a `String`. The field read recovers
+  `recordBase + offset`, and because the inlined block's own offsets are relative
+  to that same base, a whole-block `memcpy` deep-copies the entire tree. A field is
+  inlined into the data region iff it is a `String` or a flat composite — see
+  `record_field_is_inlined` / `type_is_flat`
+  (`builder_collection_layout.rs`).
+- **non-flat composite** — a **resource** `Union`, a `List`/`Map` carrying a
+  resource or recursive payload, a non-flat `Result`, or a nested record that is
+  not (or cannot be) flat (e.g. one on a type cycle): an 8-byte **pointer** to a
+  separate allocation.
 
 Because inlined fields are variable-length, a record's total byte size is
 computed by walking the fixed slot region plus each inlined sub-block (a `String`
-block, or recursively a nested-record block).
+block, or recursively any inlined flat-composite block).
 Construction, `WITH`-update, copy/transfer, equality, and collection embedding
-all use that runtime size; copying a record with only scalar and `String` fields
-is a single block `memcpy` (no per-field deep copy). The built-in helper-
+all use that runtime size; copying a record whose fields are all scalar,
+`String`, or flat-composite (i.e. a flat record) is a single block `memcpy`
+(no per-field deep copy) — only a non-flat pointer field needs a deep copy of its
+separate allocation. The built-in helper-
 constructed `net::` records `Address`, `Datagram`, and `DatagramText` are
 **excluded**: their `String`/sub-record fields remain pointers to separate
 allocations (the socket helpers build them that way), so reads of those records
@@ -138,6 +149,7 @@ pointer fields). The union is variable-length, so a `List`/`Map` of a data union
 stores each union block inline by its runtime `size`.
 
 A **resource** union (all variants are resource handles; a union is all-data or
-all-resource, `rules.rs:790`) is **not** reshaped — it keeps the fixed
+all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION` in `rules.rs`) is
+**not** reshaped — it keeps the fixed
 `{U64 activeMemberTag@0, resource-handle-ptr@8}` layout, and the handle is moved
 (never deep-copied) so the resource is closed exactly once.
