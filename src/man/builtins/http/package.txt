@@ -1,0 +1,68 @@
+NAME
+  http - blocking HTTP/1.1 client over net and tls
+
+SYNOPSIS
+  IMPORT net
+  IMPORT http
+  LET r = http::read(net::toUrl("http://example.com/"))
+  LET p = http::write(net::toUrl("http://example.com/items"), body)
+  LET v = http::header(r, "Content-Type")
+  LET w = http::headerOr(r, "Content-Type", "application/octet-stream")
+
+DESCRIPTION
+  The http package is a blocking HTTP/1.1 client. It layers on the native net and
+  tls packages for transport: an http:// request goes over net, and an https://
+  request goes over tls, so http adds no platform code and works on Linux and
+  macOS. A program writes IMPORT http; because the public surface takes a net::Url,
+  callers also IMPORT net (they never need IMPORT tls, which stays sealed inside
+  http).
+
+  http::read performs a body-less request (GET by default; also HEAD, DELETE,
+  OPTIONS) and http::write performs a request with a body (POST by default; also
+  PUT, PATCH), sending the body as UTF-8 with a matching Content-Length. Both
+  accept an optional Map OF String TO String of extra request headers and an
+  optional trailing method name. Each call opens one connection, exchanges one
+  request and response, and closes the connection before returning, so no socket
+  handle escapes.
+
+  The package defines two flat, copyable value records. Header is one response
+  header field (name as received, value with surrounding whitespace trimmed).
+  Result is the response: status (Integer), reason (String), httpVersion (String),
+  headers (List OF Header in received order), body (String), and ok (Boolean, TRUE
+  when status is in 200..299). Because no resource is held, a Result can be
+  returned, copied, and sent across threads. The header and headerOr functions
+  look a response header up case-insensitively (first match wins); header fails
+  ErrNotFound when the field is absent, while headerOr returns a default instead.
+
+  The implementation always supplies Host, User-Agent (mfb-http/1), Accept (*/*),
+  and Connection: close, and supplies Content-Length for http::write; a caller
+  headers entry adds or overrides any request header case-insensitively, except
+  the reserved Content-Length and Connection, which are controlled to preserve
+  framing. The response is read to end of stream and parsed: the status line fills
+  status/reason/httpVersion, header lines become Header values, and the body is
+  de-chunked when Transfer-Encoding is chunked, otherwise taken as received (204
+  and 304 carry no body). The body is decoded as UTF-8 text; binary bodies are a
+  known v1 limitation. Redirects are returned as-is (ok is FALSE, Location is
+  available via header) rather than followed.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised by http::read and http::write when the method is empty or contains
+  whitespace.
+
+  77050003 (ErrInvalidFormat)
+  Raised when the response status line, header block, or chunked framing is
+  malformed.
+
+  77050004 (ErrNotFound)
+  Raised by http::header when the requested response header is absent.
+
+  77050010 (ErrOverflow)
+  Raised when the accumulated response exceeds the internal size cap (64 MiB).
+
+  Transport failures from net and tls (77070001-77070006, 77050008, 77020004) are
+  propagated unchanged; a clean end of stream terminates an EOF-framed body and is
+  not an error.
+
+SEE ALSO
+  http::read, http::write, http::header, http::headerOr, net::toUrl, tls::connect

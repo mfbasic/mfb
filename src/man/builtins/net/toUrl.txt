@@ -1,0 +1,50 @@
+NAME
+  toUrl - parse an absolute http/https URL into its components
+
+SYNOPSIS
+  net::toUrl(href AS String) AS Url
+
+PACKAGE
+  net
+
+IMPORTS
+  IMPORT net
+
+DESCRIPTION
+  toUrl parses an absolute URL of the form
+
+    scheme://[user[:pass]@]host[:port]path[?query][#fragment]
+
+  into a Url value record. The scheme is matched case-insensitively and stored
+  lowercased; only http and https are accepted. Userinfo is optional; username is
+  the part before the first colon and password the part after, both stored as
+  written. The host may be a DNS name, an IPv4 literal, or a bracketed IPv6 literal
+  ([::1]) whose brackets are stripped. The port is optional and defaults to the
+  scheme default (80 for http, 443 for https). The path defaults to "/" when
+  absent. The query is stored without its leading "?" and the fragment without its
+  leading "#". No percent-decoding is performed and the value is not otherwise
+  normalized.
+
+  The resulting Url has fields scheme, username, password, host, path, query, and
+  fragment (all String) and port (Integer). Render a Url back to an href with the
+  universal toString; see net::toAddress to project it onto a connectable endpoint.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  Raised when the href has no "://" separator, an empty host, an unterminated IPv6
+  literal, or a port that is not 0-65535 digits.
+
+  77050007 (ErrUnsupported)
+  Raised when the scheme is neither http nor https.
+
+EXAMPLES
+    IMPORT net
+
+    LET u = net::toUrl("https://api.example.com:8443/v1/items?limit=10#frag")
+    io::print(u.host)            ' api.example.com
+    io::print(toString(u.port))  ' 8443
+    io::print(u.path)            ' /v1/items
+    io::print(toString(u))       ' the href, rendered back
+
+SEE ALSO
+  net::toAddress, net::connectTcp, net::lookup

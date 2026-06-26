@@ -558,6 +558,7 @@ The package defines DNS lookup, TCP stream sockets, UDP datagram sockets, and a 
 | `Address` | Network endpoint: `Address[host AS String, port AS Integer]`. |
 | `Datagram` | Received UDP packet: `Datagram[from AS Address, bytes AS List OF Byte]`. |
 | `DatagramText` | Received UTF-8 UDP packet: `DatagramText[from AS Address, value AS String]`. |
+| `Url` | Parsed absolute URL (§10.5): `Url[scheme, username, password, host AS String, port AS Integer, path, query, fragment AS String]`. A flat, copyable value record. |
 
 `host` accepts a DNS name, IPv4 literal, IPv6 literal, or an empty string for all local interfaces when listening or binding UDP. `port` must be between `0` and `65535`; port `0` asks the host OS to choose an available local port.
 
@@ -654,6 +655,31 @@ Secure defaults are mandatory:
 | `tls::write` | `FUNC write(sock AS TlsSocket, bytes AS List OF Byte) AS Nothing` | Encrypts and writes all bytes before returning. |
 | `tls::writeText` | `FUNC writeText(sock AS TlsSocket, value AS String) AS Nothing` | Encodes `value` as UTF-8, encrypts it, and writes all bytes. |
 | `tls::close` | `FUNC close(resource AS TlsSocket) AS Nothing` | Closes the TLS session and underlying transport. Calling it more than once is an error. Implementation note (macOS, v1): `close` tears down the connection and invalidates the handle, but the per-connection dispatch queue and semaphore are reclaimed at process exit rather than immediately — a small, bounded leak for long-lived processes that open and close many TLS sessions. |
+
+### 10.5 URL
+
+A URL is a general networking concept, so the parsed-URL type and its helpers live
+in `net`, not `http`. `Url` is a flat, copyable value record with no resource
+fields. Its fields are: `scheme` and `host` (lowercased scheme; IPv6 hosts stored
+without brackets), `username`/`password` (userinfo, stored as written, `""` when
+absent), `port` (explicit port or the scheme default — `http` 80, `https` 443),
+`path` (begins with `/`, `/` when the href had none), `query` (without the leading
+`?`), and `fragment` (without the leading `#`).
+
+| Function | Signature | Behavior |
+|----------|-----------|----------|
+| `net::toUrl` | `FUNC toUrl(href AS String) AS Url` | Parses an **absolute** `http`/`https` URL into its components. Only `http` and `https` are accepted; another scheme fails `77050007` (`ErrUnsupported`). A missing `://`, empty host, or out-of-range/non-digit port fails `77050003` (`ErrInvalidFormat`). |
+| `toString` | `FUNC toString(value AS Url) AS String` | Renders a `Url` back to an absolute href — the inverse of `toUrl`, an override of the universal `toString`. Omits empty userinfo, a port equal to the scheme default, an empty query, and an empty fragment. Round-trip: `toUrl(toString(u))` equals `u` for any `u` from `toUrl`. |
+| `net::toAddress` | `FUNC toAddress(url AS Url) AS Address` | Projects a `Url` onto a connectable `Address[host := url.host, port := url.port]`, with no DNS resolution. **Not yet provided in v1** — connect directly with `net::connectTcp(url.host, url.port)`; a follow-up adds the native shim. |
+
+```basic
+IMPORT net
+
+LET u = net::toUrl("https://api.example.com:8443/v1/items?limit=10#frag")
+' u.host = "api.example.com", u.port = 8443, u.path = "/v1/items",
+' u.query = "limit=10", u.fragment = "frag"
+io::print(toString(u))   ' https://api.example.com:8443/v1/items?limit=10#frag
+```
 
 ## 12. Built-in JSON Package
 
@@ -789,7 +815,62 @@ unparseable strings or unknown pattern tokens fail with `ErrInvalidFormat`
 The `format`/`parse` pattern mini-language (`yyyy MM dd HH mm ss fff a EEE Z` …) is
 documented at `mfb man datetime format`.
 
-## 15. Built-in Error Codes
+## 15. Built-in HTTP Package
+
+The `http` package is a **blocking** HTTP/1.1 **client**. It layers on `net` and
+`tls` for transport; every byte on the wire goes through `net::*` (plaintext) or
+`tls::*` (TLS). A program writes `IMPORT http`; because the public surface takes a
+`net::Url`, callers also `IMPORT net` (they never need `IMPORT tls`, which stays
+sealed inside `http`). Both `http://` and `https://` work on Linux and macOS.
+
+Two flat, copyable value records are returned; the transport socket is opened,
+used, and closed entirely inside each call, so no handle escapes and a `Result`
+can be returned, copied, and sent across threads.
+
+| Type | Description |
+|------|-------------|
+| `http::Header` | One response header: `Header[name AS String, value AS String]` (name as received, value OWS-trimmed). |
+| `http::Result` | Response: `Result[status AS Integer, reason AS String, httpVersion AS String, headers AS List OF Header, body AS String, ok AS Boolean]`. `ok` is `TRUE` iff `status` is in `200..299`. |
+
+| Function | Signature | Behavior |
+|----------|-----------|----------|
+| `http::read` | `FUNC read(url AS net::Url, headers AS Map OF String TO String = {}, method AS String = "GET") AS Result` | Performs a **body-less** request (`GET`, `HEAD`, `DELETE`, `OPTIONS`, …) and returns the response. Blocking. |
+| `http::write` | `FUNC write(url AS net::Url, body AS String, headers AS Map OF String TO String = {}, method AS String = "POST") AS Result` | Performs a request **with a body**, sending `body` (UTF-8) with a matching `Content-Length`. Blocking. |
+| `http::header` | `FUNC header(result AS Result, name AS String) AS String` | Case-insensitive lookup of one response header; the first occurrence wins. Fails `77050004` (`ErrNotFound`) when absent. |
+| `http::headerOr` | `FUNC headerOr(result AS Result, name AS String, default AS String) AS String` | Case-insensitive header lookup, or `default` when absent. |
+
+The implementation always sends `Host`, `User-Agent: mfb-http/1`, `Accept: */*`,
+and `Connection: close`; `write` also sends `Content-Length`. A caller `headers`
+entry adds or overrides a request header (case-insensitively), except the reserved
+`Content-Length` and `Connection`, which the implementation controls to preserve
+framing. The empty method or a method with whitespace fails `77050002`
+(`ErrInvalidArgument`).
+
+The response is read to EOF, then parsed: the status line yields `status`,
+`reason`, and `httpVersion`; header lines become `Header` values; the body is
+de-chunked when `Transfer-Encoding: chunked`, otherwise taken as received.
+`204`/`304` carry no body. A malformed status line or chunk framing fails
+`77050003`; a response over the internal 64 MiB cap fails `77050010`. The body is
+decoded as UTF-8 text (binary bodies are a known v1 limitation). Redirects are
+returned as-is (`ok = FALSE`, `Location` available via `header`); they are not
+followed.
+
+```basic
+IMPORT net
+IMPORT http
+IMPORT io
+
+FUNC main AS Integer
+  LET got AS http::Result = http::read(net::toUrl("http://example.com/"))
+  io::print(toString(got.status) & " " & got.reason)        ' 200 OK
+  IF got.ok THEN io::print(http::headerOr(got, "Content-Type", "?"))
+  LET posted AS http::Result = http::write(net::toUrl("http://example.com/items"), "payload")
+  io::print(toString(posted.status))
+  RETURN 0
+END FUNC
+```
+
+## 16. Built-in Error Codes
 
 The built-in `errorCode` package exports named `Integer` constants for every standard runtime and toolchain error in the canonical registry at [error_codes.md](./error_codes.md). Programs should use these names instead of raw integer literals in source code, examples, tests, and diagnostics:
 

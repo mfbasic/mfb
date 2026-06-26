@@ -78,6 +78,14 @@ static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {
             include_str!("builtins/datetime/package.txt"),
             "mfb man datetime [function]",
         ),
+        parse_package(
+            include_str!("builtins/net/package.txt"),
+            "mfb man net [function]",
+        ),
+        parse_package(
+            include_str!("builtins/http/package.txt"),
+            "mfb man http [function]",
+        ),
     ]
 });
 
@@ -150,6 +158,8 @@ fn generated_pages(package_name: &str) -> Option<&'static [(&'static str, &'stat
         "regex" => Some(generated::REGEX_FUNCTION_PAGES),
         "term" => Some(generated::TERM_FUNCTION_PAGES),
         "datetime" => Some(generated::DATETIME_FUNCTION_PAGES),
+        "net" => Some(generated::NET_FUNCTION_PAGES),
+        "http" => Some(generated::HTTP_FUNCTION_PAGES),
         _ => None,
     }
 }

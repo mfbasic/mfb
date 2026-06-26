@@ -1,0 +1,55 @@
+NAME
+  write - perform an HTTP request with a body and return the response
+
+SYNOPSIS
+  http::write(url AS net::Url, body AS String) AS Result
+  http::write(url AS net::Url, body AS String, headers AS Map OF String TO String) AS Result
+  http::write(url AS net::Url, body AS String, headers AS Map OF String TO String, method AS String) AS Result
+
+PACKAGE
+  http
+
+IMPORTS
+  IMPORT net
+  IMPORT http
+
+DESCRIPTION
+  write performs one blocking HTTP/1.1 request that carries a body and returns the
+  response as an http::Result. The body is sent as UTF-8 bytes with a Content-Length
+  header equal to its byte length; a caller-supplied Content-Length is ignored to
+  preserve framing. The method defaults to POST and may be any body-carrying verb
+  (PUT, PATCH, ...); it is sent uppercased. The optional headers map adds or
+  overrides request headers case-insensitively (Content-Type is commonly set this
+  way).
+
+  Transport, parsing, and the returned Result are the same as http::read: the
+  connection is opened (net for http://, tls for https://), the request and body
+  are written, the response is read to end of stream, the connection is closed, and
+  a plain Result value is returned.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when method is empty or contains whitespace.
+
+  77050003 (ErrInvalidFormat)
+  Raised when the response status line, header block, or chunked framing is
+  malformed.
+
+  77050010 (ErrOverflow)
+  Raised when the response exceeds the internal 64 MiB size cap.
+
+  Connect, read, write, DNS, and TLS failures are propagated unchanged from net
+  and tls.
+
+EXAMPLES
+  POST a JSON body with a content type:
+
+    IMPORT net
+    IMPORT http
+
+    LET ct = Map OF String TO String { "Content-Type" := "application/json" }
+    LET r = http::write(net::toUrl("http://example.com/items"), "{\"name\":\"a\"}", ct)
+    io::print(toString(r.status))
+
+SEE ALSO
+  http::read, http::header, http::headerOr, net::toUrl

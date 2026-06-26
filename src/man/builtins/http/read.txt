@@ -1,0 +1,62 @@
+NAME
+  read - perform a body-less HTTP request and return the response
+
+SYNOPSIS
+  http::read(url AS net::Url) AS Result
+  http::read(url AS net::Url, headers AS Map OF String TO String) AS Result
+  http::read(url AS net::Url, headers AS Map OF String TO String, method AS String) AS Result
+
+PACKAGE
+  http
+
+IMPORTS
+  IMPORT net
+  IMPORT http
+
+DESCRIPTION
+  read performs one blocking HTTP/1.1 request that carries no body and returns the
+  response as an http::Result. The method defaults to GET and may be any body-less
+  verb (HEAD, DELETE, OPTIONS, ...); it is sent uppercased. The optional headers
+  map adds or overrides request headers case-insensitively; the reserved
+  Connection header is always close and cannot be overridden.
+
+  The connection is opened to url.host on url.port (plaintext via net for http://,
+  TLS via tls for https://), the request is written, the response is read to end
+  of stream, the connection is closed, and a plain Result value is returned. The
+  fragment of the URL is never sent; an empty path is normalized to "/".
+
+  The returned Result exposes status, reason, httpVersion, headers, body, and ok
+  (TRUE when status is in 200..299). Read response headers with http::header or
+  http::headerOr. Redirects are not followed: a 3xx response is returned with ok
+  FALSE and its Location available via http::header.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when method is empty or contains whitespace.
+
+  77050003 (ErrInvalidFormat)
+  Raised when the response status line, header block, or chunked framing is
+  malformed.
+
+  77050010 (ErrOverflow)
+  Raised when the response exceeds the internal 64 MiB size cap.
+
+  Connect, read, write, DNS, and TLS failures are propagated unchanged from net
+  and tls.
+
+EXAMPLES
+  A simple GET:
+
+    IMPORT net
+    IMPORT http
+
+    LET r = http::read(net::toUrl("http://example.com/"))
+    io::print(toString(r.status) & " " & r.reason)
+
+  A GET with an Authorization header and an explicit method:
+
+    LET auth = Map OF String TO String { "Authorization" := "Bearer xyz" }
+    LET deleted = http::read(net::toUrl("http://example.com/item/1"), auth, "DELETE")
+
+SEE ALSO
+  http::write, http::header, http::headerOr, net::toUrl

@@ -1,0 +1,28 @@
+NAME
+  headerOr - look up a response header, or return a default
+
+SYNOPSIS
+  http::headerOr(result AS Result, name AS String, default AS String) AS String
+
+PACKAGE
+  http
+
+IMPORTS
+  IMPORT http
+
+DESCRIPTION
+  headerOr returns the value of the response header named name from result, matched
+  case-insensitively with the first occurrence winning, exactly like http::header.
+  When no field matches name it returns default instead of failing, so it is the
+  convenient form when a header is optional.
+
+ERRORS
+  None. A missing header yields default rather than an error.
+
+EXAMPLES
+    IMPORT http
+
+    LET ct = http::headerOr(r, "Content-Type", "application/octet-stream")
+
+SEE ALSO
+  http::header, http::read, http::write
