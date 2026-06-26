@@ -698,14 +698,14 @@ EXPORT FUNC listTables(RES db AS Db) AS List OF String
   WEND
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN names
-TRAP(e)
-  ' A function-level TRAP covers every native call in the body (prepare/step/
-  ' columnText/finalize). It catches ALL errors, so guard on the generic native
-  ' code and enrich only those; anything else (an allocation failure, say)
-  ' PROPAGATEs unchanged. `stmt` is finalized by lexical drop on this exit.
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    ' A function-level TRAP covers every native call in the body (prepare/step/
+    ' columnText/finalize). It catches ALL errors, so guard on the generic native
+    ' code and enrich only those; anything else (an allocation failure, say)
+    ' PROPAGATEs unchanged. `stmt` is finalized by lexical drop on this exit.
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -864,10 +864,10 @@ EXPORT FUNC query(RES db AS Db, sql AS String, params AS List OF String) AS List
   LET result = rows(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
-TRAP(e)
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
 
 ' Run SQL with named placeholders, e.g.
@@ -886,10 +886,10 @@ EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO String
   LET result = rows(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
-TRAP(e)
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
 
 ' Run SQL with positional `?` placeholders, binding TYPED values, e.g.
@@ -908,10 +908,10 @@ EXPORT FUNC query(RES db AS Db, sql AS String, params AS List OF SqlValue) AS Li
   LET result = rows(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
-TRAP(e)
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
 
 ' Run SQL with named placeholders, binding TYPED values, e.g.
@@ -930,10 +930,10 @@ EXPORT FUNC query(RES db AS Db, sql AS String, params AS Map OF String TO SqlVal
   LET result = rows(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
-TRAP(e)
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
 
 ' ---------------------------------------------------------------------------
@@ -977,10 +977,10 @@ EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS List OF String) AS 
   LET result = rowsAsMaps(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
-TRAP(e)
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
 
 ' Named placeholders bound from text, e.g.
@@ -995,10 +995,10 @@ EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS Map OF String TO St
   LET result = rowsAsMaps(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
-TRAP(e)
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
 
 ' Positional `?` placeholders bound from TYPED values, e.g.
@@ -1011,10 +1011,10 @@ EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS List OF SqlValue) A
   LET result = rowsAsMaps(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
-TRAP(e)
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
 
 ' Named placeholders bound from TYPED values, e.g.
@@ -1029,8 +1029,8 @@ EXPORT FUNC queryMaps(RES db AS Db, sql AS String, params AS Map OF String TO Sq
   LET result = rowsAsMaps(stmt)
   sqliteLink::finalize(stmt)                ' explicit consume; lexical drop would do it otherwise
   RETURN result
-TRAP(e)
-  IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
-  PROPAGATE
-END TRAP
+  TRAP(e)
+    IF e.code = ERR_NATIVE_CALL_FAILED THEN FAIL sqlError(db)
+    PROPAGATE
+  END TRAP
 END FUNC
