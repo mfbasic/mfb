@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "func_net_read_valid",
+  "project": "func_net_toUrl_invalid_runtime",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -26,6 +26,26 @@
   ],
   "functions": [
   {
+    "name": "code",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "href", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "u", "type": "Url", "value": { "kind": "call", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "href" }] } },
+    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "ok:" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "u" }, "member": "host" } } },
+    {
+      "op": "trap",
+      "name": "e",
+      "body": [
+      { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "err:" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" }] } } }
+      ]
+    }
+    ]
+  },
+  {
     "name": "main",
     "visibility": "private",
     "kind": "func",
@@ -33,13 +53,13 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "server", "type": "Listener", "value": { "kind": "call", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "target": "net.localAddress", "args": [{ "kind": "local", "name": "server" }] } },
-    { "op": "bind", "mutable": false, "name": "client", "type": "Socket", "value": { "kind": "call", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
-    { "op": "bind", "mutable": false, "name": "conn", "type": "Socket", "value": { "kind": "call", "target": "net.accept", "args": [{ "kind": "local", "name": "server" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "net.writeText", "args": [{ "kind": "local", "name": "client" }, { "kind": "const", "type": "String", "value": "abc" }] } },
-    { "op": "bind", "mutable": false, "name": "raw", "type": "List OF Byte", "value": { "kind": "call", "target": "net.read", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "raw" }] }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "raw" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "ftp://example.com/" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "/relative/path" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "http://" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "http://:80/" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "http://h:99999/" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "http://h:8a/" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "code", "args": [{ "kind": "const", "type": "String", "value": "http://[::1/" }] }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },

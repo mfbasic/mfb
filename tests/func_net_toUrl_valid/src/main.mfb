@@ -1,0 +1,33 @@
+IMPORT net
+IMPORT io
+
+' Print every field of a parsed URL, one per line (kept simple so the register
+' allocator is not stressed by a single large concatenation).
+FUNC dump(label AS String, href AS String) AS Nothing
+  LET u AS net::Url = net::toUrl(href)
+  io::print(label)
+  io::print("  scheme=" & u.scheme)
+  io::print("  username=" & u.username)
+  io::print("  password=" & u.password)
+  io::print("  host=" & u.host)
+  io::print("  port=" & toString(u.port))
+  io::print("  path=" & u.path)
+  io::print("  query=" & u.query)
+  io::print("  fragment=" & u.fragment)
+END FUNC
+
+FUNC main AS Integer
+  ' Full URL: explicit port, path, query, and fragment.
+  dump("full", "https://api.example.com:8443/v1/items?limit=10#frag")
+  ' Scheme default port (80), path normalized to "/".
+  dump("bare", "http://example.com")
+  ' Userinfo (user:pass@) and an explicit non-default port.
+  dump("userinfo", "http://user:pass@host.test:81/p")
+  ' Bracketed IPv6 literal: brackets stripped, default https port.
+  dump("ipv6", "https://[2001:db8::1]/y?a=b")
+  ' IPv6 with an explicit port.
+  dump("ipv6port", "https://[::1]:9000/x")
+  ' Username only (no password).
+  dump("useronly", "http://bob@host/")
+  RETURN 0
+END FUNC

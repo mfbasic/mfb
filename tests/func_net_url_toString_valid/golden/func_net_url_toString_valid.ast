@@ -1,0 +1,58 @@
+{
+  "project": "func_net_url_toString_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "roundTrip",
+      "line": 6,
+      "params": [
+      { "name": "href", "type": "String", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "first", "type": "Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "rendered", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "first" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "second", "type": "Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "rendered" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "render=" }, "right": { "kind": "identifier", "value": "rendered" } }] }, "line": 10 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "rendered" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "second" }] } },
+        "line": 11,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "  roundtrip=ok" }] }, "line": 12 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  roundtrip=MISMATCH " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "second" }] } }] }, "line": 14 }
+        ]
+      }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 18,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "https://example.com:443/a?b=c#d" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "http://example.com:8080/a" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "http://user:pass@host.test/p" }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "https://[2001:db8::1]:8443/x?y=z" }] }, "line": 26 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "roundTrip", "arguments": [{ "kind": "string", "value": "http://host" }] }, "line": 28 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 29 }
+      ]
+    }
+    ]
+  }
+  ]
+}

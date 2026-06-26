@@ -1,0 +1,30 @@
+IMPORT net
+IMPORT io
+
+' Each call to `net::toUrl` with a malformed href fails; a function-level TRAP
+' converts the error to its code so the run is deterministic.
+FUNC code(href AS String) AS String
+  LET u AS net::Url = net::toUrl(href)
+  RETURN "ok:" & u.host
+  TRAP(e)
+    RETURN "err:" & toString(e.code)
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  ' Non-http(s) scheme -> ErrUnsupported (77050007).
+  io::print(code("ftp://example.com/"))
+  ' No scheme separator -> ErrInvalidFormat (77050003).
+  io::print(code("/relative/path"))
+  ' Empty host -> ErrInvalidFormat.
+  io::print(code("http://"))
+  ' Empty host with a port -> ErrInvalidFormat.
+  io::print(code("http://:80/"))
+  ' Port out of range -> ErrInvalidFormat.
+  io::print(code("http://h:99999/"))
+  ' Non-digit port -> ErrInvalidFormat.
+  io::print(code("http://h:8a/"))
+  ' Unterminated IPv6 literal -> ErrInvalidFormat.
+  io::print(code("http://[::1/"))
+  RETURN 0
+END FUNC

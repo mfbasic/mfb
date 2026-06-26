@@ -1,0 +1,55 @@
+{
+  "project": "func_net_toUrl_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "net", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "dump",
+      "line": 6,
+      "params": [
+      { "name": "label", "type": "String", "default": null },
+      { "name": "href", "type": "String", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "u", "type": "Url", "value": { "kind": "call", "callee": "net.toUrl", "arguments": [{ "kind": "identifier", "value": "href" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "label" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  scheme=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "scheme" } }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  username=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "username" } }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  password=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "password" } }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  host=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "host" } }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  port=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "port" }] } }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  path=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "path" } }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  query=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "query" } }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "  fragment=" }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "u" }, "member": "fragment" } }] }, "line": 16 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 19,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "full" }, { "kind": "string", "value": "https://api.example.com:8443/v1/items?limit=10#frag" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "bare" }, { "kind": "string", "value": "http://example.com" }] }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "userinfo" }, { "kind": "string", "value": "http://user:pass@host.test:81/p" }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "ipv6" }, { "kind": "string", "value": "https://[2001:db8::1]/y?a=b" }] }, "line": 27 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "ipv6port" }, { "kind": "string", "value": "https://[::1]:9000/x" }] }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "dump", "arguments": [{ "kind": "string", "value": "useronly" }, { "kind": "string", "value": "http://bob@host/" }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
+      ]
+    }
+    ]
+  }
+  ]
+}

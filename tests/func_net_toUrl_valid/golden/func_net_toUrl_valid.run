@@ -1,0 +1,54 @@
+full
+  scheme=https
+  username=
+  password=
+  host=api.example.com
+  port=8443
+  path=/v1/items
+  query=limit=10
+  fragment=frag
+bare
+  scheme=http
+  username=
+  password=
+  host=example.com
+  port=80
+  path=/
+  query=
+  fragment=
+userinfo
+  scheme=http
+  username=user
+  password=pass
+  host=host.test
+  port=81
+  path=/p
+  query=
+  fragment=
+ipv6
+  scheme=https
+  username=
+  password=
+  host=2001:db8::1
+  port=443
+  path=/y
+  query=a=b
+  fragment=
+ipv6port
+  scheme=https
+  username=
+  password=
+  host=::1
+  port=9000
+  path=/x
+  query=
+  fragment=
+useronly
+  scheme=http
+  username=bob
+  password=
+  host=host
+  port=80
+  path=/
+  query=
+  fragment=

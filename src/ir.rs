@@ -606,6 +606,10 @@ pub fn lower_project_with_external_functions(
         .expect("built-in regex package source must parse");
     let augmented = builtins::datetime::augmented_project(&augmented)
         .expect("built-in datetime package source must parse");
+    let augmented = builtins::net::augmented_project(&augmented)
+        .expect("built-in net package source must parse");
+    let augmented = builtins::http::augmented_project(&augmented)
+        .expect("built-in http package source must parse");
     let ast = &augmented;
     let mut types = Vec::new();
     let mut functions = Vec::new();
@@ -2429,6 +2433,15 @@ fn expression_type(
                 return builtins::tls::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::http::is_http_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::http::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::json::is_json_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2620,6 +2633,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::regex::expected_arguments(callee))
         .or_else(|| builtins::net::argument_types(callee))
         .or_else(|| builtins::tls::argument_types(callee))
+        .or_else(|| builtins::http::expected_arguments(callee))
         .or_else(|| builtins::thread::expected_arguments(callee))?;
     // Overloaded/optional-argument descriptions (e.g. `strings.find`'s
     // `"String, String[, Integer]"`) are not a concrete positional signature;
@@ -2951,6 +2965,24 @@ fn lower_expression_with_expected(
                     value: (*value).to_string(),
                 });
             }
+            // `http::read`/`write` default the `headers` argument to the empty map
+            // and the method to a literal (plan-03-http.md §B.1). A `Map OF ...`
+            // default lowers to an empty map literal, not a scalar const.
+            for (type_, value) in
+                builtins::http::default_argument_padding(&canonical_callee, args.len())
+            {
+                if parse_map_type(type_).is_some() {
+                    args.push(IrValue::MapLiteral {
+                        type_: (*type_).to_string(),
+                        entries: Vec::new(),
+                    });
+                } else {
+                    args.push(IrValue::Const {
+                        type_: (*type_).to_string(),
+                        value: (*value).to_string(),
+                    });
+                }
+            }
             // Dequalify migrated `collections::`/`strings::` native members back
             // to their bare lowering names (plan-01-functions.md §5): the native
             // code generator stays keyed on `get`/`transform`/`find`/... .
@@ -2966,16 +2998,33 @@ fn lower_expression_with_expected(
             // `parse` select a distinct internal name by argument count (§5.1.1).
             // Its OS-seam intrinsics return `None`, staying `datetime.*` runtime
             // helper calls.
-            let resolved_target =
-                builtins::datetime::implementation_name(&canonical_callee, args.len())
-                    .map(|name| crate::internal_name::internalize(&name))
-                    .or_else(|| {
-                        builtins::json::implementation_name(&canonical_callee)
-                            .or_else(|| builtins::csv::implementation_name(&canonical_callee))
-                            .or_else(|| builtins::regex::implementation_name(&canonical_callee))
-                            .map(crate::internal_name::internalize)
-                    })
-                    .unwrap_or_else(|| canonical_callee.clone());
+            // A universal `toString(x)` over a built-in package value type routes
+            // to that package's internal renderer (plan-03-http.md §A.3), e.g.
+            // `toString(net::Url)` -> `#net_urlToString`.
+            let to_string_override = if canonical_callee == "toString" {
+                arguments
+                    .first()
+                    .map(call_arg_value)
+                    .and_then(|argument| expression_type(argument, locals, context))
+                    .and_then(|type_| builtins::to_string_override_target(&type_))
+                    .map(crate::internal_name::internalize)
+            } else {
+                None
+            };
+            let resolved_target = to_string_override
+                .or_else(|| {
+                    builtins::datetime::implementation_name(&canonical_callee, args.len())
+                        .map(|name| crate::internal_name::internalize(&name))
+                })
+                .or_else(|| {
+                    builtins::json::implementation_name(&canonical_callee)
+                        .or_else(|| builtins::csv::implementation_name(&canonical_callee))
+                        .or_else(|| builtins::regex::implementation_name(&canonical_callee))
+                        .or_else(|| builtins::net::implementation_name(&canonical_callee))
+                        .or_else(|| builtins::http::implementation_name(&canonical_callee))
+                        .map(crate::internal_name::internalize)
+                })
+                .unwrap_or_else(|| canonical_callee.clone());
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`

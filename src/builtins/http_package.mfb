@@ -1,0 +1,437 @@
+' Source implementation of the built-in `http` package: a blocking HTTP/1.1
+' client (Parts A-E of plan-03-http.md). Transport is the existing native
+' `net`/`tls` packages; everything here is pure protocol string work plus two
+' thin transport branches. Imports are file-scoped, so `IMPORT net`/`IMPORT tls`
+' here do not leak into a program that writes `IMPORT http`.
+IMPORT net
+IMPORT tls
+IMPORT strings
+IMPORT collections
+IMPORT errorCode
+
+' One response header field. Names are kept as received (case preserved); values
+' have leading/trailing optional whitespace trimmed.
+EXPORT TYPE Header
+  name  AS String
+  value AS String
+END TYPE
+
+' The client response. Named `HttpResult` internally; the spec name is
+' `http::Result` (the compiler maps the qualified reference to this type).
+EXPORT TYPE HttpResult
+  status      AS Integer
+  reason      AS String
+  httpVersion AS String
+  headers     AS List OF Header
+  body        AS String
+  ok          AS Boolean
+END TYPE
+
+' Case-insensitive lookup outcome (found + value), since a function returns one
+' value.
+TYPE __http_Lookup
+  found AS Boolean
+  value AS String
+END TYPE
+
+LET __HTTP_MAX_RESPONSE AS Integer = 67108864
+
+' Grapheme index of `needle` in `s` at or after `start`, or -1 when absent.
+' `strings::find` is inline-expanded and cannot be wrapped in an inline TRAP, so
+' presence is checked first with `contains`.
+FUNC __http_indexOf(s AS String, needle AS String, start AS Integer) AS Integer
+  LET tail AS String = __http_slice(s, start, len(s))
+  IF strings::contains(tail, needle) = FALSE THEN
+    RETURN 0 - 1
+  END IF
+  RETURN strings::find(s, needle, start)
+END FUNC
+
+FUNC __http_slice(s AS String, start AS Integer, stop AS Integer) AS String
+  IF stop <= start THEN
+    RETURN ""
+  END IF
+  RETURN strings::mid(s, start, stop - start)
+END FUNC
+
+FUNC __http_defaultPort(scheme AS String) AS Integer
+  IF scheme = "https" THEN
+    RETURN 443
+  END IF
+  RETURN 80
+END FUNC
+
+' ---- Request building (§B.3) ----
+
+FUNC __http_normalizeMethod(method AS String) AS String
+  IF method = "" THEN
+    FAIL error(77050002, "empty HTTP method")
+  END IF
+  IF strings::contains(method, " ") THEN
+    FAIL error(77050002, "invalid HTTP method")
+  END IF
+  RETURN strings::upper(method)
+END FUNC
+
+FUNC __http_hostHeader(url AS net::Url) AS String
+  IF url.port = __http_defaultPort(url.scheme) THEN
+    RETURN url.host
+  END IF
+  RETURN url.host & ":" & toString(url.port)
+END FUNC
+
+FUNC __http_requestTarget(url AS net::Url) AS String
+  MUT target AS String = url.path
+  IF target = "" THEN
+    target = "/"
+  END IF
+  IF url.query <> "" THEN
+    target = target & "?" & url.query
+  END IF
+  RETURN target
+END FUNC
+
+' Caller override (case-insensitive) for an automatic header, or `fallback`.
+FUNC __http_headerValue(headers AS Map OF String TO String, name AS String, fallback AS String) AS String
+  LET target AS String = strings::lower(name)
+  FOR EACH entry IN headers
+    IF strings::lower(entry.key) = target THEN
+      RETURN entry.value
+    END IF
+  NEXT
+  RETURN fallback
+END FUNC
+
+' Whether a caller header is "extra": not one of the automatic headers and not a
+' reserved framing header (Content-Length / Connection are forced).
+FUNC __http_isExtraHeader(name AS String) AS Boolean
+  LET lowered AS String = strings::lower(name)
+  IF lowered = "host" THEN
+    RETURN FALSE
+  ELSEIF lowered = "user-agent" THEN
+    RETURN FALSE
+  ELSEIF lowered = "accept" THEN
+    RETURN FALSE
+  ELSEIF lowered = "connection" THEN
+    RETURN FALSE
+  ELSEIF lowered = "content-length" THEN
+    RETURN FALSE
+  END IF
+  RETURN TRUE
+END FUNC
+
+FUNC __http_buildRequest(method AS String, url AS net::Url, body AS String, hasBody AS Boolean, headers AS Map OF String TO String) AS String
+  LET crlf AS String = "\r\n"
+  MUT request AS String = method & " " & __http_requestTarget(url) & " HTTP/1.1" & crlf
+  request = request & "Host: " & __http_headerValue(headers, "Host", __http_hostHeader(url)) & crlf
+  request = request & "User-Agent: " & __http_headerValue(headers, "User-Agent", "mfb-http/1") & crlf
+  request = request & "Accept: " & __http_headerValue(headers, "Accept", "*/*") & crlf
+  request = request & "Connection: close" & crlf
+  IF hasBody THEN
+    request = request & "Content-Length: " & toString(strings::byteLen(body)) & crlf
+  END IF
+  FOR EACH entry IN headers
+    IF __http_isExtraHeader(entry.key) THEN
+      request = request & entry.key & ": " & entry.value & crlf
+    END IF
+  NEXT
+  request = request & crlf
+  IF hasBody THEN
+    request = request & body
+  END IF
+  RETURN request
+END FUNC
+
+' ---- Response parsing (§B.4) ----
+
+FUNC __http_hexDigit(ch AS String) AS Integer
+  IF ch = "0" THEN
+    RETURN 0
+  ELSEIF ch = "1" THEN
+    RETURN 1
+  ELSEIF ch = "2" THEN
+    RETURN 2
+  ELSEIF ch = "3" THEN
+    RETURN 3
+  ELSEIF ch = "4" THEN
+    RETURN 4
+  ELSEIF ch = "5" THEN
+    RETURN 5
+  ELSEIF ch = "6" THEN
+    RETURN 6
+  ELSEIF ch = "7" THEN
+    RETURN 7
+  ELSEIF ch = "8" THEN
+    RETURN 8
+  ELSEIF ch = "9" THEN
+    RETURN 9
+  ELSEIF ch = "a" OR ch = "A" THEN
+    RETURN 10
+  ELSEIF ch = "b" OR ch = "B" THEN
+    RETURN 11
+  ELSEIF ch = "c" OR ch = "C" THEN
+    RETURN 12
+  ELSEIF ch = "d" OR ch = "D" THEN
+    RETURN 13
+  ELSEIF ch = "e" OR ch = "E" THEN
+    RETURN 14
+  ELSEIF ch = "f" OR ch = "F" THEN
+    RETURN 15
+  END IF
+  FAIL error(77050003, "invalid chunk size")
+END FUNC
+
+FUNC __http_hexToInt(text AS String) AS Integer
+  LET digits AS List OF String = strings::graphemes(text)
+  IF len(digits) = 0 THEN
+    FAIL error(77050003, "empty chunk size")
+  END IF
+  MUT value AS Integer = 0
+  FOR EACH digit IN digits
+    value = value * 16 + __http_hexDigit(digit)
+  NEXT
+  RETURN value
+END FUNC
+
+FUNC __http_decToInt(text AS String) AS Integer
+  LET digits AS List OF String = strings::graphemes(text)
+  IF len(digits) = 0 THEN
+    FAIL error(77050003, "invalid status line")
+  END IF
+  MUT value AS Integer = 0
+  FOR EACH digit IN digits
+    LET d AS Integer = __http_digitValue(digit)
+    value = value * 10 + d
+  NEXT
+  RETURN value
+END FUNC
+
+FUNC __http_digitValue(ch AS String) AS Integer
+  IF ch = "0" THEN
+    RETURN 0
+  ELSEIF ch = "1" THEN
+    RETURN 1
+  ELSEIF ch = "2" THEN
+    RETURN 2
+  ELSEIF ch = "3" THEN
+    RETURN 3
+  ELSEIF ch = "4" THEN
+    RETURN 4
+  ELSEIF ch = "5" THEN
+    RETURN 5
+  ELSEIF ch = "6" THEN
+    RETURN 6
+  ELSEIF ch = "7" THEN
+    RETURN 7
+  ELSEIF ch = "8" THEN
+    RETURN 8
+  ELSEIF ch = "9" THEN
+    RETURN 9
+  END IF
+  FAIL error(77050003, "invalid status code")
+END FUNC
+
+' De-chunk a Transfer-Encoding: chunked body (§B.4).
+FUNC __http_dechunk(raw AS String) AS String
+  MUT out AS String = ""
+  MUT cursor AS Integer = 0
+  LET total AS Integer = len(raw)
+  MUT done AS Boolean = FALSE
+  WHILE done = FALSE
+    LET lineEnd AS Integer = __http_indexOf(raw, "\r\n", cursor)
+    IF lineEnd < 0 THEN
+      FAIL error(77050003, "malformed chunk framing")
+    END IF
+    LET sizeLine AS String = __http_slice(raw, cursor, lineEnd)
+    MUT sizeText AS String = sizeLine
+    LET semicolon AS Integer = __http_indexOf(sizeLine, ";", 0)
+    IF semicolon >= 0 THEN
+      sizeText = __http_slice(sizeLine, 0, semicolon)
+    END IF
+    LET size AS Integer = __http_hexToInt(strings::trim(sizeText))
+    LET dataStart AS Integer = lineEnd + 2
+    IF size = 0 THEN
+      done = TRUE
+    ELSE
+      LET dataEnd AS Integer = dataStart + size
+      IF dataEnd > total THEN
+        FAIL error(77050003, "truncated chunk data")
+      END IF
+      out = out & __http_slice(raw, dataStart, dataEnd)
+      cursor = dataEnd + 2
+    END IF
+  END WHILE
+  RETURN out
+END FUNC
+
+FUNC __http_parseStatusLine(line AS String) AS HttpResult
+  LET firstSpace AS Integer = __http_indexOf(line, " ", 0)
+  IF firstSpace < 0 THEN
+    FAIL error(77050003, "malformed status line")
+  END IF
+  LET versionToken AS String = __http_slice(line, 0, firstSpace)
+  IF strings::startsWith(versionToken, "HTTP/") = FALSE THEN
+    FAIL error(77050003, "malformed status line")
+  END IF
+  LET version AS String = strings::stripPrefix(versionToken, "HTTP/")
+  LET afterVersion AS String = __http_slice(line, firstSpace + 1, len(line))
+  LET secondSpace AS Integer = __http_indexOf(afterVersion, " ", 0)
+  MUT statusText AS String = afterVersion
+  MUT reason AS String = ""
+  IF secondSpace >= 0 THEN
+    statusText = __http_slice(afterVersion, 0, secondSpace)
+    reason = __http_slice(afterVersion, secondSpace + 1, len(afterVersion))
+  END IF
+  LET status AS Integer = __http_decToInt(strings::trim(statusText))
+  LET ok AS Boolean = status >= 200 AND status <= 299
+  LET emptyHeaders AS List OF Header = []
+  RETURN HttpResult[status, reason, version, emptyHeaders, "", ok]
+END FUNC
+
+FUNC __http_parseResponse(raw AS String) AS HttpResult
+  LET headerEnd AS Integer = __http_indexOf(raw, "\r\n\r\n", 0)
+  MUT headSection AS String = raw
+  MUT bodySection AS String = ""
+  IF headerEnd >= 0 THEN
+    headSection = __http_slice(raw, 0, headerEnd)
+    bodySection = __http_slice(raw, headerEnd + 4, len(raw))
+  END IF
+
+  LET lines AS List OF String = strings::split(headSection, "\r\n")
+  IF len(lines) = 0 THEN
+    FAIL error(77050003, "empty response")
+  END IF
+  MUT base AS HttpResult = __http_parseStatusLine(collections::get(lines, 0))
+
+  MUT headers AS List OF Header = []
+  MUT index AS Integer = 1
+  WHILE index < len(lines)
+    LET line AS String = collections::get(lines, index)
+    IF line <> "" THEN
+      LET colon AS Integer = __http_indexOf(line, ":", 0)
+      IF colon >= 0 THEN
+        LET fieldName AS String = __http_slice(line, 0, colon)
+        LET fieldValue AS String = strings::trim(__http_slice(line, colon + 1, len(line)))
+        headers = collections::append(headers, Header[fieldName, fieldValue])
+      END IF
+    END IF
+    index = index + 1
+  END WHILE
+
+  LET body AS String = __http_decodeBody(base.status, headers, bodySection)
+  RETURN HttpResult[base.status, base.reason, base.httpVersion, headers, body, base.ok]
+END FUNC
+
+FUNC __http_headerFromList(headers AS List OF Header, name AS String) AS __http_Lookup
+  LET target AS String = strings::lower(name)
+  FOR EACH field IN headers
+    IF strings::lower(field.name) = target THEN
+      RETURN __http_Lookup[TRUE, field.value]
+    END IF
+  NEXT
+  RETURN __http_Lookup[FALSE, ""]
+END FUNC
+
+FUNC __http_decodeBody(status AS Integer, headers AS List OF Header, bodyRaw AS String) AS String
+  IF status = 204 OR status = 304 THEN
+    RETURN ""
+  END IF
+  LET transferEncoding AS __http_Lookup = __http_headerFromList(headers, "Transfer-Encoding")
+  IF transferEncoding.found THEN
+    IF strings::contains(strings::lower(transferEncoding.value), "chunked") THEN
+      RETURN __http_dechunk(bodyRaw)
+    END IF
+  END IF
+  RETURN bodyRaw
+END FUNC
+
+' ---- Header accessors (§B.1) ----
+
+FUNC __http_header(result AS HttpResult, name AS String) AS String
+  LET found AS __http_Lookup = __http_headerFromList(result.headers, name)
+  IF found.found THEN
+    RETURN found.value
+  END IF
+  FAIL error(77050004, "response header not found")
+END FUNC
+
+FUNC __http_headerOr(result AS HttpResult, name AS String, fallback AS String) AS String
+  LET found AS __http_Lookup = __http_headerFromList(result.headers, name)
+  IF found.found THEN
+    RETURN found.value
+  END IF
+  RETURN fallback
+END FUNC
+
+' ---- Transport branches (§B.5) ----
+
+FUNC __http_exchangeTcp(url AS net::Url, requestText AS String) AS String
+  RES sock = net::connectTcp(url.host, url.port)
+  net::writeText(sock, requestText)
+  MUT raw AS String = ""
+  MUT more AS Boolean = TRUE
+  WHILE more
+    LET chunk AS String = net::readText(sock, 65536) TRAP(e)
+      IF e.code = errorCode::ErrConnectionClosed THEN
+        RECOVER ""
+      END IF
+      PROPAGATE
+    END TRAP
+    IF chunk = "" THEN
+      more = FALSE
+    ELSE
+      raw = raw & chunk
+      IF strings::byteLen(raw) > __HTTP_MAX_RESPONSE THEN
+        FAIL error(77050010, "response too large")
+      END IF
+    END IF
+  END WHILE
+  RETURN raw
+END FUNC
+
+FUNC __http_exchangeTls(url AS net::Url, requestText AS String) AS String
+  RES sock = tls::connect(url.host, url.port, 0, url.host)
+  tls::writeText(sock, requestText)
+  MUT raw AS String = ""
+  MUT more AS Boolean = TRUE
+  WHILE more
+    LET chunk AS String = tls::readText(sock, 65536) TRAP(e)
+      IF e.code = errorCode::ErrConnectionClosed THEN
+        RECOVER ""
+      END IF
+      PROPAGATE
+    END TRAP
+    IF chunk = "" THEN
+      more = FALSE
+    ELSE
+      raw = raw & chunk
+      IF strings::byteLen(raw) > __HTTP_MAX_RESPONSE THEN
+        FAIL error(77050010, "response too large")
+      END IF
+    END IF
+  END WHILE
+  RETURN raw
+END FUNC
+
+FUNC __http_exchange(url AS net::Url, requestText AS String) AS String
+  IF url.scheme = "https" THEN
+    RETURN __http_exchangeTls(url, requestText)
+  END IF
+  RETURN __http_exchangeTcp(url, requestText)
+END FUNC
+
+' ---- Public entry points (§B.1) ----
+
+FUNC __http_read(url AS net::Url, headers AS Map OF String TO String, method AS String) AS HttpResult
+  LET verb AS String = __http_normalizeMethod(method)
+  LET request AS String = __http_buildRequest(verb, url, "", FALSE, headers)
+  LET raw AS String = __http_exchange(url, request)
+  RETURN __http_parseResponse(raw)
+END FUNC
+
+FUNC __http_write(url AS net::Url, body AS String, headers AS Map OF String TO String, method AS String) AS HttpResult
+  LET verb AS String = __http_normalizeMethod(method)
+  LET request AS String = __http_buildRequest(verb, url, body, TRUE, headers)
+  LET raw AS String = __http_exchange(url, request)
+  RETURN __http_parseResponse(raw)
+END FUNC

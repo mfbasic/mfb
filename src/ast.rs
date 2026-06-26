@@ -3084,7 +3084,13 @@ impl<'a> FileParser<'a> {
                 return None;
             }
         };
-        self.finish_qualified_name(name)
+        // A package-qualified built-in type (`net::Url`, `http::Result`) is
+        // normalized to its bare internal id at parse time, so every downstream
+        // stage sees only bare ids (plan-03-http.md §A.1/§B.2). `http::Result`
+        // maps to `HttpResult`, dodging the reserved internal `Result`.
+        self.finish_qualified_name(name).map(|qualified| {
+            crate::builtins::qualified_builtin_type(&qualified).unwrap_or(qualified)
+        })
     }
 
     fn parse_list_literal(&mut self) -> Option<Expression> {

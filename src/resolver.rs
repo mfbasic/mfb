@@ -67,6 +67,8 @@ pub fn resolve_project_with(
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
+    let augmented = builtins::net::augmented_project(&augmented)?;
+    let augmented = builtins::http::augmented_project(&augmented)?;
     let mut resolver = Resolver::new(project_dir, manifest, &augmented);
     resolver.resolve();
     if validate_docs {
@@ -1743,6 +1745,11 @@ impl<'a> Resolver<'a> {
 
         if builtins::is_builtin_import(package) {
             let qualified_name = qualify_package_name(name, root, package);
+            // A package-qualified built-in type (`net::Url`, `http::Result`)
+            // resolves to its bare internal id (plan-03-http.md §A.1/§B.2).
+            if builtins::qualified_builtin_type(&qualified_name).is_some() {
+                return;
+            }
             if !builtins::is_builtin_member(&qualified_name) {
                 self.report(
                     "SYMBOL_UNKNOWN_IDENTIFIER",

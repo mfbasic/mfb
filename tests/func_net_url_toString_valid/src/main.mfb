@@ -1,0 +1,30 @@
+IMPORT net
+IMPORT io
+
+' Render a URL with the universal `toString` override, then re-parse it and
+' render again: the two renderings must match (round-trip guarantee, §A.3).
+FUNC roundTrip(href AS String) AS Nothing
+  LET first AS net::Url = net::toUrl(href)
+  LET rendered AS String = toString(first)
+  LET second AS net::Url = net::toUrl(rendered)
+  io::print("render=" & rendered)
+  IF rendered = toString(second) THEN
+    io::print("  roundtrip=ok")
+  ELSE
+    io::print("  roundtrip=MISMATCH " & toString(second))
+  END IF
+END FUNC
+
+FUNC main AS Integer
+  ' Default port omitted on render.
+  roundTrip("https://example.com:443/a?b=c#d")
+  ' Non-default port preserved.
+  roundTrip("http://example.com:8080/a")
+  ' Userinfo preserved.
+  roundTrip("http://user:pass@host.test/p")
+  ' IPv6 re-bracketed on render.
+  roundTrip("https://[2001:db8::1]:8443/x?y=z")
+  ' Empty path normalized to "/".
+  roundTrip("http://host")
+  RETURN 0
+END FUNC

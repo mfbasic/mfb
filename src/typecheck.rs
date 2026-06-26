@@ -118,6 +118,8 @@ pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
+    let augmented = builtins::net::augmented_project(&augmented)?;
+    let augmented = builtins::http::augmented_project(&augmented)?;
     let mut checker = TypeChecker::new(project_dir, &augmented);
     checker.check();
     if checker.had_error {
@@ -4658,6 +4660,16 @@ impl<'a> TypeChecker<'a> {
                 line,
             );
         }
+        if builtins::http::is_http_call(callee) {
+            return self.check_http_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
+        }
         if builtins::thread::is_thread_call(callee) {
             return self.check_thread_builtin_call(
                 file,
@@ -4964,6 +4976,63 @@ impl<'a> TypeChecker<'a> {
         let Some(resolved) = builtins::csv::resolve_call(callee, &arg_types) else {
             let expected =
                 builtins::csv::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    fn check_http_builtin_call(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arguments: &[CallArg],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::http::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::http::resolve_call(callee, &arg_types) else {
+            let expected =
+                builtins::http::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
@@ -5563,6 +5632,15 @@ impl<'a> TypeChecker<'a> {
         }
 
         let Some(resolved) = builtins::general::resolve_call(callee, &arg_type_names) else {
+            // The universal `toString` is overridable for a built-in package value
+            // type (`net::Url`): a `toString(url)` call routes to the package's
+            // internal renderer (plan-03-http.md §A.3).
+            if callee == "toString"
+                && arg_type_names.len() == 1
+                && builtins::to_string_override_target(&arg_type_names[0]).is_some()
+            {
+                return Type::String;
+            }
             let expected =
                 builtins::general::expected_arguments(callee).unwrap_or("supported overload");
             self.report(
@@ -5965,6 +6043,11 @@ impl<'a> TypeChecker<'a> {
 
     fn parse_type(&self, name: &str) -> Type {
         let name = builtins::thread::strip_type_group(name);
+        // A package-qualified built-in type (`net.Url`, `http.Result`) resolves to
+        // its bare internal id (plan-03-http.md §A.1/§B.2).
+        if let Some(bare) = builtins::qualified_builtin_type(name) {
+            return Type::User(bare);
+        }
         if let Some(rest) = name.strip_prefix("ISOLATED FUNC(") {
             return self.parse_function_type(rest, true);
         }

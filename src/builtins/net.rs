@@ -1,4 +1,5 @@
 use std::borrow::Cow;
+use std::path::Path;
 
 pub(crate) const SOCKET_TYPE: &str = "Socket";
 pub(crate) const LISTENER_TYPE: &str = "Listener";
@@ -6,6 +7,9 @@ pub(crate) const ADDRESS_TYPE: &str = "Address";
 pub(crate) const UDP_SOCKET_TYPE: &str = "UdpSocket";
 pub(crate) const DATAGRAM_TYPE: &str = "Datagram";
 pub(crate) const DATAGRAM_TEXT_TYPE: &str = "DatagramText";
+/// The `Url` value record lives in the source companion (`net_package.mfb`); it
+/// is registered here as a built-in package type (plan-03-http.md §A.1).
+pub(crate) const URL_TYPE: &str = "Url";
 
 const LOOKUP: &str = "net.lookup";
 const CONNECT_TCP: &str = "net.connectTcp";
@@ -26,6 +30,9 @@ const RECEIVE_FROM: &str = "net.receiveFrom";
 const RECEIVE_TEXT_FROM: &str = "net.receiveTextFrom";
 const SEND_TO: &str = "net.sendTo";
 const SEND_TEXT_TO: &str = "net.sendTextTo";
+// Source-companion calls (`net_package.mfb`): pure URL string work.
+const TO_URL: &str = "net.toUrl";
+const INTERNAL_TO_URL: &str = "__net_toUrl";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -54,6 +61,7 @@ pub(crate) fn is_net_call(name: &str) -> bool {
             | RECEIVE_TEXT_FROM
             | SEND_TO
             | SEND_TEXT_TO
+            | TO_URL
     )
 }
 
@@ -66,6 +74,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
             | UDP_SOCKET_TYPE
             | DATAGRAM_TYPE
             | DATAGRAM_TEXT_TYPE
+            | URL_TYPE
     )
 }
 
@@ -103,6 +112,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         RECEIVE_FROM | RECEIVE_TEXT_FROM => Some(&[&["sock"], &["maxBytes"]]),
         SEND_TO => Some(&[&["sock"], &["address"], &["bytes"]]),
         SEND_TEXT_TO => Some(&[&["sock"], &["address"], &["value"]]),
+        TO_URL => Some(&[&["href", "value", "url"]]),
         _ => None,
     }
 }
@@ -124,6 +134,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         BIND_UDP => Some(UDP_SOCKET_TYPE),
         RECEIVE_FROM => Some(DATAGRAM_TYPE),
         RECEIVE_TEXT_FROM => Some(DATAGRAM_TEXT_TYPE),
+        TO_URL => Some(URL_TYPE),
         _ => None,
     }
 }
@@ -194,6 +205,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         // `close`/`localAddress` are also overloaded on `UdpSocket`.
         CLOSE if exact(arg_types, &[UDP_SOCKET_TYPE]) => Cow::Borrowed("Nothing"),
         LOCAL_ADDRESS if exact(arg_types, &[UDP_SOCKET_TYPE]) => Cow::Borrowed(ADDRESS_TYPE),
+        TO_URL if exact(arg_types, &["String"]) => Cow::Borrowed(URL_TYPE),
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -218,6 +230,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         RECEIVE_FROM | RECEIVE_TEXT_FROM => Some("UdpSocket, Integer"),
         SEND_TO => Some("UdpSocket, Address, List OF Byte"),
         SEND_TEXT_TO => Some("UdpSocket, Address, String"),
+        TO_URL => Some("String"),
         _ => None,
     }
 }
@@ -240,6 +253,7 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
         RECEIVE_FROM | RECEIVE_TEXT_FROM => Some("UdpSocket, Integer"),
         SEND_TO => Some("UdpSocket, Address, List OF Byte"),
         SEND_TEXT_TO => Some("UdpSocket, Address, String"),
+        TO_URL => Some("String"),
         _ => None,
     }
 }
@@ -254,9 +268,47 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         READ | READ_TEXT | WRITE | WRITE_TEXT | SET_READ_TIMEOUT | SET_WRITE_TIMEOUT | BIND_UDP
         | RECEIVE_FROM | RECEIVE_TEXT_FROM => Some((2, 2)),
         SEND_TO | SEND_TEXT_TO => Some((3, 3)),
-        CLOSE | LOCAL_ADDRESS | REMOTE_ADDRESS => Some((1, 1)),
+        CLOSE | LOCAL_ADDRESS | REMOTE_ADDRESS | TO_URL => Some((1, 1)),
         _ => None,
     }
+}
+
+/// The internal source-companion target for a source-backed `net` call
+/// (`net_package.mfb`). Native calls (sockets/DNS/UDP) return `None` and stay
+/// `net.*` runtime-helper calls.
+pub(crate) fn implementation_name(name: &str) -> Option<&'static str> {
+    match name {
+        TO_URL => Some(INTERNAL_TO_URL),
+        _ => None,
+    }
+}
+
+pub(crate) fn source_file() -> Result<crate::ast::AstFile, ()> {
+    crate::ast::parse_source_internal(
+        Path::new("<builtin-net>"),
+        "builtins/net.mfb",
+        include_str!("net_package.mfb"),
+    )
+}
+
+pub(crate) fn uses_package(ast: &crate::ast::AstProject) -> bool {
+    ast.files.iter().any(|file| {
+        file.imports
+            .iter()
+            .any(|import| import.package_name() == "net")
+    })
+}
+
+pub(crate) fn augmented_project(
+    ast: &crate::ast::AstProject,
+) -> Result<crate::ast::AstProject, ()> {
+    if !uses_package(ast) {
+        return Ok(ast.clone());
+    }
+
+    let mut augmented = ast.clone();
+    augmented.files.push(source_file()?);
+    Ok(augmented)
 }
 
 fn exact(arg_types: &[String], expected: &[&str]) -> bool {

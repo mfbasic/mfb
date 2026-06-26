@@ -8,6 +8,21 @@
     "accepts_args": false
   },
   "types": [
+  {
+    "kind": "type",
+    "visibility": "export",
+    "name": "Url",
+    "fields": [
+    { "visibility": null, "name": "scheme", "type": "String" },
+    { "visibility": null, "name": "username", "type": "String" },
+    { "visibility": null, "name": "password", "type": "String" },
+    { "visibility": null, "name": "host", "type": "String" },
+    { "visibility": null, "name": "port", "type": "Integer" },
+    { "visibility": null, "name": "path", "type": "String" },
+    { "visibility": null, "name": "query", "type": "String" },
+    { "visibility": null, "name": "fragment", "type": "String" }
+    ]
+  }
   ],
   "functions": [
   {
@@ -25,6 +40,499 @@
     { "op": "eval", "value": { "kind": "call", "target": "net.writeText", "args": [{ "kind": "local", "name": "client" }, { "kind": "const", "type": "String", "value": "hello" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "net.readText", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "#net_indexOf",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null },
+    { "name": "needle", "type": "String", "default": null },
+    { "name": "start", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "tail", "type": "String", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "s" }, { "kind": "local", "name": "start" }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "s" }] }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "local", "name": "tail" }, { "kind": "local", "name": "needle" }] }, "right": { "kind": "const", "type": "Boolean", "value": "false" } },
+      "then": [
+      { "op": "return", "value": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "strings.find", "args": [{ "kind": "local", "name": "s" }, { "kind": "local", "name": "needle" }, { "kind": "local", "name": "start" }] } }
+    ]
+  },
+  {
+    "name": "#net_slice",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null },
+    { "name": "start", "type": "Integer", "default": null },
+    { "name": "stop", "type": "Integer", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<=", "left": { "kind": "local", "name": "stop" }, "right": { "kind": "local", "name": "start" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "String", "value": "" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "call", "target": "strings.mid", "args": [{ "kind": "local", "name": "s" }, { "kind": "local", "name": "start" }, { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "stop" }, "right": { "kind": "local", "name": "start" } }] } }
+    ]
+  },
+  {
+    "name": "#net_defaultPort",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "scheme", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "scheme" }, "right": { "kind": "const", "type": "String", "value": "https" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "443" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "80" } }
+    ]
+  },
+  {
+    "name": "#net_authorityEnd",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "rest", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "best", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "rest" }] } },
+    { "op": "bind", "mutable": false, "name": "slash", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "rest" }, { "kind": "const", "type": "String", "value": "/" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "slash" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "slash" }, "right": { "kind": "local", "name": "best" } } },
+      "then": [
+      { "op": "assign", "name": "best", "value": { "kind": "local", "name": "slash" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "question", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "rest" }, { "kind": "const", "type": "String", "value": "?" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "question" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "question" }, "right": { "kind": "local", "name": "best" } } },
+      "then": [
+      { "op": "assign", "name": "best", "value": { "kind": "local", "name": "question" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "hash", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "rest" }, { "kind": "const", "type": "String", "value": "#" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "hash" }, "right": { "kind": "const", "type": "Integer", "value": "0" } }, "right": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "hash" }, "right": { "kind": "local", "name": "best" } } },
+      "then": [
+      { "op": "assign", "name": "best", "value": { "kind": "local", "name": "hash" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "best" } }
+    ]
+  },
+  {
+    "name": "#net_parsePort",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "text", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "digits", "type": "List OF String", "value": { "kind": "call", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "text" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "digits" }] }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: empty port" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "70" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "value", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "forEach",
+      "name": "digit",
+      "type": "String",
+      "iterable": { "kind": "local", "name": "digits" },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "target": "#net_digitValue", "args": [{ "kind": "local", "name": "digit" }] } },
+      { "op": "assign", "name": "value", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }, "right": { "kind": "local", "name": "d" } } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "65535" } },
+        "then": [
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: port out of range" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "77" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        ],
+        "else": [
+        ]
+      }
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "value" } }
+    ]
+  },
+  {
+    "name": "#net_digitValue",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "ch", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "0" } },
+      "then": [
+      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      ],
+      "else": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "1" } },
+        "then": [
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "2" } },
+          "then": [
+          { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+          ],
+          "else": [
+          {
+            "op": "if",
+            "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "3" } },
+            "then": [
+            { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+            ],
+            "else": [
+            {
+              "op": "if",
+              "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "4" } },
+              "then": [
+              { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "4" } }
+              ],
+              "else": [
+              {
+                "op": "if",
+                "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "5" } },
+                "then": [
+                { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "5" } }
+                ],
+                "else": [
+                {
+                  "op": "if",
+                  "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "6" } },
+                  "then": [
+                  { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "6" } }
+                  ],
+                  "else": [
+                  {
+                    "op": "if",
+                    "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "7" } },
+                    "then": [
+                    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "7" } }
+                    ],
+                    "else": [
+                    {
+                      "op": "if",
+                      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "8" } },
+                      "then": [
+                      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "8" } }
+                      ],
+                      "else": [
+                      {
+                        "op": "if",
+                        "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "9" } },
+                        "then": [
+                        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "9" } }
+                        ],
+                        "else": [
+                        ]
+                      }
+                      ]
+                    }
+                    ]
+                  }
+                  ]
+                }
+                ]
+              }
+              ]
+            }
+            ]
+          }
+          ]
+        }
+        ]
+      }
+      ]
+    },
+    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: non-digit in port" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "105" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    ]
+  },
+  {
+    "name": "#net_toUrl",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "href", "type": "String", "default": null }
+    ],
+    "returns": "Url",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "schemeEnd", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "href" }, { "kind": "const", "type": "String", "value": "://" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "schemeEnd" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: missing scheme separator" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "111" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "scheme", "type": "String", "value": { "kind": "call", "target": "strings.lower", "args": [{ "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "href" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "schemeEnd" }] }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "AND", "left": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "scheme" }, "right": { "kind": "const", "type": "String", "value": "http" } }, "right": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "scheme" }, "right": { "kind": "const", "type": "String", "value": "https" } } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050007" }, { "kind": "const", "type": "String", "value": "unsupported URL scheme" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "115" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "rest", "type": "String", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "href" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "schemeEnd" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "href" }] }] } },
+    { "op": "bind", "mutable": false, "name": "authorityEnd", "type": "Integer", "value": { "kind": "call", "target": "#net_authorityEnd", "args": [{ "kind": "local", "name": "rest" }] } },
+    { "op": "bind", "mutable": false, "name": "authority", "type": "String", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "rest" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "authorityEnd" }] } },
+    { "op": "bind", "mutable": false, "name": "pathPart", "type": "String", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "rest" }, { "kind": "local", "name": "authorityEnd" }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "rest" }] }] } },
+    { "op": "bind", "mutable": true, "name": "username", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "mutable": true, "name": "password", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "mutable": true, "name": "hostport", "type": "String", "value": { "kind": "local", "name": "authority" } },
+    { "op": "bind", "mutable": false, "name": "atIndex", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "authority" }, { "kind": "const", "type": "String", "value": "@" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "atIndex" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "userinfo", "type": "String", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "authority" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "atIndex" }] } },
+      { "op": "assign", "name": "hostport", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "authority" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "atIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "authority" }] }] } },
+      { "op": "bind", "mutable": false, "name": "colon", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "userinfo" }, { "kind": "const", "type": "String", "value": ":" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "colon" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+        "then": [
+        { "op": "assign", "name": "username", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "userinfo" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "colon" }] } },
+        { "op": "assign", "name": "password", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "userinfo" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "colon" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "userinfo" }] }] } }
+        ],
+        "else": [
+        { "op": "assign", "name": "username", "value": { "kind": "local", "name": "userinfo" } }
+        ]
+      }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "host", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "mutable": true, "name": "portText", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "local", "name": "hostport" }, { "kind": "const", "type": "String", "value": "[" }] },
+      "then": [
+      { "op": "bind", "mutable": false, "name": "closeBracket", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "hostport" }, { "kind": "const", "type": "String", "value": "]" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "closeBracket" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+        "then": [
+        { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: unterminated IPv6 literal" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "146" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "host", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "hostport" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "local", "name": "closeBracket" }] } },
+      { "op": "bind", "mutable": false, "name": "afterBracket", "type": "String", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "hostport" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "closeBracket" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "hostport" }] }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "local", "name": "afterBracket" }, { "kind": "const", "type": "String", "value": ":" }] },
+        "then": [
+        { "op": "assign", "name": "portText", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "afterBracket" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "afterBracket" }] }] } }
+        ],
+        "else": [
+        {
+          "op": "if",
+          "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "afterBracket" }, "right": { "kind": "const", "type": "String", "value": "" } },
+          "then": [
+          { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: trailing characters after IPv6 literal" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "153" }, { "kind": "const", "type": "Integer", "value": "12" }] }] } }
+          ],
+          "else": [
+          ]
+        }
+        ]
+      }
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "colon", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "hostport" }, { "kind": "const", "type": "String", "value": ":" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "colon" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+        "then": [
+        { "op": "assign", "name": "host", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "hostport" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "colon" }] } },
+        { "op": "assign", "name": "portText", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "hostport" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "colon" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "hostport" }] }] } }
+        ],
+        "else": [
+        { "op": "assign", "name": "host", "value": { "kind": "local", "name": "hostport" } }
+        ]
+      }
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "host" }, "right": { "kind": "const", "type": "String", "value": "" } },
+      "then": [
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050003" }, { "kind": "const", "type": "String", "value": "invalid URL: empty host" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/net.mfb" }, { "kind": "const", "type": "Integer", "value": "165" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "port", "type": "Integer", "value": { "kind": "call", "target": "#net_defaultPort", "args": [{ "kind": "local", "name": "scheme" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "portText" }, "right": { "kind": "const", "type": "String", "value": "" } },
+      "then": [
+      { "op": "assign", "name": "port", "value": { "kind": "call", "target": "#net_parsePort", "args": [{ "kind": "local", "name": "portText" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "pathQueryFragment", "type": "String", "value": { "kind": "local", "name": "pathPart" } },
+    { "op": "bind", "mutable": true, "name": "fragment", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "mutable": false, "name": "hashIndex", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "pathQueryFragment" }, { "kind": "const", "type": "String", "value": "#" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "hashIndex" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "assign", "name": "fragment", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "pathQueryFragment" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "hashIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "pathQueryFragment" }] }] } },
+      { "op": "assign", "name": "pathQueryFragment", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "pathQueryFragment" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "hashIndex" }] } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "bind", "mutable": true, "name": "query", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "mutable": true, "name": "path", "type": "String", "value": { "kind": "local", "name": "pathQueryFragment" } },
+    { "op": "bind", "mutable": false, "name": "queryIndex", "type": "Integer", "value": { "kind": "call", "target": "#net_indexOf", "args": [{ "kind": "local", "name": "pathQueryFragment" }, { "kind": "const", "type": "String", "value": "?" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": ">=", "left": { "kind": "local", "name": "queryIndex" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "then": [
+      { "op": "assign", "name": "query", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "pathQueryFragment" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "queryIndex" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }, { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "pathQueryFragment" }] }] } },
+      { "op": "assign", "name": "path", "value": { "kind": "call", "target": "#net_slice", "args": [{ "kind": "local", "name": "pathQueryFragment" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "local", "name": "queryIndex" }] } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "path" }, "right": { "kind": "const", "type": "String", "value": "" } },
+      "then": [
+      { "op": "assign", "name": "path", "value": { "kind": "const", "type": "String", "value": "/" } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "constructor", "type": "Url", "args": [{ "kind": "local", "name": "scheme" }, { "kind": "local", "name": "username" }, { "kind": "local", "name": "password" }, { "kind": "local", "name": "host" }, { "kind": "local", "name": "port" }, { "kind": "local", "name": "path" }, { "kind": "local", "name": "query" }, { "kind": "local", "name": "fragment" }] } }
+    ]
+  },
+  {
+    "name": "#net_urlToString",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Url", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "out", "type": "String", "value": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "scheme" }, "right": { "kind": "const", "type": "String", "value": "://" } } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "OR", "left": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "username" }, "right": { "kind": "const", "type": "String", "value": "" } }, "right": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "password" }, "right": { "kind": "const", "type": "String", "value": "" } } },
+      "then": [
+      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "username" } } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "password" }, "right": { "kind": "const", "type": "String", "value": "" } },
+        "then": [
+        { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "password" } } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "@" } } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "call", "target": "strings.contains", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "host" }, { "kind": "const", "type": "String", "value": ":" }] },
+      "then": [
+      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "[" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "host" } }, "right": { "kind": "const", "type": "String", "value": "]" } } }
+      ],
+      "else": [
+      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "host" } } }
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "port" }, "right": { "kind": "call", "target": "#net_defaultPort", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "scheme" }] } },
+      "then": [
+      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "port" }] } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "path" } } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "query" }, "right": { "kind": "const", "type": "String", "value": "" } },
+      "then": [
+      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "?" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "query" } } }
+      ],
+      "else": [
+      ]
+    },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "fragment" }, "right": { "kind": "const", "type": "String", "value": "" } },
+      "then": [
+      { "op": "assign", "name": "out", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "#" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "fragment" } } }
+      ],
+      "else": [
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "out" } }
     ]
   }
   ]

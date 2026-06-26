@@ -4,6 +4,7 @@ pub(crate) mod datetime;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
 pub(crate) mod general;
+pub(crate) mod http;
 pub(crate) mod io;
 pub(crate) mod json;
 pub(crate) mod math;
@@ -25,6 +26,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "datetime"
             | "errorCode"
             | "fs"
+            | "http"
             | "io"
             | "json"
             | "math"
@@ -40,12 +42,47 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 pub(crate) fn is_builtin_type(name: &str) -> bool {
     datetime::is_builtin_type(name)
         || fs::is_builtin_type(name)
+        || http::is_builtin_type(name)
         || io::is_builtin_type(name)
         || json::is_builtin_type(name)
         || net::is_builtin_type(name)
         || term::is_builtin_type(name)
         || thread::is_builtin_type(name)
         || tls::is_builtin_type(name)
+}
+
+/// The internal renderer a built-in package provides for the universal
+/// `toString` over one of its value types (plan-03-http.md §A.3). A `toString(x)`
+/// call whose sole argument has such a type routes to this `__pkg_name` helper
+/// instead of the scalar builtin; the name is internalized at lowering so it
+/// never collides with the builtin `toString` symbol.
+pub(crate) fn to_string_override_target(type_name: &str) -> Option<&'static str> {
+    match type_name {
+        net::URL_TYPE => Some("__net_urlToString"),
+        _ => None,
+    }
+}
+
+/// Resolve a package-qualified built-in type reference (`net.Url`, `http.Result`)
+/// to its bare internal type id, or `None` when it is not a qualified built-in
+/// type. The `http` response type is written `Result` in the spec but stored as
+/// `HttpResult` so it never collides with the compiler's internal `Result`
+/// success-wrapper (plan-03-http.md §B.2); qualified `http::Result` is the only
+/// way to name it.
+pub(crate) fn qualified_builtin_type(qualified: &str) -> Option<String> {
+    let (package, member) = qualified.split_once('.')?;
+    if !is_builtin_import(package) {
+        return None;
+    }
+    let bare = match (package, member) {
+        ("http", "Result") => "HttpResult",
+        _ => member,
+    };
+    if is_builtin_type(bare) {
+        Some(bare.to_string())
+    } else {
+        None
+    }
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
@@ -112,6 +149,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| regex::call_return_type_name(name))
         .or_else(|| datetime::call_return_type_name(name))
         .or_else(|| net::call_return_type_name(name))
+        .or_else(|| http::call_return_type_name(name))
         .or_else(|| term::call_return_type_name(name))
         .or_else(|| tls::call_return_type_name(name))
 }
@@ -143,6 +181,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || regex::is_regex_call(name)
         || datetime::is_datetime_call(name)
         || net::is_net_call(name)
+        || http::is_http_call(name)
         || term::is_term_call(name)
         || thread::is_thread_call(name)
         || tls::is_tls_call(name)
@@ -180,6 +219,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| regex::call_param_names(name))
         .or_else(|| datetime::call_param_names(name))
         .or_else(|| net::call_param_names(name))
+        .or_else(|| http::call_param_names(name))
         .or_else(|| term::call_param_names(name))
         .or_else(|| tls::call_param_names(name))
         .or_else(|| thread::call_param_names(name))

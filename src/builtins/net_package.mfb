@@ -1,0 +1,224 @@
+' Source companion for the built-in `net` package: URL parsing and rendering.
+'
+' Sockets, DNS, and UDP stay native (`src/builtins/net.rs`,
+' `src/target/shared/code/net.rs`); this file holds the pure string work — the
+' `Url` value record and its `toUrl`/`toString` helpers — in the established
+' source-package idiom (`json`/`csv`/`regex`). See specifications/plan-03-http.md
+' Part A.
+IMPORT strings
+IMPORT collections
+
+EXPORT TYPE Url
+  scheme   AS String    ' "http" or "https" (lowercased)
+  username AS String    ' userinfo before ':'  ("" if none)
+  password AS String    ' userinfo after ':'   ("" if none)
+  host     AS String    ' registered name or IP literal (IPv6 without brackets)
+  port     AS Integer   ' explicit port, or the scheme default (80 / 443)
+  path     AS String    ' begins with "/"; "/" when the href had none
+  query    AS String    ' raw query without the leading '?'  ("" if none)
+  fragment AS String    ' raw fragment without the leading '#'  ("" if none)
+END TYPE
+
+' Grapheme index of `needle` in `s` at or after `start`, or -1 when absent.
+' `strings::find` fails ErrNotFound on a miss (and, being inline-expanded, cannot
+' be wrapped in an inline TRAP), so presence is checked first with `contains`.
+FUNC __net_indexOf(s AS String, needle AS String, start AS Integer) AS Integer
+  LET tail AS String = __net_slice(s, start, len(s))
+  IF strings::contains(tail, needle) = FALSE THEN
+    RETURN 0 - 1
+  END IF
+  RETURN strings::find(s, needle, start)
+END FUNC
+
+' Half-open grapheme slice `s[start, stop)`.
+FUNC __net_slice(s AS String, start AS Integer, stop AS Integer) AS String
+  IF stop <= start THEN
+    RETURN ""
+  END IF
+  RETURN strings::mid(s, start, stop - start)
+END FUNC
+
+FUNC __net_defaultPort(scheme AS String) AS Integer
+  IF scheme = "https" THEN
+    RETURN 443
+  END IF
+  RETURN 80
+END FUNC
+
+' Index where the authority ends: the first of '/', '?', '#', or end-of-string.
+FUNC __net_authorityEnd(rest AS String) AS Integer
+  MUT best AS Integer = len(rest)
+  LET slash AS Integer = __net_indexOf(rest, "/", 0)
+  IF slash >= 0 AND slash < best THEN
+    best = slash
+  END IF
+  LET question AS Integer = __net_indexOf(rest, "?", 0)
+  IF question >= 0 AND question < best THEN
+    best = question
+  END IF
+  LET hash AS Integer = __net_indexOf(rest, "#", 0)
+  IF hash >= 0 AND hash < best THEN
+    best = hash
+  END IF
+  RETURN best
+END FUNC
+
+' Parse and validate an explicit port: digits only, 0..65535.
+FUNC __net_parsePort(text AS String) AS Integer
+  LET digits AS List OF String = strings::graphemes(text)
+  IF len(digits) = 0 THEN
+    FAIL error(77050003, "invalid URL: empty port")
+  END IF
+  MUT value AS Integer = 0
+  FOR EACH digit IN digits
+    LET d AS Integer = __net_digitValue(digit)
+    value = value * 10 + d
+    IF value > 65535 THEN
+      FAIL error(77050003, "invalid URL: port out of range")
+    END IF
+  NEXT
+  RETURN value
+END FUNC
+
+FUNC __net_digitValue(ch AS String) AS Integer
+  IF ch = "0" THEN
+    RETURN 0
+  ELSEIF ch = "1" THEN
+    RETURN 1
+  ELSEIF ch = "2" THEN
+    RETURN 2
+  ELSEIF ch = "3" THEN
+    RETURN 3
+  ELSEIF ch = "4" THEN
+    RETURN 4
+  ELSEIF ch = "5" THEN
+    RETURN 5
+  ELSEIF ch = "6" THEN
+    RETURN 6
+  ELSEIF ch = "7" THEN
+    RETURN 7
+  ELSEIF ch = "8" THEN
+    RETURN 8
+  ELSEIF ch = "9" THEN
+    RETURN 9
+  END IF
+  FAIL error(77050003, "invalid URL: non-digit in port")
+END FUNC
+
+FUNC __net_toUrl(href AS String) AS Url
+  LET schemeEnd AS Integer = __net_indexOf(href, "://", 0)
+  IF schemeEnd < 0 THEN
+    FAIL error(77050003, "invalid URL: missing scheme separator")
+  END IF
+  LET scheme AS String = strings::lower(__net_slice(href, 0, schemeEnd))
+  IF scheme <> "http" AND scheme <> "https" THEN
+    FAIL error(77050007, "unsupported URL scheme")
+  END IF
+
+  LET rest AS String = __net_slice(href, schemeEnd + 3, len(href))
+  LET authorityEnd AS Integer = __net_authorityEnd(rest)
+  LET authority AS String = __net_slice(rest, 0, authorityEnd)
+  LET pathPart AS String = __net_slice(rest, authorityEnd, len(rest))
+
+  ' Userinfo (user[:pass]@) is optional.
+  MUT username AS String = ""
+  MUT password AS String = ""
+  MUT hostport AS String = authority
+  LET atIndex AS Integer = __net_indexOf(authority, "@", 0)
+  IF atIndex >= 0 THEN
+    LET userinfo AS String = __net_slice(authority, 0, atIndex)
+    hostport = __net_slice(authority, atIndex + 1, len(authority))
+    LET colon AS Integer = __net_indexOf(userinfo, ":", 0)
+    IF colon >= 0 THEN
+      username = __net_slice(userinfo, 0, colon)
+      password = __net_slice(userinfo, colon + 1, len(userinfo))
+    ELSE
+      username = userinfo
+    END IF
+  END IF
+
+  ' Host (DNS name, IPv4, or bracketed IPv6) and optional port.
+  MUT host AS String = ""
+  MUT portText AS String = ""
+  IF strings::startsWith(hostport, "[") THEN
+    LET closeBracket AS Integer = __net_indexOf(hostport, "]", 0)
+    IF closeBracket < 0 THEN
+      FAIL error(77050003, "invalid URL: unterminated IPv6 literal")
+    END IF
+    host = __net_slice(hostport, 1, closeBracket)
+    LET afterBracket AS String = __net_slice(hostport, closeBracket + 1, len(hostport))
+    IF strings::startsWith(afterBracket, ":") THEN
+      portText = __net_slice(afterBracket, 1, len(afterBracket))
+    ELSEIF afterBracket <> "" THEN
+      FAIL error(77050003, "invalid URL: trailing characters after IPv6 literal")
+    END IF
+  ELSE
+    LET colon AS Integer = __net_indexOf(hostport, ":", 0)
+    IF colon >= 0 THEN
+      host = __net_slice(hostport, 0, colon)
+      portText = __net_slice(hostport, colon + 1, len(hostport))
+    ELSE
+      host = hostport
+    END IF
+  END IF
+  IF host = "" THEN
+    FAIL error(77050003, "invalid URL: empty host")
+  END IF
+
+  MUT port AS Integer = __net_defaultPort(scheme)
+  IF portText <> "" THEN
+    port = __net_parsePort(portText)
+  END IF
+
+  ' Path, query, and fragment.
+  MUT pathQueryFragment AS String = pathPart
+  MUT fragment AS String = ""
+  LET hashIndex AS Integer = __net_indexOf(pathQueryFragment, "#", 0)
+  IF hashIndex >= 0 THEN
+    fragment = __net_slice(pathQueryFragment, hashIndex + 1, len(pathQueryFragment))
+    pathQueryFragment = __net_slice(pathQueryFragment, 0, hashIndex)
+  END IF
+  MUT query AS String = ""
+  MUT path AS String = pathQueryFragment
+  LET queryIndex AS Integer = __net_indexOf(pathQueryFragment, "?", 0)
+  IF queryIndex >= 0 THEN
+    query = __net_slice(pathQueryFragment, queryIndex + 1, len(pathQueryFragment))
+    path = __net_slice(pathQueryFragment, 0, queryIndex)
+  END IF
+  IF path = "" THEN
+    path = "/"
+  END IF
+
+  RETURN Url[scheme, username, password, host, port, path, query, fragment]
+END FUNC
+
+' Render a `Url` back to an absolute href — the inverse of `toUrl`. The compiler
+' routes a universal `toString(url)` call to this helper (plan-03-http.md §A.3);
+' the `__`-prefixed name is internalized so it never collides with the builtin
+' `toString` symbol.
+FUNC __net_urlToString(value AS Url) AS String
+  MUT out AS String = value.scheme & "://"
+  IF value.username <> "" OR value.password <> "" THEN
+    out = out & value.username
+    IF value.password <> "" THEN
+      out = out & ":" & value.password
+    END IF
+    out = out & "@"
+  END IF
+  IF strings::contains(value.host, ":") THEN
+    out = out & "[" & value.host & "]"
+  ELSE
+    out = out & value.host
+  END IF
+  IF value.port <> __net_defaultPort(value.scheme) THEN
+    out = out & ":" & toString(value.port)
+  END IF
+  out = out & value.path
+  IF value.query <> "" THEN
+    out = out & "?" & value.query
+  END IF
+  IF value.fragment <> "" THEN
+    out = out & "#" & value.fragment
+  END IF
+  RETURN out
+END FUNC

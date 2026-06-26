@@ -1,7 +1,7 @@
 {
   "format": "mfb-ir",
   "version": 1,
-  "project": "func_net_read_valid",
+  "project": "func_net_url_toString_valid",
   "entry": {
     "name": "main",
     "returns": "Integer",
@@ -26,6 +26,31 @@
   ],
   "functions": [
   {
+    "name": "roundTrip",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "href", "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "first", "type": "Url", "value": { "kind": "call", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "href" }] } },
+    { "op": "bind", "mutable": false, "name": "rendered", "type": "String", "value": { "kind": "call", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "first" }] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "Url", "value": { "kind": "call", "target": "#net_toUrl", "args": [{ "kind": "local", "name": "rendered" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "render=" }, "right": { "kind": "local", "name": "rendered" } }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "rendered" }, "right": { "kind": "call", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "second" }] } },
+      "then": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "  roundtrip=ok" }] } }
+      ],
+      "else": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "  roundtrip=MISMATCH " }, "right": { "kind": "call", "target": "#net_urlToString", "args": [{ "kind": "local", "name": "second" }] } }] } }
+      ]
+    }
+    ]
+  },
+  {
     "name": "main",
     "visibility": "private",
     "kind": "func",
@@ -33,13 +58,11 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "server", "type": "Listener", "value": { "kind": "call", "target": "net.listenTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "mutable": false, "name": "bound", "type": "Address", "value": { "kind": "call", "target": "net.localAddress", "args": [{ "kind": "local", "name": "server" }] } },
-    { "op": "bind", "mutable": false, "name": "client", "type": "Socket", "value": { "kind": "call", "target": "net.connectTcp", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "memberAccess", "target": { "kind": "local", "name": "bound" }, "member": "port" }] } },
-    { "op": "bind", "mutable": false, "name": "conn", "type": "Socket", "value": { "kind": "call", "target": "net.accept", "args": [{ "kind": "local", "name": "server" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "net.writeText", "args": [{ "kind": "local", "name": "client" }, { "kind": "const", "type": "String", "value": "abc" }] } },
-    { "op": "bind", "mutable": false, "name": "raw", "type": "List OF Byte", "value": { "kind": "call", "target": "net.read", "args": [{ "kind": "local", "name": "conn" }, { "kind": "const", "type": "Integer", "value": "16" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "raw" }] }] }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "raw" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "roundTrip", "args": [{ "kind": "const", "type": "String", "value": "https://example.com:443/a?b=c#d" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "roundTrip", "args": [{ "kind": "const", "type": "String", "value": "http://example.com:8080/a" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "roundTrip", "args": [{ "kind": "const", "type": "String", "value": "http://user:pass@host.test/p" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "roundTrip", "args": [{ "kind": "const", "type": "String", "value": "https://[2001:db8::1]:8443/x?y=z" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "roundTrip", "args": [{ "kind": "const", "type": "String", "value": "http://host" }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
