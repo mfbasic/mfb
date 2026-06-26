@@ -2691,7 +2691,12 @@ impl<'a> FileParser<'a> {
                 };
             } else if self.match_kind(TokenKind::LBracket) {
                 let type_name = match expression {
-                    Expression::Identifier(value) => value,
+                    // A package-qualified built-in type used as a constructor
+                    // (`http::Result[...]`) normalizes to its bare id, matching the
+                    // type-position rule (plan-03-http.md §B.2).
+                    Expression::Identifier(value) => {
+                        crate::builtins::qualified_builtin_type(&value).unwrap_or(value)
+                    }
                     _ => {
                         let token = self.previous().clone();
                         self.report(

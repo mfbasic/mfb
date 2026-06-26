@@ -67,8 +67,11 @@ pub fn resolve_project_with(
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
-    let augmented = builtins::net::augmented_project(&augmented)?;
+    // `http` is injected before `net`: `http_package.mfb` imports `net`, so the
+    // net source companion must be added only after http's source is present for
+    // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)?;
+    let augmented = builtins::net::augmented_project(&augmented)?;
     let mut resolver = Resolver::new(project_dir, manifest, &augmented);
     resolver.resolve();
     if validate_docs {

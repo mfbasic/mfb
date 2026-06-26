@@ -1,0 +1,25 @@
+IMPORT http
+IMPORT collections
+IMPORT io
+
+' Build a response value directly (the transport is exercised by the gated
+' loopback test) and check the case-insensitive header accessors.
+FUNC main AS Integer
+  LET ct AS http::Header = http::Header["Content-Type", "text/html; charset=utf-8"]
+  LET h1 AS http::Header = http::Header["X-First", "one"]
+  LET h2 AS http::Header = http::Header["x-first", "two"]
+  LET headers AS List OF http::Header = [ct, h1, h2]
+  LET r AS http::Result = http::Result[200, "OK", "1.1", headers, "body", TRUE]
+  ' Exact-case lookup.
+  io::print("exact=" & http::header(r, "Content-Type"))
+  ' Case-insensitive lookup matches regardless of request casing.
+  io::print("lower=" & http::header(r, "content-type"))
+  io::print("upper=" & http::header(r, "CONTENT-TYPE"))
+  ' Duplicate field: the first occurrence wins.
+  io::print("first=" & http::header(r, "X-First"))
+  ' headerOr returns the value when present.
+  io::print("orPresent=" & http::headerOr(r, "x-first", "fallback"))
+  ' headerOr returns the default when absent.
+  io::print("orMissing=" & http::headerOr(r, "X-Absent", "fallback"))
+  RETURN 0
+END FUNC

@@ -606,10 +606,11 @@ pub fn lower_project_with_external_functions(
         .expect("built-in regex package source must parse");
     let augmented = builtins::datetime::augmented_project(&augmented)
         .expect("built-in datetime package source must parse");
-    let augmented = builtins::net::augmented_project(&augmented)
-        .expect("built-in net package source must parse");
+    // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)
         .expect("built-in http package source must parse");
+    let augmented = builtins::net::augmented_project(&augmented)
+        .expect("built-in net package source must parse");
     let ast = &augmented;
     let mut types = Vec::new();
     let mut functions = Vec::new();

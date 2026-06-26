@@ -1,0 +1,6 @@
+exact=text/html; charset=utf-8
+lower=text/html; charset=utf-8
+upper=text/html; charset=utf-8
+first=one
+orPresent=one
+orMissing=fallback

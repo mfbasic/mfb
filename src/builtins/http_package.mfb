@@ -61,6 +61,14 @@ FUNC __http_defaultPort(scheme AS String) AS Integer
   RETURN 80
 END FUNC
 
+' CRLF built from its bytes. This file is lexed in internal mode, where the `\r`
+' string escape is NOT decoded (the backslash is dropped, leaving a literal `r`),
+' so the line terminator must be constructed from bytes 13/10 (cf. csv_package).
+FUNC __http_crlf AS String
+  LET bytes AS List OF Byte = [toByte(13), toByte(10)]
+  RETURN toString(bytes)
+END FUNC
+
 ' ---- Request building (§B.3) ----
 
 FUNC __http_normalizeMethod(method AS String) AS String
@@ -121,7 +129,7 @@ FUNC __http_isExtraHeader(name AS String) AS Boolean
 END FUNC
 
 FUNC __http_buildRequest(method AS String, url AS net::Url, body AS String, hasBody AS Boolean, headers AS Map OF String TO String) AS String
-  LET crlf AS String = "\r\n"
+  LET crlf AS String = __http_crlf()
   MUT request AS String = method & " " & __http_requestTarget(url) & " HTTP/1.1" & crlf
   request = request & "Host: " & __http_headerValue(headers, "Host", __http_hostHeader(url)) & crlf
   request = request & "User-Agent: " & __http_headerValue(headers, "User-Agent", "mfb-http/1") & crlf
@@ -238,7 +246,7 @@ FUNC __http_dechunk(raw AS String) AS String
   LET total AS Integer = len(raw)
   MUT done AS Boolean = FALSE
   WHILE done = FALSE
-    LET lineEnd AS Integer = __http_indexOf(raw, "\r\n", cursor)
+    LET lineEnd AS Integer = __http_indexOf(raw, __http_crlf(), cursor)
     IF lineEnd < 0 THEN
       FAIL error(77050003, "malformed chunk framing")
     END IF
@@ -260,7 +268,7 @@ FUNC __http_dechunk(raw AS String) AS String
       out = out & __http_slice(raw, dataStart, dataEnd)
       cursor = dataEnd + 2
     END IF
-  END WHILE
+  WEND
   RETURN out
 END FUNC
 
@@ -289,7 +297,8 @@ FUNC __http_parseStatusLine(line AS String) AS HttpResult
 END FUNC
 
 FUNC __http_parseResponse(raw AS String) AS HttpResult
-  LET headerEnd AS Integer = __http_indexOf(raw, "\r\n\r\n", 0)
+  LET crlf AS String = __http_crlf()
+  LET headerEnd AS Integer = __http_indexOf(raw, crlf & crlf, 0)
   MUT headSection AS String = raw
   MUT bodySection AS String = ""
   IF headerEnd >= 0 THEN
@@ -297,7 +306,7 @@ FUNC __http_parseResponse(raw AS String) AS HttpResult
     bodySection = __http_slice(raw, headerEnd + 4, len(raw))
   END IF
 
-  LET lines AS List OF String = strings::split(headSection, "\r\n")
+  LET lines AS List OF String = strings::split(headSection, crlf)
   IF len(lines) = 0 THEN
     FAIL error(77050003, "empty response")
   END IF
@@ -316,7 +325,7 @@ FUNC __http_parseResponse(raw AS String) AS HttpResult
       END IF
     END IF
     index = index + 1
-  END WHILE
+  WEND
 
   LET body AS String = __http_decodeBody(base.status, headers, bodySection)
   RETURN HttpResult[base.status, base.reason, base.httpVersion, headers, body, base.ok]
@@ -385,7 +394,7 @@ FUNC __http_exchangeTcp(url AS net::Url, requestText AS String) AS String
         FAIL error(77050010, "response too large")
       END IF
     END IF
-  END WHILE
+  WEND
   RETURN raw
 END FUNC
 
@@ -409,7 +418,7 @@ FUNC __http_exchangeTls(url AS net::Url, requestText AS String) AS String
         FAIL error(77050010, "response too large")
       END IF
     END IF
-  END WHILE
+  WEND
   RETURN raw
 END FUNC
 
