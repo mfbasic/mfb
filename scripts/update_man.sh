@@ -73,39 +73,88 @@ EXAMPLES
   <relatedFunction>, <relatedFunction>
 TEMPLATE_EOF
 
-# Collect all function/constant names, strip leading whitespace and the "(constant)" label
+# Template for the per-package consolidated TYPE page (mfb man <pkg> types).
+# It documents every built-in record type a package exports, on one page.
+read -r -d '' TYPE_TEMPLATE <<'TYPE_TEMPLATE_EOF' || true
+Full template for a package's consolidated types page (keep section names and order):
+
+NAME
+  types - the <module> package record types
+
+SYNOPSIS
+  <module>::<TypeName>
+  [one line per additional type the package exports]
+
+PACKAGE
+  <module>
+
+IMPORTS
+  <the IMPORT statement a program needs, or a note that it is always available>
+
+DESCRIPTION
+  <Overview of the record types this package provides and how they relate.>
+
+TYPES
+  <module>::<TypeName>
+    <one-line description of what this type represents>
+
+    <field> AS <Type>
+      <meaning, units, accepted range/values; mirror the source field comment>
+
+    <field> AS <Type>
+      <meaning, units, accepted range/values; mirror the source field comment>
+
+  <module>::<NextType>
+    <one-line description>
+
+    <field> AS <Type>
+      <meaning>
+
+[SEE ALSO]
+  <related functions or types in this package>
+TYPE_TEMPLATE_EOF
+
+module_of() {
+  if [[ "$1" == *::* ]]; then printf '%s' "${1%%::*}"; else printf 'general'; fi
+}
+
+# Parse list_functions.py into "kind|name" rows. Lines look like:
+#   "  http::read  (function)" / "  math::PI  (constant)" / "  http::Response  (type)"
+# Functions and constants get one page each; types are grouped per package into a
+# single consolidated `types` page.
 FUNCTIONS=()
-while IFS= read -r line; do
-  FUNCTIONS+=("$line")
+TYPE_PKGS=()
+while IFS= read -r row; do
+  kind="${row%%|*}"
+  name="${row#*|}"
+  module="$(module_of "$name")"
+
+  if [[ -n "$FILTER" && "$module" != "$FILTER" ]]; then
+    continue
+  fi
+
+  if [[ "$kind" == "type" ]]; then
+    # Record the module once; the per-package page covers all its types.
+    found=0
+    for m in "${TYPE_PKGS[@]:-}"; do
+      [[ "$m" == "$module" ]] && { found=1; break; }
+    done
+    [[ $found -eq 0 ]] && TYPE_PKGS+=("$module")
+  else
+    FUNCTIONS+=("$name")
+  fi
 done < <(
   python3 "$SCRIPT_DIR/list_functions.py" \
-    | grep '^\s' \
-    | sed 's/^[[:space:]]*//' \
-    | sed 's/[[:space:]]*(constant)//'
+    | sed -nE 's/^[[:space:]]*(.*)  \((function|constant|type)\)$/\2|\1/p'
 )
 
-# If a package filter was given, keep only functions in that module.
-if [[ -n "$FILTER" ]]; then
-  KEPT=()
-  for func in "${FUNCTIONS[@]}"; do
-    if [[ "$func" == *::* ]]; then
-      module="${func%%::*}"
-    else
-      module="general"
-    fi
-    if [[ "$module" == "$FILTER" ]]; then
-      KEPT+=("$func")
-    fi
-  done
-  if [[ ${#KEPT[@]} -eq 0 ]]; then
-    echo "No built-in functions found for package '$FILTER'." >&2
-    exit 1
-  fi
-  FUNCTIONS=("${KEPT[@]}")
+if [[ -n "$FILTER" && ${#FUNCTIONS[@]} -eq 0 && ${#TYPE_PKGS[@]} -eq 0 ]]; then
+  echo "No built-in functions or types found for package '$FILTER'." >&2
+  exit 1
 fi
 
-total=${#FUNCTIONS[@]}
-echo "Updating man pages for $total functions..."
+total=$(( ${#FUNCTIONS[@]} + ${#TYPE_PKGS[@]} ))
+echo "Updating man pages: ${#FUNCTIONS[@]} functions, ${#TYPE_PKGS[@]} type pages..."
 echo ""
 
 for i in "${!FUNCTIONS[@]}"; do
@@ -181,4 +230,40 @@ $TEMPLATE"
   echo ""
 done
 
-echo "Done. Updated $total man pages."
+# One consolidated types page per package that exports record types.
+for j in "${!TYPE_PKGS[@]:-}"; do
+  [[ -z "${TYPE_PKGS[*]:-}" ]] && break
+  module="${TYPE_PKGS[$j]}"
+  count=$(( ${#FUNCTIONS[@]} + j + 1 ))
+
+  echo "=== [$count/$total] $module::types ==="
+
+  claude -p --dangerously-skip-permissions "Update the mfb man page that documents the built-in record types of the '$module' package, as a single consolidated page reached via 'mfb man $module types'.
+
+Steps:
+1. Read src/man/builtins/**/*.txt (function pages) and src/man/types/*.txt (type
+   topic pages) to understand the man page format and style conventions.
+2. Read the package source src/builtins/${module}_package.mfb. Find every
+   'EXPORT TYPE <Name> ... END TYPE' block. For each one, capture its fields:
+   the 'field AS Type' lines and the trailing ' comment that explains each field.
+3. Write the page to src/man/builtins/${module}/types.txt (create the directory
+   if needed). The file stem MUST be exactly 'types' so 'mfb man $module types'
+   resolves it; do NOT create one file per type.
+
+Format rules:
+- Document EVERY exported type of the package on this one page, under a single
+  TYPES section, in the order they appear in the source.
+- Qualify each type and field example with the module: '${module}::<TypeName>'.
+- For each field, give its name, AS Type, and a clear description derived from
+  the source comment (units, ranges, defaults, what each value selects).
+- Two-space indent for content within sections; blank line between sections;
+  nest fields under their type with deeper indentation.
+- Follow the full template below exactly. Sections in [brackets] are conditional;
+  omit them when they do not apply. All other sections are required.
+
+$TYPE_TEMPLATE"
+
+  echo ""
+done
+
+echo "Done. Updated $total man pages ($((${#FUNCTIONS[@]})) functions, ${#TYPE_PKGS[@]} type pages)."
