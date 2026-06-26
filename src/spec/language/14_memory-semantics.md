@@ -38,13 +38,13 @@ Default arguments are evaluated at the call site and then passed under the same 
 
 Native backends use one allocator-agnostic IR contract for heap-backed values. The IR names value operations; native lowering chooses whether a value is inline, static, stack-resident, or arena-backed.
 
-This language specification defines the ownership, aliasing, copy, move, and return behavior of heap-backed values; it does not define a universal per-object header or a byte-for-byte native representation for every value kind. Concrete runtime layouts for strings, records, unions, collections, and any future heap-backed value category are specified in `specifications/memory_layouts.md` and in the corresponding package/native ABI specifications when values cross an ABI boundary. Native lowering must follow those layout contracts consistently for construction, field access, union wrapping and extraction, collection storage, helper calls, and package/native ABI interop.
+This language specification defines the ownership, aliasing, copy, move, and return behavior of heap-backed values; it does not define a universal per-object header or a byte-for-byte native representation for every value kind. Concrete runtime layouts for strings, records, unions, collections, and any future heap-backed value category are specified by the memory spec (`./mfb spec memory`) and in the corresponding package/native ABI specifications when values cross an ABI boundary. Native lowering must follow those layout contracts consistently for construction, field access, union wrapping and extraction, collection storage, helper calls, and package/native ABI interop.
 
 Arena allocation is an implementation strategy for native backends. An arena allocator may maintain allocator-private block headers or bookkeeping, but those allocator structures are not part of the source-level value model and must not be treated as a required object prefix for all arena-backed values.
 
 Copy and move of arena-backed immutable values may be represented by copying the native value handle used by the active layout, provided the ownership rules above remain observable. Drop may be a no-op for individual values when all owned arena blocks are released at package-instance shutdown. Returning a heap-backed value copies or moves the native value into caller-owned storage according to the active layout, so returned values never point into the callee stack frame or into an arena whose lifetime is shorter than the caller-visible value.
 
-Each package instance owns one arena. Worker threads or future isolated package instances get distinct arenas. A value that crosses from one arena-owned execution context to another must be transferred into storage whose lifetime is valid for the receiver before the receiver observes it. The native representation must not expose a handle into the sender's arena as a receiver-owned value unless that arena is also kept alive by the transfer object for the full receiver-visible lifetime. A failed heap allocation surfaces as an ordinary language-level error — `ErrInvalidArgument` for an invalid request and `ErrOutOfMemory` on exhaustion — and auto-propagates like any other failure. The allocator mechanism is an implementation detail specified in `specifications/memory_layouts.md`.
+Each package instance owns one arena. Worker threads or future isolated package instances get distinct arenas. A value that crosses from one arena-owned execution context to another must be transferred into storage whose lifetime is valid for the receiver before the receiver observes it. The native representation must not expose a handle into the sender's arena as a receiver-owned value unless that arena is also kept alive by the transfer object for the full receiver-visible lifetime. A failed heap allocation surfaces as an ordinary language-level error — `ErrInvalidArgument` for an invalid request and `ErrOutOfMemory` on exhaustion — and auto-propagates like any other failure. The allocator mechanism is an implementation detail specified by the memory spec (`./mfb spec memory arenas`).
 
 ## 14.4 Closures and first-class functions
 
@@ -100,3 +100,9 @@ The compiler must diagnose:
 
 `.mfp` packages must preserve enough ownership metadata for import-time type checking and Binary Representation verification (§21).
 At minimum, exported type shape metadata must remain sufficient to reconstruct copyability, resource/thread containment, and drop-sensitive ownership checks when imported packages participate in move analysis.
+
+## See Also
+
+* ./mfb spec memory — concrete runtime value layouts and arenas
+* ./mfb spec language resource-management — resource ownership and lexical drop
+* ./mfb spec architecture native — how these semantics are realized in codegen

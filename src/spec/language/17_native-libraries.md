@@ -166,7 +166,7 @@ Rules:
 - `RESOURCE` is a declaration form for concrete opaque unique-handle types; it is not an inheritance base type and cannot be used as a generic catch-all type.
 - Native resource ownership is declared at package scope with `RESOURCE <Name> CLOSE BY <closeFn>`. Raw C ABI types (`CPtr`, `CString`, `CInt32`, …) may appear only inside `ABI (...)` slots, never in a wrapper's MFBASIC-facing signature; a `CPtr` exists solely as the hidden representation of a declared resource and must not escape into an ordinary API (`NATIVE_CPTR_ESCAPE`).
 - `OUT` native pointer values are temporary call-frame values (there is no `REF` modifier). Native code must not retain them after return; if a binding needs retained native storage, it must model that storage as a declared `RESOURCE`.
-- Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, borrowed at ordinary calls, auto-closed by lexical drop through the registered close op, never copied/stored/field-accessed, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings are listed in `specifications/error_codes.md` (`1-102-0008`…`0009`, `2-203-0089`…`0098`).
+- Native `LINK` resources slot into the resource model of §15 unchanged: bound with `RES`, borrowed at ordinary calls, auto-closed by lexical drop through the registered close op, never copied/stored/field-accessed, and thread-sendable only with `THREAD_SENDABLE`. Diagnostics specific to native bindings use codes `1-102-0008`…`0009` and `2-203-0089`…`0098` (see `./mfb man errors`).
 - Native libraries are platform-specific dependencies. A `.mfp` package may declare that it needs a native library, including version, search policy, platform constraints, and content/hash requirements, but the native library itself is not portable binary representation.
 
 **Example:**
@@ -295,3 +295,10 @@ LINK "sqlite3" AS sqliteLink
   END FUNC
 END LINK
 ```
+
+## See Also
+
+* ./mfb spec package native-bindings — how `LINK` metadata is carried in `.mfp`
+* ./mfb spec linker import-selection — native import resolution at link time
+* ./mfb spec language resource-management — the resource model `LINK` handles join
+* ./mfb man errors — diagnostics raised for native bindings

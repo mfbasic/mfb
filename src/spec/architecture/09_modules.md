@@ -10,7 +10,7 @@ A map of the compiler's source modules and their responsibilities.
 | `src/resolver.rs` | Name resolution and import/package symbol checks. |
 | `src/monomorph.rs` | Template/generic expansion into concrete AST. |
 | `src/typecheck.rs` | Type system, expression checking, flow validation. |
-| `src/escape.rs` | Resource escape analysis (resource ownership/scope, mfbasic.md §15.6). |
+| `src/escape.rs` | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
 | `src/ir.rs` | Shared compiler IR and AST-to-IR lowering. |
 | `src/internal_name.rs` | Compiler-internal sigil symbol naming for injected source packages. |
 | `src/binary_repr.rs` | MFPC binary representation lowering, encoding, decoding, package ABI inspection. |
@@ -57,3 +57,8 @@ A map of the compiler's source modules and their responsibilities.
 | `src/spec/*` | Embedded language/architecture specification (`mfb spec`). |
 | `src/rules.rs` | Diagnostic display support. |
 | `src/numeric.rs` | Numeric parsing and representation helpers. |
+
+## See Also
+
+* ./mfb spec language — the language these modules implement
+* ./mfb spec language resource-management — the resource/escape model behind `src/escape.rs`

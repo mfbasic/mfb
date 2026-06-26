@@ -79,7 +79,8 @@ thread-sendable resource type; a thread typed with resource `Unknown` accepts an
 resource. Passing a non-resource value, or operating on a thread that carries no
 `RES` clause, fails to type-check (`TYPE_THREAD_NOT_SENDABLE`). See
 `queue-semantics` for the move/timeout/cancellation behavior and
-`src/man/builtins/thread/{transfer,accept}.txt` for the full source contract.
+`./mfb man thread transfer` / `./mfb man thread accept` for the full source
+contract.
 
 ## Sendability
 
@@ -116,3 +117,9 @@ The compiler rejects statically known non-sendable `In`, `Msg`, `Out`, or `Res`
 types before lowering (`check_thread_boundary_sendability`, error code
 `TYPE_THREAD_NOT_SENDABLE`). Runtime helpers and the verifier still consult type
 metadata so queued values can be moved, dropped, or closed correctly.
+
+## See Also
+
+* ./mfb man thread — the source-level thread API (`send`/`receive`/`transfer`/`accept`)
+* ./mfb spec language threads — the language-level thread model
+* ./mfb spec threading queue-semantics — move, timeout, and cancellation behavior

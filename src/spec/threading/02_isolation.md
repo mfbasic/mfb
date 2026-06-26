@@ -25,7 +25,7 @@ ownership rules.
 For copyable sendable values, crossing a thread boundary copies or freezes the
 value as required by the representation. The sender's original binding remains
 usable. Because every non-resource value is a flat, pointer-free block
-(see the `src/spec/memory` spec), this copy is a single `arena_alloc` + `memcpy`
+(see `./mfb spec memory heap-values`), this copy is a single `arena_alloc` + `memcpy`
 (`copy_flat_block`) into the receiver's arena — the same generic routine ordinary
 value copies use, with no per-type deep-copy glue. The sender keeps its own block
 and frees it on its own scope-drop; the receiver owns and reclaims the copy.
@@ -34,3 +34,9 @@ For non-copyable sendable values, including sendable resource handles, crossing 
 thread boundary is an ownership move. A successful `thread::start` or
 `thread::send` consumes the source binding on that control-flow path. Later use
 of the moved binding is an after-move error.
+
+## See Also
+
+* ./mfb spec memory heap-values — the flat, pointer-free block copied across arenas
+* ./mfb spec language memory-semantics — ownership, move, and copy rules
+* ./mfb spec threading queue-semantics — the runtime move/copy behavior

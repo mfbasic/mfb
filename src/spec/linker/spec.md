@@ -45,3 +45,11 @@ The topics below follow the native linking pipeline.
   executable (merged into IR, not linked as external symbols).
 - `failure-rules` lists the conditions under which the linker must fail rather
   than emit a broken executable, with the concrete diagnostics it raises.
+
+## See Also
+
+* ./mfb spec architecture — the full build pipeline the linker completes
+* ./mfb spec package — package inputs merged before linking
+* ./mfb spec memory — the value layouts the emitted code realizes
+* ./mfb spec threading — thread linking requirements
+* ./mfb spec language — the source language being compiled

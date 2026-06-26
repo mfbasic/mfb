@@ -332,7 +332,8 @@ END TYPE
 
 Unlike `MapEntry`, `Pair` places no comparability constraint on `A` or `B`. `Partition OF T` is defaultable when `T` is (two empty lists); `Pair OF A, B` is defaultable when both `A` and `B` are. The names `Pair` and `Partition` are reserved: a user `TYPE` may not redeclare them.
 
-Runtime collection storage is specified in `specifications/memory_layouts.md`.
+Runtime collection storage is specified by the memory spec
+(`./mfb spec memory collections`).
 
 ## 4.8 Threads
 
@@ -385,3 +386,9 @@ A narrower set of types is **orderable** — for these a total order is defined 
 | Orderable (`<`, `>`, `<=`, `>=`) | `Integer`, `Float`, `Fixed`, `Byte`, `String` |
 
 Equality operators `=` and `<>` require either numeric operands or any two compatible comparable operands. Ordering operators `<`, `>`, `<=`, and `>=` require either two numeric operands or two `String` operands. Two `String` operands are ordered **lexicographically by Unicode scalar value**: the strings are compared scalar by scalar, the first differing position decides, and if one string is a prefix of the other the shorter compares less. This order is deterministic and identical across all targets — it does not depend on host locale, collation, or libc. It is not a locale or human collation and is not grapheme-cluster aware; callers needing locale-aware or case-insensitive ordering normalize or `strings::caseFold` first and sort the result. Mixed `String`/numeric ordering is a compile-time type error.
+
+## See Also
+
+* ./mfb spec memory collections — runtime `List`/`Map` storage
+* ./mfb spec language collections — collection operations and semantics
+* ./mfb man types — type-related built-in help

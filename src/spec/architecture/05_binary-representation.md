@@ -122,5 +122,11 @@ originated. The location flows through every layer:
   current function file and the current node location, builds a real `ErrorLoc`
   at every error origin (user `error(...)`, arithmetic overflow/divide-by-zero,
   failing built-in/helper calls), and threads the origin through the four-register
-  result ABI (see `memory_layouts.md`). Propagation preserves the origin; trapping
-  materializes the 3-field `Error`.
+  result ABI (see `./mfb spec memory fallible-call-abi`). Propagation preserves the
+  origin; trapping materializes the 3-field `Error`.
+
+## See Also
+
+* ./mfb spec memory fallible-call-abi — the four-register result ABI
+* ./mfb spec package binary-representation — the on-disk package payload
+* ./mfb spec architecture ir — the in-memory IR this representation serializes

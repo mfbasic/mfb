@@ -22,8 +22,8 @@ it is expected to be `"executable"` or `"package"`, and unknown kinds are
 diagnosed (the validator continues after that diagnostic). Optional `entry`,
 `author`, and `url` fields must be strings when present.
 
-The current implementation does not enforce every field described in
-`specifications/project.md`. In particular, it primarily consumes:
+The current implementation does not enforce every field of the project manifest
+format. In particular, it primarily consumes:
 
 - `name`
 - `version`

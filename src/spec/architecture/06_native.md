@@ -265,7 +265,8 @@ Linux output:
 ## Runtime Value Memory Model
 
 Native code generation realizes the language's value semantics over a per-arena
-heap. `specifications/memory_layouts.md` is the authority; the architectural shape:
+heap. The `memory` spec (`./mfb spec memory`) is the authority; the architectural
+shape:
 
 - **Flat values.** Every non-resource value (`String`, `Record`, `Union`, `List`,
   `Map`, `Error`, `Result`) is a single self-describing, pointer-free arena block —
@@ -292,3 +293,9 @@ heap. `specifications/memory_layouts.md` is the authority; the architectural sha
   free-list for reuse (never returned to the OS until bulk `arena_destroy` at
   teardown), and freed/freshly-mapped memory is filled with PRNG bytes, always on,
   so a use-after-free or uninitialized read fails loudly instead of silently.
+
+## See Also
+
+* ./mfb spec memory — the authoritative runtime value memory model
+* ./mfb spec linker — object planning, encoding, and executable writing
+* ./mfb spec language memory-semantics — the source-level ownership model

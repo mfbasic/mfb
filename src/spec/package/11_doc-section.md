@@ -1,7 +1,7 @@
 # DOC Section
 
-The optional `DOC` section (id `17`) carries the package's documentation surface
-(plan-09-doc.md §5). It is self-contained: all strings are stored inline as
+The optional `DOC` section (id `17`) carries the package's documentation surface.
+It is self-contained: all strings are stored inline as
 `u32`-length-prefixed UTF-8, independent of `STRING_POOL`. It does not contribute
 to the ABI hash. The compiler emits it only when the package has at least one
 exported `DOC` block or a `PACKAGE` doc block.
@@ -36,3 +36,8 @@ DocEntry:
 
 `str` is a `u32` byte length followed by that many UTF-8 bytes. A consumer that
 does not recognize section id `17` skips it; doc data never affects execution.
+
+## See Also
+
+* ./mfb spec language documentation — `DOC` blocks in source
+* ./mfb spec package compact-summary — the full section table

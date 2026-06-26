@@ -19,7 +19,7 @@ the program; its address is also published to the writable global
 `_mfb_rt_main_arena` so signal handlers and shutdown code can reach it without
 relying on the pinned register. Each worker package instance owns a separate
 arena, referenced from its thread control block, so worker threads allocate and
-reclaim independently of the main thread (see `threading.md`).
+reclaim independently of the main thread (see `./mfb spec threading`).
 
 ## Arena-State Layout
 
@@ -234,3 +234,9 @@ and the worker arena, bulk-freed at teardown); and **recursive / non-flat compos
 a borrow into an argument now return an owned block instead (`collections::get`/`getOr`
 materialize the element; `strings::replace`'s no-op path returns a fresh copy), so a
 call result is always safe for the caller to own and free.
+
+## See Also
+
+* ./mfb spec threading — per-worker arenas and thread isolation
+* ./mfb spec language memory-semantics — the source-level ownership model
+* ./mfb spec architecture native — arena helpers in native codegen

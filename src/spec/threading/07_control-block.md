@@ -53,7 +53,8 @@ at once.
 
 The queue handle fields point to runtime-owned bounded queue records, not directly
 to a single queued message. The source-level contract is bounded queues with the
-behavior specified in `standard_package.md`; implementation changes must preserve
+behavior specified by the `queue-semantics` topic
+(`./mfb spec threading queue-semantics`); implementation changes must preserve
 that contract.
 
 ## Queue record layout

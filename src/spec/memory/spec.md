@@ -21,3 +21,11 @@ calls; `heap-values` specifies the compact object bodies (strings, records,
 errors, results, unions); `arenas` is where every heap value lives and how it is
 allocated, freed, filled, and reclaimed; and `collections` specifies the one
 uniform `List`/`Map` layout, its examples, operations, and compaction.
+
+## See Also
+
+* ./mfb spec architecture — where memory lowering sits in the pipeline
+* ./mfb spec language memory-semantics — the source-level ownership model
+* ./mfb spec package — on-disk value and type encoding
+* ./mfb spec threading — per-arena thread isolation
+* ./mfb spec linker — native emission of these layouts

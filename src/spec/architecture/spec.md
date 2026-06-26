@@ -3,9 +3,10 @@
 How the `mfb` compiler turns an MFBASIC project into either a native executable or a compiled `.mfp` package.
 
 This is an implementation architecture reference for compiler developers, not a
-language reference. The language syntax and package/container formats are
-specified separately in `specifications/mfbasic.md`, `specifications/project.md`,
-`specifications/package_format.md`, and `specifications/standard_package.md`.
+language reference. The language syntax is specified by the `language` spec and
+the package/container formats by the `package` spec
+(`./mfb spec language`, `./mfb spec package`). The project manifest fields the
+build actually consumes are described in the `frontend` topic.
 
 The compiler is a single Rust binary named `mfb`. The command-line entry point
 is `src/main.rs`. It owns project-level orchestration, manifest validation,
@@ -59,3 +60,12 @@ manifest loading through type checking; `ir` is the shared hinge; then the path
 splits into `binary-representation` (packages) and `native` (executables). The
 `flows` topic walks both end to end, and `artifacts`, `modules`, `boundaries`,
 and `extending` are quick references.
+
+## See Also
+
+* ./mfb spec language — the MFBASIC language reference
+* ./mfb spec package — the `.mfp` container and binary-representation format
+* ./mfb spec memory — the runtime value memory model
+* ./mfb spec linker — the native object and link pipeline
+* ./mfb spec threading — thread compilation and the runtime contract
+* ./mfb man — built-in package and function help

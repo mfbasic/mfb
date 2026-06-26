@@ -1,15 +1,9 @@
 # MFBASIC Threading
 
 This document specifies how MFBASIC threads are compiled, linked, and executed.
-It complements:
-
-- `specifications/mfbasic.md`
-- `specifications/standard_package.md`
-- `specifications/package_format.md`
-- `src/spec/memory` (the memory-layout spec)
-- `src/spec/linker` (the linker spec)
-- The `thread` package man pages under `src/man/builtins/thread/`, which are the
-  authoritative source-level API reference.
+The authoritative source-level API reference is the built-in `thread` package
+(`./mfb man thread`); this document describes the implementation contract behind
+it. See the See Also section for the related specs.
 
 Last updated: 2026-06-26
 
@@ -58,3 +52,12 @@ concrete macOS/Linux thread creation and the native linking obligations;
 `error-propagation` covers how worker results (and their source locations) flow
 back through `thread::waitFor`; and `validation` lists the runtime test coverage
 a complete implementation must include.
+
+## See Also
+
+* ./mfb spec language threads — the source-level thread model
+* ./mfb spec architecture — the build pipeline that produces workers
+* ./mfb spec memory — per-arena isolation and flat-value copies
+* ./mfb spec package — worker packages carried in `.mfp` files
+* ./mfb spec linker — thread linking requirements
+* ./mfb man thread — the source-level thread API

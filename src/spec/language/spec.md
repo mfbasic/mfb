@@ -21,3 +21,12 @@ handles, and isolated thread workers. `native-libraries` specifies `LINK` bindin
 `worked-example` shows complete programs; and `build-artifacts`, `tooling-and-auditability`,
 and `documentation` cover `.mfp` packages and verification, the audit/format/test
 tooling, and `DOC` blocks.
+
+## See Also
+
+* ./mfb spec architecture — how the compiler processes this language
+* ./mfb spec memory — the runtime memory model for language values
+* ./mfb spec package — the package and ABI format for compiled modules
+* ./mfb spec threading — isolated thread workers
+* ./mfb spec linker — native linking of the emitted code
+* ./mfb man — built-in package and function help
