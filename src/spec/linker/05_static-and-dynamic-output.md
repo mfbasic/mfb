@@ -1,14 +1,46 @@
 # Static Versus Dynamic Output
 
-If an encoded image has no imports, a target may emit a simpler executable with
-only internal text/data and no dynamic library metadata.
+Each linker chooses between a static and a dynamic encoding based on whether the
+encoded image has imports.
 
-If imports are present, the target linker must emit dynamic loading metadata:
+## No imports — static image
 
-- Dynamic dependency records for every imported library.
-- Dynamic symbol/string tables for every imported symbol.
-- Relocations that let the runtime loader fill GOT entries.
-- Import stubs that generated code can branch to.
+If an image has no imports, the linker emits a simpler executable with only
+internal text and data and no dynamic-loading metadata:
 
-The compiler must not silently omit a required library. Missing imports are
-linker or codegen errors.
+- macOS: `encode_unsigned_mach_o` still emits `__PAGEZERO`/`__TEXT`/`__LINKEDIT`
+  and a (possibly empty) symbol table, with no `LC_LOAD_DYLIB`, no
+  `__DATA_CONST`/GOT, and no dyld bind/rebase opcodes.
+- Linux: `encode_static_elf` emits a single `PT_LOAD`, no `PT_INTERP`, and no
+  `.dynamic` section.
+
+A static image needs nothing from a dynamic loader, but on macOS it is still
+ad-hoc code-signed (see `macos-aarch64`).
+
+## Imports present — dynamic image
+
+If imports are present, the linker emits the full dynamic-loading metadata:
+
+- a dynamic dependency record per distinct imported library
+  (`LC_LOAD_DYLIB` / `DT_NEEDED`),
+- dynamic symbol and string tables covering every imported symbol,
+- relocations that let the loader fill GOT entries
+  (Mach-O bind opcodes / ELF `R_AARCH64_JUMP_SLOT` and `R_AARCH64_GLOB_DAT`),
+- one import stub per imported function for generated code to branch to,
+- on Linux, the interpreter (`PT_INTERP`) and a `PT_DYNAMIC` segment.
+
+## Initializers
+
+Independently of imports, if the image carries `initializers` they are emitted as
+a run-before-entry pointer array: Mach-O `__mod_init_func`
+(`S_MOD_INIT_FUNC_POINTERS`, rebased by dyld) or ELF `.init_array`
+(`DT_INIT_ARRAY`/`DT_INIT_ARRAYSZ`). On macOS this forces a `__DATA_CONST`
+segment even when there are no imports. The current encode path leaves
+`initializers` empty (see `symbols-and-relocations`).
+
+## No silent omission
+
+The linker must not silently omit a required library, stub, or GOT slot. A
+missing import, an unbacked external relocation, or an unsupported relocation is a
+linker or codegen error, never a zero address or a placeholder (see
+`failure-rules`).
