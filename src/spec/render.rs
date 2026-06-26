@@ -367,24 +367,34 @@ fn render_table(
         .map(|r| (0..ncols).map(|c| cell_words(r, c)).collect())
         .collect();
 
-    // Natural (unwrapped) column widths, floored at 1.
+    // Natural (unwrapped) column widths, and a per-column floor: a column can
+    // never shrink below its widest single word, since words are not hyphenated.
+    // Honouring the floor keeps the borders aligned even when an unbreakable
+    // token (e.g. a path) is wider than the column would otherwise get; the
+    // table may then exceed the terminal width, which is preferable to a ragged
+    // right border.
     let mut col = vec![1usize; ncols];
+    let mut floor = vec![1usize; ncols];
     for c in 0..ncols {
+        let widest_word = |cells: &[Word]| cells.iter().map(word_width).max().unwrap_or(0);
         col[c] = col[c].max(line_width(&header_words[c]));
+        floor[c] = floor[c].max(widest_word(&header_words[c]));
         for r in &row_words {
             col[c] = col[c].max(line_width(&r[c]));
+            floor[c] = floor[c].max(widest_word(&r[c]));
         }
     }
 
-    // Shrink the widest column until the table fits the terminal. Overhead is
-    // "│ " + " │" per column boundary: 3 per column plus the closing border.
+    // Shrink the widest shrinkable column until the table fits the terminal.
+    // Overhead is "│ " + " │" per column boundary: 3 per column plus the closing
+    // border.
     let overhead = ncols * 3 + 1;
     let budget = width.saturating_sub(overhead).max(ncols);
     while col.iter().sum::<usize>() > budget {
         let widest = col
             .iter()
             .enumerate()
-            .filter(|(_, w)| **w > 1)
+            .filter(|(c, w)| **w > floor[*c])
             .max_by_key(|(_, w)| **w)
             .map(|(idx, _)| idx);
         match widest {
@@ -761,6 +771,23 @@ mod tests {
             assert!(out.contains('│'), "width {width}: missing borders");
             assert!(strip_ansi(&out).contains("alpha"));
         }
+    }
+
+    #[test]
+    fn table_borders_stay_aligned_with_long_tokens() {
+        // An unbreakable token wider than the squeezed column must not push the
+        // right border out: every rendered row shares one display width.
+        let md = "\
+| Col | Path |
+| --- | --- |
+| a | src/target/shared/code.rs |
+| b | x |";
+        let out = render(md, &plain_style(20));
+        let widths: Vec<usize> = out.lines().map(display_width).collect();
+        assert!(
+            widths.windows(2).all(|w| w[0] == w[1]),
+            "rows have ragged widths: {widths:?}"
+        );
     }
 
     #[test]
