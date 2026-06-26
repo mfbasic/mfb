@@ -40,7 +40,7 @@ pub(crate) struct SpecTopic {
 /// topic file needs no edit here; a brand-new package needs one row. Names not
 /// listed are appended afterwards in discovery (alphabetical) order, so a
 /// forgotten row degrades gracefully instead of hiding a package.
-const PACKAGE_ORDER: &[&str] = &["architecture", "dummy"];
+const PACKAGE_ORDER: &[&str] = &["architecture"];
 
 static PACKAGES: LazyLock<Vec<SpecPackage>> = LazyLock::new(|| {
     let mut packages: Vec<SpecPackage> = generated::SPEC_PACKAGES
@@ -96,19 +96,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn dummy_package_is_discovered() {
-        let package = package("dummy").expect("dummy spec package present");
+    fn architecture_package_is_discovered() {
+        let package = package("architecture").expect("architecture spec package present");
         assert!(!package.overview.is_empty());
         assert!(!package.summary.is_empty());
         assert!(
             !package.topics.is_empty(),
-            "dummy package should ship topic pages"
+            "architecture package should ship topic pages"
         );
     }
 
     #[test]
     fn topics_are_looked_up_by_name() {
-        let package = package("dummy").expect("dummy spec package present");
+        let package = package("architecture").expect("architecture spec package present");
         let first = &package.topics[0];
         let found = topic(package, first.name).expect("topic resolves by name");
         assert_eq!(found.name, first.name);
