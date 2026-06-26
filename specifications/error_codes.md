@@ -251,6 +251,7 @@ These are non-runtime diagnostics emitted by the `mfb` application and therefore
 | Code         | Rule                            | Severity | Message |
 |--------------|---------------------------------|----------|---------|
 | `2-200-0100` | `BUILD_FAILED`                  | error    | `build failed for an unclassified orchestration reason` |
+| `2-200-0101` | `FMT_CHECK_FAILED`              | error    | `one or more source files are not formatted (mfb fmt --check)` |
 | `2-205-0001` | `PACKAGE_VERSION_UNSUPPORTED`   | error    | `package binary representation or metadata version is unsupported` |
 | `2-205-0002` | `NATIVE_MANIFEST_INVALID`       | error    | `native-link metadata in a package is malformed or inconsistent` |
 | `2-205-0003` | `PACKAGE_BINARY_REPRESENTATION_VERSION_UNSUPPORTED` | error | `package Binary Representation payload version is unsupported (clean break: the old flat opcode payload, MFPC major 1, is rejected; structured Binary Representation requires MFPC major 2)` |

@@ -742,6 +742,30 @@ pub fn parse_project(
     crate::builtins::collections::augmented_project(project)
 }
 
+/// Enumerate the `.mfb` source files selected by the project manifest, for tools
+/// that operate on raw source text (such as `mfb fmt`) rather than the parsed
+/// AST. Returns the on-disk paths in a stable, sorted order.
+pub fn selected_source_paths(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+) -> Result<Vec<PathBuf>, ()> {
+    let canonical_project_dir = fs::canonicalize(project_dir).map_err(|err| {
+        rules::show_diagnostic(
+            "MFB_SOURCE_READ_FAILED",
+            &format!(
+                "Could not resolve project directory `{}`: {err}",
+                project_dir.display()
+            ),
+            &project_dir.join("project.json"),
+            1,
+            1,
+            1,
+        );
+    })?;
+    let files = collect_selected_source_files(project_dir, &canonical_project_dir, manifest)?;
+    Ok(files.into_iter().map(|file| file.actual_path).collect())
+}
+
 pub fn write_ast(project_dir: &Path, ast: &AstProject) -> Result<PathBuf, String> {
     let ast_path = project_dir.join(format!("{}.ast", ast.name));
     fs::write(&ast_path, ast.to_json())

@@ -874,6 +874,12 @@ pub const RULES: &[Rule] = &[
         message: "build failed for an unclassified orchestration reason",
     },
     Rule {
+        code: "2-200-0101",
+        name: "FMT_CHECK_FAILED",
+        severity: Severity::Error,
+        message: "one or more source files are not formatted (mfb fmt --check)",
+    },
+    Rule {
         code: "2-205-0001",
         name: "PACKAGE_VERSION_UNSUPPORTED",
         severity: Severity::Error,

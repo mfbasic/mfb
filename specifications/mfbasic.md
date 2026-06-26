@@ -2059,12 +2059,18 @@ mfb audit [--format text|json] [--locked] [path]
 Additional required tooling commands:
 
 ```text
-mfb fmt [--check] [path]
+mfb fmt [--check] [--indent N] [path]
 mfb test [--filter pattern] [--locked] [path]
 mfb lsp
 ```
 
-`mfb fmt` applies the standard formatter. `--check` exits with a toolchain diagnostic when formatting would change files.
+`mfb fmt` applies the standard formatter to every `.mfb` file selected by the
+project (or to a single `.mfb` file). Like `mfb build` and `mfb doc`, `path`
+defaults to the current directory. The formatter normalizes block indentation
+and keyword capitalization, leaving comments, blank lines, string contents, and
+`DOC`/`LINK` block bodies untouched. `--indent N` sets the indent width in
+spaces (default `2`). `--check` writes nothing and exits with a toolchain
+diagnostic when any file is not already formatted.
 
 `mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the `project.json` test source entries. A test succeeds when it completes without failing and fails when it produces an error. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
 

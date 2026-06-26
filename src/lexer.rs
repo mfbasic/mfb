@@ -592,6 +592,12 @@ impl Lexer<'_> {
     }
 }
 
+/// Look up a keyword by its lexeme, case-insensitively. Exposed for source tools
+/// (such as `mfb fmt`) that re-tokenize raw text without building a full lexer.
+pub fn lookup_keyword(value: &str) -> Option<Keyword> {
+    keyword(value)
+}
+
 fn keyword(value: &str) -> Option<Keyword> {
     if value.eq_ignore_ascii_case("AS") {
         Some(Keyword::As)
