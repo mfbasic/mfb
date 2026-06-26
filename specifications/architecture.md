@@ -100,10 +100,12 @@ are emitted through the package binary representation path instead.
 - `mfb fmt [--check] [--indent N] [location]` formats every `.mfb` file selected
   by the project manifest (or a single `.mfb` file) in place, normalizing block
   indentation and keyword capitalization. The formatter is purely lexical
-  (`src/fmt.rs`): it re-tokenizes raw text to preserve comments, blank lines,
-  string contents, and `DOC`/`LINK` block bodies verbatim. `--indent` sets the
-  indent width (default `2`); `--check` writes nothing and exits non-zero with an
-  `FMT_CHECK_FAILED` diagnostic when any file is not already formatted.
+  (`src/fmt.rs`): it re-tokenizes raw text to preserve comments, blank lines, and
+  string contents. `DOC` and `LINK` blocks are re-indented from their own nesting
+  but keep their text and casing (prose bodies; the contextual `return` in `ABI`
+  lines). `--indent` sets the indent width (default `2`); `--check` writes nothing
+  and exits non-zero with an `FMT_CHECK_FAILED` diagnostic when any file is not
+  already formatted.
 
 ## 3. Project Manifest Loading
 

@@ -2067,10 +2067,14 @@ mfb lsp
 `mfb fmt` applies the standard formatter to every `.mfb` file selected by the
 project (or to a single `.mfb` file). Like `mfb build` and `mfb doc`, `path`
 defaults to the current directory. The formatter normalizes block indentation
-and keyword capitalization, leaving comments, blank lines, string contents, and
-`DOC`/`LINK` block bodies untouched. `--indent N` sets the indent width in
-spaces (default `2`). `--check` writes nothing and exits with a toolchain
-diagnostic when any file is not already formatted.
+and keyword capitalization, leaving comments, blank lines, and string contents
+untouched. `DOC` and `LINK` blocks are re-indented from their own nesting (a
+`DOC` body one level under `DOC`, with `EXAMPLE` source one level deeper; a
+`LINK` body following its `FUNC`/`FREE` nesting), but their text and casing are
+preserved — `DOC` bodies are free-form prose and `LINK` `ABI` lines use a
+contextual lowercase `return`. `--indent N` sets the indent width in spaces
+(default `2`). `--check` writes nothing and exits with a toolchain diagnostic
+when any file is not already formatted.
 
 `mfb test` discovers exported or private zero-argument `SUB` declarations whose names start with `test` in files included by the `project.json` test source entries. A test succeeds when it completes without failing and fails when it produces an error. Test builds use the same package resolver, verifier, resource rules, and audit metadata as executable builds.
 

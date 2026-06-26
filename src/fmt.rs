@@ -41,57 +41,23 @@ pub fn format_source(source: &str, indent_width: usize) -> String {
             continue;
         }
 
-        // DOC block: the body is captured verbatim (it may contain prose or
-        // example source that must not be re-cased or re-indented). Only the
-        // `DOC` and `END DOC` lines are re-indented to the current block level.
+        // DOC block: a `DOC … END DOC` block is re-indented to the surrounding
+        // block level, with the body one level deeper and `EXAMPLE` source one
+        // level deeper still. Body text and casing are preserved verbatim — the
+        // body is free-form prose (where a word like `if` is not a keyword) and
+        // example source whose intent must not be altered.
         if is_doc_start(trimmed) {
-            let indent = indent_str(stack.len(), indent_width);
-            out.push(format!("{indent}{}", doc_header(trimmed)));
-            i += 1;
-            let mut in_example = false;
-            while i < n {
-                let body = strip_cr(lines[i]);
-                let words: Vec<&str> = body.split_whitespace().collect();
-                let is_end = |kw: &str| {
-                    words.len() == 2
-                        && words[0].eq_ignore_ascii_case("END")
-                        && words[1].eq_ignore_ascii_case(kw)
-                };
-                if !in_example && is_end("DOC") {
-                    out.push(format!("{indent}END DOC"));
-                    i += 1;
-                    break;
-                }
-                if !in_example && words.len() == 1 && words[0].eq_ignore_ascii_case("EXAMPLE") {
-                    in_example = true;
-                } else if in_example && is_end("EXAMPLE") {
-                    in_example = false;
-                }
-                out.push(body.trim_end().to_string());
-                i += 1;
-            }
+            format_doc_block(&lines, &mut i, n, stack.len(), indent_width, &mut out);
             continue;
         }
 
         // LINK block: the native-binding DSL (`LINK … END LINK`) has its own
-        // grammar — `FUNC`/`FREE` nesting and contextual words like `SYMBOL`,
-        // `ABI`, `return`, `OUT` — that the block tracker does not model. Copy it
-        // verbatim so a binding package is never mis-indented or mis-cased.
+        // grammar with `FUNC`/`FREE` nesting and contextual words (`SYMBOL`,
+        // `ABI`, `return`, `OUT`) that the keyword tracker does not model. Re-
+        // indent from that nesting, preserving text and casing so a contextual
+        // word such as `return` in an `ABI` line is never recased.
         if is_link_start(trimmed) {
-            out.push(strip_cr(lines[i]).trim_end().to_string());
-            i += 1;
-            while i < n {
-                let body = strip_cr(lines[i]);
-                let words: Vec<&str> = body.split_whitespace().collect();
-                let is_end_link = words.len() == 2
-                    && words[0].eq_ignore_ascii_case("END")
-                    && words[1].eq_ignore_ascii_case("LINK");
-                out.push(body.trim_end().to_string());
-                i += 1;
-                if is_end_link {
-                    break;
-                }
-            }
+            format_link_block(&lines, &mut i, n, stack.len(), indent_width, &mut out);
             continue;
         }
 
@@ -534,6 +500,134 @@ fn is_doc_start(trimmed: &str) -> bool {
             .all(|c| c.is_ascii_alphabetic() || c == ' ' || c == '\t')
 }
 
+/// Re-indent a whole `DOC … END DOC` block. `i` enters pointing at the `DOC`
+/// line and leaves pointing past the block's last line. `base` is the block
+/// level of the surrounding code.
+fn format_doc_block(
+    lines: &[&str],
+    i: &mut usize,
+    n: usize,
+    base: usize,
+    width: usize,
+    out: &mut Vec<String>,
+) {
+    out.push(format!(
+        "{}{}",
+        indent_str(base, width),
+        doc_header(strip_cr(lines[*i]).trim())
+    ));
+    *i += 1;
+    let body = base + 1;
+    let mut in_example = false;
+    let mut example: Vec<&str> = Vec::new();
+    while *i < n {
+        let raw = strip_cr(lines[*i]);
+        let words: Vec<&str> = raw.split_whitespace().collect();
+        let is_end = |kw: &str| {
+            words.len() == 2
+                && words[0].eq_ignore_ascii_case("END")
+                && words[1].eq_ignore_ascii_case(kw)
+        };
+        if in_example {
+            if is_end("EXAMPLE") {
+                flush_example(&example, body + 1, width, out);
+                example.clear();
+                out.push(format!("{}END EXAMPLE", indent_str(body, width)));
+                in_example = false;
+            } else {
+                example.push(raw);
+            }
+        } else if is_end("DOC") {
+            out.push(format!("{}END DOC", indent_str(base, width)));
+            *i += 1;
+            return;
+        } else if words.len() == 1 && words[0].eq_ignore_ascii_case("EXAMPLE") {
+            out.push(format!("{}EXAMPLE", indent_str(body, width)));
+            in_example = true;
+        } else if raw.trim().is_empty() {
+            out.push(String::new());
+        } else {
+            out.push(format!("{}{}", indent_str(body, width), raw.trim()));
+        }
+        *i += 1;
+    }
+    // Unterminated block: flush any pending example source so nothing is lost.
+    if in_example {
+        flush_example(&example, body + 1, width, out);
+    }
+}
+
+/// Emit `EXAMPLE` source lines anchored at `level`, preserving each line's
+/// indentation relative to the least-indented line so the code's own nesting
+/// survives while the block as a whole is re-anchored.
+fn flush_example(lines: &[&str], level: usize, width: usize, out: &mut Vec<String>) {
+    let min = lines
+        .iter()
+        .filter(|line| !line.trim().is_empty())
+        .map(|line| line.len() - line.trim_start().len())
+        .min()
+        .unwrap_or(0);
+    let prefix = level * width;
+    for line in lines {
+        if line.trim().is_empty() {
+            out.push(String::new());
+        } else {
+            let lead = line.len() - line.trim_start().len();
+            let rel = lead.saturating_sub(min);
+            out.push(format!("{}{}", " ".repeat(prefix + rel), line.trim()));
+        }
+    }
+}
+
+/// Re-indent a whole `LINK … END LINK` block from its `FUNC`/`FREE` nesting. `i`
+/// enters pointing at the `LINK` line and leaves pointing past `END LINK`. Text
+/// and casing are preserved; only leading indentation changes.
+fn format_link_block(
+    lines: &[&str],
+    i: &mut usize,
+    n: usize,
+    base: usize,
+    width: usize,
+    out: &mut Vec<String>,
+) {
+    out.push(format!(
+        "{}{}",
+        indent_str(base, width),
+        strip_cr(lines[*i]).trim()
+    ));
+    *i += 1;
+    let mut depth = base + 1;
+    while *i < n {
+        let text = strip_cr(lines[*i]).trim();
+        let words: Vec<&str> = text.split_whitespace().collect();
+        let first = words.first().copied().unwrap_or("");
+        let second = words.get(1).copied().unwrap_or("");
+        let is_opener = first.eq_ignore_ascii_case("FUNC")
+            || first.eq_ignore_ascii_case("SUB")
+            || first.eq_ignore_ascii_case("FREE");
+        let is_closer = first.eq_ignore_ascii_case("END")
+            && (second.eq_ignore_ascii_case("FUNC")
+                || second.eq_ignore_ascii_case("SUB")
+                || second.eq_ignore_ascii_case("FREE"));
+        if first.eq_ignore_ascii_case("END") && second.eq_ignore_ascii_case("LINK") {
+            out.push(format!("{}END LINK", indent_str(base, width)));
+            *i += 1;
+            return;
+        } else if text.is_empty() {
+            out.push(String::new());
+        } else if is_closer {
+            depth = depth.saturating_sub(1);
+            out.push(format!("{}{}", indent_str(depth, width), text));
+        } else if is_opener {
+            out.push(format!("{}{}", indent_str(depth, width), text));
+            depth += 1;
+        } else {
+            out.push(format!("{}{}", indent_str(depth, width), text));
+        }
+        *i += 1;
+    }
+}
+
 /// Whether a trimmed line begins a native `LINK "lib" AS alias` block. The
 /// trailing string literal distinguishes it from any ordinary use of the word.
 fn is_link_start(trimmed: &str) -> bool {
@@ -617,9 +711,19 @@ mod tests {
     }
 
     #[test]
-    fn doc_block_body_is_verbatim_but_header_reindents() {
-        let input = "TYPE T\ndoc\n  free  form   text\n  END DOC\nx AS Integer\nEND TYPE\n";
-        let expected = "TYPE T\n  DOC\n  free  form   text\n  END DOC\n  x AS Integer\nEND TYPE\n";
+    fn doc_block_reindents_body_preserving_text() {
+        // The body indents one level under DOC; internal spacing and casing of
+        // the free-form text are preserved (it is prose, not code).
+        let input = "TYPE T\ndoc\nfree  form   text  IF prose\n  END DOC\nx AS Integer\nEND TYPE\n";
+        let expected =
+            "TYPE T\n  DOC\n    free  form   text  IF prose\n  END DOC\n  x AS Integer\nEND TYPE\n";
+        assert_eq!(fmt(input), expected);
+    }
+
+    #[test]
+    fn doc_example_source_is_anchored_keeping_relative_indent() {
+        let input = "DOC\nFUNC f\nEXAMPLE\nLET x = 1\nIF x THEN\nwork()\nEND IF\nEND EXAMPLE\nEND DOC\n";
+        let expected = "DOC\n  FUNC f\n  EXAMPLE\n    LET x = 1\n    IF x THEN\n    work()\n    END IF\n  END EXAMPLE\nEND DOC\n";
         assert_eq!(fmt(input), expected);
     }
 
@@ -704,21 +808,29 @@ mod tests {
     }
 
     #[test]
-    fn link_block_is_copied_verbatim() {
+    fn link_block_reindents_from_func_free_nesting_preserving_text() {
+        // Mis-indented LINK body, with a contextual `return` in the ABI line and
+        // a nested FREE block — re-indented from nesting, text/casing preserved.
         let input = concat!(
             "LINK \"sqlite3\" AS link\n",
-            "  FUNC open(path AS String) AS RES Db\n",
-            "    SYMBOL \"sqlite3_open\"\n",
-            "    ABI (path CString, return OUT CPtr) AS status CInt32\n",
-            "  END FUNC\n",
+            "FUNC columnText(stmt AS Stmt) AS String\n",
+            "SYMBOL \"sqlite3_column_text\"\n",
+            "ABI (stmt CPtr) AS return CPtr\n",
+            "FREE return\n",
+            "SYMBOL \"sqlite3_free\"\n",
+            "END FREE\n",
+            "END FUNC\n",
             "END LINK\n",
             "let after = 1\n",
         );
         let expected = concat!(
             "LINK \"sqlite3\" AS link\n",
-            "  FUNC open(path AS String) AS RES Db\n",
-            "    SYMBOL \"sqlite3_open\"\n",
-            "    ABI (path CString, return OUT CPtr) AS status CInt32\n",
+            "  FUNC columnText(stmt AS Stmt) AS String\n",
+            "    SYMBOL \"sqlite3_column_text\"\n",
+            "    ABI (stmt CPtr) AS return CPtr\n",
+            "    FREE return\n",
+            "      SYMBOL \"sqlite3_free\"\n",
+            "    END FREE\n",
             "  END FUNC\n",
             "END LINK\n",
             "LET after = 1\n",
