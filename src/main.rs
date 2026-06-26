@@ -15,6 +15,7 @@ mod numeric;
 mod os;
 mod resolver;
 mod rules;
+mod spec;
 mod target;
 mod typecheck;
 mod unicode_backend;
@@ -23,11 +24,13 @@ mod unicode_runtime_tables;
 use std::collections::HashMap;
 use std::env;
 use std::fs;
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process;
 use tinyjson::JsonValue;
 
-const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package\n  doc [--out file] [location]          Render HTML docs from package or file source\n  fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help";
+const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package\n  doc [--out file] [location]          Render HTML docs from package or file source\n  fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help
+  spec [topic] [subtopic]              Show the MFBASIC language specification";
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
@@ -126,6 +129,13 @@ fn main() {
         Some("man") => {
             let man_args = args.collect::<Vec<_>>();
             if let Err(err) = show_man(&man_args) {
+                eprintln!("error: {err}");
+                process::exit(2);
+            }
+        }
+        Some("spec") => {
+            let spec_args = args.collect::<Vec<_>>();
+            if let Err(err) = show_spec(&spec_args) {
                 eprintln!("error: {err}");
                 process::exit(2);
             }
@@ -1721,6 +1731,121 @@ fn unknown_package_error(package_name: &str) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!("unknown package `{package_name}`\n\nAvailable packages: {packages}")
+}
+
+/// `mfb spec [topic] [subtopic] [--width N] [--color|--no-color]`. Renders the
+/// embedded Markdown specification to the terminal, reflowing to the terminal
+/// width so tables stay readable.
+fn show_spec(args: &[String]) -> Result<(), String> {
+    let mut width: Option<usize> = None;
+    let mut color: Option<bool> = None;
+    let mut positional: Vec<&str> = Vec::new();
+
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--no-color" => color = Some(false),
+            "--color" => color = Some(true),
+            "--width" => {
+                let value = iter
+                    .next()
+                    .ok_or_else(|| "mfb spec --width requires a number".to_string())?;
+                width = Some(parse_spec_width(value)?);
+            }
+            other if other.starts_with("--width=") => {
+                width = Some(parse_spec_width(&other["--width=".len()..])?);
+            }
+            other if other.starts_with("--") => {
+                return Err(format!("unknown option `{other}`\n\n{USAGE}"));
+            }
+            other => positional.push(other),
+        }
+    }
+
+    let style = spec::render::Style {
+        width: width.unwrap_or_else(detect_terminal_width),
+        color: color.unwrap_or_else(|| std::io::stdout().is_terminal()),
+    };
+
+    match positional.as_slice() {
+        [] => {
+            print_spec_index();
+            Ok(())
+        }
+        [package_name] => {
+            let package = spec::package(package_name)
+                .ok_or_else(|| unknown_spec_package_error(package_name))?;
+            print_spec_package(package, &style);
+            Ok(())
+        }
+        [package_name, topic_name] => {
+            let package = spec::package(package_name)
+                .ok_or_else(|| unknown_spec_package_error(package_name))?;
+            let topic = spec::topic(package, topic_name).ok_or_else(|| {
+                format!(
+                    "unknown topic `{topic_name}` in spec `{package_name}`\n\nRun `mfb spec {package_name}` to list available topics."
+                )
+            })?;
+            println!("{}", spec::render::render(topic.page, &style));
+            Ok(())
+        }
+        _ => Err(format!("mfb spec accepts at most two arguments\n\n{USAGE}")),
+    }
+}
+
+fn parse_spec_width(value: &str) -> Result<usize, String> {
+    value
+        .parse::<usize>()
+        .map_err(|_| format!("invalid --width value `{value}`"))
+        .map(|width| width.clamp(20, 1000))
+}
+
+/// Terminal width for spec rendering: honour `COLUMNS` when a shell exports it,
+/// otherwise fall back to the classic 80. (Compiler-side; no ioctl dependency.)
+fn detect_terminal_width() -> usize {
+    env::var("COLUMNS")
+        .ok()
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .map(|width| width.clamp(20, 1000))
+        .unwrap_or(80)
+}
+
+fn print_spec_index() {
+    println!("Usage: mfb spec [topic] [subtopic]");
+    println!();
+    println!("Show the MFBASIC language specification.");
+    println!();
+    println!("Examples:");
+    println!("  mfb spec");
+    println!("  mfb spec dummy");
+    println!("  mfb spec dummy tables");
+    println!();
+    println!("Topics:");
+    for package in spec::packages() {
+        println!("  {:<12} {}", package.name, package.summary);
+    }
+}
+
+fn print_spec_package(package: &spec::SpecPackage, style: &spec::render::Style) {
+    println!("{}", spec::render::render(package.overview, style));
+    if !package.topics.is_empty() {
+        println!();
+        println!("SUBTOPICS");
+        for topic in &package.topics {
+            println!("  {:<12} {}", topic.name, topic.summary);
+        }
+        println!();
+        println!("Run `mfb spec {} <subtopic>` for details.", package.name);
+    }
+}
+
+fn unknown_spec_package_error(package_name: &str) -> String {
+    let packages = spec::packages()
+        .iter()
+        .map(|package| package.name)
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("unknown spec topic `{package_name}`\n\nAvailable topics: {packages}")
 }
 
 fn validate_entry_point(
