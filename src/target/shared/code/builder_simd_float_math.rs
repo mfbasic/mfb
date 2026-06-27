@@ -19,8 +19,12 @@ const LN2_HI: f64 = 6.931_471_803_691_238_164_90e-01;
 const LN2_LO: f64 = 1.908_214_929_270_587_700_02e-10;
 /// `1/sqrt(2)` — the log mantissa fold point.
 const SQRT_HALF: f64 = 0.707_106_781_186_547_524_4;
-/// `log10(e) = 1/ln(10)`.
+/// `ln2` and `1/ln(10)` as true double-doubles (hi = the nearest double, lo = the
+/// tail) so `log`/`log10` recombine the reduction to >double precision and reach
+/// strict <=1 ULP. `LN2` above is the hi of `ln2`; `LOG10_E` the hi of `1/ln10`.
+const LN2_DD_LO: f64 = 2.319_046_813_846_299_6e-17;
 const LOG10_E: f64 = 0.434_294_481_903_251_827_6;
+const LOG10_E_DD_LO: f64 = 1.098_319_650_216_765_0e-17;
 /// `2/pi` and the fdlibm three-part `pi/2` for the sin/cos Cody-Waite reduction
 /// (accurate for `|x| < 2^20 * pi/2`; large arguments would need Payne-Hanek).
 const INV_PIO2: f64 = 0.636_619_772_367_581_343_1;
@@ -181,16 +185,18 @@ impl CodeBuilder<'_> {
                 self.broadcast_i64("v23", -1022);
             }
             FloatKernel::Log | FloatKernel::Log10 => {
-                self.broadcast_f64("v16", LN2);
-                self.broadcast_f64("v17", SQRT_HALF);
-                self.broadcast_f64("v18", 1.0);
-                self.broadcast_i64("v19", 2047); // 0x7ff exponent mask
-                self.broadcast_i64("v20", 1022); // frexp bias / new exponent
-                self.broadcast_i64("v21", 0x800F_FFFF_FFFF_FFFF_u64 as i64); // ~exp field
-                self.broadcast_i64("v24", 1022_i64 << 52); // exponent=1022 field
-                self.broadcast_i64("v25", 1); // integer one (k adjust)
+                self.broadcast_f64("v16", SQRT_HALF);
+                self.broadcast_f64("v17", 1.0);
+                self.broadcast_i64("v18", 2047); // 0x7ff exponent mask
+                self.broadcast_i64("v19", 1022); // frexp bias / new exponent
+                self.broadcast_i64("v20", 0x800F_FFFF_FFFF_FFFF_u64 as i64); // ~exp field
+                self.broadcast_i64("v21", 1022_i64 << 52); // exponent=1022 field
+                self.broadcast_i64("v23", 1); // integer one (k adjust)
+                self.broadcast_f64("v24", LN2); // ln2 hi
+                self.broadcast_f64("v25", LN2_DD_LO); // ln2 lo
                 if kernel == FloatKernel::Log10 {
-                    self.broadcast_f64("v26", LOG10_E);
+                    self.broadcast_f64("v26", LOG10_E); // 1/ln10 hi
+                    self.broadcast_f64("v27", LOG10_E_DD_LO); // 1/ln10 lo
                 }
             }
             FloatKernel::Sin | FloatKernel::Cos | FloatKernel::Tan => {
@@ -314,39 +320,96 @@ impl CodeBuilder<'_> {
     }
 
     /// `log`/`log10` kernel: x = 2^k*m (frexp + fold to [1/sqrt2, sqrt2)),
-    /// s=(m-1)/(m+1), ln(x) = k*ln2 + s*P(s^2).
+    /// s=(m-1)/(m+1), ln(x) = k*ln2 + s*P(s^2), evaluated in double-double (a
+    /// compensated Horner plus two-sum/two-product recombination) so the result
+    /// is strict <=1 ULP; `log10` then multiplies by `1/ln10` as a double-double.
+    /// Constants: v16 sqrt_half, v17 1.0, v18 0x7ff, v19 1022, v20 mantmask,
+    /// v21 1022<<52, v23 1, v24/v25 ln2 hi/lo, v26/v27 1/ln10 hi/lo; v22 error.
     fn emit_log_body(&mut self, base10: bool) {
         // Domain: x <= 0 fails.
         self.emit(abi::vector_fcmle_zero("v1", "v0"));
         self.emit(abi::vector_orr("v22", "v22", "v1"));
-        // k = ((bits>>52) & 0x7ff) - 1022.
+        // k = ((bits>>52) & 0x7ff) - 1022  (integer, v1).
         self.emit(abi::vector_ushr("v1", "v0", 52));
-        self.emit(abi::vector_and("v1", "v1", "v19"));
-        self.emit(abi::vector_sub("v2", "v1", "v20")); // k (int)
-        // m = bits with exponent field replaced by 1022 → m in [0.5, 1).
-        self.emit(abi::vector_and("v3", "v0", "v21"));
-        self.emit(abi::vector_orr("v3", "v3", "v24")); // m (float)
+        self.emit(abi::vector_and("v1", "v1", "v18"));
+        self.emit(abi::vector_sub("v1", "v1", "v19"));
+        // m = bits with exponent field replaced by 1022 → m in [0.5, 1) (v6).
+        self.emit(abi::vector_and("v6", "v0", "v20"));
+        self.emit(abi::vector_orr("v6", "v6", "v21"));
         // if m < 1/sqrt2 { m *= 2; k -= 1 }.
-        self.emit(abi::vector_fcmgt("v4", "v17", "v3")); // mask: sqrt_half > m
-        self.emit(abi::vector_and("v5", "v4", "v25")); // mask & 1
-        self.emit(abi::vector_sub("v2", "v2", "v5")); // k -= adjust
-        self.emit(abi::vector_fadd("v5", "v3", "v3")); // m*2
-        self.emit(abi::vector_bsl("v4", "v5", "v3")); // v4 = mask?m2:m
-        // s = (m-1)/(m+1); s2 = s*s.
-        self.emit(abi::vector_fsub("v5", "v4", "v18")); // m - 1
-        self.emit(abi::vector_fadd("v6", "v4", "v18")); // m + 1
-        self.emit(abi::vector_fdiv("v1", "v5", "v6")); // s  (v1)
-        self.emit(abi::vector_fmul("v5", "v1", "v1")); // s2 (v5)
-        // P(s2) via Horner into v3.
-        self.emit_horner("v3", "v5", &LOG_COEFFS);
-        // poly = s * P(s2); result = poly + k_f*ln2.
-        self.emit(abi::vector_fmul("v3", "v1", "v3")); // poly
-        self.emit(abi::vector_scvtf("v2", "v2")); // k -> float
-        self.emit(abi::vector_fmla("v3", "v2", "v16")); // poly + k_f*ln2
-        if base10 {
-            self.emit(abi::vector_fmul("v3", "v3", "v26"));
+        self.emit(abi::vector_fcmgt("v7", "v16", "v6")); // mask: sqrt_half > m
+        self.emit(abi::vector_and("v0", "v7", "v23")); // mask & 1
+        self.emit(abi::vector_sub("v1", "v1", "v0")); // k -= adjust
+        self.emit(abi::vector_fadd("v0", "v6", "v6")); // m*2
+        self.emit(abi::vector_bsl("v7", "v0", "v6")); // v7 = mask?m2:m  (= m)
+        self.emit(abi::vector_scvtf("v3", "v1")); // k -> float (v3)
+        // s = (m-1)/(m+1) (v2); s2 = s*s (v1, the Horner variable).
+        self.emit(abi::vector_fsub("v0", "v7", "v17")); // m - 1
+        self.emit(abi::vector_fadd("v6", "v7", "v17")); // m + 1
+        self.emit(abi::vector_fdiv("v2", "v0", "v6")); // s
+        self.emit(abi::vector_fmul("v1", "v2", "v2")); // s2
+        // P(s2) as a double-double (hi=v4, lo=v5) via compensated Horner.
+        self.emit_compensated_horner("v4", "v5", "v1", &LOG_COEFFS);
+        // ln(m) = s * (hi+lo): two-product then fma the lo terms → (v7=lh, v28=le).
+        self.emit_twoprod("v7", "v28", "v2", "v4");
+        self.emit(abi::vector_fmla("v28", "v2", "v5")); // le += s*lo
+        // k*ln2 as a double-double → (v29=kh, v30=ke).
+        self.emit_twoprod("v29", "v30", "v3", "v24");
+        self.emit(abi::vector_fmla("v30", "v3", "v25")); // ke += k*ln2lo
+        // (kh,ke) + (lh,le): two-sum hi, accumulate the lows → hi=v0, lo=v31.
+        // Scratch v4/v5 are dead (Horner outputs consumed).
+        self.emit_twosum("v0", "v31", "v29", "v7", "v4", "v5");
+        self.emit(abi::vector_fadd("v31", "v31", "v30")); // + ke
+        self.emit(abi::vector_fadd("v31", "v31", "v28")); // + le
+        if !base10 {
+            self.emit(abi::vector_fadd("v0", "v0", "v31")); // ln(x) = hi + lo
+        } else {
+            // log10(x) = (hi+lo) * (1/ln10 as hi+lo), compensated.
+            self.emit_twoprod("v6", "v7", "v0", "v26"); // ph = hi*L10HI
+            self.emit(abi::vector_fmla("v7", "v0", "v27")); // pe += hi*L10LO
+            self.emit(abi::vector_fmla("v7", "v31", "v26")); // pe += lo*L10HI
+            self.emit(abi::vector_fadd("v0", "v6", "v7"));
         }
-        self.emit(abi::vector_orr("v0", "v3", "v3"));
+    }
+
+    /// Double-double product `a*b → (p, e)` with `p+e == a*b` to ~2x precision:
+    /// `p = a*b`, `e = fma(a, b, -p)`. `p`/`e` must be distinct from `a`/`b`.
+    fn emit_twoprod(&mut self, p: &str, e: &str, a: &str, b: &str) {
+        self.emit(abi::vector_fmul(p, a, b));
+        self.emit(abi::vector_fneg(e, p)); // e = -p
+        self.emit(abi::vector_fmla(e, a, b)); // e = -p + a*b = fma(a,b,-p)
+    }
+
+    /// Knuth two-sum `a+b → (s, e)` with `s+e == a+b` exactly. `t1`/`t2` are
+    /// caller-supplied scratch (must be caller-saved vector regs distinct from the
+    /// operands/results — `v8`-`v15` are callee-saved and off-limits here).
+    fn emit_twosum(&mut self, s: &str, e: &str, a: &str, b: &str, t1: &str, t2: &str) {
+        self.emit(abi::vector_fadd(s, a, b));
+        self.emit(abi::vector_fsub(t1, s, a)); // t
+        self.emit(abi::vector_fsub(t2, s, t1)); // s - t  (~a)
+        self.emit(abi::vector_fsub(t2, a, t2)); // a - (s-t)
+        self.emit(abi::vector_fsub(t1, b, t1)); // b - t
+        self.emit(abi::vector_fadd(e, t2, t1));
+    }
+
+    /// Compensated (double-double) Horner of `coeffs` in `var`, leaving the result
+    /// as `(hi, lo)`. Each step keeps the running accumulator to ~2x precision.
+    /// Uses v6 (coeff broadcast), v7/v28/v29/v30 and v8/v9 (via two-sum) as
+    /// scratch — distinct from `hi`/`lo`/`var`.
+    fn emit_compensated_horner(&mut self, hi: &str, lo: &str, var: &str, coeffs: &[f64]) {
+        self.broadcast_f64(hi, coeffs[coeffs.len() - 1]);
+        self.emit(abi::vector_eor(lo, lo, lo));
+        for i in (0..coeffs.len() - 1).rev() {
+            // (ph, pe) = twoprod(hi, var); pe += lo*var.
+            self.emit_twoprod("v7", "v28", hi, var);
+            self.emit(abi::vector_fmla("v28", lo, var));
+            // (sh, se) = twosum(c, ph). Scratch v0/v31 are free during the Horner.
+            self.broadcast_f64("v6", coeffs[i]);
+            self.emit_twosum("v29", "v30", "v6", "v7", "v0", "v31");
+            // hi = sh; lo = se + pe.
+            self.emit(abi::vector_orr(hi, "v29", "v29"));
+            self.emit(abi::vector_fadd(lo, "v30", "v28"));
+        }
     }
 
     /// Horner evaluation of `coeffs` in the variable held by `var`, leaving the
