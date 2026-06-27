@@ -50,6 +50,8 @@ const PACKAGE_ORDER: &[&str] = &[
     "diagnostics",
     "tooling",
     "package-manager",
+    "unicode",
+    "app",
 ];
 
 static PACKAGES: LazyLock<Vec<SpecPackage>> = LazyLock::new(|| {
