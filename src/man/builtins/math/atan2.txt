@@ -4,6 +4,7 @@ NAME
 SYNOPSIS
   math::atan2(y AS Float, x AS Float) AS Float
   math::atan2(y AS Fixed, x AS Fixed) AS Fixed
+  math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float
 
 PACKAGE
   math
@@ -53,6 +54,17 @@ OVERLOADS
     arithmetic, so the result is identical across targets, rounding the result
     to the nearest representable Fixed value. Never fails.
 
+  math::atan2(y AS List OF Float, x AS List OF Float) AS List OF Float
+    Applies atan2 element-by-element across the two Lists using NEON SIMD
+    and returns a new List of the same type and length. Both input Lists
+    must have the same length. It raises the same errors as the scalar
+    overload(s) above, but a per-element failure is reported once, after
+    every element has been processed (the partially built result List is
+    discarded), so the error is deterministic regardless of which element
+    triggered it. Float results come from a hand-written NEON f64 kernel (no
+    external math library) within 1 ULP of macOS libm; the scalar Float
+    overload shares that kernel.
+
 PARAMETERS
   y AS Float | Fixed
     The vertical component of the vector. Any finite value of the chosen
@@ -98,18 +110,6 @@ EXAMPLES
 
     LET scaled AS Fixed = math::atan2(0.0, -1.0)
 
-NOTES
-  Array (List) overload. In addition to the scalar forms above, math::atan2
-  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
-  Fixed), applying atan2 to every element with NEON SIMD and returning a new
-  List of the same numeric type. A per-element error is reported once, after
-  every element has been processed, so it is deterministic regardless of
-  which element triggered it; the partially built result List is then
-  discarded. Float array results come from a hand-written NEON f64 kernel
-  (no external math library) within 1 ULP of macOS libm; the scalar Float
-  overload shares that kernel, so math::atan2(x) and math::atan2([x])[0] are
-  bit-identical. See `mfb spec language builtin-functions` for the full
-  array-overload table.
 
 SEE ALSO
   math::atan, math::asin, math::acos, math::tan

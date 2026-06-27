@@ -5,6 +5,9 @@ SYNOPSIS
   math::clamp(value AS Integer, low AS Integer, high AS Integer) AS Integer
   math::clamp(value AS Float, low AS Float, high AS Float) AS Float
   math::clamp(value AS Fixed, low AS Fixed, high AS Fixed) AS Fixed
+  math::clamp(values AS List OF Integer, low AS Integer, high AS Integer) AS List OF Integer
+  math::clamp(values AS List OF Float, low AS Float, high AS Float) AS List OF Float
+  math::clamp(values AS List OF Fixed, low AS Fixed, high AS Fixed) AS List OF Fixed
 
 PACKAGE
   math
@@ -44,6 +47,15 @@ OVERLOADS
 
   math::clamp(value AS Fixed, low AS Fixed, high AS Fixed) AS Fixed
     Clamps a Fixed value to an inclusive Fixed range.
+
+  math::clamp(values AS List OF T, low AS T, high AS T) AS List OF T  (T = Integer | Float | Fixed)
+    Clamps each element of the List into [low, high] using NEON SIMD and
+    returns a new List of the same type and length. It raises the same
+    errors as the scalar overload(s) above, but a per-element failure is
+    reported once, after every element has been processed (the partially
+    built result List is discarded), so the error is deterministic
+    regardless of which element triggered it. Each element equals the
+    corresponding scalar result exactly.
 
 PARAMETERS
   value AS Integer | Float | Fixed
@@ -87,16 +99,6 @@ EXAMPLES
 
     LET ratio AS Float = math::clamp(1.4, 0.0, 1.0)
 
-NOTES
-  Array (List) overload. In addition to the scalar forms above, math::clamp
-  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
-  Fixed), applying clamp to every element with NEON SIMD and returning a new
-  List of the same numeric type. A per-element error is reported once, after
-  every element has been processed, so it is deterministic regardless of
-  which element triggered it; the partially built result List is then
-  discarded. The array result is exact: each element equals the
-  corresponding scalar overload. See `mfb spec language builtin-functions`
-  for the full array-overload table.
 
 SEE ALSO
   math::min, math::max, math::abs

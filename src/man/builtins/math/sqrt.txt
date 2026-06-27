@@ -4,6 +4,8 @@ NAME
 SYNOPSIS
   math::sqrt(value AS Float) AS Float
   math::sqrt(value AS Fixed) AS Fixed
+  math::sqrt(values AS List OF Float) AS List OF Float
+  math::sqrt(values AS List OF Fixed) AS List OF Fixed
 
 PACKAGE
   math
@@ -35,6 +37,15 @@ OVERLOADS
     Computes the square root of a Fixed using deterministic fixed-point
     (Q32.32) arithmetic and rounds to the nearest Fixed value. Fails with
     ErrInvalidArgument when value is negative.
+
+  math::sqrt(values AS List OF Float | Fixed) AS List OF (same type)
+    Applies sqrt to each element of a numeric List using NEON SIMD and
+    returns a new List of the same type and length. It raises the same
+    errors as the scalar overload(s) above, but a per-element failure is
+    reported once, after every element has been processed (the partially
+    built result List is discarded), so the error is deterministic
+    regardless of which element triggered it. Each element equals the
+    corresponding scalar result exactly.
 
 PARAMETERS
   value AS Float | Fixed
@@ -73,16 +84,6 @@ EXAMPLES
 
     LET side AS Fixed = math::sqrt(2.0)
 
-NOTES
-  Array (List) overload. In addition to the scalar forms above, math::sqrt
-  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
-  Fixed), applying sqrt to every element with NEON SIMD and returning a new
-  List of the same numeric type. A per-element error is reported once, after
-  every element has been processed, so it is deterministic regardless of
-  which element triggered it; the partially built result List is then
-  discarded. The array result is exact: each element equals the
-  corresponding scalar overload. See `mfb spec language builtin-functions`
-  for the full array-overload table.
 
 SEE ALSO
   math::pow, math::exp, math::abs

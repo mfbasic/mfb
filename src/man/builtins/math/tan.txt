@@ -4,6 +4,7 @@ NAME
 SYNOPSIS
   math::tan(value AS Float) AS Float
   math::tan(value AS Fixed) AS Fixed
+  math::tan(values AS List OF Float) AS List OF Float
 
 PACKAGE
   math
@@ -50,6 +51,16 @@ OVERLOADS
     nearest representable Fixed value. Fails with ErrInvalidArgument when the
     computed cosine is zero.
 
+  math::tan(values AS List OF Float) AS List OF Float
+    Applies tan to each element of a numeric List using NEON SIMD and
+    returns a new List of the same type and length. It raises the same
+    errors as the scalar overload(s) above, but a per-element failure is
+    reported once, after every element has been processed (the partially
+    built result List is discarded), so the error is deterministic
+    regardless of which element triggered it. Float results come from a
+    hand-written NEON f64 kernel (no external math library) and are
+    faithfully rounded (within 1 ULP for almost all inputs).
+
 PARAMETERS
   value AS Float | Fixed
     The angle whose tangent is computed, expressed in radians. Any value of the
@@ -94,19 +105,6 @@ EXAMPLES
 
     LET slope AS Fixed = math::tan(math::pi4)
 
-NOTES
-  Array (List) overload. In addition to the scalar forms above, math::tan
-  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
-  Fixed), applying tan to every element with NEON SIMD and returning a new
-  List of the same numeric type. A per-element error is reported once, after
-  every element has been processed, so it is deterministic regardless of
-  which element triggered it; the partially built result List is then
-  discarded. Float array results come from a hand-written NEON f64 kernel
-  (no external math library) and are faithfully rounded: within 1 ULP for
-  the vast majority of inputs, with a small residual near its poles (odd
-  multiples of pi/2). The scalar Float overload stays on the host math
-  library. See `mfb spec language builtin-functions` for the full array-
-  overload table.
 
 SEE ALSO
   math::sin, math::cos, math::atan, math::atan2

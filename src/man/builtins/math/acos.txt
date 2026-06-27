@@ -4,6 +4,7 @@ NAME
 SYNOPSIS
   math::acos(value AS Float) AS Float
   math::acos(value AS Fixed) AS Fixed
+  math::acos(values AS List OF Float) AS List OF Float
 
 PACKAGE
   math
@@ -41,6 +42,16 @@ OVERLOADS
     identical across targets, rounding the result to the nearest representable
     Fixed value. Fails with ErrInvalidArgument when value lies outside the
     closed interval from -1.0 to 1.0.
+
+  math::acos(values AS List OF Float) AS List OF Float
+    Applies acos to each element of a numeric List using NEON SIMD and
+    returns a new List of the same type and length. It raises the same
+    errors as the scalar overload(s) above, but a per-element failure is
+    reported once, after every element has been processed (the partially
+    built result List is discarded), so the error is deterministic
+    regardless of which element triggered it. Float results come from a
+    hand-written NEON f64 kernel (no external math library) within 1 ULP of
+    macOS libm; the scalar Float overload shares that kernel.
 
 PARAMETERS
   value AS Float | Fixed
@@ -80,18 +91,6 @@ EXAMPLES
 
     LET scaled AS Fixed = math::acos(1.0)
 
-NOTES
-  Array (List) overload. In addition to the scalar forms above, math::acos
-  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
-  Fixed), applying acos to every element with NEON SIMD and returning a new
-  List of the same numeric type. A per-element error is reported once, after
-  every element has been processed, so it is deterministic regardless of
-  which element triggered it; the partially built result List is then
-  discarded. Float array results come from a hand-written NEON f64 kernel
-  (no external math library) within 1 ULP of macOS libm; the scalar Float
-  overload shares that kernel, so math::acos(x) and math::acos([x])[0] are
-  bit-identical. See `mfb spec language builtin-functions` for the full
-  array-overload table.
 
 SEE ALSO
   math::asin, math::atan, math::atan2, math::cos

@@ -4,6 +4,8 @@ NAME
 SYNOPSIS
   math::ceil(value AS Float) AS Integer
   math::ceil(value AS Fixed) AS Integer
+  math::ceil(values AS List OF Float) AS List OF Integer
+  math::ceil(values AS List OF Fixed) AS List OF Integer
 
 PACKAGE
   math
@@ -39,6 +41,15 @@ OVERLOADS
     Rounds the Fixed (Q32.32) value up to the nearest Integer toward positive
     infinity using deterministic fixed-point arithmetic. Every Fixed value
     ceils to an Integer that fits in range, so this overload never overflows.
+
+  math::ceil(values AS List OF Float | Fixed) AS List OF Integer
+    Applies ceil to each element of a numeric List using NEON SIMD and
+    returns a new List OF Integer of the same length. It raises the same
+    errors as the scalar overload(s) above, but a per-element failure is
+    reported once, after every element has been processed (the partially
+    built result List is discarded), so the error is deterministic
+    regardless of which element triggered it. Each element equals the
+    corresponding scalar result exactly.
 
 PARAMETERS
   value AS Float | Fixed
@@ -77,16 +88,6 @@ EXAMPLES
 
     LET value AS Integer = math::ceil(-2.25)
 
-NOTES
-  Array (List) overload. In addition to the scalar forms above, math::ceil
-  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
-  Fixed), applying ceil to every element with NEON SIMD and returning a new
-  List of the same numeric type. A per-element error is reported once, after
-  every element has been processed, so it is deterministic regardless of
-  which element triggered it; the partially built result List is then
-  discarded. The array result is exact: each element equals the
-  corresponding scalar overload. See `mfb spec language builtin-functions`
-  for the full array-overload table.
 
 SEE ALSO
   math::floor, math::round, math::abs, math::clamp

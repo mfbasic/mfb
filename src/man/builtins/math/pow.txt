@@ -4,6 +4,7 @@ NAME
 SYNOPSIS
   math::pow(base AS Float, exponent AS Float) AS Float
   math::pow(base AS Fixed, exponent AS Fixed) AS Fixed
+  math::pow(bases AS List OF Float, exponents AS List OF Float) AS List OF Float
 
 PACKAGE
   math
@@ -48,6 +49,17 @@ OVERLOADS
     ErrInvalidArgument when a fractional exponent is applied to a non-positive
     base, or when a negative exponent is applied to a base of zero, and with
     ErrOverflow when the result leaves Fixed range.
+
+  math::pow(bases AS List OF Float, exponents AS List OF Float) AS List OF Float
+    Applies pow element-by-element across the two Lists using NEON SIMD and
+    returns a new List of the same type and length. Both input Lists must
+    have the same length. It raises the same errors as the scalar
+    overload(s) above, but a per-element failure is reported once, after
+    every element has been processed (the partially built result List is
+    discarded), so the error is deterministic regardless of which element
+    triggered it. Float results come from a hand-written NEON f64 kernel (no
+    external math library) and are faithfully rounded (within 1 ULP for
+    almost all inputs).
 
 PARAMETERS
   base AS Float | Fixed
@@ -103,18 +115,6 @@ EXAMPLES
 
     LET area AS Fixed = math::pow(3.0, 2.0)
 
-NOTES
-  Array (List) overload. In addition to the scalar forms above, math::pow
-  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
-  Fixed), applying pow to every element with NEON SIMD and returning a new
-  List of the same numeric type. A per-element error is reported once, after
-  every element has been processed, so it is deterministic regardless of
-  which element triggered it; the partially built result List is then
-  discarded. Float array results come from a hand-written NEON f64 kernel
-  (no external math library) and are faithfully rounded: within 1 ULP for
-  the vast majority of inputs, with a small residual for its hard cases. The
-  scalar Float overload stays on the host math library. See `mfb spec
-  language builtin-functions` for the full array-overload table.
 
 SEE ALSO
   math::sqrt, math::exp, math::log, math::abs
