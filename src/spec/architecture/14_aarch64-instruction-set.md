@@ -192,6 +192,12 @@ ops: `Vd=bits[4:0]`, `Vn=bits[9:5]`, `Vm=bits[20:16]`.
 | `UshrV` | `ushr_v` | `dst`,`src`,`shift` | `0x6F000400` | unsigned right; `immhb=128−s` |
 | `DupVFromX` | `dup_v_from_x` | `dst`,`src` | `0x4E080C00` | broadcast GPR into both `.2d` lanes |
 | `UmovXFromV` | `umov_x_from_v` | `dst`,`src`,`index` | `0x4E003C00` | `Xd ← Vn.d[index]`; `imm5=8\|(index<<4)` |
+| `FMaddD` | `fmadd_d` | `dst`,`addend`,`lhs`,`rhs` | `0x1F400000` | scalar `Dd = Da + Dn*Dm` (one round); `Ra=bits[14:10]` |
+
+The scalar `fmadd_d` (and the `d`-register decoding extended to `d8`..`d31`)
+backs the double-double recombination in the Float transcendental kernels, which
+also rely on the internal runtime symbol `_mfb_simd_alloc_list(count, typeCode)`
+(allocates a tight homogeneous numeric `List`; `mfb spec memory collections`).
 
 Integer `min`/`max`/`mul`/`clz` have no `.2d` form in NEON, so the kernels build
 those from `cmgt_v`+`bsl_v` (lane select) and integer shifts instead. A per-lane

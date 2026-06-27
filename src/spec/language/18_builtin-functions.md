@@ -65,6 +65,22 @@ Regex (`IMPORT regex`): `regex::match`, `regex::find`, `regex::findAll`, `regex:
 Collections (`IMPORT collections`): the migrated native accessors `collections::forEach`, `collections::transform`, `collections::filter`, `collections::reduce`, `collections::sum`, `collections::get`, `collections::getOr`, `collections::find`, `collections::mid`, `collections::replace`, `collections::set`, `collections::append`, `collections::prepend`, `collections::insert`, `collections::removeAt`, `collections::removeKey`, `collections::keys`, `collections::values`, `collections::hasKey`, `collections::contains` (`src/builtins/collections.rs` `NATIVE_MEMBERS`), plus the MFBASIC-source generics `collections::sort`, `sortBy`, `take`, `drop`, `reduceRight`, `any`, `all`, `findIndex`, `findLastIndex`, `groupBy`, `mapValues`, `flatten`, `zip`, `chunks`, `window`, `distinct`, `merge`, `partition` (`FUNCTIONS`). (`len` of a `List`/`Map` is the general built-in, §18.1.)
 Threads (`IMPORT thread`, `src/builtins/thread.rs` `is_thread_call`): `thread::start`, `thread::isRunning`, `thread::waitFor`, `thread::cancel`, `thread::send`, `thread::poll`, `thread::receive`, `thread::isCancelled`, and the resource/value transfer-plane members `thread::transfer`, `thread::accept`, `thread::transferResource`, `thread::acceptResource`, `thread::emitResource`, `thread::readResource`.
 Math (`IMPORT math`): the call members `math::abs`, `math::min`, `math::max`, `math::clamp`, `math::floor`, `math::ceil`, `math::round`, `math::sqrt`, `math::pow`, `math::exp`, `math::log`, `math::log10`, `math::sin`, `math::cos`, `math::tan`, `math::asin`, `math::acos`, `math::atan`, `math::atan2`, `math::rand`, `math::seed` (`src/builtins/math.rs` `is_math_call`), and the compile-time constants `math::pi`, `math::piFixed`, `math::e`, `math::eFixed` (`is_math_constant`, fold to literals like the `errorCode::Err*` registry — not callables).
+
+**Array (SIMD) overloads.** Most `math::` members also accept a homogeneous numeric **list** and return a freshly allocated list, computing every element with AArch64 NEON vector instructions (two 64-bit lanes per instruction; `mfb spec architecture aarch64-instruction-set` "NEON vector ops"). Selection is by argument type (a `List OF …` argument picks the array overload):
+
+| Member | Array overload(s) | Per-lane error |
+|---|---|---|
+| `abs` | `Integer[]→Integer[]`, `Fixed[]→Fixed[]`, `Float[]→Float[]` | `ErrOverflow` (Integer/Fixed min value) |
+| `floor`/`ceil`/`round` | `Float[]→Integer[]`, `Fixed[]→Integer[]` | `ErrOverflow` (Float out of `Integer` range) |
+| `min`/`max` | `(T[],T[])→T[]` for `T∈{Integer,Float,Fixed}` | `ErrInvalidArgument` (lengths differ) |
+| `clamp` | `(T[],T,T)→T[]` for `T∈{Integer,Float,Fixed}` | — |
+| `sqrt` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | `ErrInvalidArgument` (negative lane) |
+| `log`/`log10` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | `ErrInvalidArgument` (lane ≤ 0) |
+| `exp`/`sin`/`cos`/`tan`/`atan` | `Float[]→Float[]` | `ErrOverflow` (`exp` only) |
+| `asin`/`acos` | `Float[]→Float[]` | `ErrInvalidArgument` (lane outside `[-1,1]`) |
+| `pow`/`atan2` | `(Float[],Float[])→Float[]` | `ErrInvalidArgument` (lengths differ) |
+
+A per-lane error is reported as a single error **after** processing all lanes (the result list is discarded), so the error is deterministic regardless of which lane failed. `Fixed[]` results are platform-independent (deterministic Q32.32; `sqrt` is a real 2-lane NEON kernel, `log`/`log10` are per-lane Q32.32 — both bit-identical to the scalar `Fixed` result). **`Float[]` transcendentals are hand-written NEON `f64` polynomial kernels** (no external math library), identical on every target: `exp`/`log`/`log10`/`sin`/`cos` are within **≤1 ULP of macOS libm**; `tan`/`atan`/`asin`/`acos`/`atan2`/`pow` are faithfully rounded (within a few ULP — the strict ≤1-ULP reduction for those is tracked work). The algebraic overloads (`abs`/`min`/`max`/`clamp`/`floor`/`ceil`/`round`/`sqrt`) are exact, matching the scalar result element-wise.
 JSON (`IMPORT json`): `json::parse`, `json::stringify`, `json::get`, `json::getOr`.
 Error codes (`IMPORT errorCode`): `errorCode::ErrInvalidArgument`, `errorCode::ErrNotFound`, and the other constants listed in the built-in error-code registry. These are compile-time `Integer` constants (`src/builtins/errorcode.rs`), not callables.
 
