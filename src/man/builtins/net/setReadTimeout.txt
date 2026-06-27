@@ -34,6 +34,28 @@ OVERLOADS
   net::setReadTimeout(sock AS UdpSocket, timeoutMs AS Integer) AS Nothing
     Bounds receives on a bound UDP socket.
 
+PARAMETERS
+  sock AS Socket
+    An open, connected TCP Socket, as returned by net::connectTcp or
+    net::accept, whose subsequent reads are to be bounded. The socket must still
+    be open.
+
+  sock AS UdpSocket
+    An open, bound UdpSocket, as returned by net::bindUdp, whose subsequent
+    receives are to be bounded. The socket must still be open.
+
+  timeoutMs AS Integer
+    The maximum time, in milliseconds, that a subsequent read or receive may
+    block waiting for data. A value of 0 disables the timeout so reads block
+    indefinitely, which is the default state of a freshly opened socket. A
+    positive value bounds each read to that many milliseconds. The value must
+    not be negative.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing. On success the read timeout has been applied to sock and
+    takes effect on every subsequent read.
+
 ERRORS
   77050002 (ErrInvalidArgument)
   Raised when timeoutMs is negative.

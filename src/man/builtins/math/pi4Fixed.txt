@@ -11,14 +11,20 @@ IMPORTS
   IMPORT math
 
 DESCRIPTION
-  The mathematical constant pi / 4, expressed as a Fixed value. This is an
-  eighth turn, equal to 45 degrees measured in radians. Its value is the
-  closest Fixed to pi / 4, approximately 0.7853981633974483.
+  The mathematical constant pi / 4, an eighth turn or 45 degrees expressed in
+  radians, as a Fixed value. Its value is the closest Fixed to pi / 4,
+  approximately 0.7853981633974483. The exact mathematical value is irrational
+  and cannot be represented in finite precision.
 
   pi4Fixed is a constant, not a callable function: it takes no arguments and is
-  referenced by name. It evaluates to the same Fixed value on every platform,
-  making it suitable for deterministic decimal arithmetic where a Float is not
-  desired. Use math::pi4 for the Float form of the same constant.
+  referenced by name wherever a Fixed expression is expected. It performs no
+  computation at the call site and has no side effects, evaluating to the same
+  Fixed value on every use and on every platform. This makes it suitable for
+  deterministic decimal arithmetic where a Float is not desired.
+
+  For the Float form of the same constant, use math::pi4. The related angle
+  constants math::piFixed (pi, a full half turn) and math::pi2Fixed (pi / 2, a
+  quarter turn) express the same family of values as Fixed.
 
 PARAMETERS
   None.
@@ -26,7 +32,8 @@ PARAMETERS
 
 RETURN VALUE
   AS Fixed
-    The closest Fixed value to pi / 4, approximately 0.7853981633974483.
+    The closest Fixed value to pi / 4, approximately 0.7853981633974483. The
+    same value is produced on every reference.
 
 ERRORS
   No errors.
@@ -38,7 +45,7 @@ EXAMPLES
 
     LET value AS Fixed = math::pi4Fixed
 
-  Derive the eighth turn from pi:
+  Derive an eighth turn from piFixed using Fixed arithmetic:
 
     IMPORT math
 

@@ -66,16 +66,37 @@ ERRORS
 EXAMPLES
   Join words with a space:
 
-    LET line AS String = strings::join(["Hello", "World"], " ")
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      LET line = strings::join(["Hello", "World"], " ")
+      io::print(line)
+      RETURN 0
+    END FUNC
 
   An empty delimiter concatenates the elements directly:
 
-    LET glued AS String = strings::join(["a", "b", "c"], "")
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      LET glued = strings::join(["a", "b", "c"], "")
+      io::print(glued)
+      RETURN 0
+    END FUNC
 
   Joining is the inverse of splitting on the same delimiter:
 
-    LET parts AS List OF String = strings::split("a,b,c", ",")
-    LET round AS String = strings::join(parts, ",")
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      LET parts = strings::split("a,b,c", ",")
+      LET round = strings::join(parts, ",")
+      io::print(round)
+      RETURN 0
+    END FUNC
 
 SEE ALSO
   split, repeat, contains, collections sum

@@ -57,11 +57,15 @@ EXAMPLES
 
   Iterate over user-perceived characters:
 
+    IMPORT io
     IMPORT strings
 
-    FOR EACH g IN strings::graphemes("héllo")
-      io::print(g)
-    END FOR
+    FUNC main AS Integer
+      FOR EACH g IN strings::graphemes("héllo")
+        io::print(g)
+      END FOR
+      RETURN 0
+    END FUNC
 
 SEE ALSO
   graphemesCount, graphemeAt, byteLen, len

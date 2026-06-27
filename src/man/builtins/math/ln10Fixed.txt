@@ -12,14 +12,20 @@ IMPORTS
 
 DESCRIPTION
   The natural logarithm of 10, expressed as a Fixed value. Its value is the
-  closest Fixed to ln(10), approximately 2.302585092994046.
+  closest Fixed to ln(10), approximately 2.302585092994046. The exact
+  mathematical value is irrational and cannot be represented exactly, so this
+  constant is the nearest representable Fixed.
 
   ln10Fixed is a constant, not a callable function: it takes no arguments and is
-  referenced by name. It evaluates to the same Fixed value on every platform,
-  making it suitable for deterministic decimal arithmetic where a Float is not
-  desired. A common use is converting between natural and base-10 logarithms:
-  log10(x) equals math::log(x) / math::ln10Fixed. Use math::ln10 for the Float
-  form of the same constant.
+  referenced by name wherever a Fixed expression is expected. It performs no
+  computation at the call site and has no side effects, evaluating to the same
+  Fixed value on every use and on every platform. This makes it suitable for
+  deterministic decimal arithmetic where a Float is not desired.
+
+  This constant is commonly used to convert between natural and base-10
+  logarithms: the base-10 logarithm of a value x equals
+  math::log(x) / math::ln10Fixed. Use math::ln10 for the Float form of the same
+  constant, and math::ln2Fixed for the natural logarithm of 2.
 
 PARAMETERS
   None.
@@ -27,7 +33,8 @@ PARAMETERS
 
 RETURN VALUE
   AS Fixed
-    The closest Fixed value to ln(10), approximately 2.302585092994046.
+    The closest Fixed value to ln(10), approximately 2.302585092994046. The same
+    value is produced on every reference.
 
 ERRORS
   No errors.
@@ -39,7 +46,7 @@ EXAMPLES
 
     LET value AS Fixed = math::ln10Fixed
 
-  Convert a natural logarithm to base-10 with Fixed arithmetic:
+  Compute a base-10 logarithm from the natural logarithm:
 
     IMPORT math
 

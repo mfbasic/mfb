@@ -1,5 +1,5 @@
 NAME
-  replace - replace all occurrences of a substring
+  replace - replace every occurrence of a substring with another string
 
 SYNOPSIS
   strings::replace(value AS String, old AS String, new AS String) AS String
@@ -14,35 +14,43 @@ DESCRIPTION
   replace returns a new String in which every non-overlapping occurrence of old
   in value has been replaced with new.
 
-  Matching scans value from left to right. After a match is replaced, scanning
-  resumes at the position following the matched text, so matches never overlap.
-  Matching is performed on raw UTF-8 bytes; the function does not normalize
-  Unicode or operate on grapheme clusters. The original value is not mutated and
-  the result is a fresh owned String.
+  Matching scans value from left to right. Each time old is found, the matched
+  text is replaced with new and scanning resumes at the position immediately
+  following the matched region, so matches never overlap and a replacement is
+  never re-examined. Where old does not match, the original bytes are copied
+  through unchanged.
 
-  If old is an empty String, or old is longer than value, no occurrence can
-  match and replace returns a String equal to value unchanged. When old is found
-  but new is empty, each match is removed without inserting anything.
+  Matching is performed on raw UTF-8 bytes. replace does not normalize Unicode,
+  fold case, or operate on grapheme clusters; old must match value byte for byte
+  to be replaced. Because the inputs are well-formed UTF-8 and UTF-8 is
+  self-synchronizing, a byte match is always also a whole-scalar match, so the
+  result is always well-formed UTF-8.
+
+  If old is the empty String, no occurrence can match and value is returned
+  unchanged; replace never inserts new between existing characters. If old is
+  longer than value it likewise cannot match and value is returned unchanged.
+  When old does match and new is the empty String, each match is removed without
+  inserting anything in its place.
+
+  replace does not mutate value, old, or new and has no side effects. The
+  returned String is always a fresh owned value, even when no replacement
+  occurred (in that case value is deep-copied rather than aliased).
 
   replace is also defined for collections; see collections replace for the List
-  overload.
-
-OVERLOADS
-  strings::replace(value AS String, old AS String, new AS String) AS String
-    Replaces every non-overlapping occurrence of old in value with new.
+  overload that replaces an element at a given index.
 
 PARAMETERS
   value AS String
-    The string to search and copy from. Returned unchanged when old does not
-    occur.
+    The string to search and copy from. Returned unchanged (as a fresh copy)
+    when old does not occur.
 
   old AS String
     The substring to search for. An empty old never matches, so value is
-    returned unchanged.
+    returned unchanged; an old longer than value also never matches.
 
   new AS String
-    The replacement substring written in place of each match of old. May be
-    empty to delete matches.
+    The replacement string written in place of each match of old. May be empty
+    to delete matches.
 
 RETURN VALUE
   AS String
@@ -69,4 +77,4 @@ EXAMPLES
     LET same AS String = strings::replace("hello", "", "x")
 
 SEE ALSO
-  find, mid, contains, len, collections replace
+  find, mid, contains, split, len, collections replace

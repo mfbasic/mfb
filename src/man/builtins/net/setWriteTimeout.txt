@@ -34,6 +34,28 @@ OVERLOADS
   net::setWriteTimeout(sock AS UdpSocket, timeoutMs AS Integer) AS Nothing
     Bounds sends on a bound UDP socket.
 
+PARAMETERS
+  sock AS Socket
+    An open, connected TCP Socket, as returned by net::connectTcp or
+    net::accept, whose subsequent writes are to be bounded. The socket must still
+    be open.
+
+  sock AS UdpSocket
+    An open, bound UdpSocket, as returned by net::bindUdp, whose subsequent sends
+    are to be bounded. The socket must still be open.
+
+  timeoutMs AS Integer
+    The maximum time, in milliseconds, that a subsequent write or send may block
+    waiting for the buffer to accept data. A value of 0 disables the timeout so
+    writes block indefinitely, which is the default state of a freshly opened
+    socket. A positive value bounds each write to that many milliseconds. The
+    value must not be negative.
+
+RETURN VALUE
+  AS Nothing
+    Returns nothing. On success the write timeout has been applied to sock and
+    takes effect on every subsequent write.
+
 ERRORS
   77050002 (ErrInvalidArgument)
   Raised when timeoutMs is negative.
@@ -54,12 +76,13 @@ EXAMPLES
 
   Bound a UDP send so a stalled buffer does not block forever:
 
+    IMPORT collections
     IMPORT net
 
     RES sock = net::bindUdp("0.0.0.0", 0)
     net::setWriteTimeout(sock, 1000)
-    RES peer = net::lookup("example.com", 9000)
-    net::sendTextTo(sock, peer, "ping")
+    LET dest = collections::get(net::lookup("127.0.0.1", 9000), 0)
+    net::sendTextTo(sock, dest, "ping")
     ' sock is closed by lexical drop when this scope ends
 
 SEE ALSO

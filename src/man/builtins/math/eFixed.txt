@@ -11,13 +11,20 @@ IMPORTS
   IMPORT math
 
 DESCRIPTION
-  Euler's number e, the base of the natural logarithm, expressed as a Fixed
-  value. Its value is the closest Fixed to e, approximately 2.718281828459045.
+  Euler's number e, the base of the natural logarithm, as a Fixed value. Its
+  value is the closest Fixed to e, approximately 2.718281828459045. The exact
+  mathematical value is irrational and cannot be represented in finite
+  precision.
 
   eFixed is a constant, not a callable function: it takes no arguments and is
-  referenced by name. It evaluates to the same Fixed value on every platform,
-  making it suitable for deterministic decimal arithmetic where a Float is not
-  desired. Use math::e for the Float form of the same constant.
+  referenced by name wherever a Fixed expression is expected. It performs no
+  computation at the call site and has no side effects, evaluating to the same
+  Fixed value on every use and on every platform. This makes it suitable for
+  deterministic decimal arithmetic where a Float is not desired.
+
+  For the Float form of the same constant, use math::e. The related constants
+  math::ln2Fixed and math::ln10Fixed express the natural logarithms of 2 and 10
+  as Fixed, the inverse direction of the exponential whose base is e.
 
 PARAMETERS
   None.
@@ -25,7 +32,8 @@ PARAMETERS
 
 RETURN VALUE
   AS Fixed
-    The closest Fixed value to e, approximately 2.718281828459045.
+    The closest Fixed value to e, approximately 2.718281828459045. The same
+    value is produced on every reference.
 
 ERRORS
   No errors.

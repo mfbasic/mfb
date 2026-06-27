@@ -32,30 +32,38 @@ DESCRIPTION
   targets, then rounds it to the nearest representable Fixed value.
 
   The arc tangent is defined for every pair of finite arguments, including the
-  origin (0, 0), and never rejects its arguments. The signs of the arguments
+  origin (0, 0), and never rejects a finite input. The signs of the arguments
   determine the quadrant: atan2 of a positive y is positive, atan2 of a negative
   y is negative, atan2(0, x) is zero when x is positive and pi when x is
-  negative. The function performs no mutation and has no side effects.
+  negative. The result is always bounded within -pi to pi, so it never tends to
+  an infinity; only a NaN Float argument drives the host arc tangent to a NaN
+  result, which the Float overload reports as ErrFloatNan rather than returning.
+  The Fixed overload has no such failure path. The function performs no mutation
+  and has no side effects.
 
 OVERLOADS
   math::atan2(y AS Float, x AS Float) AS Float
     Computes the arc tangent using floating-point arithmetic and returns it as
-    a Float.
+    a Float. Fails with ErrFloatNan when the result is not a number, which
+    happens only when y or x is itself a NaN; every other pair of Float
+    arguments, including the origin (0, 0), succeeds.
 
   math::atan2(y AS Fixed, x AS Fixed) AS Fixed
     Computes the arc tangent using deterministic fixed-point (Q32.32)
     arithmetic, so the result is identical across targets, rounding the result
-    to the nearest representable Fixed value.
+    to the nearest representable Fixed value. Never fails.
 
 PARAMETERS
   y AS Float | Fixed
     The vertical component of the vector. Any finite value of the chosen
-    numeric type is accepted; there is no restricted domain.
+    numeric type is accepted; there is no restricted domain. A NaN Float
+    argument yields a NaN result and is reported as ErrFloatNan.
 
   x AS Float | Fixed
     The horizontal component of the vector. Must match the numeric type of y.
     Any finite value is accepted, and its sign selects the half-plane in which
-    the angle is measured.
+    the angle is measured. A NaN Float argument yields a NaN result and is
+    reported as ErrFloatNan.
 
 RETURN VALUE
   AS Float | Fixed
@@ -66,7 +74,10 @@ RETURN VALUE
     Fixed value.
 
 ERRORS
-  No errors.
+  77050013 (ErrFloatNan)
+  Raised by the Float overload when the computed result is not a number, which
+  occurs only when y or x is itself a NaN. The Fixed overload never raises this
+  error.
 
 TYPE CHECKING
   y and x must both be Float or both be Fixed. Calling math::atan2 with mixed

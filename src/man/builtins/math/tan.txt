@@ -27,16 +27,22 @@ DESCRIPTION
   to the nearest representable Fixed value.
 
   Tangent is undefined at odd multiples of pi/2, where cosine is zero. The Float
-  overload reports this by failing when the result would be infinite; the Fixed
-  overload reports it by failing when its computed cosine is zero. For a very
-  large magnitude the angle's fractional part relative to a full turn becomes
-  less precise, so the result loses accuracy, but the call still succeeds. The
-  function performs no mutation and has no side effects.
+  overload reports this by failing with ErrFloatInf when the result would be
+  infinite; the Fixed overload reports it by failing with ErrInvalidArgument
+  when its computed cosine is zero. The Float overload additionally guards its
+  result against a non-number outcome: a non-finite input such as a positive or
+  negative infinity drives the host tangent to NaN, which is reported as
+  ErrFloatNan rather than returned. The Fixed overload has no NaN failure path.
+  For a very large magnitude the angle's fractional part relative to a full turn
+  becomes less precise, so the result loses accuracy, but the call still
+  succeeds. The function performs no mutation and has no side effects.
 
 OVERLOADS
   math::tan(value AS Float) AS Float
     Computes the tangent of a Float angle and returns it as a Float. Fails with
-    ErrFloatInf when the result is infinite at an odd multiple of pi/2.
+    ErrFloatInf when the result is infinite at an odd multiple of pi/2, and with
+    ErrFloatNan when the result is not a number, which happens when value is
+    non-finite (an infinity or a NaN).
 
   math::tan(value AS Fixed) AS Fixed
     Computes the tangent of a Fixed angle as sin(value) / cos(value) in
@@ -48,7 +54,8 @@ PARAMETERS
   value AS Float | Fixed
     The angle whose tangent is computed, expressed in radians. Any value of the
     chosen numeric type is accepted except angles at which the tangent is
-    undefined (odd multiples of pi/2), which raise an error.
+    undefined (odd multiples of pi/2), which raise an error. A non-finite Float
+    angle yields a NaN result and is reported as ErrFloatNan.
 
 RETURN VALUE
   AS Float | Fixed
@@ -59,6 +66,11 @@ ERRORS
   77050014 (ErrFloatInf)
   Raised by the Float overload when value is at an odd multiple of pi/2, where
   cosine is zero and the resulting tangent is infinite.
+
+  77050013 (ErrFloatNan)
+  Raised by the Float overload when the computed result is not a number, which
+  occurs when value is non-finite, such as the tangent of a positive or negative
+  infinity. The Fixed overload never raises this error.
 
   77050002 (ErrInvalidArgument)
   Raised by the Fixed overload when the computed cosine of value is zero, so the

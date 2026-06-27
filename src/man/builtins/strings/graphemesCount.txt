@@ -24,9 +24,8 @@ DESCRIPTION
   For text outside the Basic Multilingual Plane or containing combining marks,
   emoji, or flags, this count can differ from all three of those measures.
 
-  The result equals len(strings::graphemes(value)) but is computed without
-  building the intermediate List. value is not modified and graphemesCount has
-  no side effects. An empty value returns 0.
+  The result equals len(strings::graphemes(value)). value is not modified and
+  graphemesCount has no side effects. An empty value returns 0.
 
 PARAMETERS
   value AS String

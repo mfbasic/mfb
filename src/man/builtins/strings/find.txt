@@ -30,16 +30,17 @@ DESCRIPTION
   string (where only an empty needle can match). A negative start, or one
   greater than the scalar length, is out of range.
 
+  find always returns a valid index on success; it never reports absence with a
+  sentinel value. When needle does not occur anywhere at or after start, find
+  raises ErrNotFound rather than returning -1 (see ERRORS). When absence is an
+  expected, non-exceptional outcome, guard the call with strings::contains and
+  only call find once a match is known to exist.
+
   find does not mutate value or needle and has no side effects. The returned
   Integer is a fresh value.
 
   find is also defined for collections; see collections find for the List
   overload.
-
-OVERLOADS
-  strings::find(value AS String, needle AS String, start AS Integer = 0) AS Integer
-    Returns the first scalar index at or after start where needle occurs in
-    value.
 
 PARAMETERS
   value AS String
@@ -68,24 +69,28 @@ TYPE CHECKING
   value and needle must both be String. start must be an Integer.
 
 EXAMPLES
-  Find text:
+  Find the first occurrence of a substring:
 
     LET index AS Integer = strings::find("hello", "l")
 
-  Start after an earlier match:
+  Start the search after an earlier match:
 
     LET index AS Integer = strings::find("hello", "l", 3)
 
-  Handle absence explicitly:
+  Guard with contains when absence is expected:
 
+    IMPORT io
     IMPORT strings
-    IMPORT errorCode
 
-    MATCH strings::find("abc", "z")
-      CASE Ok(i) : io::print("found at " & toString(i))
-      CASE Err(e) WHEN e.code = errorCode::ErrNotFound : io::print("not found")
-      CASE Err(e) : FAIL e
-    END MATCH
+    FUNC main AS Integer
+      LET value = "hello world"
+      IF strings::contains(value, "world") THEN
+        io::print(toString(strings::find(value, "world")))
+      ELSE
+        io::print("absent")
+      END IF
+      RETURN 0
+    END FUNC
 
 SEE ALSO
   mid, replace, contains, collections find

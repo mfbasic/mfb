@@ -83,9 +83,5 @@ EXAMPLES
     ' client and listener are closed by lexical drop when this scope ends
 
 SEE ALSO
-  net::read
-  net::readText
-  net::accept
-  net::connectTcp
-  net::setReadTimeout
+  net::read, net::readText, net::accept, net::connectTcp, net::setReadTimeout,
   net::close

@@ -18,9 +18,9 @@ DESCRIPTION
 
   ln2Fixed is a constant, not a callable function: it takes no arguments and is
   referenced by name wherever a Fixed expression is expected. It performs no
-  computation at the call site, has no side effects, and evaluates to the same
-  Fixed value on every platform, making it suitable for deterministic decimal
-  arithmetic where a Float is not desired.
+  computation at the call site and has no side effects, evaluating to the same
+  Fixed value on every use and on every platform. This makes it suitable for
+  deterministic decimal arithmetic where a Float is not desired.
 
   This constant is commonly used to convert between natural and base-2
   logarithms: the base-2 logarithm of a value x equals

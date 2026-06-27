@@ -31,8 +31,10 @@ DESCRIPTION
 
 ERRORS
   77050003 (ErrInvalidFormat)
-  Raised when the href has no "://" separator, an empty host, an unterminated IPv6
-  literal, or a port that is not 0-65535 digits.
+  Raised when the href has no "://" scheme separator, an empty host, an
+  unterminated bracketed IPv6 literal, trailing characters after a bracketed IPv6
+  literal that are not a ":port", an empty port after the host colon, a port
+  containing a non-digit, or a port that exceeds 65535.
 
   77050007 (ErrUnsupported)
   Raised when the scheme is neither http nor https.

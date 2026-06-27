@@ -30,14 +30,18 @@ DESCRIPTION
   math::seed first to reseed the thread and make its subsequent sequence
   reproducible.
 
+  Either argument may be supplied positionally or by name. The first argument
+  accepts the name min or minimum, and the second accepts the name max or
+  maximum.
+
 PARAMETERS
   min AS Integer
-    The inclusive lower bound of the range. Any Integer is accepted provided
-    it is not greater than max.
+    The inclusive lower bound of the range, also accepted under the name
+    minimum. Any Integer is accepted provided it is not greater than max.
 
   max AS Integer
-    The inclusive upper bound of the range. Any Integer is accepted provided
-    it is not less than min.
+    The inclusive upper bound of the range, also accepted under the name
+    maximum. Any Integer is accepted provided it is not less than min.
 
 RETURN VALUE
   AS Integer

@@ -46,5 +46,16 @@ EXAMPLES
 
     LET emoji AS Integer = strings::byteLen("😀")
 
+  Compare byte length with scalar count for non-ASCII text:
+
+    IMPORT io
+    IMPORT strings
+
+    FUNC main AS Integer
+      io::print(toString(strings::byteLen("café")))
+      io::print(toString(len("café")))
+      RETURN 0
+    END FUNC
+
 SEE ALSO
   len, graphemesCount, graphemeAt

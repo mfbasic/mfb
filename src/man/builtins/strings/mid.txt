@@ -1,5 +1,5 @@
 NAME
-  mid - return a substring by Unicode scalar index
+  mid - extract a substring by Unicode scalar index and length
 
 SYNOPSIS
   strings::mid(value AS String, start AS Integer, count AS Integer) AS String
@@ -17,20 +17,27 @@ DESCRIPTION
   Positions and lengths are measured in Unicode scalar values, not UTF-8 bytes
   and not user-perceived grapheme clusters. A multi-byte character such as "é"
   or "😀" counts as one position even though it occupies several bytes, and mid
-  never splits a multi-byte scalar.
+  never splits a scalar mid-encoding; the returned String is always well-formed
+  UTF-8.
 
   start is the zero-based index of the first scalar to include and count is the
   number of scalars to take. Both must be 0 or greater. A count of 0 returns the
-  empty string, even at the end of value. Unlike left and right, mid does not
-  clamp out-of-range requests: start must be no greater than the scalar length
-  of value, and start + count must not exceed the scalar length, otherwise the
-  call raises an error rather than returning a shortened result.
+  empty String, even when start is at the very end of value. start may equal the
+  scalar length of value, which (with a count of 0) selects the empty slice at
+  the end of the string.
+
+  Unlike left and right, mid does not clamp out-of-range requests: it does not
+  shorten the result when the requested window runs past the end of value.
+  Instead, start must be no greater than the scalar length of value, and
+  start + count must not exceed the scalar length, otherwise the call raises an
+  error (see ERRORS). This makes an over-long request a detectable mistake
+  rather than a silent truncation.
 
   mid does not mutate value and has no side effects. The returned String is a
   new owned value.
 
   mid is also defined for collections; see collections mid for the List
-  overload.
+  overload that slices a List OF T by element index.
 
 PARAMETERS
   value AS String
@@ -47,12 +54,13 @@ PARAMETERS
 RETURN VALUE
   AS String
     A new String holding count scalars of value starting at start. Returns the
-    empty string when count is 0.
+    empty String when count is 0.
 
 ERRORS
   77050001 (ErrIndexOutOfRange)
-  Raised when start is less than 0, when count is less than 0, or when
-  start + count is greater than the scalar length of value.
+  Raised when start is less than 0, when count is less than 0, when start is
+  greater than the scalar length of value, or when start + count exceeds the
+  scalar length of value (including the case where start + count overflows).
 
 TYPE CHECKING
   value must be String. start and count must be Integer values.

@@ -19,32 +19,39 @@ DESCRIPTION
   The function is overloaded by the numeric type of its single argument, and
   the return type always matches that type: a Float yields a Float and a Fixed
   yields a Fixed. There is no mixed-type overload; the argument selects which
-  version is called. The Fixed overload computes the angle using deterministic
-  fixed-point (Q32.32) arithmetic via atan(value) = atan2(value, 1), so the
-  result is identical across targets, then rounds it to the nearest
-  representable Fixed value.
+  version is called. The Float overload computes the angle with host
+  floating-point arithmetic. The Fixed overload computes the angle using
+  deterministic fixed-point (Q32.32) arithmetic via atan(value) =
+  atan2(value, 1), so the result is identical across targets, then rounds it to
+  the nearest representable Fixed value.
 
-  The arc tangent is mathematically defined for every real number; both
-  overloads accept any finite input and never reject their argument. As the
-  magnitude of value grows without bound the result approaches -pi/2 or pi/2
-  but never reaches it, and atan(0) is zero. The function performs no mutation
-  and has no side effects.
+  The arc tangent is mathematically defined for every real number, so there is
+  no restricted domain and no finite input is rejected. As the magnitude of
+  value grows without bound the result approaches -pi/2 or pi/2 but never
+  reaches it, and atan(0) is zero. A non-finite Float infinity is accepted and
+  produces -pi/2 or pi/2; only a NaN argument drives the host arc tangent to a
+  NaN result, which the Float overload reports as ErrFloatNan rather than
+  returning. The Fixed overload has no such failure path. The function performs
+  no mutation and has no side effects.
 
 OVERLOADS
   math::atan(value AS Float) AS Float
     Computes the arc tangent of a Float using floating-point arithmetic and
-    returns it as a Float.
+    returns it as a Float. Fails with ErrFloatNan when the result is not a
+    number, which happens only when value is itself a NaN; every other Float
+    input, including a positive or negative infinity, succeeds.
 
   math::atan(value AS Fixed) AS Fixed
     Computes the arc tangent of a Fixed using deterministic fixed-point
     (Q32.32) arithmetic via atan(value) = atan2(value, 1), so the result is
     identical across targets, rounding the result to the nearest representable
-    Fixed value.
+    Fixed value. Never fails.
 
 PARAMETERS
   value AS Float | Fixed
     The tangent value whose angle is computed. Any finite numeric value is
-    accepted; there is no restricted domain.
+    accepted; there is no restricted domain. A NaN Float argument yields a NaN
+    result and is reported as ErrFloatNan.
 
 RETURN VALUE
   AS Float | Fixed
@@ -54,7 +61,10 @@ RETURN VALUE
     negative or positive infinity.
 
 ERRORS
-  No errors.
+  77050013 (ErrFloatNan)
+  Raised by the Float overload when the computed result is not a number, which
+  occurs only when value is itself a NaN. The Fixed overload never raises this
+  error.
 
 TYPE CHECKING
   The argument must be a single Float or Fixed value. Passing an Integer, or a

@@ -37,6 +37,27 @@ OVERLOADS
   net::localAddress(sock AS UdpSocket) AS Address
     Reports the endpoint a UDP socket is bound to.
 
+PARAMETERS
+  sock AS Socket
+    A connected TCP Socket, obtained from net::connectTcp or net::accept, whose
+    local endpoint is to be reported. The socket must still be open.
+
+  listener AS Listener
+    A TCP Listener, obtained from net::listenTcp, whose accepting endpoint is to
+    be reported. The listener must still be open.
+
+  sock AS UdpSocket
+    A bound UDP UdpSocket, obtained from net::bindUdp, whose local endpoint is to
+    be reported. The socket must still be open.
+
+RETURN VALUE
+  AS Address
+    An Address whose host field (String) holds the local address this side of the
+    resource occupies and whose port field (Integer) holds the local port. For a
+    resource bound to a wildcard host the host is the wildcard address and the
+    port is the concrete port the OS chose, which reveals the port assigned when
+    binding or listening on port 0.
+
 ERRORS
   77030004 (ErrResourceClosed)
   Raised when the resource has already been closed, or when the host OS reports

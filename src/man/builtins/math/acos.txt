@@ -32,13 +32,15 @@ DESCRIPTION
 OVERLOADS
   math::acos(value AS Float) AS Float
     Computes the arc cosine of a Float using floating-point arithmetic and
-    returns it as a Float.
+    returns it as a Float. Fails with ErrFloatDomain when value lies outside
+    the closed interval from -1.0 to 1.0.
 
   math::acos(value AS Fixed) AS Fixed
     Computes the arc cosine of a Fixed using deterministic fixed-point (Q32.32)
     arithmetic via acos(x) = atan2(sqrt(1 - x^2), x), so the result is
     identical across targets, rounding the result to the nearest representable
-    Fixed value.
+    Fixed value. Fails with ErrInvalidArgument when value lies outside the
+    closed interval from -1.0 to 1.0.
 
 PARAMETERS
   value AS Float | Fixed

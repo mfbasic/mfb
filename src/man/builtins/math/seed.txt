@@ -26,11 +26,15 @@ DESCRIPTION
   only the thread that calls it, because each thread owns an independent
   generator and stream; reseeding one thread does not disturb any other.
 
+  The argument may be supplied positionally or by name, and is accepted under
+  either the name value or the name seed.
+
 PARAMETERS
   value AS Integer
-    The seed for the calling thread's generator. Any Integer across the full
-    signed 64-bit range is accepted; the same value always yields the same
-    subsequent math::rand sequence on a given build.
+    The seed for the calling thread's generator, also accepted under the name
+    seed. Any Integer across the full signed 64-bit range is accepted; the same
+    value always yields the same subsequent math::rand sequence on a given
+    build.
 
 RETURN VALUE
   AS Nothing

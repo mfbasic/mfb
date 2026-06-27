@@ -70,4 +70,8 @@ EXAMPLES
     ' conn and listener are closed by lexical drop when this scope ends
 
 SEE ALSO
-  net::localAddress, net::connectTcp, net::accept, net::listenTcp, net::close
+  net::localAddress
+  net::connectTcp
+  net::accept
+  net::listenTcp
+  net::close

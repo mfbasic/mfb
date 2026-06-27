@@ -33,7 +33,9 @@ DESCRIPTION
 OVERLOADS
   math::log(value AS Float) AS Float
     Computes the natural logarithm of a Float using floating-point arithmetic.
-    Fails with ErrFloatDomain when value is zero or negative.
+    Fails with ErrFloatDomain when value is zero or negative, and with
+    ErrFloatInf when the result is not finite (for example log of positive
+    infinity).
 
   math::log(value AS Fixed) AS Fixed
     Computes the natural logarithm of a Fixed using deterministic fixed-point
@@ -55,6 +57,10 @@ ERRORS
   77050012 (ErrFloatDomain)
   Raised by the Float overload when value is zero or negative, which has no
   real natural logarithm.
+
+  77050014 (ErrFloatInf)
+  Raised by the Float overload when the computed result is infinite, such as
+  the natural logarithm of positive infinity.
 
   77050002 (ErrInvalidArgument)
   Raised by the Fixed overload when value is zero or negative, which has no
