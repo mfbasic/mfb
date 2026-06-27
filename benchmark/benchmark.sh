@@ -22,6 +22,9 @@ benchmarks=(
   list-append2
   list-prepend
   list-copy
+  list-set
+  list-distinct
+  list-groupby
   map-set
   string-concat
   record-update

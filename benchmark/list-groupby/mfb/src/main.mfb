@@ -1,0 +1,28 @@
+IMPORT collections
+IMPORT io
+
+' collections::groupBy hot path (plan-02 §2.8 / Phase 6). Groups a 2000-element
+' List OF Integer into 100 buckets (i mod 100). groupBy builds its result with a
+' map set + hasKey in a loop and rebuilds each group's value list on every
+' append, so it compounds the linear-scan map set (Phase 3) and value-copy
+' (Phase 4) costs — O(n^2) today, fixed transitively by in-place map set + the
+' Phase 6 hash map.
+
+FUNC bucketKey(n AS Integer) AS Integer
+  RETURN n - (n / 100) * 100
+END FUNC
+
+FUNC identity(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC main AS Integer
+  MUT nums AS List OF Integer = []
+  FOR i = 0 TO 1999
+    nums = collections::append(nums, i)
+  NEXT
+
+  LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(nums, bucketKey, identity)
+  io::print("groups: " & toString(len(groups)))
+  RETURN 0
+END FUNC
