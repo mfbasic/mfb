@@ -616,6 +616,28 @@ impl CodeBuilder<'_> {
         let count_slot = self.allocate_stack_object("simd_clamp_count", 8);
 
         self.reset_temporary_registers();
+        // low > high is invalid (matches the scalar math::clamp man page).
+        let low = self.allocate_register()?;
+        let high = self.allocate_register()?;
+        self.emit(abi::load_u64(&low, abi::stack_pointer(), low_slot));
+        self.emit(abi::load_u64(&high, abi::stack_pointer(), high_slot));
+        let bounds_ok = self.label("simd_clamp_bounds_ok");
+        match kernel {
+            SimdClampKernel::Float => {
+                self.emit(abi::float_move_d_from_x("d0", &low));
+                self.emit(abi::float_move_d_from_x("d1", &high));
+                self.emit(abi::float_compare_d("d0", "d1"));
+                self.emit(abi::branch_le(&bounds_ok)); // low <= high
+            }
+            SimdClampKernel::Signed => {
+                self.emit(abi::compare_registers(&low, &high));
+                self.emit(abi::branch_le(&bounds_ok));
+            }
+        }
+        self.emit_invalid_argument_return()?;
+        self.emit(abi::label(&bounds_ok));
+
+        self.reset_temporary_registers();
         let in_ptr = self.allocate_register()?;
         self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
         let count = self.allocate_register()?;

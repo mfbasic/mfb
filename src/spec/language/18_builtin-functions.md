@@ -73,7 +73,7 @@ Math (`IMPORT math`): the call members `math::abs`, `math::min`, `math::max`, `m
 | `abs` | `Integer[]→Integer[]`, `Fixed[]→Fixed[]`, `Float[]→Float[]` | `ErrOverflow` (Integer/Fixed min value) |
 | `floor`/`ceil`/`round` | `Float[]→Integer[]`, `Fixed[]→Integer[]` | `ErrOverflow` (Float out of `Integer` range) |
 | `min`/`max` | `(T[],T[])→T[]` for `T∈{Integer,Float,Fixed}` | `ErrInvalidArgument` (lengths differ) |
-| `clamp` | `(T[],T,T)→T[]` for `T∈{Integer,Float,Fixed}` | — |
+| `clamp` | `(T[],T,T)→T[]` for `T∈{Integer,Float,Fixed}` | `ErrInvalidArgument` (low > high) |
 | `sqrt` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | negative lane → `ErrFloatDomain` (Float) / `ErrInvalidArgument` (Fixed) |
 | `log`/`log10` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | lane ≤ 0 → `ErrFloatDomain` (Float) / `ErrInvalidArgument` (Fixed) |
 | `exp` | `Float[]→Float[]` | `ErrFloatInf` (overflow), `ErrFloatNan` (NaN input) |

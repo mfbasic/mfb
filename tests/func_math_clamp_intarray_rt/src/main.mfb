@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT math
+
+' clamp over a list raises ErrInvalidArgument when low > high (matches the scalar
+' math::clamp man page).
+FUNC main AS Integer
+  LET xs AS List OF Integer = [5, 1, 8]
+  LET r AS List OF Integer = math::clamp(xs, 10, 2)
+  io::print(toString(len(r)))
+  RETURN 0
+END FUNC
