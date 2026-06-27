@@ -1,213 +1,31 @@
 # Agent Instructions
 
-## "Done" and "Verify" (read this first)
+Universal rules below. Before a given kind of work, also read the matching `.ai/` file.
 
-**"Done" means every part of the requested work is finished and verified — the
-whole thing, not the easy part, not most of it.** If any part is unfinished,
-unverified, stubbed, deferred, or depends on something not yet built, the work is
-**NOT done**.
+## Always
 
-**"Verify" means proving the actual goal is true** — confirming the real property
-the work was supposed to achieve, with evidence that maps directly to that goal.
-Running the tests and seeing them pass is **NOT** verifying. Passing tests only
-prove what those specific tests check; they are a proxy, not the goal. To verify,
-you must check the real requirement itself, including the parts no existing test
-covers. If you cannot point to the specific evidence that the actual goal holds,
-you have not verified it — and you must say so.
+- **Done means verified.** Asked if work is done/complete/verified: answer **yes**
+  or **no** on the first line, nothing before it. Say **yes** only after proving the
+  actual goal holds (compilation, passing tests, and matching goldens are proxies,
+  not verification). When unsure, **no** — then one short line on what's left, no
+  status report unless asked.
+- **Production-ready only.** Implement the complete behavior with real error
+  handling and integration. No stubs, placeholders, mocks, default-result
+  fallbacks, simulations, or "unsupported" stand-ins unless explicitly asked. If
+  blocked, state the blocker plainly — never fill the gap with non-functional code
+  or call it done.
+- **Git.** Never create/switch/rename a branch unless asked — commit on the current
+  branch (even `main`). Never run tree-wide `git checkout`/`reset`/`restore`/
+  `stash`; only touch and commit files you changed this session, leaving all others
+  as found (other clients share this tree). Use detailed, itemized commit messages
+  (imperative subject + `-` bullets); never include unrelated changes.
 
-When asked "is it done / complete / finished / verified":
+## Read before that kind of work
 
-- Answer **yes** or **no** on the first line. Nothing else first.
-- Answer **yes** only after you have *verified* (per above) that all of it is
-  finished. When unsure, the answer is **no**.
-- If **no**: add one short line naming what is left. Do not produce a status
-  report, an evidence dump, or a summary of what you did — unless explicitly
-  asked.
-- Never report work as "done" because compilation succeeded, acceptance/tests are
-  green, or goldens match. Those answer a different question than "is it done."
-- For a multi-phase plan, a phase is done only when its own stated acceptance
-  criterion is met and verified. A phase whose verification depends on a feature
-  that does not exist yet cannot be marked done.
-
-## Implementation Quality
-
-When asked to implement a change, deliver production-ready, valid code.
-
-Guidelines:
-
-- Do not provide stubs, placeholders, mock implementations, or proof-of-concept code unless explicitly requested.
-- Do not take shortcuts that leave behavior incomplete, unvalidated, or unsuitable for production use.
-- Implement the complete requested behavior, including necessary error handling, integration points, and tests or validation.
-- If a production-ready implementation is blocked by missing requirements, dependencies, or external access, state the blocker clearly and avoid filling the gap with non-functional code.
-
-## Hard Completion Gate
-
-A task is not complete unless the requested behavior works at runtime.
-
-Compilation success, AST/IR/bytecode golden output, package generation, or native binary generation is not sufficient proof of completion unless the user explicitly asked only for compiler output.
-
-Guidelines:
-
-- Before changing built-ins, bytecode, native code generation, runtime helpers, package behavior, or diagnostics, inspect and report any existing stub, placeholder, default-result, `todo`, `unimplemented`, or unsupported paths related to the task.
-- Do not add new stub, placeholder, default-result, mock, or proof-of-concept behavior unless explicitly requested.
-- Do not add defensive `unsupported`, `unimplemented`, `todo`, or generic error paths for requested behavior as a substitute for real implementation. Missing support must be treated as a blocker, not hidden behind a catch-all branch.
-- Do not satisfy compiler exhaustiveness or runtime dispatch by adding an `unsupported` case for a feature the task is supposed to implement. Wire the feature through every required layer or report the implementation as incomplete.
-- Do not route unimplemented behavior to zero values, empty strings, empty collections, `Nothing`, default records, or other fallback values that make unsupported behavior appear successful.
-- Do not add diagnostics that merely report requested behavior as "unsupported" unless the user's request is explicitly to reject that behavior. If behavior is meant to work, implement and validate it instead of producing a defensive error.
-- Do not describe a change as production-ready, complete, fully supported, or done while any part of the requested behavior is stubbed, defaulted, mocked, unreachable, unsupported, or only represented in AST, IR, bytecode, metadata, or generated native output.
-- When compiler work adds, removes, renames, renumbers, or reclassifies any error code or diagnostic rule, update the embedded `mfb spec diagnostics` topics in the same change — the `error-codes` topic's Constant Registry table is the **build input** that `build.rs` generates the `errorCode::` constants from. More broadly, keep the embedded specification current with every compiler change — see **Specifications (`mfb spec`)** below.
-- For runtime features, add or run a runtime validation that executes the generated program and proves the requested behavior through exit code, stdout/stderr, file output, or another observable result.
-- If runtime behavior cannot be implemented or validated, state that the task is blocked or incomplete and do not present compiler plumbing or golden output as functional support.
-- Treat any backend helper named like `*_default_result`, or any backend path that stores default values for a built-in operation, as unsupported unless a runtime test proves the actual requested behavior.
-- For any requested feature, do not implement or present a simulation, approximation, cooperative fallback, lazy substitute, single-step substitute, metadata-only substitute, queue-only substitute, or behavior-compatible shortcut as real support unless the user explicitly asks for that kind of simulation. If the real feature requires runtime helpers, OS/library integration, scheduler work, platform ABI changes, persistence, networking, concurrency, or other integration pieces, implement those pieces and validate the real behavior at runtime, or report the task as incomplete.
-
-## Specifications (`mfb spec`)
-
-The compiler's specification lives in `src/spec/**` and is embedded in the binary
-(`mfb spec`), version-locked to the code: the spec you read always matches the
-binary you have. It is the **single source of truth** for every externally
-observable compiler/language/format/ABI contract, and it must stay accurate to the
-compiler **as-is** at all times.
-
-**The rule: any compiler change that adds, removes, or changes an observable
-contract updates the owning `src/spec` topic in the same change.** This is part of
-the Hard Completion Gate, not optional cleanup — a change that leaves the spec
-stale is not done. Prefer an accurate stub over a missing or wrong topic. Contracts
-that require a spec update include: language surface and type rules; IR/NIR op or
-value forms and lowering behavior; the `.mfp` byte format; memory layouts, the
-native calling convention, runtime-helper ABI, and program startup; AArch64
-encoding; diagnostics and error codes; CLI/manifest/lockfile/audit/fmt/doc output;
-the registry/signing protocol; threading; Unicode; and standard-package semantics.
-
-Find the owning topic with `mfb spec` (or `mfb spec <package> --all`). Current
-packages: `architecture` (the compiler pipeline/passes/CLI), `language` (source
-semantics), `memory` (runtime value layouts + native ABI), `linker`, `package`
-(`.mfp` byte format), `threading`, `diagnostics` (rule + error-code registries),
-`tooling` (manifest/source-selection/lockfile/audit/fmt/doc/CLI), `package-manager`
-(registry/keys/signing), `unicode`, `app` (`-app` GUI runtime), `stdlib` (regex/
-datetime/csv/json/http/url/PCG64 models).
-
-Conventions when editing the spec:
-
-- **Single source of truth.** Each fact has one canonical topic. Other topics give
-  a short summary and a `./mfb spec <package> <topic>` (or `./mfb man <package>`)
-  link — never a second full copy. Small inlined facts are fine; a rats-nest of
-  references and duplicated bodies is not.
-- **Provenance.** Back a non-obvious implementation claim (magic number, offset,
-  ABI register, enum variant, capability list, pass ordering) with an invisible
-  `[[src/file.rs:Symbol]]` citation at claim-cluster granularity — symbol-preferred,
-  `[[src/file.rs:line]]` only where no symbol fits. Grep-confirm the symbol exists
-  before citing. The renderer strips `[[ ]]` everywhere (including headings), so
-  they never display in `mfb spec`/`man` output but keep claims traceable for
-  reviewers. Do not add non-verifiable claims.
-- **Adding a topic / package.** A new topic is `NN_slug.md` beside the package's
-  `spec.md` (auto-discovered, ordered by the `NN` prefix). A new package is a
-  directory with a `spec.md` overview plus its `## See Also`; add its name to
-  `PACKAGE_ORDER` in `src/spec/mod.rs`. Update the package overview's reading-order
-  prose when adding a topic.
-- **The error-code registry is build input.** `build.rs` generates the
-  `errorCode::` constants directly from the **Constant Registry** table in
-  `src/spec/diagnostics/02_error-codes.md` (`mfb spec diagnostics error-codes`),
-  asserting that hyphen-stripping each code equals its integer column; a
-  `#[cfg(test)]` drift guard (`table_matches_registry`) enforces the match. Edit
-  that table for any runtime error-code change. The legacy external specs
-  (`mfbasic.md`, `error_codes.md`, `standard_package.md`, `project.md`, …) are
-  archived under `specifications/old-moved-to-src-spec/` and superseded by the
-  embedded topics — update the `mfb spec` topic, not those.
-
-Verify spec changes: `cargo build` (regenerates the embedded table; if a brand-new
-file is not picked up, `touch build.rs` and rebuild), `cargo test --bin mfb spec`,
-and confirm `mfb spec <package> --all` renders with no leaked `[[` markers and that
-every `./mfb spec`/`./mfb man` link target and `[[…:Symbol]]` citation resolves.
-
-## Native Codegen Register Lifetimes
-
-Internal runtime helpers called via `bl` are not register-transparent. Treat any value held in a caller-saved scratch register as destroyed across the call unless you have proven otherwise from the callee's source.
-
-Guidelines:
-
-- `_mfb_arena_alloc` (`lower_arena_alloc` in `src/target/shared/code/mod.rs`) has an empty `callee_saved` frame and uses `x0`, `x1`, `x9`, `x10`, `x14`, `x15`, `x16`, and `x20`–`x28` as scratch (notably `x15`/`x14` in the block-grow path). Any value live across `bl _mfb_arena_alloc` in those registers is corrupted; only `x8`, `x11`, `x12`, `x13`, and `x17` currently survive. Do not rely on that survivor list as a stable contract — spill to a stack slot instead.
-- When a quantity is computed before a runtime `bl` and consumed after it (lengths, counts, pointers, sizes, header fields), store it to a stack slot before the call and reload it afterward. Do not assume a register holds its value across the call.
-- This class of bug is layout- and value-sensitive: the corrupted value may still produce correct results for small inputs and only fail past a threshold (e.g. a poisoned `DATA_LENGTH` field read as a huge size on the next operation, causing a runaway allocation or `SIGSEGV` only after N iterations). A passing small test does not prove the register lifetime is safe.
-- When adding or auditing any helper that calls a runtime routine and then writes a collection/record/string header from registers, verify every header-field source register against the callee's clobber set. The same pattern recurs across insert, remove, concat, and map-mutation lowerings.
-- Reproduce register-clobber crashes with a debugger: stale values leaking from the caller (registers the callee does not touch) plus a faulting helper pinpoint exactly which live register was destroyed. See the memory note `arena-alloc-clobbers-x14-x15` for the worked example.
-
-## Planning
-
-Substantial features get a written plan under `specifications/` before implementation begins. A plan is a design document that an implementer (human or agent) can execute phase-by-phase without re-deriving the design.
-
-Guidelines:
-
-- Name the file `specifications/plan-NN-shortname.md` (next free `NN`, two digits; short kebab-case slug). One plan per feature.
-- Cross-link the embedded specs the plan touches near the top (`mfb spec memory`, `mfb spec language`, `mfb spec package`, `mfb spec diagnostics`, `mfb spec threading`, etc. — the canonical specification lives under `src/spec/**`) so the implementer reads the right source of truth first.
-- State the constraints the plan must **not** violate as explicit non-goals (language surface, value/copy/move semantics, layout/ABI, thread-transfer rules). A plan that silently changes one of these is wrong.
-- Break the work into ordered, independently-landable phases. Put the lowest-risk, separately-valuable work first (e.g. an audit or a runtime primitive with no callers) and the highest-risk codegen last, behind tests.
-- Fold the repository's standing requirements into the plan, don't restate them generically: every new/changed function needs `tests/func_<package>_<func>_valid/**` and `_invalid/**` with full overload coverage; runtime features need an execution proof, not just golden output; error-code or diagnostic changes must update the relevant embedded spec topics under `src/spec/**` (notably `mfb spec diagnostics`, whose `error-codes` table is the build input for `errorCode::`); acceptance (`scripts/test-accept.sh`) must pass.
-- Record genuinely open design choices in an "Open Decisions" section with a recommendation for each — don't bury unresolved forks inside prose.
-- When a plan is fully implemented, remove the plan doc in the same commit that lands the final phase (precedent: `34e526c9` removed plan-05 on completion). Keep `Last updated` current while it lives.
-
-### Plan template
-
-Use the template at [`.ai/plan_template.md`](.ai/plan_template.md): copy it to
-`specifications/plan-NN-shortname.md` and fill it in. It covers goal/non-goals,
-current state, design, layout/ABI impact, phases, validation plan, open
-decisions, and summary.
-
-## Validation
-
-After completing any code or golden-output change, the acceptance suite must pass.
-
-Guidelines:
-
-- For every function created or modified, automatically create or update matching tests under both `tests/func_<package>_<func>_valid/**` and `tests/func_<package>_<func>_invalid/**`.
-- Function test directories are mandatory and non-skippable. Do not omit them because a change seems small, internal, obvious, already covered indirectly, or difficult to exercise.
-- Function tests must cover every overload of the created or modified function. If an overload cannot be tested, the task is incomplete until the blocker is resolved or explicitly accepted by the user.
-- Valid function tests must prove each overload succeeds with representative runtime behavior or observable compiler behavior appropriate to the function.
-- Invalid function tests must prove each overload rejects incorrect usage, including wrong argument count, wrong argument type, invalid receiver/context, and relevant boundary or error cases.
-- Do not describe a function change as complete while either the valid or invalid function test directory is missing, empty, skipped, or lacking overload coverage.
-- Run `scripts/test-accept.sh target/debug/mfb target/accept-actual` after compiler work or any change that can affect generated AST, IR, bytecode, native binaries, or diagnostics.
-- Acceptance passing is required but not sufficient for runtime behavior changes. For runtime features, also add or run an execution test that proves the generated program behaves correctly.
-- If acceptance fails, verify whether each failure is caused by the compiler update, a stale expected-output fixture, or a real regression before fixing code or updating goldens.
-- Do not assume an acceptance mismatch is a test issue. Prove stale goldens by comparing deterministic regenerated output, and when necessary compare against a clean pre-change checkout.
-- Do not leave acceptance failing at the end of the task unless an external blocker makes the suite impossible to run; report that blocker and the exact command/output.
-
-## Commits
-
-When creating commits in this repository, use detailed itemized commit messages.
-
-Commit message format:
-
-```text
-Short imperative summary
-
-- Describe one concrete change.
-- Describe another concrete change.
-- Note validation, tests, or generated files when relevant.
-```
-
-Guidelines:
-
-- Keep the subject line concise and imperative.
-- Use bullet points in the commit body for all non-trivial commits.
-- Mention user-facing behavior changes separately from internal refactors.
-- Mention validation commands when they were run.
-- Do not include unrelated dirty worktree changes in a commit.
-- NEVER create a branch unless the user explicitly asks for one. Always commit on
-  the current branch, even when that is the default/main branch. Do not create,
-  switch, or rename branches on your own initiative.
-- NEVER run tree-wide `git checkout` / `git reset` / `git restore` / `git stash`
-  (e.g. `git checkout .`, `git reset --hard`, `git restore .`). You may only
-  touch, edit, stage, and commit files that YOU modified during the current
-  session; leave every other file's working-tree state exactly as found. Multiple
-  clients may be working in this repo at once — tree-wide restores have destroyed
-  other clients' in-progress edits and lost real work. Scope every git operation
-  to your own specific paths.
-
-## Remote Systems
-
-- ssh -p 2222 test@127.0.0.1 # ArchLinux (libc)
-- ssh -p 2223 test@127.0.0.1 # Kali (libc)
-- ssh -p 2224 test@127.0.0.1 # Alipine (musl)
-- ssh -p 2225 test@127.0.0.1 # Alipine gtk (musl)
-- ssh -p 2226 test@127.0.0.1 # Debian 12 gtk (libc)
-- ssh -p 2227 test@127.0.0.1 # Alipine x86_64 (musl)
+- Compiler / built-ins / IR / native codegen / runtime helpers / diagnostics →
+  `.ai/compiler.md` (runtime completion gate, validation & function tests, register
+  lifetimes).
+- The embedded spec (`mfb spec`, `src/spec/**`) → `.ai/specifications.md` (keep it
+  current with every compiler change).
+- Writing a feature plan → `.ai/planning.md` (template `.ai/plan_template.md`).
+- Remote test machines → `.ai/remote_systems.md`.
