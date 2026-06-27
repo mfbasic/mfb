@@ -1,0 +1,20 @@
+IMPORT collections
+IMPORT io
+
+' Builds a 1000-item Map OF String TO Integer with collections::set, then looks
+' each key up with collections::get to verify its content.
+
+FUNC main AS Integer
+  MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+  FOR i = 0 TO 999
+    m = collections::set(m, toString(i), i)
+  NEXT
+
+  MUT sum AS Integer = 0
+  FOR i = 0 TO 999
+    sum = sum + collections::get(m, toString(i))
+  NEXT
+
+  io::print("count: " & toString(len(m)) & " sum: " & toString(sum))
+  RETURN 0
+END FUNC

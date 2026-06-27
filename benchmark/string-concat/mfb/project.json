@@ -1,5 +1,5 @@
 {
-  "name": "list_append",
+  "name": "string_concat",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

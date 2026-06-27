@@ -1,0 +1,13 @@
+IMPORT collections
+IMPORT io
+
+' Builds a 1000-item list by prepending one item at a time.
+
+FUNC main AS Integer
+  MUT nums AS List OF Integer = []
+  FOR i = 0 TO 999
+    nums = collections::prepend(nums, i)
+  NEXT
+  io::print("count: " & toString(len(nums)) & " first=" & toString(collections::get(nums, 0)))
+  RETURN 0
+END FUNC
