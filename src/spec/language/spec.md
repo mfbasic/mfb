@@ -20,7 +20,11 @@ handles, and isolated thread workers. `native-libraries` specifies `LINK` bindin
 `builtin-functions` lists the built-ins; `grammar` is the abridged EBNF;
 `worked-example` shows complete programs; and `build-artifacts`, `tooling-and-auditability`,
 and `documentation` cover `.mfp` packages and verification, the audit/format/test
-tooling, and `DOC` blocks.
+tooling, and `DOC` blocks. Three deeper-dive topics specify cross-cutting
+front-end contracts: `type-name-encoding` (the canonical flat type-string grammar
+every pass parses), `type-inference` (expected-type propagation, literal coercion,
+and the assignability lattice), and `escape-analysis` (the resource-float
+decision procedure behind §15).
 
 ## See Also
 

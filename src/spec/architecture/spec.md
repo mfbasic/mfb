@@ -59,7 +59,9 @@ The subtopics below follow the pipeline. `frontend` covers everything from
 manifest loading through type checking; `ir` is the shared hinge; then the path
 splits into `binary-representation` (packages) and `native` (executables). The
 `flows` topic walks both end to end, and `artifacts`, `modules`, `boundaries`,
-and `extending` are quick references.
+and `extending` are quick references. `monomorphization` is a deeper dive into the
+template-instantiation / symbol-mangling / overload-resolution pass that sits
+between `frontend` and `ir`.
 
 ## See Also
 
