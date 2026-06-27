@@ -40,7 +40,17 @@ pub(crate) struct SpecTopic {
 /// topic file needs no edit here; a brand-new package needs one row. Names not
 /// listed are appended afterwards in discovery (alphabetical) order, so a
 /// forgotten row degrades gracefully instead of hiding a package.
-const PACKAGE_ORDER: &[&str] = &["architecture", "language", "memory", "linker", "threading", "package"];
+const PACKAGE_ORDER: &[&str] = &[
+    "architecture",
+    "language",
+    "memory",
+    "linker",
+    "threading",
+    "package",
+    "diagnostics",
+    "tooling",
+    "package-manager",
+];
 
 static PACKAGES: LazyLock<Vec<SpecPackage>> = LazyLock::new(|| {
     let mut packages: Vec<SpecPackage> = generated::SPEC_PACKAGES

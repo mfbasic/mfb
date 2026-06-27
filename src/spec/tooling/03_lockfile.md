@@ -1,0 +1,132 @@
+# Lock File (mfb.lock)
+
+`mfb.lock` records the resolved dependency state a project was last reconciled
+against, so a later build or audit can detect that the declared dependency set
+has drifted from what was locked. It lives at the project root beside
+`project.json`. The toolchain currently treats it as **read-only input**:
+`mfb audit` consumes it, but **nothing in the toolchain writes it** — there is no
+code path that emits or updates `mfb.lock`. It is produced out-of-band (by hand,
+or by a future package manager) and consumed here.
+
+## Location and presence
+
+| Aspect | Value |
+| --- | --- |
+| Path | `<project>/mfb.lock` (sibling of `project.json`) |
+| Required | No — absence is not an error unless `--locked` is set |
+| Written by | Nothing in this toolchain (read-only consumed) |
+| Read by | `mfb audit` (the `lockfile` section + `AUDIT-LOCK-*` findings) |
+
+The audit collector probes the path; a missing file yields a summary with
+`present = false` and no version/hash comparison, while a present file is parsed
+as JSON. [[src/audit/collect.rs:collect_lockfile]]
+
+## JSON shape
+
+`mfb.lock` is a JSON object. Only two fields are read today:
+
+```json
+{
+  "lockfileVersion": 1,
+  "projectHash": "5b1c…<64 lowercase hex chars>"
+}
+```
+
+| Field | JSON type | Read as | Meaning |
+| --- | --- | --- | --- |
+| `lockfileVersion` | number | integer (`f64` truncated to `i64`) | Lock-file format version. Surfaced verbatim; not validated against a known set. |
+| `projectHash` | string | string | Canonical hash of the declared dependency request set (see below). A missing/non-string value reads as the empty string, which can never match a real hash. |
+
+Both fields are optional at the parse layer: a malformed object (or one missing a
+key) leaves the corresponding summary value unset rather than erroring. Parsing
+that fails entirely (unreadable file or invalid JSON) leaves `version` and the
+hash-match result unset while still reporting `present = true`. [[src/audit/collect.rs:collect_lockfile]]
+
+Any other keys a writer chooses to record (resolved versions, content hashes,
+sources) are **ignored** by the current reader; only `lockfileVersion` and
+`projectHash` participate in policy.
+
+## `projectHash` algorithm
+
+`projectHash` is the lowercase-hex SHA-256 of a canonical, order-independent
+serialization of the manifest's `packages[]` request tuples. It hashes what the
+project *requests*, not what is installed — so it changes when a dependency is
+added, removed, or its request fields edited, but not when an installed `.mfp`
+changes on disk. [[src/audit/collect.rs:project_hash]]
+
+The exact construction:
+
+1. Read `packages[]` from the parsed `project.json` manifest. Each entry is
+   normalized to a request tuple `(name, ident, version, pin, source)`; entries
+   whose `name` is blank are dropped, `ident` defaults to `name`, `version` and
+   `source` default to the empty string, and `pin` defaults to `false`.
+   [[src/main.rs:project_package_dependency]]
+2. Render each tuple to a line by joining the five fields with a NUL (`U+0000`)
+   separator and appending a trailing newline (`\n`):
+
+   ```text
+   name \0 ident \0 version \0 pin \0 source \n
+   ```
+
+   `pin` is rendered as the boolean's textual form (`true` / `false`).
+3. **Sort** the rendered lines lexicographically (byte order). This makes the
+   hash independent of the order packages appear in `project.json`.
+4. Feed the sorted lines, in order, into a single SHA-256 stream (each line's
+   UTF-8 bytes, including its `\0` separators and trailing `\n`).
+5. The digest is rendered as lowercase hexadecimal (64 chars). [[src/main.rs:hex_bytes]]
+
+An empty or absent `packages[]` hashes the empty input — a fixed digest, the
+SHA-256 of zero bytes. Comparison is exact string equality against the stored
+`projectHash`; there is no normalization of the stored value. [[src/audit/collect.rs:collect_lockfile]]
+
+## `--locked` policy
+
+The `mfb audit --locked` flag elevates lock-file staleness/absence from advisory
+to fatal. It is plumbed through `AuditInputs.locked` into the lock-file summary
+and the finding pass; without it, the same conditions are non-fatal. [[src/audit/collect.rs:lockfile_findings]]
+
+| Condition | Without `--locked` | With `--locked` |
+| --- | --- | --- |
+| `mfb.lock` absent | no finding | `AUDIT-LOCK-MISSING`, severity **error** |
+| `projectHash` mismatch | `AUDIT-LOCK-STALE`, severity **warning** | `AUDIT-LOCK-STALE`, severity **error** |
+| `projectHash` matches | no finding | no finding |
+
+A missing lock file under `--locked` short-circuits: the missing-finding is
+emitted and the stale check is skipped (there is nothing to compare). The stale
+check fires only when the file is present *and* the hash comparison resolved to a
+definite mismatch (`Some(false)`); an unparseable lock file leaves the result
+unset and emits no stale finding. [[src/audit/collect.rs:lockfile_findings]]
+
+`AUDIT-LOCK-MISSING` and `AUDIT-LOCK-STALE` are category `lockfile` findings. The
+finding catalogue (codes, categories, severities, and the `mfb.audit.v1` JSON
+envelope they appear in) is owned by `./mfb spec tooling audit-format`; this
+topic only states which lock-file conditions raise them.
+
+Any error-severity finding (from any category, including an elevated
+`AUDIT-LOCK-*`) makes `mfb audit` exit non-zero. The exit-code contract for the
+command itself lives in `./mfb spec tooling cli-reference`.
+
+## Audit report representation
+
+When `mfb audit` renders its report, the lock-file state appears as a `lockfile`
+section. The JSON form (`--format json`) uses these keys, distinct from the
+on-disk `mfb.lock` keys above:
+
+| Audit JSON key | Source | Notes |
+| --- | --- | --- |
+| `path` | always `"mfb.lock"` | display path, project-relative |
+| `present` | file existence | |
+| `locked` | the `--locked` flag | echoes the request |
+| `lockfileVersion` | on-disk `lockfileVersion` | `null` when absent/unparsed |
+| `projectHashMatches` | on-disk `projectHash` vs computed | `null` when absent/unparsed |
+
+The on-disk `projectHash` string is **not** echoed in the report — only the
+boolean match result is. [[src/audit/collect.rs:collect_lockfile]]
+
+## See Also
+
+* ./mfb spec tooling audit-format — the `AUDIT-LOCK-*` finding catalogue, severities, and the `mfb.audit.v1` JSON envelope
+* ./mfb spec tooling project-manifest — the `packages[]` request fields hashed into `projectHash`
+* ./mfb spec tooling cli-reference — `mfb audit` flags and the command's exit codes
+* ./mfb spec architecture packages — version constraints, pin/install policy, and where a writer of `mfb.lock` would fit
+* ./mfb spec diagnostics rule-codes — the `6-603` `LOCKFILE_MISMATCH` diagnostic family for resolved-state mismatches

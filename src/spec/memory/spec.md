@@ -21,7 +21,11 @@ four-register fallible-call result ABI** (other specs summarize and link here);
 `heap-values` specifies the compact object bodies (strings, records,
 errors, results, unions); `arenas` is where every heap value lives and how it is
 allocated, freed, filled, and reclaimed; and `collections` specifies the one
-uniform `List`/`Map` layout, its examples, operations, and compaction.
+uniform `List`/`Map` layout, its examples, operations, and compaction. The
+remaining topics specify the native ABI: `native-calling-convention` (the custom
+non-AAPCS64 register/stack-frame model), `runtime-helper-abi` (the
+`_mfb_rt_*` helper signatures), `program-startup` (the generated entry/teardown
+sequence), and `closures` (the function-value/closure object layout).
 
 ## See Also
 
