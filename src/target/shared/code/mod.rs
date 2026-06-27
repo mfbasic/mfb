@@ -14026,6 +14026,7 @@ mod builder_math;
 mod builder_misc;
 mod builder_numeric;
 mod builder_search;
+mod builder_simd_fixed_math;
 mod builder_simd_math;
 mod builder_strings;
 mod builder_strings_package;

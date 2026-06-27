@@ -28,6 +28,9 @@ impl CodeBuilder<'_> {
             "clamp" if args.len() == 3 && self.is_list_argument(&args[0]) => {
                 self.lower_math_clamp_array(args)
             }
+            "log" | "log10" if args.len() == 1 && self.is_list_argument(&args[0]) => {
+                self.lower_math_log_array(function, &args[0])
+            }
             "min" | "max" if args.len() == 2 => self.lower_math_min_max(function, args),
             "clamp" if args.len() == 3 => self.lower_math_clamp(args),
             "floor" | "ceil" | "round" if args.len() == 1 => {
@@ -113,7 +116,31 @@ impl CodeBuilder<'_> {
                 COLLECTION_TYPE_FLOAT,
                 text,
             ),
+            // Fixed sqrt is a genuine 2-lane NEON restoring sqrt (plan-01-simd §4.5).
+            "Fixed" => self.lower_simd_sqrt_fixed(input, text),
             other => Err(format!("math.sqrt array overload does not accept List OF {other}")),
+        }
+    }
+
+    /// `math.log/log10(values AS Fixed[]) AS Fixed[]` — per-lane scalar Q32.32
+    /// (plan-01-simd §4.5). Float lists route to the Phase 5 kernels.
+    fn lower_math_log_array(
+        &mut self,
+        function: &str,
+        arg: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let input = self.lower_value(arg)?;
+        let text = format!("math.{function}({})", input.text);
+        let element = input
+            .type_
+            .strip_prefix("List OF ")
+            .ok_or_else(|| format!("math.{function} array overload requires a list, got {}", input.type_))?
+            .to_string();
+        match element.as_str() {
+            "Fixed" => self.lower_simd_log_fixed(input, function == "log10", text),
+            other => Err(format!(
+                "math.{function} array overload does not yet accept List OF {other}"
+            )),
         }
     }
 

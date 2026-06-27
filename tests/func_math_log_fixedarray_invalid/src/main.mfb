@@ -1,0 +1,7 @@
+IMPORT math
+' log array overload is Fixed-only in Phase 4; an Integer list is rejected.
+FUNC main AS Integer
+  LET xs AS List OF Integer = [1, 2, 3]
+  LET ls AS List OF Integer = math::log(xs)
+  RETURN 0
+END FUNC

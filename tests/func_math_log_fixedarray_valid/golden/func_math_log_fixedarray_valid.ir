@@ -1,0 +1,52 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_log_fixedarray_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "show",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "xs", "type": "List OF Fixed", "default": null },
+    { "name": "p", "type": "Byte", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "forEach",
+      "name": "x",
+      "type": "Fixed",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "p" }] }] } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "8" } },
+    { "op": "bind", "mutable": false, "name": "xs", "type": "List OF Fixed", "value": { "kind": "list", "type": "List OF Fixed", "values": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.0" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "4.0" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "9.0" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.25" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "100.0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "log:" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "show", "args": [{ "kind": "call", "target": "math.log", "args": [{ "kind": "local", "name": "xs" }] }, { "kind": "local", "name": "p" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "log10:" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "show", "args": [{ "kind": "call", "target": "math.log10", "args": [{ "kind": "local", "name": "xs" }] }, { "kind": "local", "name": "p" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,23 @@
+IMPORT io
+IMPORT math
+
+' sqrt over a List OF Fixed is genuine 2-lane NEON (restoring sqrt over raw
+' Q32.32 lanes) and is bit-identical to the scalar Fixed sqrt. Length 5 is odd,
+' exercising the scalar-tail (broadcast) path.
+SUB show(xs AS List OF Fixed, p AS Byte)
+  FOR EACH x IN xs
+    io::print(toString(x, p))
+  NEXT
+END SUB
+
+FUNC main AS Integer
+  LET p AS Byte = 8
+  LET xs AS List OF Fixed = [toFixed("2.0"), toFixed("4.0"), toFixed("9.0"), toFixed("0.25"), toFixed("100.0")]
+  io::print("array:")
+  show(math::sqrt(xs), p)
+  io::print("scalar:")
+  FOR EACH x IN xs
+    io::print(toString(math::sqrt(x), p))
+  NEXT
+  RETURN 0
+END FUNC

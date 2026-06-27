@@ -147,7 +147,15 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         // Array (SIMD) overloads — plan-01-simd §4.2. The result list type equals
         // the (single, or two matching) argument list type.
         ABS if any_numeric_list(arg_types) => Cow::Borrowed(arg_types[0].as_str()),
-        SQRT if one_numeric_list(arg_types, "Float") => Cow::Borrowed(arg_types[0].as_str()),
+        // sqrt over Float[] (NEON fsqrt) or Fixed[] (vectorized Q32.32 restoring
+        // sqrt). log/log10 over Fixed[] are per-lane scalar Q32.32 (plan §4.5);
+        // the Float transcendentals arrive in Phase 5.
+        SQRT if one_numeric_list(arg_types, "Float") || one_numeric_list(arg_types, "Fixed") => {
+            Cow::Borrowed(arg_types[0].as_str())
+        }
+        LOG | LOG10 if one_numeric_list(arg_types, "Fixed") => {
+            Cow::Borrowed(arg_types[0].as_str())
+        }
         FLOOR | CEIL | ROUND if one_floatish_list(arg_types) => {
             Cow::Borrowed("List OF Integer")
         }
