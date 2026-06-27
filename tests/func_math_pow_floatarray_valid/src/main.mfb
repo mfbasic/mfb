@@ -1,0 +1,15 @@
+IMPORT io
+IMPORT math
+
+' Vectorized math::pow(base, exponent) = exp(exponent * log(base)) over two Float
+' lists. Faithfully rounded (within a few ULP of libm; strict <=1 ULP needs a
+' double-double exponent*log product). Length 5 odd.
+FUNC main AS Integer
+  LET p AS Byte = 12
+  LET bs AS List OF Float = [2.0, 4.0, 9.0, 2.0, 10.0]
+  LET es AS List OF Float = [0.5, 0.5, 0.5, 10.0, 0.0 - 2.0]
+  FOR EACH r IN math::pow(bs, es)
+    io::print(toString(r, p))
+  NEXT
+  RETURN 0
+END FUNC

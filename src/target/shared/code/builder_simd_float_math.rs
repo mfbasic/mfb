@@ -516,4 +516,155 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::vector_dup_from_x(vreg, "x0"));
     }
+
+    /// Lower a two-array `math::` Float overload (`atan2`/`pow`). Both lists must
+    /// have the same length (`ErrInvalidArgument` otherwise). `left_slot`/
+    /// `right_slot` already hold the two list pointers (the caller spilled them).
+    pub(super) fn lower_simd_float_binary(
+        &mut self,
+        kernel: FloatBinaryKernel,
+        left_slot: usize,
+        right_slot: usize,
+        text: String,
+    ) -> Result<ValueResult, String> {
+        self.reset_temporary_registers();
+        let left_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
+        let right_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+        let count = self.allocate_register()?;
+        let rcount = self.allocate_register()?;
+        self.emit(abi::load_u64(&count, &left_ptr, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&rcount, &right_ptr, COLLECTION_OFFSET_COUNT));
+        let lengths_ok = self.label("simd_flb_len_ok");
+        self.emit(abi::compare_registers(&count, &rcount));
+        self.emit(abi::branch_eq(&lengths_ok));
+        self.emit_invalid_argument_return()?;
+        self.emit(abi::label(&lengths_ok));
+        let count_slot = self.allocate_stack_object("simd_flb_count", 8);
+        self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
+
+        self.emit(abi::move_register("x0", &count));
+        self.emit(abi::move_immediate("x1", "Integer", &COLLECTION_TYPE_FLOAT.to_string()));
+        self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: SIMD_ALLOC_LIST_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+
+        self.reset_temporary_registers();
+        let result_base = self.allocate_register()?;
+        self.emit(abi::move_register(&result_base, "x0"));
+        let alloc_ok = self.label("simd_flb_alloc_ok");
+        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit(abi::move_register("x0", "x1"));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+
+        let left_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
+        let right_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+        let count = self.allocate_register()?;
+        self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
+        let left_data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&left_data, &left_ptr);
+        let right_data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&right_data, &right_ptr);
+        let out_data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&out_data, &result_base);
+        let pairs = self.allocate_register()?;
+        self.emit(abi::shift_right_immediate(&pairs, &count, 1));
+        self.emit(abi::vector_eor("v22", "v22", "v22"));
+        self.emit_float_binary_setup(kernel);
+
+        let loop_label = self.label("simd_flb_loop");
+        let loop_done = self.label("simd_flb_done");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(&pairs, "0"));
+        self.emit(abi::branch_eq(&loop_done));
+        self.emit(abi::vector_load("v0", &left_data, 0));
+        self.emit(abi::vector_load("v1", &right_data, 0));
+        self.emit_float_binary_body(kernel);
+        self.emit(abi::vector_store("v0", &out_data, 0));
+        self.emit(abi::add_immediate(&left_data, &left_data, 16));
+        self.emit(abi::add_immediate(&right_data, &right_data, 16));
+        self.emit(abi::add_immediate(&out_data, &out_data, 16));
+        self.emit(abi::subtract_immediate(&pairs, &pairs, 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&loop_done));
+
+        // Tail: broadcast both single elements, run the kernel, store lane 0.
+        self.emit(abi::move_immediate("x1", "Integer", "1"));
+        self.emit(abi::and_registers("x1", &count, "x1"));
+        let tail_done = self.label("simd_flb_tail_done");
+        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::branch_eq(&tail_done));
+        self.emit(abi::load_u64("x0", &left_data, 0));
+        self.emit(abi::vector_dup_from_x("v0", "x0"));
+        self.emit(abi::load_u64("x0", &right_data, 0));
+        self.emit(abi::vector_dup_from_x("v1", "x0"));
+        self.emit_float_binary_body(kernel);
+        self.emit(abi::vector_extract_to_x("x0", "v0", 0));
+        self.emit(abi::store_u64("x0", &out_data, 0));
+        self.emit(abi::label(&tail_done));
+
+        Ok(ValueResult {
+            type_: "List OF Float".to_string(),
+            location: result_base,
+            text,
+        })
+    }
+
+    fn emit_float_binary_setup(&mut self, kernel: FloatBinaryKernel) {
+        match kernel {
+            FloatBinaryKernel::Atan2 => {
+                self.broadcast_f64("v16", 1.0);
+                self.broadcast_f64("v17", std::f64::consts::FRAC_PI_2);
+                self.broadcast_i64("v18", i64::MIN); // sign mask
+                self.broadcast_i64("v19", i64::MAX); // abs mask
+                self.broadcast_f64("v23", std::f64::consts::PI);
+            }
+            // pow re-broadcasts the log then exp constants inside the body.
+            FloatBinaryKernel::Pow => {}
+        }
+    }
+
+    fn emit_float_binary_body(&mut self, kernel: FloatBinaryKernel) {
+        match kernel {
+            FloatBinaryKernel::Atan2 => {
+                // atan2(y=v0, x=v1) = atan(y/x) + (x<0 ? copysign(pi, y) : 0).
+                self.emit(abi::vector_fcmlt_zero("v20", "v1")); // x < 0 mask
+                self.emit(abi::vector_and("v21", "v0", "v18")); // sign(y)
+                self.emit(abi::vector_fdiv("v0", "v0", "v1")); // q = y/x
+                self.emit_atan_core(); // v0 = atan(q)
+                self.emit(abi::vector_orr("v2", "v23", "v21")); // copysign(pi, y)
+                self.emit(abi::vector_and("v2", "v2", "v20")); // & (x<0)
+                self.emit(abi::vector_fadd("v0", "v0", "v2"));
+            }
+            FloatBinaryKernel::Pow => {
+                // pow(x=v0, y=v1) = exp(y * log(x)). Re-broadcast each kernel's
+                // constants in turn; y is parked in v26 (untouched by log/exp).
+                self.emit(abi::vector_orr("v26", "v1", "v1")); // save y
+                self.emit_float_kernel_setup(FloatKernel::Log);
+                self.emit_log_body(false); // v0 = log(x)
+                self.emit(abi::vector_fmul("v0", "v0", "v26")); // y*log(x)
+                self.emit_float_kernel_setup(FloatKernel::Exp);
+                self.emit_exp_body(); // v0 = exp(y*log(x))
+            }
+        }
+    }
+}
+
+/// A two-array `math::` Float kernel.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum FloatBinaryKernel {
+    /// `atan2(y, x)`.
+    Atan2,
+    /// `pow(base, exponent) = exp(exponent * log(base))`.
+    Pow,
 }

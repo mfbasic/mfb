@@ -163,6 +163,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         EXP | SIN | COS | TAN | ATAN | ASIN | ACOS if one_numeric_list(arg_types, "Float") => {
             Cow::Borrowed(arg_types[0].as_str())
         }
+        // Binary Float kernels: two same-length List OF Float.
+        POW | ATAN2 if two_float_lists(arg_types) => Cow::Borrowed(arg_types[0].as_str()),
         FLOOR | CEIL | ROUND if one_floatish_list(arg_types) => {
             Cow::Borrowed("List OF Integer")
         }
@@ -261,6 +263,11 @@ fn is_numeric_list(type_: &str) -> bool {
         type_,
         "List OF Integer" | "List OF Float" | "List OF Fixed"
     )
+}
+
+/// Two `List OF Float` arguments (the binary Float kernels `pow`/`atan2`).
+fn two_float_lists(arg_types: &[String]) -> bool {
+    arg_types.len() == 2 && arg_types[0] == "List OF Float" && arg_types[1] == "List OF Float"
 }
 
 /// Two arguments that are the same numeric list type (two-array `min`/`max`).

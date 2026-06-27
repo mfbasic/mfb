@@ -1,0 +1,37 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_pow_floatarray_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "12" } },
+    { "op": "bind", "mutable": false, "name": "bs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "4.0" }, { "kind": "const", "type": "Float", "value": "9.0" }, { "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "10.0" }] } },
+    { "op": "bind", "mutable": false, "name": "es", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "10.0" }, { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "2.0" } }] } },
+    {
+      "op": "forEach",
+      "name": "r",
+      "type": "Float",
+      "iterable": { "kind": "call", "target": "math.pow", "args": [{ "kind": "local", "name": "bs" }, { "kind": "local", "name": "es" }] },
+      "body": [
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "r" }, { "kind": "local", "name": "p" }] }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

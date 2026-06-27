@@ -34,6 +34,9 @@ impl CodeBuilder<'_> {
             "exp" if args.len() == 1 && self.is_list_argument(&args[0]) => {
                 self.lower_math_exp_array(&args[0])
             }
+            "atan2" | "pow" if args.len() == 2 && self.is_list_argument(&args[0]) => {
+                self.lower_math_atan2_pow_array(function, args)
+            }
             "sin" | "cos" | "tan" | "atan" | "asin" | "acos"
                 if args.len() == 1 && self.is_list_argument(&args[0]) =>
             {
@@ -128,6 +131,38 @@ impl CodeBuilder<'_> {
             "Fixed" => self.lower_simd_sqrt_fixed(input, text),
             other => Err(format!("math.sqrt array overload does not accept List OF {other}")),
         }
+    }
+
+    /// `math.atan2(y AS Float[], x AS Float[])` / `math.pow(base AS Float[],
+    /// exponent AS Float[])` — vectorized binary Float kernels (§4.6).
+    /// `ErrInvalidArgument` if the two lists differ in length.
+    fn lower_math_atan2_pow_array(
+        &mut self,
+        function: &str,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        use super::builder_simd_float_math::FloatBinaryKernel;
+        // Lower and spill each arg before lowering the next (a later arg's call
+        // can clobber the earlier list pointer).
+        let left = self.lower_value(&args[0])?;
+        let left_slot = self.allocate_stack_object("simd_flb_left", 8);
+        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        let right = self.lower_value(&args[1])?;
+        let right_slot = self.allocate_stack_object("simd_flb_right", 8);
+        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        if left.type_ != "List OF Float" || right.type_ != "List OF Float" {
+            return Err(format!(
+                "math.{function} array overload requires two List OF Float, got {} and {}",
+                left.type_, right.type_
+            ));
+        }
+        let kernel = match function {
+            "atan2" => FloatBinaryKernel::Atan2,
+            "pow" => FloatBinaryKernel::Pow,
+            _ => return Err(format!("math.{function} has no binary array overload")),
+        };
+        let text = format!("math.{function}({}, {})", left.text, right.text);
+        self.lower_simd_float_binary(kernel, left_slot, right_slot, text)
     }
 
     /// `math.exp(values AS Float[]) AS Float[]` — NEON polynomial kernel

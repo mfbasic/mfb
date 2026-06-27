@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_atan2_floatarray_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "3.0" }] } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "3.0" }, { "kind": "const", "type": "Float", "value": "4.0" }] } },
+    { "op": "bind", "mutable": false, "name": "r", "type": "List OF Float", "value": { "kind": "call", "target": "math.atan2", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "r" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

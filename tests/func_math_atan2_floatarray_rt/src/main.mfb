@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT math
+' atan2 raises ErrInvalidArgument when the two lists differ in length.
+FUNC main AS Integer
+  LET a AS List OF Float = [2.0, 3.0]
+  LET b AS List OF Float = [2.0, 3.0, 4.0]
+  LET r AS List OF Float = math::atan2(a, b)
+  io::print(toString(len(r)))
+  RETURN 0
+END FUNC
