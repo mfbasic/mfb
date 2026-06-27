@@ -1,0 +1,20 @@
+IMPORT io
+
+' Reads standard input line by line until EOF, counting lines and total bytes.
+' io::readLine raises ErrEof at end of input, which the function-level TRAP
+' catches to end the loop and report.
+
+FUNC main AS Integer
+  MUT lines AS Integer = 0
+  MUT bytes AS Integer = 0
+  WHILE TRUE
+    LET line AS String = io::readLine()
+    lines = lines + 1
+    bytes = bytes + len(line)
+  WEND
+  RETURN 0
+  TRAP(err)
+    io::print("lines: " & toString(lines) & " bytes: " & toString(bytes))
+    RETURN 0
+  END TRAP
+END FUNC

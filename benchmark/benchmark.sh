@@ -6,18 +6,32 @@ set -uo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Run order: startup, compute, then the collection/string memory benchmarks,
-# with the very slow list-sort last.
+# Run order: startup, compute (recursion, float), collection/string memory,
+# parse, I/O, threading. Benchmarks with reduced default run counts (list-sort,
+# parse-json, parse-regex, io-read, thread-sum, the heavy recursion/float ones)
+# set their own BENCH_RUNS.
 benchmarks=(
   empty
   primes
+  recurse-fib
+  recurse-ackermann
+  float-leibniz
+  float-nbody
+  float-mandelbrot
   list-append
   list-append2
   list-prepend
   list-copy
   map-set
   string-concat
+  record-update
   list-sort
+  parse-csv
+  parse-json
+  parse-regex
+  io-write
+  io-read
+  thread-sum
 )
 
 failed=()

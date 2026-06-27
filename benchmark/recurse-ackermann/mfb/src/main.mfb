@@ -1,0 +1,14 @@
+IMPORT io
+
+' Ackermann function — deeply nested recursive call/return overhead.
+FUNC ack(m AS Integer, n AS Integer) AS Integer
+  IF m = 0 THEN RETURN n + 1
+  IF n = 0 THEN RETURN ack(m - 1, 1)
+  RETURN ack(m - 1, ack(m, n - 1))
+END FUNC
+
+FUNC main AS Integer
+  LET result AS Integer = ack(3, 7)
+  io::print("ack(3,7): " & toString(result))
+  RETURN 0
+END FUNC

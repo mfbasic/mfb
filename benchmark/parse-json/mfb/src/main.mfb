@@ -1,0 +1,15 @@
+IMPORT fs
+IMPORT io
+IMPORT json
+
+' Reads a pre-generated JSON object holding a 5000-element array plus a "tail"
+' field, parses the whole thing with json::parse, then reads the tail back out
+' to verify. The input is read from a file (not built in-process) so the
+' benchmark measures parsing, not mfb's string concatenation.
+
+FUNC main AS Integer
+  LET text AS String = fs::readText("/tmp/mfb-bench-parse-json.json")
+  LET value AS Json = json::parse(text)
+  io::print("tail: " & json::stringify(json::get(value, ["tail"])))
+  RETURN 0
+END FUNC
