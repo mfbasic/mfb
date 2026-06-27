@@ -1,0 +1,23 @@
+$ mfb build -ast tests/func_math_log_floatarray_valid
+Wrote AST to tests/func_math_log_floatarray_valid/func_math_log_floatarray_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_log_floatarray_valid
+Wrote IR to tests/func_math_log_floatarray_valid/func_math_log_floatarray_valid.ir
+[exit 0]
+$ mfb build tests/func_math_log_floatarray_valid
+Wrote executable to tests/func_math_log_floatarray_valid/func_math_log_floatarray_valid.out
+[exit 0]
+$ tests/func_math_log_floatarray_valid/func_math_log_floatarray_valid.out
+log:
+-0.693147180559945
+0.000000000000000
+0.693147180559945
+2.302585092994045
+4.605170185988091
+log10:
+-0.301029995663981
+0.000000000000000
+0.301029995663981
+1.000000000000000
+2.000000000000000
+[exit 0]

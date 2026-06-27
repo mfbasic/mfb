@@ -34,6 +34,9 @@ impl CodeBuilder<'_> {
             "exp" if args.len() == 1 && self.is_list_argument(&args[0]) => {
                 self.lower_math_exp_array(&args[0])
             }
+            "sin" | "cos" | "tan" if args.len() == 1 && self.is_list_argument(&args[0]) => {
+                self.lower_math_trig_array(function, &args[0])
+            }
             "min" | "max" if args.len() == 2 => self.lower_math_min_max(function, args),
             "clamp" if args.len() == 3 => self.lower_math_clamp(args),
             "floor" | "ceil" | "round" if args.len() == 1 => {
@@ -128,6 +131,7 @@ impl CodeBuilder<'_> {
     /// `math.exp(values AS Float[]) AS Float[]` — NEON polynomial kernel
     /// (plan-01-simd §4.6).
     fn lower_math_exp_array(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        use super::builder_simd_float_math::FloatKernel;
         let input = self.lower_value(arg)?;
         let text = format!("math.exp({})", input.text);
         let element = input
@@ -136,9 +140,36 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("math.exp array overload requires a list, got {}", input.type_))?
             .to_string();
         match element.as_str() {
-            "Float" => self.lower_simd_exp_float(input, text),
+            "Float" => self.lower_simd_float_unary(FloatKernel::Exp, input, text),
             other => Err(format!("math.exp array overload does not accept List OF {other}")),
         }
+    }
+
+    /// `math.sin/cos/tan(values AS Float[]) AS Float[]` — NEON kernels (§4.6).
+    fn lower_math_trig_array(
+        &mut self,
+        function: &str,
+        arg: &NirValue,
+    ) -> Result<ValueResult, String> {
+        use super::builder_simd_float_math::FloatKernel;
+        let input = self.lower_value(arg)?;
+        let text = format!("math.{function}({})", input.text);
+        let element = input
+            .type_
+            .strip_prefix("List OF ")
+            .ok_or_else(|| format!("math.{function} array overload requires a list, got {}", input.type_))?
+            .to_string();
+        let kernel = match (function, element.as_str()) {
+            ("sin", "Float") => FloatKernel::Sin,
+            ("cos", "Float") => FloatKernel::Cos,
+            ("tan", "Float") => FloatKernel::Tan,
+            (_, other) => {
+                return Err(format!(
+                    "math.{function} array overload does not accept List OF {other}"
+                ))
+            }
+        };
+        self.lower_simd_float_unary(kernel, input, text)
     }
 
     /// `math.log/log10(values AS Fixed[]) AS Fixed[]` — per-lane scalar Q32.32
@@ -157,6 +188,15 @@ impl CodeBuilder<'_> {
             .to_string();
         match element.as_str() {
             "Fixed" => self.lower_simd_log_fixed(input, function == "log10", text),
+            "Float" => {
+                use super::builder_simd_float_math::FloatKernel;
+                let kernel = if function == "log10" {
+                    FloatKernel::Log10
+                } else {
+                    FloatKernel::Log
+                };
+                self.lower_simd_float_unary(kernel, input, text)
+            }
             other => Err(format!(
                 "math.{function} array overload does not yet accept List OF {other}"
             )),

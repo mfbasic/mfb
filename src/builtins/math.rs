@@ -153,11 +153,16 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         SQRT if one_numeric_list(arg_types, "Float") || one_numeric_list(arg_types, "Fixed") => {
             Cow::Borrowed(arg_types[0].as_str())
         }
-        LOG | LOG10 if one_numeric_list(arg_types, "Fixed") => {
+        // log/log10 over Fixed[] (per-lane scalar Q32.32) or Float[] (NEON kernel).
+        LOG | LOG10
+            if one_numeric_list(arg_types, "Fixed") || one_numeric_list(arg_types, "Float") =>
+        {
             Cow::Borrowed(arg_types[0].as_str())
         }
-        // Float transcendental array kernels (plan-01-simd §4.6); exp landed first.
-        EXP if one_numeric_list(arg_types, "Float") => Cow::Borrowed(arg_types[0].as_str()),
+        // Float transcendental array kernels (plan-01-simd §4.6).
+        EXP | SIN | COS | TAN if one_numeric_list(arg_types, "Float") => {
+            Cow::Borrowed(arg_types[0].as_str())
+        }
         FLOOR | CEIL | ROUND if one_floatish_list(arg_types) => {
             Cow::Borrowed("List OF Integer")
         }

@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT math
+
+' Vectorized math::tan over a Float list — NEON f64 kernel (Cody-Waite range
+' reduction + minimax polynomial + quadrant select), within <=1 ULP of macOS
+' libm on the medium range. Length 5 is odd, exercising the broadcast tail.
+FUNC main AS Integer
+  LET p AS Byte = 15
+  LET xs AS List OF Float = [0.0, 0.5, 1.0, 0.7853981633974483, 2.0]
+  FOR EACH y IN math::tan(xs)
+    io::print(toString(y, p))
+  NEXT
+  RETURN 0
+END FUNC

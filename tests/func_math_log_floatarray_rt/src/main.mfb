@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT math
+
+' log over a Float list raises ErrInvalidArgument on a non-positive lane.
+FUNC main AS Integer
+  LET xs AS List OF Float = [2.0, 0.0 - 1.0, 8.0]
+  LET ys AS List OF Float = math::log(xs)
+  io::print(toString(len(ys)))
+  RETURN 0
+END FUNC
