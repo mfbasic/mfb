@@ -8,5 +8,5 @@ $ mfb build tests/func_math_exp_floatarray_rt
 Wrote executable to tests/func_math_exp_floatarray_rt/func_math_exp_floatarray_rt.out
 [exit 0]
 $ tests/func_math_exp_floatarray_rt/func_math_exp_floatarray_rt.out
-Code: 77050010 Message: numeric overflow
+Code: 77050014 Message: float infinity result
 [exit 255]

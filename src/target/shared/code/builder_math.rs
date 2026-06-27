@@ -52,17 +52,16 @@ impl CodeBuilder<'_> {
             "sqrt" if args.len() == 1 => self.lower_math_sqrt(&args[0]),
             "pow" if args.len() == 2 => self.lower_external_math(function, args),
             "atan2" if args.len() == 2 => self.lower_external_math(function, args),
-            // Scalar Float log/log10/sin/cos share the array NEON kernels
-            // (plan-01-simd §4.7: one deterministic surface, <=1 ULP of libm).
-            // Fixed stays on the deterministic Q32.32 path; sin/cos never error
-            // and log/log10 keep their ErrFloatDomain pre-check, so error
-            // semantics are unchanged. exp stays on libm here so scalar exp
-            // overflow keeps returning `inf` rather than the array's ErrOverflow;
-            // tan/asin/acos/atan stay on libm until their kernels reach <=1 ULP.
-            "log" | "log10" | "sin" | "cos" if args.len() == 1 => {
+            // Scalar Float exp/log/log10/sin/cos share the array NEON kernels
+            // (plan-01-simd §4.7: one deterministic surface, <=1 ULP of libm, and
+            // the kernels' float error codes — ErrFloatDomain/ErrFloatInf/
+            // ErrFloatNan — already match the scalar man pages). Fixed stays on
+            // the deterministic Q32.32 path; tan/asin/acos/atan stay on libm until
+            // their kernels reach strict <=1 ULP.
+            "exp" | "log" | "log10" | "sin" | "cos" if args.len() == 1 => {
                 self.lower_math_scalar_transcendental(function, &args[0])
             }
-            "exp" | "tan" | "asin" | "acos" | "atan" if args.len() == 1 => {
+            "tan" | "asin" | "acos" | "atan" if args.len() == 1 => {
                 self.lower_external_math(function, args)
             }
             other => Err(format!(
@@ -155,15 +154,11 @@ impl CodeBuilder<'_> {
         match value.type_.as_str() {
             "Float" => {
                 let text = format!("math.{function}({})", value.text);
-                if matches!(function, "log" | "log10") {
-                    self.emit(abi::float_move_d_from_x("d0", &value.location));
-                    self.emit(abi::float_compare_zero_d("d0"));
-                    let valid = self.label("math_log_positive");
-                    self.emit(abi::branch_gt(&valid));
-                    self.emit_float_domain_return()?;
-                    self.emit(abi::label(&valid));
-                }
+                // The kernels raise the matching float error themselves
+                // (ErrFloatDomain for log/log10 ≤0, ErrFloatInf/ErrFloatNan for
+                // exp), so no pre-check is needed.
                 let kernel = match function {
+                    "exp" => FloatKernel::Exp,
                     "log" => FloatKernel::Log,
                     "log10" => FloatKernel::Log10,
                     "sin" => FloatKernel::Sin,

@@ -1,6 +1,6 @@
 IMPORT io
 IMPORT math
-' asin raises ErrInvalidArgument when a lane is outside [-1, 1].
+' asin raises ErrFloatDomain when a lane is outside [-1, 1] (matches scalar math::asin).
 FUNC main AS Integer
   LET xs AS List OF Float = [0.5, 2.0, 0.1]
   LET ys AS List OF Float = math::asin(xs)

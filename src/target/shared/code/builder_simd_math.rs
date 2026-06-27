@@ -51,7 +51,7 @@ impl SimdUnaryKernel {
     fn error(self) -> Option<SimdError> {
         match self {
             SimdUnaryKernel::AbsInteger => Some(SimdError::Overflow),
-            SimdUnaryKernel::SqrtFloat => Some(SimdError::InvalidArgument),
+            SimdUnaryKernel::SqrtFloat => Some(SimdError::FloatDomain),
             SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
                 Some(SimdError::Overflow)
             }
@@ -78,6 +78,9 @@ impl SimdUnaryKernel {
 enum SimdError {
     Overflow,
     InvalidArgument,
+    /// Float domain failure (e.g. `sqrt(Float[])` negative lane) — matches the
+    /// scalar `math::sqrt(Float)` man page's `ErrFloatDomain`.
+    FloatDomain,
 }
 
 /// A two-array `math::` kernel (`min`/`max`). NEON has no `smin`/`smax` on `.2d`,
@@ -213,6 +216,7 @@ impl CodeBuilder<'_> {
             match kernel.error().unwrap() {
                 SimdError::Overflow => self.emit_overflow_return()?,
                 SimdError::InvalidArgument => self.emit_invalid_argument_return()?,
+                SimdError::FloatDomain => self.emit_float_domain_return()?,
             }
             self.emit(abi::label(&no_err));
         }

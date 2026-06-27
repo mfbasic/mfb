@@ -51,21 +51,31 @@ pub(super) enum FloatKernel {
     Acos,
 }
 
-impl FloatKernel {
-    fn error(self) -> Option<FloatError> {
-        match self {
-            FloatKernel::Exp => Some(FloatError::Overflow),
-            FloatKernel::Log | FloatKernel::Log10 => Some(FloatError::InvalidArgument),
-            FloatKernel::Asin | FloatKernel::Acos => Some(FloatError::InvalidArgument),
-            FloatKernel::Sin | FloatKernel::Cos | FloatKernel::Tan | FloatKernel::Atan => None,
-        }
-    }
-}
-
+/// A float error condition + the per-lane mask register the kernel accumulates
+/// it into. Error codes match the scalar `math::` man pages: domain failures →
+/// `ErrFloatDomain`, NaN results → `ErrFloatNan`, infinite results → `ErrFloatInf`.
 #[derive(Clone, Copy)]
 enum FloatError {
-    Overflow,
-    InvalidArgument,
+    /// Input outside the domain (sqrt<0, log≤0, asin/acos |x|>1). Mask in `v22`.
+    Domain,
+    /// Result is NaN (trig/exp/pow of NaN/inf input). Mask in `v22`.
+    Nan,
+    /// Result overflows to infinity (exp/pow). Mask in `v24`.
+    Inf,
+}
+
+impl FloatKernel {
+    /// The error checks this kernel performs, matching the scalar man pages.
+    fn errors(self) -> &'static [FloatError] {
+        match self {
+            FloatKernel::Exp => &[FloatError::Nan, FloatError::Inf],
+            FloatKernel::Log | FloatKernel::Log10 => &[FloatError::Domain],
+            FloatKernel::Asin | FloatKernel::Acos => &[FloatError::Domain],
+            FloatKernel::Sin | FloatKernel::Cos | FloatKernel::Tan | FloatKernel::Atan => {
+                &[FloatError::Nan]
+            }
+        }
+    }
 }
 
 impl CodeBuilder<'_> {
@@ -156,18 +166,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x0", &out_data, 0));
         self.emit(abi::label(&tail_done));
 
-        if let Some(err) = kernel.error() {
-            self.emit(abi::vector_extract_to_x("x0", "v22", 0));
-            self.emit(abi::vector_extract_to_x("x1", "v22", 1));
-            self.emit(abi::or_registers("x0", "x0", "x1"));
-            let no_err = self.label("simd_fl_no_err");
-            self.emit(abi::compare_immediate("x0", "0"));
-            self.emit(abi::branch_eq(&no_err));
-            match err {
-                FloatError::Overflow => self.emit_overflow_return()?,
-                FloatError::InvalidArgument => self.emit_invalid_argument_return()?,
-            }
-            self.emit(abi::label(&no_err));
+        for err in kernel.errors() {
+            self.emit_float_error_reduce(*err)?;
         }
 
         Ok(ValueResult {
@@ -177,12 +177,46 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Reduce one per-lane error mask to a single GPR and raise the matching
+    /// float error if any lane is set (the result list is discarded). Mask
+    /// registers: `Domain`/`Nan` → `v22`, `Inf` → `v24`.
+    fn emit_float_error_reduce(&mut self, err: FloatError) -> Result<(), String> {
+        let mask = match err {
+            FloatError::Domain | FloatError::Nan => "v22",
+            FloatError::Inf => "v24",
+        };
+        self.emit(abi::vector_extract_to_x("x0", mask, 0));
+        self.emit(abi::vector_extract_to_x("x1", mask, 1));
+        self.emit(abi::or_registers("x0", "x0", "x1"));
+        let no_err = self.label("simd_fl_no_err");
+        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::branch_eq(&no_err));
+        match err {
+            FloatError::Domain => self.emit_float_domain_return()?,
+            FloatError::Nan => self.emit_float_nan_return()?,
+            FloatError::Inf => self.emit_float_inf_return()?,
+        }
+        self.emit(abi::label(&no_err));
+        Ok(())
+    }
+
+    /// Accumulate a result-is-NaN mask (lane where `v0 != v0`) into `v22`, for the
+    /// kernels whose only failure is a NaN result (sin/cos/tan/atan/atan2). Uses
+    /// v1/v2 as scratch (free at the end of those bodies).
+    fn emit_result_nan_into_v22(&mut self) {
+        self.emit(abi::vector_fcmeq("v1", "v0", "v0")); // non-NaN = all-ones
+        self.emit(abi::vector_cmeq("v2", "v0", "v0")); // all-ones (bitwise self-eq)
+        self.emit(abi::vector_eor("v1", "v1", "v2")); // NaN lanes = all-ones
+        self.emit(abi::vector_orr("v22", "v22", "v1"));
+    }
+
     /// Lower a *scalar* `Float` transcendental onto the array kernel by
     /// broadcasting the single value into both lanes and extracting lane 0 — so
     /// `math::f(x)` and `math::f([x])[0]` are bit-identical ("one deterministic
-    /// surface", plan-01-simd §4.7). No per-lane error reduce: `sin`/`cos` never
-    /// error, `exp` overflow yields the kernel's saturated `inf` (matching libm),
-    /// and the `log`/`log10` domain is checked by the caller before this runs.
+    /// surface", plan-01-simd §4.7). The same per-lane error checks run, so the
+    /// scalar error codes match the array (and the man pages): `ErrFloatDomain`
+    /// for `log`/`log10` non-positive input, `ErrFloatNan`/`ErrFloatInf` for
+    /// `exp`/`sin`/`cos`.
     pub(super) fn lower_simd_float_scalar(
         &mut self,
         kernel: FloatKernel,
@@ -193,6 +227,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_eor("v22", "v22", "v22"));
         self.emit_float_kernel_setup(kernel);
         self.emit_float_kernel_body(kernel);
+        for err in kernel.errors() {
+            self.emit_float_error_reduce(*err)?;
+        }
         let dst = self.allocate_register()?;
         self.emit(abi::vector_extract_to_x(&dst, "v0", 0));
         Ok(ValueResult {
@@ -214,6 +251,7 @@ impl CodeBuilder<'_> {
                 self.broadcast_i64("v20", 1023);
                 self.emit(abi::vector_eor("v21", "v21", "v21"));
                 self.broadcast_i64("v23", -1022);
+                self.emit(abi::vector_eor("v24", "v24", "v24")); // overflow (inf) mask
             }
             FloatKernel::Log | FloatKernel::Log10 => {
                 self.broadcast_f64("v16", SQRT_HALF);
@@ -261,6 +299,16 @@ impl CodeBuilder<'_> {
             FloatKernel::Atan => self.emit_atan_core(),
             FloatKernel::Asin => self.emit_asin_acos_body(false),
             FloatKernel::Acos => self.emit_asin_acos_body(true),
+        }
+        // sin/cos/tan/atan fail only with ErrFloatNan (a NaN result, which only
+        // happens for NaN/inf input); accumulate the result-NaN mask here so the
+        // reduce can raise it. (exp's NaN is detected from its input in-body;
+        // asin/acos/log/log10 set their domain mask in-body.)
+        if matches!(
+            kernel,
+            FloatKernel::Sin | FloatKernel::Cos | FloatKernel::Tan | FloatKernel::Atan
+        ) {
+            self.emit_result_nan_into_v22();
         }
     }
 
@@ -402,6 +450,12 @@ impl CodeBuilder<'_> {
 
     /// `exp` kernel: n=floor(x/ln2+0.5), Cody-Waite r, Horner P(r), scale 2^n.
     fn emit_exp_body(&mut self) {
+        // NaN input → ErrFloatNan: chunk_nan = ~fcmeq(x,x); accumulate into v22.
+        self.emit(abi::vector_fcmeq("v6", "v0", "v0")); // non-NaN lanes = all-ones
+        self.emit(abi::vector_cmeq("v7", "v0", "v0")); // all-ones (bitwise self-eq)
+        self.emit(abi::vector_eor("v6", "v6", "v7")); // NaN lanes = all-ones
+        self.emit(abi::vector_orr("v22", "v22", "v6"));
+        // n = floor(x/ln2 + 0.5); r = x - n*ln2 (Cody-Waite); Horner P(r).
         self.emit(abi::vector_fdiv("v1", "v0", "v16"));
         self.emit(abi::vector_fadd("v1", "v1", "v17"));
         self.emit(abi::vector_frintm("v1", "v1"));
@@ -410,13 +464,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_fmls("v2", "v1", "v19"));
         self.emit_horner("v3", "v2", &EXP_COEFFS);
         self.emit(abi::vector_fcvtzs("v5", "v1"));
+        // Overflow (result past finite range) → ErrFloatInf: n > 1023.
         self.emit(abi::vector_cmgt("v6", "v5", "v20"));
-        self.emit(abi::vector_orr("v22", "v22", "v6"));
+        self.emit(abi::vector_orr("v24", "v24", "v6")); // accumulate inf mask
         self.emit(abi::vector_cmgt("v6", "v23", "v5")); // underflow mask
         self.emit(abi::vector_add("v5", "v5", "v20"));
         self.emit(abi::vector_shl("v5", "v5", 52));
         self.emit(abi::vector_fmul("v0", "v3", "v5"));
-        self.emit(abi::vector_bsl("v6", "v21", "v0"));
+        self.emit(abi::vector_bsl("v6", "v21", "v0")); // flush underflow to 0
         self.emit(abi::vector_orr("v0", "v6", "v6"));
     }
 
@@ -638,6 +693,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x0", &out_data, 0));
         self.emit(abi::label(&tail_done));
 
+        // atan2/pow fail with ErrFloatNan on a NaN result (matching the scalar
+        // man pages); the length-mismatch ErrInvalidArgument is raised above.
+        self.emit_float_error_reduce(FloatError::Nan)?;
+
         Ok(ValueResult {
             type_: "List OF Float".to_string(),
             location: result_base,
@@ -670,16 +729,22 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_orr("v2", "v23", "v21")); // copysign(pi, y)
                 self.emit(abi::vector_and("v2", "v2", "v20")); // & (x<0)
                 self.emit(abi::vector_fadd("v0", "v0", "v2"));
+                // ErrFloatNan: NaN result (NaN/inf input).
+                self.emit_result_nan_into_v22();
             }
             FloatBinaryKernel::Pow => {
                 // pow(x=v0, y=v1) = exp(y * log(x)). Re-broadcast each kernel's
                 // constants in turn; y is parked in v26 (untouched by log/exp).
+                // log_body sets v22 for a non-positive base (no real result), and
+                // the result-NaN check below catches NaN/overflow inputs — both
+                // surface as ErrFloatNan, matching the scalar pow man page.
                 self.emit(abi::vector_orr("v26", "v1", "v1")); // save y
                 self.emit_float_kernel_setup(FloatKernel::Log);
-                self.emit_log_body(false); // v0 = log(x)
+                self.emit_log_body(false); // v0 = log(x); v22 |= (x<=0)
                 self.emit(abi::vector_fmul("v0", "v0", "v26")); // y*log(x)
                 self.emit_float_kernel_setup(FloatKernel::Exp);
                 self.emit_exp_body(); // v0 = exp(y*log(x))
+                self.emit_result_nan_into_v22();
             }
         }
     }

@@ -8,6 +8,7 @@ IMPORT collections
 SUB one(x AS Float)
   LET p AS Byte = 17
   LET xl AS List OF Float = [x]
+  io::print("exp " & toString(math::exp(x), p) & " " & toString(collections::get(math::exp(xl), 0), p))
   io::print("log " & toString(math::log(x), p) & " " & toString(collections::get(math::log(xl), 0), p))
   io::print("log10 " & toString(math::log10(x), p) & " " & toString(collections::get(math::log10(xl), 0), p))
   io::print("sin " & toString(math::sin(x), p) & " " & toString(collections::get(math::sin(xl), 0), p))

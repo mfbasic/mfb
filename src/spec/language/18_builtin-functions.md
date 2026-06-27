@@ -74,11 +74,17 @@ Math (`IMPORT math`): the call members `math::abs`, `math::min`, `math::max`, `m
 | `floor`/`ceil`/`round` | `Float[]→Integer[]`, `Fixed[]→Integer[]` | `ErrOverflow` (Float out of `Integer` range) |
 | `min`/`max` | `(T[],T[])→T[]` for `T∈{Integer,Float,Fixed}` | `ErrInvalidArgument` (lengths differ) |
 | `clamp` | `(T[],T,T)→T[]` for `T∈{Integer,Float,Fixed}` | — |
-| `sqrt` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | `ErrInvalidArgument` (negative lane) |
-| `log`/`log10` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | `ErrInvalidArgument` (lane ≤ 0) |
-| `exp`/`sin`/`cos`/`tan`/`atan` | `Float[]→Float[]` | `ErrOverflow` (`exp` only) |
-| `asin`/`acos` | `Float[]→Float[]` | `ErrInvalidArgument` (lane outside `[-1,1]`) |
-| `pow`/`atan2` | `(Float[],Float[])→Float[]` | `ErrInvalidArgument` (lengths differ) |
+| `sqrt` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | negative lane → `ErrFloatDomain` (Float) / `ErrInvalidArgument` (Fixed) |
+| `log`/`log10` | `Float[]→Float[]`, `Fixed[]→Fixed[]` | lane ≤ 0 → `ErrFloatDomain` (Float) / `ErrInvalidArgument` (Fixed) |
+| `exp` | `Float[]→Float[]` | `ErrFloatInf` (overflow), `ErrFloatNan` (NaN input) |
+| `sin`/`cos`/`tan`/`atan` | `Float[]→Float[]` | `ErrFloatNan` (NaN result) |
+| `asin`/`acos` | `Float[]→Float[]` | lane outside `[-1,1]` → `ErrFloatDomain` |
+| `pow`/`atan2` | `(Float[],Float[])→Float[]` | `ErrInvalidArgument` (lengths differ), `ErrFloatNan` (NaN result) |
+
+The per-lane error codes deliberately match the scalar `math::` overloads (the
+`mfb man math` pages): the `Float` overloads use the float-specific
+`ErrFloatDomain`/`ErrFloatInf`/`ErrFloatNan`, and `Fixed` uses `ErrInvalidArgument`,
+so `math::f(x)` and `math::f([x])[0]` fail identically.
 
 A per-lane error is reported as a single error **after** processing all lanes (the result list is discarded), so the error is deterministic regardless of which lane failed. `Fixed[]` results are platform-independent (deterministic Q32.32; `sqrt` is a real 2-lane NEON kernel, `log`/`log10` are per-lane Q32.32 — both bit-identical to the scalar `Fixed` result). **`Float[]` transcendentals are hand-written NEON `f64` polynomial kernels** (no external math library), identical on every target: `exp`/`log`/`log10`/`sin`/`cos` are within **≤1 ULP of macOS libm**; `tan`/`atan`/`asin`/`acos`/`atan2`/`pow` are faithfully rounded (within a few ULP — the strict ≤1-ULP reduction for those is tracked work). The algebraic overloads (`abs`/`min`/`max`/`clamp`/`floor`/`ceil`/`round`/`sqrt`) are exact, matching the scalar result element-wise.
 JSON (`IMPORT json`): `json::parse`, `json::stringify`, `json::get`, `json::getOr`.
