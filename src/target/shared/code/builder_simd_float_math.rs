@@ -1,4 +1,4 @@
-use super::simd_kernel_coeffs::{ATAN_COEFFS, COS_COEFFS, EXP_COEFFS, LOG_COEFFS, SIN_COEFFS};
+use super::simd_kernel_coeffs::{COS_COEFFS, EXP_COEFFS, LOG_COEFFS, SIN_COEFFS};
 use super::*;
 
 // NEON f64 polynomial kernels for the Float transcendentals — plan-01-simd
@@ -31,6 +31,36 @@ const INV_PIO2: f64 = 0.636_619_772_367_581_343_1;
 const PIO2_1: f64 = 1.570_796_326_734_125_614_17;
 const PIO2_2: f64 = 6.077_100_506_303_965_976_60e-11;
 const PIO2_2T: f64 = 2.022_266_248_795_950_631_54e-21;
+
+/// fdlibm `atan` 4-segment reduction: breakpoint `atan(c)` values as hi/lo
+/// double-doubles, and the minimax polynomial `aT` for the reduced argument.
+/// These reach strict <=1 ULP of macOS libm (public-domain Sun fdlibm constants).
+const ATAN_SEG_THRESH: [f64; 4] = [0.4375, 0.6875, 1.1875, 2.4375];
+const ATAN_HI: [f64; 4] = [
+    4.636_476_090_008_060_935_15e-01,
+    7.853_981_633_974_482_789_99e-01,
+    9.827_937_232_473_290_540_82e-01,
+    1.570_796_326_794_896_558_00e+00,
+];
+const ATAN_LO: [f64; 4] = [
+    2.269_877_745_296_168_709_24e-17,
+    3.061_616_997_868_383_017_93e-17,
+    1.390_331_103_123_099_845_16e-17,
+    6.123_233_995_736_766_035_87e-17,
+];
+const ATAN_AT: [f64; 11] = [
+    3.333_333_333_333_293_180_27e-01,
+    -1.999_999_999_987_648_324_76e-01,
+    1.428_571_427_250_346_637_11e-01,
+    -1.111_111_040_546_235_578_80e-01,
+    9.090_887_133_436_506_561_96e-02,
+    -7.691_876_205_044_829_994_95e-02,
+    6.661_073_137_387_531_206_69e-02,
+    -5.833_570_133_790_573_486_45e-02,
+    4.976_877_994_615_932_360_17e-02,
+    -3.653_157_274_421_691_552_70e-02,
+    1.628_582_011_536_578_236_23e-02,
+];
 
 /// A unary `math::` Float array kernel and the error (if any) it raises.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -336,27 +366,107 @@ impl CodeBuilder<'_> {
     /// restore the sign. Constants: v16=1.0, v17=pi/2, v18=sign mask, v19=abs
     /// mask. Reused by asin/acos. (Faithfully rounded; strict <=1 ULP needs a
     /// segmented argument reduction.)
+    /// `v0[lane] = mask ? val : v0[lane]` accumulator select, using `v24` scratch
+    /// (free in the atan core; `mask` is preserved for reuse).
+    fn emit_vsel(&mut self, acc: &str, mask: &str, val: &str) {
+        self.emit(abi::vector_orr("v24", mask, mask));
+        self.emit(abi::vector_bsl("v24", val, acc));
+        self.emit(abi::vector_orr(acc, "v24", "v24"));
+    }
+
+    /// fdlibm 4-segment `atan(x)` (input/result in `v0`): reduce `|x|` into a tiny
+    /// argument via one of 5 segments (breakpoints 7/16, 11/16, 19/16, 39/16),
+    /// evaluate the minimax `aT` polynomial in the fdlibm `s1`/`s2` split, and
+    /// recombine `atan(c) - ((reduced*P - atan_lo) - reduced)` with the segment's
+    /// double-double `atan(c)`; restore the sign. Strict <=1 ULP. Persistent
+    /// inputs v18=sign mask, v19=abs mask; sign parked in v25; segment masks in
+    /// v28-v31; offset in v26/v27. (Reused by asin/acos/atan2.)
     fn emit_atan_core(&mut self) {
         self.emit(abi::vector_and("v1", "v0", "v19")); // ax = |x|
-        self.emit(abi::vector_fcmgt("v2", "v1", "v16")); // mask: ax > 1
-        self.emit(abi::vector_fdiv("v3", "v16", "v1")); // inv = 1/ax
-        self.emit(abi::vector_orr("v4", "v2", "v2"));
-        self.emit(abi::vector_bsl("v4", "v3", "v1")); // u = mask ? inv : ax
-        self.emit(abi::vector_fmul("v5", "v4", "v4")); // u2
-        // Horner P(u2) → v6, using v3 (inv, now dead) as the coeff scratch so v4=u
-        // survives.
-        self.broadcast_f64("v6", ATAN_COEFFS[ATAN_COEFFS.len() - 1]);
-        for i in (0..ATAN_COEFFS.len() - 1).rev() {
-            self.broadcast_f64("v3", ATAN_COEFFS[i]);
-            self.emit(abi::vector_fmla("v3", "v6", "v5"));
-            self.emit(abi::vector_orr("v6", "v3", "v3"));
+        self.emit(abi::vector_and("v25", "v0", "v18")); // sign(x)
+        // Cumulative segment masks (ax >= threshold).
+        self.broadcast_f64("v4", ATAN_SEG_THRESH[0]);
+        self.emit(abi::vector_fcmge("v28", "v1", "v4"));
+        self.broadcast_f64("v4", ATAN_SEG_THRESH[1]);
+        self.emit(abi::vector_fcmge("v29", "v1", "v4"));
+        self.broadcast_f64("v4", ATAN_SEG_THRESH[2]);
+        self.emit(abi::vector_fcmge("v30", "v1", "v4"));
+        self.broadcast_f64("v4", ATAN_SEG_THRESH[3]);
+        self.emit(abi::vector_fcmge("v31", "v1", "v4"));
+        // reduced = ax (default, segment -1); off = 0.
+        self.emit(abi::vector_orr("v2", "v1", "v1"));
+        self.emit(abi::vector_eor("v26", "v26", "v26"));
+        self.emit(abi::vector_eor("v27", "v27", "v27"));
+        // Segment 0: reduced=(2ax-1)/(2+ax), off=atan(0.5).
+        self.broadcast_f64("v4", 2.0);
+        self.emit(abi::vector_fadd("v5", "v1", "v1")); // 2ax
+        self.broadcast_f64("v6", 1.0);
+        self.emit(abi::vector_fsub("v5", "v5", "v6")); // 2ax-1
+        self.emit(abi::vector_fadd("v7", "v1", "v4")); // 2+ax
+        self.emit(abi::vector_fdiv("v3", "v5", "v7"));
+        self.emit_vsel("v2", "v28", "v3");
+        self.broadcast_f64("v3", ATAN_HI[0]);
+        self.emit_vsel("v26", "v28", "v3");
+        self.broadcast_f64("v3", ATAN_LO[0]);
+        self.emit_vsel("v27", "v28", "v3");
+        // Segment 1: reduced=(ax-1)/(ax+1), off=atan(1)=pi/4.
+        self.broadcast_f64("v6", 1.0);
+        self.emit(abi::vector_fsub("v5", "v1", "v6"));
+        self.emit(abi::vector_fadd("v7", "v1", "v6"));
+        self.emit(abi::vector_fdiv("v3", "v5", "v7"));
+        self.emit_vsel("v2", "v29", "v3");
+        self.broadcast_f64("v3", ATAN_HI[1]);
+        self.emit_vsel("v26", "v29", "v3");
+        self.broadcast_f64("v3", ATAN_LO[1]);
+        self.emit_vsel("v27", "v29", "v3");
+        // Segment 2: reduced=(ax-1.5)/(1+1.5ax), off=atan(1.5).
+        self.broadcast_f64("v4", 1.5);
+        self.emit(abi::vector_fmul("v7", "v1", "v4")); // 1.5ax
+        self.broadcast_f64("v6", 1.0);
+        self.emit(abi::vector_fadd("v7", "v7", "v6")); // 1+1.5ax
+        self.emit(abi::vector_fsub("v5", "v1", "v4")); // ax-1.5
+        self.emit(abi::vector_fdiv("v3", "v5", "v7"));
+        self.emit_vsel("v2", "v30", "v3");
+        self.broadcast_f64("v3", ATAN_HI[2]);
+        self.emit_vsel("v26", "v30", "v3");
+        self.broadcast_f64("v3", ATAN_LO[2]);
+        self.emit_vsel("v27", "v30", "v3");
+        // Segment 3: reduced=-1/ax, off=atan(inf)=pi/2.
+        self.broadcast_f64("v6", 1.0);
+        self.emit(abi::vector_fdiv("v3", "v6", "v1"));
+        self.emit(abi::vector_fneg("v3", "v3"));
+        self.emit_vsel("v2", "v31", "v3");
+        self.broadcast_f64("v3", ATAN_HI[3]);
+        self.emit_vsel("v26", "v31", "v3");
+        self.broadcast_f64("v3", ATAN_LO[3]);
+        self.emit_vsel("v27", "v31", "v3");
+        // Polynomial: z=reduced^2, w=z^2; s1=z*odd, s2=w*even (fdlibm split).
+        self.emit(abi::vector_fmul("v5", "v2", "v2")); // z
+        self.emit(abi::vector_fmul("v6", "v5", "v5")); // w
+        self.broadcast_f64("v3", ATAN_AT[10]);
+        for &i in &[8usize, 6, 4, 2] {
+            self.broadcast_f64("v4", ATAN_AT[i]);
+            self.emit(abi::vector_fmla("v4", "v3", "v6"));
+            self.emit(abi::vector_orr("v3", "v4", "v4"));
         }
-        self.emit(abi::vector_fmul("v6", "v4", "v6")); // up = u*P
-        self.emit(abi::vector_fsub("v7", "v17", "v6")); // pi/2 - up
-        self.emit(abi::vector_bsl("v2", "v7", "v6")); // mask ? (pi/2-up) : up
-        self.emit(abi::vector_and("v2", "v2", "v19")); // |result|
-        self.emit(abi::vector_and("v0", "v0", "v18")); // sign of x
-        self.emit(abi::vector_orr("v0", "v2", "v0")); // restore sign
+        self.broadcast_f64("v4", ATAN_AT[0]);
+        self.emit(abi::vector_fmla("v4", "v3", "v6"));
+        self.emit(abi::vector_fmul("v3", "v5", "v4")); // s1 = z*(...)
+        self.broadcast_f64("v7", ATAN_AT[9]);
+        for &i in &[7usize, 5, 3, 1] {
+            self.broadcast_f64("v4", ATAN_AT[i]);
+            self.emit(abi::vector_fmla("v4", "v7", "v6"));
+            self.emit(abi::vector_orr("v7", "v4", "v4"));
+        }
+        self.emit(abi::vector_fmul("v7", "v6", "v7")); // s2 = w*(...)
+        self.emit(abi::vector_fadd("v3", "v3", "v7")); // P = s1+s2
+        self.emit(abi::vector_fmul("v3", "v2", "v3")); // t = reduced*P
+        // result = off_hi - ((t - off_lo) - reduced).
+        self.emit(abi::vector_fsub("v4", "v3", "v27"));
+        self.emit(abi::vector_fsub("v4", "v4", "v2"));
+        self.emit(abi::vector_fsub("v0", "v26", "v4"));
+        // Restore the sign (atan(|x|) >= 0).
+        self.emit(abi::vector_orr("v0", "v0", "v25"));
     }
 
     /// Cody-Waite reduce `x` to `r in [-pi/4, pi/4]` and quadrant `q & 3`. Leaves

@@ -10,7 +10,7 @@ Wrote executable to tests/func_math_atan_floatarray_valid/func_math_atan_floatar
 $ tests/func_math_atan_floatarray_valid/func_math_atan_floatarray_valid.out
 0.000000000000000
 0.463647609000806
-0.785398163397449
+0.785398163397448
 1.107148717794090
 -1.249045772398254
 [exit 0]
