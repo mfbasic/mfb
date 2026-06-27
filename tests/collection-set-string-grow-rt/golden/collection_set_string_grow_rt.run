@@ -1,0 +1,6 @@
+set-int sum=999000 [0]=0 [999]=1998
+set-rec sum=5950 [42].label=p42
+set-str alpha|b|gammagammagamma|delta
+foreach seen=15 last=999
+concat len=1000 head=abab tail=abab
+chain snap=start acc=start-0-1-2

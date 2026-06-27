@@ -769,6 +769,156 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Replace the element at `index_slot` of the list whose buffer pointer lives
+    /// in `buffer_slot`, **mutating `buffer_slot` in place** when the replacement
+    /// payload fits the target slot (plan-02 §4.1). The common cases — fixed-width
+    /// elements, and records/strings whose new payload is the same size or shorter
+    /// (`need <= oldLen`) — overwrite the value bytes at the entry's `valueOffset`
+    /// and patch `valueLength`: no allocation, no copy. A longer payload
+    /// (`need > oldLen`) falls back to the rebuild path (remove + insert), which
+    /// repoints `buffer_slot` at a fresh tight buffer. An out-of-range index raises
+    /// the same `index out of range` error as the rebuild path. The caller
+    /// guarantees the buffer is uniquely owned and not an active `FOR EACH`
+    /// iterable. Returns the (possibly new) buffer pointer.
+    pub(super) fn lower_list_set_in_place(
+        &mut self,
+        buffer_slot: usize,
+        index_slot: usize,
+        item_slot: usize,
+        list_type: &str,
+        element_type: &str,
+    ) -> Result<ValueResult, String> {
+        if CollectionTypeLayout::from_type(list_type).is_none() {
+            return Err(format!(
+                "native code collection type '{list_type}' is not supported"
+            ));
+        }
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let item = PayloadSlot {
+            slot: item_slot,
+            type_: element_type.to_string(),
+        };
+        // Byte size of the replacement payload.
+        let need_slot = self.emit_payload_length_to_stack(&item, "set_inplace_need")?;
+        let voffset_slot = self.allocate_stack_object("set_inplace_voff", 8);
+
+        let valid = self.label("set_inplace_valid");
+        let invalid = self.label("set_inplace_invalid");
+        let rebuild = self.label("set_inplace_rebuild");
+        let done = self.label("set_inplace_done");
+
+        // Bounds check: 0 <= index < count.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_immediate("x10", "0"));
+        self.emit(abi::branch_ge(&valid));
+        self.emit(abi::branch(&invalid));
+        self.emit(abi::label(&valid));
+        self.emit(abi::compare_registers("x10", "x11"));
+        self.emit(abi::branch_ge(&invalid));
+
+        // entry = buffer + HEADER + index * ENTRY; read valueOffset / valueLength.
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x17", "x10", "x16"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x12", "x12", "x17"));
+        self.emit(abi::load_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::store_u64("x13", abi::stack_pointer(), voffset_slot));
+        self.emit(abi::load_u64(
+            "x9",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        )); // oldLen
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), need_slot)); // need
+                                                                          // need > oldLen (unsigned) → rebuild; else overwrite in place.
+        self.emit(abi::compare_registers("x14", "x9"));
+        self.emit(abi::branch_hi(&rebuild));
+
+        // --- Overwrite: write the payload at valueOffset, patch valueLength. ---
+        self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, voffset_slot)?;
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), index_slot));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x17", "x10", "x16"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x12", "x12", "x17"));
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), need_slot));
+        self.emit(abi::store_u64(
+            "x14",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::branch(&done));
+
+        // --- Rebuild (payload grew): remove + insert a fresh singleton list. ---
+        self.emit(abi::label(&rebuild));
+        let singleton = self.lower_collection_values(
+            list_type,
+            vec![CollectionValueSlot {
+                key: None,
+                value: PayloadSlot {
+                    slot: item_slot,
+                    type_: element_type.to_string(),
+                },
+            }],
+            "set rebuild singleton",
+        )?;
+        let singleton_slot = self.allocate_stack_object("set_inplace_singleton", 8);
+        self.emit(abi::store_u64(
+            &singleton.location,
+            abi::stack_pointer(),
+            singleton_slot,
+        ));
+        let removed =
+            self.lower_list_remove_at(buffer_slot, index_slot, list_type, element_type)?;
+        let removed_slot = self.allocate_stack_object("set_inplace_removed", 8);
+        self.emit(abi::store_u64(
+            &removed.location,
+            abi::stack_pointer(),
+            removed_slot,
+        ));
+        let rebuilt = self.lower_list_insert_collection(
+            removed_slot,
+            index_slot,
+            singleton_slot,
+            list_type,
+            element_type,
+        )?;
+        self.emit(abi::store_u64(
+            &rebuilt.location,
+            abi::stack_pointer(),
+            buffer_slot,
+        ));
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&invalid));
+        self.emit_index_out_of_range_return()?;
+        self.emit(abi::label(&done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
+        Ok(ValueResult {
+            type_: list_type.to_string(),
+            location: result,
+            text: format!("set in place {list_type} over {element_type}"),
+        })
+    }
+
     pub(super) fn lower_list_remove_at(
         &mut self,
         base_slot: usize,

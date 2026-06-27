@@ -1,0 +1,91 @@
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+' Runtime proof for plan-02 Phase 1: in-place list `set` (fixed-width overwrite,
+' same-size record overwrite, longer-payload rebuild fallback) and in-place
+' String self-append (`s = s & x` with geometric capacity headroom, frozen tight
+' on copy). Output is deterministic.
+
+TYPE Rec
+  n AS Integer
+  label AS String
+END TYPE
+
+FUNC main AS Integer
+  ' --- Fixed-width list set at scale (in-place overwrite, no realloc). ---
+  MUT nums AS List OF Integer = []
+  FOR i = 0 TO 999
+    nums = collections::append(nums, i)
+  NEXT
+  FOR i = 0 TO 999
+    LET doubled AS Integer = collections::get(nums, i) * 2
+    nums = collections::set(nums, i, doubled)
+  NEXT
+  MUT nsum AS Integer = 0
+  FOR i = 0 TO 999
+    nsum = nsum + collections::get(nums, i)
+  NEXT
+  LET n0 AS Integer = collections::get(nums, 0)
+  LET n999 AS Integer = collections::get(nums, 999)
+  io::print("set-int sum=" & toString(nsum) & " [0]=" & toString(n0) & " [999]=" & toString(n999))
+
+  ' --- Same-size record set keeps the String field intact (overwrite path). ---
+  MUT recs AS List OF Rec = []
+  FOR i = 0 TO 99
+    recs = collections::append(recs, Rec[i, "p" & toString(i)])
+  NEXT
+  FOR pass = 0 TO 9
+    FOR j = 0 TO 99
+      LET r AS Rec = collections::get(recs, j)
+      LET up AS Rec = WITH r { n := r.n + 1 }
+      recs = collections::set(recs, j, up)
+    NEXT
+  NEXT
+  MUT rsum AS Integer = 0
+  FOR j = 0 TO 99
+    LET rj AS Rec = collections::get(recs, j)
+    rsum = rsum + rj.n
+  NEXT
+  LET r42 AS Rec = collections::get(recs, 42)
+  io::print("set-rec sum=" & toString(rsum) & " [42].label=" & r42.label)
+
+  ' --- Variable-width set: shorter (overwrite) then longer (rebuild). ---
+  MUT strs AS List OF String = ["alpha", "beta", "gamma", "delta"]
+  strs = collections::set(strs, 1, "b")
+  strs = collections::set(strs, 2, "gammagammagamma")
+  LET s0 AS String = collections::get(strs, 0)
+  LET s1 AS String = collections::get(strs, 1)
+  LET s2 AS String = collections::get(strs, 2)
+  LET s3 AS String = collections::get(strs, 3)
+  io::print("set-str " & s0 & "|" & s1 & "|" & s2 & "|" & s3)
+
+  ' --- FOR EACH safety: in-place set is invisible to the live iterator. ---
+  MUT it AS List OF Integer = [1, 2, 3, 4, 5]
+  MUT seen AS Integer = 0
+  FOR EACH e IN it
+    seen = seen + e
+    it = collections::set(it, 4, 999)
+  NEXT
+  LET itlast AS Integer = collections::get(it, 4)
+  io::print("foreach seen=" & toString(seen) & " last=" & toString(itlast))
+
+  ' --- String self-append builds a long string in O(n) (amortized). ---
+  MUT buf AS String = ""
+  FOR i = 0 TO 499
+    buf = buf & "ab"
+  NEXT
+  LET blen AS Integer = len(buf)
+  LET bhead AS String = strings::mid(buf, 0, 4)
+  LET btail AS String = strings::mid(buf, blen - 4, 4)
+  io::print("concat len=" & toString(blen) & " head=" & bhead & " tail=" & btail)
+
+  ' --- Chain append and copy-freeze independence. ---
+  MUT acc AS String = "start"
+  LET snap AS String = acc
+  FOR i = 0 TO 2
+    acc = acc & "-" & toString(i)
+  NEXT
+  io::print("chain snap=" & snap & " acc=" & acc)
+  RETURN 0
+END FUNC

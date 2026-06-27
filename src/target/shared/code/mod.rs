@@ -813,6 +813,24 @@ struct CodeBuilder<'a> {
     /// handler's null-guarded frees skip such slots (the per-`LET` zero-init only
     /// guards a binding's *own* trapping initializer, not an earlier jump past it).
     owned_value_slots: Vec<usize>,
+    /// Names of locals whose live buffer is currently being walked by an
+    /// enclosing `FOR EACH` (the iterable was a plain `Local`). In-place `set`/
+    /// `prepend`/map-`set` that overwrites an *existing* entry's payload would be
+    /// observable to such an iterator (it reads each element from the snapshotted
+    /// buffer on every step, `lower_for_each`), unlike append which only writes
+    /// beyond the snapshot count. The rebuild path repoints the binding at a fresh
+    /// buffer the iterator never sees, so in-place overwrite is excluded while the
+    /// binding is an active `FOR EACH` iterable (plan-02 §4.1, D1). A `String`
+    /// local can never be a `FOR EACH` iterable, so string self-append is exempt.
+    for_each_iterable_locals: Vec<String>,
+    /// `String` local name → stack slot tracking the spare payload capacity (bytes
+    /// available past the current length) of the local's grown in-place self-append
+    /// buffer (plan-02 §4.1 / D9). Zero means "tight" (no spare). The slot is a
+    /// frame-local shadow that never escapes: any copy/return/transfer reads only
+    /// `len` bytes, freezing the value to the canonical tight `[len][bytes][NUL]`
+    /// form, so the spare is invisible outside the buffer. Reset to 0 on any
+    /// non-self-append bind/assign of the local and zeroed at function entry.
+    string_capacity_slots: HashMap<String, usize>,
 }
 
 #[derive(Clone)]
@@ -3431,6 +3449,8 @@ fn lower_function(
         resource_owners: function.resource_owners.clone(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
+        for_each_iterable_locals: Vec::new(),
+        string_capacity_slots: HashMap::new(),
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -3478,11 +3498,36 @@ fn lower_function(
             in_trap_body: false,
         });
     }
+    // Pre-allocate the capacity shadow slot for every in-place string self-append
+    // target so bind/assign sites can reset it and the prologue can zero it.
+    builder.prescan_string_self_appends(&function.body);
     builder.lower_ops(&function.body)?;
     if !builder.current_block_returns() {
         builder.emit_return_exit(None)?;
     }
     let mut instructions = builder.instructions;
+    // Zero every string self-append capacity shadow at function entry: the buffer a
+    // parameter or first assignment hands the local is tight (no spare). Stores are
+    // sp-relative with pre-prologue offsets; `finalize_frame` shifts them like every
+    // other stack access. The shadow is reset on every later non-self-append
+    // bind/assign, so it always reflects the live buffer's spare bytes.
+    if !builder.string_capacity_slots.is_empty() {
+        let mut zeroing = vec![abi::move_immediate("x9", "Integer", "0")];
+        let mut slots: Vec<usize> = builder.string_capacity_slots.values().copied().collect();
+        slots.sort_unstable();
+        for slot in slots {
+            zeroing.push(abi::store_u64("x9", abi::stack_pointer(), slot));
+        }
+        let insert_at = if instructions
+            .first()
+            .is_some_and(|instruction| instruction.op == CodeOp::Label)
+        {
+            1
+        } else {
+            0
+        };
+        instructions.splice(insert_at..insert_at, zeroing);
+    }
     // In a trap function, an error can jump to the handler past a not-yet-run
     // `LET`; zero every owned freeable-flat slot at entry so the handler's
     // scope-drop skips any binding whose initializer never executed. The stores
@@ -3583,6 +3628,8 @@ fn lower_builtin_function_wrapper(
         owner_collections: HashSet::new(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
+        for_each_iterable_locals: Vec::new(),
+        string_capacity_slots: HashMap::new(),
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);
@@ -4719,6 +4766,8 @@ fn lower_direct_builtin_runtime_helper(
         owner_collections: HashSet::new(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
+        for_each_iterable_locals: Vec::new(),
+        string_capacity_slots: HashMap::new(),
     };
 
     let args = spec
