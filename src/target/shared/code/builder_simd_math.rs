@@ -77,7 +77,6 @@ impl SimdUnaryKernel {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SimdError {
     Overflow,
-    InvalidArgument,
     /// Float domain failure (e.g. `sqrt(Float[])` negative lane) — matches the
     /// scalar `math::sqrt(Float)` man page's `ErrFloatDomain`.
     FloatDomain,
@@ -215,7 +214,6 @@ impl CodeBuilder<'_> {
             self.emit(abi::branch_eq(&no_err));
             match kernel.error().unwrap() {
                 SimdError::Overflow => self.emit_overflow_return()?,
-                SimdError::InvalidArgument => self.emit_invalid_argument_return()?,
                 SimdError::FloatDomain => self.emit_float_domain_return()?,
             }
             self.emit(abi::label(&no_err));

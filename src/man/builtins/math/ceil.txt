@@ -77,5 +77,16 @@ EXAMPLES
 
     LET value AS Integer = math::ceil(-2.25)
 
+NOTES
+  Array (List) overload. In addition to the scalar forms above, math::ceil
+  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
+  Fixed), applying ceil to every element with NEON SIMD and returning a new
+  List of the same numeric type. A per-element error is reported once, after
+  every element has been processed, so it is deterministic regardless of
+  which element triggered it; the partially built result List is then
+  discarded. The array result is exact: each element equals the
+  corresponding scalar overload. See `mfb spec language builtin-functions`
+  for the full array-overload table.
+
 SEE ALSO
   math::floor, math::round, math::abs, math::clamp

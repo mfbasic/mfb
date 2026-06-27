@@ -103,5 +103,18 @@ EXAMPLES
 
     LET area AS Fixed = math::pow(3.0, 2.0)
 
+NOTES
+  Array (List) overload. In addition to the scalar forms above, math::pow
+  also accepts numeric Lists (List OF Integer, List OF Float, or List OF
+  Fixed), applying pow to every element with NEON SIMD and returning a new
+  List of the same numeric type. A per-element error is reported once, after
+  every element has been processed, so it is deterministic regardless of
+  which element triggered it; the partially built result List is then
+  discarded. Float array results come from a hand-written NEON f64 kernel
+  (no external math library) and are faithfully rounded: within 1 ULP for
+  the vast majority of inputs, with a small residual for its hard cases. The
+  scalar Float overload stays on the host math library. See `mfb spec
+  language builtin-functions` for the full array-overload table.
+
 SEE ALSO
   math::sqrt, math::exp, math::log, math::abs
