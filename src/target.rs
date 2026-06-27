@@ -19,9 +19,9 @@ pub struct BuildTarget {
 ///
 /// `Console` is the standard terminal/file-descriptor executable. `MacApp` is the
 /// macOS GUI app-mode output (`mfb build -app`) whose `io::*` built-ins target an
-/// AppKit window instead of the terminal (see specifications/plan-04-macos-app.md).
+/// AppKit window instead of the terminal (see src/spec/app/01_macos-runtime.md).
 /// `LinuxApp` is the Linux counterpart whose `io::*` built-ins target a GTK4 window
-/// (see specifications/plan-05-linux-app.md). The shared lowering treats both app
+/// (see src/spec/app/02_linux-runtime.md). The shared lowering treats both app
 /// modes uniformly via [`NativeBuildMode::is_app`]; the target OS selects the
 /// toolkit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

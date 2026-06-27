@@ -3,8 +3,8 @@
 ' Sockets, DNS, and UDP stay native (`src/builtins/net.rs`,
 ' `src/target/shared/code/net.rs`); this file holds the pure string work — the
 ' `Url` value record and its `toUrl`/`toString` helpers — in the established
-' source-package idiom (`json`/`csv`/`regex`). See specifications/plan-03-http.md
-' Part A.
+' source-package idiom (`json`/`csv`/`regex`). See src/spec/stdlib/06_url.md
+' (and src/spec/stdlib/05_http.md).
 IMPORT strings
 IMPORT collections
 

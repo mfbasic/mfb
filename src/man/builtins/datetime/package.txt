@@ -117,4 +117,4 @@ EXAMPLES
 
 SEE ALSO
   mfb man datetime now, mfb man datetime inZone, mfb man datetime format,
-  mfb man datetime parse, specifications/standard_package.md
+  mfb man datetime parse, ./mfb spec stdlib datetime

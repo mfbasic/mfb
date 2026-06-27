@@ -44,7 +44,7 @@ DESCRIPTION
   pattern, or a start that is out of range, causes a failure.
 
   pattern is an ordinary runtime String, so it may be built or read at run time;
-  it uses MFBASIC's own portable regex dialect, defined in specifications/regex.md
+  it uses MFBASIC's own portable regex dialect, defined by `./mfb spec stdlib regex`
   (run `mfb man regex`), which produces identical results on every target and
   never defers to a host regex library. Because String literals process backslash
   escapes, a literal backslash is written "\\": regex::findAll(value, "\\d+")

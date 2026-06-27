@@ -11,7 +11,7 @@ SYNOPSIS
 DESCRIPTION
   The regex package searches and rewrites text with a single, portable
   regular-expression dialect that is MFBASIC's own: its syntax and semantics are
-  defined entirely in specifications/regex.md and produce byte-for-byte identical
+  defined entirely by `./mfb spec stdlib regex` and produce byte-for-byte identical
   results on every target, never deferring to a host libc, locale, or OS regex
   library. regex is a built-in package: IMPORT regex needs no manifest
   dependency. pattern and replacement are ordinary runtime String values, so they

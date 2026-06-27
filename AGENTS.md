@@ -139,10 +139,10 @@ Substantial features get a written plan under `specifications/` before implement
 Guidelines:
 
 - Name the file `specifications/plan-NN-shortname.md` (next free `NN`, two digits; short kebab-case slug). One plan per feature.
-- Cross-link the specs the plan touches near the top (`specifications/memory_layouts.md`, `mfbasic.md`, `standard_package.md`, `error_codes.md`, `threading.md`, etc.) so the implementer reads the right source of truth first.
+- Cross-link the embedded specs the plan touches near the top (`mfb spec memory`, `mfb spec language`, `mfb spec package`, `mfb spec diagnostics`, `mfb spec threading`, etc. — the canonical specification lives under `src/spec/**`) so the implementer reads the right source of truth first.
 - State the constraints the plan must **not** violate as explicit non-goals (language surface, value/copy/move semantics, layout/ABI, thread-transfer rules). A plan that silently changes one of these is wrong.
 - Break the work into ordered, independently-landable phases. Put the lowest-risk, separately-valuable work first (e.g. an audit or a runtime primitive with no callers) and the highest-risk codegen last, behind tests.
-- Fold the repository's standing requirements into the plan, don't restate them generically: every new/changed function needs `tests/func_<package>_<func>_valid/**` and `_invalid/**` with full overload coverage; runtime features need an execution proof, not just golden output; error-code or diagnostic changes must update `error_codes.md`, `mfbasic.md`, and `standard_package.md`; acceptance (`scripts/test-accept.sh`) must pass.
+- Fold the repository's standing requirements into the plan, don't restate them generically: every new/changed function needs `tests/func_<package>_<func>_valid/**` and `_invalid/**` with full overload coverage; runtime features need an execution proof, not just golden output; error-code or diagnostic changes must update the relevant embedded spec topics under `src/spec/**` (notably `mfb spec diagnostics`, whose `error-codes` table is the build input for `errorCode::`); acceptance (`scripts/test-accept.sh`) must pass.
 - Record genuinely open design choices in an "Open Decisions" section with a recommendation for each — don't bury unresolved forks inside prose.
 - When a plan is fully implemented, remove the plan doc in the same commit that lands the final phase (precedent: `34e526c9` removed plan-05 on completion). Keep `Last updated` current while it lives.
 
@@ -158,7 +158,7 @@ behavioral outcome a correct implementation produces.>
 
 It complements:
 
-- `specifications/<spec>.md` (<what this plan touches there>)
+- `./mfb spec <package> <topic>` (<what this plan touches there>; the canonical specs live under `src/spec/**`)
 
 ## 1. Goal
 
@@ -171,7 +171,8 @@ layout/ABI, thread-transfer rules. Be specific — these are the guardrails.>
 
 ## 2. Current State
 
-<How it works today, cited to files/specs (`file.rs:line`, `spec.md §N`).
+<How it works today, cited to files/specs (`file.rs:line`,
+`src/spec/<package>/<topic>.md` / `mfb spec <package> <topic>`).
 Name existing precedents the design will mirror.>
 
 ## 3. Design Overview
@@ -185,9 +186,9 @@ where the correctness risk concentrates.>
 
 ## Layout / ABI Impact
 
-<Exactly what changes in memory_layouts.md / package_format.md, and — just as
-important — what stays unchanged so copy/transfer/golden output is unaffected.
-Omit if the plan touches no layout.>
+<Exactly what changes in `mfb spec memory` / `mfb spec package` (the topics
+under `src/spec/**`), and — just as important — what stays unchanged so
+copy/transfer/golden output is unaffected. Omit if the plan touches no layout.>
 
 ## Phases
 
@@ -200,7 +201,7 @@ N. <Highest-risk codegen last, behind tests.>
 - Function tests: `tests/func_<pkg>_<func>_valid/**` and `_invalid/**`,
   every overload.
 - Runtime proof: <the program + observable result that proves real behavior>.
-- Doc sync: <error_codes.md / mfbasic.md / standard_package.md updates>.
+- Doc sync: <updates to the relevant `src/spec/**` topics, e.g. `mfb spec diagnostics` / `language` / `package`>.
 - Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
 
 ## Open Decisions

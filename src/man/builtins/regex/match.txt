@@ -28,7 +28,7 @@ DESCRIPTION
   regex library.
 
   pattern uses MFBASIC's own portable regex dialect, defined in
-  specifications/regex.md (run `mfb man regex` for the language overview). It is
+  `./mfb spec stdlib regex` (run `mfb man regex` for the language overview). It is
   an ordinary runtime String, so it may be built or read at run time; because
   String literals process backslash escapes, a literal backslash must be written
   "\\" -- regex::match(value, "\\d+") tests for one or more digits. match never

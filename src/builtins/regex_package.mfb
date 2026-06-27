@@ -1,4 +1,4 @@
-REM MFBASIC regex package — implements specifications/regex.md.
+REM MFBASIC regex package — implements src/spec/stdlib/01_regex.md (mfb spec stdlib regex).
 REM
 REM Strategy: parse the pattern into an AST of __regex_Node values, then run a
 REM continuation-passing backtracking matcher (leftmost-first / preference order,
