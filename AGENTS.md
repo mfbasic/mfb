@@ -55,7 +55,7 @@ Guidelines:
 - Do not route unimplemented behavior to zero values, empty strings, empty collections, `Nothing`, default records, or other fallback values that make unsupported behavior appear successful.
 - Do not add diagnostics that merely report requested behavior as "unsupported" unless the user's request is explicitly to reject that behavior. If behavior is meant to work, implement and validate it instead of producing a defensive error.
 - Do not describe a change as production-ready, complete, fully supported, or done while any part of the requested behavior is stubbed, defaulted, mocked, unreachable, unsupported, or only represented in AST, IR, bytecode, metadata, or generated native output.
-- When compiler work adds, removes, renames, renumbers, or reclassifies any error code or diagnostic rule, update `specifications/error_codes.md` (the build input — `build.rs` generates the `errorCode` constants from it) in the same change, and keep the embedded `mfb spec diagnostics` topics in sync. More broadly, keep the embedded specification current with every compiler change — see **Specifications (`mfb spec`)** below.
+- When compiler work adds, removes, renames, renumbers, or reclassifies any error code or diagnostic rule, update the embedded `mfb spec diagnostics` topics in the same change — the `error-codes` topic's Constant Registry table is the **build input** that `build.rs` generates the `errorCode::` constants from. More broadly, keep the embedded specification current with every compiler change — see **Specifications (`mfb spec`)** below.
 - For runtime features, add or run a runtime validation that executes the generated program and proves the requested behavior through exit code, stdout/stderr, file output, or another observable result.
 - If runtime behavior cannot be implemented or validated, state that the task is blocked or incomplete and do not present compiler plumbing or golden output as functional support.
 - Treat any backend helper named like `*_default_result`, or any backend path that stores default values for a built-in operation, as unsupported unless a runtime test proves the actual requested behavior.
@@ -105,11 +105,14 @@ Conventions when editing the spec:
   directory with a `spec.md` overview plus its `## See Also`; add its name to
   `PACKAGE_ORDER` in `src/spec/mod.rs`. Update the package overview's reading-order
   prose when adding a topic.
-- **`error_codes.md` is the build input.** `build.rs` generates the `errorCode`
-  constants from `specifications/error_codes.md`; update that file for runtime
-  error-code changes and keep `mfb spec diagnostics error-codes` in sync (the
-  drift-guard test only covers the generated constants, not the spec prose). The
-  legacy `specifications/standard_package.md` and `project.md` are superseded by the
+- **The error-code registry is build input.** `build.rs` generates the
+  `errorCode::` constants directly from the **Constant Registry** table in
+  `src/spec/diagnostics/02_error-codes.md` (`mfb spec diagnostics error-codes`),
+  asserting that hyphen-stripping each code equals its integer column; a
+  `#[cfg(test)]` drift guard (`table_matches_registry`) enforces the match. Edit
+  that table for any runtime error-code change. The legacy external specs
+  (`mfbasic.md`, `error_codes.md`, `standard_package.md`, `project.md`, …) are
+  archived under `specifications/old-moved-to-src-spec/` and superseded by the
   embedded topics — update the `mfb spec` topic, not those.
 
 Verify spec changes: `cargo build` (regenerates the embedded table; if a brand-new

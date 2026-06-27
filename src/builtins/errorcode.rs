@@ -1,5 +1,6 @@
 //! Built-in `errorCode` package (plan-06-errorcodes.md): a flat set of `Integer`
-//! constants, one per runtime registry row in `specifications/error_codes.md`.
+//! constants, one per runtime registry row in the embedded spec topic
+//! `src/spec/diagnostics/02_error-codes.md` (`mfb spec diagnostics error-codes`).
 //!
 //! This mirrors the `math` constant mechanism (`math::pi` and friends): a
 //! reference such as `errorCode::ErrNotFound` types as `Integer` and folds to an
@@ -39,22 +40,21 @@ pub(crate) fn constant_value(name: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
 
-    /// The generated table must exactly reproduce the "Runtime and Standard
-    /// Package Errors" rows of the canonical registry, with the integer value
-    /// equal to the hyphen-stripped `G-SSS-EEEE` code. This is the drift guard
-    /// from plan-06-errorcodes.md §6.1.
+    /// The generated table must exactly reproduce the "Constant Registry" rows of
+    /// the canonical spec topic, with the integer value equal to the hyphen-stripped
+    /// `G-SSS-EEEE` code. This is the drift guard from plan-06-errorcodes.md §6.1.
     #[test]
     fn table_matches_registry() {
         let doc = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/specifications/error_codes.md"
+            "/src/spec/diagnostics/02_error-codes.md"
         ));
 
         let mut in_section = false;
         let mut rows: Vec<(String, String)> = Vec::new();
         for line in doc.lines() {
             if line.starts_with("## ") {
-                in_section = line.contains("Runtime and Standard Package Errors");
+                in_section = line.contains("Constant Registry");
                 continue;
             }
             if !in_section || !line.trim_start().starts_with("| `") {

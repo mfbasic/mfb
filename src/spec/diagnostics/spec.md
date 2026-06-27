@@ -18,9 +18,9 @@ registries and how diagnostics are rendered.
   symbolic names, severities, the full rule table, and the source-context
   rendering format used by `mfb build`.
 - `error-codes` — the runtime `errorCode::` registry: the Name→Integer table, the
-  code→integer encoding rule, and the subsystem partitioning. The build generates
-  the constants from `specifications/error_codes.md`; this topic is the embedded,
-  human-facing mirror of that registry, kept in sync by a drift-guard test.
+  code→integer encoding rule, and the subsystem partitioning. This topic's Constant
+  Registry table is the build input — `build.rs` generates the `errorCode`
+  constants directly from it, with a drift-guard test enforcing the match.
 
 ## See Also
 

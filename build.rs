@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let error_codes_doc = manifest_dir.join("specifications/error_codes.md");
+    let error_codes_doc = manifest_dir.join("src/spec/diagnostics/02_error-codes.md");
     println!("cargo:rerun-if-changed={}", error_codes_doc.display());
 
     // Man pages and spec pages share one discovery model: walk a tree, and any
@@ -59,22 +59,25 @@ fn generate_doc_table(
     write_doc_packages(&mut output, const_name, &packages);
 }
 
-/// Parse the "Runtime and Standard Package Errors" table in
-/// `specifications/error_codes.md` and emit a generated `(name, integer)`
-/// table for the built-in `errorCode` package. The doc is the single source of
-/// truth (plan-06-errorcodes.md §4a); this keeps the package from drifting from
-/// the canonical registry. Only the runtime `Err*` rows are exported — those are
-/// the program-visible `Error.code` values, matching `errorCode::Err*` usage.
+/// Parse the "Constant Registry" table in the embedded spec topic
+/// `src/spec/diagnostics/02_error-codes.md` and emit a generated `(name, integer)`
+/// table for the built-in `errorCode` package. The spec topic is the single
+/// source of truth (`mfb spec diagnostics error-codes`); this keeps the package
+/// from drifting from the canonical registry. Only the runtime `Err*` rows are
+/// exported — those are the program-visible `Error.code` values, matching
+/// `errorCode::Err*` usage.
 fn generate_errorcode_table(doc_path: &PathBuf, out_dir: &PathBuf) {
-    let doc = fs::read_to_string(doc_path).expect("read specifications/error_codes.md");
+    let doc =
+        fs::read_to_string(doc_path).expect("read src/spec/diagnostics/02_error-codes.md");
 
     let mut in_section = false;
     let mut rows: Vec<(String, String)> = Vec::new();
     for line in doc.lines() {
         if line.starts_with("## ") {
             // The runtime registry table lives under this one heading; any other
-            // top-level heading ends it.
-            in_section = line.contains("Runtime and Standard Package Errors");
+            // top-level heading ends it (notably the Subsystem Partitioning table,
+            // whose rows also start with "| `7-...").
+            in_section = line.contains("Constant Registry");
             continue;
         }
         if !in_section || !line.trim_start().starts_with("| `") {
@@ -116,7 +119,7 @@ fn generate_errorcode_table(doc_path: &PathBuf, out_dir: &PathBuf) {
     writeln!(
         output,
         "/// `(name, integer-literal)` for every runtime registry row, generated\n\
-         /// from specifications/error_codes.md by build.rs. Do not edit by hand.\n\
+         /// from src/spec/diagnostics/02_error-codes.md by build.rs. Do not edit by hand.\n\
          pub(crate) const ERRORCODE_CONSTANTS: &[(&str, &str)] = &["
     )
     .expect("write generated errorcode source");

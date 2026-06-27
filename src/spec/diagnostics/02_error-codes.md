@@ -97,13 +97,12 @@ the `errorCode.` prefix and reject unqualified or unknown names. [[src/builtins/
 
 ## Drift Guard
 
-The constant table is generated at build time by `build.rs` from
-`specifications/error_codes.md` — that file is the registry the build actually
-reads, and this topic is the embedded, human-facing mirror of it (kept in sync,
-not a replacement). [[build.rs:generate_errorcode_table]] A `#[cfg(test)]` test
-(`table_matches_registry`) re-parses the registry and asserts the generated table
-reproduces every row with the integer equal to the hyphen-stripped code — so
-`errorcode.rs` cannot drift from the registry. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
+The `errorCode` constants are generated at build time by `build.rs` directly from
+the **Constant Registry** table above — this topic is the single source of truth
+for the runtime registry. [[build.rs:generate_errorcode_table]] A `#[cfg(test)]`
+test (`table_matches_registry`) re-parses the same table and asserts the generated
+table reproduces every row with the integer equal to the hyphen-stripped code, so
+`errorcode.rs` cannot drift from this registry. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 
 ## See Also
 
