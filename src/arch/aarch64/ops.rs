@@ -133,6 +133,10 @@ pub(crate) enum CodeOp {
     // Lane broadcast / extract.
     DupVFromX,
     UmovXFromV,
+    /// Scalar fused multiply-add: `Dd = Da + Dn*Dm` (round once). Used by the
+    /// Float transcendental kernels' scalar tail so it is bit-identical to the
+    /// vector `fmla_v` Horner steps (plan-01-simd §4.6).
+    FMaddD,
 }
 
 impl CodeOp {
@@ -261,6 +265,7 @@ impl CodeOp {
             CodeOp::UshrV => "ushr_v",
             CodeOp::DupVFromX => "dup_v_from_x",
             CodeOp::UmovXFromV => "umov_x_from_v",
+            CodeOp::FMaddD => "fmadd_d",
         }
     }
 
@@ -389,6 +394,7 @@ impl CodeOp {
             "ushr_v" => Ok(CodeOp::UshrV),
             "dup_v_from_x" => Ok(CodeOp::DupVFromX),
             "umov_x_from_v" => Ok(CodeOp::UmovXFromV),
+            "fmadd_d" => Ok(CodeOp::FMaddD),
             other => Err(format!("aarch64 code op '{other}' is not encodable")),
         }
     }

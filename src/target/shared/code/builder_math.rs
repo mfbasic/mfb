@@ -31,6 +31,9 @@ impl CodeBuilder<'_> {
             "log" | "log10" if args.len() == 1 && self.is_list_argument(&args[0]) => {
                 self.lower_math_log_array(function, &args[0])
             }
+            "exp" if args.len() == 1 && self.is_list_argument(&args[0]) => {
+                self.lower_math_exp_array(&args[0])
+            }
             "min" | "max" if args.len() == 2 => self.lower_math_min_max(function, args),
             "clamp" if args.len() == 3 => self.lower_math_clamp(args),
             "floor" | "ceil" | "round" if args.len() == 1 => {
@@ -119,6 +122,22 @@ impl CodeBuilder<'_> {
             // Fixed sqrt is a genuine 2-lane NEON restoring sqrt (plan-01-simd §4.5).
             "Fixed" => self.lower_simd_sqrt_fixed(input, text),
             other => Err(format!("math.sqrt array overload does not accept List OF {other}")),
+        }
+    }
+
+    /// `math.exp(values AS Float[]) AS Float[]` — NEON polynomial kernel
+    /// (plan-01-simd §4.6).
+    fn lower_math_exp_array(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        let input = self.lower_value(arg)?;
+        let text = format!("math.exp({})", input.text);
+        let element = input
+            .type_
+            .strip_prefix("List OF ")
+            .ok_or_else(|| format!("math.exp array overload requires a list, got {}", input.type_))?
+            .to_string();
+        match element.as_str() {
+            "Float" => self.lower_simd_exp_float(input, text),
+            other => Err(format!("math.exp array overload does not accept List OF {other}")),
         }
     }
 

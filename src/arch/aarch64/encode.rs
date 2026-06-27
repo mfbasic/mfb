@@ -491,6 +491,12 @@ impl Encoder {
                 vreg(field(instruction, "src")?)?,
                 immediate(field(instruction, "index")?)?,
             ),
+            "fmadd_d" => self.emit_fmadd_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "addend")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
             other => Err(format!(
                 "AArch64 encoder does not support instruction '{other}'"
             )),
@@ -604,6 +610,17 @@ impl Encoder {
     /// `DUP Vd.2d, Xn` — broadcast a 64-bit GPR into both lanes.
     fn emit_dup_v_from_x(&mut self, vd: u8, rn: u8) -> Result<(), String> {
         self.emit_word(0x4e08_0c00 | ((rn as u32) << 5) | vd as u32)
+    }
+
+    /// `FMADD Dd, Dn, Dm, Da` — `Dd = Da + Dn*Dm`, rounded once.
+    fn emit_fmadd_d(&mut self, dd: u8, da: u8, dn: u8, dm: u8) -> Result<(), String> {
+        self.emit_word(
+            0x1f40_0000
+                | ((dm as u32) << 16)
+                | ((da as u32) << 10)
+                | ((dn as u32) << 5)
+                | dd as u32,
+        )
     }
 
     /// `UMOV Xd, Vn.d[index]` — extract lane `index` (0 or 1) into a GPR.
@@ -1255,14 +1272,13 @@ fn reg(name: String) -> Result<u8, String> {
         "x27" | "w27" => Ok(27),
         "x28" | "w28" => Ok(28),
         "x30" | "lr" => Ok(30),
-        "d0" => Ok(0),
-        "d1" => Ok(1),
-        "d2" => Ok(2),
-        "d3" => Ok(3),
-        "d4" => Ok(4),
-        "d5" => Ok(5),
-        "d6" => Ok(6),
-        "d7" => Ok(7),
+        // Scalar FP/SIMD `d0`..`d31` share the 5-bit register field with the
+        // vector registers; decode the number directly.
+        _ if name.starts_with('d') => name[1..]
+            .parse::<u8>()
+            .ok()
+            .filter(|n| *n < 32)
+            .ok_or_else(|| format!("unknown AArch64 register '{name}'")),
         other => Err(format!("unknown AArch64 register '{other}'")),
     }
 }
@@ -1610,6 +1626,18 @@ mod tests {
                     .field("index", "1")
             ),
             0x4e18_3e25
+        );
+
+        // Scalar fused multiply-add (dst=d5, addend=d3, lhs=d9, rhs=d17).
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("fmadd_d")
+                    .field("dst", "d5")
+                    .field("addend", "d3")
+                    .field("lhs", "d9")
+                    .field("rhs", "d17")
+            ),
+            0x1f51_0d25
         );
 
         // 128-bit load/store, with and without an offset.

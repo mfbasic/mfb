@@ -1,0 +1,11 @@
+IMPORT io
+IMPORT math
+
+' exp over a Float list raises ErrOverflow when a lane exceeds the finite double
+' range (exp(800) overflows).
+FUNC main AS Integer
+  LET xs AS List OF Float = [1.0, 800.0, 2.0]
+  LET ys AS List OF Float = math::exp(xs)
+  io::print(toString(len(ys)))
+  RETURN 0
+END FUNC

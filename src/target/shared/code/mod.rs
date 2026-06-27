@@ -14027,6 +14027,7 @@ mod builder_misc;
 mod builder_numeric;
 mod builder_search;
 mod builder_simd_fixed_math;
+mod builder_simd_float_math;
 mod builder_simd_math;
 mod builder_strings;
 mod builder_strings_package;
@@ -14034,6 +14035,7 @@ mod builder_values;
 mod datetime;
 mod link_thunk;
 mod net;
+mod simd_kernel_coeffs;
 mod private;
 mod term;
 mod tls;
@@ -14163,6 +14165,7 @@ impl CodeInstruction {
             CodeOp::ShlV | CodeOp::SshrV | CodeOp::UshrV => &["dst", "src", "shift"],
             CodeOp::DupVFromX => &["dst", "src"],
             CodeOp::UmovXFromV => &["dst", "src", "index"],
+            CodeOp::FMaddD => &["dst", "addend", "lhs", "rhs"],
         };
         for name in required {
             if !self.fields.iter().any(|(field, _)| field == name) {

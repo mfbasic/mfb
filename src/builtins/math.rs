@@ -156,6 +156,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         LOG | LOG10 if one_numeric_list(arg_types, "Fixed") => {
             Cow::Borrowed(arg_types[0].as_str())
         }
+        // Float transcendental array kernels (plan-01-simd §4.6); exp landed first.
+        EXP if one_numeric_list(arg_types, "Float") => Cow::Borrowed(arg_types[0].as_str()),
         FLOOR | CEIL | ROUND if one_floatish_list(arg_types) => {
             Cow::Borrowed("List OF Integer")
         }

@@ -1,0 +1,17 @@
+$ mfb build -ast tests/func_math_exp_floatarray_valid
+Wrote AST to tests/func_math_exp_floatarray_valid/func_math_exp_floatarray_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_exp_floatarray_valid
+Wrote IR to tests/func_math_exp_floatarray_valid/func_math_exp_floatarray_valid.ir
+[exit 0]
+$ mfb build tests/func_math_exp_floatarray_valid
+Wrote executable to tests/func_math_exp_floatarray_valid/func_math_exp_floatarray_valid.out
+[exit 0]
+$ tests/func_math_exp_floatarray_valid/func_math_exp_floatarray_valid.out
+1.000000000000000
+2.718281828459045
+0.367879441171442
+1.648721270700128
+7.389056098930650
+underflow-ok len=2
+[exit 0]

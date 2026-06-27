@@ -686,3 +686,13 @@ pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstru
         .field("src", src)
         .field("index", &index.to_string())
 }
+
+/// `fmadd d<dst>, d<lhs>, d<rhs>, d<addend>` — `dst = addend + lhs*rhs` (one round).
+#[allow(dead_code)]
+pub(crate) fn float_multiply_add_d(dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new("fmadd_d")
+        .field("dst", dst)
+        .field("addend", addend)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
