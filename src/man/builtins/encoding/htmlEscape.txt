@@ -1,0 +1,33 @@
+NAME
+  htmlEscape - escape HTML special characters
+
+SYNOPSIS
+  encoding::htmlEscape(text AS String) AS String
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Replaces <, >, &, double-quote, and apostrophe with &lt;, &gt;, &amp;, &quot;, and &apos;. Total.
+
+PARAMETERS
+  text AS String
+    The text to escape.
+
+RETURN VALUE
+  AS String
+    The escaped text.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::htmlEscape("<a>&")
+
+SEE ALSO
+  mfb man encoding, mfb man bits

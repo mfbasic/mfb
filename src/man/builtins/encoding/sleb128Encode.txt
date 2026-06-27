@@ -1,0 +1,33 @@
+NAME
+  sleb128Encode - encode a signed LEB128 integer
+
+SYNOPSIS
+  encoding::sleb128Encode(value AS Integer) AS List OF Byte
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Encodes a signed integer using signed LEB128 (sign-extended). Total.
+
+PARAMETERS
+  value AS Integer
+    The value to encode.
+
+RETURN VALUE
+  AS List OF Byte
+    The LEB128 bytes.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::sleb128Encode(-123456)
+
+SEE ALSO
+  mfb man encoding, mfb man bits

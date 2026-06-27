@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_bits_rl64_valid
+Wrote AST to tests/func_bits_rl64_valid/func_bits_rl64_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_bits_rl64_valid
+Wrote IR to tests/func_bits_rl64_valid/func_bits_rl64_valid.ir
+[exit 0]
+$ mfb build tests/func_bits_rl64_valid
+Wrote executable to tests/func_bits_rl64_valid/func_bits_rl64_valid.out
+[exit 0]
+$ tests/func_bits_rl64_valid/func_bits_rl64_valid.out
+2
+1
+[exit 0]

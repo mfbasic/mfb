@@ -1,0 +1,33 @@
+NAME
+  punycodeEncode - encode a hostname to Punycode
+
+SYNOPSIS
+  encoding::punycodeEncode(domain AS String) AS String
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Translates a Unicode hostname to its ASCII Punycode representation (RFC 3492), label by label; labels with non-ASCII characters gain the xn-- prefix. Total.
+
+PARAMETERS
+  domain AS String
+    The Unicode hostname.
+
+RETURN VALUE
+  AS String
+    The ASCII Punycode hostname.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::punycodeEncode("muenchen.de")
+
+SEE ALSO
+  mfb man encoding, mfb man bits

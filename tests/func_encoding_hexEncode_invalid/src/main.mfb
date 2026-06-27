@@ -1,0 +1,7 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS String = encoding::hexEncode()
+  LET d AS String = encoding::hexEncode("notbytes")
+  RETURN 0
+END FUNC

@@ -1,0 +1,17 @@
+$ mfb build -ast tests/func_strings_toBytes_valid
+Wrote AST to tests/func_strings_toBytes_valid/func_strings_toBytes_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_strings_toBytes_valid
+Wrote IR to tests/func_strings_toBytes_valid/func_strings_toBytes_valid.ir
+[exit 0]
+$ mfb build tests/func_strings_toBytes_valid
+Wrote executable to tests/func_strings_toBytes_valid/func_strings_toBytes_valid.out
+[exit 0]
+$ tests/func_strings_toBytes_valid/func_strings_toBytes_valid.out
+6
+104
+195
+héllo
+3
+0
+[exit 0]

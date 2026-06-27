@@ -1,0 +1,15 @@
+$ mfb build -ast tests/func_encoding_base64Decode_invalid_runtime
+Wrote AST to tests/func_encoding_base64Decode_invalid_runtime/func_encoding_base64Decode_invalid_runtime.ast
+[exit 0]
+$ mfb build -ir tests/func_encoding_base64Decode_invalid_runtime
+Wrote IR to tests/func_encoding_base64Decode_invalid_runtime/func_encoding_base64Decode_invalid_runtime.ir
+[exit 0]
+$ mfb build tests/func_encoding_base64Decode_invalid_runtime
+Wrote executable to tests/func_encoding_base64Decode_invalid_runtime/func_encoding_base64Decode_invalid_runtime.out
+[exit 0]
+$ tests/func_encoding_base64Decode_invalid_runtime/func_encoding_base64Decode_invalid_runtime.out
+alphabet: ErrInvalidFormat
+length: ErrInvalidFormat
+padding: ErrInvalidFormat
+good: ok len=5
+[exit 0]

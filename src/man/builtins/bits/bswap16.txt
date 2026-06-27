@@ -1,0 +1,44 @@
+NAME
+  bswap16 - reverse the byte order of the low 16 bits
+
+SYNOPSIS
+  bits::bswap16(value AS Integer) AS Integer
+
+PACKAGE
+  bits
+
+IMPORTS
+  IMPORT bits
+
+DESCRIPTION
+  Reverses the order of the two bytes that make up the low 16 bits of value and
+  returns the result. The low byte and the second byte are swapped, so byte 0
+  becomes byte 1 and byte 1 becomes byte 0. All bits above bit 15 (bits 16..63)
+  are cleared to zero in the result.
+
+  The operand is treated as a raw two's-complement bit pattern; the function does
+  not interpret its sign except as the Integer signature states. The operation is
+  total: it is defined for every Integer value and never fails.
+
+PARAMETERS
+  value AS Integer
+    The value whose low 16 bits are byte-reversed. Bits above bit 15 are ignored
+    and do not appear in the result.
+
+RETURN VALUE
+  AS Integer
+    The byte-reversed low 16 bits of value, with bits 16..63 cleared to zero. The
+    result is always in the range 0..65535.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Swap the two low bytes of a 16-bit value:
+
+    IMPORT bits
+
+    LET result AS Integer = bits::bswap16(255)
+
+SEE ALSO
+  bits::bswap32, bits::bswap64, bits::band, bits::bor, bits::bxor, bits::bnot

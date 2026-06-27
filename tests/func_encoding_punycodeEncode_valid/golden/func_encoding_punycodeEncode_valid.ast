@@ -1,0 +1,28 @@
+{
+  "project": "func_encoding_punycodeEncode_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "encoding", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.punycodeEncode", "arguments": [{ "kind": "string", "value": "münchen.de" }] }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.punycodeEncode", "arguments": [{ "kind": "string", "value": "bücher.example" }] }] }, "line": 6 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

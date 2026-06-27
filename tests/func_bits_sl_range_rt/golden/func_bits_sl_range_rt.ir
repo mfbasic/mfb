@@ -1,0 +1,71 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_bits_sl_range_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "doShift",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "Integer", "default": null },
+    { "name": "count", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "bits.sl", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "count" }] } }
+    ]
+  },
+  {
+    "name": "attempt",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "count", "type": "Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "doShift", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "local", "name": "count" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    {
+      "op": "trap",
+      "name": "err",
+      "body": [
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+        "then": [
+        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ErrInvalidArgument" }] } }
+        ],
+        "else": [
+        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "other" }] } }
+        ]
+      },
+      { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+      ]
+    }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "64" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "attempt", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

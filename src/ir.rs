@@ -611,6 +611,8 @@ pub fn lower_project_with_external_functions(
         .expect("built-in http package source must parse");
     let augmented = builtins::net::augmented_project(&augmented)
         .expect("built-in net package source must parse");
+    let augmented = builtins::encoding::augmented_project(&augmented)
+        .expect("built-in encoding package source must parse");
     let ast = &augmented;
     let mut types = Vec::new();
     let mut functions = Vec::new();
@@ -2398,6 +2400,15 @@ fn expression_type(
                 return builtins::math::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::bits::is_bits_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::bits::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::fs::is_fs_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2627,6 +2638,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
     let expected = builtins::general::expected_arguments(callee)
         .or_else(|| builtins::strings::expected_arguments(callee))
         .or_else(|| builtins::math::expected_arguments(callee))
+        .or_else(|| builtins::bits::expected_arguments(callee))
         .or_else(|| builtins::fs::expected_arguments(callee))
         .or_else(|| builtins::io::expected_arguments(callee))
         .or_else(|| builtins::json::expected_arguments(callee))
@@ -3027,6 +3039,7 @@ fn lower_expression_with_expected(
                         .or_else(|| builtins::regex::implementation_name(&canonical_callee))
                         .or_else(|| builtins::net::implementation_name(&canonical_callee))
                         .or_else(|| builtins::http::implementation_name(&canonical_callee))
+                        .or_else(|| builtins::encoding::implementation_name(&canonical_callee))
                         .map(crate::internal_name::internalize)
                 })
                 .unwrap_or_else(|| canonical_callee.clone());

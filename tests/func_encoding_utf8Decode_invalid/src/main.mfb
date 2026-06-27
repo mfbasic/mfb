@@ -1,0 +1,7 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS String = encoding::utf8Decode()
+  LET d AS String = encoding::utf8Decode("notbytes")
+  RETURN 0
+END FUNC

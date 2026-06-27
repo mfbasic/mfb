@@ -241,6 +241,42 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
             ),
+            "rorv_w" => self.emit_rorv_w(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "lslv" => self.emit_lslv(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "lsrv" => self.emit_lsrv(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "asrv" => self.emit_asrv(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+            ),
+            "clz" => self.emit_clz(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "rbit" => self.emit_rbit(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "rev_w" => self.emit_rev_w(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "rev_x" => self.emit_rev_x(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
             "sdiv" => self.emit_sdiv(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "lhs")?)?,
@@ -497,6 +533,46 @@ impl Encoder {
 
     fn emit_rorv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
         self.emit_word(0x9ac0_2c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// 32-bit `RORV Wd, Wn, Wm` — rotate right by `Wm mod 32`; zero-extends Wd.
+    fn emit_rorv_w(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x1ac0_2c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// 64-bit `LSLV Xd, Xn, Xm` — logical shift left by `Xm mod 64`.
+    fn emit_lslv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9ac0_2000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// 64-bit `LSRV Xd, Xn, Xm` — logical shift right by `Xm mod 64`.
+    fn emit_lsrv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9ac0_2400 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// 64-bit `ASRV Xd, Xn, Xm` — arithmetic shift right by `Xm mod 64`.
+    fn emit_asrv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
+        self.emit_word(0x9ac0_2800 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// 64-bit `CLZ Xd, Xn` — count leading zeros.
+    fn emit_clz(&mut self, rd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0xdac0_1000 | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// 64-bit `RBIT Xd, Xn` — reverse bit order.
+    fn emit_rbit(&mut self, rd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0xdac0_0000 | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// 32-bit `REV Wd, Wn` — reverse the four bytes of Wn; zero-extends Wd.
+    fn emit_rev_w(&mut self, rd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0x5ac0_0800 | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// 64-bit `REV Xd, Xn` — reverse all eight bytes of Xn.
+    fn emit_rev_x(&mut self, rd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0xdac0_0c00 | ((rn as u32) << 5) | rd as u32)
     }
 
     fn emit_sdiv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {

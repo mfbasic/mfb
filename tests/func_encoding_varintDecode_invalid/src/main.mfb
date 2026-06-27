@@ -1,0 +1,7 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS String = encoding::varintDecode()
+  LET d AS String = encoding::varintDecode("notbytes")
+  RETURN 0
+END FUNC

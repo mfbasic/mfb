@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_encoding_hexEncode_valid
+Wrote AST to tests/func_encoding_hexEncode_valid/func_encoding_hexEncode_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_encoding_hexEncode_valid
+Wrote IR to tests/func_encoding_hexEncode_valid/func_encoding_hexEncode_valid.ir
+[exit 0]
+$ mfb build tests/func_encoding_hexEncode_valid
+Wrote executable to tests/func_encoding_hexEncode_valid/func_encoding_hexEncode_valid.out
+[exit 0]
+$ tests/func_encoding_hexEncode_valid/func_encoding_hexEncode_valid.out
+686900ff
+[exit 0]

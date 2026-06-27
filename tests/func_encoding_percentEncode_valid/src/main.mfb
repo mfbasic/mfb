@@ -1,0 +1,7 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(encoding::percentEncode("a b/c?=&"))
+  RETURN 0
+END FUNC

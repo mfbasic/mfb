@@ -72,6 +72,7 @@ pub fn resolve_project_with(
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
+    let augmented = builtins::encoding::augmented_project(&augmented)?;
     let mut resolver = Resolver::new(project_dir, manifest, &augmented);
     resolver.resolve();
     if validate_docs {

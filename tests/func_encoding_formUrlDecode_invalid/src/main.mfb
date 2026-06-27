@@ -1,0 +1,8 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS List OF Byte = encoding::formUrlDecode()
+  LET c AS List OF Byte = encoding::formUrlDecode("x", "y")
+  LET d AS List OF Byte = encoding::formUrlDecode(123)
+  RETURN 0
+END FUNC

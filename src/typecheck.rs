@@ -121,6 +121,7 @@ pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
+    let augmented = builtins::encoding::augmented_project(&augmented)?;
     let mut checker = TypeChecker::new(project_dir, &augmented);
     checker.check();
     if checker.had_error {
@@ -3099,6 +3100,7 @@ impl<'a> TypeChecker<'a> {
                         arguments,
                         locals,
                         line,
+                        expected,
                     );
                 }
 
@@ -4548,7 +4550,19 @@ impl<'a> TypeChecker<'a> {
         arguments: &[CallArg],
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
+        expected: Option<&Type>,
     ) -> Type {
+        if builtins::encoding::is_encoding_call(callee) {
+            return self.check_encoding_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+                expected,
+            );
+        }
         if builtins::general::is_general_call(callee) {
             return self.check_general_builtin_call(
                 file,
@@ -4581,6 +4595,16 @@ impl<'a> TypeChecker<'a> {
         }
         if builtins::math::is_math_call(callee) {
             return self.check_math_builtin_call(
+                file,
+                display_callee,
+                callee,
+                arguments,
+                locals,
+                line,
+            );
+        }
+        if builtins::bits::is_bits_call(callee) {
+            return self.check_bits_builtin_call(
                 file,
                 display_callee,
                 callee,
@@ -5531,6 +5555,135 @@ impl<'a> TypeChecker<'a> {
             );
             return Type::Unknown;
         };
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    fn check_bits_builtin_call(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arguments: &[CallArg],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::bits::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` has {} argument(s), expected {expected}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::bits::resolve_call(callee, &arg_types) else {
+            let expected =
+                builtins::bits::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        self.parse_type(&resolved.return_type)
+    }
+
+    fn check_encoding_builtin_call(
+        &mut self,
+        file: &AstFile,
+        display_callee: &str,
+        callee: &str,
+        arguments: &[CallArg],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+        expected: Option<&Type>,
+    ) -> Type {
+        let arguments =
+            self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
+        let arg_types = arguments
+            .iter()
+            .map(|argument| {
+                let type_ = self.infer_expression(file, argument, locals, line, ExprMode::Read);
+                self.type_name(&type_)
+            })
+            .collect::<Vec<_>>();
+
+        if let Some((min, max)) = builtins::encoding::arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                let expected_count = if min == max {
+                    min.to_string()
+                } else {
+                    format!("{min} to {max}")
+                };
+                self.report(
+                    "TYPE_CALL_ARITY_MISMATCH",
+                    &format!(
+                        "Call to `{display_callee}` has {} argument(s), expected {expected_count}.",
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+                return Type::Unknown;
+            }
+        }
+
+        let Some(resolved) = builtins::encoding::resolve_call(callee, &arg_types) else {
+            let expected_args =
+                builtins::encoding::expected_arguments(callee).unwrap_or("supported overload");
+            self.report(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                &format!(
+                    "Call to `{display_callee}` has argument type(s) ({}), expected {expected_args}.",
+                    arg_types.join(", ")
+                ),
+                file,
+                line,
+            );
+            return Type::Unknown;
+        };
+
+        // `utf8Encode` is a return-type overload (List OF Byte | List OF Integer).
+        // When the call has an expected (contextual) type of one of the two, adopt
+        // it; otherwise fall back to the default (List OF Byte). The hard
+        // `TYPE_OVERLOAD_AMBIGUOUS` error for an unannotated call is raised later,
+        // in the monomorphizer (plan-01-overload.md §F.2).
+        if callee == "encoding.utf8Encode" {
+            if let Some(expected) = expected {
+                let expected_name = self.type_name(expected);
+                if expected_name == "List OF Byte" || expected_name == "List OF Integer" {
+                    return expected.clone();
+                }
+            }
+        }
 
         self.parse_type(&resolved.return_type)
     }

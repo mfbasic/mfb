@@ -1,0 +1,8 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(encoding::hexEncode(encoding::uleb128Encode(624485)))
+  io::print(encoding::hexEncode(encoding::uleb128Encode(0)))
+  RETURN 0
+END FUNC

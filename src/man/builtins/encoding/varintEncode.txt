@@ -1,0 +1,33 @@
+NAME
+  varintEncode - encode a ZigZag varint
+
+SYNOPSIS
+  encoding::varintEncode(value AS Integer) AS List OF Byte
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Maps value via ZigZag encoding, then writes it as unsigned LEB128. Total.
+
+PARAMETERS
+  value AS Integer
+    The value to encode.
+
+RETURN VALUE
+  AS List OF Byte
+    The varint bytes.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::varintEncode(-75)
+
+SEE ALSO
+  mfb man encoding, mfb man bits

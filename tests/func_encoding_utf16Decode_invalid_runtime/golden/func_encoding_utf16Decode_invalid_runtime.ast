@@ -1,0 +1,77 @@
+{
+  "project": "func_encoding_utf16Decode_invalid_runtime",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "encoding", "line": 2 },
+    { "module": "errorCode", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "doDecode",
+      "line": 5,
+      "params": [
+      { "name": "units", "type": "List OF Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "encoding.utf16Decode", "arguments": [{ "kind": "identifier", "value": "units" }] }, "line": 6 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "attempt",
+      "line": 9,
+      "params": [
+      { "name": "label", "type": "String", "default": null },
+      { "name": "units", "type": "List OF Integer", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "String", "value": { "kind": "call", "callee": "doDecode", "arguments": [{ "kind": "identifier", "value": "units" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": ok" } }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 12 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 13,
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" } },
+        "line": 14,
+        "then": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": ErrInvalidFormat" } }] }, "line": 15 }
+        ],
+        "else": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": ": other" } }] }, "line": 17 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 19 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 23,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "unpaired" }, { "kind": "list", "values": [{ "kind": "number", "value": "55296" }] }] }, "line": 24 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "outofrange" }, { "kind": "list", "values": [{ "kind": "number", "value": "99999999" }] }] }, "line": 25 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "attempt", "arguments": [{ "kind": "string", "value": "good" }, { "kind": "list", "values": [{ "kind": "number", "value": "104" }] }] }, "line": 26 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 27 }
+      ]
+    }
+    ]
+  }
+  ]
+}

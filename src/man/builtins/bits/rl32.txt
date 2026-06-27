@@ -1,0 +1,50 @@
+NAME
+  rl32 - rotate the low 32 bits left
+
+SYNOPSIS
+  bits::rl32(value AS Integer, count AS Integer) AS Integer
+
+PACKAGE
+  bits
+
+IMPORTS
+  IMPORT bits
+
+DESCRIPTION
+  Rotates the low 32 bits of value left by count bit positions and returns the
+  result zero-extended into bits 32..63. The rotate is a 32-bit barrel rotate:
+  bits shifted out of bit 31 re-enter at bit 0, so no information is lost.
+
+  The rotate amount is reduced modulo 32, so any count produces a defined result
+  and counts of 0 and 32 both leave the low 32 bits unchanged. Negative counts are
+  also reduced modulo 32 (a left rotate by a negative amount is equivalent to a
+  right rotate). The high 32 bits of value are ignored and are always zero in the
+  result.
+
+  Operands are raw two's-complement bit patterns; the function does not interpret
+  sign except as its signature states.
+
+PARAMETERS
+  value AS Integer
+    The value whose low 32 bits are rotated. Bits 32..63 are ignored.
+
+  count AS Integer
+    The number of bit positions to rotate left, reduced modulo 32.
+
+RETURN VALUE
+  AS Integer
+    The low 32 bits of value rotated left by count MOD 32, zero-extended into
+    bits 32..63.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Rotate the low 32 bits left by four positions:
+
+    IMPORT bits
+
+    LET result AS Integer = bits::rl32(1, 4)
+
+SEE ALSO
+  bits::band, bits::bor, bits::bxor, bits::bnot, bits::sl, bits::sr, bits::sra, bits::rr32, bits::rl64, bits::rr64, bits::clz, bits::ctz, bits::popCount, bits::bswap16, bits::bswap32, bits::bswap64

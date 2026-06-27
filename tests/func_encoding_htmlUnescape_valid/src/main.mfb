@@ -1,0 +1,7 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(encoding::htmlUnescape("&lt;a&gt;&amp; &eacute; &#233; &#x41;"))
+  RETURN 0
+END FUNC

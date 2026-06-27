@@ -1,0 +1,29 @@
+IMPORT io
+IMPORT encoding
+IMPORT errorCode
+
+FUNC doDecode(data AS List OF Byte) AS Integer
+  RETURN encoding::uleb128Decode(data)
+END FUNC
+
+FUNC attempt(label AS String, data AS List OF Byte) AS Nothing
+  LET r AS Integer = doDecode(data)
+  io::print(label & ": ok " & toString(r))
+  RETURN NOTHING
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidFormat THEN
+      io::print(label & ": ErrInvalidFormat")
+    ELSE
+      io::print(label & ": other")
+    END IF
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  LET truncated AS List OF Byte = [toByte(128)]
+  LET overflow AS List OF Byte = [toByte(255), toByte(255), toByte(255), toByte(255)]
+  attempt("truncated", truncated)
+  attempt("good", [toByte(229), toByte(142), toByte(38)])
+  RETURN 0
+END FUNC

@@ -27,6 +27,10 @@ const PAD_RIGHT: &str = "strings.padRight";
 const GRAPHEME_AT: &str = "strings.graphemeAt";
 const GRAPHEMES_COUNT: &str = "strings.graphemesCount";
 const TRIM_CHARS: &str = "strings.trimChars";
+// The raw UTF-8 bytes backing a String, one element per byte (the inverse of
+// `toString(List OF Byte)`). The foundation the `encoding` package's Unicode
+// codecs build on (plan-02-encoding.md).
+const TO_BYTES: &str = "strings.toBytes";
 // Migrated from the bare global namespace (plan-01-functions.md §5): the String
 // overloads of `find`/`mid`/`replace`. The List overloads moved to
 // `collections::`. The native code generator still lowers these by their bare
@@ -70,6 +74,7 @@ pub(crate) fn is_strings_call(name: &str) -> bool {
             | GRAPHEME_AT
             | GRAPHEMES_COUNT
             | TRIM_CHARS
+            | TO_BYTES
             | FIND
             | MID
             | REPLACE
@@ -79,7 +84,7 @@ pub(crate) fn is_strings_call(name: &str) -> bool {
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | GRAPHEMES
-        | BYTE_LEN => Some(&[&["value"]]),
+        | BYTE_LEN | TO_BYTES => Some(&[&["value"]]),
         STARTS_WITH => Some(&[&["value"], &["prefix"]]),
         ENDS_WITH => Some(&[&["value"], &["suffix"]]),
         CONTAINS => Some(&[&["value"], &["needle"]]),
@@ -109,6 +114,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
             Some("String")
         }
         GRAPHEMES | SPLIT => Some("List OF String"),
+        TO_BYTES => Some("List OF Byte"),
         STARTS_WITH | ENDS_WITH | CONTAINS | STARTS_WITH_ANY | ENDS_WITH_ANY => Some("Boolean"),
         BYTE_LEN | COUNT | GRAPHEMES_COUNT => Some("Integer"),
         STRIP_PREFIX | STRIP_SUFFIX | LEFT | RIGHT | REPEAT | PAD_LEFT | PAD_RIGHT
@@ -126,6 +132,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed("String")
         }
         GRAPHEMES if exact(arg_types, &["String"]) => Cow::Borrowed("List OF String"),
+        TO_BYTES if exact(arg_types, &["String"]) => Cow::Borrowed("List OF Byte"),
         STARTS_WITH | ENDS_WITH | CONTAINS if exact(arg_types, &["String", "String"]) => {
             Cow::Borrowed("Boolean")
         }
@@ -165,7 +172,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | GRAPHEMES
-        | BYTE_LEN => Some("String"),
+        | BYTE_LEN | TO_BYTES => Some("String"),
         STARTS_WITH | ENDS_WITH | CONTAINS | SPLIT => Some("String, String"),
         JOIN => Some("List OF String, String"),
         STARTS_WITH_ANY | ENDS_WITH_ANY => Some("String, List OF String"),
@@ -183,7 +190,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
         TRIM | TRIM_START | TRIM_END | UPPER | LOWER | CASE_FOLD | NORMALIZE_NFC | GRAPHEMES
-        | BYTE_LEN | GRAPHEMES_COUNT => Some((1, 1)),
+        | BYTE_LEN | GRAPHEMES_COUNT | TO_BYTES => Some((1, 1)),
         STARTS_WITH | ENDS_WITH | CONTAINS | SPLIT | JOIN | STARTS_WITH_ANY | ENDS_WITH_ANY
         | STRIP_PREFIX | STRIP_SUFFIX | COUNT | LEFT | RIGHT | REPEAT | GRAPHEME_AT
         | TRIM_CHARS => Some((2, 2)),

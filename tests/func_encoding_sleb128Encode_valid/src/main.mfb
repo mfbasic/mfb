@@ -1,0 +1,8 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(encoding::hexEncode(encoding::sleb128Encode(0 - 123456)))
+  io::print(encoding::hexEncode(encoding::sleb128Encode(2)))
+  RETURN 0
+END FUNC

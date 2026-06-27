@@ -1,0 +1,7 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(encoding::hexEncode([toByte(104), toByte(105), toByte(0), toByte(255)]))
+  RETURN 0
+END FUNC

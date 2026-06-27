@@ -1,0 +1,33 @@
+NAME
+  percentEncode - percent-encode (URL-encode) text
+
+SYNOPSIS
+  encoding::percentEncode(text AS String) AS String
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Percent-encodes text per RFC 3986: the unreserved set A-Z a-z 0-9 - . _ ~ passes through; every other byte of text's UTF-8 encoding becomes %XX with uppercase hex. Total.
+
+PARAMETERS
+  text AS String
+    The text to encode.
+
+RETURN VALUE
+  AS String
+    The percent-encoded text.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::percentEncode("a b/c")
+
+SEE ALSO
+  mfb man encoding, mfb man bits

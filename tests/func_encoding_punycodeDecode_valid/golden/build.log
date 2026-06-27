@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_encoding_punycodeDecode_valid
+Wrote AST to tests/func_encoding_punycodeDecode_valid/func_encoding_punycodeDecode_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_encoding_punycodeDecode_valid
+Wrote IR to tests/func_encoding_punycodeDecode_valid/func_encoding_punycodeDecode_valid.ir
+[exit 0]
+$ mfb build tests/func_encoding_punycodeDecode_valid
+Wrote executable to tests/func_encoding_punycodeDecode_valid/func_encoding_punycodeDecode_valid.out
+[exit 0]
+$ tests/func_encoding_punycodeDecode_valid/func_encoding_punycodeDecode_valid.out
+münchen.de
+[exit 0]

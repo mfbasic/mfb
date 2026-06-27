@@ -1,0 +1,8 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS List OF Byte = encoding::hexDecode()
+  LET c AS List OF Byte = encoding::hexDecode("x", "y")
+  LET d AS List OF Byte = encoding::hexDecode(123)
+  RETURN 0
+END FUNC

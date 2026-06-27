@@ -1,0 +1,9 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  LET u AS List OF Integer = encoding::utf32Encode("A😀")
+  io::print(toString(len(u)))
+  io::print(encoding::utf32Decode(u))
+  RETURN 0
+END FUNC

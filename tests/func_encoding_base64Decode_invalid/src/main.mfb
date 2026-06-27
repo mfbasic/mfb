@@ -1,0 +1,8 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS List OF Byte = encoding::base64Decode()
+  LET c AS List OF Byte = encoding::base64Decode("x", "y")
+  LET d AS List OF Byte = encoding::base64Decode(123)
+  RETURN 0
+END FUNC

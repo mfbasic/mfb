@@ -1,0 +1,33 @@
+NAME
+  utf32Encode - encode a String to UTF-32 code points
+
+SYNOPSIS
+  encoding::utf32Encode(value AS String) AS List OF Integer
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Encodes value to UTF-32 code units, one element per Unicode scalar value (0..0x10FFFF, surrogates excluded). Total.
+
+PARAMETERS
+  value AS String
+    The text to encode.
+
+RETURN VALUE
+  AS List OF Integer
+    The Unicode scalar values.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::utf32Encode("hello")
+
+SEE ALSO
+  mfb man encoding, mfb man bits

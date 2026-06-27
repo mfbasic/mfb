@@ -1,0 +1,9 @@
+IMPORT bits
+
+FUNC main AS Integer
+  LET a AS Integer = bits::ctz()
+  LET b AS Integer = bits::ctz(1, 2)
+  LET c AS Integer = bits::ctz(1.5)
+  LET d AS Integer = bits::ctz("x")
+  RETURN 0
+END FUNC

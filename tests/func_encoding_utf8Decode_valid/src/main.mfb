@@ -1,0 +1,10 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS List OF Byte = [toByte(65), toByte(195), toByte(169)]
+  LET n AS List OF Integer = [65, 195, 169]
+  io::print(encoding::utf8Decode(b))
+  io::print(encoding::utf8Decode(n))
+  RETURN 0
+END FUNC

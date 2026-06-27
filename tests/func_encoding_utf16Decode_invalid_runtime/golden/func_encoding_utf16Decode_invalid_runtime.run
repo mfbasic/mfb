@@ -1,0 +1,3 @@
+unpaired: ErrInvalidFormat
+outofrange: ErrInvalidFormat
+good: ok

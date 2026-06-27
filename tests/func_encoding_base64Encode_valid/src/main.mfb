@@ -1,0 +1,9 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(encoding::base64Encode([toByte(102), toByte(111), toByte(111)]))
+  io::print(encoding::base64Encode([toByte(102), toByte(111)]))
+  io::print(encoding::base64Encode([toByte(102)]))
+  RETURN 0
+END FUNC

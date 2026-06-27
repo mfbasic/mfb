@@ -1,0 +1,34 @@
+NAME
+  uleb128Decode - decode unsigned LEB128
+
+SYNOPSIS
+  encoding::uleb128Decode(data AS List OF Byte) AS Integer
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Decodes unsigned LEB128 bytes to an Integer. Fails on overflow (more than 64 bits) or truncated data.
+
+PARAMETERS
+  data AS List OF Byte
+    The LEB128 bytes.
+
+RETURN VALUE
+  AS Integer
+    The decoded value.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  On overflow or truncation.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::uleb128Decode(bytes)
+
+SEE ALSO
+  mfb man encoding, mfb man bits

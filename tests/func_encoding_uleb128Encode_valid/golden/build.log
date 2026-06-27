@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_encoding_uleb128Encode_valid
+Wrote AST to tests/func_encoding_uleb128Encode_valid/func_encoding_uleb128Encode_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_encoding_uleb128Encode_valid
+Wrote IR to tests/func_encoding_uleb128Encode_valid/func_encoding_uleb128Encode_valid.ir
+[exit 0]
+$ mfb build tests/func_encoding_uleb128Encode_valid
+Wrote executable to tests/func_encoding_uleb128Encode_valid/func_encoding_uleb128Encode_valid.out
+[exit 0]
+$ tests/func_encoding_uleb128Encode_valid/func_encoding_uleb128Encode_valid.out
+e58e26
+00
+[exit 0]

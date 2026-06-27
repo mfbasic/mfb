@@ -38,6 +38,8 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("lambda", "mfb man lambda"),
     ("io", "mfb man io [function]"),
     ("math", "mfb man math [function]"),
+    ("bits", "mfb man bits [function]"),
+    ("encoding", "mfb man encoding [function]"),
     ("fs", "mfb man fs [function]"),
     ("thread", "mfb man thread [function]"),
     ("json", "mfb man json [function]"),

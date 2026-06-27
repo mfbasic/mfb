@@ -1,0 +1,7 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS String = encoding::base64UrlEncode()
+  LET d AS String = encoding::base64UrlEncode("notbytes")
+  RETURN 0
+END FUNC

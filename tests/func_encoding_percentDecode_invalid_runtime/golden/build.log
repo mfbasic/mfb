@@ -1,0 +1,15 @@
+$ mfb build -ast tests/func_encoding_percentDecode_invalid_runtime
+Wrote AST to tests/func_encoding_percentDecode_invalid_runtime/func_encoding_percentDecode_invalid_runtime.ast
+[exit 0]
+$ mfb build -ir tests/func_encoding_percentDecode_invalid_runtime
+Wrote IR to tests/func_encoding_percentDecode_invalid_runtime/func_encoding_percentDecode_invalid_runtime.ir
+[exit 0]
+$ mfb build tests/func_encoding_percentDecode_invalid_runtime
+Wrote executable to tests/func_encoding_percentDecode_invalid_runtime/func_encoding_percentDecode_invalid_runtime.out
+[exit 0]
+$ tests/func_encoding_percentDecode_invalid_runtime/func_encoding_percentDecode_invalid_runtime.out
+badescape: ErrInvalidFormat
+truncated: ErrInvalidFormat
+badutf8: ErrInvalidFormat
+good: ok
+[exit 0]

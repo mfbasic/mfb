@@ -1,0 +1,8 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(encoding::punycodeEncode("münchen.de"))
+  io::print(encoding::punycodeEncode("bücher.example"))
+  RETURN 0
+END FUNC

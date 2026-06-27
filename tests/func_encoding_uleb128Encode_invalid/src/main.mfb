@@ -1,0 +1,7 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS List OF Byte = encoding::uleb128Encode()
+  LET d AS List OF Byte = encoding::uleb128Encode("x")
+  RETURN 0
+END FUNC

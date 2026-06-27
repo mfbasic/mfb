@@ -1,0 +1,3 @@
+nonhex: ErrInvalidFormat
+odd: ErrInvalidFormat
+good: ok len=2

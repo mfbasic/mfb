@@ -1,6 +1,8 @@
+pub(crate) mod bits;
 pub(crate) mod collections;
 pub(crate) mod csv;
 pub(crate) mod datetime;
+pub(crate) mod encoding;
 pub(crate) mod errorcode;
 pub(crate) mod fs;
 pub(crate) mod general;
@@ -21,9 +23,11 @@ pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 pub(crate) fn is_builtin_import(name: &str) -> bool {
     matches!(
         name,
-        "collections"
+        "bits"
+            | "collections"
             | "csv"
             | "datetime"
+            | "encoding"
             | "errorCode"
             | "fs"
             | "http"
@@ -137,6 +141,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| collections::call_return_type_name(name))
         .or_else(|| strings::call_return_type_name(name))
         .or_else(|| math::call_return_type_name(name))
+        .or_else(|| bits::call_return_type_name(name))
+        .or_else(|| encoding::call_return_type_name(name))
         .or_else(|| fs::call_return_type_name(name))
         .or_else(|| io::call_return_type_name(name))
         .or_else(|| json::call_return_type_name(name))
@@ -169,6 +175,8 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || general::is_general_call(name)
         || strings::is_strings_call(name)
         || math::is_math_call(name)
+        || bits::is_bits_call(name)
+        || encoding::is_encoding_call(name)
         || fs::is_fs_call(name)
         || io::is_io_call(name)
         || json::is_json_call(name)
@@ -207,6 +215,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| collections::call_param_names(name))
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))
+        .or_else(|| bits::call_param_names(name))
+        .or_else(|| encoding::call_param_names(name))
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))
         .or_else(|| json::call_param_names(name))

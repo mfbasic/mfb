@@ -1,0 +1,35 @@
+NAME
+  utf8Decode - decode UTF-8 bytes to a String
+
+SYNOPSIS
+  encoding::utf8Decode(value AS List OF Byte) AS String
+  encoding::utf8Decode(value AS List OF Integer) AS String
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Decodes a UTF-8 byte (or code-unit) sequence to a String. The overload is selected by the parameter type. Fails on an element outside 0..255 or an invalid UTF-8 sequence.
+
+PARAMETERS
+  value AS List OF Byte | List OF Integer
+    The UTF-8 bytes to decode.
+
+RETURN VALUE
+  AS String
+    The decoded text.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  On an out-of-range element or malformed UTF-8.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::utf8Decode([toByte(104), toByte(105)])
+
+SEE ALSO
+  mfb man encoding, mfb man bits

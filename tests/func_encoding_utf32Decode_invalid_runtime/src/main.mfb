@@ -1,0 +1,28 @@
+IMPORT io
+IMPORT encoding
+IMPORT errorCode
+
+FUNC doDecode(points AS List OF Integer) AS String
+  RETURN encoding::utf32Decode(points)
+END FUNC
+
+FUNC attempt(label AS String, points AS List OF Integer) AS Nothing
+  LET r AS String = doDecode(points)
+  io::print(label & ": ok")
+  RETURN NOTHING
+  TRAP(err)
+    IF err.code = errorCode::ErrInvalidFormat THEN
+      io::print(label & ": ErrInvalidFormat")
+    ELSE
+      io::print(label & ": other")
+    END IF
+    RETURN NOTHING
+  END TRAP
+END FUNC
+
+FUNC main AS Integer
+  attempt("surrogate", [55296])
+  attempt("outofrange", [1114112])
+  attempt("good", [65])
+  RETURN 0
+END FUNC

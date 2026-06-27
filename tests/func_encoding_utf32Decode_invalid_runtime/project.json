@@ -1,0 +1,1 @@
+{ "name": "func_encoding_utf32Decode_invalid_runtime", "version": "0.1.0", "mfb": "1.0", "kind": "executable", "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }], "entry": "main", "targets": ["native"] }

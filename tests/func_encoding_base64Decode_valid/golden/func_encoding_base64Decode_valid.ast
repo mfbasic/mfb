@@ -1,0 +1,27 @@
+{
+  "project": "func_encoding_base64Decode_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "encoding", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "encoding.base64Decode", "arguments": [{ "kind": "string", "value": "Zm9vYmFy" }] }] }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 6 }
+      ]
+    }
+    ]
+  }
+  ]
+}

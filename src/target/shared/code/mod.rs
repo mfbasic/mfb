@@ -13909,6 +13909,7 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
     }
 }
 
+mod builder_bits;
 mod builder_collection_layout;
 mod builder_collection_queries;
 mod builder_collection_updates;
@@ -13960,13 +13961,19 @@ impl CodeInstruction {
             | CodeOp::UMulH
             | CodeOp::Adc
             | CodeOp::Rorv
+            | CodeOp::RorvW
+            | CodeOp::Lslv
+            | CodeOp::Lsrv
+            | CodeOp::Asrv
             | CodeOp::SDiv
             | CodeOp::UDiv
             | CodeOp::FAddD
             | CodeOp::FSubD
             | CodeOp::FMulD
             | CodeOp::FDivD => &["dst", "lhs", "rhs"],
-            CodeOp::Mvn => &["dst", "src"],
+            CodeOp::Mvn | CodeOp::Clz | CodeOp::Rbit | CodeOp::RevW | CodeOp::RevX => {
+                &["dst", "src"]
+            }
             CodeOp::MSub => &["dst", "lhs", "rhs", "minuend"],
             CodeOp::LslImm | CodeOp::LsrImm | CodeOp::AsrImm => &["dst", "src", "shift"],
             CodeOp::AddImm | CodeOp::SubImm => &["dst", "src", "imm"],

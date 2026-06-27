@@ -1,0 +1,7 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS List OF Byte = encoding::varintEncode()
+  LET d AS List OF Byte = encoding::varintEncode("x")
+  RETURN 0
+END FUNC

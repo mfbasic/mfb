@@ -1,0 +1,8 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET a AS List OF Byte = encoding::utf8Encode()
+  LET b AS List OF Byte = encoding::utf8Encode("x", "y")
+  LET c AS List OF Byte = encoding::utf8Encode(123)
+  RETURN 0
+END FUNC

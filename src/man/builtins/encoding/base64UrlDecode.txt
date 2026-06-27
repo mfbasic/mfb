@@ -1,0 +1,34 @@
+NAME
+  base64UrlDecode - decode URL-safe Base64 to bytes
+
+SYNOPSIS
+  encoding::base64UrlDecode(text AS String) AS List OF Byte
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Decodes URL-safe Base64, accepting input with or without '=' padding. Fails on invalid input.
+
+PARAMETERS
+  text AS String
+    The URL-safe Base64 string.
+
+RETURN VALUE
+  AS List OF Byte
+    The decoded bytes.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  On invalid alphabet or length.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::base64UrlDecode("aGVsbG8")
+
+SEE ALSO
+  mfb man encoding, mfb man bits

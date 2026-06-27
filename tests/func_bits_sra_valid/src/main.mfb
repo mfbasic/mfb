@@ -1,0 +1,8 @@
+IMPORT io
+IMPORT bits
+
+FUNC main AS Integer
+  io::print(toString(bits::sra(-8, 1)))
+  io::print(toString(bits::sra(8, 1)))
+  RETURN 0
+END FUNC

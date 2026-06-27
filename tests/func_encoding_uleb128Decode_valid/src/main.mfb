@@ -1,0 +1,7 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(toString(encoding::uleb128Decode([toByte(229), toByte(142), toByte(38)])))
+  RETURN 0
+END FUNC

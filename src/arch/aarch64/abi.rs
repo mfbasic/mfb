@@ -202,6 +202,73 @@ pub(crate) fn rotate_right_registers(dst: &str, src: &str, amount: &str) -> Code
         .field("rhs", amount)
 }
 
+/// `rorv Wd, Wn, Wm` — 32-bit rotate right by the low 5 bits of `amount`; the
+/// 32-bit result is zero-extended into the upper half of the destination.
+pub(crate) fn rotate_right_word_registers(dst: &str, src: &str, amount: &str) -> CodeInstruction {
+    CodeInstruction::new("rorv_w")
+        .field("dst", dst)
+        .field("lhs", src)
+        .field("rhs", amount)
+}
+
+/// `lslv dst, src, amount` — logical shift `src` left by the low 6 bits of `amount`.
+pub(crate) fn shift_left_variable(dst: &str, src: &str, amount: &str) -> CodeInstruction {
+    CodeInstruction::new("lslv")
+        .field("dst", dst)
+        .field("lhs", src)
+        .field("rhs", amount)
+}
+
+/// `lsrv dst, src, amount` — logical shift `src` right by the low 6 bits of `amount`.
+pub(crate) fn shift_right_variable(dst: &str, src: &str, amount: &str) -> CodeInstruction {
+    CodeInstruction::new("lsrv")
+        .field("dst", dst)
+        .field("lhs", src)
+        .field("rhs", amount)
+}
+
+/// `asrv dst, src, amount` — arithmetic (sign-filling) shift `src` right by the
+/// low 6 bits of `amount`.
+pub(crate) fn arithmetic_shift_right_variable(
+    dst: &str,
+    src: &str,
+    amount: &str,
+) -> CodeInstruction {
+    CodeInstruction::new("asrv")
+        .field("dst", dst)
+        .field("lhs", src)
+        .field("rhs", amount)
+}
+
+/// `clz dst, src` — count the leading zero bits of the 64-bit `src`.
+pub(crate) fn count_leading_zeros(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("clz")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+/// `rbit dst, src` — reverse the bit order of the 64-bit `src`.
+pub(crate) fn reverse_bits(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("rbit")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+/// `rev Wd, Wn` — reverse the four bytes of the low 32 bits of `src`; the result
+/// is zero-extended into the upper half of the destination.
+pub(crate) fn reverse_bytes_word(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("rev_w")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+/// `rev Xd, Xn` — reverse all eight bytes of the 64-bit `src`.
+pub(crate) fn reverse_bytes(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("rev_x")
+        .field("dst", dst)
+        .field("src", src)
+}
+
 pub(crate) fn signed_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("sdiv")
         .field("dst", dst)

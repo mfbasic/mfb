@@ -1,0 +1,7 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS String = encoding::sleb128Decode()
+  LET d AS String = encoding::sleb128Decode("notbytes")
+  RETURN 0
+END FUNC

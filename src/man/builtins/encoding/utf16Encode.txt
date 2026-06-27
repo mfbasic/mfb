@@ -1,0 +1,33 @@
+NAME
+  utf16Encode - encode a String to UTF-16 code units
+
+SYNOPSIS
+  encoding::utf16Encode(value AS String) AS List OF Integer
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Encodes value to UTF-16 code units, one element per 16-bit unit (0..65535); astral code points become surrogate pairs. These are numeric code units, not a byte serialization, so endianness does not apply. Total.
+
+PARAMETERS
+  value AS String
+    The text to encode.
+
+RETURN VALUE
+  AS List OF Integer
+    The UTF-16 code units.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::utf16Encode("hello")
+
+SEE ALSO
+  mfb man encoding, mfb man bits

@@ -1,0 +1,7 @@
+IMPORT io
+IMPORT encoding
+
+FUNC main AS Integer
+  io::print(toString(encoding::varintDecode(encoding::varintEncode(0 - 75))))
+  RETURN 0
+END FUNC

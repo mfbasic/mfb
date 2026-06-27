@@ -1,0 +1,34 @@
+NAME
+  base64Decode - decode Base64 to bytes
+
+SYNOPSIS
+  encoding::base64Decode(text AS String) AS List OF Byte
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Decodes standard Base64; padding is required. Fails on an invalid alphabet, length, or padding.
+
+PARAMETERS
+  text AS String
+    The Base64 string.
+
+RETURN VALUE
+  AS List OF Byte
+    The decoded bytes.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  On invalid alphabet, length, or padding.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::base64Decode("aGVsbG8=")
+
+SEE ALSO
+  mfb man encoding, mfb man bits

@@ -1,0 +1,15 @@
+IMPORT io
+IMPORT strings
+IMPORT collections
+FUNC main AS Integer
+  LET b AS List OF Byte = strings::toBytes("héllo")
+  io::print(toString(len(b)))
+  io::print(toString(collections::get(b, 0)))
+  io::print(toString(collections::get(b, 1)))
+  io::print(toString(b))
+  MUT s AS String = "AB"
+  s = s & "C"
+  io::print(toString(len(strings::toBytes(s))))
+  io::print(toString(len(strings::toBytes(""))))
+  RETURN 0
+END FUNC

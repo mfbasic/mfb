@@ -968,6 +968,48 @@ impl<'a> Monomorphizer<'a> {
                     .iter()
                     .filter_map(|argument| self.expression_type(call_arg_value(argument), context))
                     .collect::<Vec<_>>();
+                // Resolve the overloaded `encoding::utf8Encode`/`utf8Decode`
+                // public calls onto their concrete internal implementation using
+                // the argument types and (for the return-type overload) the
+                // expected type (plan-02-encoding.md Part B).
+                if crate::builtins::encoding::is_overloaded(callee) {
+                    match crate::builtins::encoding::resolve_overload_target(
+                        callee,
+                        &arg_types,
+                        expected_type,
+                    ) {
+                        Ok(Some(target)) => {
+                            // The target is a package-qualified built-in member
+                            // (`encoding.utf8EncodeBytes`); the post-monomorph
+                            // resolver accepts it and IR maps it to its internal
+                            // implementation, like the other encoding functions.
+                            return Expression::Call {
+                                callee: target.to_string(),
+                                arguments: lowered_args,
+                                line: *call_line,
+                                column: *column,
+                            };
+                        }
+                        Ok(None) => {}
+                        Err(()) => {
+                            self.report(
+                                "TYPE_OVERLOAD_AMBIGUOUS",
+                                &format!(
+                                    "Call to `{callee}` matches overloads that differ only by \
+                                     return type; supply the expected type (e.g. a `LET … AS` \
+                                     annotation) to select one."
+                                ),
+                                line,
+                            );
+                            return Expression::Call {
+                                callee: callee.clone(),
+                                arguments: lowered_args,
+                                line: *call_line,
+                                column: *column,
+                            };
+                        }
+                    }
+                }
                 // Rewrite a `collections::` call onto its internal generic
                 // implementation so it instantiates like any generic function.
                 let callee = &self

@@ -1,0 +1,9 @@
+IMPORT bits
+
+FUNC main AS Integer
+  LET a AS Integer = bits::bswap16()
+  LET b AS Integer = bits::bswap16(1, 2)
+  LET c AS Integer = bits::bswap16(1.5)
+  LET d AS Integer = bits::bswap16("x")
+  RETURN 0
+END FUNC

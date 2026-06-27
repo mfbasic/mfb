@@ -1,0 +1,9 @@
+IMPORT bits
+
+FUNC main AS Integer
+  LET a AS Integer = bits::rr32(1)
+  LET b AS Integer = bits::rr32(1, 2, 3)
+  LET c AS Integer = bits::rr32(1.5, 2)
+  LET d AS Integer = bits::rr32(8, "x")
+  RETURN 0
+END FUNC

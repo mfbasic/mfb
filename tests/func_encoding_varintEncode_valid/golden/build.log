@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_encoding_varintEncode_valid
+Wrote AST to tests/func_encoding_varintEncode_valid/func_encoding_varintEncode_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_encoding_varintEncode_valid
+Wrote IR to tests/func_encoding_varintEncode_valid/func_encoding_varintEncode_valid.ir
+[exit 0]
+$ mfb build tests/func_encoding_varintEncode_valid
+Wrote executable to tests/func_encoding_varintEncode_valid/func_encoding_varintEncode_valid.out
+[exit 0]
+$ tests/func_encoding_varintEncode_valid/func_encoding_varintEncode_valid.out
+9501
+ac02
+[exit 0]

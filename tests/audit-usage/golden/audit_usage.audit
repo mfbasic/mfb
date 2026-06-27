@@ -19,6 +19,7 @@ Commands:
   build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
   man [package] [function]             Show built-in package and function help
+  spec [topic] [subtopic] [--all]      Show the MFBASIC language specification
 [exit 2]
 $ mfb audit --bogus tests/audit-usage
 error: unknown audit option `--bogus`
@@ -41,4 +42,5 @@ Commands:
   build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
   man [package] [function]             Show built-in package and function help
+  spec [topic] [subtopic] [--all]      Show the MFBASIC language specification
 [exit 2]

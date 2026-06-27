@@ -1,0 +1,28 @@
+{
+  "project": "func_encoding_base32Encode_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "encoding", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.base32Encode", "arguments": [{ "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "102" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "111" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "111" }] }] }] }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "encoding.base32Encode", "arguments": [{ "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "102" }] }] }] }] }, "line": 6 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

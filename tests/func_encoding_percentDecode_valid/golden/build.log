@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_encoding_percentDecode_valid
+Wrote AST to tests/func_encoding_percentDecode_valid/func_encoding_percentDecode_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_encoding_percentDecode_valid
+Wrote IR to tests/func_encoding_percentDecode_valid/func_encoding_percentDecode_valid.ir
+[exit 0]
+$ mfb build tests/func_encoding_percentDecode_valid
+Wrote executable to tests/func_encoding_percentDecode_valid/func_encoding_percentDecode_valid.out
+[exit 0]
+$ tests/func_encoding_percentDecode_valid/func_encoding_percentDecode_valid.out
+a b/c
+[exit 0]

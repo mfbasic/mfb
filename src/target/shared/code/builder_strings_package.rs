@@ -26,6 +26,19 @@ impl CodeBuilder<'_> {
                 return Ok(Some(self.lower_list_literal("List OF String", &values)?));
             }
         }
+        if target == "strings.toBytes" && args.len() == 1 {
+            if let Some(value) = self.static_string_value(&args[0]) {
+                let values = value
+                    .as_bytes()
+                    .iter()
+                    .map(|byte| NirValue::Const {
+                        type_: "Byte".to_string(),
+                        value: byte.to_string(),
+                    })
+                    .collect::<Vec<_>>();
+                return Ok(Some(self.lower_list_literal("List OF Byte", &values)?));
+            }
+        }
         let result = match target {
             "strings.trim" if args.len() == 1 => self.lower_strings_trim(&args[0], true, true)?,
             "strings.trimStart" if args.len() == 1 => {
@@ -47,6 +60,7 @@ impl CodeBuilder<'_> {
                 self.lower_strings_normalize_nfc(&args[0])?
             }
             "strings.byteLen" if args.len() == 1 => self.lower_strings_byte_len(&args[0])?,
+            "strings.toBytes" if args.len() == 1 => self.lower_strings_to_bytes(&args[0])?,
             "strings.startsWith" if args.len() == 2 => {
                 self.lower_strings_starts_with(&args[0], &args[1])?
             }
@@ -275,6 +289,123 @@ impl CodeBuilder<'_> {
             type_: "List OF String".to_string(),
             location: result,
             text: "strings.graphemes".to_string(),
+        })
+    }
+
+    /// `strings.toBytes(value)` — the raw UTF-8 bytes backing `value`, as a
+    /// `List OF Byte` (one element per byte). The inverse of
+    /// `toString(List OF Byte)`. Builds the collection element-by-element so the
+    /// per-element entry table and packed payload match the standard layout.
+    fn lower_strings_to_bytes(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        let value = self.lower_value(value)?;
+        self.require_string("strings.toBytes value", &value)?;
+        let value_slot = self.store_string_pointer("strings_to_bytes_value", &value.location);
+        let count_slot = self.allocate_stack_object("strings_to_bytes_count", 8);
+        let result_slot = self.allocate_stack_object("strings_to_bytes_result", 8);
+        let layout = CollectionTypeLayout::from_type("List OF Byte")
+            .ok_or_else(|| "native strings.toBytes cannot resolve List OF Byte layout".to_string())?;
+        for register in [
+            "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", "x28",
+        ] {
+            self.mark_register_used(register);
+        }
+
+        let alloc_ok = self.label("strings_to_bytes_alloc_ok");
+        let write_loop = self.label("strings_to_bytes_write_loop");
+        let write_done = self.label("strings_to_bytes_write_done");
+
+        // count = byteLen( [strptr + 0] ); spill across the allocation call.
+        self.emit(abi::load_u64("x16", abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64("x9", "x16", 0));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), count_slot));
+
+        // alloc size = HEADER + count * (ENTRY_SIZE) + count (one payload byte each).
+        self.emit(abi::move_immediate(
+            "x13",
+            "Integer",
+            &(COLLECTION_ENTRY_SIZE + 1).to_string(),
+        ));
+        self.emit(abi::multiply_registers("x13", "x9", "x13"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x13",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        // x1 holds the new collection pointer.
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::move_register("x20", "x1"));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), count_slot));
+        // Header: count == capacity == dataLength == dataCapacity == count.
+        self.emit_write_list_header_from_registers(&layout, "x20", "x9", "x9");
+
+        // payload base = collection + HEADER + capacity * ENTRY_SIZE.
+        self.emit(abi::move_immediate(
+            "x13",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x13", "x9", "x13"));
+        self.emit(abi::add_immediate("x21", "x20", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x21", "x21", "x13"));
+
+        // x22 = string data pointer (strptr + 8); x23 = i (0).
+        self.emit(abi::load_u64("x16", abi::stack_pointer(), value_slot));
+        self.emit(abi::add_immediate("x22", "x16", 8));
+        self.emit(abi::move_immediate("x23", "Integer", "0"));
+
+        self.emit(abi::label(&write_loop));
+        self.emit(abi::compare_registers("x23", "x9"));
+        self.emit(abi::branch_ge(&write_done));
+        // entry_addr (x24) = collection + HEADER + i * ENTRY_SIZE.
+        self.emit(abi::move_immediate(
+            "x25",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x25", "x23", "x25"));
+        self.emit(abi::add_immediate("x24", "x20", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x24", "x24", "x25"));
+        // flags = USED; key offset/length = 0.
+        self.emit(abi::move_immediate(
+            "x26",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8("x26", "x24", COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::store_u64("x31", "x24", COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
+        self.emit(abi::store_u64("x31", "x24", COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        // value offset = i; value length = 1.
+        self.emit(abi::store_u64("x23", "x24", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
+        self.emit(abi::move_immediate("x26", "Integer", "1"));
+        self.emit(abi::store_u64("x26", "x24", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
+        // payload[i] = string byte[i].
+        self.emit(abi::add_registers("x27", "x22", "x23"));
+        self.emit(abi::load_u8("x26", "x27", 0));
+        self.emit(abi::add_registers("x28", "x21", "x23"));
+        self.emit(abi::store_u8("x26", "x28", 0));
+        self.emit(abi::add_immediate("x23", "x23", 1));
+        self.emit(abi::branch(&write_loop));
+        self.emit(abi::label(&write_done));
+
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        Ok(ValueResult {
+            type_: "List OF Byte".to_string(),
+            location: result,
+            text: "strings.toBytes".to_string(),
         })
     }
 

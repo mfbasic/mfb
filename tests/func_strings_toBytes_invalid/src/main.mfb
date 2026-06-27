@@ -1,0 +1,7 @@
+IMPORT strings
+FUNC main AS Integer
+  LET a AS List OF Byte = strings::toBytes()
+  LET b AS List OF Byte = strings::toBytes("x", "y")
+  LET c AS List OF Byte = strings::toBytes(123)
+  RETURN 0
+END FUNC

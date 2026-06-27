@@ -1,0 +1,33 @@
+NAME
+  hexEncode - encode bytes to lowercase hex
+
+SYNOPSIS
+  encoding::hexEncode(data AS List OF Byte) AS String
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Encodes data to lowercase hexadecimal, two characters per byte with no separators. Use strings::upper for uppercase. Total.
+
+PARAMETERS
+  data AS List OF Byte
+    The bytes to encode.
+
+RETURN VALUE
+  AS String
+    The lowercase hex string.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::hexEncode(raw)
+
+SEE ALSO
+  mfb man encoding, mfb man bits

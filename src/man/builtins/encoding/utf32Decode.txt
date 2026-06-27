@@ -1,0 +1,34 @@
+NAME
+  utf32Decode - decode UTF-32 code points to a String
+
+SYNOPSIS
+  encoding::utf32Decode(value AS List OF Integer) AS String
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Decodes a UTF-32 code-point sequence to a String. Fails on a code point outside 0..0x10FFFF or inside the surrogate range 0xD800..0xDFFF.
+
+PARAMETERS
+  value AS List OF Integer
+    The code points.
+
+RETURN VALUE
+  AS String
+    The decoded text.
+
+ERRORS
+  77050003 (ErrInvalidFormat)
+  On an out-of-range or surrogate code point.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::utf32Decode([104, 105])
+
+SEE ALSO
+  mfb man encoding, mfb man bits

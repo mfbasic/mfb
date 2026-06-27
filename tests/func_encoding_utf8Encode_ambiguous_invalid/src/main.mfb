@@ -1,0 +1,6 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET x = encoding::utf8Encode("hi")
+  RETURN 0
+END FUNC

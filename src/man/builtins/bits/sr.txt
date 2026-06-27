@@ -1,0 +1,43 @@
+NAME
+  sr - logical right shift
+
+SYNOPSIS
+  bits::sr(value AS Integer, count AS Integer) AS Integer
+
+PACKAGE
+  bits
+
+IMPORTS
+  IMPORT bits
+
+DESCRIPTION
+  Shifts value right by count bits as an unsigned quantity; vacated high bits are zero.
+
+  A count of 0 returns value unchanged. count must be in 0..63 (a 64-bit
+  Integer); larger shifts are not implicitly clamped and instead fail.
+
+  Operands are raw two's-complement bit patterns; the function does not interpret
+  sign except as its signature states. Unlike bits::sra, the sign bit is not
+  replicated.
+
+PARAMETERS
+  value AS Integer
+    The value to shift.
+  count AS Integer
+    The shift amount, 0..63.
+
+RETURN VALUE
+  AS Integer
+    value shifted right (logical) by count.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when count is outside 0..63.
+
+EXAMPLES
+  IMPORT bits
+
+  LET result AS Integer = bits::sr(1, 4)
+
+SEE ALSO
+  bits::band, bits::bor, bits::bxor, bits::bnot, bits::sl, bits::sra, bits::rl32, bits::rr32, bits::rl64, bits::rr64, bits::clz, bits::ctz, bits::popCount, bits::bswap16, bits::bswap32, bits::bswap64

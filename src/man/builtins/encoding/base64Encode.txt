@@ -1,0 +1,33 @@
+NAME
+  base64Encode - encode bytes to Base64
+
+SYNOPSIS
+  encoding::base64Encode(data AS List OF Byte) AS String
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Encodes data to standard Base64 (RFC 4648 4) using +/ and '=' padding. Total.
+
+PARAMETERS
+  data AS List OF Byte
+    The bytes to encode.
+
+RETURN VALUE
+  AS String
+    The Base64 string.
+
+ERRORS
+  None.
+
+EXAMPLES
+  IMPORT encoding
+
+  encoding::base64Encode(raw)
+
+SEE ALSO
+  mfb man encoding, mfb man bits

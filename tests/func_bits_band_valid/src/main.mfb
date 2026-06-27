@@ -1,0 +1,8 @@
+IMPORT io
+IMPORT bits
+
+FUNC main AS Integer
+  io::print(toString(bits::band(65280, 4080)))
+  io::print(toString(bits::band(255, 15)))
+  RETURN 0
+END FUNC

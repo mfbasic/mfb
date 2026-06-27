@@ -547,6 +547,9 @@ impl CodeBuilder<'_> {
                 if let Some(function) = target.strip_prefix("math.") {
                     return self.lower_math_call(function, args);
                 }
+                if let Some(function) = target.strip_prefix("bits.") {
+                    return self.lower_bits_call(function, args);
+                }
                 if target == "isEven" && args.len() == 1 {
                     return self.lower_integer_parity_predicate("isEven", &args[0], false);
                 }

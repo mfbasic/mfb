@@ -1,0 +1,34 @@
+NAME
+  utf8Encode - encode a String to UTF-8 bytes
+
+SYNOPSIS
+  encoding::utf8Encode(value AS String) AS List OF Byte
+  encoding::utf8Encode(value AS String) AS List OF Integer
+
+PACKAGE
+  encoding
+
+IMPORTS
+  IMPORT encoding
+
+DESCRIPTION
+  Encodes value to its UTF-8 bytes, one element per byte (0..255). This is a return-type overload: the List OF Byte form yields raw bytes; the List OF Integer form yields the identical numeric values as Integers. The expected (contextual) type selects the overload; an unannotated call is a TYPE_OVERLOAD_AMBIGUOUS error. Total.
+
+PARAMETERS
+  value AS String
+    The text to encode.
+
+RETURN VALUE
+  AS List OF Byte | List OF Integer
+    The UTF-8 bytes of value.
+
+ERRORS
+  None at run time (a compile-time TYPE_OVERLOAD_AMBIGUOUS error when no expected type selects an overload).
+
+EXAMPLES
+  IMPORT encoding
+
+  LET raw AS List OF Byte = encoding::utf8Encode("hello")
+
+SEE ALSO
+  mfb man encoding, mfb man bits

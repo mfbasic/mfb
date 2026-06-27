@@ -1,0 +1,41 @@
+NAME
+  ctz - count trailing zeros
+
+SYNOPSIS
+  bits::ctz(value AS Integer) AS Integer
+
+PACKAGE
+  bits
+
+IMPORTS
+  IMPORT bits
+
+DESCRIPTION
+  Returns the number of zero bits that follow the least significant set (1)
+  bit of the 64-bit value, counting from bit 0 (the lowest bit) upward.
+  The value is treated as a raw two's-complement 64-bit bit pattern; the sign
+  is not interpreted. When value is 0 there is no set bit, so all 64 bits are
+  trailing zeros and the result is 64. This operation is total: it is defined
+  for every Integer and never fails.
+
+PARAMETERS
+  value AS Integer
+    The 64-bit value to inspect. Any Integer is accepted.
+
+RETURN VALUE
+  AS Integer
+    The trailing-zero count, in the range 0..64. The result is 0 when bit 0
+    is set (the value is odd), and 64 when value is 0.
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Count the trailing zeros of a small value:
+
+    IMPORT bits
+
+    LET result AS Integer = bits::ctz(255)
+
+SEE ALSO
+  bits::clz, bits::popCount, bits::band, bits::bor, bits::bxor, bits::bnot, bits::sl, bits::sr, bits::sra, bits::rl32, bits::rr32, bits::rl64, bits::rr64, bits::bswap16, bits::bswap32, bits::bswap64

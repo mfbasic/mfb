@@ -1,0 +1,14 @@
+$ mfb build -ast tests/func_encoding_base64Encode_valid
+Wrote AST to tests/func_encoding_base64Encode_valid/func_encoding_base64Encode_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_encoding_base64Encode_valid
+Wrote IR to tests/func_encoding_base64Encode_valid/func_encoding_base64Encode_valid.ir
+[exit 0]
+$ mfb build tests/func_encoding_base64Encode_valid
+Wrote executable to tests/func_encoding_base64Encode_valid/func_encoding_base64Encode_valid.out
+[exit 0]
+$ tests/func_encoding_base64Encode_valid/func_encoding_base64Encode_valid.out
+Zm9v
+Zm8=
+Zg==
+[exit 0]

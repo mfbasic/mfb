@@ -1,0 +1,1270 @@
+IMPORT bits
+IMPORT strings
+IMPORT collections
+
+' ===========================================================================
+' encoding — byte<->text and Unicode codecs (plan-02-encoding.md Part B).
+'
+' Built on `strings::toBytes` (the raw UTF-8 bytes of a String, the inverse of
+' `toString(List OF Byte)`), `bits`, and `collections`. Decoders fail with
+' ErrInvalidFormat (77050003). The public surface is wired in src/builtins/
+' encoding.rs; these `__encoding_*` helpers are the implementations it maps to.
+' ===========================================================================
+
+' --- shared low-level helpers --------------------------------------------
+
+' The single ASCII/Latin-1 byte `c` as a one-character String (a typed binding
+' so the list literal's element type resolves to Byte).
+FUNC __encoding_byteChar(c AS Integer) AS String
+  LET one AS List OF Byte = [toByte(c)]
+  RETURN toString(one)
+END FUNC
+
+' Mask `value` down to its low `n` bits (n in 0..63).
+FUNC __encoding_lowBits(value AS Integer, n AS Integer) AS Integer
+  IF n <= 0 THEN
+    RETURN 0
+  END IF
+  RETURN bits::band(value, bits::sl(1, n) - 1)
+END FUNC
+
+' UTF-8 encode a single Unicode scalar value to its String form.
+FUNC __encoding_fromCodepoint(value AS Integer) AS String
+  IF value < 0 THEN
+    FAIL error(77050003, "invalid code point")
+  END IF
+  IF value <= 127 THEN
+    LET one AS List OF Byte = [toByte(value)]
+    RETURN toString(one)
+  END IF
+  IF value <= 2047 THEN
+    LET lead AS Byte = toByte(192 + value / 64)
+    LET tailValue AS Integer = value - (value / 64) * 64
+    LET tail AS Byte = toByte(128 + tailValue)
+    LET two AS List OF Byte = [lead, tail]
+    RETURN toString(two)
+  END IF
+  IF value <= 65535 THEN
+    LET lead AS Byte = toByte(224 + value / 4096)
+    LET rem1 AS Integer = value - (value / 4096) * 4096
+    LET midValue AS Integer = rem1 / 64
+    LET tailValue AS Integer = rem1 - midValue * 64
+    LET middle AS Byte = toByte(128 + midValue)
+    LET tail AS Byte = toByte(128 + tailValue)
+    LET three AS List OF Byte = [lead, middle, tail]
+    RETURN toString(three)
+  END IF
+  IF value <= 1114111 THEN
+    LET lead AS Byte = toByte(240 + value / 262144)
+    LET rem1 AS Integer = value - (value / 262144) * 262144
+    LET nextValue AS Integer = rem1 / 4096
+    LET rem2 AS Integer = rem1 - nextValue * 4096
+    LET midValue AS Integer = rem2 / 64
+    LET tailValue AS Integer = rem2 - midValue * 64
+    LET second AS Byte = toByte(128 + nextValue)
+    LET third AS Byte = toByte(128 + midValue)
+    LET tail AS Byte = toByte(128 + tailValue)
+    LET four AS List OF Byte = [lead, second, third, tail]
+    RETURN toString(four)
+  END IF
+  FAIL error(77050003, "invalid code point")
+END FUNC
+
+' Validate that `data` is a well-formed UTF-8 byte sequence (no overlong forms,
+' no surrogates, no out-of-range scalar values).
+FUNC __encoding_utf8Valid(data AS List OF Byte) AS Boolean
+  LET n AS Integer = len(data)
+  MUT i AS Integer = 0
+  MUT extra AS Integer = 0
+  MUT lead AS Integer = 0
+  MUT codePoint AS Integer = 0
+  MUT minValue AS Integer = 0
+  MUT j AS Integer = 0
+  MUT cont AS Integer = 0
+  WHILE i < n
+    lead = toInt(collections::get(data, i))
+    IF lead <= 127 THEN
+      i = i + 1
+    ELSE
+      IF lead >= 240 THEN
+        IF lead > 247 THEN
+          RETURN FALSE
+        END IF
+        extra = 3
+        codePoint = lead - 240
+        minValue = 65536
+      ELSE
+        IF lead >= 224 THEN
+          extra = 2
+          codePoint = lead - 224
+          minValue = 2048
+        ELSE
+          IF lead >= 194 THEN
+            extra = 1
+            codePoint = lead - 192
+            minValue = 128
+          ELSE
+            RETURN FALSE
+          END IF
+        END IF
+      END IF
+      IF i + extra >= n THEN
+        RETURN FALSE
+      END IF
+      j = 0
+      WHILE j < extra
+        cont = toInt(collections::get(data, i + 1 + j))
+        IF cont < 128 OR cont > 191 THEN
+          RETURN FALSE
+        END IF
+        codePoint = codePoint * 64 + (cont - 128)
+        j = j + 1
+      WEND
+      IF codePoint < minValue THEN
+        RETURN FALSE
+      END IF
+      IF codePoint > 1114111 THEN
+        RETURN FALSE
+      END IF
+      IF codePoint >= 55296 AND codePoint <= 57343 THEN
+        RETURN FALSE
+      END IF
+      i = i + 1 + extra
+    END IF
+  WEND
+  RETURN TRUE
+END FUNC
+
+' Decode the UTF-8 String `value` into its Unicode scalar values.
+FUNC __encoding_codepoints(value AS String) AS List OF Integer
+  LET data AS List OF Byte = strings::toBytes(value)
+  LET n AS Integer = len(data)
+  MUT result AS List OF Integer = []
+  MUT i AS Integer = 0
+  MUT extra AS Integer = 0
+  MUT lead AS Integer = 0
+  MUT codePoint AS Integer = 0
+  MUT j AS Integer = 0
+  MUT cont AS Integer = 0
+  WHILE i < n
+    lead = toInt(collections::get(data, i))
+    IF lead <= 127 THEN
+      result = collections::append(result, lead)
+      i = i + 1
+    ELSE
+      IF lead >= 240 THEN
+        extra = 3
+        codePoint = lead - 240
+      ELSE
+        IF lead >= 224 THEN
+          extra = 2
+          codePoint = lead - 224
+        ELSE
+          extra = 1
+          codePoint = lead - 192
+        END IF
+      END IF
+      j = 0
+      WHILE j < extra
+        cont = toInt(collections::get(data, i + 1 + j))
+        codePoint = codePoint * 64 + (cont - 128)
+        j = j + 1
+      WEND
+      result = collections::append(result, codePoint)
+      i = i + 1 + extra
+    END IF
+  WEND
+  RETURN result
+END FUNC
+
+' --- utf8 ----------------------------------------------------------------
+
+FUNC __encoding_utf8EncodeBytes(value AS String) AS List OF Byte
+  RETURN strings::toBytes(value)
+END FUNC
+
+FUNC __encoding_utf8EncodeInts(value AS String) AS List OF Integer
+  LET data AS List OF Byte = strings::toBytes(value)
+  MUT result AS List OF Integer = []
+  FOR EACH b IN data
+    result = collections::append(result, toInt(b))
+  NEXT
+  RETURN result
+END FUNC
+
+FUNC __encoding_utf8DecodeBytes(value AS List OF Byte) AS String
+  IF __encoding_utf8Valid(value) = FALSE THEN
+    FAIL error(77050003, "invalid utf-8")
+  END IF
+  RETURN toString(value)
+END FUNC
+
+FUNC __encoding_utf8DecodeInts(value AS List OF Integer) AS String
+  MUT data AS List OF Byte = []
+  FOR EACH unit IN value
+    IF unit < 0 OR unit > 255 THEN
+      FAIL error(77050003, "invalid utf-8 code unit")
+    END IF
+    data = collections::append(data, toByte(unit))
+  NEXT
+  IF __encoding_utf8Valid(data) = FALSE THEN
+    FAIL error(77050003, "invalid utf-8")
+  END IF
+  RETURN toString(data)
+END FUNC
+
+' --- utf16 ---------------------------------------------------------------
+
+FUNC __encoding_utf16Encode(value AS String) AS List OF Integer
+  LET points AS List OF Integer = __encoding_codepoints(value)
+  MUT result AS List OF Integer = []
+  MUT scalar AS Integer = 0
+  MUT high AS Integer = 0
+  MUT low AS Integer = 0
+  FOR EACH cp IN points
+    IF cp <= 65535 THEN
+      result = collections::append(result, cp)
+    ELSE
+      scalar = cp - 65536
+      high = 55296 + bits::sr(scalar, 10)
+      low = 56320 + bits::band(scalar, 1023)
+      result = collections::append(result, high)
+      result = collections::append(result, low)
+    END IF
+  NEXT
+  RETURN result
+END FUNC
+
+FUNC __encoding_utf16Decode(value AS List OF Integer) AS String
+  LET n AS Integer = len(value)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  MUT unit AS Integer = 0
+  MUT low AS Integer = 0
+  MUT scalar AS Integer = 0
+  WHILE i < n
+    unit = collections::get(value, i)
+    IF unit < 0 OR unit > 65535 THEN
+      FAIL error(77050003, "invalid utf-16 code unit")
+    END IF
+    IF unit >= 55296 AND unit <= 56319 THEN
+      IF i + 1 >= n THEN
+        FAIL error(77050003, "unpaired surrogate")
+      END IF
+      low = collections::get(value, i + 1)
+      IF low < 56320 OR low > 57343 THEN
+        FAIL error(77050003, "unpaired surrogate")
+      END IF
+      scalar = 65536 + bits::sl(unit - 55296, 10) + (low - 56320)
+      out = out & __encoding_fromCodepoint(scalar)
+      i = i + 2
+    ELSE
+      IF unit >= 56320 AND unit <= 57343 THEN
+        FAIL error(77050003, "unpaired surrogate")
+      END IF
+      out = out & __encoding_fromCodepoint(unit)
+      i = i + 1
+    END IF
+  WEND
+  RETURN out
+END FUNC
+
+' --- utf32 ---------------------------------------------------------------
+
+FUNC __encoding_utf32Encode(value AS String) AS List OF Integer
+  RETURN __encoding_codepoints(value)
+END FUNC
+
+FUNC __encoding_utf32Decode(value AS List OF Integer) AS String
+  MUT out AS String = ""
+  FOR EACH cp IN value
+    IF cp < 0 OR cp > 1114111 THEN
+      FAIL error(77050003, "invalid code point")
+    END IF
+    IF cp >= 55296 AND cp <= 57343 THEN
+      FAIL error(77050003, "surrogate code point")
+    END IF
+    out = out & __encoding_fromCodepoint(cp)
+  NEXT
+  RETURN out
+END FUNC
+
+' --- hex -----------------------------------------------------------------
+
+FUNC __encoding_hexDigit(d AS Integer) AS String
+  RETURN strings::mid("0123456789abcdef", d, 1)
+END FUNC
+
+FUNC __encoding_hexValue(c AS Integer) AS Integer
+  IF c >= 48 AND c <= 57 THEN
+    RETURN c - 48
+  END IF
+  IF c >= 97 AND c <= 102 THEN
+    RETURN c - 87
+  END IF
+  IF c >= 65 AND c <= 70 THEN
+    RETURN c - 55
+  END IF
+  RETURN -1
+END FUNC
+
+FUNC __encoding_hexEncode(data AS List OF Byte) AS String
+  MUT out AS String = ""
+  MUT v AS Integer = 0
+  FOR EACH b IN data
+    v = toInt(b)
+    out = out & __encoding_hexDigit(v / 16) & __encoding_hexDigit(v - (v / 16) * 16)
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC __encoding_hexDecode(text AS String) AS List OF Byte
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET n AS Integer = len(data)
+  IF n - (n / 2) * 2 <> 0 THEN
+    FAIL error(77050003, "odd-length hex")
+  END IF
+  MUT result AS List OF Byte = []
+  MUT i AS Integer = 0
+  MUT hi AS Integer = 0
+  MUT lo AS Integer = 0
+  WHILE i < n
+    hi = __encoding_hexValue(toInt(collections::get(data, i)))
+    lo = __encoding_hexValue(toInt(collections::get(data, i + 1)))
+    IF hi < 0 OR lo < 0 THEN
+      FAIL error(77050003, "invalid hex digit")
+    END IF
+    result = collections::append(result, toByte(hi * 16 + lo))
+    i = i + 2
+  WEND
+  RETURN result
+END FUNC
+
+' --- base32 / base64 / base64url -----------------------------------------
+
+' Generic bit-buffer encoder: emit `bitsPer`-bit symbols from `alphabet`, pad
+' the output to a multiple of `groupSymbols` with '=' when `pad`.
+FUNC __encoding_baseEncode(data AS List OF Byte, alphabet AS String, bitsPer AS Integer, groupSymbols AS Integer, pad AS Boolean) AS String
+  MUT out AS String = ""
+  MUT buffer AS Integer = 0
+  MUT bitCount AS Integer = 0
+  MUT idx AS Integer = 0
+  FOR EACH b IN data
+    buffer = bits::bor(bits::sl(buffer, 8), toInt(b))
+    bitCount = bitCount + 8
+    WHILE bitCount >= bitsPer
+      bitCount = bitCount - bitsPer
+      idx = bits::band(bits::sr(buffer, bitCount), bits::sl(1, bitsPer) - 1)
+      out = out & strings::mid(alphabet, idx, 1)
+    WEND
+    buffer = __encoding_lowBits(buffer, bitCount)
+  NEXT
+  IF bitCount > 0 THEN
+    idx = bits::band(bits::sl(buffer, bitsPer - bitCount), bits::sl(1, bitsPer) - 1)
+    out = out & strings::mid(alphabet, idx, 1)
+  END IF
+  IF pad THEN
+    WHILE len(out) - (len(out) / groupSymbols) * groupSymbols <> 0
+      out = out & "="
+    WEND
+  END IF
+  RETURN out
+END FUNC
+
+' Generic bit-buffer decoder over already-looked-up symbol `values`.
+FUNC __encoding_baseDecodeBits(values AS List OF Integer, bitsPer AS Integer) AS List OF Byte
+  MUT result AS List OF Byte = []
+  MUT buffer AS Integer = 0
+  MUT bitCount AS Integer = 0
+  MUT byteValue AS Integer = 0
+  FOR EACH v IN values
+    buffer = bits::bor(bits::sl(buffer, bitsPer), v)
+    bitCount = bitCount + bitsPer
+    WHILE bitCount >= 8
+      bitCount = bitCount - 8
+      byteValue = bits::band(bits::sr(buffer, bitCount), 255)
+      result = collections::append(result, toByte(byteValue))
+    WEND
+    buffer = __encoding_lowBits(buffer, bitCount)
+  NEXT
+  RETURN result
+END FUNC
+
+FUNC __encoding_base64Value(c AS Integer, urlSafe AS Boolean) AS Integer
+  IF c >= 65 AND c <= 90 THEN
+    RETURN c - 65
+  END IF
+  IF c >= 97 AND c <= 122 THEN
+    RETURN c - 71
+  END IF
+  IF c >= 48 AND c <= 57 THEN
+    RETURN c + 4
+  END IF
+  IF urlSafe THEN
+    IF c = 45 THEN
+      RETURN 62
+    END IF
+    IF c = 95 THEN
+      RETURN 63
+    END IF
+  ELSE
+    IF c = 43 THEN
+      RETURN 62
+    END IF
+    IF c = 47 THEN
+      RETURN 63
+    END IF
+  END IF
+  RETURN -1
+END FUNC
+
+FUNC __encoding_base32Value(c AS Integer) AS Integer
+  IF c >= 65 AND c <= 90 THEN
+    RETURN c - 65
+  END IF
+  IF c >= 97 AND c <= 122 THEN
+    RETURN c - 97
+  END IF
+  IF c >= 50 AND c <= 55 THEN
+    RETURN c - 24
+  END IF
+  RETURN -1
+END FUNC
+
+FUNC __encoding_base64Encode(data AS List OF Byte) AS String
+  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/", 6, 4, TRUE)
+END FUNC
+
+FUNC __encoding_base64UrlEncode(data AS List OF Byte) AS String
+  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_", 6, 4, FALSE)
+END FUNC
+
+FUNC __encoding_base32Encode(data AS List OF Byte) AS String
+  RETURN __encoding_baseEncode(data, "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567", 5, 8, TRUE)
+END FUNC
+
+' Collect 6-/5-bit symbol values from `text`, validating the alphabet and that
+' '=' padding appears only as a trailing run. Returns the values; the symbol
+' count is what the caller needs for length checks.
+FUNC __encoding_base64Symbols(text AS String, urlSafe AS Boolean) AS List OF Integer
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET n AS Integer = len(data)
+  MUT values AS List OF Integer = []
+  MUT i AS Integer = 0
+  MUT seenPad AS Boolean = FALSE
+  MUT c AS Integer = 0
+  MUT v AS Integer = 0
+  WHILE i < n
+    c = toInt(collections::get(data, i))
+    IF c = 61 THEN
+      seenPad = TRUE
+    ELSE
+      IF seenPad THEN
+        FAIL error(77050003, "invalid base64 padding")
+      END IF
+      v = __encoding_base64Value(c, urlSafe)
+      IF v < 0 THEN
+        FAIL error(77050003, "invalid base64 character")
+      END IF
+      values = collections::append(values, v)
+    END IF
+    i = i + 1
+  WEND
+  RETURN values
+END FUNC
+
+FUNC __encoding_base64Decode(text AS String) AS List OF Byte
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET total AS Integer = len(data)
+  IF total - (total / 4) * 4 <> 0 THEN
+    FAIL error(77050003, "invalid base64 length")
+  END IF
+  LET values AS List OF Integer = __encoding_base64Symbols(text, FALSE)
+  LET symbols AS Integer = len(values)
+  IF symbols - (symbols / 4) * 4 = 1 THEN
+    FAIL error(77050003, "invalid base64 length")
+  END IF
+  RETURN __encoding_baseDecodeBits(values, 6)
+END FUNC
+
+FUNC __encoding_base64UrlDecode(text AS String) AS List OF Byte
+  LET values AS List OF Integer = __encoding_base64Symbols(text, TRUE)
+  LET symbols AS Integer = len(values)
+  IF symbols - (symbols / 4) * 4 = 1 THEN
+    FAIL error(77050003, "invalid base64 length")
+  END IF
+  RETURN __encoding_baseDecodeBits(values, 6)
+END FUNC
+
+FUNC __encoding_base32Decode(text AS String) AS List OF Byte
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET total AS Integer = len(data)
+  IF total - (total / 8) * 8 <> 0 THEN
+    FAIL error(77050003, "invalid base32 length")
+  END IF
+  MUT values AS List OF Integer = []
+  MUT i AS Integer = 0
+  MUT seenPad AS Boolean = FALSE
+  MUT c AS Integer = 0
+  MUT v AS Integer = 0
+  WHILE i < total
+    c = toInt(collections::get(data, i))
+    IF c = 61 THEN
+      seenPad = TRUE
+    ELSE
+      IF seenPad THEN
+        FAIL error(77050003, "invalid base32 padding")
+      END IF
+      v = __encoding_base32Value(c)
+      IF v < 0 THEN
+        FAIL error(77050003, "invalid base32 character")
+      END IF
+      values = collections::append(values, v)
+    END IF
+    i = i + 1
+  WEND
+  LET symbols AS Integer = len(values)
+  LET tail AS Integer = symbols - (symbols / 8) * 8
+  IF tail = 1 OR tail = 3 OR tail = 6 THEN
+    FAIL error(77050003, "invalid base32 length")
+  END IF
+  RETURN __encoding_baseDecodeBits(values, 5)
+END FUNC
+
+' --- percent / form-url --------------------------------------------------
+
+FUNC __encoding_isUnreserved(c AS Integer) AS Boolean
+  IF c >= 65 AND c <= 90 THEN
+    RETURN TRUE
+  END IF
+  IF c >= 97 AND c <= 122 THEN
+    RETURN TRUE
+  END IF
+  IF c >= 48 AND c <= 57 THEN
+    RETURN TRUE
+  END IF
+  IF c = 45 OR c = 46 OR c = 95 OR c = 126 THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC __encoding_isAlphaNum(c AS Integer) AS Boolean
+  IF c >= 65 AND c <= 90 THEN
+    RETURN TRUE
+  END IF
+  IF c >= 97 AND c <= 122 THEN
+    RETURN TRUE
+  END IF
+  IF c >= 48 AND c <= 57 THEN
+    RETURN TRUE
+  END IF
+  RETURN FALSE
+END FUNC
+
+FUNC __encoding_percentByte(c AS Integer) AS String
+  RETURN "%" & strings::upper(__encoding_hexDigit(c / 16) & __encoding_hexDigit(c - (c / 16) * 16))
+END FUNC
+
+FUNC __encoding_percentEncode(text AS String) AS String
+  LET data AS List OF Byte = strings::toBytes(text)
+  MUT out AS String = ""
+  MUT c AS Integer = 0
+  FOR EACH b IN data
+    c = toInt(b)
+    IF __encoding_isUnreserved(c) THEN
+      out = out & __encoding_byteChar(c)
+    ELSE
+      out = out & __encoding_percentByte(c)
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+' Decode percent escapes (and, when `plusSpace`, '+' as space) into raw bytes,
+' then validate UTF-8 and return the decoded String.
+FUNC __encoding_percentDecodeBytes(text AS String, plusSpace AS Boolean) AS String
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET n AS Integer = len(data)
+  MUT result AS List OF Byte = []
+  MUT i AS Integer = 0
+  MUT c AS Integer = 0
+  MUT hi AS Integer = 0
+  MUT lo AS Integer = 0
+  WHILE i < n
+    c = toInt(collections::get(data, i))
+    IF c = 37 THEN
+      IF i + 2 >= n THEN
+        FAIL error(77050003, "truncated percent escape")
+      END IF
+      hi = __encoding_hexValue(toInt(collections::get(data, i + 1)))
+      lo = __encoding_hexValue(toInt(collections::get(data, i + 2)))
+      IF hi < 0 OR lo < 0 THEN
+        FAIL error(77050003, "invalid percent escape")
+      END IF
+      result = collections::append(result, toByte(hi * 16 + lo))
+      i = i + 3
+    ELSE
+      IF plusSpace AND c = 43 THEN
+        result = collections::append(result, toByte(32))
+      ELSE
+        result = collections::append(result, toByte(c))
+      END IF
+      i = i + 1
+    END IF
+  WEND
+  IF __encoding_utf8Valid(result) = FALSE THEN
+    FAIL error(77050003, "invalid utf-8")
+  END IF
+  RETURN toString(result)
+END FUNC
+
+FUNC __encoding_percentDecode(text AS String) AS String
+  RETURN __encoding_percentDecodeBytes(text, FALSE)
+END FUNC
+
+FUNC __encoding_formUrlEncode(text AS String) AS String
+  LET data AS List OF Byte = strings::toBytes(text)
+  MUT out AS String = ""
+  MUT c AS Integer = 0
+  FOR EACH b IN data
+    c = toInt(b)
+    IF __encoding_isAlphaNum(c) THEN
+      out = out & __encoding_byteChar(c)
+    ELSE
+      IF c = 32 THEN
+        out = out & "+"
+      ELSE
+        out = out & __encoding_percentByte(c)
+      END IF
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC __encoding_formUrlDecode(text AS String) AS String
+  RETURN __encoding_percentDecodeBytes(text, TRUE)
+END FUNC
+
+' --- html escape / unescape ----------------------------------------------
+
+FUNC __encoding_htmlEscape(text AS String) AS String
+  MUT out AS String = text
+  out = strings::replace(out, "&", "&amp;")
+  out = strings::replace(out, "<", "&lt;")
+  out = strings::replace(out, ">", "&gt;")
+  out = strings::replace(out, "\"", "&quot;")
+  out = strings::replace(out, "'", "&apos;")
+  RETURN out
+END FUNC
+
+' Map a named HTML entity (without the surrounding & and ;) to its code point,
+' or -1 when unknown. Covers the core five plus the common HTML named set.
+FUNC __encoding_htmlEntity(name AS String) AS Integer
+  IF name = "amp" THEN
+    RETURN 38
+  END IF
+  IF name = "lt" THEN
+    RETURN 60
+  END IF
+  IF name = "gt" THEN
+    RETURN 62
+  END IF
+  IF name = "quot" THEN
+    RETURN 34
+  END IF
+  IF name = "apos" THEN
+    RETURN 39
+  END IF
+  IF name = "nbsp" THEN
+    RETURN 160
+  END IF
+  IF name = "copy" THEN
+    RETURN 169
+  END IF
+  IF name = "reg" THEN
+    RETURN 174
+  END IF
+  IF name = "trade" THEN
+    RETURN 8482
+  END IF
+  IF name = "hellip" THEN
+    RETURN 8230
+  END IF
+  IF name = "mdash" THEN
+    RETURN 8212
+  END IF
+  IF name = "ndash" THEN
+    RETURN 8211
+  END IF
+  IF name = "lsquo" THEN
+    RETURN 8216
+  END IF
+  IF name = "rsquo" THEN
+    RETURN 8217
+  END IF
+  IF name = "ldquo" THEN
+    RETURN 8220
+  END IF
+  IF name = "rdquo" THEN
+    RETURN 8221
+  END IF
+  IF name = "euro" THEN
+    RETURN 8364
+  END IF
+  IF name = "pound" THEN
+    RETURN 163
+  END IF
+  IF name = "cent" THEN
+    RETURN 162
+  END IF
+  IF name = "yen" THEN
+    RETURN 165
+  END IF
+  IF name = "sect" THEN
+    RETURN 167
+  END IF
+  IF name = "deg" THEN
+    RETURN 176
+  END IF
+  IF name = "plusmn" THEN
+    RETURN 177
+  END IF
+  IF name = "times" THEN
+    RETURN 215
+  END IF
+  IF name = "divide" THEN
+    RETURN 247
+  END IF
+  IF name = "frac12" THEN
+    RETURN 189
+  END IF
+  IF name = "frac14" THEN
+    RETURN 188
+  END IF
+  IF name = "frac34" THEN
+    RETURN 190
+  END IF
+  IF name = "middot" THEN
+    RETURN 183
+  END IF
+  IF name = "laquo" THEN
+    RETURN 171
+  END IF
+  IF name = "raquo" THEN
+    RETURN 187
+  END IF
+  IF name = "aacute" THEN
+    RETURN 225
+  END IF
+  IF name = "eacute" THEN
+    RETURN 233
+  END IF
+  IF name = "iacute" THEN
+    RETURN 237
+  END IF
+  IF name = "oacute" THEN
+    RETURN 243
+  END IF
+  IF name = "uacute" THEN
+    RETURN 250
+  END IF
+  IF name = "agrave" THEN
+    RETURN 224
+  END IF
+  IF name = "egrave" THEN
+    RETURN 232
+  END IF
+  IF name = "ccedil" THEN
+    RETURN 231
+  END IF
+  IF name = "ntilde" THEN
+    RETURN 241
+  END IF
+  IF name = "uuml" THEN
+    RETURN 252
+  END IF
+  IF name = "ouml" THEN
+    RETURN 246
+  END IF
+  IF name = "auml" THEN
+    RETURN 228
+  END IF
+  IF name = "szlig" THEN
+    RETURN 223
+  END IF
+  RETURN -1
+END FUNC
+
+FUNC __encoding_parseDecimal(text AS String) AS Integer
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET n AS Integer = len(data)
+  IF n = 0 THEN
+    RETURN -1
+  END IF
+  MUT value AS Integer = 0
+  MUT i AS Integer = 0
+  MUT c AS Integer = 0
+  WHILE i < n
+    c = toInt(collections::get(data, i))
+    IF c < 48 OR c > 57 THEN
+      RETURN -1
+    END IF
+    value = value * 10 + (c - 48)
+    i = i + 1
+  WEND
+  RETURN value
+END FUNC
+
+FUNC __encoding_parseHex(text AS String) AS Integer
+  LET data AS List OF Byte = strings::toBytes(text)
+  LET n AS Integer = len(data)
+  IF n = 0 THEN
+    RETURN -1
+  END IF
+  MUT value AS Integer = 0
+  MUT i AS Integer = 0
+  MUT d AS Integer = 0
+  WHILE i < n
+    d = __encoding_hexValue(toInt(collections::get(data, i)))
+    IF d < 0 THEN
+      RETURN -1
+    END IF
+    value = value * 16 + d
+    i = i + 1
+  WEND
+  RETURN value
+END FUNC
+
+FUNC __encoding_htmlUnescape(text AS String) AS String
+  LET chars AS List OF String = strings::graphemes(text)
+  LET n AS Integer = len(chars)
+  MUT out AS String = ""
+  MUT i AS Integer = 0
+  MUT ch AS String = ""
+  MUT body AS String = ""
+  MUT j AS Integer = 0
+  MUT found AS Boolean = FALSE
+  MUT code AS Integer = 0
+  WHILE i < n
+    ch = collections::get(chars, i)
+    IF ch = "&" THEN
+      body = ""
+      j = i + 1
+      found = FALSE
+      WHILE j < n AND found = FALSE
+        IF collections::get(chars, j) = ";" THEN
+          found = TRUE
+        ELSE
+          body = body & collections::get(chars, j)
+          j = j + 1
+        END IF
+      WEND
+      IF found = FALSE THEN
+        FAIL error(77050003, "malformed entity")
+      END IF
+      IF strings::startsWith(body, "#x") OR strings::startsWith(body, "#X") THEN
+        code = __encoding_parseHex(strings::mid(body, 2, len(body) - 2))
+      ELSE
+        IF strings::startsWith(body, "#") THEN
+          code = __encoding_parseDecimal(strings::mid(body, 1, len(body) - 1))
+        ELSE
+          code = __encoding_htmlEntity(body)
+        END IF
+      END IF
+      IF code < 0 THEN
+        FAIL error(77050003, "unknown entity")
+      END IF
+      out = out & __encoding_fromCodepoint(code)
+      i = j + 1
+    ELSE
+      out = out & ch
+      i = i + 1
+    END IF
+  WEND
+  RETURN out
+END FUNC
+
+' --- leb128 / varint -----------------------------------------------------
+
+FUNC __encoding_uleb128Encode(value AS Integer) AS List OF Byte
+  IF value < 0 THEN
+    FAIL error(77050003, "negative value")
+  END IF
+  MUT result AS List OF Byte = []
+  MUT remaining AS Integer = value
+  MUT chunk AS Integer = 0
+  MUT more AS Boolean = TRUE
+  WHILE more
+    chunk = bits::band(remaining, 127)
+    remaining = bits::sr(remaining, 7)
+    IF remaining = 0 THEN
+      result = collections::append(result, toByte(chunk))
+      more = FALSE
+    ELSE
+      result = collections::append(result, toByte(chunk + 128))
+    END IF
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __encoding_uleb128Decode(data AS List OF Byte) AS Integer
+  LET n AS Integer = len(data)
+  IF n = 0 THEN
+    FAIL error(77050003, "truncated leb128")
+  END IF
+  MUT result AS Integer = 0
+  MUT shift AS Integer = 0
+  MUT i AS Integer = 0
+  MUT byteValue AS Integer = 0
+  MUT done AS Boolean = FALSE
+  WHILE done = FALSE
+    IF i >= n THEN
+      FAIL error(77050003, "truncated leb128")
+    END IF
+    IF shift > 63 THEN
+      FAIL error(77050003, "leb128 overflow")
+    END IF
+    byteValue = toInt(collections::get(data, i))
+    result = bits::bor(result, bits::sl(bits::band(byteValue, 127), shift))
+    shift = shift + 7
+    i = i + 1
+    IF byteValue < 128 THEN
+      done = TRUE
+    END IF
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __encoding_sleb128Encode(value AS Integer) AS List OF Byte
+  MUT result AS List OF Byte = []
+  MUT remaining AS Integer = value
+  MUT chunk AS Integer = 0
+  MUT more AS Boolean = TRUE
+  MUT signBit AS Integer = 0
+  WHILE more
+    chunk = bits::band(remaining, 127)
+    remaining = bits::sra(remaining, 7)
+    signBit = bits::band(chunk, 64)
+    IF remaining = 0 AND signBit = 0 THEN
+      more = FALSE
+    ELSE
+      IF remaining = 0 - 1 AND signBit <> 0 THEN
+        more = FALSE
+      END IF
+    END IF
+    IF more THEN
+      result = collections::append(result, toByte(chunk + 128))
+    ELSE
+      result = collections::append(result, toByte(chunk))
+    END IF
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __encoding_sleb128Decode(data AS List OF Byte) AS Integer
+  LET n AS Integer = len(data)
+  IF n = 0 THEN
+    FAIL error(77050003, "truncated leb128")
+  END IF
+  MUT result AS Integer = 0
+  MUT shift AS Integer = 0
+  MUT i AS Integer = 0
+  MUT byteValue AS Integer = 0
+  MUT done AS Boolean = FALSE
+  WHILE done = FALSE
+    IF i >= n THEN
+      FAIL error(77050003, "truncated leb128")
+    END IF
+    IF shift > 63 THEN
+      FAIL error(77050003, "leb128 overflow")
+    END IF
+    byteValue = toInt(collections::get(data, i))
+    result = bits::bor(result, bits::sl(bits::band(byteValue, 127), shift))
+    shift = shift + 7
+    i = i + 1
+    IF byteValue < 128 THEN
+      done = TRUE
+      IF shift < 64 AND bits::band(byteValue, 64) <> 0 THEN
+        result = bits::bor(result, bits::sl(0 - 1, shift))
+      END IF
+    END IF
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __encoding_varintEncode(value AS Integer) AS List OF Byte
+  LET zigzag AS Integer = bits::bxor(bits::sl(value, 1), bits::sra(value, 63))
+  MUT result AS List OF Byte = []
+  MUT remaining AS Integer = zigzag
+  MUT chunk AS Integer = 0
+  MUT more AS Boolean = TRUE
+  WHILE more
+    chunk = bits::band(remaining, 127)
+    remaining = bits::sr(remaining, 7)
+    IF remaining = 0 THEN
+      result = collections::append(result, toByte(chunk))
+      more = FALSE
+    ELSE
+      result = collections::append(result, toByte(chunk + 128))
+    END IF
+  WEND
+  RETURN result
+END FUNC
+
+FUNC __encoding_varintDecode(data AS List OF Byte) AS Integer
+  LET zigzag AS Integer = __encoding_uleb128Decode(data)
+  RETURN bits::bxor(bits::sr(zigzag, 1), 0 - bits::band(zigzag, 1))
+END FUNC
+
+' --- punycode (RFC 3492 Bootstring) --------------------------------------
+
+FUNC __encoding_punyAdapt(delta AS Integer, numPoints AS Integer, firstTime AS Boolean) AS Integer
+  MUT d AS Integer = delta
+  IF firstTime THEN
+    d = d / 700
+  ELSE
+    d = d / 2
+  END IF
+  d = d + d / numPoints
+  MUT k AS Integer = 0
+  WHILE d > 455
+    d = d / 35
+    k = k + 36
+  WEND
+  RETURN k + (36 * d) / (d + 38)
+END FUNC
+
+' Base-36 digit (0..35) to its Punycode character code (a-z then 0-9).
+FUNC __encoding_punyDigit(d AS Integer) AS Integer
+  IF d < 26 THEN
+    RETURN d + 97
+  END IF
+  RETURN d - 26 + 48
+END FUNC
+
+' Punycode character code to its base-36 digit, or -1 when invalid.
+FUNC __encoding_punyValue(c AS Integer) AS Integer
+  IF c >= 97 AND c <= 122 THEN
+    RETURN c - 97
+  END IF
+  IF c >= 65 AND c <= 90 THEN
+    RETURN c - 65
+  END IF
+  IF c >= 48 AND c <= 57 THEN
+    RETURN c - 22
+  END IF
+  RETURN -1
+END FUNC
+
+FUNC __encoding_punyThreshold(k AS Integer, bias AS Integer) AS Integer
+  IF k <= bias + 1 THEN
+    RETURN 1
+  END IF
+  IF k >= bias + 26 THEN
+    RETURN 26
+  END IF
+  RETURN k - bias
+END FUNC
+
+' Encode one label's code points to Punycode (without the "xn--" prefix).
+FUNC __encoding_punyEncodeLabel(points AS List OF Integer) AS String
+  LET total AS Integer = len(points)
+  MUT out AS String = ""
+  MUT handled AS Integer = 0
+  FOR EACH cp IN points
+    IF cp < 128 THEN
+      out = out & __encoding_byteChar(cp)
+      handled = handled + 1
+    END IF
+  NEXT
+  MUT basicLength AS Integer = handled
+  IF basicLength > 0 THEN
+    out = out & "-"
+  END IF
+  MUT n AS Integer = 128
+  MUT delta AS Integer = 0
+  MUT bias AS Integer = 72
+  MUT minCp AS Integer = 0
+  MUT q AS Integer = 0
+  MUT k AS Integer = 0
+  MUT threshold AS Integer = 0
+  MUT digit AS Integer = 0
+  WHILE handled < total
+    minCp = 1114112
+    FOR EACH cp IN points
+      IF cp >= n AND cp < minCp THEN
+        minCp = cp
+      END IF
+    NEXT
+    delta = delta + (minCp - n) * (handled + 1)
+    n = minCp
+    FOR EACH cp IN points
+      IF cp < n THEN
+        delta = delta + 1
+      END IF
+      IF cp = n THEN
+        q = delta
+        k = 36
+        MUT emitting AS Boolean = TRUE
+        WHILE emitting
+          threshold = __encoding_punyThreshold(k, bias)
+          IF q < threshold THEN
+            out = out & __encoding_byteChar(__encoding_punyDigit(q))
+            emitting = FALSE
+          ELSE
+            digit = threshold + (q - threshold) - ((q - threshold) / (36 - threshold)) * (36 - threshold)
+            out = out & __encoding_byteChar(__encoding_punyDigit(digit))
+            q = (q - threshold) / (36 - threshold)
+            k = k + 36
+          END IF
+        WEND
+        bias = __encoding_punyAdapt(delta, handled + 1, handled = basicLength)
+        delta = 0
+        handled = handled + 1
+      END IF
+    NEXT
+    delta = delta + 1
+    n = n + 1
+  WEND
+  RETURN out
+END FUNC
+
+' Decode one Punycode label (without the "xn--" prefix) to its String form.
+FUNC __encoding_punyDecodeLabel(label AS String) AS String
+  LET data AS List OF Byte = strings::toBytes(label)
+  LET total AS Integer = len(data)
+  MUT output AS List OF Integer = []
+  MUT basicEnd AS Integer = 0
+  MUT i AS Integer = 0
+  ' Find the last delimiter: everything before it is literal ASCII.
+  MUT lastDelim AS Integer = 0 - 1
+  i = 0
+  WHILE i < total
+    IF toInt(collections::get(data, i)) = 45 THEN
+      lastDelim = i
+    END IF
+    i = i + 1
+  WEND
+  IF lastDelim >= 0 THEN
+    i = 0
+    WHILE i < lastDelim
+      LET bc AS Integer = toInt(collections::get(data, i))
+      IF bc >= 128 THEN
+        FAIL error(77050003, "invalid punycode")
+      END IF
+      output = collections::append(output, bc)
+      i = i + 1
+    WEND
+    basicEnd = lastDelim + 1
+  ELSE
+    basicEnd = 0
+  END IF
+  MUT n AS Integer = 128
+  MUT bias AS Integer = 72
+  MUT pos AS Integer = 0
+  MUT idx AS Integer = basicEnd
+  MUT k AS Integer = 0
+  MUT w AS Integer = 0
+  MUT threshold AS Integer = 0
+  MUT digit AS Integer = 0
+  MUT oldPos AS Integer = 0
+  MUT outLen AS Integer = 0
+  MUT insertAt AS Integer = 0
+  WHILE idx < total
+    oldPos = pos
+    w = 1
+    k = 36
+    MUT reading AS Boolean = TRUE
+    WHILE reading
+      IF idx >= total THEN
+        FAIL error(77050003, "invalid punycode")
+      END IF
+      digit = __encoding_punyValue(toInt(collections::get(data, idx)))
+      idx = idx + 1
+      IF digit < 0 THEN
+        FAIL error(77050003, "invalid punycode")
+      END IF
+      pos = pos + digit * w
+      threshold = __encoding_punyThreshold(k, bias)
+      IF digit < threshold THEN
+        reading = FALSE
+      ELSE
+        w = w * (36 - threshold)
+        k = k + 36
+      END IF
+    WEND
+    outLen = len(output) + 1
+    bias = __encoding_punyAdapt(pos - oldPos, outLen, oldPos = 0)
+    n = n + pos / outLen
+    pos = pos - (pos / outLen) * outLen
+    ' Insert code point n at index pos.
+    MUT rebuilt AS List OF Integer = []
+    MUT t AS Integer = 0
+    WHILE t < len(output)
+      IF t = pos THEN
+        rebuilt = collections::append(rebuilt, n)
+      END IF
+      rebuilt = collections::append(rebuilt, collections::get(output, t))
+      t = t + 1
+    WEND
+    IF pos >= len(output) THEN
+      rebuilt = collections::append(rebuilt, n)
+    END IF
+    output = rebuilt
+    pos = pos + 1
+  WEND
+  MUT result AS String = ""
+  FOR EACH cp IN output
+    result = result & __encoding_fromCodepoint(cp)
+  NEXT
+  RETURN result
+END FUNC
+
+FUNC __encoding_labelHasNonAscii(points AS List OF Integer) AS Boolean
+  FOR EACH cp IN points
+    IF cp >= 128 THEN
+      RETURN TRUE
+    END IF
+  NEXT
+  RETURN FALSE
+END FUNC
+
+FUNC __encoding_punycodeEncode(domain AS String) AS String
+  LET labels AS List OF String = strings::split(domain, ".")
+  MUT out AS String = ""
+  MUT first AS Boolean = TRUE
+  FOR EACH label IN labels
+    IF first THEN
+      first = FALSE
+    ELSE
+      out = out & "."
+    END IF
+    LET points AS List OF Integer = __encoding_codepoints(label)
+    IF __encoding_labelHasNonAscii(points) THEN
+      out = out & "xn--" & __encoding_punyEncodeLabel(points)
+    ELSE
+      out = out & label
+    END IF
+  NEXT
+  RETURN out
+END FUNC
+
+FUNC __encoding_punycodeDecode(asciiDomain AS String) AS String
+  LET labels AS List OF String = strings::split(asciiDomain, ".")
+  MUT out AS String = ""
+  MUT first AS Boolean = TRUE
+  FOR EACH label IN labels
+    IF first THEN
+      first = FALSE
+    ELSE
+      out = out & "."
+    END IF
+    IF strings::startsWith(label, "xn--") THEN
+      out = out & __encoding_punyDecodeLabel(strings::mid(label, 4, len(label) - 4))
+    ELSE
+      out = out & label
+    END IF
+  NEXT
+  RETURN out
+END FUNC

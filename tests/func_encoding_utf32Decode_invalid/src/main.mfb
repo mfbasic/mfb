@@ -1,0 +1,7 @@
+IMPORT encoding
+
+FUNC main AS Integer
+  LET b AS String = encoding::utf32Decode()
+  LET d AS String = encoding::utf32Decode("x")
+  RETURN 0
+END FUNC
