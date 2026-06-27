@@ -15,104 +15,13 @@ FILTER="${1:-}"
 # Full man-page template, modeled on Linux man(1) pages but detailing each
 # built-in function. Placeholders in <angle brackets> are filled in per function;
 # sections in [brackets] are conditional and omitted when they do not apply.
-read -r -d '' TEMPLATE <<'TEMPLATE_EOF' || true
-Full template (fill in every <...> placeholder; keep section names and order):
-
-NAME
-  <localName> - <one-line description of what the function does>
-
-SYNOPSIS
-  <module>::<localName>(<param> AS <Type>, ...) AS <ReturnType>
-  [one extra line per additional overload signature]
-
-[PACKAGE]
-  <name of the package this function belongs to>
-
-[IMPORTS]
-  <the IMPORT statement a program needs, or a note that it is always available>
-
-DESCRIPTION
-  <Thorough prose: what the function computes, how each argument is interpreted,
-  boundary and edge-case behavior, units, ordering, mutation/side effects, and
-  any platform notes. This is the heart of the page; be specific and complete.>
-
-[OVERLOADS]
-  <signature>
-    <what this particular overload does and how it differs from the others>
-
-  <signature>
-    <what this particular overload does and how it differs from the others>
-
-PARAMETERS
-  <param> AS <Type>
-    <meaning, accepted range/values, units, and what each value selects>
-
-  <param> AS <Type>
-    <meaning, accepted range/values, units, and what each value selects>
-
-RETURN VALUE
-  AS <ReturnType>
-    <what is returned on success, including boundary results and special cases>
-
-ERRORS
-  <code> (<ErrName>)
-  <the condition under which this error is raised>
-
-  <code> (<ErrName>)
-  <the condition under which this error is raised>
-
-[TYPE CHECKING]
-  <the types this generic function accepts and any compile-time constraints>
-
-EXAMPLES
-  <short caption describing the example>:
-
-    <runnable mfb code>
-
-[SEE ALSO]
-  <relatedFunction>, <relatedFunction>
-TEMPLATE_EOF
+# Loaded from .ai/man_template.txt.
+TEMPLATE="$(cat "$REPO_ROOT/.ai/man_template.txt")"
 
 # Template for the per-package consolidated TYPE page (mfb man <pkg> types).
 # It documents every built-in record type a package exports, on one page.
-read -r -d '' TYPE_TEMPLATE <<'TYPE_TEMPLATE_EOF' || true
-Full template for a package's consolidated types page (keep section names and order):
-
-NAME
-  types - the <module> package record types
-
-SYNOPSIS
-  <module>::<TypeName>
-  [one line per additional type the package exports]
-
-PACKAGE
-  <module>
-
-IMPORTS
-  <the IMPORT statement a program needs, or a note that it is always available>
-
-DESCRIPTION
-  <Overview of the record types this package provides and how they relate.>
-
-TYPES
-  <module>::<TypeName>
-    <one-line description of what this type represents>
-
-    <field> AS <Type>
-      <meaning, units, accepted range/values; mirror the source field comment>
-
-    <field> AS <Type>
-      <meaning, units, accepted range/values; mirror the source field comment>
-
-  <module>::<NextType>
-    <one-line description>
-
-    <field> AS <Type>
-      <meaning>
-
-[SEE ALSO]
-  <related functions or types in this package>
-TYPE_TEMPLATE_EOF
+# Loaded from .ai/man_type_template.txt.
+TYPE_TEMPLATE="$(cat "$REPO_ROOT/.ai/man_type_template.txt")"
 
 module_of() {
   if [[ "$1" == *::* ]]; then printf '%s' "${1%%::*}"; else printf 'general'; fi
