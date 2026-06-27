@@ -20,7 +20,7 @@ SUB printValue OF T(value AS T)
 END SUB
 ```
 
-Template arguments are inferred only from explicit argument, parameter, field, and expected result types by simple unification. There is no general inference engine, no trait system, no variance, no higher-kinded types, no boxing, and no runtime template dispatch.
+Template arguments are inferred only from explicit argument, parameter, field, and expected result types. The compiler binds each template parameter by structurally matching declared types against the concrete types at each use site; the matching algorithm, symbol mangling, and instantiation mechanics are specified in `./mfb spec architecture monomorphization`. There is no general inference engine, no trait system, no variance, no higher-kinded types, no boxing, and no runtime template dispatch.
 
 Template predicates such as comparability, copyability, defaultability, or resource restrictions are checked against each concrete instantiation:
 
@@ -37,3 +37,7 @@ END FUNC
 The `K` parameter above must be comparable because every concrete `Map` key type must be comparable. The requirement is checked when `getOrDefault` is instantiated, not through a separate bound or trait declaration.
 
 Exported templates in source packages are instantiated by the importing compilation before binary representation is produced. A compiled `.mfp` package contains only concrete template instantiations; it does not expose templates for later instantiation unless a future package format explicitly adds signed template metadata.
+
+## See Also
+
+* ./mfb spec architecture monomorphization — the unification, mangling, and instantiation algorithm that expands templates

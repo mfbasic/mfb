@@ -99,7 +99,10 @@ A resource element placed into a collection must be a named `RES` binding (the o
 
 **Returning a resource collection transfers scope-ownership to the caller**, exactly as `AS RES File` does for a single resource. A function returning `AS List OF RES File` releases the close obligations for the referenced resources — it does not close them — and the caller's binding scope **adopts** them, closing each once at its own exit. (A bare `List OF File` return is rejected for the missing `RES` marker.) On an error exit *before* the return, the resources are still closed by the function's scope, because they ride its owned-list until the `RETURN` transfers it. A resource collection may also be passed to a function, where the callee borrows its elements (and may not close them). The resources must be added to the collection at or after the collection's own binding so the obligation rides the collection. Sharing a resource collection across threads remains out of scope.
 
+The float rules above are the source-level contract. The compiler implements them with a purely syntactic per-function **decision procedure** — which collection a binding floats to (outermost referencing scope, the special case that a returned collection declared before the resource forces a float at the same depth, fixpoint propagation along collection copy/append/nesting edges, the insertion-builtin set, and the declaration-order tiebreak) — that is specified in full by `./mfb spec language escape-analysis`. Programs depend only on the contract here, not on the procedure's mechanics.
+
 ## See Also
 
+* ./mfb spec language escape-analysis — the decision procedure that assigns each `RES` binding its owner (`Local`/`Float`)
 * ./mfb spec package resource-regions — how resources are encoded in the `.mfp` `RESOURCE_TABLE`
 * ./mfb spec language threads — `thread::transfer`/`accept` resource plane
