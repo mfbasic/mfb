@@ -5,5 +5,11 @@ FUNC main AS Integer
   LET b AS Integer = bits::sl(1, 2, 3)
   LET c AS Integer = bits::sl(1.5, 2)
   LET d AS Integer = bits::sl(8, "x")
+  ' bits::sl is inline-lowered and has no callable symbol, so an inline TRAP
+  ' attached directly to it is rejected (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN),
+  ' even though the call's arguments are well-typed.
+  LET t AS Integer = bits::sl(8, 1) TRAP(err)
+    RECOVER 0
+  END TRAP
   RETURN 0
 END FUNC

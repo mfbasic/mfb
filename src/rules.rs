@@ -694,6 +694,12 @@ pub const RULES: &[Rule] = &[
         message: "inline TRAP requires a fallible call",
     },
     Rule {
+        code: "2-203-0102",
+        name: "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN",
+        severity: Severity::Error,
+        message: "inline TRAP is not supported on an inline-lowered built-in",
+    },
+    Rule {
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,

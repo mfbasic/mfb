@@ -618,6 +618,18 @@ impl CodeBuilder<'_> {
                 if let Some(helper) = runtime::helper_for_call(target) {
                     return self.lower_runtime_helper_call(helper, target, args, true);
                 }
+                // Backstop for the front-end gate (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN):
+                // an inline-lowered builtin has no standalone symbol, so the generic
+                // raw path below would emit `bl <target>` to a non-existent symbol.
+                // Typecheck rejects this case before codegen; if one still reaches
+                // here, a future builtin was added without updating the gate — fail
+                // loudly instead of miscompiling (plan-00-trap-fix.md §4.3).
+                if crate::builtins::inline_trap_unsupported(target) {
+                    return Err(format!(
+                        "internal: inline TRAP reached inline-lowered builtin '{target}' \
+                         without a raw lowering; front-end gate should have rejected it"
+                    ));
+                }
                 let symbol = self
                     .function_symbols
                     .get(target)

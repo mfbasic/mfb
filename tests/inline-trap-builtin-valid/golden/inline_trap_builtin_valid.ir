@@ -1,0 +1,110 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "inline_trap_builtin_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "parseOr",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "$trap_res0", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "toInt", "args": [{ "kind": "local", "name": "value" }] } },
+    { "op": "bind", "mutable": true, "name": "$trap_val1", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "name": "$trap_val1", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "name": "$trap_val1", "value": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "return", "value": { "kind": "local", "name": "n" } }
+    ]
+  },
+  {
+    "name": "readOr",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "path", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "$trap_res2", "type": "Result OF String", "value": { "kind": "callResult", "target": "fs.readText", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "bind", "mutable": true, "name": "$trap_val3", "type": "String", "value": null },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      { "op": "assign", "name": "$trap_val3", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res2" } } }
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "assign", "name": "$trap_val3", "value": { "kind": "const", "type": "String", "value": "<missing>" } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "text", "type": "String", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "return", "value": { "kind": "local", "name": "text" } }
+    ]
+  },
+  {
+    "name": "elementAt",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "xs", "type": "List OF Integer", "default": null },
+    { "name": "i", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "xs" }, { "kind": "local", "name": "i" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "parseOr", "args": [{ "kind": "const", "type": "String", "value": "42" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "parseOr", "args": [{ "kind": "const", "type": "String", "value": "not-a-number" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "readOr", "args": [{ "kind": "const", "type": "String", "value": "target/inline_trap_builtin_missing.txt" }] }] } },
+    { "op": "bind", "mutable": false, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
+    { "op": "bind", "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "elementAt", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res4" } },
+      "then": [
+      { "op": "assign", "name": "$trap_val5", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res4" } } }
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res4" } } },
+      { "op": "assign", "name": "$trap_val5", "value": { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "missing", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "missing" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "elementAt", "args": [{ "kind": "local", "name": "xs" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

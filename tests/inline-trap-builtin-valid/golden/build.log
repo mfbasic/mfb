@@ -1,0 +1,16 @@
+$ mfb build -ast tests/inline-trap-builtin-valid
+Wrote AST to tests/inline-trap-builtin-valid/inline_trap_builtin_valid.ast
+[exit 0]
+$ mfb build -ir tests/inline-trap-builtin-valid
+Wrote IR to tests/inline-trap-builtin-valid/inline_trap_builtin_valid.ir
+[exit 0]
+$ mfb build tests/inline-trap-builtin-valid
+Wrote executable to tests/inline-trap-builtin-valid/inline_trap_builtin_valid.out
+[exit 0]
+$ tests/inline-trap-builtin-valid/inline_trap_builtin_valid.out
+42
+-1
+<missing>
+-1
+20
+[exit 0]

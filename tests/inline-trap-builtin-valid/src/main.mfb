@@ -1,0 +1,44 @@
+IMPORT io
+IMPORT fs
+IMPORT collections
+
+' Regression coverage for plan-00-trap-fix: every inline-TRAP form that already
+' works must keep compiling and running unchanged after the new gate lands, and
+' the prescribed workaround for an inline-lowered builtin must work end-to-end.
+
+' Conversion builtin: an inline TRAP on toInt traps the raw conversion Result
+' (the `lower_inline_conversion_raw` path) — still supported.
+FUNC parseOr(value AS String) AS Integer
+  LET n AS Integer = toInt(value) TRAP(e)
+    RECOVER -1
+  END TRAP
+  RETURN n
+END FUNC
+
+' Helper-backed builtin: an inline TRAP on fs::readText traps the helper's raw
+' Result (the `runtime::helper_for_call` path) — still supported.
+FUNC readOr(path AS String) AS String
+  LET text AS String = fs::readText(path) TRAP(e)
+    RECOVER "<missing>"
+  END TRAP
+  RETURN text
+END FUNC
+
+' Workaround for an inline-lowered builtin (collections::get): wrap the call in a
+' FUNC and TRAP on the FUNC call, which has a real callable symbol.
+FUNC elementAt(xs AS List OF Integer, i AS Integer) AS Integer
+  RETURN collections::get(xs, i)
+END FUNC
+
+FUNC main AS Integer
+  io::print(toString(parseOr("42")))
+  io::print(toString(parseOr("not-a-number")))
+  io::print(readOr("target/inline_trap_builtin_missing.txt"))
+  LET xs AS List OF Integer = [10, 20, 30]
+  LET missing AS Integer = elementAt(xs, 9) TRAP(e)
+    RECOVER -1
+  END TRAP
+  io::print(toString(missing))
+  io::print(toString(elementAt(xs, 1)))
+  RETURN 0
+END FUNC

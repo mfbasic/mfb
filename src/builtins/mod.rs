@@ -136,6 +136,34 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
     }
 }
 
+/// Whether an inline `TRAP` attached directly to a call to `target` would reach
+/// codegen's raw-`TRAP` path with no lowering to emit. The inline-lowered
+/// builtins — string/collection members, the `bits::*` ops, and the inline
+/// general builtins `len`/`toString`/`typeName` — have their machine code
+/// spliced in at the call site and own no standalone callable symbol, so a raw
+/// `bl <target>` would name a symbol that does not exist (undefined-symbol at
+/// link). The front-end gate (`Expression::Trapped` typecheck) rejects these
+/// with `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`; the codegen backstop asserts
+/// against the same set so a future builtin added without updating the gate
+/// fails loudly instead of miscompiling (plan-00-trap-fix.md §4.1).
+///
+/// Deliberately **excluded** — these already have working raw-`TRAP` lowerings:
+/// the conversion builtins `toInt`/`toFloat`/`toFixed`/`toByte`
+/// (`lower_inline_conversion_raw`) and every `runtime::helper_for_call` target
+/// (`lower_runtime_helper_call`). User `FUNC`/`SUB` calls are excluded too: they
+/// carry real symbols and arrive as bare names that match none of the qualified
+/// member forms here.
+///
+/// `target` is the canonical, dot-qualified callee (`strings.find`,
+/// `collections.get`, `bits.sl`) or a bare inline general-builtin name (`len`,
+/// `toString`, `typeName`) — the same forms the call lowering dispatches on, so
+/// the gate and the backstop classify identically.
+pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
+    bits::is_bits_call(target)
+        || native_builtin_target(target).is_some()
+        || matches!(target, "len" | "toString" | "typeName")
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     general::call_return_type_name(name)
         .or_else(|| collections::call_return_type_name(name))

@@ -2976,12 +2976,15 @@ impl<'a> TypeChecker<'a> {
                 handler,
                 line: trap_line,
             } => {
-                let fallible = match inner.as_ref() {
+                let trapped_callee = match inner.as_ref() {
                     Expression::Call { callee, .. } => {
-                        let canonical = self.canonical_import_name(file, callee);
-                        !builtins::is_package_constant(&canonical)
+                        Some(self.canonical_import_name(file, callee))
                     }
-                    _ => false,
+                    _ => None,
+                };
+                let fallible = match &trapped_callee {
+                    Some(canonical) => !builtins::is_package_constant(canonical),
+                    None => false,
                 };
                 // A failed `thread.send` returns ownership of the sent value to
                 // the caller so the handler can release it. Capture it before
@@ -2999,6 +3002,26 @@ impl<'a> TypeChecker<'a> {
                         file,
                         *trap_line,
                     );
+                }
+                // An inline-lowered built-in (string/collection member, `bits::*`
+                // op, or `len`/`toString`/`typeName`) has its code spliced in at
+                // the call site and owns no callable symbol, so codegen's raw-TRAP
+                // path cannot trap it — it would emit a `bl` to a missing symbol.
+                // Reject it here with a located diagnostic and the workaround.
+                // Report-and-continue so the rest of the expression still checks.
+                if fallible {
+                    if let Some(canonical) = &trapped_callee {
+                        if builtins::inline_trap_unsupported(canonical) {
+                            self.report(
+                                "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN",
+                                &format!(
+                                    "Inline TRAP is not supported on `{canonical}` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead."
+                                ),
+                                file,
+                                *trap_line,
+                            );
+                        }
+                    }
                 }
                 let mut handler_locals = locals.clone();
                 if let Some((name, info)) = send_failure_restore {

@@ -1,0 +1,100 @@
+{
+  "project": "inline_trap_builtin_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "fs", "line": 2 },
+    { "module": "collections", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "parseOr",
+      "line": 11,
+      "params": [
+      { "name": "value", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 12,
+        "expression": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "value" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 13 }
+        ]
+      }, "line": 12 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 15 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "readOr",
+      "line": 20,
+      "params": [
+      { "name": "path", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "text", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 21,
+        "expression": { "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "path" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "<missing>" }, "line": 22 }
+        ]
+      }, "line": 21 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "text" }, "line": 24 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "elementAt",
+      "line": 29,
+      "params": [
+      { "name": "xs", "type": "List OF Integer", "default": null },
+      { "name": "i", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "identifier", "value": "i" }] }, "line": 30 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 33,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "parseOr", "arguments": [{ "kind": "string", "value": "42" }] }] }] }, "line": 34 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "parseOr", "arguments": [{ "kind": "string", "value": "not-a-number" }] }] }] }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "readOr", "arguments": [{ "kind": "string", "value": "target/inline_trap_builtin_missing.txt" }] }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "20" }, { "kind": "number", "value": "30" }] }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "missing", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 38,
+        "expression": { "kind": "call", "callee": "elementAt", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "9" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 39 }
+        ]
+      }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "missing" }] }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "elementAt", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "1" }] }] }] }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 43 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -11,6 +11,12 @@ tests/func_collection_get_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGU
      | ^
 tests/func_collection_get_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `value` does not have a known type.
+   7 |   ' even though this call's arguments are well-typed. The supported form is to
+   8 |   ' wrap the call in a FUNC and TRAP on that FUNC call instead.
+   9 |   LET trapped AS Integer = collections::get(numbers, 0) TRAP(err)
+     | ^
+tests/func_collection_get_invalid/src/main.mfb:9 error[2-203-0102 TYPE_INLINE_TRAP_ON_INLINED_BUILTIN]: inline TRAP is not supported on an inline-lowered built-in
+               Inline TRAP is not supported on `collections.get` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead.
 [exit 1]
 $ mfb build -ir tests/func_collection_get_invalid
    2 | FUNC main AS Integer
@@ -25,4 +31,10 @@ tests/func_collection_get_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGU
      | ^
 tests/func_collection_get_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `value` does not have a known type.
+   7 |   ' even though this call's arguments are well-typed. The supported form is to
+   8 |   ' wrap the call in a FUNC and TRAP on that FUNC call instead.
+   9 |   LET trapped AS Integer = collections::get(numbers, 0) TRAP(err)
+     | ^
+tests/func_collection_get_invalid/src/main.mfb:9 error[2-203-0102 TYPE_INLINE_TRAP_ON_INLINED_BUILTIN]: inline TRAP is not supported on an inline-lowered built-in
+               Inline TRAP is not supported on `collections.get` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead.
 [exit 1]

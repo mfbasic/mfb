@@ -78,7 +78,7 @@ unallocated). The scheme leaves room; it does not densely fill it.
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 13 |
 | `2-201` | imports & symbol resolution | 16 |
-| `2-203` | type checking, ownership, native ABI | 99 |
+| `2-203` | type checking, ownership, native ABI | 100 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
 | `3-302` | verification | 1 |
 | `3-304` | target/codegen support | 2 |
@@ -89,8 +89,9 @@ unallocated). The scheme leaves room; it does not densely fill it.
 
 `EEEE` is the per-subsystem ordinal, generally `0001`-up, but it is **not
 guaranteed dense or monotonic**: subsystem `2-203` allocates a high block at
-`0100`/`0101` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, `TYPE_OVERLOAD_AMBIGUOUS`)
-between `0056` and `0058` (`0057` is unallocated), and `2-200` mixes a low
+`0100`-`0102` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, `TYPE_OVERLOAD_AMBIGUOUS`,
+`TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`) after `0056`/`0058` (`0057` is
+unallocated), and `2-200` mixes a low
 validation block (`0001`-`0011`) with a high orchestration block
 (`0100`/`0101`). Treat `EEEE` as an opaque ordinal, never as a count.
 [[src/rules.rs:RULES]]
@@ -200,7 +201,7 @@ by the caller. [[src/rules.rs:show_diagnostic]] [[src/rules.rs:show_general_diag
 
 ## The Rule Registry
 
-The complete registry follows, grouped by subsystem. All 179 rules are listed;
+The complete registry follows, grouped by subsystem. All 180 rules are listed;
 none are omitted. Each row is `code | NAME | severity | message`, transcribed
 verbatim from the table. [[src/rules.rs:RULES]] Unless noted, severity is
 `error`.
@@ -294,9 +295,10 @@ The largest subsystem. It covers operator/condition/literal typing
 (`0001`-`0018`), bindings and calls (`0007`-`0027`), declaration shape for
 records/unions/enums/funcs (`0023`-`0046`), control-flow and `EXIT`/`CONTINUE`
 (`0073`-`0081`), the ownership/move/resource model (`0055`, `0056`, `0082`-`0091`,
-plus high-block `0100`), the inline-TRAP / `Result` model (`0066`-`0072`), and
-native LINK ABI validation (`0092`-`0099`). `EEEE` skips `0054` and `0057`, and
-`0100`/`0101` sit out of sequence after `0099` (see *Code Scheme*).
+plus high-block `0100`), the inline-TRAP / `Result` model (`0066`-`0072`, plus
+high-block `0102`), and native LINK ABI validation (`0092`-`0099`). `EEEE` skips
+`0054` and `0057`, and `0100`-`0102` sit out of sequence after `0099` (see *Code
+Scheme*).
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
@@ -369,6 +371,7 @@ native LINK ABI validation (`0092`-`0099`). `EEEE` skips `0054` and `0057`, and
 | `2-203-0067` | `TYPE_RECOVER_TYPE_MISMATCH` | error | RECOVER value does not match the trapped expression's success type |
 | `2-203-0068` | `TYPE_RECOVER_OUTSIDE_INLINE_TRAP` | error | RECOVER is valid only inside an inline TRAP handler |
 | `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a fallible call |
+| `2-203-0102` | `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN` | error | inline TRAP is not supported on an inline-lowered built-in |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
 | `2-203-0072` | `TYPE_THREAD_RESULT_REMOVED` | error | the thread result field is removed; use thread::waitFor |
