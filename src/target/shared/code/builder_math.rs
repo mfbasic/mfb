@@ -58,12 +58,13 @@ impl CodeBuilder<'_> {
             // ErrFloatNan — already match the scalar man pages). Fixed stays on
             // the deterministic Q32.32 path; tan/asin/acos/atan stay on libm until
             // their kernels reach strict <=1 ULP.
-            "exp" | "log" | "log10" | "sin" | "cos" if args.len() == 1 => {
+            "exp" | "log" | "log10" | "sin" | "cos" | "atan" | "asin" | "acos"
+                if args.len() == 1 =>
+            {
                 self.lower_math_scalar_transcendental(function, &args[0])
             }
-            "tan" | "asin" | "acos" | "atan" if args.len() == 1 => {
-                self.lower_external_math(function, args)
-            }
+            // tan stays on libm (its kernel is ~99.8% <=1 ULP, not strict).
+            "tan" if args.len() == 1 => self.lower_external_math(function, args),
             other => Err(format!(
                 "native math lowering does not support math.{other}"
             )),
@@ -163,6 +164,9 @@ impl CodeBuilder<'_> {
                     "log10" => FloatKernel::Log10,
                     "sin" => FloatKernel::Sin,
                     "cos" => FloatKernel::Cos,
+                    "atan" => FloatKernel::Atan,
+                    "asin" => FloatKernel::Asin,
+                    "acos" => FloatKernel::Acos,
                     _ => return Err(format!("math.{function} has no scalar Float kernel")),
                 };
                 self.lower_simd_float_scalar(kernel, &value.location, text)
