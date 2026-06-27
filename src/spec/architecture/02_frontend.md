@@ -68,6 +68,57 @@ Current discovery behavior:
   defaults to `["**/*.mfb"]` and `exclude` defaults to empty, so every nested
   `.mfb` file is collected by default.[[src/ast.rs:matches_source_patterns]]
 
+## Source-File Selection
+
+`ast::collect_selected_source_files` enumerates the on-disk `.mfb` files that a
+build sees. For each manifest `sources[*]` entry it walks the joined source
+root, then keeps each file whose project-relative path satisfies the entry's
+`include`/`exclude` glob patterns (`matches_source_patterns`). When unspecified,
+`include` defaults to `["**/*.mfb"]` and `exclude` is empty, so every nested
+`.mfb` file is collected. Results are returned in a stable, sorted order. The
+same selection feeds both `parse_project` (AST builds) and `selected_source_paths`
+(raw-text tools such as `mfb fmt`). The full glob-matching algorithm is
+`./mfb spec tooling source-selection`.[[src/ast.rs:collect_selected_source_files]]
+
+## Compiler-Owned Prelude
+
+`ast::parse_project` appends one synthetic file, `builtin_prelude_file`, after
+all selected user sources. Its path is the sentinel `BUILTIN_PRELUDE_PATH`
+(`"<builtin prelude>"`), and it is appended last so the user's first source file
+remains `files[0]` — the monomorphizer emits generated instantiations into that
+first file.[[src/ast.rs:builtin_prelude_file]]
+
+The prelude declares the always-in-scope generic record templates
+`Pair OF A, B` (fields `first AS A`, `second AS B`) and `Partition OF T` (fields
+`matched AS List OF T`, `unmatched AS List OF T`). Both are exported, ordinary
+generic records — constructible, field-accessible, copyable, and thread-sendable
+when their members are — handled by the normal template machinery rather than
+special-cased.
+
+`AstProject::to_json` filters this file out by path, so the prelude does not
+appear in `mfb build -ast` golden output. The resolver, monomorphizer, and type
+checker all consume the full project (prelude included), so `Pair` and
+`Partition` resolve, monomorphize, and type-check as if user-declared.[[src/ast.rs:BUILTIN_PRELUDE_PATH]]
+
+## Built-in Package Augmentation
+
+Before name resolution, `resolver::resolve_project_with` runs the parsed AST
+through a fixed chain of built-in source-package augmenters, each of which may
+inject the package's MFBASIC source companion (and, for `json`, expand
+`Json`-typed declarations) when the project uses that package. The order is
+load-bearing:
+
+```text
+json -> csv -> regex -> datetime -> http -> net
+```
+
+`http` is augmented before `net` because `http`'s source companion
+(`http_package.mfb`) imports `net`; `net::uses_package` must see http's source
+already present so the `net` dependency is detected and its companion injected.
+Each augmenter takes the previous augmenter's output, so the augmented AST that
+reaches the `Resolver` is the cumulative result of the whole chain. (The
+`collections` package is injected earlier, during `parse_project`.)[[src/resolver.rs:resolve_project_with]]
+
 ## Name Resolution
 
 Name resolution is implemented in `src/resolver.rs`.
@@ -87,9 +138,9 @@ built-in packages — `File` (fs), `TermColor` and `TermSize` (term), `Socket`,
 (e.g. `builtins::fs::FILE_TYPE`) so the resolver list and the packages stay in
 sync.[[src/resolver.rs:BUILTIN_TYPES]]
 
-Before resolving, the resolver calls `builtins::json::augmented_project` to
-expand `Json`-typed declarations into the augmented AST used for the rest of
-resolution.[[src/builtins/json.rs:augmented_project]]
+Before resolving, the resolver runs the built-in package augmentation chain
+described above (see "Built-in Package Augmentation"), so the rest of resolution
+sees the augmented AST.[[src/builtins/json.rs:augmented_project]]
 
 It also reads declared package dependencies from the manifest and uses those to
 validate imported package roots. For source imports, it detects duplicate
@@ -112,14 +163,9 @@ symbol rules.[[src/monomorph.rs:monomorphize_project]]
 
 ## Monomorphization
 
-Monomorphization is implemented in `src/monomorph.rs`.
-
-This pass takes the parsed, initially resolved AST and produces a concrete AST.
-Template/generic declarations are expanded into concrete forms based on use
-sites. The rest of the pipeline consumes the concrete AST, not the original AST.
-
-Because the concrete AST introduces generated declarations and names, the build
-pipeline immediately runs the resolver again after monomorphization.
+The monomorphization pass (`src/monomorph.rs`) expands template/generic
+declarations into concrete declarations between the two resolution passes; see
+`./mfb spec architecture monomorphization`.
 
 ## Entry-Point Validation
 
@@ -185,3 +231,5 @@ Type checking is the last front-end validation pass before lowering to IR.
 ## See Also
 
 * ./mfb spec language types — the source-level type model the type checker enforces
+* ./mfb spec tooling source-selection — the glob-matching algorithm behind source-file selection
+* ./mfb spec architecture monomorphization — the template-expansion pass run between the two resolution passes

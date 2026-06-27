@@ -97,6 +97,31 @@ The compiler must diagnose:
 `.mfp` packages must preserve enough ownership metadata for import-time type checking and Binary Representation verification (§21).
 At minimum, exported type shape metadata must remain sufficient to reconstruct copyability, resource/thread containment, and drop-sensitive ownership checks when imported packages participate in move analysis.
 
+## 14.9 The move-state lattice
+
+Use-after-move (§14.1, §14.8) is detected by a flow-sensitive move checker. Each binding carries an `OwnershipState` that is one of three values: `Available` (the binding still owns its value), `Moved` (its value was definitely transferred away), or `MaybeMoved` (it was moved on some control-flow paths but not others). Moving a non-copyable binding transitions it from `Available` to `Moved`; copyable bindings are never marked moved because consuming them copies. [[src/typecheck.rs:OwnershipState]]
+
+The checker tracks ownership per binding in a local map threaded through each block. At a branching statement — `IF`/`ELSE` and each `MATCH` case — every branch is checked against its own *clone* of the entering local map, so a move inside one branch does not affect the others or the bindings visible before the branch. After the branches, the per-branch maps are merged back into a single state. [[src/typecheck.rs:merge_branch_locals]]
+
+Only branches that *fall through* contribute to the merge. A branch that always returns (or otherwise diverges) is dropped from the merge, so a move performed on a path that cannot reach the code after the branch never taints the post-branch state. When an `IF` has no `ELSE` (or an empty `ELSE`), the unbranched entering state participates in the merge as an implicit fall-through path. [[src/typecheck.rs:merge_branch_locals]]
+
+Merging combines two states per binding with this lattice:
+
+| left \ right   | `Available`  | `Moved`      | `MaybeMoved` |
+| -------------- | ------------ | ------------ | ------------ |
+| `Available`    | `Available`  | `MaybeMoved` | `MaybeMoved` |
+| `Moved`        | `MaybeMoved` | `Moved`      | `MaybeMoved` |
+| `MaybeMoved`   | `MaybeMoved` | `MaybeMoved` | `MaybeMoved` |
+
+That is: `Available + Available = Available`; `Moved + Moved = Moved`; `Available` exclusive-or `Moved` yields `MaybeMoved`; and anything combined with `MaybeMoved` yields `MaybeMoved`. The merge is performed pairwise, folding each fall-through branch into the running state. [[src/typecheck.rs:merge_local_info]]
+
+Using a binding requires its state to be `Available`. A `Moved` use and a `MaybeMoved` use are both reported under code `TYPE_USE_AFTER_MOVE`, but with distinct messages so the diagnostic distinguishes a definite reuse from a path-dependent one:
+
+- `Moved`: "Binding `name` was moved and cannot be used again."
+- `MaybeMoved`: "Binding `name` may have been moved on another control-flow path and cannot be used here."
+
+[[src/typecheck.rs:require_local_owned]]
+
 ## See Also
 
 * ./mfb spec memory heap-values — concrete runtime value layouts

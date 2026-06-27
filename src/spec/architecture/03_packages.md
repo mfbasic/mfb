@@ -36,6 +36,42 @@ Other `pkg` subcommands (`src/main.rs`) round out package management:
 declared package has a matching installed file under `packages/<name>.mfp`.
 Pinned dependencies must match the installed package header version.
 
+### Verify Status Model
+
+For each declared dependency, `verify_package_dependency` locates the installed
+package in one of two forms and reports a status:
+
+1. A compiled package at `packages/<name>.mfp`. Its MFP header (`name`,
+   `ident`, `version`) is read and compared against the dependency.
+2. A source package at `packages/<name>/project.json`. The `name`, `version`,
+   and `ident` fields are read from that manifest and compared against the
+   dependency. If `ident` is absent it defaults to the manifest's `name`.
+
+The compiled `.mfp` file is checked first; the source-package manifest is the
+fallback. If neither exists, the status is `InvalidPackage`.[[src/main.rs:verify_package_dependency]]
+
+`package_dependency_status` produces one of three outcomes:[[src/main.rs:package_dependency_status]]
+
+- `InvalidPackage` — the installed `name` does not equal the declared name, the
+  installed package could not be read or parsed, or both sides carry a non-empty
+  `ident` and they differ. (An empty `ident` on either side is not a mismatch.)
+- `NeedsUpdate` — name and ident agree, but the version does not match.
+- `Ok` — name, ident, and version all agree.
+
+Version matching is **exact string** comparison: an expected version matches
+only when it is empty (no constraint) or byte-for-byte equal to the installed
+version. Range syntax such as `^1.2.3` or `~1.2.3` is treated as a literal
+string and therefore never matches a concrete version like `1.9.0` — it yields
+`NeedsUpdate`.[[src/main.rs:package_version_matches]] The `pin` flag does not
+change this verification result: pinned and unpinned dependencies are checked
+with the same exact-string version comparison.
+
+The `pin` flag is enforced separately, during the build's binary-representation
+merge of compiled packages. There, a pinned dependency whose `version` differs
+from the installed `.mfp` header version is a hard error
+(`package \`<name>\` is pinned to version <v>, but installed package is version
+<w>`), aborting the build rather than reporting a status.[[src/main.rs:2666]]
+
 ## Using Packages During Compilation
 
 Executable builds load installed package files before IR lowering. The compiler
@@ -62,3 +98,4 @@ full decode-and-merge mechanic (and the four symbols it uses) is documented in
 
 * ./mfb spec architecture binary-representation — the canonical decode-and-merge path
 * ./mfb spec package ir-section — the package identity hash derivation
+* ./mfb spec tooling project-manifest — the `project.json` `packages` array, `pin`, and version fields that `mfb pkg verify` reads

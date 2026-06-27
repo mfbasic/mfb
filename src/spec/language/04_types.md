@@ -348,7 +348,7 @@ Thread OF RES Res TO Out             ' resource plane only (message slot is Noth
 
 ## 4.9 Type Inference
 
-`LET` and `MUT` infer when initialized; explicit `AS` otherwise required.
+`LET` and `MUT` infer when initialized; explicit `AS` otherwise required. The full inference, coercion, and assignability rules — including how untyped numeric literals acquire a type from the expected type — are specified by `./mfb spec language type-inference`. The canonical text spelling of each type used in diagnostics is specified by `./mfb spec language type-name-encoding`.
 
 ```basic
 LET name = "world"        ' inferred String
@@ -372,6 +372,8 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 
 Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
 
+The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T` is defaultable when `T` is defaultable; a `Map OF K TO V` is defaultable when both `K` and `V` are defaultable. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. [[src/typecheck.rs:is_defaultable_type_with_seen]]
+
 ## 4.11 Comparable and Orderable Types
 
 Some standard functions require a type to be comparable. Comparable types are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enum types, and records whose fields are all comparable. [[src/typecheck.rs:is_comparable]] The built-in `Error` and `ErrorLoc` record shapes are comparable (their fields are all comparable). `List`, `Map`, unions, functions, lambdas, threads, resource handles, and the internal fallible-result type are not comparable. Record comparability is computed structurally with a recursion guard: a record that reaches itself only through non-comparable members (a cycle through `List`/`Map`/`UNION`) is not comparable, and a resource-wrapped `TYPE` is never comparable.
@@ -385,7 +387,19 @@ A narrower set of types is **orderable** — for these a total order is defined 
 | Comparable (`=`, `<>`) | `Integer`, `Float`, `Fixed`, `Boolean`, `String`, `Byte`, `Nothing`, enums, records of comparable fields |
 | Orderable (`<`, `>`, `<=`, `>=`) | `Integer`, `Float`, `Fixed`, `Byte`, `String` |
 
-Equality operators `=` and `<>` require either numeric operands or any two compatible comparable operands. Ordering operators `<`, `>`, `<=`, and `>=` require either two numeric operands or two `String` operands. Two `String` operands are ordered **lexicographically by Unicode scalar value**: the strings are compared scalar by scalar, the first differing position decides, and if one string is a prefix of the other the shorter compares less. This order is deterministic and identical across all targets — it does not depend on host locale, collation, or libc. It is not a locale or human collation and is not grapheme-cluster aware; callers needing locale-aware or case-insensitive ordering normalize or `strings::caseFold` first and sort the result. Mixed `String`/numeric ordering is a compile-time type error.
+For the purpose of these operators, "numeric" means `Integer`, `Float`, `Fixed`, `Byte`, or `Unknown` — `Unknown` is admitted as numeric so a prior type error does not cascade into a second one. [[src/typecheck.rs:is_numeric]] Equality operators `=` and `<>` accept any two numeric operands directly, with **no** compatibility requirement between them: any cross-numeric pairing such as `Integer = Float`, `Byte <> Fixed`, or `Float = Fixed` is accepted and returns `Boolean`. Equality also accepts any two compatible comparable operands. Ordering operators `<`, `>`, `<=`, and `>=` require either two numeric operands or two `String` operands. Two `String` operands are ordered **lexicographically by Unicode scalar value**: the strings are compared scalar by scalar, the first differing position decides, and if one string is a prefix of the other the shorter compares less. This order is deterministic and identical across all targets — it does not depend on host locale, collation, or libc. It is not a locale or human collation and is not grapheme-cluster aware; callers needing locale-aware or case-insensitive ordering normalize or `strings::caseFold` first and sort the result. Mixed `String`/numeric ordering is a compile-time type error.
+
+## 4.12 Compile-time numeric-literal range checks
+
+Numeric **literals** are range-checked statically, as a separate phase from the runtime numeric conversions described in §4.1. This static phase rejects a literal whose value cannot be represented in the type it is being stored into, before any code runs; it is distinct from `toByte`/`toInteger`/`toFixed` runtime conversions, which fail with runtime error codes. A static literal-range violation is a compile error in the `TYPE_*_LITERAL_*` family, not a runtime `Err*`. The check applies to a bare numeric literal and to a literal under a unary `-`; it does not constant-fold larger expressions. [[src/typecheck.rs:report_primitive_literal_range_error]]
+
+**Integer.** An integer-looking literal (no `.`) that does not parse as `i64` is rejected with `TYPE_INTEGER_LITERAL_OVERFLOW`. A negated integer literal `-N` is accepted when `N` parses as `u64` and `N <= i64::MAX + 1`; that is, `-9223372036854775808` (the most-negative `Integer`) is accepted even though `9223372036854775808` on its own overflows, because the minus sign is folded into the range check. A negated literal outside that bound is also `TYPE_INTEGER_LITERAL_OVERFLOW`. [[src/typecheck.rs:integer_literal_in_range]]
+
+**Byte.** An integer literal stored into a `Byte` is checked against `0..=255`: a value above `255` (or one too large to parse as `u16`) is `TYPE_BYTE_LITERAL_OVERFLOW`, and any nonzero negated literal is `TYPE_BYTE_LITERAL_UNDERFLOW`. Decimal-looking literals are not range-checked here (they are not valid `Byte` literals).
+
+**Float.** A literal stored into a `Float` is parsed as `f64` and checked for finiteness: a value that parses to a non-finite `f64` is rejected. A non-finite negated literal is `TYPE_FLOAT_LITERAL_UNDERFLOW`; a non-finite positive literal is `TYPE_FLOAT_LITERAL_OVERFLOW`. A finite `f64` always passes. [[src/typecheck.rs:float_literal_range_error]]
+
+**Fixed.** A literal stored into a `Fixed` is parsed as `f64`, the sign applied, and checked against the static binary bound: `value < -2147483648.0` is `TYPE_FIXED_LITERAL_UNDERFLOW` and `value >= 2147483648.0` is `TYPE_FIXED_LITERAL_OVERFLOW`. Values inside `[-2147483648.0, 2147483648.0)` pass. [[src/typecheck.rs:fixed_literal_range_error]]
 
 ## See Also
 
@@ -393,4 +407,6 @@ Equality operators `=` and `<>` require either numeric operands or any two compa
 * ./mfb spec memory fallible-call-abi — native result register ABI
 * ./mfb spec memory collections — runtime `List`/`Map` storage
 * ./mfb spec language collections — collection operations and semantics
+* ./mfb spec language type-inference — inference, coercion, and assignability rules
+* ./mfb spec language type-name-encoding — canonical text spelling of types in diagnostics
 * ./mfb man types — type-related built-in help

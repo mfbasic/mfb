@@ -114,6 +114,25 @@ window and spawns a worker thread running the language entry; console mode uses
 `_main` as the ordinary program entry. The worker bootstrap's runtime mechanics
 are owned by ./mfb spec threading os-integration.
 
+### Bundle generation contract
+
+The bundle writer recreates the directory tree under the project directory:
+`<project>.app/Contents/MacOS` is created with one `create_dir_all` (so the
+intermediate `Contents` directory is materialized too). The Mach-O is encoded by
+the same `encode_executable_bytes` helper the console `<project>.out` path uses,
+so the executable written to `Contents/MacOS/<project>` is byte-identical to the
+console output for the same image — only the on-disk layout and the
+`Info.plist` differ. The executable file is then chmod'd to `0o755` (the
+`Info.plist` is written with default permissions, not marked executable).
+[[src/os/macos/link.rs:write_app_bundle]] [[src/os/macos/link.rs:write_executable_file]]
+
+The project name is substituted into every `Info.plist` string field
+(`CFBundleName`, `CFBundleExecutable`, and the `dev.mfbasic.<project>`
+identifier) after XML-escaping. The escaper replaces the five XML predefined
+entities — `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`, `"`→`&quot;`, `'`→`&apos;` — so a
+project name containing metacharacters produces a well-formed plist.
+[[src/os/macos/link.rs:plist_escape]]
+
 ## See Also
 
 * ./mfb spec linker symbols-and-relocations — internal/external relocation

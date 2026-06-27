@@ -110,6 +110,50 @@ capability set is the `runtime_calls` declaration in each backend
 (`src/target/macos_aarch64/mod.rs`, `src/target/linux_aarch64/mod.rs`); both
 backends currently declare the same set.[[src/target/macos_aarch64/mod.rs:runtime_calls]]
 
+### Helper Requirement Analysis
+
+`required_helpers` computes the exact set of `RuntimeHelper` families an IR
+project needs, walking every function body and value recursively. Two cases are
+not visible from plain runtime-call dispatch and are handled specially:[[src/target/shared/runtime.rs:required_helpers]]
+
+- **Resource-union binds.** A `Bind` of a resource type pulls in the helper for
+  that type's close op. A `Bind` of a *resource-union* type drops by dispatching
+  to each variant's close op (codegen-emitted, not a runtime call), so it pulls
+  in the close helper for *every* variant of the union. The variant-close map is
+  built once over all `union` types whose variants all map to a
+  `resource_close_function`.
+- **Thread `.result` member access.** A `MemberAccess` whose member is `result`
+  pulls in `RuntimeHelper::Thread`, because reading a thread handle's result is
+  serviced by the thread runtime even though no `thread.*` call appears in the
+  IR.
+
+Otherwise, helpers come from `Call`/`CallResult` targets via `helper_for_call`,
+skipping native-direct calls (`is_native_direct_call`).
+
+The declared==used invariant is enforced by `validate_nir`, which is the
+authoritative gate on NIR shape. It first rejects any runtime helper declared
+more than once, then accumulates the set of *used* helpers while validating each
+function, and finally adds the variant-close helpers for any resource-union type
+that is the subject of a `Bind` (mirroring `required_helpers`). It then enforces
+both directions as hard errors:[[src/target/shared/validate.rs:validate_nir]]
+
+- a used helper that is not in `module.runtime_helpers` is an
+  `"NIR runtime call requires undeclared helper"` error;
+- a declared helper that is not used is an
+  `"NIR declares unused runtime helper"` error.
+
+Capability gating is a separate check. `validate_capabilities` collects every
+runtime call reached from the function bodies, and for each non-native-direct
+call rejects the build if the call is outside the backend's
+`capabilities.runtime_calls` set (`"native backend does not support runtime
+call"`). It additionally rejects any declared helper that is actually used by an
+emitted call but lacks a complete `supported_helper_specs` ABI entry (non-empty
+params, returns, and clobbers) with `"native backend does not implement runtime
+helper"`.[[src/target/shared/validate.rs:validate_capabilities]]
+
+The concrete ABI (registers, clobbers, fallibility) for each helper family is
+owned by `./mfb spec memory runtime-helper-abi`.
+
 ## Native Validation
 
 Native validation is implemented in `src/target/shared/validate.rs`.
@@ -215,6 +259,54 @@ The code generator also adds:
 
 `mfb build -ncode` writes `<project>.ncode`.
 
+### The CodegenPlatform Seam
+
+The shared code generator (`src/target/shared/code/mod.rs`) is OS-independent.
+Everything that differs between macOS and Linux is funnelled through the
+`CodegenPlatform` trait, implemented by `src/target/macos_aarch64/code.rs` and
+`src/target/linux_aarch64/code.rs`.[[src/target/shared/code/mod.rs:CodegenPlatform]]
+
+The seam carries two kinds of platform knowledge: ABI struct layouts queried as
+scalar accessors, and `emit_*` methods that splice platform-specific
+instructions into the helper bodies.
+
+**`termios` layout.** Raw-input mode (used by `term`/raw console input) toggles
+`ECHO`/`ICANON` and sets the `VMIN`/`VTIME` control characters directly in a
+stack `termios` struct, so the generator must know that struct's per-OS shape:
+
+| accessor | macOS | Linux |
+| --- | --- | --- |
+| `termios_size` | 72 | 60 |
+| `termios_lflag_offset` | 24 | 12 |
+| `termios_lflag_width` | 8 | 4 |
+| `termios_cc_offset` | 32 | 17 |
+| `termios_echo_flag` (ECHO) | 8 | 8 |
+| `termios_icanon_flag` (ICANON) | 256 | 2 |
+| `termios_vmin_index` (VMIN) | 16 | 6 |
+| `termios_vtime_index` (VTIME) | 17 | 5 |
+
+**`stat` mode offset.** `stat_mode_offset` gives the byte offset of `st_mode`
+within the platform `stat` struct, used by file-/directory-existence checks: 4 on
+macOS, 16 on Linux.
+
+**libc call decoration.** `emit_libc_call` emits a `bl` to a libc function named
+by its platform-independent base (e.g. `socket`, `getaddrinfo`): macOS prepends a
+leading `_` and routes through libSystem (`emit_libsystem_call`), Linux uses the
+name verbatim through libc (`emit_linux_c_call`). The `net` helpers marshal
+socket calls onto this seam.[[src/target/macos_aarch64/code.rs:emit_libc_call]]
+
+**`emit_*` strategies.** Beyond `emit_libc_call`, the trait exposes one method
+per platform-divergent operation — program exit, write/poll/terminal IO, path
+existence/stat, current/temp directory, fs path operations, errno, file
+open/read/close/sync/seek, rename, `mkstemps`, directory open/read/close,
+`realpath`, arena map/unmap, variadic calls, and the app-mode entry/IO/term
+helpers. Each implementation supplies the OS-correct syscall or libc sequence
+for that operation.
+
+**`random_bytes`.** `emit_random_bytes` fills a buffer with OS entropy; both
+backends call `getentropy` (decorated `_getentropy` on macOS via libSystem,
+verbatim on Linux via libc).[[src/target/macos_aarch64/code.rs:emit_random_bytes]]
+
 ## AArch64 Encoding
 
 Architecture-specific instruction encoding is under `src/arch/aarch64`.
@@ -259,6 +351,7 @@ for the value layout, arena mechanism, and scope-drop frees —
 
 * ./mfb spec memory heap-values — the flat-block value layout
 * ./mfb spec memory arenas — the arena allocator and scope-drop frees
+* ./mfb spec memory runtime-helper-abi — per-helper register/clobber/fallibility ABI
 * ./mfb spec linker object-plan — Mach-O/ELF object layout planning
 * ./mfb spec linker macos-aarch64 — Mach-O executable encoding
 * ./mfb spec linker linux-aarch64 — ELF flavors and dynamic linking

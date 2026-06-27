@@ -38,9 +38,29 @@ a run-before-entry pointer array: Mach-O `__mod_init_func`
 segment even when there are no imports. The current encode path leaves
 `initializers` empty (see `symbols-and-relocations`).
 
+## App-mode entry-bootstrap divergences
+
+The entry-import set the platform plan emits depends on the build mode, not only
+on the program's own imports. In console mode the macOS plan adds `_signal` to
+install the SIGINT/SIGTERM handlers; in app mode (`MacApp`) that import is
+omitted, because the bundle relies on its window-driven finish path rather than
+console signal handlers. The always-present entry imports (`_exit`,
+`_getentropy`, `_clock_gettime` for the memory-fill RNG seed) are unchanged
+across modes. [[src/target/macos_aarch64/plan.rs:entry_imports]]
+
+Build modes are also platform-exclusive: the macOS backend rejects a `LinuxApp`
+build mode with an internal error, and the Linux backend rejects `MacApp` the
+same way. The CLI selects the build mode from the target OS, so neither cross
+combination is expected to reach a backend. [[src/target/macos_aarch64/mod.rs:write_executable]]
+
 ## No silent omission
 
 The linker must not silently omit a required library, stub, or GOT slot. A
 missing import, an unbacked external relocation, or an unsupported relocation is a
 linker or codegen error, never a zero address or a placeholder (see
 `failure-rules`).
+
+## See Also
+
+* ./mfb spec app macos-runtime — the window-driven finish path and AppKit
+  bootstrap that make app mode omit the console `_signal` import.

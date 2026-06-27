@@ -114,6 +114,15 @@ The trap payload is always the built-in read-only record `Error`:
 
 Both are read-only: an `Error`/`ErrorLoc` cannot be user-constructed (`TYPE_READ_ONLY_RECORD_CONSTRUCTOR`) or `WITH`-updated (`TYPE_READ_ONLY_RECORD_UPDATE`), and accessing any other field is a compile error (`TYPE_UNKNOWN_FIELD`). `Error.source` is stamped at the origin where the error is created (by `error(...)`, a trapping built-in, or a failing call) and is **not** rewritten as the error propagates, so it always points at the original failure site. `error(code AS Integer, message AS String) AS Error` is the only way to build an `Error` in source.
 
+## 8.5b Reserved internal type names
+
+`Result` and its success member `Ok` are the runtime's private representation of a fallible outcome (§8.8) and are not types a user may write. The resolver rejects them in any type position: naming `Result`, `Ok`, or a parameterized `Result OF ...` is reported as `TYPE_RESULT_NOT_USER_VISIBLE` ("`Result` is an internal type; declare the success type directly"), rather than falling through to the generic unknown-type error. The same resolver also treats the internal placeholder `Unknown` — and any currently active template parameter — as always resolved, so neither produces an unknown-type diagnostic. [[src/resolver.rs:resolve_type_name]]
+
+Because these names still appear in compiler-internal positions, two resolution paths skip them deliberately so they are never re-checked as user types:
+
+* Constructor resolution special-cases `Error`, `Ok`, and `Err`: when a constructor's type name is one of these, the type-name resolution step is skipped (only the arguments are resolved). [[src/resolver.rs:resolve_expression]]
+* `MATCH`-pattern resolution skips the `Ok` union type: a union pattern whose type name is `Ok` is not resolved as a user type (the desugaring in §8.8 introduces `Ok` arms internally). [[src/resolver.rs:resolve_match_pattern]]
+
 ## 8.6 Rules
 
 1. At most one function-level `TRAP` per function, at the bottom, after normal flow.

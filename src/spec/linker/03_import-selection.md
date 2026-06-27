@@ -104,6 +104,63 @@ the `LINK` library name does not appear in the executable's dynamic dependency
 metadata.
 [[src/target/shared/plan.rs:CallKind]]
 
+## App-mode toolkit imports
+
+When the build is app mode, the platform object contributes a fixed toolkit
+import set (`app_mode_imports`) in addition to the per-helper imports above.
+Every entry is `required_by` the entry symbol `_main`, because the app-mode
+bootstrap — not any user helper — is what references them.
+
+### macOS
+
+macOS app mode injects a fixed list keyed to the Obj-C runtime, since every
+AppKit/Foundation call goes through `objc_msgSend` rather than a direct C
+import. The set is:
+
+- libobjc runtime functions: `_objc_msgSend`, `_sel_registerName`,
+  `_objc_autoreleasePoolPush`, `_objc_setAssociatedObject`,
+  `_objc_getAssociatedObject`, `_objc_allocateClassPair`, `_class_addMethod`,
+  `_objc_registerClassPair`.
+- `_OBJC_CLASS_$_*` class symbols, referenced as external **data** read through
+  the GOT. These serve a dual purpose: they yield the class pointers AppKit
+  messaging needs, and naming them as imports force-loads the AppKit and
+  Foundation frameworks. They are split across libraries by where the class
+  lives: `_OBJC_CLASS_$_NSObject` from `libobjc`; the `NSApplication`,
+  `NSWindow`, `NSScrollView`, `NSTextView`, `NSView`, `NSColor`,
+  `NSLayoutManager`, `NSFont`, `NSMenu`, `NSMenuItem` classes from `AppKit`; and
+  `NSString`, `NSMutableString`, `NSDictionary`, `NSMutableDictionary`,
+  `NSNumber`, `NSAttributedString` from `Foundation`.
+- AppKit `NSString` attribute-name globals: `_NSFontAttributeName`,
+  `_NSForegroundColorAttributeName`, `_NSUnderlineStyleAttributeName`,
+  `_NSStrokeWidthAttributeName`, plus the function `_NSRectFill` (all from
+  `AppKit`).
+- libSystem support: `_pthread_create`, `_pause`, `_getenv`, `_write`, `_pipe`,
+  `_dup2`, `_strlen`, `_calloc`, `_bzero`, `_memmove`.
+
+All names carry the Darwin leading underscore. See `macos-runtime` for how the
+bootstrap consumes these (NSApplication/window setup, the worker thread, and the
+window-input pipe wired to the reused console fd-0 readers).
+[[src/target/macos_aarch64/plan.rs:app_mode_imports]]
+
+### Linux
+
+Linux app mode targets GTK, which is plain C, so each toolkit call is an
+ordinary imported function (no `objc_msgSend` layer). The set adds these
+`DT_NEEDED` sonames, each contributing one dynamic dependency:
+`libgtk-4.so.1`, `libgobject-2.0.so.0`, `libglib-2.0.so.0`,
+`libgio-2.0.so.0`, and `libcairo.so.2`. The imports cover GtkApplication and
+window lifecycle, the scrolled `GtkTextView` transcript, key input controllers,
+the `GtkDrawingArea` + Cairo `term::` surface, and GObject signal/idle wiring.
+
+It also adds the worker-thread and window-input-pipe primitives from
+libc/libpthread (`pthread_create`, `pthread_detach`, `pipe`, `dup2`, `getenv`,
+`setenv`, `write`, `malloc`, `free`, `memcpy`, `memset`, `memmove`, `pause`),
+and `__libc_start_main`. Because the entry cannot link `crt1.o`, the bootstrap
+calls `__libc_start_main` directly so the C runtime and shared-library
+constructors — the GLib/GObject type system — run before the real `main`. See
+`linux-runtime` for the bootstrap detail.
+[[src/target/linux_aarch64/plan.rs:app_mode_imports]]
+
 ## Packages and transitive imports
 
 A package export's body is merged into the program IR before lowering (see
@@ -120,3 +177,7 @@ helper itself.
   `.mfp` resource trailer
 * ./mfb spec linker package-linking — how merged package bodies contribute their
   transitive platform imports
+* ./mfb spec app macos-runtime — how the app-mode bootstrap consumes the macOS
+  Obj-C/AppKit/Foundation toolkit imports
+* ./mfb spec app linux-runtime — how the app-mode bootstrap consumes the Linux
+  GTK toolkit imports and `__libc_start_main`
