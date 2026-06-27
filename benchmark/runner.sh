@@ -11,7 +11,9 @@
 #   time_run "c -O2"  "$here/c/mybench-O2.out"
 #
 # Each timed program is run $BENCH_RUNS times (default 1000; override via the
-# environment). time_run reports average, min (shortest) and max (longest).
+# environment). time_run reports median, average, min (shortest) and max
+# (longest). Prefer the median — the average is dragged up by occasional OS
+# scheduling outliers, while the median tracks the typical run.
 
 set -euo pipefail
 
@@ -50,7 +52,7 @@ bench_build_c() {
 }
 
 # time_run LABEL CMD... — run CMD $BENCH_RUNS times (stdout discarded) and print
-# average / min / max wall time.
+# median / average / min / max wall time.
 time_run() {
   local label="$1"; shift
   local starts="" ends="" i
@@ -62,15 +64,20 @@ time_run() {
   perl -e '
     my @s = grep { length } split /\s+/, $ARGV[1];
     my @e = grep { length } split /\s+/, $ARGV[2];
-    my ($min, $max, $sum);
+    my ($min, $max, $sum, @d);
     for my $i (0 .. $#s) {
       my $d = $e[$i] - $s[$i];
       $sum += $d;
+      push @d, $d;
       $min = $d if !defined($min) || $d < $min;
       $max = $d if !defined($max) || $d > $max;
     }
     my $n = scalar @s;
-    printf "%-10s avg %9.3f ms   min %9.3f ms   max %9.3f ms   (%d runs)\n",
-      $ARGV[0], ($sum / $n) * 1000, $min * 1000, $max * 1000, $n;
+    my @sorted = sort { $a <=> $b } @d;
+    my $med = $n % 2
+      ? $sorted[int($n / 2)]
+      : ($sorted[$n / 2 - 1] + $sorted[$n / 2]) / 2;
+    printf "%-10s med %9.3f ms   avg %9.3f ms   min %9.3f ms   max %9.3f ms   (%d runs)\n",
+      $ARGV[0], $med * 1000, ($sum / $n) * 1000, $min * 1000, $max * 1000, $n;
   ' "$label" "$starts" "$ends"
 }
