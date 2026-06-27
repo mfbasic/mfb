@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate src/builtins/regex_unicode.mfb — the pinned Unicode general-category
-table used by the regex package (specifications/regex.md §2.1, §8).
+table used by the regex package (see the embedded spec: `mfb spec stdlib regex`).
 
 The table is emitted as MFBASIC source (one flat IF-chain function) rather than a
 data table because MFBASIC list reads copy the whole list, and because the native
@@ -43,7 +43,7 @@ def main():
     out.append(f"REM Pinned Unicode version: {unicodedata.unidata_version}")
     out.append("REM Maps a Unicode scalar value to its two-letter general category.")
     out.append("REM Runs are contiguous and cover 0 .. 0x10FFFF (Cs = surrogate,")
-    out.append("REM Cn = unassigned). See specifications/regex.md §2.1, §8.")
+    out.append("REM Cn = unassigned). See the embedded spec: mfb spec stdlib regex.")
     out.append("")
     out.append("FUNC rxGenCat(cp AS Integer) AS String")
     for lo, hi, c in runs:

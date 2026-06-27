@@ -1,6 +1,7 @@
 #!/bin/bash
 
-REVIEW_issues="specifications/review_issues.txt"
+BUILD_DIR="${BUILD_DIR:-build}"
+REVIEW_issues="$BUILD_DIR/review_issues.txt"
 MISSING_CLEAN_STREAK_TARGET="${1:-3}"
 
 # Set AUDIT_DEBUG=1 to keep every claude response and log how it was parsed.
@@ -19,6 +20,7 @@ if ! [[ "$MISSING_CLEAN_STREAK_TARGET" =~ ^[1-9][0-9]*$ ]]; then
     exit 1
 fi
 
+mkdir -p "$BUILD_DIR"
 touch "$REVIEW_issues"
 
 TMP_DIR=$(mktemp -d)
@@ -127,11 +129,11 @@ run_issues_review() {
     local job_key="$1"
     local response_file="$TMP_DIR/response.$job_key"
     local exit_file="$TMP_DIR/exit.$job_key"
-    local prompt="Read all specifications/*
+    local prompt="Read the embedded specification under src/spec/** (also viewable via 'mfb spec')
 Review all src/**
 
 REPORT:
-- Any specification requirements not implemented in compiler not already in specifications/review_issues.txt
+- Any specification requirements not implemented in compiler not already in $REVIEW_issues
 - How to resolve it
 
 If NO missing requirements found, respond with ONLY: \"No missing requirements found\"

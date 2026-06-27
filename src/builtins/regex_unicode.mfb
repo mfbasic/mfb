@@ -3,7 +3,7 @@ REM Source: scripts/gen_regex_unicode.py
 REM Pinned Unicode version: 16.0.0
 REM Maps a Unicode scalar value to its two-letter general category.
 REM Runs are contiguous and cover 0 .. 0x10FFFF (Cs = surrogate,
-REM Cn = unassigned). See specifications/regex.md §2.1, §8.
+REM Cn = unassigned). See the embedded spec: mfb spec stdlib regex.
 
 FUNC __regex_genCat(cp AS Integer) AS String
   IF cp <= 31 THEN RETURN "Cc"
