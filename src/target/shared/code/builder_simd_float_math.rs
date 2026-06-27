@@ -177,6 +177,31 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Lower a *scalar* `Float` transcendental onto the array kernel by
+    /// broadcasting the single value into both lanes and extracting lane 0 — so
+    /// `math::f(x)` and `math::f([x])[0]` are bit-identical ("one deterministic
+    /// surface", plan-01-simd §4.7). No per-lane error reduce: `sin`/`cos` never
+    /// error, `exp` overflow yields the kernel's saturated `inf` (matching libm),
+    /// and the `log`/`log10` domain is checked by the caller before this runs.
+    pub(super) fn lower_simd_float_scalar(
+        &mut self,
+        kernel: FloatKernel,
+        value_loc: &str,
+        text: String,
+    ) -> Result<ValueResult, String> {
+        self.emit(abi::vector_dup_from_x("v0", value_loc));
+        self.emit(abi::vector_eor("v22", "v22", "v22"));
+        self.emit_float_kernel_setup(kernel);
+        self.emit_float_kernel_body(kernel);
+        let dst = self.allocate_register()?;
+        self.emit(abi::vector_extract_to_x(&dst, "v0", 0));
+        Ok(ValueResult {
+            type_: "Float".to_string(),
+            location: dst,
+            text,
+        })
+    }
+
     /// Broadcast the kernel's persistent constants into v16+ (called once before
     /// the loop; v22 is reserved for the error mask).
     fn emit_float_kernel_setup(&mut self, kernel: FloatKernel) {

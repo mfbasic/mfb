@@ -1,0 +1,46 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_scalar_array_determinism_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "one",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "x", "type": "Float", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "17" } },
+    { "op": "bind", "mutable": false, "name": "xl", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "local", "name": "x" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "log " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.log", "args": [{ "kind": "local", "name": "x" }] }, { "kind": "local", "name": "p" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "call", "target": "math.log", "args": [{ "kind": "local", "name": "xl" }] }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "p" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "log10 " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.log10", "args": [{ "kind": "local", "name": "x" }] }, { "kind": "local", "name": "p" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "call", "target": "math.log10", "args": [{ "kind": "local", "name": "xl" }] }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "p" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "sin " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.sin", "args": [{ "kind": "local", "name": "x" }] }, { "kind": "local", "name": "p" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "call", "target": "math.sin", "args": [{ "kind": "local", "name": "xl" }] }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "p" }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "cos " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "local", "name": "x" }] }, { "kind": "local", "name": "p" }] } }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "local", "name": "xl" }] }, { "kind": "const", "type": "Integer", "value": "0" }] }, { "kind": "local", "name": "p" }] } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "one", "args": [{ "kind": "const", "type": "Float", "value": "0.5" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "one", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "one", "args": [{ "kind": "const", "type": "Float", "value": "5.0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "one", "args": [{ "kind": "const", "type": "Float", "value": "0.1" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
