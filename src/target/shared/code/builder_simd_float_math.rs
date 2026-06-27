@@ -321,7 +321,7 @@ impl CodeBuilder<'_> {
         match kernel {
             FloatKernel::Exp => self.emit_exp_body(),
             FloatKernel::Log | FloatKernel::Log10 => {
-                self.emit_log_body(kernel == FloatKernel::Log10)
+                self.emit_log_body(kernel == FloatKernel::Log10, false)
             }
             FloatKernel::Sin => self.emit_sin_cos_body(false),
             FloatKernel::Cos => self.emit_sin_cos_body(true),
@@ -560,6 +560,13 @@ impl CodeBuilder<'_> {
 
     /// `exp` kernel: n=floor(x/ln2+0.5), Cody-Waite r, Horner P(r), scale 2^n.
     fn emit_exp_body(&mut self) {
+        self.emit_exp_body_lo(None);
+    }
+
+    /// exp kernel. `lo` (if given) is a double-double low correction added to the
+    /// reduced argument `r` — used by `pow` to evaluate `exp(y·log x)` to extra
+    /// precision.
+    fn emit_exp_body_lo(&mut self, lo: Option<&str>) {
         // NaN input → ErrFloatNan: chunk_nan = ~fcmeq(x,x); accumulate into v22.
         self.emit(abi::vector_fcmeq("v6", "v0", "v0")); // non-NaN lanes = all-ones
         self.emit(abi::vector_cmeq("v7", "v0", "v0")); // all-ones (bitwise self-eq)
@@ -572,6 +579,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_orr("v2", "v0", "v0"));
         self.emit(abi::vector_fmls("v2", "v1", "v18"));
         self.emit(abi::vector_fmls("v2", "v1", "v19"));
+        if let Some(lo) = lo {
+            self.emit(abi::vector_fadd("v2", "v2", lo)); // r += dd low part
+        }
         self.emit_horner("v3", "v2", &EXP_COEFFS);
         self.emit(abi::vector_fcvtzs("v5", "v1"));
         // Overflow (result past finite range) → ErrFloatInf: n > 1023.
@@ -591,7 +601,9 @@ impl CodeBuilder<'_> {
     /// is strict <=1 ULP; `log10` then multiplies by `1/ln10` as a double-double.
     /// Constants: v16 sqrt_half, v17 1.0, v18 0x7ff, v19 1022, v20 mantmask,
     /// v21 1022<<52, v23 1, v24/v25 ln2 hi/lo, v26/v27 1/ln10 hi/lo; v22 error.
-    fn emit_log_body(&mut self, base10: bool) {
+    /// `log`/`log10` kernel. When `keep_lo` (non-base10 only), leaves the result
+    /// as a double-double `hi=v0`, `lo=v31` instead of collapsing — for `pow`.
+    fn emit_log_body(&mut self, base10: bool, keep_lo: bool) {
         // Domain: x <= 0 fails.
         self.emit(abi::vector_fcmle_zero("v1", "v0"));
         self.emit(abi::vector_orr("v22", "v22", "v1"));
@@ -628,7 +640,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_fadd("v31", "v31", "v30")); // + ke
         self.emit(abi::vector_fadd("v31", "v31", "v28")); // + le
         if !base10 {
-            self.emit(abi::vector_fadd("v0", "v0", "v31")); // ln(x) = hi + lo
+            if !keep_lo {
+                self.emit(abi::vector_fadd("v0", "v0", "v31")); // ln(x) = hi + lo
+            }
+            // keep_lo: leave hi=v0, lo=v31 for pow's double-double y*log(x).
         } else {
             // log10(x) = (hi+lo) * (1/ln10 as hi+lo), compensated.
             self.emit_twoprod("v6", "v7", "v0", "v26"); // ph = hi*L10HI
@@ -850,10 +865,14 @@ impl CodeBuilder<'_> {
                 // surface as ErrFloatNan, matching the scalar pow man page.
                 self.emit(abi::vector_orr("v26", "v1", "v1")); // save y
                 self.emit_float_kernel_setup(FloatKernel::Log);
-                self.emit_log_body(false); // v0 = log(x); v22 |= (x<=0)
-                self.emit(abi::vector_fmul("v0", "v0", "v26")); // y*log(x)
+                self.emit_log_body(false, true); // log(x) as dd: hi=v0, lo=v31
+                // y*log(x) as a double-double (v0 = hi, v27 = lo).
+                self.emit_twoprod("v2", "v3", "v26", "v0"); // y*log_hi
+                self.emit(abi::vector_fmla("v3", "v26", "v31")); // + y*log_lo
+                self.emit(abi::vector_orr("v0", "v2", "v2"));
+                self.emit(abi::vector_orr("v27", "v3", "v3"));
                 self.emit_float_kernel_setup(FloatKernel::Exp);
-                self.emit_exp_body(); // v0 = exp(y*log(x))
+                self.emit_exp_body_lo(Some("v27")); // exp((y*log x) as dd)
                 self.emit_result_nan_into_v22();
             }
         }
