@@ -1,0 +1,52 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_clamp_fixedarray_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "pX",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "label", "type": "String", "default": null },
+    { "name": "xs", "type": "List OF Fixed", "default": null },
+    { "name": "p", "type": "Byte", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "s", "type": "String", "value": { "kind": "local", "name": "label" } },
+    {
+      "op": "forEach",
+      "name": "x",
+      "type": "Fixed",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "name": "s", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "p" }] } } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "bind", "mutable": false, "name": "a", "type": "List OF Fixed", "value": { "kind": "list", "type": "List OF Fixed", "values": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "3.5" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "-1.0" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.0" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "pX", "args": [{ "kind": "const", "type": "String", "value": "clamp" }, { "kind": "call", "target": "math.clamp", "args": [{ "kind": "local", "name": "a" }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.0" }] }, { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.5" }] }] }, { "kind": "local", "name": "p" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

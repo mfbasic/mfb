@@ -3,6 +3,21 @@ use super::*;
 /// Signed 64-bit minimum, written as its unsigned bit pattern (`abs`/`neg`
 /// overflow sentinel for Integer and Fixed lanes).
 const INT64_MIN_UNSIGNED: &str = "9223372036854775808";
+/// `0x7FFF_FFFF_FFFF_FFFF` — clears the IEEE-754 sign bit (scalar Float `abs`).
+const FLOAT_ABS_MASK: &str = "9223372036854775807";
+/// IEEE-754 maximum biased-exponent field (Inf/NaN) for the float→int range check.
+const FLOAT_EXP_INF_NAN: &str = "2047";
+/// `2^63` as an `f64` bit pattern (`0x43E0_0000_0000_0000`) — the smallest double
+/// that does not fit in a signed 64-bit integer.
+const FLOAT_TWO_POW_63_BITS: &str = "4890909195324358656";
+/// `-2^63` as an `f64` bit pattern (`0xC3E0_0000_0000_0000`) — exactly `INT64_MIN`,
+/// the most negative value that *does* fit.
+const FLOAT_NEG_TWO_POW_63_BITS: &str = "14114281232179134464";
+/// Q32.32 scale `2^32`, the fixed-point fraction mask `2^32-1`, and half `2^31`.
+const FIXED_SHIFT: u8 = 32;
+const FIXED_FRACTION_MASK_STR: &str = "4294967295";
+const FIXED_ONE_MINUS_1_STR: &str = "4294967295";
+const FIXED_HALF_STR: &str = "2147483648";
 
 /// A unary `math::` array kernel: how to transform one input list of 8-byte
 /// numeric lanes into a result list, expressed once as a NEON `.2d` sequence for
@@ -11,9 +26,23 @@ const INT64_MIN_UNSIGNED: &str = "9223372036854775808";
 /// lane (plan-01-simd §4.3, Open Decision #6).
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum SimdUnaryKernel {
-    /// `Integer[] → Integer[]` absolute value; `ErrOverflow` on an `INT64_MIN`
-    /// lane (whose magnitude is not representable).
+    /// `Integer[]→Integer[]` / `Fixed[]→Fixed[]` absolute value (both are a raw
+    /// i64 `abs`); `ErrOverflow` on an `INT64_MIN` lane (magnitude unrepresentable).
     AbsInteger,
+    /// `Float[]→Float[]` absolute value (clear the sign bit); never errors.
+    AbsFloat,
+    /// `Float[]→Float[]` square root; `ErrInvalidArgument` on a negative lane.
+    SqrtFloat,
+    /// `Float[]→Integer[]` floor/ceil/round (round = ties away). `ErrOverflow`
+    /// when a rounded lane falls outside the signed 64-bit range.
+    FloorFloat,
+    CeilFloat,
+    RoundFloat,
+    /// `Fixed[]→Integer[]` floor/ceil/round on the raw Q32.32 lanes. The integer
+    /// part always fits in `Integer`, so these never error.
+    FloorFixed,
+    CeilFixed,
+    RoundFixed,
 }
 
 impl SimdUnaryKernel {
@@ -22,6 +51,24 @@ impl SimdUnaryKernel {
     fn error(self) -> Option<SimdError> {
         match self {
             SimdUnaryKernel::AbsInteger => Some(SimdError::Overflow),
+            SimdUnaryKernel::SqrtFloat => Some(SimdError::InvalidArgument),
+            SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
+                Some(SimdError::Overflow)
+            }
+            SimdUnaryKernel::AbsFloat
+            | SimdUnaryKernel::FloorFixed
+            | SimdUnaryKernel::CeilFixed
+            | SimdUnaryKernel::RoundFixed => None,
+        }
+    }
+
+    /// The NEON round-to-integral instruction for the float rounders.
+    fn float_round_mnemonic(self) -> Option<&'static str> {
+        match self {
+            SimdUnaryKernel::FloorFloat => Some("frintm_v"),
+            SimdUnaryKernel::CeilFloat => Some("frintp_v"),
+            SimdUnaryKernel::RoundFloat => Some("frinta_v"),
+            _ => None,
         }
     }
 }
@@ -30,8 +77,27 @@ impl SimdUnaryKernel {
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum SimdError {
     Overflow,
-    #[allow(dead_code)]
     InvalidArgument,
+}
+
+/// A two-array `math::` kernel (`min`/`max`). NEON has no `smin`/`smax` on `.2d`,
+/// so the integer/Fixed forms select with `cmgt`+`bsl`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SimdBinaryKernel {
+    MinFloat,
+    MaxFloat,
+    /// Signed i64 lane min/max — used for both `Integer` and raw Q32.32 `Fixed`.
+    MinSigned,
+    MaxSigned,
+}
+
+/// A clamp kernel: one list lane clamped between two broadcast scalars
+/// `max(min(x, high), low)`.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum SimdClampKernel {
+    Float,
+    /// Signed i64 — `Integer` and raw Q32.32 `Fixed`.
+    Signed,
 }
 
 impl CodeBuilder<'_> {
@@ -126,25 +192,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&loop_done));
 
-        // --- Scalar tail (count & 1) ---
-        let one = self.allocate_register()?;
-        self.emit(abi::move_immediate(&one, "Integer", "1"));
-        let tail = self.allocate_register()?;
-        self.emit(abi::and_registers(&tail, &count, &one));
+        // --- Scalar tail (count & 1) ---  (x1 = count & 1, caller-saved scratch)
+        self.emit(abi::move_immediate("x0", "Integer", "1"));
+        self.emit(abi::and_registers("x1", &count, "x0"));
         let tail_done = self.label("simd_tail_done");
-        self.emit(abi::compare_immediate(&tail, "0"));
+        self.emit(abi::compare_immediate("x1", "0"));
         self.emit(abi::branch_eq(&tail_done));
         self.emit_simd_unary_scalar(kernel, &in_data, &out_data, &err)?;
         self.emit(abi::label(&tail_done));
 
-        // --- Error reduce ---
+        // --- Error reduce ---  (x0/x1 = the two mask lanes)
         if kernel.error().is_some() {
-            let lo = self.allocate_register()?;
-            let hi = self.allocate_register()?;
-            self.emit(abi::vector_extract_to_x(&lo, "v7", 0));
-            self.emit(abi::vector_extract_to_x(&hi, "v7", 1));
-            self.emit(abi::or_registers(&lo, &lo, &hi));
-            self.emit(abi::or_registers(&err, &err, &lo));
+            self.emit(abi::vector_extract_to_x("x0", "v7", 0));
+            self.emit(abi::vector_extract_to_x("x1", "v7", 1));
+            self.emit(abi::or_registers("x0", "x0", "x1"));
+            self.emit(abi::or_registers(&err, &err, "x0"));
             let no_err = self.label("simd_no_err");
             self.emit(abi::compare_immediate(&err, "0"));
             self.emit(abi::branch_eq(&no_err));
@@ -172,7 +234,32 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&min, "Integer", INT64_MIN_UNSIGNED));
                 self.emit(abi::vector_dup_from_x("v6", &min));
             }
+            SimdUnaryKernel::AbsFloat | SimdUnaryKernel::SqrtFloat => {}
+            SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
+                // v4 = exp(Inf/NaN), v5 = +2^63, v6 = -2^63 (range bounds).
+                self.broadcast_const("v4", FLOAT_EXP_INF_NAN)?;
+                self.broadcast_const("v5", FLOAT_TWO_POW_63_BITS)?;
+                self.broadcast_const("v6", FLOAT_NEG_TWO_POW_63_BITS)?;
+            }
+            SimdUnaryKernel::FloorFixed => {}
+            SimdUnaryKernel::CeilFixed => {
+                self.broadcast_const("v4", FIXED_ONE_MINUS_1_STR)?;
+            }
+            SimdUnaryKernel::RoundFixed => {
+                self.broadcast_const("v4", FIXED_FRACTION_MASK_STR)?;
+                self.broadcast_const("v5", FIXED_HALF_STR)?;
+                self.broadcast_const("v6", "1")?;
+            }
         }
+        Ok(())
+    }
+
+    /// Materialize `value` into a GPR and broadcast it into both `.2d` lanes of
+    /// the given vector register. Uses the caller-saved scratch `x0` (free: the
+    /// loop runs after the only call), so it does not consume a loop register.
+    fn broadcast_const(&mut self, vreg: &str, value: &str) -> Result<(), String> {
+        self.emit(abi::move_immediate("x0", "Integer", value));
+        self.emit(abi::vector_dup_from_x(vreg, "x0"));
         Ok(())
     }
 
@@ -187,12 +274,60 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_orr("v7", "v7", "v1"));
                 self.emit(abi::vector_abs("v0", "v0"));
             }
+            SimdUnaryKernel::AbsFloat => {
+                self.emit(abi::vector_fabs("v0", "v0"));
+            }
+            SimdUnaryKernel::SqrtFloat => {
+                // Negative lanes (from the input) have no real square root.
+                self.emit(abi::vector_fcmlt_zero("v1", "v0"));
+                self.emit(abi::vector_orr("v7", "v7", "v1"));
+                self.emit(abi::vector_fsqrt("v0", "v0"));
+            }
+            SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
+                let frint = kernel.float_round_mnemonic().unwrap();
+                // Inf/NaN: exp field == 2047 (caught here; range compares below
+                // miss NaN, which compares false against everything).
+                self.emit(abi::vector_ushr("v2", "v0", 52));
+                self.emit(abi::vector_and("v2", "v2", "v4"));
+                self.emit(abi::vector_cmeq("v1", "v2", "v4"));
+                self.emit(abi::vector_orr("v7", "v7", "v1"));
+                // Round to integral, then bounds-check the rounded double.
+                self.emit(CodeInstruction::new(frint).field("dst", "v3").field("src", "v0"));
+                self.emit(abi::vector_fcmge("v1", "v3", "v5")); // rounded >= 2^63
+                self.emit(abi::vector_orr("v7", "v7", "v1"));
+                self.emit(abi::vector_fcmgt("v1", "v6", "v3")); // -2^63 > rounded
+                self.emit(abi::vector_orr("v7", "v7", "v1"));
+                self.emit(abi::vector_fcvtzs("v0", "v3"));
+            }
+            SimdUnaryKernel::FloorFixed => {
+                // Arithmetic shift right by 32 rounds toward -infinity.
+                self.emit(abi::vector_sshr("v0", "v0", FIXED_SHIFT));
+            }
+            SimdUnaryKernel::CeilFixed => {
+                // ceil(x) = floor(x + (ONE-1)); arithmetic shift handles all signs.
+                self.emit(abi::vector_add("v0", "v0", "v4"));
+                self.emit(abi::vector_sshr("v0", "v0", FIXED_SHIFT));
+            }
+            SimdUnaryKernel::RoundFixed => {
+                // result = floor(x) + (frac >= threshold), threshold = half + sign
+                // (ties away from zero, matching the scalar Fixed rounder).
+                self.emit(abi::vector_sshr("v1", "v0", FIXED_SHIFT)); // whole
+                self.emit(abi::vector_and("v2", "v0", "v4")); // frac
+                self.emit(abi::vector_ushr("v3", "v0", 63)); // sign bit (0/1)
+                self.emit(abi::vector_add("v3", "v5", "v3")); // threshold
+                self.emit(abi::vector_cmge("v3", "v2", "v3")); // frac >= threshold
+                self.emit(abi::vector_and("v3", "v3", "v6")); // mask & 1
+                self.emit(abi::vector_add("v0", "v1", "v3"));
+            }
         }
         Ok(())
     }
 
     /// Emit the scalar tail kernel: read one lane from `[in_data]`, transform it,
-    /// store to `[out_data]`, and set `err` to 1 on a failing lane.
+    /// store to `[out_data]`, and set `err` to 1 on a failing lane. Transient
+    /// scratch uses the caller-saved `x0`–`x5` (free after the alloc call) so the
+    /// tail does not consume loop registers; `in_data`/`out_data`/`err` are the
+    /// persistent loop registers (`x8`+).
     fn emit_simd_unary_scalar(
         &mut self,
         kernel: SimdUnaryKernel,
@@ -200,30 +335,417 @@ impl CodeBuilder<'_> {
         out_data: &str,
         err: &str,
     ) -> Result<(), String> {
+        self.emit(abi::load_u64("x0", in_data, 0));
         match kernel {
             SimdUnaryKernel::AbsInteger => {
-                let value = self.allocate_register()?;
-                self.emit(abi::load_u64(&value, in_data, 0));
-                let min = self.allocate_register()?;
-                self.emit(abi::move_immediate(&min, "Integer", INT64_MIN_UNSIGNED));
+                self.emit(abi::move_immediate("x1", "Integer", INT64_MIN_UNSIGNED));
                 let no_of = self.label("simd_tail_no_overflow");
-                self.emit(abi::compare_registers(&value, &min));
+                self.emit(abi::compare_registers("x0", "x1"));
                 self.emit(abi::branch_ne(&no_of));
                 self.emit(abi::move_immediate(err, "Integer", "1"));
                 self.emit(abi::label(&no_of));
                 // abs: negate when negative.
                 let negate = self.label("simd_tail_negate");
                 let stored = self.label("simd_tail_stored");
-                self.emit(abi::compare_immediate(&value, "0"));
+                self.emit(abi::compare_immediate("x0", "0"));
                 self.emit(abi::branch_lt(&negate));
-                self.emit(abi::store_u64(&value, out_data, 0));
+                self.emit(abi::store_u64("x0", out_data, 0));
                 self.emit(abi::branch(&stored));
                 self.emit(abi::label(&negate));
-                self.emit(abi::subtract_registers(&value, "xzr", &value));
-                self.emit(abi::store_u64(&value, out_data, 0));
+                self.emit(abi::subtract_registers("x0", "xzr", "x0"));
+                self.emit(abi::store_u64("x0", out_data, 0));
                 self.emit(abi::label(&stored));
+            }
+            SimdUnaryKernel::AbsFloat => {
+                self.emit(abi::move_immediate("x1", "Integer", FLOAT_ABS_MASK));
+                self.emit(abi::and_registers("x0", "x0", "x1"));
+                self.emit(abi::store_u64("x0", out_data, 0));
+            }
+            SimdUnaryKernel::SqrtFloat => {
+                self.emit(abi::float_move_d_from_x("d0", "x0"));
+                self.emit(abi::float_compare_zero_d("d0"));
+                let no_err = self.label("simd_tail_sqrt_ok");
+                // ge 0 is fine; lt 0 (or unordered/NaN) fails the domain.
+                self.emit(abi::branch_ge(&no_err));
+                self.emit(abi::move_immediate(err, "Integer", "1"));
+                self.emit(abi::label(&no_err));
+                self.emit(abi::float_sqrt_d("d0", "d0"));
+                self.emit(abi::float_move_x_from_d("x0", "d0"));
+                self.emit(abi::store_u64("x0", out_data, 0));
+            }
+            SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
+                self.emit_float_to_int_overflow_to_err("x0", err)?;
+                self.emit(abi::float_move_d_from_x("d0", "x0"));
+                match kernel {
+                    SimdUnaryKernel::FloorFloat => self.emit(abi::float_floor_to_signed_x("x1", "d0")),
+                    SimdUnaryKernel::CeilFloat => self.emit(abi::float_ceil_to_signed_x("x1", "d0")),
+                    SimdUnaryKernel::RoundFloat => self.emit(abi::float_round_to_signed_x("x1", "d0")),
+                    _ => unreachable!(),
+                }
+                self.emit(abi::store_u64("x1", out_data, 0));
+            }
+            SimdUnaryKernel::FloorFixed | SimdUnaryKernel::CeilFixed | SimdUnaryKernel::RoundFixed => {
+                let function = match kernel {
+                    SimdUnaryKernel::FloorFixed => "floor",
+                    SimdUnaryKernel::CeilFixed => "ceil",
+                    SimdUnaryKernel::RoundFixed => "round",
+                    _ => unreachable!(),
+                };
+                self.emit_fixed_rounding_to_integer(function, "x0", "x1")?;
+                self.emit(abi::store_u64("x1", out_data, 0));
             }
         }
         Ok(())
+    }
+
+    /// Scalar float→int range check that sets `err` to 1 (rather than returning)
+    /// when `bits` cannot round into the signed 64-bit range. Mirrors the
+    /// terminal `emit_float_rounding_integer_range_check`: a value overflows when
+    /// its biased exponent exceeds 1086, equals 2047 (Inf/NaN), or equals 1086
+    /// and is not exactly `-2^63`.
+    fn emit_float_to_int_overflow_to_err(&mut self, bits: &str, err: &str) -> Result<(), String> {
+        // Caller-saved scratch: bits is `x0`; use x2..x5 (x1 is the convert dst).
+        let exponent = "x2";
+        let mask = "x3";
+        let sign = "x4";
+        let mantissa = "x5";
+        let ok = self.label("simd_tail_round_ok");
+        let edge = self.label("simd_tail_round_edge");
+        let overflow = self.label("simd_tail_round_overflow");
+
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
+        self.emit(abi::move_immediate(mask, "Integer", "2047"));
+        self.emit(abi::and_registers(exponent, exponent, mask));
+        self.emit(abi::compare_immediate(exponent, "2047"));
+        self.emit(abi::branch_eq(&overflow));
+        self.emit(abi::compare_immediate(exponent, "1086"));
+        self.emit(abi::branch_lt(&ok));
+        self.emit(abi::branch_eq(&edge));
+        self.emit(abi::branch(&overflow));
+
+        self.emit(abi::label(&edge));
+        // exp == 1086 is only representable when it is exactly -2^63 (sign set,
+        // zero mantissa); anything else overflows.
+        self.emit(abi::shift_right_immediate(sign, bits, 63));
+        self.emit(abi::compare_immediate(sign, "1"));
+        self.emit(abi::branch_ne(&overflow));
+        self.emit(abi::move_immediate(mask, "Integer", "4503599627370495"));
+        self.emit(abi::and_registers(mantissa, bits, mask));
+        self.emit(abi::compare_immediate(mantissa, "0"));
+        self.emit(abi::branch_eq(&ok));
+
+        self.emit(abi::label(&overflow));
+        self.emit(abi::move_immediate(err, "Integer", "1"));
+        self.emit(abi::label(&ok));
+        Ok(())
+    }
+
+    /// Lower a two-array `math::` overload (`min`/`max`). Both lists must have the
+    /// same length (`ErrInvalidArgument` otherwise). Streams both data regions in
+    /// lockstep, two lanes at a time, with the odd tail handled scalar-wise.
+    pub(super) fn lower_simd_binary(
+        &mut self,
+        kernel: SimdBinaryKernel,
+        left_slot: usize,
+        right_slot: usize,
+        result_type: &str,
+        result_type_code: usize,
+        text: String,
+    ) -> Result<ValueResult, String> {
+        // `left_slot`/`right_slot` already hold the two list pointers (the caller
+        // spilled them as it lowered, so neither crossed the other's lowering).
+        self.reset_temporary_registers();
+        let left_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
+        let right_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+        let count = self.allocate_register()?;
+        let rcount = self.allocate_register()?;
+        self.emit(abi::load_u64(&count, &left_ptr, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&rcount, &right_ptr, COLLECTION_OFFSET_COUNT));
+        // Lengths must match.
+        let lengths_ok = self.label("simd_bin_lengths_ok");
+        self.emit(abi::compare_registers(&count, &rcount));
+        self.emit(abi::branch_eq(&lengths_ok));
+        self.emit_invalid_argument_return()?;
+        self.emit(abi::label(&lengths_ok));
+
+        let count_slot = self.allocate_stack_object("simd_bin_count", 8);
+        self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
+
+        self.emit(abi::move_register("x0", &count));
+        self.emit(abi::move_immediate("x1", "Integer", &result_type_code.to_string()));
+        self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: SIMD_ALLOC_LIST_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+
+        self.reset_temporary_registers();
+        let result_base = self.allocate_register()?;
+        self.emit(abi::move_register(&result_base, "x0"));
+        let alloc_ok = self.label("simd_bin_alloc_ok");
+        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit(abi::move_register("x0", "x1"));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+
+        let left_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
+        let right_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+        let count = self.allocate_register()?;
+        self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
+        let left_data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&left_data, &left_ptr);
+        let right_data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&right_data, &right_ptr);
+        let out_data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&out_data, &result_base);
+        let pairs = self.allocate_register()?;
+        self.emit(abi::shift_right_immediate(&pairs, &count, 1));
+
+        let loop_label = self.label("simd_bin_loop");
+        let loop_done = self.label("simd_bin_done");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(&pairs, "0"));
+        self.emit(abi::branch_eq(&loop_done));
+        self.emit(abi::vector_load("v0", &left_data, 0));
+        self.emit(abi::vector_load("v1", &right_data, 0));
+        self.emit_simd_binary_vector(kernel);
+        self.emit(abi::vector_store("v0", &out_data, 0));
+        self.emit(abi::add_immediate(&left_data, &left_data, 16));
+        self.emit(abi::add_immediate(&right_data, &right_data, 16));
+        self.emit(abi::add_immediate(&out_data, &out_data, 16));
+        self.emit(abi::subtract_immediate(&pairs, &pairs, 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&loop_done));
+
+        // Scalar tail (count & 1): x0 = left lane, x1 = right lane, result → x0.
+        self.emit(abi::move_immediate("x2", "Integer", "1"));
+        self.emit(abi::and_registers("x2", &count, "x2"));
+        let tail_done = self.label("simd_bin_tail_done");
+        self.emit(abi::compare_immediate("x2", "0"));
+        self.emit(abi::branch_eq(&tail_done));
+        self.emit(abi::load_u64("x0", &left_data, 0));
+        self.emit(abi::load_u64("x1", &right_data, 0));
+        self.emit_simd_binary_scalar(kernel);
+        self.emit(abi::store_u64("x0", &out_data, 0));
+        self.emit(abi::label(&tail_done));
+
+        Ok(ValueResult {
+            type_: result_type.to_string(),
+            location: result_base,
+            text,
+        })
+    }
+
+    /// Per-chunk NEON min/max: lanes in `v0` (left) and `v1` (right); result → `v0`.
+    fn emit_simd_binary_vector(&mut self, kernel: SimdBinaryKernel) {
+        match kernel {
+            SimdBinaryKernel::MinFloat => self.emit(abi::vector_fmin("v0", "v0", "v1")),
+            SimdBinaryKernel::MaxFloat => self.emit(abi::vector_fmax("v0", "v0", "v1")),
+            SimdBinaryKernel::MinSigned => {
+                // min(a,b): select a where b>a (a is smaller), else b.
+                self.emit(abi::vector_cmgt("v2", "v1", "v0")); // b > a
+                self.emit(abi::vector_bsl("v2", "v0", "v1"));
+                self.emit(abi::vector_orr("v0", "v2", "v2"));
+            }
+            SimdBinaryKernel::MaxSigned => {
+                // max(a,b): select a where a>b, else b.
+                self.emit(abi::vector_cmgt("v2", "v0", "v1")); // a > b
+                self.emit(abi::vector_bsl("v2", "v0", "v1"));
+                self.emit(abi::vector_orr("v0", "v2", "v2"));
+            }
+        }
+    }
+
+    /// Scalar tail min/max: `x0` = left, `x1` = right; result → `x0`.
+    fn emit_simd_binary_scalar(&mut self, kernel: SimdBinaryKernel) {
+        let done = self.label("simd_bin_tail_sel_done");
+        match kernel {
+            SimdBinaryKernel::MinSigned => {
+                self.emit(abi::compare_registers("x0", "x1"));
+                self.emit(abi::branch_le(&done)); // x0 <= x1 → keep x0
+                self.emit(abi::move_register("x0", "x1"));
+            }
+            SimdBinaryKernel::MaxSigned => {
+                self.emit(abi::compare_registers("x0", "x1"));
+                self.emit(abi::branch_ge(&done)); // x0 >= x1 → keep x0
+                self.emit(abi::move_register("x0", "x1"));
+            }
+            SimdBinaryKernel::MinFloat | SimdBinaryKernel::MaxFloat => {
+                self.emit(abi::float_move_d_from_x("d0", "x0"));
+                self.emit(abi::float_move_d_from_x("d1", "x1"));
+                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
+                self.emit(abi::float_compare_zero_d("d2"));
+                if matches!(kernel, SimdBinaryKernel::MinFloat) {
+                    self.emit(abi::branch_le(&done)); // d0 <= d1 → keep x0
+                } else {
+                    self.emit(abi::branch_ge(&done));
+                }
+                self.emit(abi::move_register("x0", "x1"));
+            }
+        }
+        self.emit(abi::label(&done));
+    }
+
+    /// Lower `math::clamp(values AS T[], low AS T, high AS T)` — clamp each lane to
+    /// `[low, high]` via `max(min(x, high), low)`. `low`/`high` are broadcast into
+    /// both `.2d` lanes. Never errors.
+    pub(super) fn lower_simd_clamp(
+        &mut self,
+        kernel: SimdClampKernel,
+        in_slot: usize,
+        low_slot: usize,
+        high_slot: usize,
+        result_type: &str,
+        result_type_code: usize,
+        text: String,
+    ) -> Result<ValueResult, String> {
+        // `in_slot`/`low_slot`/`high_slot` already hold the list pointer and the
+        // two scalar bounds (the caller spilled them as it lowered each arg).
+        let count_slot = self.allocate_stack_object("simd_clamp_count", 8);
+
+        self.reset_temporary_registers();
+        let in_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
+        let count = self.allocate_register()?;
+        self.emit(abi::load_u64(&count, &in_ptr, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
+
+        self.emit(abi::move_register("x0", &count));
+        self.emit(abi::move_immediate("x1", "Integer", &result_type_code.to_string()));
+        self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: SIMD_ALLOC_LIST_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+
+        self.reset_temporary_registers();
+        let result_base = self.allocate_register()?;
+        self.emit(abi::move_register(&result_base, "x0"));
+        let alloc_ok = self.label("simd_clamp_alloc_ok");
+        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit(abi::move_register("x0", "x1"));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+
+        let in_ptr = self.allocate_register()?;
+        self.emit(abi::load_u64(&in_ptr, abi::stack_pointer(), in_slot));
+        let count = self.allocate_register()?;
+        self.emit(abi::load_u64(&count, abi::stack_pointer(), count_slot));
+        let in_data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&in_data, &in_ptr);
+        let out_data = self.allocate_register()?;
+        self.emit_collection_data_pointer(&out_data, &result_base);
+        let pairs = self.allocate_register()?;
+        self.emit(abi::shift_right_immediate(&pairs, &count, 1));
+        // v5 = broadcast(low), v6 = broadcast(high).
+        self.emit(abi::load_u64("x0", abi::stack_pointer(), low_slot));
+        self.emit(abi::vector_dup_from_x("v5", "x0"));
+        self.emit(abi::load_u64("x0", abi::stack_pointer(), high_slot));
+        self.emit(abi::vector_dup_from_x("v6", "x0"));
+
+        let loop_label = self.label("simd_clamp_loop");
+        let loop_done = self.label("simd_clamp_loop_done");
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(&pairs, "0"));
+        self.emit(abi::branch_eq(&loop_done));
+        self.emit(abi::vector_load("v0", &in_data, 0));
+        self.emit_simd_clamp_vector(kernel);
+        self.emit(abi::vector_store("v0", &out_data, 0));
+        self.emit(abi::add_immediate(&in_data, &in_data, 16));
+        self.emit(abi::add_immediate(&out_data, &out_data, 16));
+        self.emit(abi::subtract_immediate(&pairs, &pairs, 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&loop_done));
+
+        // Scalar tail: x0 = lane, low → low_slot, high → high_slot.
+        self.emit(abi::move_immediate("x3", "Integer", "1"));
+        self.emit(abi::and_registers("x3", &count, "x3"));
+        let tail_done = self.label("simd_clamp_tail_done");
+        self.emit(abi::compare_immediate("x3", "0"));
+        self.emit(abi::branch_eq(&tail_done));
+        self.emit(abi::load_u64("x0", &in_data, 0));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), low_slot));
+        self.emit(abi::load_u64("x2", abi::stack_pointer(), high_slot));
+        self.emit_simd_clamp_scalar(kernel);
+        self.emit(abi::store_u64("x0", &out_data, 0));
+        self.emit(abi::label(&tail_done));
+
+        Ok(ValueResult {
+            type_: result_type.to_string(),
+            location: result_base,
+            text,
+        })
+    }
+
+    /// Per-chunk clamp: lane in `v0`, bounds in `v5` (low) / `v6` (high).
+    fn emit_simd_clamp_vector(&mut self, kernel: SimdClampKernel) {
+        match kernel {
+            SimdClampKernel::Float => {
+                self.emit(abi::vector_fmin("v0", "v0", "v6")); // min(x, high)
+                self.emit(abi::vector_fmax("v0", "v0", "v5")); // max(.., low)
+            }
+            SimdClampKernel::Signed => {
+                // min(x, high): select x where high>x else high.
+                self.emit(abi::vector_cmgt("v1", "v6", "v0"));
+                self.emit(abi::vector_bsl("v1", "v0", "v6"));
+                self.emit(abi::vector_orr("v0", "v1", "v1"));
+                // max(.., low): select v0 where v0>low else low.
+                self.emit(abi::vector_cmgt("v1", "v0", "v5"));
+                self.emit(abi::vector_bsl("v1", "v0", "v5"));
+                self.emit(abi::vector_orr("v0", "v1", "v1"));
+            }
+        }
+    }
+
+    /// Scalar tail clamp: `x0` = lane, `x1` = low, `x2` = high; result → `x0`.
+    fn emit_simd_clamp_scalar(&mut self, kernel: SimdClampKernel) {
+        match kernel {
+            SimdClampKernel::Signed => {
+                // x0 = min(x0, high)
+                let skip_hi = self.label("simd_clamp_tail_skip_hi");
+                self.emit(abi::compare_registers("x0", "x2"));
+                self.emit(abi::branch_le(&skip_hi));
+                self.emit(abi::move_register("x0", "x2"));
+                self.emit(abi::label(&skip_hi));
+                // x0 = max(x0, low)
+                let skip_lo = self.label("simd_clamp_tail_skip_lo");
+                self.emit(abi::compare_registers("x0", "x1"));
+                self.emit(abi::branch_ge(&skip_lo));
+                self.emit(abi::move_register("x0", "x1"));
+                self.emit(abi::label(&skip_lo));
+            }
+            SimdClampKernel::Float => {
+                // x0 = min(x0, high) via FP compare
+                self.emit(abi::float_move_d_from_x("d0", "x0"));
+                self.emit(abi::float_move_d_from_x("d1", "x2"));
+                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
+                self.emit(abi::float_compare_zero_d("d2"));
+                let skip_hi = self.label("simd_clamp_tail_skip_hi");
+                self.emit(abi::branch_le(&skip_hi));
+                self.emit(abi::move_register("x0", "x2"));
+                self.emit(abi::label(&skip_hi));
+                // x0 = max(x0, low)
+                self.emit(abi::float_move_d_from_x("d0", "x0"));
+                self.emit(abi::float_move_d_from_x("d1", "x1"));
+                self.emit(abi::float_subtract_d("d2", "d0", "d1"));
+                self.emit(abi::float_compare_zero_d("d2"));
+                let skip_lo = self.label("simd_clamp_tail_skip_lo");
+                self.emit(abi::branch_ge(&skip_lo));
+                self.emit(abi::move_register("x0", "x1"));
+                self.emit(abi::label(&skip_lo));
+            }
+        }
     }
 }

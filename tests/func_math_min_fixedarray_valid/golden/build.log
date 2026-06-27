@@ -1,0 +1,13 @@
+$ mfb build -ast tests/func_math_min_fixedarray_valid
+Wrote AST to tests/func_math_min_fixedarray_valid/func_math_min_fixedarray_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_min_fixedarray_valid
+Wrote IR to tests/func_math_min_fixedarray_valid/func_math_min_fixedarray_valid.ir
+[exit 0]
+$ mfb build tests/func_math_min_fixedarray_valid
+Wrote executable to tests/func_math_min_fixedarray_valid/func_math_min_fixedarray_valid.out
+[exit 0]
+$ tests/func_math_min_fixedarray_valid/func_math_min_fixedarray_valid.out
+min 1.50 -2.00 2.00
+max 3.50 -1.00 9.00
+[exit 0]

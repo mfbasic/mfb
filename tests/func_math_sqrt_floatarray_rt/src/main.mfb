@@ -1,0 +1,8 @@
+IMPORT io
+IMPORT math
+FUNC main AS Integer
+  LET xs AS List OF Float = [4.0, 0.0 - 1.0, 9.0]
+  LET ys AS List OF Float = math::sqrt(xs)
+  io::print(toString(len(ys)))
+  RETURN 0
+END FUNC

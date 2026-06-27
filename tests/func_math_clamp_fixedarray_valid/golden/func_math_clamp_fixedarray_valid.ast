@@ -1,0 +1,54 @@
+{
+  "project": "func_math_clamp_fixedarray_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "pX",
+      "line": 3,
+      "params": [
+      { "name": "label", "type": "String", "default": null },
+      { "name": "xs", "type": "List OF Fixed", "default": null },
+      { "name": "p", "type": "Byte", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "s", "type": "String", "value": { "kind": "identifier", "value": "label" }, "line": 4 },
+      {
+        "kind": "forEach",
+        "name": "x",
+        "iterable": { "kind": "identifier", "value": "xs" },
+        "line": 5,
+        "body": [
+        { "kind": "assignment", "name": "s", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "s" }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "identifier", "value": "p" }] } }, "line": 6 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "number", "value": "2" }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "a", "type": "List OF Fixed", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "3.5" }] }, { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "-1.0" }] }, { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "2.0" }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "pX", "arguments": [{ "kind": "string", "value": "clamp" }, { "kind": "call", "callee": "math.clamp", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "0.0" }] }, { "kind": "call", "callee": "toFixed", "arguments": [{ "kind": "string", "value": "2.5" }] }] }, { "kind": "identifier", "value": "p" }] }, "line": 14 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 15 }
+      ]
+    }
+    ]
+  }
+  ]
+}

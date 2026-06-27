@@ -1,0 +1,18 @@
+IMPORT io
+IMPORT math
+SUB pF(label AS String, xs AS List OF Float, p AS Byte)
+  MUT s AS String = label
+  FOR EACH x IN xs
+    s = s & " " & toString(x, p)
+  NEXT
+  io::print(s)
+END SUB
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET a AS List OF Float = [3.5, 0.0 - 1.0, 2.0]
+  LET b AS List OF Float = [1.5, 0.0 - 2.0, 9.0]
+  pF("min", math::min(a, b), p)
+  pF("max", math::max(a, b), p)
+  RETURN 0
+END FUNC

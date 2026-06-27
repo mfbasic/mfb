@@ -1,0 +1,17 @@
+IMPORT io
+IMPORT math
+SUB pI(label AS String, xs AS List OF Integer)
+  MUT s AS String = label
+  FOR EACH x IN xs
+    s = s & " " & toString(x)
+  NEXT
+  io::print(s)
+END SUB
+
+FUNC main AS Integer
+  LET a AS List OF Integer = [3, 0 - 5, 7, 2, 9]
+  LET b AS List OF Integer = [4, 0 - 2, 1, 8, 0 - 1]
+  pI("min", math::min(a, b))
+  pI("max", math::max(a, b))
+  RETURN 0
+END FUNC

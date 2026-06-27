@@ -1,0 +1,52 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_sqrt_floatarray_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "pF",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "label", "type": "String", "default": null },
+    { "name": "xs", "type": "List OF Float", "default": null },
+    { "name": "p", "type": "Byte", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "s", "type": "String", "value": { "kind": "local", "name": "label" } },
+    {
+      "op": "forEach",
+      "name": "x",
+      "type": "Float",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "name": "s", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "p" }] } } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "3" } },
+    { "op": "bind", "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "4.0" }, { "kind": "const", "type": "Float", "value": "9.0" }, { "kind": "const", "type": "Float", "value": "2.0" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "pF", "args": [{ "kind": "const", "type": "String", "value": "sqrt" }, { "kind": "call", "target": "math.sqrt", "args": [{ "kind": "local", "name": "xs" }] }, { "kind": "local", "name": "p" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

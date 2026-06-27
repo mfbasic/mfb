@@ -1,0 +1,8 @@
+IMPORT math
+FUNC main AS Integer
+  LET a AS List OF Integer = [1, 2]
+  LET b AS List OF Float = [1.0, 2.0]
+  ' mismatched element types are rejected at compile time
+  LET m AS List OF Integer = math::min(a, b)
+  RETURN 0
+END FUNC

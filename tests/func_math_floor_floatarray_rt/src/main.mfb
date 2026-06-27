@@ -1,0 +1,9 @@
+IMPORT io
+IMPORT math
+FUNC main AS Integer
+  LET big AS Float = 10000000000000000000.0
+  LET xs AS List OF Float = [1.0, big, 3.0]
+  LET ys AS List OF Integer = math::floor(xs)
+  io::print(toString(len(ys)))
+  RETURN 0
+END FUNC

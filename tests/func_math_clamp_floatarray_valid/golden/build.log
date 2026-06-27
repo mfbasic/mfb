@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_math_clamp_floatarray_valid
+Wrote AST to tests/func_math_clamp_floatarray_valid/func_math_clamp_floatarray_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_clamp_floatarray_valid
+Wrote IR to tests/func_math_clamp_floatarray_valid/func_math_clamp_floatarray_valid.ir
+[exit 0]
+$ mfb build tests/func_math_clamp_floatarray_valid
+Wrote executable to tests/func_math_clamp_floatarray_valid/func_math_clamp_floatarray_valid.out
+[exit 0]
+$ tests/func_math_clamp_floatarray_valid/func_math_clamp_floatarray_valid.out
+clamp 2.50 0.00 2.00
+[exit 0]

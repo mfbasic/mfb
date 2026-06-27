@@ -1,0 +1,15 @@
+IMPORT io
+IMPORT math
+SUB pI(label AS String, xs AS List OF Integer)
+  MUT s AS String = label
+  FOR EACH x IN xs
+    s = s & " " & toString(x)
+  NEXT
+  io::print(s)
+END SUB
+
+FUNC main AS Integer
+  LET a AS List OF Integer = [3, 0 - 5, 7, 2, 9]
+  pI("clamp", math::clamp(a, 0, 5))
+  RETURN 0
+END FUNC

@@ -1,0 +1,52 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_min_intarray_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "pI",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "label", "type": "String", "default": null },
+    { "name": "xs", "type": "List OF Integer", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "s", "type": "String", "value": { "kind": "local", "name": "label" } },
+    {
+      "op": "forEach",
+      "name": "x",
+      "type": "Integer",
+      "iterable": { "kind": "local", "name": "xs" },
+      "body": [
+      { "op": "assign", "name": "s", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "s" }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "x" }] } } }
+      ]
+    },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "a", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "const", "type": "Integer", "value": "5" } }, { "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "mutable": false, "name": "b", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "4" }, { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "8" }, { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "pI", "args": [{ "kind": "const", "type": "String", "value": "min" }, { "kind": "call", "target": "math.min", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "pI", "args": [{ "kind": "const", "type": "String", "value": "max" }, { "kind": "call", "target": "math.max", "args": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

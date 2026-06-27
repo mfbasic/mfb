@@ -16,6 +16,18 @@ impl CodeBuilder<'_> {
                 self.lower_math_abs_array(&args[0])
             }
             "abs" if args.len() == 1 => self.lower_math_abs(&args[0]),
+            "sqrt" if args.len() == 1 && self.is_list_argument(&args[0]) => {
+                self.lower_math_sqrt_array(&args[0])
+            }
+            "floor" | "ceil" | "round" if args.len() == 1 && self.is_list_argument(&args[0]) => {
+                self.lower_math_rounding_array(function, &args[0])
+            }
+            "min" | "max" if args.len() == 2 && self.is_list_argument(&args[0]) => {
+                self.lower_math_min_max_array(function, args)
+            }
+            "clamp" if args.len() == 3 && self.is_list_argument(&args[0]) => {
+                self.lower_math_clamp_array(args)
+            }
             "min" | "max" if args.len() == 2 => self.lower_math_min_max(function, args),
             "clamp" if args.len() == 3 => self.lower_math_clamp(args),
             "floor" | "ceil" | "round" if args.len() == 1 => {
@@ -62,8 +74,78 @@ impl CodeBuilder<'_> {
                 COLLECTION_TYPE_INTEGER,
                 text,
             ),
+            // Fixed is a raw Q32.32 i64; |x| and the INT64_MIN overflow check are
+            // the same integer operation as Integer.
+            "Fixed" => self.lower_simd_unary(
+                SimdUnaryKernel::AbsInteger,
+                input,
+                "List OF Fixed",
+                COLLECTION_TYPE_FIXED,
+                text,
+            ),
+            "Float" => self.lower_simd_unary(
+                SimdUnaryKernel::AbsFloat,
+                input,
+                "List OF Float",
+                COLLECTION_TYPE_FLOAT,
+                text,
+            ),
             other => Err(format!("math.abs array overload does not accept List OF {other}")),
         }
+    }
+
+    /// `math.sqrt(values AS Float[])` — vectorized square root (plan-01-simd
+    /// §4.4). `ErrInvalidArgument` if any lane is negative.
+    fn lower_math_sqrt_array(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        use super::builder_simd_math::SimdUnaryKernel;
+        let input = self.lower_value(arg)?;
+        let text = format!("math.sqrt({})", input.text);
+        let element = input
+            .type_
+            .strip_prefix("List OF ")
+            .ok_or_else(|| format!("math.sqrt array overload requires a list, got {}", input.type_))?
+            .to_string();
+        match element.as_str() {
+            "Float" => self.lower_simd_unary(
+                SimdUnaryKernel::SqrtFloat,
+                input,
+                "List OF Float",
+                COLLECTION_TYPE_FLOAT,
+                text,
+            ),
+            other => Err(format!("math.sqrt array overload does not accept List OF {other}")),
+        }
+    }
+
+    /// `math.floor/ceil/round(values AS Float[]|Fixed[]) AS Integer[]` —
+    /// vectorized rounding to a new `List OF Integer` (plan-01-simd §4.4).
+    fn lower_math_rounding_array(
+        &mut self,
+        function: &str,
+        arg: &NirValue,
+    ) -> Result<ValueResult, String> {
+        use super::builder_simd_math::SimdUnaryKernel;
+        let input = self.lower_value(arg)?;
+        let text = format!("math.{function}({})", input.text);
+        let element = input
+            .type_
+            .strip_prefix("List OF ")
+            .ok_or_else(|| format!("math.{function} array overload requires a list, got {}", input.type_))?
+            .to_string();
+        let kernel = match (function, element.as_str()) {
+            ("floor", "Float") => SimdUnaryKernel::FloorFloat,
+            ("ceil", "Float") => SimdUnaryKernel::CeilFloat,
+            ("round", "Float") => SimdUnaryKernel::RoundFloat,
+            ("floor", "Fixed") => SimdUnaryKernel::FloorFixed,
+            ("ceil", "Fixed") => SimdUnaryKernel::CeilFixed,
+            ("round", "Fixed") => SimdUnaryKernel::RoundFixed,
+            (_, other) => {
+                return Err(format!(
+                    "math.{function} array overload does not accept List OF {other}"
+                ))
+            }
+        };
+        self.lower_simd_unary(kernel, input, "List OF Integer", COLLECTION_TYPE_INTEGER, text)
     }
 
     fn lower_math_abs(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
@@ -104,6 +186,99 @@ impl CodeBuilder<'_> {
             location: dst,
             text: format!("math.abs({})", value.text),
         })
+    }
+
+    /// Map a numeric element type name to its collection value-type code.
+    fn numeric_element_type_code(element: &str) -> Option<usize> {
+        match element {
+            "Integer" => Some(COLLECTION_TYPE_INTEGER),
+            "Float" => Some(COLLECTION_TYPE_FLOAT),
+            "Fixed" => Some(COLLECTION_TYPE_FIXED),
+            _ => None,
+        }
+    }
+
+    /// `math.min/max(a AS T[], b AS T[]) AS T[]` — vectorized element-wise
+    /// min/max (plan-01-simd §4.4). `ErrInvalidArgument` if lengths differ.
+    fn lower_math_min_max_array(
+        &mut self,
+        function: &str,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        use super::builder_simd_math::SimdBinaryKernel;
+        // Lower and spill each argument before lowering the next: a later arg's
+        // lowering may emit a call that clobbers the caller-saved register holding
+        // an earlier list pointer ([[arena-alloc-clobbers-x14-x15]] generalized).
+        let left = self.lower_value(&args[0])?;
+        let left_slot = self.allocate_stack_object("simd_minmax_left", 8);
+        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        let right = self.lower_value(&args[1])?;
+        let right_slot = self.allocate_stack_object("simd_minmax_right", 8);
+        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        if left.type_ != right.type_ {
+            return Err(format!(
+                "math.{function} array overload requires matching list types, got {} and {}",
+                left.type_, right.type_
+            ));
+        }
+        let result_type = left.type_.clone();
+        let element = result_type
+            .strip_prefix("List OF ")
+            .ok_or_else(|| format!("math.{function} array overload requires a list"))?
+            .to_string();
+        let code = Self::numeric_element_type_code(&element).ok_or_else(|| {
+            format!("math.{function} array overload does not accept List OF {element}")
+        })?;
+        let kernel = match (function, element.as_str()) {
+            ("min", "Float") => SimdBinaryKernel::MinFloat,
+            ("max", "Float") => SimdBinaryKernel::MaxFloat,
+            // Integer and raw Q32.32 Fixed are both signed-i64 lane compares.
+            ("min", "Integer" | "Fixed") => SimdBinaryKernel::MinSigned,
+            ("max", "Integer" | "Fixed") => SimdBinaryKernel::MaxSigned,
+            _ => {
+                return Err(format!(
+                    "math.{function} array overload does not accept List OF {element}"
+                ))
+            }
+        };
+        let text = format!("math.{function}({}, {})", left.text, right.text);
+        self.lower_simd_binary(kernel, left_slot, right_slot, &result_type, code, text)
+    }
+
+    /// `math.clamp(values AS T[], low AS T, high AS T) AS T[]` — vectorized clamp
+    /// (plan-01-simd §4.4). Never errors.
+    fn lower_math_clamp_array(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        use super::builder_simd_math::SimdClampKernel;
+        // Lower and spill each argument before lowering the next (see
+        // lower_math_min_max_array): `low`/`high` may be call results that clobber
+        // the register holding the input list pointer.
+        let input = self.lower_value(&args[0])?;
+        let result_type = input.type_.clone();
+        let in_slot = self.allocate_stack_object("simd_clamp_in", 8);
+        self.emit(abi::store_u64(&input.location, abi::stack_pointer(), in_slot));
+        let low = self.lower_value(&args[1])?;
+        let low_slot = self.allocate_stack_object("simd_clamp_low", 8);
+        self.emit(abi::store_u64(&low.location, abi::stack_pointer(), low_slot));
+        let high = self.lower_value(&args[2])?;
+        let high_slot = self.allocate_stack_object("simd_clamp_high", 8);
+        self.emit(abi::store_u64(&high.location, abi::stack_pointer(), high_slot));
+        let element = result_type
+            .strip_prefix("List OF ")
+            .ok_or_else(|| "math.clamp array overload requires a list".to_string())?
+            .to_string();
+        let code = Self::numeric_element_type_code(&element)
+            .ok_or_else(|| format!("math.clamp array overload does not accept List OF {element}"))?;
+        let kernel = match element.as_str() {
+            "Float" => SimdClampKernel::Float,
+            "Integer" | "Fixed" => SimdClampKernel::Signed,
+            other => {
+                return Err(format!(
+                    "math.clamp array overload does not accept List OF {other}"
+                ))
+            }
+        };
+        let text = format!("math.clamp({}, {}, {})", input.text, low.text, high.text);
+        self.lower_simd_clamp(kernel, in_slot, low_slot, high_slot, &result_type, code, text)
     }
 
     fn lower_math_min_max(

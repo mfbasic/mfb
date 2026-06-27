@@ -146,7 +146,13 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         }
         // Array (SIMD) overloads — plan-01-simd §4.2. The result list type equals
         // the (single, or two matching) argument list type.
-        ABS if one_numeric_list(arg_types, "Integer") => Cow::Borrowed(arg_types[0].as_str()),
+        ABS if any_numeric_list(arg_types) => Cow::Borrowed(arg_types[0].as_str()),
+        SQRT if one_numeric_list(arg_types, "Float") => Cow::Borrowed(arg_types[0].as_str()),
+        FLOOR | CEIL | ROUND if one_floatish_list(arg_types) => {
+            Cow::Borrowed("List OF Integer")
+        }
+        MIN | MAX if two_same_numeric_lists(arg_types) => Cow::Borrowed(arg_types[0].as_str()),
+        CLAMP if clamp_list(arg_types) => Cow::Borrowed(arg_types[0].as_str()),
         CLAMP if all_same_numeric(arg_types, 3, 3) => Cow::Borrowed(arg_types[0].as_str()),
         FLOOR | CEIL | ROUND if one_floatish(arg_types) => Cow::Borrowed("Integer"),
         SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN
@@ -222,4 +228,37 @@ fn is_numeric(type_name: &str) -> bool {
 /// `element` is one of `Integer`/`Float`/`Fixed`.
 fn one_numeric_list(arg_types: &[String], element: &str) -> bool {
     arg_types.len() == 1 && arg_types[0] == format!("List OF {element}")
+}
+
+/// A single `List OF Float` or `List OF Fixed` (the array rounding overloads).
+fn one_floatish_list(arg_types: &[String]) -> bool {
+    arg_types.len() == 1
+        && matches!(arg_types[0].as_str(), "List OF Float" | "List OF Fixed")
+}
+
+/// A single homogeneous numeric list argument of any numeric element type.
+fn any_numeric_list(arg_types: &[String]) -> bool {
+    arg_types.len() == 1 && is_numeric_list(&arg_types[0])
+}
+
+fn is_numeric_list(type_: &str) -> bool {
+    matches!(
+        type_,
+        "List OF Integer" | "List OF Float" | "List OF Fixed"
+    )
+}
+
+/// Two arguments that are the same numeric list type (two-array `min`/`max`).
+fn two_same_numeric_lists(arg_types: &[String]) -> bool {
+    arg_types.len() == 2 && is_numeric_list(&arg_types[0]) && arg_types[0] == arg_types[1]
+}
+
+/// `(List OF T, T, T)` for a numeric `T` (the array `clamp` overload): a numeric
+/// list followed by two scalar bounds of the matching element type.
+fn clamp_list(arg_types: &[String]) -> bool {
+    arg_types.len() == 3
+        && is_numeric_list(&arg_types[0])
+        && arg_types[0]
+            .strip_prefix("List OF ")
+            .is_some_and(|element| arg_types[1] == element && arg_types[2] == element)
 }

@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_math_abs_fixedarray_valid
+Wrote AST to tests/func_math_abs_fixedarray_valid/func_math_abs_fixedarray_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_abs_fixedarray_valid
+Wrote IR to tests/func_math_abs_fixedarray_valid/func_math_abs_fixedarray_valid.ir
+[exit 0]
+$ mfb build tests/func_math_abs_fixedarray_valid
+Wrote executable to tests/func_math_abs_fixedarray_valid/func_math_abs_fixedarray_valid.out
+[exit 0]
+$ tests/func_math_abs_fixedarray_valid/func_math_abs_fixedarray_valid.out
+abs 1.50 2.25 3.00
+[exit 0]

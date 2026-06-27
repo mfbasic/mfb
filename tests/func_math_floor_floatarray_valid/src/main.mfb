@@ -1,0 +1,15 @@
+IMPORT io
+IMPORT math
+SUB pI(label AS String, xs AS List OF Integer)
+  MUT s AS String = label
+  FOR EACH x IN xs
+    s = s & " " & toString(x)
+  NEXT
+  io::print(s)
+END SUB
+
+FUNC main AS Integer
+  LET xs AS List OF Float = [2.3, 0.0 - 2.3, 2.5, 0.0 - 2.5, 3.7]
+  pI("floor", math::floor(xs))
+  RETURN 0
+END FUNC

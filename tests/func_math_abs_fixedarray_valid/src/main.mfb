@@ -1,0 +1,16 @@
+IMPORT io
+IMPORT math
+SUB pX(label AS String, xs AS List OF Fixed, p AS Byte)
+  MUT s AS String = label
+  FOR EACH x IN xs
+    s = s & " " & toString(x, p)
+  NEXT
+  io::print(s)
+END SUB
+
+FUNC main AS Integer
+  LET p AS Byte = 2
+  LET xs AS List OF Fixed = [toFixed("-1.5"), toFixed("2.25"), toFixed("-3.0")]
+  pX("abs", math::abs(xs), p)
+  RETURN 0
+END FUNC
