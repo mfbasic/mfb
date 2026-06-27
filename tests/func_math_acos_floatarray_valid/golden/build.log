@@ -1,0 +1,16 @@
+$ mfb build -ast tests/func_math_acos_floatarray_valid
+Wrote AST to tests/func_math_acos_floatarray_valid/func_math_acos_floatarray_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_math_acos_floatarray_valid
+Wrote IR to tests/func_math_acos_floatarray_valid/func_math_acos_floatarray_valid.ir
+[exit 0]
+$ mfb build tests/func_math_acos_floatarray_valid
+Wrote executable to tests/func_math_acos_floatarray_valid/func_math_acos_floatarray_valid.out
+[exit 0]
+$ tests/func_math_acos_floatarray_valid/func_math_acos_floatarray_valid.out
+1.570796326794897
+1.047197551196598
+2.094395102393196
+0.000000000000000
+1.318116071652818
+[exit 0]

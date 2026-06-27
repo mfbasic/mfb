@@ -34,7 +34,9 @@ impl CodeBuilder<'_> {
             "exp" if args.len() == 1 && self.is_list_argument(&args[0]) => {
                 self.lower_math_exp_array(&args[0])
             }
-            "sin" | "cos" | "tan" | "atan" if args.len() == 1 && self.is_list_argument(&args[0]) => {
+            "sin" | "cos" | "tan" | "atan" | "asin" | "acos"
+                if args.len() == 1 && self.is_list_argument(&args[0]) =>
+            {
                 self.lower_math_trig_array(function, &args[0])
             }
             "min" | "max" if args.len() == 2 => self.lower_math_min_max(function, args),
@@ -164,6 +166,8 @@ impl CodeBuilder<'_> {
             ("cos", "Float") => FloatKernel::Cos,
             ("tan", "Float") => FloatKernel::Tan,
             ("atan", "Float") => FloatKernel::Atan,
+            ("asin", "Float") => FloatKernel::Asin,
+            ("acos", "Float") => FloatKernel::Acos,
             (_, other) => {
                 return Err(format!(
                     "math.{function} array overload does not accept List OF {other}"

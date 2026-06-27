@@ -1,0 +1,37 @@
+{
+  "project": "func_math_acos_floatarray_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 6,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "number", "value": "15" }, "line": 7 },
+      { "kind": "binding", "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "number", "value": "0.0" }, { "kind": "number", "value": "0.5" }, { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "number", "value": "0.5" } }, { "kind": "number", "value": "1.0" }, { "kind": "number", "value": "0.25" }] }, "line": 8 },
+      {
+        "kind": "forEach",
+        "name": "y",
+        "iterable": { "kind": "call", "callee": "math.acos", "arguments": [{ "kind": "identifier", "value": "xs" }] },
+        "line": 9,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "y" }, { "kind": "identifier", "value": "p" }] }] }, "line": 10 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

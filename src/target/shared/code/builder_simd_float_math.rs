@@ -46,6 +46,9 @@ pub(super) enum FloatKernel {
     Tan,
     /// `atan(x)`; no error.
     Atan,
+    /// `asin(x)` / `acos(x)`; `ErrInvalidArgument` for `|x| > 1`.
+    Asin,
+    Acos,
 }
 
 impl FloatKernel {
@@ -53,6 +56,7 @@ impl FloatKernel {
         match self {
             FloatKernel::Exp => Some(FloatError::Overflow),
             FloatKernel::Log | FloatKernel::Log10 => Some(FloatError::InvalidArgument),
+            FloatKernel::Asin | FloatKernel::Acos => Some(FloatError::InvalidArgument),
             FloatKernel::Sin | FloatKernel::Cos | FloatKernel::Tan | FloatKernel::Atan => None,
         }
     }
@@ -209,7 +213,7 @@ impl CodeBuilder<'_> {
                 self.broadcast_f64("v20", PIO2_2T);
                 self.broadcast_i64("v21", 3); // quadrant mask
             }
-            FloatKernel::Atan => {
+            FloatKernel::Atan | FloatKernel::Asin | FloatKernel::Acos => {
                 self.broadcast_f64("v16", 1.0);
                 self.broadcast_f64("v17", std::f64::consts::FRAC_PI_2);
                 self.broadcast_i64("v18", i64::MIN); // sign mask 0x8000..
@@ -229,15 +233,37 @@ impl CodeBuilder<'_> {
             FloatKernel::Sin => self.emit_sin_cos_body(false),
             FloatKernel::Cos => self.emit_sin_cos_body(true),
             FloatKernel::Tan => self.emit_tan_body(),
-            FloatKernel::Atan => self.emit_atan_body(),
+            FloatKernel::Atan => self.emit_atan_core(),
+            FloatKernel::Asin => self.emit_asin_acos_body(false),
+            FloatKernel::Acos => self.emit_asin_acos_body(true),
         }
     }
 
-    /// `atan(x)` kernel: for `|x|<=1` evaluate `ax*P(ax^2)`; for `|x|>1` use
-    /// `pi/2 - inv*P(inv^2)` with `inv=1/|x|`; restore the sign. Constants:
-    /// v16=1.0, v17=pi/2, v18=sign mask, v19=abs mask. (Faithfully rounded; the
-    /// strict <=1 ULP refinement needs a segmented argument reduction.)
-    fn emit_atan_body(&mut self) {
+    /// `asin(x)` / `acos(x)` via `asin(x) = atan(x / sqrt(1 - x^2))` (NEON `fdiv`
+    /// yields ±inf at x=±1, and `atan(inf) = ±pi/2`); `acos = pi/2 - asin`.
+    /// `ErrInvalidArgument` for `|x| > 1`. Faithfully rounded (within a few ULP).
+    fn emit_asin_acos_body(&mut self, want_acos: bool) {
+        // Domain: |x| > 1 fails.
+        self.emit(abi::vector_and("v1", "v0", "v19")); // ax
+        self.emit(abi::vector_fcmgt("v6", "v1", "v16")); // ax > 1
+        self.emit(abi::vector_orr("v22", "v22", "v6"));
+        // arg = x / sqrt(1 - x^2).
+        self.emit(abi::vector_orr("v7", "v16", "v16")); // 1.0
+        self.emit(abi::vector_fmls("v7", "v0", "v0")); // 1 - x*x
+        self.emit(abi::vector_fsqrt("v7", "v7"));
+        self.emit(abi::vector_fdiv("v0", "v0", "v7")); // arg → v0
+        self.emit_atan_core(); // v0 = atan(arg) = asin(x)
+        if want_acos {
+            self.emit(abi::vector_fsub("v0", "v17", "v0")); // pi/2 - asin
+        }
+    }
+
+    /// `atan(x)` core (input in `v0`, result in `v0`): for `|x|<=1` evaluate
+    /// `ax*P(ax^2)`; for `|x|>1` use `pi/2 - inv*P(inv^2)` with `inv=1/|x|`;
+    /// restore the sign. Constants: v16=1.0, v17=pi/2, v18=sign mask, v19=abs
+    /// mask. Reused by asin/acos. (Faithfully rounded; strict <=1 ULP needs a
+    /// segmented argument reduction.)
+    fn emit_atan_core(&mut self) {
         self.emit(abi::vector_and("v1", "v0", "v19")); // ax = |x|
         self.emit(abi::vector_fcmgt("v2", "v1", "v16")); // mask: ax > 1
         self.emit(abi::vector_fdiv("v3", "v16", "v1")); // inv = 1/ax

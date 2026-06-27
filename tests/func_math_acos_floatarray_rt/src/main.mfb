@@ -1,0 +1,9 @@
+IMPORT io
+IMPORT math
+' acos raises ErrInvalidArgument when a lane is outside [-1, 1].
+FUNC main AS Integer
+  LET xs AS List OF Float = [0.5, 2.0, 0.1]
+  LET ys AS List OF Float = math::acos(xs)
+  io::print(toString(len(ys)))
+  RETURN 0
+END FUNC
