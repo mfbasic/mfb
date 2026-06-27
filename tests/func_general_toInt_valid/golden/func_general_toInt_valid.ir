@@ -96,6 +96,19 @@
     ]
   },
   {
+    "name": "fromBase",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null },
+    { "name": "base", "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "base" }] } }
+    ]
+  },
+  {
     "name": "main",
     "visibility": "private",
     "kind": "func",
@@ -113,6 +126,18 @@
     { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromFloat", "args": [{ "kind": "call", "target": "negativeFloat", "args": [{ "kind": "const", "type": "Float", "value": "3.9" }] }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromFixed", "args": [{ "kind": "const", "type": "Fixed", "value": "12.75" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromFixed", "args": [{ "kind": "call", "target": "negativeFixed", "args": [{ "kind": "const", "type": "Fixed", "value": "12.75" }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "65535" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "ff" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "FF" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "-1a" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "+1a" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "101" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "777" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "z" }, { "kind": "const", "type": "Integer", "value": "36" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "zz" }, { "kind": "const", "type": "Integer", "value": "36" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "0" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "7fffffffffffffff" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "printInt", "args": [{ "kind": "call", "target": "fromBase", "args": [{ "kind": "const", "type": "String", "value": "-8000000000000000" }, { "kind": "const", "type": "Integer", "value": "16" }] }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

@@ -9,8 +9,10 @@ use super::*;
 const DECIMAL_EXPONENT_CLAMP: &str = "1000";
 
 impl CodeBuilder<'_> {
-    pub(super) fn lower_to_int(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
-        let value = self.lower_value(arg)?;
+    pub(super) fn lower_to_int(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
+        let value = self.lower_value(&args[0])?;
+        // `toInt(value)` with a `Byte` is a width-narrowing move; the 2-arg
+        // radix form is `String`-only, so a `Byte` here is always 1-arg.
         if value.type_ == "Byte" {
             let register = self.allocate_register()?;
             self.emit(abi::move_register(&register, &value.location));
@@ -26,13 +28,27 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             value_slot,
         ));
+        // The 2-arg `toInt(text AS String, base AS Integer)` form parses `text`
+        // in `base` (plan-02-cleanup §5). Lower and spill the base before
+        // resetting temporaries so its register can be reclaimed.
+        let base_slot = if args.len() == 2 {
+            let base = self.lower_value(&args[1])?;
+            let slot = self.allocate_stack_object("to_int_base", 8);
+            self.emit(abi::store_u64(&base.location, abi::stack_pointer(), slot));
+            Some(slot)
+        } else {
+            None
+        };
         self.reset_temporary_registers();
         let source = self.allocate_register()?;
         self.emit(abi::load_u64(&source, abi::stack_pointer(), value_slot));
         match value.type_.as_str() {
             "Fixed" => self.emit_fixed_to_int_value(&source),
             "Float" => self.emit_float_to_int_value(&source),
-            "String" => self.emit_string_to_int_value(&source),
+            "String" => match base_slot {
+                Some(slot) => self.emit_string_to_int_value_base(&source, slot),
+                None => self.emit_string_to_int_value(&source),
+            },
             other => Err(format!(
                 "native toInt does not accept argument type '{other}'"
             )),
@@ -220,6 +236,149 @@ impl CodeBuilder<'_> {
             type_: "Integer".to_string(),
             location: result,
             text: "toInt(String)".to_string(),
+        })
+    }
+
+    /// Radix-aware string parse for the 2-arg `toInt(text AS String, base AS
+    /// Integer)` form (plan-02-cleanup §5). `base_slot` holds the runtime base
+    /// (a stack offset). Generalizes `emit_string_to_int_value`'s base-10 digit
+    /// accumulation to an arbitrary `base` in `2..=36` with a base-aware digit
+    /// validator and runtime overflow cutoff. The optional leading `-`/`+` sign
+    /// is kept for every base (backward-compatible with the base-10 path).
+    ///
+    /// Errors: `base` outside `2..=36`, an empty string, or a digit not valid
+    /// for `base` FAIL `77050003` (ErrInvalidFormat); a value outside the i64
+    /// range FAILs `77050010` (ErrOverflow).
+    pub(super) fn emit_string_to_int_value_base(
+        &mut self,
+        source_register: &str,
+        base_slot: usize,
+    ) -> Result<ValueResult, String> {
+        let string = "x8";
+        let length = "x9";
+        let index = "x10";
+        let cursor = "x11";
+        let byte = "x12";
+        let acc = "x13";
+        let negative = "x14";
+        let digit = "x15";
+        let cutoff = "x16";
+        let cutlim = "x17";
+        let base = "x6";
+        let scratch = "x7";
+        let invalid = self.label("string_to_int_base_invalid");
+        let overflow = self.label("string_to_int_base_overflow");
+        let first_not_minus = self.label("string_to_int_base_first_not_minus");
+        let sign_done = self.label("string_to_int_base_sign_done");
+        let limit_ready = self.label("string_to_int_base_limit_ready");
+        let loop_start = self.label("string_to_int_base_loop");
+        let loop_done = self.label("string_to_int_base_done");
+        let alpha = self.label("string_to_int_base_alpha");
+        let digit_decoded = self.label("string_to_int_base_digit_decoded");
+        let cutoff_equal = self.label("string_to_int_base_cutoff_equal");
+        let digit_ok = self.label("string_to_int_base_digit_ok");
+        let positive = self.label("string_to_int_base_positive");
+        let done = self.label("string_to_int_base_return");
+        let result = self.allocate_register()?;
+
+        // Load the base from its stack slot and validate `2 <= base <= 36`.
+        self.emit(abi::load_u64(base, abi::stack_pointer(), base_slot));
+        self.emit(abi::move_register(string, source_register));
+        self.emit(abi::compare_immediate(base, "2"));
+        self.emit(abi::branch_lt(&invalid));
+        self.emit(abi::compare_immediate(base, "36"));
+        self.emit(abi::branch_gt(&invalid));
+
+        self.emit(abi::load_u64(length, string, 0));
+        self.emit(abi::compare_immediate(length, "0"));
+        self.emit(abi::branch_eq(&invalid));
+        self.emit(abi::add_immediate(cursor, string, 8));
+        self.emit(abi::move_immediate(index, "Integer", "0"));
+        self.emit(abi::move_immediate(acc, "Integer", "0"));
+        self.emit(abi::move_immediate(negative, "Integer", "0"));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::compare_immediate(byte, "45"));
+        self.emit(abi::branch_ne(&first_not_minus));
+        self.emit(abi::move_immediate(negative, "Integer", "1"));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(&sign_done));
+        self.emit(abi::label(&first_not_minus));
+        self.emit(abi::compare_immediate(byte, "43"));
+        self.emit(abi::branch_ne(&sign_done));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::label(&sign_done));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&invalid));
+
+        // Overflow cutoff: limit = negative ? 2^63 : i64::MAX. With base >= 2,
+        // cutoff = limit / base and cutlim = limit - cutoff*base both fit a
+        // positive i64, so the per-digit check below uses signed compares.
+        self.emit(abi::move_immediate(scratch, "Integer", "9223372036854775807"));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(&limit_ready));
+        self.emit(abi::add_immediate(scratch, scratch, 1));
+        self.emit(abi::label(&limit_ready));
+        self.emit(abi::unsigned_divide_registers(cutoff, scratch, base));
+        self.emit(abi::multiply_subtract_registers(cutlim, cutoff, base, scratch));
+
+        self.emit(abi::label(&loop_start));
+        self.emit(abi::compare_registers(index, length));
+        self.emit(abi::branch_ge(&loop_done));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        // Decode one base-36 digit into `digit`, rejecting non-alphanumerics.
+        // Decimal: '0'..'9' (byte-48 in 0..9). Alpha: 'A'..'Z' / 'a'..'z' map to
+        // 10..35 via (byte-65)+10 / (byte-97)+10.
+        self.emit(abi::subtract_immediate(digit, byte, 48));
+        self.emit(abi::compare_immediate(digit, "10"));
+        self.emit(abi::branch_lo(&digit_decoded));
+        self.emit(abi::subtract_immediate(scratch, byte, 65));
+        self.emit(abi::compare_immediate(scratch, "26"));
+        self.emit(abi::branch_lo(&alpha));
+        self.emit(abi::subtract_immediate(scratch, byte, 97));
+        self.emit(abi::compare_immediate(scratch, "26"));
+        self.emit(abi::branch_lo(&alpha));
+        self.emit(abi::branch(&invalid));
+        self.emit(abi::label(&alpha));
+        self.emit(abi::add_immediate(digit, scratch, 10));
+        self.emit(abi::label(&digit_decoded));
+        // Reject a digit that is not valid for `base` (e.g. '9' in base 2).
+        self.emit(abi::compare_registers(digit, base));
+        self.emit(abi::branch_ge(&invalid));
+        // acc = acc*base + digit, with the standard cutoff overflow guard.
+        self.emit(abi::compare_registers(acc, cutoff));
+        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::branch_eq(&cutoff_equal));
+        self.emit(abi::branch(&digit_ok));
+        self.emit(abi::label(&cutoff_equal));
+        self.emit(abi::compare_registers(digit, cutlim));
+        self.emit(abi::branch_gt(&overflow));
+        self.emit(abi::label(&digit_ok));
+        self.emit(abi::multiply_registers(acc, acc, base));
+        self.emit(abi::add_registers(acc, acc, digit));
+        self.emit(abi::add_immediate(index, index, 1));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
+        self.emit(abi::branch(&loop_start));
+
+        self.emit(abi::label(&loop_done));
+        self.emit(abi::compare_immediate(negative, "0"));
+        self.emit(abi::branch_eq(&positive));
+        self.emit(abi::subtract_registers(&result, "xzr", acc));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&positive));
+        self.emit(abi::move_register(&result, acc));
+        self.emit(abi::branch(&done));
+        self.emit(abi::label(&invalid));
+        self.emit_invalid_format_return()?;
+        self.emit(abi::label(&overflow));
+        self.emit_overflow_return()?;
+        self.emit(abi::label(&done));
+
+        Ok(ValueResult {
+            type_: "Integer".to_string(),
+            location: result,
+            text: "toInt(String, base)".to_string(),
         })
     }
 

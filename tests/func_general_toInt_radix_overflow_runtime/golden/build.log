@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_general_toInt_radix_overflow_runtime
+Wrote AST to tests/func_general_toInt_radix_overflow_runtime/func_general_toInt_radix_overflow_runtime.ast
+[exit 0]
+$ mfb build -ir tests/func_general_toInt_radix_overflow_runtime
+Wrote IR to tests/func_general_toInt_radix_overflow_runtime/func_general_toInt_radix_overflow_runtime.ir
+[exit 0]
+$ mfb build tests/func_general_toInt_radix_overflow_runtime
+Wrote executable to tests/func_general_toInt_radix_overflow_runtime/func_general_toInt_radix_overflow_runtime.out
+[exit 0]
+$ tests/func_general_toInt_radix_overflow_runtime/func_general_toInt_radix_overflow_runtime.out
+Code: 77050010 Message: numeric overflow
+[exit 255]

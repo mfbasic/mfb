@@ -16117,6 +16117,10 @@ fn value_may_return_invalid_format(
             "toInt" if args.len() == 1 => {
                 static_type_name_with_types(&args[0], types).as_deref() != Some("Byte")
             }
+            // The 2-arg `toInt(text, base)` form parses a String in a runtime
+            // base; it FAILs `77050003` on an empty string, an out-of-range
+            // base, or a digit invalid for the base (plan-02-cleanup §5).
+            "toInt" if args.len() == 2 => true,
             "toFloat" | "toFixed" | "isNumeric" => true,
             _ => false,
         },

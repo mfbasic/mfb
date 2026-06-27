@@ -1,6 +1,7 @@
 FUNC main AS Integer
   LET missing AS Integer = toInt()
   LET wrongType AS Integer = toInt(TRUE)
-  LET tooMany AS Integer = toInt("1", "2")
+  LET wrongBaseType AS Integer = toInt("1", "2")
+  LET tooMany AS Integer = toInt("1", 2, 3)
   RETURN 0
 END FUNC

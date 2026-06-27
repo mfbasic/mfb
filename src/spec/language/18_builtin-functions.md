@@ -19,7 +19,7 @@ which whitelists `builtins::general::is_general_call`); the set is defined in
 | `len(value)` | 1 | `Integer` | `String`, `List OF T`, `Map OF K TO V` |
 | `typeName(value)` | 1 | `String` | any `T` (never reads the value) |
 | `toString(value[, decimals])` | 1–2 | `String` | `Integer`/`Float`/`Fixed`/`Boolean`/`String`/`Byte`/`List OF Byte`; optional `Byte` precision for `Float`/`Fixed` |
-| `toInt(value)` | 1 | `Integer` | `String`, `Byte`, `Float`, `Fixed` |
+| `toInt(value[, base])` | 1–2 | `Integer` | `String`, `Byte`, `Float`, `Fixed`; optional `Integer` `base` (2–36) for `String` radix parsing |
 | `toFloat(value)` | 1 | `Float` | `String`, `Integer`, `Fixed` |
 | `toFixed(value)` | 1 | `Fixed` | `String`, `Integer`, `Float` |
 | `toByte(value)` | 1 | `Byte` | `Integer` |

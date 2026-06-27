@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  REM '9' is not a valid digit in base 2: FAIL 77050003 (ErrInvalidFormat).
+  RETURN toInt("9", 2)
+END FUNC

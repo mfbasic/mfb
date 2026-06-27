@@ -63,46 +63,24 @@ FUNC __net_authorityEnd(rest AS String) AS Integer
   RETURN best
 END FUNC
 
-' Parse and validate an explicit port: digits only, 0..65535.
+' Parse and validate an explicit port: digits only, 0..65535. The decimal
+' accumulator is delegated to the shared radix parser; reject a leading sign
+' first (ports are unsigned, but toInt's signed parse would accept one) and
+' range-check the result afterward, keeping net's own port error messages.
 FUNC __net_parsePort(text AS String) AS Integer
-  LET digits AS List OF String = strings::graphemes(text)
-  IF len(digits) = 0 THEN
+  IF text = "" THEN
     FAIL error(77050003, "invalid URL: empty port")
   END IF
-  MUT value AS Integer = 0
-  FOR EACH digit IN digits
-    LET d AS Integer = __net_digitValue(digit)
-    value = value * 10 + d
-    IF value > 65535 THEN
-      FAIL error(77050003, "invalid URL: port out of range")
-    END IF
-  NEXT
-  RETURN value
-END FUNC
-
-FUNC __net_digitValue(ch AS String) AS Integer
-  IF ch = "0" THEN
-    RETURN 0
-  ELSEIF ch = "1" THEN
-    RETURN 1
-  ELSEIF ch = "2" THEN
-    RETURN 2
-  ELSEIF ch = "3" THEN
-    RETURN 3
-  ELSEIF ch = "4" THEN
-    RETURN 4
-  ELSEIF ch = "5" THEN
-    RETURN 5
-  ELSEIF ch = "6" THEN
-    RETURN 6
-  ELSEIF ch = "7" THEN
-    RETURN 7
-  ELSEIF ch = "8" THEN
-    RETURN 8
-  ELSEIF ch = "9" THEN
-    RETURN 9
+  IF strings::startsWith(text, "-") OR strings::startsWith(text, "+") THEN
+    FAIL error(77050003, "invalid URL: non-digit in port")
   END IF
-  FAIL error(77050003, "invalid URL: non-digit in port")
+  LET value AS Integer = toInt(text, 10) TRAP(err)
+    FAIL error(77050003, "invalid URL: non-digit in port")
+  END TRAP
+  IF value > 65535 THEN
+    FAIL error(77050003, "invalid URL: port out of range")
+  END IF
+  RETURN value
 END FUNC
 
 FUNC __net_toUrl(href AS String) AS Url

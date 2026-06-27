@@ -11,6 +11,7 @@ REM ErrIndexOutOfRange 77050001.
 
 IMPORT collections
 IMPORT strings
+IMPORT encoding
 
 REM ---------------------------------------------------------------------------
 REM Types
@@ -195,55 +196,18 @@ FUNC __regex_chr(value AS Integer) AS String
   IF v > 1114111 THEN
     v = 1114111
   END IF
-  IF v <= 127 THEN
-    LET bytes AS List OF Byte = [toByte(v)]
-    RETURN toString(bytes)
-  END IF
-  IF v <= 2047 THEN
-    LET lead AS Byte = toByte(192 + v / 64)
-    LET tailValue AS Integer = v - (v / 64) * 64
-    LET tail AS Byte = toByte(128 + tailValue)
-    LET bytes AS List OF Byte = [lead, tail]
-    RETURN toString(bytes)
-  END IF
-  IF v <= 65535 THEN
-    LET lead AS Byte = toByte(224 + v / 4096)
-    LET rem1 AS Integer = v - (v / 4096) * 4096
-    LET midValue AS Integer = rem1 / 64
-    LET tailValue AS Integer = rem1 - midValue * 64
-    LET middle AS Byte = toByte(128 + midValue)
-    LET tail AS Byte = toByte(128 + tailValue)
-    LET bytes AS List OF Byte = [lead, middle, tail]
-    RETURN toString(bytes)
-  END IF
-  LET lead AS Byte = toByte(240 + v / 262144)
-  LET rem1 AS Integer = v - (v / 262144) * 262144
-  LET nextValue AS Integer = rem1 / 4096
-  LET rem2 AS Integer = rem1 - nextValue * 4096
-  LET next2Value AS Integer = rem2 / 64
-  LET tailValue AS Integer = rem2 - next2Value * 64
-  LET second AS Byte = toByte(128 + nextValue)
-  LET third AS Byte = toByte(128 + next2Value)
-  LET tail AS Byte = toByte(128 + tailValue)
-  LET bytes AS List OF Byte = [lead, second, third, tail]
-  RETURN toString(bytes)
+  REM The clamp above guarantees a valid Unicode scalar, so utf32Decode is total
+  REM here (it FAILs only on surrogate/out-of-range, both excluded by the clamp).
+  RETURN encoding::utf32Decode([v])
 END FUNC
 
-REM Binary search the code point of a single scalar string using the monotone
-REM (UTF-8 byte order == scalar order) encoding produced by __regex_chr.
+REM Code point of a single scalar string via the shared UTF-32 encoder.
 FUNC __regex_scalarToCp(ch AS String) AS Integer
-  MUT lo AS Integer = 0
-  MUT hi AS Integer = 1114111
-  WHILE lo < hi
-    LET mid AS Integer = (lo + hi) / 2
-    LET s AS String = __regex_chr(mid)
-    IF s < ch THEN
-      lo = mid + 1
-    ELSE
-      hi = mid
-    END IF
-  WEND
-  RETURN lo
+  IF ch = "" THEN
+    RETURN 0
+  END IF
+  LET cps AS List OF Integer = encoding::utf32Encode(ch)
+  RETURN collections::get(cps, 0)
 END FUNC
 
 FUNC __regex_toScalars(s AS String) AS List OF String
@@ -890,19 +854,6 @@ FUNC __regex_isPatSpace(ch AS String) AS Boolean
   RETURN ch = __regex_chr(12) OR ch = __regex_chr(11)
 END FUNC
 
-FUNC __regex_hexValue(ch AS String) AS Integer
-  IF ch >= "0" AND ch <= "9" THEN
-    RETURN __regex_scalarToCp(ch) - 48
-  END IF
-  IF ch >= "a" AND ch <= "f" THEN
-    RETURN __regex_scalarToCp(ch) - 87
-  END IF
-  IF ch >= "A" AND ch <= "F" THEN
-    RETURN __regex_scalarToCp(ch) - 55
-  END IF
-  RETURN -1
-END FUNC
-
 FUNC __regex_parseIntClamp(s AS String) AS Integer
   IF len(s) > 7 THEN
     RETURN 10000000
@@ -923,24 +874,25 @@ FUNC __regex_parseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) A
     FAIL error(77050003, "invalid regex")
   END IF
   IF collections::get(pat, i) = "{" THEN
+    REM Collect the run between `{` and `}`, then let toInt(_, 16) validate the
+    REM hex digits (it FAILs on any non-hex char). The 1-6 digit bound and the
+    REM surrogate/range clamp stay regex's own checks (regex.md §8.2).
     MUT j AS Integer = i + 1
-    MUT value AS Integer = 0
-    MUT digits AS Integer = 0
+    MUT hexText AS String = ""
     WHILE j < n AND collections::get(pat, j) <> "}"
-      LET d AS Integer = __regex_hexValue(collections::get(pat, j))
-      IF d < 0 THEN
-        FAIL error(77050003, "invalid regex")
-      END IF
-      value = value * 16 + d
-      digits = digits + 1
+      hexText = hexText & collections::get(pat, j)
       j = j + 1
     WEND
     IF j >= n THEN
       FAIL error(77050003, "invalid regex")
     END IF
+    LET digits AS Integer = len(hexText)
     IF digits < 1 OR digits > 6 THEN
       FAIL error(77050003, "invalid regex")
     END IF
+    LET value AS Integer = toInt(hexText, 16) TRAP(err)
+      FAIL error(77050003, "invalid regex")
+    END TRAP
     IF value > 1114111 OR (value >= 55296 AND value <= 57343) THEN
       FAIL error(77050003, "invalid regex")
     END IF
@@ -949,12 +901,10 @@ FUNC __regex_parseHexEscape(pat AS List OF String, n AS Integer, i AS Integer) A
   IF i + 1 >= n THEN
     FAIL error(77050003, "invalid regex")
   END IF
-  LET h1 AS Integer = __regex_hexValue(collections::get(pat, i))
-  LET h2 AS Integer = __regex_hexValue(collections::get(pat, i + 1))
-  IF h1 < 0 OR h2 < 0 THEN
+  LET hexPair AS String = collections::get(pat, i) & collections::get(pat, i + 1)
+  LET value AS Integer = toInt(hexPair, 16) TRAP(err)
     FAIL error(77050003, "invalid regex")
-  END IF
-  LET value AS Integer = h1 * 16 + h2
+  END TRAP
   RETURN __regex_LitScalar[__regex_chr(value), i + 2]
 END FUNC
 

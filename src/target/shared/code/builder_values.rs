@@ -529,8 +529,8 @@ impl CodeBuilder<'_> {
                         text: format!("typeName({type_name})"),
                     });
                 }
-                if target == "toInt" && args.len() == 1 {
-                    return self.lower_to_int(&args[0]);
+                if target == "toInt" && (1..=2).contains(&args.len()) {
+                    return self.lower_to_int(args);
                 }
                 if target == "toFloat" && args.len() == 1 {
                     return self.lower_to_float(&args[0]);
@@ -606,9 +606,9 @@ impl CodeBuilder<'_> {
                 // `Result`: lower the conversion inline but capture its error
                 // instead of auto-propagating, then materialize the `Result`.
                 if matches!(target.as_str(), "toInt" | "toFloat" | "toFixed" | "toByte")
-                    && args.len() == 1
+                    && (args.len() == 1 || (target == "toInt" && args.len() == 2))
                 {
-                    return self.lower_inline_conversion_raw(target, &args[0]);
+                    return self.lower_inline_conversion_raw(target, args);
                 }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
                 // `fs::*`, …) traps the raw `Result`. The runtime helper leaves
@@ -1162,7 +1162,7 @@ impl CodeBuilder<'_> {
     fn lower_inline_conversion_raw(
         &mut self,
         target: &str,
-        arg: &NirValue,
+        args: &[NirValue],
     ) -> Result<ValueResult, String> {
         let success_type = builtins::call_return_type_name(target)
             .ok_or_else(|| format!("native raw conversion '{target}' has no return type"))?
@@ -1171,10 +1171,10 @@ impl CodeBuilder<'_> {
         let previous = self.raw_result_capture.take();
         self.raw_result_capture = Some(capture.clone());
         let lowered = match target {
-            "toInt" => self.lower_to_int(arg),
-            "toFloat" => self.lower_to_float(arg),
-            "toFixed" => self.lower_to_fixed(arg),
-            "toByte" => self.lower_to_byte(arg),
+            "toInt" => self.lower_to_int(args),
+            "toFloat" => self.lower_to_float(&args[0]),
+            "toFixed" => self.lower_to_fixed(&args[0]),
+            "toByte" => self.lower_to_byte(&args[0]),
             other => Err(format!("native raw conversion '{other}' is not supported")),
         };
         self.raw_result_capture = previous;

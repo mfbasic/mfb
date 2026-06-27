@@ -1,5 +1,6 @@
 IMPORT collections
 IMPORT strings
+IMPORT encoding
 
 EXPORT TYPE JsonNull
   value AS Nothing
@@ -514,60 +515,13 @@ FUNC __json_parseHexQuad(chars AS List OF String, index AS Integer) AS Integer
   IF index + 3 >= len(chars) THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  LET d0 AS Integer = __json_hexValue(collections::get(chars, index))
-  LET d1 AS Integer = __json_hexValue(collections::get(chars, index + 1))
-  LET d2 AS Integer = __json_hexValue(collections::get(chars, index + 2))
-  LET d3 AS Integer = __json_hexValue(collections::get(chars, index + 3))
-  RETURN d0 * 4096 + d1 * 256 + d2 * 16 + d3
-END FUNC
-
-FUNC __json_hexValue(ch AS String) AS Integer
-  IF ch = "0" THEN
-    RETURN 0
-  ELSEIF ch = "1" THEN
-    RETURN 1
-  ELSEIF ch = "2" THEN
-    RETURN 2
-  ELSEIF ch = "3" THEN
-    RETURN 3
-  ELSEIF ch = "4" THEN
-    RETURN 4
-  ELSEIF ch = "5" THEN
-    RETURN 5
-  ELSEIF ch = "6" THEN
-    RETURN 6
-  ELSEIF ch = "7" THEN
-    RETURN 7
-  ELSEIF ch = "8" THEN
-    RETURN 8
-  ELSEIF ch = "9" THEN
-    RETURN 9
-  ELSEIF ch = "A" THEN
-    RETURN 10
-  ELSEIF ch = "B" THEN
-    RETURN 11
-  ELSEIF ch = "C" THEN
-    RETURN 12
-  ELSEIF ch = "D" THEN
-    RETURN 13
-  ELSEIF ch = "E" THEN
-    RETURN 14
-  ELSEIF ch = "F" THEN
-    RETURN 15
-  ELSEIF ch = "a" THEN
-    RETURN 10
-  ELSEIF ch = "b" THEN
-    RETURN 11
-  ELSEIF ch = "c" THEN
-    RETURN 12
-  ELSEIF ch = "d" THEN
-    RETURN 13
-  ELSEIF ch = "e" THEN
-    RETURN 14
-  ELSEIF ch = "f" THEN
-    RETURN 15
-  END IF
-  FAIL error(77050003, "invalid JSON format")
+  REM Strict 4-digit `\uXXXX` escape: concatenate exactly four chars and let
+  REM toInt(_, 16) validate the hex digits, keeping json's own error.
+  LET quad AS String = collections::get(chars, index) & collections::get(chars, index + 1) & collections::get(chars, index + 2) & collections::get(chars, index + 3)
+  LET value AS Integer = toInt(quad, 16) TRAP(err)
+    FAIL error(77050003, "invalid JSON format")
+  END TRAP
+  RETURN value
 END FUNC
 
 FUNC __json_isHighSurrogate(value AS Integer) AS Boolean
@@ -579,44 +533,17 @@ FUNC __json_isLowSurrogate(value AS Integer) AS Boolean
 END FUNC
 
 FUNC __json_codePointToString(value AS Integer) AS String
+  REM Keep json's own guard so a malformed code point raises json's error (and
+  REM message), not encoding's. Every caller already excludes the surrogate range
+  REM (control chars 0..31, BMP scalars, and combined surrogate pairs >= 65536),
+  REM so the valid path never reaches utf32Decode's surrogate FAIL.
   IF value < 0 THEN
     FAIL error(77050003, "invalid JSON format")
   END IF
-  IF value <= 127 THEN
-    LET bytes AS List OF Byte = [toByte(value)]
-    RETURN toString(bytes)
+  IF value > 1114111 THEN
+    FAIL error(77050003, "invalid JSON format")
   END IF
-  IF value <= 2047 THEN
-    LET lead AS Byte = toByte(192 + value / 64)
-    LET tailValue AS Integer = value - (value / 64) * 64
-    LET tail AS Byte = toByte(128 + tailValue)
-    LET bytes AS List OF Byte = [lead, tail]
-    RETURN toString(bytes)
-  END IF
-  IF value <= 65535 THEN
-    LET lead AS Byte = toByte(224 + value / 4096)
-    LET rem1 AS Integer = value - (value / 4096) * 4096
-    LET midValue AS Integer = rem1 / 64
-    LET tailValue AS Integer = rem1 - midValue * 64
-    LET middle AS Byte = toByte(128 + midValue)
-    LET tail AS Byte = toByte(128 + tailValue)
-    LET bytes AS List OF Byte = [lead, middle, tail]
-    RETURN toString(bytes)
-  END IF
-  IF value <= 1114111 THEN
-    LET lead AS Byte = toByte(240 + value / 262144)
-    LET rem1 AS Integer = value - (value / 262144) * 262144
-    LET nextValue AS Integer = rem1 / 4096
-    LET rem2 AS Integer = rem1 - nextValue * 4096
-    LET next2Value AS Integer = rem2 / 64
-    LET tailValue AS Integer = rem2 - next2Value * 64
-    LET second AS Byte = toByte(128 + nextValue)
-    LET third AS Byte = toByte(128 + next2Value)
-    LET tail AS Byte = toByte(128 + tailValue)
-    LET bytes AS List OF Byte = [lead, second, third, tail]
-    RETURN toString(bytes)
-  END IF
-  FAIL error(77050003, "invalid JSON format")
+  RETURN encoding::utf32Decode([value])
 END FUNC
 
 FUNC __json_parseNumber(chars AS List OF String, index AS Integer) AS __json_Node

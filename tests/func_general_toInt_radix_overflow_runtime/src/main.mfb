@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  REM 0x8000000000000000 = 2^63 is one past i64::MAX: FAIL 77050010 (ErrOverflow).
+  RETURN toInt("8000000000000000", 16)
+END FUNC

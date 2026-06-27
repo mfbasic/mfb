@@ -98,7 +98,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         LEN => Some(&[&["value"]]),
         TYPE_NAME => Some(&[&["value"]]),
         TO_STRING => Some(&[&["value"], &["precision", "decimals"]]),
-        TO_INT => Some(&[&["value"]]),
+        TO_INT => Some(&[&["value"], &["text", "base"]]),
         TO_FLOAT => Some(&[&["value"]]),
         TO_FIXED => Some(&[&["value"]]),
         TO_BYTE => Some(&[&["value"]]),
@@ -217,7 +217,13 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             }
         }
         TO_INT => {
-            if exact_one_of(arg_types, &["String", "Byte", "Float", "Fixed"]) {
+            // 1-arg: parse base-10 (String) or numeric narrowing (Byte/Float/Fixed).
+            // 2-arg: `toInt(text AS String, base AS Integer)` parses `text` in
+            // `base` (plan-02-cleanup §5). The optional `base` is a second arity,
+            // not a user-level default parameter, since `toInt` is overloaded.
+            if exact_one_of(arg_types, &["String", "Byte", "Float", "Fixed"])
+                || exact(arg_types, &["String", "Integer"])
+            {
                 ResolvedCall {
                     return_type: Cow::Borrowed("Integer"),
                 }
@@ -304,7 +310,7 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         TO_STRING => {
             Some("Integer, Float[, Byte], Fixed[, Byte], Boolean, String, Byte, or List OF Byte")
         }
-        TO_INT => Some("String, Byte, Float, or Fixed"),
+        TO_INT => Some("String[, Integer], Byte, Float, or Fixed"),
         TO_FLOAT => Some("String, Integer, or Fixed"),
         TO_FIXED => Some("String, Integer, or Float"),
         TO_BYTE => Some("Integer"),
@@ -319,9 +325,9 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
-        LEN | TYPE_NAME | TO_INT | TO_FLOAT | TO_FIXED | TO_BYTE | IS_NUMERIC | IS_EVEN
-        | IS_ODD | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => Some((1, 1)),
-        TO_STRING => Some((1, 2)),
+        LEN | TYPE_NAME | TO_FLOAT | TO_FIXED | TO_BYTE | IS_NUMERIC | IS_EVEN | IS_ODD
+        | IS_POSITIVE | IS_NEGATIVE | IS_ZERO | IS_EMPTY | IS_NOT_EMPTY => Some((1, 1)),
+        TO_STRING | TO_INT => Some((1, 2)),
         _ => None,
     }
 }

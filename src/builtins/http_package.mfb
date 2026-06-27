@@ -141,91 +141,37 @@ END FUNC
 
 ' ---- Response parsing (§B.4) ----
 
-FUNC __http_hexDigit(ch AS String) AS Integer
-  IF ch = "0" THEN
-    RETURN 0
-  ELSEIF ch = "1" THEN
-    RETURN 1
-  ELSEIF ch = "2" THEN
-    RETURN 2
-  ELSEIF ch = "3" THEN
-    RETURN 3
-  ELSEIF ch = "4" THEN
-    RETURN 4
-  ELSEIF ch = "5" THEN
-    RETURN 5
-  ELSEIF ch = "6" THEN
-    RETURN 6
-  ELSEIF ch = "7" THEN
-    RETURN 7
-  ELSEIF ch = "8" THEN
-    RETURN 8
-  ELSEIF ch = "9" THEN
-    RETURN 9
-  ELSEIF ch = "a" OR ch = "A" THEN
-    RETURN 10
-  ELSEIF ch = "b" OR ch = "B" THEN
-    RETURN 11
-  ELSEIF ch = "c" OR ch = "C" THEN
-    RETURN 12
-  ELSEIF ch = "d" OR ch = "D" THEN
-    RETURN 13
-  ELSEIF ch = "e" OR ch = "E" THEN
-    RETURN 14
-  ELSEIF ch = "f" OR ch = "F" THEN
-    RETURN 15
-  END IF
-  FAIL error(77050003, "invalid chunk size")
-END FUNC
-
+REM Parse an unsigned chunk-size hex field via the shared radix parser. The
+REM digit-by-digit accumulator is gone; toInt(text, 16) owns the conversion and
+REM overflow check, while this wrapper keeps http's own empty/invalid messages
+REM (toInt's signed parse would otherwise accept a leading sign, so reject one
+REM first — chunk sizes are unsigned).
 FUNC __http_hexToInt(text AS String) AS Integer
-  LET digits AS List OF String = strings::graphemes(text)
-  IF len(digits) = 0 THEN
+  IF text = "" THEN
     FAIL error(77050003, "empty chunk size")
   END IF
-  MUT value AS Integer = 0
-  FOR EACH digit IN digits
-    value = value * 16 + __http_hexDigit(digit)
-  NEXT
+  IF strings::startsWith(text, "-") OR strings::startsWith(text, "+") THEN
+    FAIL error(77050003, "invalid chunk size")
+  END IF
+  LET value AS Integer = toInt(text, 16) TRAP(err)
+    FAIL error(77050003, "invalid chunk size")
+  END TRAP
   RETURN value
 END FUNC
 
+REM Parse an unsigned status-line decimal field. Same shape as the hex parser:
+REM reject a sign, delegate to toInt(text, 10), keep http's status messages.
 FUNC __http_decToInt(text AS String) AS Integer
-  LET digits AS List OF String = strings::graphemes(text)
-  IF len(digits) = 0 THEN
+  IF text = "" THEN
     FAIL error(77050003, "invalid status line")
   END IF
-  MUT value AS Integer = 0
-  FOR EACH digit IN digits
-    LET d AS Integer = __http_digitValue(digit)
-    value = value * 10 + d
-  NEXT
-  RETURN value
-END FUNC
-
-FUNC __http_digitValue(ch AS String) AS Integer
-  IF ch = "0" THEN
-    RETURN 0
-  ELSEIF ch = "1" THEN
-    RETURN 1
-  ELSEIF ch = "2" THEN
-    RETURN 2
-  ELSEIF ch = "3" THEN
-    RETURN 3
-  ELSEIF ch = "4" THEN
-    RETURN 4
-  ELSEIF ch = "5" THEN
-    RETURN 5
-  ELSEIF ch = "6" THEN
-    RETURN 6
-  ELSEIF ch = "7" THEN
-    RETURN 7
-  ELSEIF ch = "8" THEN
-    RETURN 8
-  ELSEIF ch = "9" THEN
-    RETURN 9
+  IF strings::startsWith(text, "-") OR strings::startsWith(text, "+") THEN
+    FAIL error(77050003, "invalid status code")
   END IF
-  FAIL error(77050003, "invalid status code")
+  LET value AS Integer = toInt(text, 10) TRAP(err)
+    FAIL error(77050003, "invalid status code")
+  END TRAP
+  RETURN value
 END FUNC
 
 ' De-chunk a Transfer-Encoding: chunked body (§B.4).

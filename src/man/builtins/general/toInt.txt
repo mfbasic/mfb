@@ -3,6 +3,7 @@ NAME
 
 SYNOPSIS
   toInt(value AS String) AS Integer
+  toInt(text AS String, base AS Integer) AS Integer
   toInt(value AS Byte) AS Integer
   toInt(value AS Float) AS Integer
   toInt(value AS Fixed) AS Integer
@@ -18,9 +19,16 @@ DESCRIPTION
 
   The String overload parses base-10 Integer text. An optional leading minus
   sign is accepted, followed by one or more decimal digits; the entire string
-  must consist of valid digits, so surrounding whitespace, plus signs, decimal
-  points, or other characters are rejected. Parsing fails on malformed text and
-  on values that fall outside the Integer range.
+  must consist of valid digits, so surrounding whitespace, decimal points, or
+  other characters are rejected. Parsing fails on malformed text and on values
+  that fall outside the Integer range.
+
+  The two-argument String overload parses text in an explicit radix. base must
+  be between 2 and 36 inclusive; a base outside that range fails. Digits are
+  0-9 then a-z (case-insensitive) up to the base, with no 0x or 0o prefix
+  (callers strip their own). The same optional leading sign and i64 range bounds
+  as the base-10 overload apply, so toInt(text) and toInt(text, 10) parse
+  identically. base is a second built-in arity, not a defaulted parameter.
 
   The Byte overload widens an unsigned 8-bit Byte (0 through 255) to Integer.
   Because every Byte fits in Integer, this conversion always succeeds.
@@ -38,6 +46,9 @@ OVERLOADS
   toInt(value AS String) AS Integer
     Parses base-10 Integer text with an optional leading minus sign.
 
+  toInt(text AS String, base AS Integer) AS Integer
+    Parses text in base (2 through 36), digits 0-9 then a-z case-insensitively.
+
   toInt(value AS Byte) AS Integer
     Widens a Byte (0 through 255) to Integer.
 
@@ -52,6 +63,10 @@ PARAMETERS
     Text holding a base-10 Integer, optionally prefixed with a minus sign. The
     whole string must be valid; no leading, trailing, or interior extra
     characters are permitted.
+
+  base AS Integer
+    The radix to parse text in, from 2 through 36. Digit characters are 0-9
+    then a-z (case-insensitive) up to base.
 
   value AS Byte
     An unsigned 8-bit value in the range 0 through 255 to widen to Integer.
@@ -72,7 +87,9 @@ RETURN VALUE
 ERRORS
   77050003 (ErrInvalidFormat)
   Raised when a String value is not well-formed base-10 Integer text, or when a
-  Float value is NaN or infinite and cannot be represented as an Integer.
+  Float value is NaN or infinite and cannot be represented as an Integer. For
+  the two-argument form, also raised when base is outside 2 through 36, the text
+  is empty, or it contains a digit not valid for base.
 
   77050010 (ErrOverflow)
   Raised when the value is outside the signed 64-bit Integer range, such as
@@ -87,6 +104,10 @@ EXAMPLES
   Parse text:
 
     LET value AS Integer = toInt("42")
+
+  Parse hexadecimal text:
+
+    LET value AS Integer = toInt("ff", 16)
 
   Widen a Byte:
 
