@@ -8,9 +8,9 @@
 !tests/**/golden/*.ast
 !tests/**/golden/*.ir
 
-# Local planning / scratch specs (not part of the repo; the canonical
+# Local planning / scratch folder (not part of the repo; the canonical
 # specification is embedded under src/spec and shown by `mfb spec`).
-/specifications/
+/planning/
 
 # Local editor and OS files
 .DS_Store

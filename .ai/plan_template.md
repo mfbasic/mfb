@@ -1,5 +1,5 @@
-<!-- MFBASIC plan template. Referenced by AGENTS.md "Planning". Copy this to
-     specifications/plan-NN-shortname.md (the local planning folder) and fill it in. -->
+<!-- MFBASIC plan template. Referenced by .ai/planning.md. Copy this to
+     planning/plan-NN-shortname.md (the local planning folder) and fill it in. -->
 
 # MFBASIC <Feature> Plan
 

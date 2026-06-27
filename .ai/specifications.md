@@ -49,7 +49,7 @@ Conventions when editing the spec:
   `#[cfg(test)]` drift guard (`table_matches_registry`) enforces the match. Edit
   that table for any runtime error-code change. The legacy external specs
   (`mfbasic.md`, `error_codes.md`, `standard_package.md`, `project.md`, …) are
-  archived under `specifications/old-moved-to-src-spec/` and superseded by the
+  archived under `planning/old-moved-to-src-spec/` and superseded by the
   embedded topics — update the `mfb spec` topic, not those.
 
 Verify spec changes: `cargo build` (regenerates the embedded table; if a brand-new

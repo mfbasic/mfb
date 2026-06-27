@@ -1,6 +1,6 @@
 # Planning
 
-Substantial features get a written plan under `specifications/` (the local planning
+Substantial features get a written plan under `planning/` (the local planning
 folder) before implementation begins. A plan is a design document that an
 implementer (human or agent) can execute phase-by-phase without re-deriving the
 design.
@@ -11,7 +11,7 @@ does not exist yet cannot be marked done.
 
 Guidelines:
 
-- Name the file `specifications/plan-NN-shortname.md` (next free `NN`, two digits; short kebab-case slug). One plan per feature.
+- Name the file `planning/plan-NN-shortname.md` (next free `NN`, two digits; short kebab-case slug). One plan per feature.
 - Cross-link the embedded specs the plan touches near the top (`mfb spec memory`, `mfb spec language`, `mfb spec package`, `mfb spec diagnostics`, `mfb spec threading`, etc. — the canonical specification lives under `src/spec/**`) so the implementer reads the right source of truth first.
 - State the constraints the plan must **not** violate as explicit non-goals (language surface, value/copy/move semantics, layout/ABI, thread-transfer rules). A plan that silently changes one of these is wrong.
 - Break the work into ordered, independently-landable phases. Put the lowest-risk, separately-valuable work first (e.g. an audit or a runtime primitive with no callers) and the highest-risk codegen last, behind tests.
@@ -22,6 +22,6 @@ Guidelines:
 ## Plan template
 
 Use the template at [`plan_template.md`](plan_template.md): copy it to
-`specifications/plan-NN-shortname.md` and fill it in. It covers goal/non-goals,
+`planning/plan-NN-shortname.md` and fill it in. It covers goal/non-goals,
 current state, design, layout/ABI impact, phases, validation plan, open decisions,
 and summary.
