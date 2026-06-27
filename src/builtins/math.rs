@@ -160,7 +160,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed(arg_types[0].as_str())
         }
         // Float transcendental array kernels (plan-01-simd §4.6).
-        EXP | SIN | COS | TAN if one_numeric_list(arg_types, "Float") => {
+        EXP | SIN | COS | TAN | ATAN if one_numeric_list(arg_types, "Float") => {
             Cow::Borrowed(arg_types[0].as_str())
         }
         FLOOR | CEIL | ROUND if one_floatish_list(arg_types) => {

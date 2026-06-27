@@ -1,4 +1,4 @@
-use super::simd_kernel_coeffs::{COS_COEFFS, EXP_COEFFS, LOG_COEFFS, SIN_COEFFS};
+use super::simd_kernel_coeffs::{ATAN_COEFFS, COS_COEFFS, EXP_COEFFS, LOG_COEFFS, SIN_COEFFS};
 use super::*;
 
 // NEON f64 polynomial kernels for the Float transcendentals — plan-01-simd
@@ -44,6 +44,8 @@ pub(super) enum FloatKernel {
     Sin,
     Cos,
     Tan,
+    /// `atan(x)`; no error.
+    Atan,
 }
 
 impl FloatKernel {
@@ -51,7 +53,7 @@ impl FloatKernel {
         match self {
             FloatKernel::Exp => Some(FloatError::Overflow),
             FloatKernel::Log | FloatKernel::Log10 => Some(FloatError::InvalidArgument),
-            FloatKernel::Sin | FloatKernel::Cos | FloatKernel::Tan => None,
+            FloatKernel::Sin | FloatKernel::Cos | FloatKernel::Tan | FloatKernel::Atan => None,
         }
     }
 }
@@ -207,6 +209,12 @@ impl CodeBuilder<'_> {
                 self.broadcast_f64("v20", PIO2_2T);
                 self.broadcast_i64("v21", 3); // quadrant mask
             }
+            FloatKernel::Atan => {
+                self.broadcast_f64("v16", 1.0);
+                self.broadcast_f64("v17", std::f64::consts::FRAC_PI_2);
+                self.broadcast_i64("v18", i64::MIN); // sign mask 0x8000..
+                self.broadcast_i64("v19", i64::MAX); // abs mask 0x7fff..
+            }
         }
     }
 
@@ -221,7 +229,35 @@ impl CodeBuilder<'_> {
             FloatKernel::Sin => self.emit_sin_cos_body(false),
             FloatKernel::Cos => self.emit_sin_cos_body(true),
             FloatKernel::Tan => self.emit_tan_body(),
+            FloatKernel::Atan => self.emit_atan_body(),
         }
+    }
+
+    /// `atan(x)` kernel: for `|x|<=1` evaluate `ax*P(ax^2)`; for `|x|>1` use
+    /// `pi/2 - inv*P(inv^2)` with `inv=1/|x|`; restore the sign. Constants:
+    /// v16=1.0, v17=pi/2, v18=sign mask, v19=abs mask. (Faithfully rounded; the
+    /// strict <=1 ULP refinement needs a segmented argument reduction.)
+    fn emit_atan_body(&mut self) {
+        self.emit(abi::vector_and("v1", "v0", "v19")); // ax = |x|
+        self.emit(abi::vector_fcmgt("v2", "v1", "v16")); // mask: ax > 1
+        self.emit(abi::vector_fdiv("v3", "v16", "v1")); // inv = 1/ax
+        self.emit(abi::vector_orr("v4", "v2", "v2"));
+        self.emit(abi::vector_bsl("v4", "v3", "v1")); // u = mask ? inv : ax
+        self.emit(abi::vector_fmul("v5", "v4", "v4")); // u2
+        // Horner P(u2) → v6, using v3 (inv, now dead) as the coeff scratch so v4=u
+        // survives.
+        self.broadcast_f64("v6", ATAN_COEFFS[ATAN_COEFFS.len() - 1]);
+        for i in (0..ATAN_COEFFS.len() - 1).rev() {
+            self.broadcast_f64("v3", ATAN_COEFFS[i]);
+            self.emit(abi::vector_fmla("v3", "v6", "v5"));
+            self.emit(abi::vector_orr("v6", "v3", "v3"));
+        }
+        self.emit(abi::vector_fmul("v6", "v4", "v6")); // up = u*P
+        self.emit(abi::vector_fsub("v7", "v17", "v6")); // pi/2 - up
+        self.emit(abi::vector_bsl("v2", "v7", "v6")); // mask ? (pi/2-up) : up
+        self.emit(abi::vector_and("v2", "v2", "v19")); // |result|
+        self.emit(abi::vector_and("v0", "v0", "v18")); // sign of x
+        self.emit(abi::vector_orr("v0", "v2", "v0")); // restore sign
     }
 
     /// Cody-Waite reduce `x` to `r in [-pi/4, pi/4]` and quadrant `q & 3`. Leaves

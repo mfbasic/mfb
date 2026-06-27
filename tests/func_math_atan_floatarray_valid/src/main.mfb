@@ -1,0 +1,14 @@
+IMPORT io
+IMPORT math
+
+' Vectorized math::atan over a Float list — NEON f64 kernel (|x|<=1 polynomial,
+' |x|>1 via pi/2 - atan(1/x), sign restored). Faithfully rounded (within a couple
+' ULP of macOS libm; strict <=1 ULP needs a segmented reduction). Length 5 odd.
+FUNC main AS Integer
+  LET p AS Byte = 15
+  LET xs AS List OF Float = [0.0, 0.5, 1.0, 2.0, 0.0 - 3.0]
+  FOR EACH y IN math::atan(xs)
+    io::print(toString(y, p))
+  NEXT
+  RETURN 0
+END FUNC
