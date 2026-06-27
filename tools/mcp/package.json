@@ -1,0 +1,21 @@
+{
+  "name": "mfb-mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Model Context Protocol server exposing MFBASIC built-in help (mfb man) and the language specification (mfb spec).",
+  "type": "module",
+  "bin": {
+    "mfb-mcp-server": "index.js"
+  },
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.23.0"
+  }
+}
