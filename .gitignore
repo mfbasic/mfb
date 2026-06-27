@@ -8,6 +8,10 @@
 !tests/**/golden/*.ast
 !tests/**/golden/*.ir
 
+# Local planning / scratch specs (not part of the repo; the canonical
+# specification is embedded under src/spec and shown by `mfb spec`).
+/specifications/
+
 # Local editor and OS files
 .DS_Store
 *.swp
