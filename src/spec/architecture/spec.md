@@ -59,9 +59,13 @@ The subtopics below follow the pipeline. `frontend` covers everything from
 manifest loading through type checking; `ir` is the shared hinge; then the path
 splits into `binary-representation` (packages) and `native` (executables). The
 `flows` topic walks both end to end, and `artifacts`, `modules`, `boundaries`,
-and `extending` are quick references. `monomorphization` is a deeper dive into the
-template-instantiation / symbol-mangling / overload-resolution pass that sits
-between `frontend` and `ir`.
+and `extending` are quick references. The deeper-dive topics specify individual
+stages in reimplementable detail: `monomorphization` (template instantiation,
+symbol mangling, overload resolution, between `frontend` and `ir`), `native-ir`
+(the NIR representation and IR→NIR lowering), `aarch64-instruction-set` (the
+instruction repertoire the encoder emits), `internal-naming` (the unforgeable
+sigil scheme for built-in package internals), and `ir-json-artifact` (the
+`<name>.ir` debug serialization).
 
 ## See Also
 

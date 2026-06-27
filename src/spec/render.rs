@@ -174,7 +174,33 @@ pub(crate) fn plain(s: &str) -> String {
 // Block helpers
 // ---------------------------------------------------------------------------
 
-fn render_heading(level: usize, text: &str, width: usize, color: bool) -> Vec<String> {
+/// Remove `[[file:symbol]]` provenance citations from a heading line. Headings
+/// bypass [`parse_inline`] (they are uppercased/bolded whole), so the citation
+/// stripping that hides markers in body text must be applied here too — otherwise
+/// a citation on a `### heading` would render and inflate the underline rule.
+fn strip_citations(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '[' && i + 1 < chars.len() && chars[i + 1] == '[' {
+            if let Some(end) = find(&chars, i + 2, "]]") {
+                i = end + 2;
+                if i < chars.len() && chars[i] == ' ' && out.ends_with(' ') {
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
+}
+
+fn render_heading(level: usize, raw: &str, width: usize, color: bool) -> Vec<String> {
+    let stripped = strip_citations(raw);
+    let text = stripped.trim();
     match level {
         1 => {
             let title = text.to_uppercase();
@@ -883,6 +909,16 @@ mod tests {
         assert_eq!(plain("Flat values [[src/foo.rs:bar]] only"), "Flat values only");
         // A trailing citation leaves no dangling marker.
         assert_eq!(plain("see the memory spec [[src/spec/memory/spec.md:1]]").trim(), "see the memory spec");
+    }
+
+    #[test]
+    fn provenance_citations_are_stripped_in_headings() {
+        // Headings bypass parse_inline; the citation must still not render, and
+        // the underline rule must match the visible title length, not include it.
+        let out = render("### entry[[src/ir.rs:EntryPoint]]", &plain_style(80));
+        assert_eq!(out, "entry");
+        let h2 = render("## bindings [[src/ir.rs:IrBinding]]", &plain_style(80));
+        assert_eq!(h2.lines().next().unwrap(), "bindings");
     }
 
     #[test]
