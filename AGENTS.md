@@ -19,6 +19,11 @@ Universal rules below. Before a given kind of work, also read the matching `.ai/
   `stash`; only touch and commit files you changed this session, leaving all others
   as found (other clients share this tree). Use detailed, itemized commit messages
   (imperative subject + `-` bullets); never include unrelated changes.
+- **MCP tools.** The `mfbasic` MCP server (`mfb_man`, `mfb_spec`) and other MCP
+  tools arrive deferred — names only, no schemas. At the start of each context run
+  `ToolSearch` to load the schemas you need before answering questions about the
+  language, spec, or built-ins; prefer `mfb_spec`/`mfb_man` over reading files by
+  hand. Schemas load per context, so re-run `ToolSearch` after a fresh context.
 
 ## Read before that kind of work
 
