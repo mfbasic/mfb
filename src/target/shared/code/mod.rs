@@ -175,6 +175,12 @@ const ARENA_FILL_NEXT_SYMBOL: &str = "_mfb_arena_fill_next";
 /// Advance one PCG64 step and return the next 64-bit value in `x0`; reads/writes
 /// the calling thread's arena RNG state via `x19`.
 const RNG_NEXT_SYMBOL: &str = "_mfb_rng_next";
+/// Allocate a tight homogeneous numeric `List` (plan-01-simd §4.3). Input
+/// `x0 = count`, `x1 = valueTypeCode`; returns `x0 = list base` (or `0` on OOM).
+/// Writes the 40-byte header and `count` uniform 40-byte lookup entries so the
+/// per-op SIMD lowerings only stream the data region. Confines the
+/// `_mfb_arena_alloc` clobber discipline to one audited routine.
+const SIMD_ALLOC_LIST_SYMBOL: &str = "_mfb_simd_alloc_list";
 /// Seed the PCG64 state at `[x0 + ARENA_RNG_STATE_*]` from the 64-bit seed in
 /// `x1`. Used both for the program-startup seed and to give each spawned thread
 /// its own stream drawn from the parent's generator.
@@ -1271,6 +1277,7 @@ pub(crate) fn lower_module_for_platform(
         )?);
     }
     code_functions.push(lower_arena_alloc(platform)?);
+    code_functions.push(lower_simd_alloc_list());
     code_functions.push(lower_arena_insert_free());
     code_functions.push(lower_arena_free());
     // Entropy fill is always on (plan-01 §6.5): scrub freed chunks and poison
@@ -2673,6 +2680,104 @@ fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, Str
         instructions,
         relocations,
     })
+}
+
+/// `_mfb_simd_alloc_list(x0 = count, x1 = valueTypeCode) -> x0 = base` —
+/// allocate a tight homogeneous numeric `List` (plan-01-simd §4.3). The data
+/// region is `count` contiguous 8-byte lanes at `base + 40 + count*40`. Returns
+/// `0` if the arena allocation fails (the caller raises the allocation error).
+///
+/// Calls `_mfb_arena_alloc`, whose clobber set is wide (`x0,x1,x9,x10,x14,x15,
+/// x16,x20-x28`); `count` and `valueTypeCode` are spilled across the call and
+/// reloaded. After the call there are no further calls, so the header/entry
+/// writes use scratch GPRs freely.
+fn lower_simd_alloc_list() -> CodeFunction {
+    const FRAME_SIZE: usize = 32;
+    const LR_SLOT: usize = 0;
+    const COUNT_SLOT: usize = 8;
+    const TYPE_SLOT: usize = 16;
+    let mut relocations = Vec::new();
+    let instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME_SIZE),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
+        abi::store_u64("x0", abi::stack_pointer(), COUNT_SLOT),
+        abi::store_u64("x1", abi::stack_pointer(), TYPE_SLOT),
+        // alloc size = 40 (header) + count*40 (lookup table) + count*8 (data)
+        //            = 40 + count*48.
+        abi::move_immediate(
+            "x9",
+            "Integer",
+            &(COLLECTION_ENTRY_SIZE + 8).to_string(),
+        ),
+        abi::multiply_registers("x0", "x0", "x9"),
+        abi::add_immediate("x0", "x0", COLLECTION_HEADER_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        // x0 = result tag, x1 = pointer. Return x0 = base, x1 = status (0 = ok,
+        // else the arena error tag) so the caller can raise the allocation error.
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq("simd_alloc_ok"),
+        abi::move_register("x1", abi::return_register()),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::branch("simd_alloc_ret"),
+        abi::label("simd_alloc_ok"),
+        // x11 = base, x12 = count, x13 = typeCode.
+        abi::move_register("x11", "x1"),
+        abi::load_u64("x12", abi::stack_pointer(), COUNT_SLOT),
+        abi::load_u64("x13", abi::stack_pointer(), TYPE_SLOT),
+        // Header: kind=0 (list), keyType=0, valueType=typeCode, flagsVersion=1.
+        abi::move_immediate("x8", "Integer", "0"),
+        abi::store_u8("x8", "x11", COLLECTION_OFFSET_KIND),
+        abi::store_u8("x8", "x11", COLLECTION_OFFSET_KEY_TYPE),
+        abi::store_u8("x13", "x11", COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate("x8", "Integer", "1"),
+        abi::store_u8("x8", "x11", COLLECTION_OFFSET_FLAGS_VERSION),
+        // count, capacity = count; dataLength, dataCapacity = count*8.
+        abi::store_u64("x12", "x11", COLLECTION_OFFSET_COUNT),
+        abi::store_u64("x12", "x11", COLLECTION_OFFSET_CAPACITY),
+        abi::shift_left_immediate("x9", "x12", 3),
+        abi::store_u64("x9", "x11", COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64("x9", "x11", COLLECTION_OFFSET_DATA_CAPACITY),
+        // Fill the lookup entries: flags=USED, valueOffset=i*8, valueLength=8.
+        // x10 = entry ptr, x9 = index, x14 = running value offset.
+        abi::add_immediate("x10", "x11", COLLECTION_HEADER_SIZE),
+        abi::move_immediate("x9", "Integer", "0"),
+        abi::move_immediate("x14", "Integer", "0"),
+        abi::label("simd_alloc_entry_loop"),
+        abi::compare_registers("x9", "x12"),
+        abi::branch_ge("simd_alloc_entry_done"),
+        abi::move_immediate("x8", "Integer", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8("x8", "x10", COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64("x14", "x10", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::move_immediate("x8", "Integer", "8"),
+        abi::store_u64("x8", "x10", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::add_immediate("x14", "x14", 8),
+        abi::add_immediate("x10", "x10", COLLECTION_ENTRY_SIZE),
+        abi::add_immediate("x9", "x9", 1),
+        abi::branch("simd_alloc_entry_loop"),
+        abi::label("simd_alloc_entry_done"),
+        abi::move_register(abi::return_register(), "x11"),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::label("simd_alloc_ret"),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ];
+    relocations.push(internal_branch(SIMD_ALLOC_LIST_SYMBOL, ARENA_ALLOC_SYMBOL));
+    CodeFunction {
+        name: "runtime.simd_alloc_list".to_string(),
+        symbol: SIMD_ALLOC_LIST_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Pointer".to_string(),
+        frame: CodeFrame {
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations,
+    }
 }
 
 /// `arena_insert_free(x0 = ptr, x1 = size)` — insert a chunk into the
@@ -13921,6 +14026,7 @@ mod builder_math;
 mod builder_misc;
 mod builder_numeric;
 mod builder_search;
+mod builder_simd_math;
 mod builder_strings;
 mod builder_strings_package;
 mod builder_values;

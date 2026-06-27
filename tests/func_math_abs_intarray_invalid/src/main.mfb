@@ -1,0 +1,9 @@
+IMPORT math
+
+' The SIMD array overload only accepts homogeneous numeric lists. A List OF
+' String has no numeric element type, so math::abs rejects it at compile time.
+FUNC main AS Integer
+  LET words AS List OF String = ["a", "b"]
+  LET bad AS List OF String = math::abs(words)
+  RETURN 0
+END FUNC

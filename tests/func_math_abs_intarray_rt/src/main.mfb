@@ -1,0 +1,13 @@
+IMPORT io
+IMPORT math
+
+' math::abs over a List OF Integer raises ErrOverflow (77050010) when any lane is
+' INT64_MIN, whose magnitude is not representable. The failing lane here is the
+' scalar tail (index 2 of an odd-length list).
+FUNC main AS Integer
+  LET intMin AS Integer = 0 - 9223372036854775807 - 1
+  LET xs AS List OF Integer = [1, 2, intMin]
+  LET ys AS List OF Integer = math::abs(xs)
+  io::print(toString(len(ys)))
+  RETURN 0
+END FUNC

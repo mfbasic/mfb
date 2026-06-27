@@ -144,6 +144,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         ABS | MIN | MAX if all_same_numeric(arg_types, 1, 2) => {
             Cow::Borrowed(arg_types[0].as_str())
         }
+        // Array (SIMD) overloads — plan-01-simd §4.2. The result list type equals
+        // the (single, or two matching) argument list type.
+        ABS if one_numeric_list(arg_types, "Integer") => Cow::Borrowed(arg_types[0].as_str()),
         CLAMP if all_same_numeric(arg_types, 3, 3) => Cow::Borrowed(arg_types[0].as_str()),
         FLOOR | CEIL | ROUND if one_floatish(arg_types) => Cow::Borrowed("Integer"),
         SQRT | EXP | LOG | LOG10 | SIN | COS | TAN | ASIN | ACOS | ATAN
@@ -213,4 +216,10 @@ fn two_same_float_or_fixed(arg_types: &[String]) -> bool {
 
 fn is_numeric(type_name: &str) -> bool {
     matches!(type_name, "Integer" | "Float" | "Fixed")
+}
+
+/// A single `List OF <element>` argument (the unary SIMD array overloads).
+/// `element` is one of `Integer`/`Float`/`Fixed`.
+fn one_numeric_list(arg_types: &[String], element: &str) -> bool {
+    arg_types.len() == 1 && arg_types[0] == format!("List OF {element}")
 }

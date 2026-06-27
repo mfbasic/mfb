@@ -12,6 +12,9 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         match function {
+            "abs" if args.len() == 1 && self.is_list_argument(&args[0]) => {
+                self.lower_math_abs_array(&args[0])
+            }
             "abs" if args.len() == 1 => self.lower_math_abs(&args[0]),
             "min" | "max" if args.len() == 2 => self.lower_math_min_max(function, args),
             "clamp" if args.len() == 3 => self.lower_math_clamp(args),
@@ -31,6 +34,35 @@ impl CodeBuilder<'_> {
             other => Err(format!(
                 "native math lowering does not support math.{other}"
             )),
+        }
+    }
+
+    /// Whether `arg`'s static type is a `List OF …` (selects the SIMD array
+    /// overloads over the scalar `math::` lowerings).
+    pub(super) fn is_list_argument(&self, arg: &NirValue) -> bool {
+        self.static_type_name(arg)
+            .is_some_and(|type_| type_.starts_with("List OF "))
+    }
+
+    /// `math.abs(values AS T[])` — vectorized absolute value (plan-01-simd §4.4).
+    fn lower_math_abs_array(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
+        use super::builder_simd_math::SimdUnaryKernel;
+        let input = self.lower_value(arg)?;
+        let text = format!("math.abs({})", input.text);
+        let element = input
+            .type_
+            .strip_prefix("List OF ")
+            .ok_or_else(|| format!("math.abs array overload requires a list, got {}", input.type_))?
+            .to_string();
+        match element.as_str() {
+            "Integer" => self.lower_simd_unary(
+                SimdUnaryKernel::AbsInteger,
+                input,
+                "List OF Integer",
+                COLLECTION_TYPE_INTEGER,
+                text,
+            ),
+            other => Err(format!("math.abs array overload does not accept List OF {other}")),
         }
     }
 
