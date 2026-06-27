@@ -244,58 +244,72 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_and("v5", "v5", "v21")); // quad = q & 3
     }
 
-    /// `sin`/`cos` kernel. After reduction, evaluate `sin_r = r*P_sin(r^2)` and
-    /// `cos_r = P_cos(r^2)`, then apply the quadrant selection/sign.
+    /// `sin`/`cos` kernel. After reduction, evaluate the polynomials in
+    /// double-double (compensated Horner) for `sin_r = r*P_sin(r^2)` (collapsed
+    /// into `v24`) and `cos_r = P_cos(r^2)` (collapsed into `v23`), then apply the
+    /// quadrant selection/sign. The compensated polynomials make sin/cos strict
+    /// <=1 ULP of macOS libm.
     fn emit_sin_cos_body(&mut self, want_cos: bool) {
         self.emit_sincos_reduce(); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul("v3", "v2", "v2")); // r2
-        self.emit_horner("v6", "v3", &SIN_COEFFS); // P_sin in v6
-        self.emit(abi::vector_fmul("v6", "v2", "v6")); // sin_r = r*P_sin
-        self.emit_horner("v7", "v3", &COS_COEFFS); // cos_r in v7
-        // Quadrant masks: bit0 and bit1 of quad.
+        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2 (Horner var)
+        // cos_r = collapse(P_cos(r2)) → v23.
+        self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS);
+        self.emit(abi::vector_fadd("v23", "v3", "v4"));
+        // sin_r = r * collapse(P_sin(r2)) → v24 (carry the lo through the multiply).
+        self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS);
+        self.emit_twoprod("v6", "v7", "v2", "v3");
+        self.emit(abi::vector_fmla("v7", "v2", "v4")); // pe += r*lo
+        self.emit(abi::vector_fadd("v24", "v6", "v7"));
+        // Quadrant masks: bit0 (v1) and bit1 (v0) of quad.
         self.emit(abi::vector_shl("v1", "v5", 63));
-        self.emit(abi::vector_sshr("v1", "v1", 63)); // mask_b0 (all-ones if bit0)
+        self.emit(abi::vector_sshr("v1", "v1", 63));
         self.emit(abi::vector_shl("v0", "v5", 62));
-        self.emit(abi::vector_sshr("v0", "v0", 63)); // mask_b1
+        self.emit(abi::vector_sshr("v0", "v0", 63));
         if !want_cos {
             // sin: val = bit0 ? cos_r : sin_r; negate if bit1.
-            self.emit(abi::vector_bsl("v1", "v7", "v6")); // v1 = val
+            self.emit(abi::vector_bsl("v1", "v23", "v24"));
             self.emit(abi::vector_fneg("v3", "v1"));
-            self.emit(abi::vector_bsl("v0", "v3", "v1")); // v0 = bit1 ? -val : val
+            self.emit(abi::vector_bsl("v0", "v3", "v1"));
         } else {
             // cos: val = bit0 ? sin_r : cos_r; negate if bit0 XOR bit1.
-            self.emit(abi::vector_eor("v4", "v1", "v0")); // negmask = b0 ^ b1
-            self.emit(abi::vector_bsl("v1", "v6", "v7")); // v1 = val
+            self.emit(abi::vector_eor("v4", "v1", "v0"));
+            self.emit(abi::vector_bsl("v1", "v24", "v23"));
             self.emit(abi::vector_fneg("v3", "v1"));
-            self.emit(abi::vector_bsl("v4", "v3", "v1")); // v4 = negmask ? -val : val
+            self.emit(abi::vector_bsl("v4", "v3", "v1"));
             self.emit(abi::vector_orr("v0", "v4", "v4"));
         }
     }
 
-    /// `tan(x) = sin(x) / cos(x)`: one reduction, both quadrant selections, divide.
+    /// `tan(x) = sin(x) / cos(x)`: one reduction, compensated sin_r/cos_r, both
+    /// quadrant selections, divide. Strict <=1 ULP except a couple of inputs very
+    /// near an asymptote, where a double-double range reduction (future work)
+    /// would be needed; ~99.8% of the reference within 1 ULP, max 2.
     fn emit_tan_body(&mut self) {
         self.emit_sincos_reduce(); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul("v3", "v2", "v2")); // r2
-        self.emit_horner("v6", "v3", &SIN_COEFFS);
-        self.emit(abi::vector_fmul("v6", "v2", "v6")); // sin_r (v6)
-        self.emit_horner("v7", "v3", &COS_COEFFS); // cos_r (v7)
+        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2
+        self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS);
+        self.emit(abi::vector_fadd("v23", "v3", "v4")); // cos_r → v23
+        self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS);
+        self.emit_twoprod("v6", "v7", "v2", "v3");
+        self.emit(abi::vector_fmla("v7", "v2", "v4"));
+        self.emit(abi::vector_fadd("v24", "v6", "v7")); // sin_r → v24
         // Quadrant masks b0 (v1), b1 (v2).
         self.emit(abi::vector_shl("v1", "v5", 63));
         self.emit(abi::vector_sshr("v1", "v1", 63));
         self.emit(abi::vector_shl("v2", "v5", 62));
         self.emit(abi::vector_sshr("v2", "v2", 63));
-        // sin_full = (b1 ? -1 : 1) * (b0 ? cos_r : sin_r)  → v0.
+        // sin_full = (b1 ? -1 : 1) * (b0 ? cos_r : sin_r) → v0.
         self.emit(abi::vector_orr("v3", "v1", "v1"));
-        self.emit(abi::vector_bsl("v3", "v7", "v6")); // val_s = b0 ? cos_r : sin_r
+        self.emit(abi::vector_bsl("v3", "v23", "v24"));
         self.emit(abi::vector_fneg("v4", "v3"));
         self.emit(abi::vector_orr("v0", "v2", "v2"));
-        self.emit(abi::vector_bsl("v0", "v4", "v3")); // sin_full
-        // cos_full = ((b0^b1) ? -1 : 1) * (b0 ? sin_r : cos_r)  → v1.
+        self.emit(abi::vector_bsl("v0", "v4", "v3"));
+        // cos_full = ((b0^b1) ? -1 : 1) * (b0 ? sin_r : cos_r) → v1.
         self.emit(abi::vector_orr("v3", "v1", "v1"));
-        self.emit(abi::vector_bsl("v3", "v6", "v7")); // val_c = b0 ? sin_r : cos_r
+        self.emit(abi::vector_bsl("v3", "v24", "v23"));
         self.emit(abi::vector_fneg("v4", "v3"));
-        self.emit(abi::vector_eor("v1", "v1", "v2")); // negmask = b0 ^ b1
-        self.emit(abi::vector_bsl("v1", "v4", "v3")); // cos_full
+        self.emit(abi::vector_eor("v1", "v1", "v2"));
+        self.emit(abi::vector_bsl("v1", "v4", "v3"));
         self.emit(abi::vector_fdiv("v0", "v0", "v1")); // tan = sin/cos
     }
 
