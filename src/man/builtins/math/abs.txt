@@ -46,7 +46,9 @@ OVERLOADS
     Returns the magnitude of a Fixed. Fails with ErrOverflow when value is the
     minimum Fixed.
 
-  math::abs(values AS List OF Integer | Float | Fixed) AS List OF (same type)
+  math::abs(values AS List OF Integer) AS List OF Integer
+  math::abs(values AS List OF Float) AS List OF Float
+  math::abs(values AS List OF Fixed) AS List OF Fixed
     Applies abs to each element of a numeric List using NEON SIMD and
     returns a new List of the same type and length. It raises the same
     errors as the scalar overload(s) above, but a per-element failure is

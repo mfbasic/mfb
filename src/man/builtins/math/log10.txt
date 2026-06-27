@@ -44,7 +44,8 @@ OVERLOADS
     (Q32.32) arithmetic and rounds to the nearest Fixed value. Fails with
     ErrInvalidArgument when value is zero or negative.
 
-  math::log10(values AS List OF Float | Fixed) AS List OF (same type)
+  math::log10(values AS List OF Float) AS List OF Float
+  math::log10(values AS List OF Fixed) AS List OF Fixed
     Applies log10 to each element of a numeric List using NEON SIMD and
     returns a new List of the same type and length. It raises the same
     errors as the scalar overload(s) above, but a per-element failure is

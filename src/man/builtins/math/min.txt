@@ -41,7 +41,9 @@ OVERLOADS
   math::min(a AS Fixed, b AS Fixed) AS Fixed
     Returns the smaller of two Fixeds.
 
-  math::min(a AS List OF T, b AS List OF T) AS List OF T  (T = Integer | Float | Fixed)
+  math::min(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  math::min(a AS List OF Float, b AS List OF Float) AS List OF Float
+  math::min(a AS List OF Fixed, b AS List OF Fixed) AS List OF Fixed
     Applies min element-by-element across the two Lists using NEON SIMD and
     returns a new List of the same type and length. Both input Lists must
     have the same length. It raises the same errors as the scalar

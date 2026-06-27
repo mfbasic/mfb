@@ -42,7 +42,8 @@ OVERLOADS
     infinity using deterministic fixed-point arithmetic. Every Fixed value
     ceils to an Integer that fits in range, so this overload never overflows.
 
-  math::ceil(values AS List OF Float | Fixed) AS List OF Integer
+  math::ceil(values AS List OF Float) AS List OF Integer
+  math::ceil(values AS List OF Fixed) AS List OF Integer
     Applies ceil to each element of a numeric List using NEON SIMD and
     returns a new List OF Integer of the same length. It raises the same
     errors as the scalar overload(s) above, but a per-element failure is

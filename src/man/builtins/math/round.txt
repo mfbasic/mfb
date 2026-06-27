@@ -40,7 +40,8 @@ OVERLOADS
     identical across targets. Every Fixed value rounds to an Integer that fits
     in range, so this overload never overflows.
 
-  math::round(values AS List OF Float | Fixed) AS List OF Integer
+  math::round(values AS List OF Float) AS List OF Integer
+  math::round(values AS List OF Fixed) AS List OF Integer
     Applies round to each element of a numeric List using NEON SIMD and
     returns a new List OF Integer of the same length. It raises the same
     errors as the scalar overload(s) above, but a per-element failure is
