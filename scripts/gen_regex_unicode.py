@@ -5,7 +5,7 @@ table used by the regex package (see the embedded spec: `mfb spec stdlib regex`)
 The table is emitted as MFBASIC source (one flat IF-chain function) rather than a
 data table because MFBASIC list reads copy the whole list, and because the native
 backends cannot hold a large constant array cheaply. The whole regex dialect's
-Unicode behavior (\\d, \\w, \\s, \\b, \\p{gc}) is resolved through rxGenCat.
+Unicode behavior (\\d, \\w, \\s, \\b, \\p{gc}) is resolved through __regex_genCat.
 
 Pinned Unicode version: whatever `python3 -c "import unicodedata"` reports; this
 script records it in the generated header. Re-run after a Unicode bump:
@@ -45,7 +45,7 @@ def main():
     out.append("REM Runs are contiguous and cover 0 .. 0x10FFFF (Cs = surrogate,")
     out.append("REM Cn = unassigned). See the embedded spec: mfb spec stdlib regex.")
     out.append("")
-    out.append("FUNC rxGenCat(cp AS Integer) AS String")
+    out.append("FUNC __regex_genCat(cp AS Integer) AS String")
     for lo, hi, c in runs:
         out.append(f'  IF cp <= {hi} THEN RETURN "{c}"')
     out.append('  RETURN "Cn"')
