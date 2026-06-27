@@ -131,6 +131,76 @@ exactly: `fadd_d`, `fsub_d`, `fmul_d`, `fdiv_d`, `fneg_d`, `fsqrt_d`, `fcmp_d`,
 note `fneg_d`, `fsqrt_d`, `fcmp_d`, and `fcmp_zero_d` are present in addition to
 the four arithmetic and five conversion ops.
 
+## NEON vector ops
+
+The vectorized `math::` array overloads (`mfb spec language builtin-functions`
+§18.2) process two 64-bit lanes per instruction. These ops take **vector
+register** operands named `v0`..`v31` (the `ldr_q`/`str_q` data register also
+accepts the `q0`..`q31` spelling); the lane arrangement is fixed by the op —
+`.2d` (two i64/f64 lanes) for every numeric op, `.16b` for the bitwise/select
+ops `and_v`/`orr_v`/`eor_v`/`bsl_v`/`bit_v`. Field placement matches the scalar
+ops: `Vd=bits[4:0]`, `Vn=bits[9:5]`, `Vm=bits[20:16]`.
+[[src/arch/aarch64/encode.rs:emit_v_three_same]]
+
+| Op | Mnemonic | Fields | Base word | Notes |
+|----|----------|--------|-----------|-------|
+| `LdrQ` | `ldr_q` | `dst`,`base`,`offset` | `0x3DC00000` | 128-bit load; `imm12=off/16` |
+| `StrQ` | `str_q` | `src`,`base`,`offset` | `0x3D800000` | 128-bit store; `src=Vt` |
+| `FAddV` | `fadd_v` | `dst`,`lhs`,`rhs` | `0x4E60D400` | `fadd .2d` |
+| `FSubV` | `fsub_v` | `dst`,`lhs`,`rhs` | `0x4EE0D400` | `fsub .2d` |
+| `FMulV` | `fmul_v` | `dst`,`lhs`,`rhs` | `0x6E60DC00` | `fmul .2d` |
+| `FDivV` | `fdiv_v` | `dst`,`lhs`,`rhs` | `0x6E60FC00` | `fdiv .2d` |
+| `FMlaV` | `fmla_v` | `dst`,`lhs`,`rhs` | `0x4E60CC00` | `dst += lhs*rhs` (Horner) |
+| `FMlsV` | `fmls_v` | `dst`,`lhs`,`rhs` | `0x4EE0CC00` | `dst -= lhs*rhs` |
+| `FMinV` | `fmin_v` | `dst`,`lhs`,`rhs` | `0x4EE0F400` | `fmin .2d` |
+| `FMaxV` | `fmax_v` | `dst`,`lhs`,`rhs` | `0x4E60F400` | `fmax .2d` |
+| `FCmGtV` | `fcmgt_v` | `dst`,`lhs`,`rhs` | `0x6EE0E400` | lane mask `lhs>rhs` |
+| `FCmGeV` | `fcmge_v` | `dst`,`lhs`,`rhs` | `0x6E60E400` | lane mask `lhs>=rhs` |
+| `FCmEqV` | `fcmeq_v` | `dst`,`lhs`,`rhs` | `0x4E60E400` | lane mask `lhs==rhs` |
+| `AddV` | `add_v` | `dst`,`lhs`,`rhs` | `0x4EE08400` | integer `add .2d` |
+| `SubV` | `sub_v` | `dst`,`lhs`,`rhs` | `0x6EE08400` | integer `sub .2d` |
+| `CmGtV` | `cmgt_v` | `dst`,`lhs`,`rhs` | `0x4EE03400` | signed lane mask `lhs>rhs` |
+| `CmGeV` | `cmge_v` | `dst`,`lhs`,`rhs` | `0x4EE03C00` | signed lane mask `lhs>=rhs` |
+| `CmEqV` | `cmeq_v` | `dst`,`lhs`,`rhs` | `0x6EE08C00` | lane mask `lhs==rhs` |
+| `SshlV` | `sshl_v` | `dst`,`lhs`,`rhs` | `0x4EE04400` | signed per-lane variable shift |
+| `UshlV` | `ushl_v` | `dst`,`lhs`,`rhs` | `0x6EE04400` | unsigned per-lane variable shift |
+| `AndV` | `and_v` | `dst`,`lhs`,`rhs` | `0x4E201C00` | `and .16b` |
+| `OrrV` | `orr_v` | `dst`,`lhs`,`rhs` | `0x4EA01C00` | `orr .16b` |
+| `EorV` | `eor_v` | `dst`,`lhs`,`rhs` | `0x6E201C00` | `eor .16b` |
+| `BslV` | `bsl_v` | `dst`,`lhs`,`rhs` | `0x6E601C00` | bit-select: `dst = (lhs&dst)\|(rhs&~dst)` |
+| `BitV` | `bit_v` | `dst`,`lhs`,`rhs` | `0x6EA01C00` | insert-if-true |
+| `FAbsV` | `fabs_v` | `dst`,`src` | `0x4EE0F800` | `fabs .2d` |
+| `FNegV` | `fneg_v` | `dst`,`src` | `0x6EE0F800` | `fneg .2d` |
+| `FSqrtV` | `fsqrt_v` | `dst`,`src` | `0x6EE1F800` | `fsqrt .2d` |
+| `FRintpV` | `frintp_v` | `dst`,`src` | `0x4EE18800` | round toward +∞ |
+| `FRintmV` | `frintm_v` | `dst`,`src` | `0x4E619800` | round toward −∞ |
+| `FRintaV` | `frinta_v` | `dst`,`src` | `0x6E618800` | round nearest, ties away |
+| `FRintnV` | `frintn_v` | `dst`,`src` | `0x4E618800` | round nearest, ties even |
+| `FRintzV` | `frintz_v` | `dst`,`src` | `0x4EE19800` | round toward zero |
+| `FCvtzsV` | `fcvtzs_v` | `dst`,`src` | `0x4EE1B800` | f64 lane → i64, toward zero |
+| `FCvtasV` | `fcvtas_v` | `dst`,`src` | `0x4E61C800` | f64 lane → i64, ties away |
+| `ScvtfV` | `scvtf_v` | `dst`,`src` | `0x4E61D800` | i64 lane → f64 |
+| `NegV` | `neg_v` | `dst`,`src` | `0x6EE0B800` | integer negate `.2d` |
+| `AbsV` | `abs_v` | `dst`,`src` | `0x4EE0B800` | integer absolute `.2d` |
+| `FCmGtZeroV` | `fcmgt_zero_v` | `dst`,`src` | `0x4EE0C800` | lane mask `src>0.0` |
+| `FCmGeZeroV` | `fcmge_zero_v` | `dst`,`src` | `0x6EE0C800` | lane mask `src>=0.0` |
+| `FCmEqZeroV` | `fcmeq_zero_v` | `dst`,`src` | `0x4EE0D800` | lane mask `src==0.0` |
+| `FCmLtZeroV` | `fcmlt_zero_v` | `dst`,`src` | `0x4EE0E800` | lane mask `src<0.0` |
+| `FCmLeZeroV` | `fcmle_zero_v` | `dst`,`src` | `0x6EE0D800` | lane mask `src<=0.0` |
+| `ShlV` | `shl_v` | `dst`,`src`,`shift` | `0x4F005400` | left shift; `immhb=64+s`, `s∈0..=63` |
+| `SshrV` | `sshr_v` | `dst`,`src`,`shift` | `0x4F000400` | signed right; `immhb=128−s`, `s∈1..=64` |
+| `UshrV` | `ushr_v` | `dst`,`src`,`shift` | `0x6F000400` | unsigned right; `immhb=128−s` |
+| `DupVFromX` | `dup_v_from_x` | `dst`,`src` | `0x4E080C00` | broadcast GPR into both `.2d` lanes |
+| `UmovXFromV` | `umov_x_from_v` | `dst`,`src`,`index` | `0x4E003C00` | `Xd ← Vn.d[index]`; `imm5=8\|(index<<4)` |
+
+Integer `min`/`max`/`mul`/`clz` have no `.2d` form in NEON, so the kernels build
+those from `cmgt_v`+`bsl_v` (lane select) and integer shifts instead. A per-lane
+error mask (e.g. `fcmlt_zero_v` for a negative `sqrt` lane) is reduced to a GPR
+with two `umov_x_from_v` extracts ORed together — there is no horizontal-reduce
+op in the set. Shift-immediate ops encode the amount in `immhb=bits[22:16]`. Every
+new op's exact word is pinned by `encodes_neon_vector_ops` in `encode.rs`, which
+asserts against the system assembler (`as -arch arm64`) output.
+
 ## Worked encodings
 
 ### `mov_imm` — `movz`/`movk` chain

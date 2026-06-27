@@ -552,3 +552,137 @@ pub(crate) fn float_round_to_signed_x(dst: &str, src: &str) -> CodeInstruction {
         .field("dst", dst)
         .field("src", src)
 }
+
+// --- NEON vector constructors (plan-01-simd Phase 1) ---
+//
+// Vector operands are named `v0`..`v31`; the lane arrangement (`.2d` for the
+// numeric kernels, `.16b` for the bitwise/select ops) is fixed by each op. The
+// base GPR for `ldr_q`/`str_q` and the source GPR for `dup` use the ordinary
+// `x*` names.
+
+/// `ldr q<dst>, [<base>, #offset]` — load 128 bits (two i64/f64 lanes).
+#[allow(dead_code)]
+pub(crate) fn vector_load(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("ldr_q")
+        .field("dst", dst)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
+/// `str q<src>, [<base>, #offset]` — store 128 bits (two i64/f64 lanes).
+#[allow(dead_code)]
+pub(crate) fn vector_store(src: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("str_q")
+        .field("src", src)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
+fn vector_three(op: &str, dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+    CodeInstruction::new(op)
+        .field("dst", dst)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+}
+
+fn vector_two(op: &str, dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new(op).field("dst", dst).field("src", src)
+}
+
+fn vector_shift(op: &str, dst: &str, src: &str, shift: u8) -> CodeInstruction {
+    CodeInstruction::new(op)
+        .field("dst", dst)
+        .field("src", src)
+        .field("shift", &shift.to_string())
+}
+
+macro_rules! vector_three_same {
+    ($name:ident, $op:literal) => {
+        #[allow(dead_code)]
+        pub(crate) fn $name(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+            vector_three($op, dst, lhs, rhs)
+        }
+    };
+}
+
+macro_rules! vector_two_misc {
+    ($name:ident, $op:literal) => {
+        #[allow(dead_code)]
+        pub(crate) fn $name(dst: &str, src: &str) -> CodeInstruction {
+            vector_two($op, dst, src)
+        }
+    };
+}
+
+macro_rules! vector_shift_imm {
+    ($name:ident, $op:literal) => {
+        #[allow(dead_code)]
+        pub(crate) fn $name(dst: &str, src: &str, shift: u8) -> CodeInstruction {
+            vector_shift($op, dst, src, shift)
+        }
+    };
+}
+
+vector_three_same!(vector_fadd, "fadd_v");
+vector_three_same!(vector_fsub, "fsub_v");
+vector_three_same!(vector_fmul, "fmul_v");
+vector_three_same!(vector_fdiv, "fdiv_v");
+vector_three_same!(vector_fmla, "fmla_v");
+vector_three_same!(vector_fmls, "fmls_v");
+vector_three_same!(vector_fmin, "fmin_v");
+vector_three_same!(vector_fmax, "fmax_v");
+vector_three_same!(vector_fcmgt, "fcmgt_v");
+vector_three_same!(vector_fcmge, "fcmge_v");
+vector_three_same!(vector_fcmeq, "fcmeq_v");
+vector_three_same!(vector_add, "add_v");
+vector_three_same!(vector_sub, "sub_v");
+vector_three_same!(vector_cmgt, "cmgt_v");
+vector_three_same!(vector_cmge, "cmge_v");
+vector_three_same!(vector_cmeq, "cmeq_v");
+vector_three_same!(vector_sshl, "sshl_v");
+vector_three_same!(vector_ushl, "ushl_v");
+vector_three_same!(vector_and, "and_v");
+vector_three_same!(vector_orr, "orr_v");
+vector_three_same!(vector_eor, "eor_v");
+vector_three_same!(vector_bsl, "bsl_v");
+vector_three_same!(vector_bit, "bit_v");
+
+vector_two_misc!(vector_fabs, "fabs_v");
+vector_two_misc!(vector_fneg, "fneg_v");
+vector_two_misc!(vector_fsqrt, "fsqrt_v");
+vector_two_misc!(vector_frintp, "frintp_v");
+vector_two_misc!(vector_frintm, "frintm_v");
+vector_two_misc!(vector_frinta, "frinta_v");
+vector_two_misc!(vector_frintn, "frintn_v");
+vector_two_misc!(vector_frintz, "frintz_v");
+vector_two_misc!(vector_fcvtzs, "fcvtzs_v");
+vector_two_misc!(vector_fcvtas, "fcvtas_v");
+vector_two_misc!(vector_scvtf, "scvtf_v");
+vector_two_misc!(vector_neg, "neg_v");
+vector_two_misc!(vector_abs, "abs_v");
+vector_two_misc!(vector_fcmgt_zero, "fcmgt_zero_v");
+vector_two_misc!(vector_fcmge_zero, "fcmge_zero_v");
+vector_two_misc!(vector_fcmeq_zero, "fcmeq_zero_v");
+vector_two_misc!(vector_fcmlt_zero, "fcmlt_zero_v");
+vector_two_misc!(vector_fcmle_zero, "fcmle_zero_v");
+
+vector_shift_imm!(vector_shl, "shl_v");
+vector_shift_imm!(vector_sshr, "sshr_v");
+vector_shift_imm!(vector_ushr, "ushr_v");
+
+/// `dup v<dst>.2d, x<src>` — broadcast a 64-bit GPR into both lanes.
+#[allow(dead_code)]
+pub(crate) fn vector_dup_from_x(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("dup_v_from_x")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+/// `umov x<dst>, v<src>.d[index]` — extract lane `index` (0 or 1) into a GPR.
+#[allow(dead_code)]
+pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstruction {
+    CodeInstruction::new("umov_x_from_v")
+        .field("dst", dst)
+        .field("src", src)
+        .field("index", &index.to_string())
+}

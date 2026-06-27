@@ -14009,6 +14009,53 @@ impl CodeInstruction {
             | CodeOp::FCvtasXFromD => &["dst", "src"],
             CodeOp::FCmpD => &["lhs", "rhs"],
             CodeOp::FCmpZeroD => &["src"],
+            // NEON vector ops (plan-01-simd Phase 1).
+            CodeOp::LdrQ => &["dst", "base", "offset"],
+            CodeOp::StrQ => &["src", "base", "offset"],
+            CodeOp::FAddV
+            | CodeOp::FSubV
+            | CodeOp::FMulV
+            | CodeOp::FDivV
+            | CodeOp::FMlaV
+            | CodeOp::FMlsV
+            | CodeOp::FMinV
+            | CodeOp::FMaxV
+            | CodeOp::FCmGtV
+            | CodeOp::FCmGeV
+            | CodeOp::FCmEqV
+            | CodeOp::AddV
+            | CodeOp::SubV
+            | CodeOp::CmGtV
+            | CodeOp::CmGeV
+            | CodeOp::CmEqV
+            | CodeOp::SshlV
+            | CodeOp::UshlV
+            | CodeOp::AndV
+            | CodeOp::OrrV
+            | CodeOp::EorV
+            | CodeOp::BslV
+            | CodeOp::BitV => &["dst", "lhs", "rhs"],
+            CodeOp::FAbsV
+            | CodeOp::FNegV
+            | CodeOp::FSqrtV
+            | CodeOp::FRintpV
+            | CodeOp::FRintmV
+            | CodeOp::FRintaV
+            | CodeOp::FRintnV
+            | CodeOp::FRintzV
+            | CodeOp::FCvtzsV
+            | CodeOp::FCvtasV
+            | CodeOp::ScvtfV
+            | CodeOp::NegV
+            | CodeOp::AbsV
+            | CodeOp::FCmGtZeroV
+            | CodeOp::FCmGeZeroV
+            | CodeOp::FCmEqZeroV
+            | CodeOp::FCmLtZeroV
+            | CodeOp::FCmLeZeroV => &["dst", "src"],
+            CodeOp::ShlV | CodeOp::SshrV | CodeOp::UshrV => &["dst", "src", "shift"],
+            CodeOp::DupVFromX => &["dst", "src"],
+            CodeOp::UmovXFromV => &["dst", "src", "index"],
         };
         for name in required {
             if !self.fields.iter().any(|(field, _)| field == name) {

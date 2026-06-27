@@ -449,10 +449,170 @@ impl Encoder {
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
+            "ldr_q" => self.emit_ldr_q(
+                vreg(field(instruction, "dst")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "str_q" => self.emit_str_q(
+                vreg(field(instruction, "src")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "fadd_v" | "fsub_v" | "fmul_v" | "fdiv_v" | "fmla_v" | "fmls_v" | "fmin_v"
+            | "fmax_v" | "fcmgt_v" | "fcmge_v" | "fcmeq_v" | "add_v" | "sub_v" | "cmgt_v"
+            | "cmge_v" | "cmeq_v" | "sshl_v" | "ushl_v" | "and_v" | "orr_v" | "eor_v"
+            | "bsl_v" | "bit_v" => self.emit_v_three_same(
+                instruction.op,
+                vreg(field(instruction, "dst")?)?,
+                vreg(field(instruction, "lhs")?)?,
+                vreg(field(instruction, "rhs")?)?,
+            ),
+            "fabs_v" | "fneg_v" | "fsqrt_v" | "frintp_v" | "frintm_v" | "frinta_v"
+            | "frintn_v" | "frintz_v" | "fcvtzs_v" | "fcvtas_v" | "scvtf_v" | "neg_v"
+            | "abs_v" | "fcmgt_zero_v" | "fcmge_zero_v" | "fcmeq_zero_v" | "fcmlt_zero_v"
+            | "fcmle_zero_v" => self.emit_v_two_misc(
+                instruction.op,
+                vreg(field(instruction, "dst")?)?,
+                vreg(field(instruction, "src")?)?,
+            ),
+            "shl_v" | "sshr_v" | "ushr_v" => self.emit_v_shift_imm(
+                instruction.op,
+                vreg(field(instruction, "dst")?)?,
+                vreg(field(instruction, "src")?)?,
+                shift(field(instruction, "shift")?)?,
+            ),
+            "dup_v_from_x" => self.emit_dup_v_from_x(
+                vreg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "umov_x_from_v" => self.emit_umov_x_from_v(
+                reg(field(instruction, "dst")?)?,
+                vreg(field(instruction, "src")?)?,
+                immediate(field(instruction, "index")?)?,
+            ),
             other => Err(format!(
                 "AArch64 encoder does not support instruction '{other}'"
             )),
         }
+    }
+
+    /// 128-bit `LDR Qt, [Xn, #offset]` — offset must be a multiple of 16.
+    fn emit_ldr_q(&mut self, vt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 16 != 0 || offset / 16 > 4095 {
+            return Err(format!("AArch64 ldr q offset {offset} is not encodable"));
+        }
+        let imm12 = (offset / 16) as u32;
+        self.emit_word(0x3dc0_0000 | (imm12 << 10) | ((rn as u32) << 5) | vt as u32)
+    }
+
+    /// 128-bit `STR Qt, [Xn, #offset]` — offset must be a multiple of 16.
+    fn emit_str_q(&mut self, vt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 16 != 0 || offset / 16 > 4095 {
+            return Err(format!("AArch64 str q offset {offset} is not encodable"));
+        }
+        let imm12 = (offset / 16) as u32;
+        self.emit_word(0x3d80_0000 | (imm12 << 10) | ((rn as u32) << 5) | vt as u32)
+    }
+
+    /// Three-same NEON ops: `op Vd.<T>, Vn.<T>, Vm.<T>`. The arrangement (`.2d`
+    /// for numeric lanes, `.16b` for the bitwise ops) is baked into the base word.
+    fn emit_v_three_same(&mut self, op: CodeOp, vd: u8, vn: u8, vm: u8) -> Result<(), String> {
+        let base = match op {
+            CodeOp::FAddV => 0x4e60_d400,
+            CodeOp::FSubV => 0x4ee0_d400,
+            CodeOp::FMulV => 0x6e60_dc00,
+            CodeOp::FDivV => 0x6e60_fc00,
+            CodeOp::FMlaV => 0x4e60_cc00,
+            CodeOp::FMlsV => 0x4ee0_cc00,
+            CodeOp::FMinV => 0x4ee0_f400,
+            CodeOp::FMaxV => 0x4e60_f400,
+            CodeOp::FCmGtV => 0x6ee0_e400,
+            CodeOp::FCmGeV => 0x6e60_e400,
+            CodeOp::FCmEqV => 0x4e60_e400,
+            CodeOp::AddV => 0x4ee0_8400,
+            CodeOp::SubV => 0x6ee0_8400,
+            CodeOp::CmGtV => 0x4ee0_3400,
+            CodeOp::CmGeV => 0x4ee0_3c00,
+            CodeOp::CmEqV => 0x6ee0_8c00,
+            CodeOp::SshlV => 0x4ee0_4400,
+            CodeOp::UshlV => 0x6ee0_4400,
+            CodeOp::AndV => 0x4e20_1c00,
+            CodeOp::OrrV => 0x4ea0_1c00,
+            CodeOp::EorV => 0x6e20_1c00,
+            CodeOp::BslV => 0x6e60_1c00,
+            CodeOp::BitV => 0x6ea0_1c00,
+            other => return Err(format!("{} is not a three-same NEON op", other.mnemonic())),
+        };
+        self.emit_word(base | ((vm as u32) << 16) | ((vn as u32) << 5) | vd as u32)
+    }
+
+    /// Two-register-misc NEON ops: `op Vd.<T>, Vn.<T>` (the compare-zero forms
+    /// compare each lane against 0.0/0 implicitly).
+    fn emit_v_two_misc(&mut self, op: CodeOp, vd: u8, vn: u8) -> Result<(), String> {
+        let base = match op {
+            CodeOp::FAbsV => 0x4ee0_f800,
+            CodeOp::FNegV => 0x6ee0_f800,
+            CodeOp::FSqrtV => 0x6ee1_f800,
+            CodeOp::FRintpV => 0x4ee1_8800,
+            CodeOp::FRintmV => 0x4e61_9800,
+            CodeOp::FRintaV => 0x6e61_8800,
+            CodeOp::FRintnV => 0x4e61_8800,
+            CodeOp::FRintzV => 0x4ee1_9800,
+            CodeOp::FCvtzsV => 0x4ee1_b800,
+            CodeOp::FCvtasV => 0x4e61_c800,
+            CodeOp::ScvtfV => 0x4e61_d800,
+            CodeOp::NegV => 0x6ee0_b800,
+            CodeOp::AbsV => 0x4ee0_b800,
+            CodeOp::FCmGtZeroV => 0x4ee0_c800,
+            CodeOp::FCmGeZeroV => 0x6ee0_c800,
+            CodeOp::FCmEqZeroV => 0x4ee0_d800,
+            CodeOp::FCmLtZeroV => 0x4ee0_e800,
+            CodeOp::FCmLeZeroV => 0x6ee0_d800,
+            other => return Err(format!("{} is not a two-reg-misc NEON op", other.mnemonic())),
+        };
+        self.emit_word(base | ((vn as u32) << 5) | vd as u32)
+    }
+
+    /// Shifted-immediate NEON ops on `.2d` lanes (64-bit element). `shl` takes a
+    /// left-shift 0..=63; `sshr`/`ushr` take a right-shift 1..=64.
+    fn emit_v_shift_imm(&mut self, op: CodeOp, vd: u8, vn: u8, amount: u8) -> Result<(), String> {
+        let (base, immhb) = match op {
+            CodeOp::ShlV => {
+                if amount > 63 {
+                    return Err(format!("AArch64 shl.2d shift {amount} is out of range"));
+                }
+                (0x4f00_5400, 64 + amount as u32)
+            }
+            CodeOp::SshrV => {
+                if amount == 0 || amount > 64 {
+                    return Err(format!("AArch64 sshr.2d shift {amount} is out of range"));
+                }
+                (0x4f00_0400, 128 - amount as u32)
+            }
+            CodeOp::UshrV => {
+                if amount == 0 || amount > 64 {
+                    return Err(format!("AArch64 ushr.2d shift {amount} is out of range"));
+                }
+                (0x6f00_0400, 128 - amount as u32)
+            }
+            other => return Err(format!("{} is not a NEON shift-imm op", other.mnemonic())),
+        };
+        self.emit_word(base | (immhb << 16) | ((vn as u32) << 5) | vd as u32)
+    }
+
+    /// `DUP Vd.2d, Xn` — broadcast a 64-bit GPR into both lanes.
+    fn emit_dup_v_from_x(&mut self, vd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0x4e08_0c00 | ((rn as u32) << 5) | vd as u32)
+    }
+
+    /// `UMOV Xd, Vn.d[index]` — extract lane `index` (0 or 1) into a GPR.
+    fn emit_umov_x_from_v(&mut self, rd: u8, vn: u8, index: u64) -> Result<(), String> {
+        if index > 1 {
+            return Err(format!("AArch64 umov .d lane index {index} is out of range"));
+        }
+        let imm5 = 0x8 | ((index as u32) << 4);
+        self.emit_word(0x4e00_3c00 | (imm5 << 16) | ((vn as u32) << 5) | rd as u32)
     }
 
     fn emit_word(&mut self, word: u32) -> Result<(), String> {
@@ -1107,6 +1267,23 @@ fn reg(name: String) -> Result<u8, String> {
     }
 }
 
+/// Parse a NEON vector register operand. Accepts `v0`..`v31` and the `q0`..`q31`
+/// load/store spelling (the arrangement suffix, e.g. `.2d`, is implied by the op,
+/// so only the register number is decoded here).
+fn vreg(name: String) -> Result<u8, String> {
+    let digits = name
+        .strip_prefix('v')
+        .or_else(|| name.strip_prefix('q'))
+        .ok_or_else(|| format!("unknown AArch64 vector register '{name}'"))?;
+    let number = digits
+        .parse::<u8>()
+        .map_err(|_| format!("unknown AArch64 vector register '{name}'"))?;
+    if number > 31 {
+        return Err(format!("AArch64 vector register '{name}' out of range"));
+    }
+    Ok(number)
+}
+
 fn immediate(value: String) -> Result<u64, String> {
     match value.as_str() {
         "true" => Ok(1),
@@ -1297,6 +1474,163 @@ mod tests {
         expected.extend_from_slice(&0x9a0c_01ca_u32.to_le_bytes());
         expected.extend_from_slice(&0x9acb_2d80_u32.to_le_bytes());
         assert_eq!(encoder.text, expected);
+    }
+
+    fn fresh_encoder() -> Encoder {
+        Encoder {
+            text: Vec::new(),
+            data: Vec::new(),
+            symbols: Vec::new(),
+            relocations: Vec::new(),
+            imports: HashMap::new(),
+            labels: HashMap::new(),
+            patches: Vec::new(),
+        }
+    }
+
+    fn encode_one(instruction: &CodeInstruction) -> u32 {
+        let mut encoder = fresh_encoder();
+        encoder.emit_instruction(instruction).unwrap();
+        assert_eq!(encoder.text.len(), 4, "expected a single 4-byte word");
+        u32::from_le_bytes(encoder.text[..4].try_into().unwrap())
+    }
+
+    /// Each new NEON op's encoding is checked against the exact little-endian word
+    /// produced by the system assembler (`as -arch arm64`) for the same mnemonic
+    /// and operands. Operands deliberately use distinct register numbers
+    /// (dst=v5/x5, lhs/src=v9/x9, rhs=v17/x17) so a misplaced Rd/Rn/Rm bit-field
+    /// is caught, not just a wrong base constant.
+    #[test]
+    fn encodes_neon_vector_ops() {
+        let three = |op: &str| {
+            CodeInstruction::new(op)
+                .field("dst", "v5")
+                .field("lhs", "v9")
+                .field("rhs", "v17")
+        };
+        let two = |op: &str| CodeInstruction::new(op).field("dst", "v5").field("src", "v17");
+
+        // Three-same .2d / .16b.
+        assert_eq!(encode_one(&three("fadd_v")), 0x4e71_d525);
+        assert_eq!(encode_one(&three("fsub_v")), 0x4ef1_d525);
+        assert_eq!(encode_one(&three("fmul_v")), 0x6e71_dd25);
+        assert_eq!(encode_one(&three("fdiv_v")), 0x6e71_fd25);
+        assert_eq!(encode_one(&three("fmla_v")), 0x4e71_cd25);
+        assert_eq!(encode_one(&three("fmls_v")), 0x4ef1_cd25);
+        assert_eq!(encode_one(&three("fmin_v")), 0x4ef1_f525);
+        assert_eq!(encode_one(&three("fmax_v")), 0x4e71_f525);
+        assert_eq!(encode_one(&three("fcmgt_v")), 0x6ef1_e525);
+        assert_eq!(encode_one(&three("fcmge_v")), 0x6e71_e525);
+        assert_eq!(encode_one(&three("fcmeq_v")), 0x4e71_e525);
+        assert_eq!(encode_one(&three("add_v")), 0x4ef1_8525);
+        assert_eq!(encode_one(&three("sub_v")), 0x6ef1_8525);
+        assert_eq!(encode_one(&three("cmgt_v")), 0x4ef1_3525);
+        assert_eq!(encode_one(&three("cmge_v")), 0x4ef1_3d25);
+        assert_eq!(encode_one(&three("cmeq_v")), 0x6ef1_8d25);
+        assert_eq!(encode_one(&three("sshl_v")), 0x4ef1_4525);
+        assert_eq!(encode_one(&three("ushl_v")), 0x6ef1_4525);
+        assert_eq!(encode_one(&three("and_v")), 0x4e31_1d25);
+        assert_eq!(encode_one(&three("orr_v")), 0x4eb1_1d25);
+        assert_eq!(encode_one(&three("eor_v")), 0x6e31_1d25);
+        assert_eq!(encode_one(&three("bsl_v")), 0x6e71_1d25);
+        assert_eq!(encode_one(&three("bit_v")), 0x6eb1_1d25);
+
+        // Two-reg-misc .2d.
+        assert_eq!(encode_one(&two("fabs_v")), 0x4ee0_fa25);
+        assert_eq!(encode_one(&two("fneg_v")), 0x6ee0_fa25);
+        assert_eq!(encode_one(&two("fsqrt_v")), 0x6ee1_fa25);
+        assert_eq!(encode_one(&two("frintp_v")), 0x4ee1_8a25);
+        assert_eq!(encode_one(&two("frintm_v")), 0x4e61_9a25);
+        assert_eq!(encode_one(&two("frinta_v")), 0x6e61_8a25);
+        assert_eq!(encode_one(&two("frintn_v")), 0x4e61_8a25);
+        assert_eq!(encode_one(&two("frintz_v")), 0x4ee1_9a25);
+        assert_eq!(encode_one(&two("fcvtzs_v")), 0x4ee1_ba25);
+        assert_eq!(encode_one(&two("fcvtas_v")), 0x4e61_ca25);
+        assert_eq!(encode_one(&two("scvtf_v")), 0x4e61_da25);
+        assert_eq!(encode_one(&two("neg_v")), 0x6ee0_ba25);
+        assert_eq!(encode_one(&two("abs_v")), 0x4ee0_ba25);
+        assert_eq!(encode_one(&two("fcmgt_zero_v")), 0x4ee0_ca25);
+        assert_eq!(encode_one(&two("fcmge_zero_v")), 0x6ee0_ca25);
+        assert_eq!(encode_one(&two("fcmeq_zero_v")), 0x4ee0_da25);
+        assert_eq!(encode_one(&two("fcmlt_zero_v")), 0x4ee0_ea25);
+        assert_eq!(encode_one(&two("fcmle_zero_v")), 0x6ee0_da25);
+
+        // Shifted-immediate .2d.
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("shl_v")
+                    .field("dst", "v5")
+                    .field("src", "v17")
+                    .field("shift", "32")
+            ),
+            0x4f60_5625
+        );
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("sshr_v")
+                    .field("dst", "v5")
+                    .field("src", "v17")
+                    .field("shift", "32")
+            ),
+            0x4f60_0625
+        );
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("ushr_v")
+                    .field("dst", "v5")
+                    .field("src", "v17")
+                    .field("shift", "20")
+            ),
+            0x6f6c_0625
+        );
+
+        // Lane broadcast / extract.
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("dup_v_from_x")
+                    .field("dst", "v5")
+                    .field("src", "x17")
+            ),
+            0x4e08_0e25
+        );
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("umov_x_from_v")
+                    .field("dst", "x5")
+                    .field("src", "v17")
+                    .field("index", "0")
+            ),
+            0x4e08_3e25
+        );
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("umov_x_from_v")
+                    .field("dst", "x5")
+                    .field("src", "v17")
+                    .field("index", "1")
+            ),
+            0x4e18_3e25
+        );
+
+        // 128-bit load/store, with and without an offset.
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("ldr_q")
+                    .field("dst", "v5")
+                    .field("base", "x9")
+                    .field("offset", "0")
+            ),
+            0x3dc0_0125
+        );
+        assert_eq!(
+            encode_one(
+                &CodeInstruction::new("str_q")
+                    .field("src", "v5")
+                    .field("base", "x9")
+                    .field("offset", "16")
+            ),
+            0x3d80_0525
+        );
     }
 
     #[test]
