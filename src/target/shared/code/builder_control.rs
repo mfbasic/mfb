@@ -809,11 +809,10 @@ impl CodeBuilder<'_> {
         if super::CollectionTypeLayout::from_type(&collection_type).is_none() {
             return Ok(false);
         }
-        // The replacement must be a single element of the list element type.
-        match self.static_type_name(&args[2]) {
-            Some(item_type) if item_type == element_type => {}
-            _ => return Ok(false),
-        }
+        // The list `set` overload's item argument is always a single element of
+        // type `T` (typecheck-enforced), so — unlike append's bulk-vs-single gate —
+        // no static element-type check is needed; the post-lowering `item.type_`
+        // check below catches any mismatch.
         let index = self.lower_value(&args[1])?;
         if index.type_ != "Integer" {
             return Err(format!(
