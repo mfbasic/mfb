@@ -9,7 +9,7 @@ command surface is summarized in `./mfb spec architecture commands`.
 Audit runs the same front-end pipeline a build does (manifest validation, parse,
 resolve, monomorphize, re-resolve, entry validation, typecheck) and then collects
 a report from the parsed AST plus the installed `.mfp` packages. All collection is
-offline.[[src/audit/collect.rs:collect]]
+offline.[[src/audit/collect/mod.rs:collect]]
 
 ## Invocation and Exit Status
 
@@ -78,20 +78,20 @@ counts are derived by tallying finding severities.[[src/audit/report.rs:counts]]
 **project** — `name`, `ident` (defaults to `name`), `version`, `kind`
 (`executable`/`package`), `root` (forward-slash-normalized path), `entry`
 (nullable entry-point function), `languageVersion` (manifest `mfb`
-field).[[src/audit/collect.rs:project_summary]]
+field).[[src/audit/collect/project.rs:project_summary]]
 
 **lockfile** — `path` (`mfb.lock`), `present` (bool), `locked` (the `--locked`
 flag), `lockfileVersion` (nullable int), `projectHashMatches` (nullable bool:
-stored `projectHash` vs. recomputed `project_hash`).[[src/audit/collect.rs:collect_lockfile]]
+stored `projectHash` vs. recomputed `project_hash`).[[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 **DependencyEntry** — `name`, `ident`, `requestedVersion`, `resolvedVersion`
 (nullable), `pin` (bool), `source`, `signature` (nullable), `contentHash`
 (nullable hex), `status` (`ok` / `needs-update` / `invalid` / `missing`). Sorted
-by `name`.[[src/audit/collect.rs:collect_dependencies]]
+by `name`.[[src/audit/collect/dependencies.rs:collect_dependencies]]
 
 **PackageEntry** — `name`, `version`, `path` (`packages/<name>.mfp`), `verifier`
 (`ok` / `failed`), `signature`, `contentHash` (hex), `exports`, `imports`,
-`cleanups` (ints). Sorted by `name`.[[src/audit/collect.rs:collect_packages]]
+`cleanups` (ints). Sorted by `name`.[[src/audit/collect/dependencies.rs:collect_packages]]
 
 **FlowFunction** — `function`, `path`, `line`, `fallible` (bool), `trap`
 (nullable `{ name, line, classification }`), `calls` (array of `{ callee, line,
@@ -104,18 +104,18 @@ name)`.[[src/audit/json.rs:resources]]
 
 **NativeLinkEntry** — `package`, `symbol`, `closeFunction`, `mayFail` (bool).
 This array is currently always empty (`native_links` is initialized to
-`Vec::new()`); the field is reserved.[[src/audit/collect.rs:collect]]
+`Vec::new()`); the field is reserved.[[src/audit/collect/mod.rs:collect]]
 
 **NativeResourceEntry** — `package`, `resourceType`, `closeOp`, `closeMayFail`
 (bool), `threadSendable` (bool), `exported` (bool), `kind` (always `"native"`),
 `path`, `line`. One per `RESOURCE` declaration; `closeMayFail` is true iff the
 close wrapper has a `SUCCESS_ON` gate. Sorted by `(path, line,
-resourceType)`.[[src/audit/collect.rs:collect_native_resources]]
+resourceType)`.[[src/audit/collect/project.rs:collect_native_resources]]
 
 **PermissionEntry** — `capability`, `package`, `function`, `path`, `line`,
 `kind` (`"standard"`). One per capability-bearing call site, deduplicated by
 `(capability, path, line, function)`, sorted by `(capability, path, line,
-function)`.[[src/audit/collect.rs:collect_source]]
+function)`.[[src/audit/collect/source.rs:collect_source]]
 
 **Finding** — `code`, `severity` (`error`/`warning`/`info`), `category`,
 `message`, `location` (nullable `{ path, line? }`), `package` (nullable). See the
@@ -124,7 +124,7 @@ catalogue below.[[src/audit/json.rs:findings]]
 ## Finding Catalogue
 
 Findings carry a stable `code`, a `category`, and a `severity`. They are sorted
-by `(category_rank, code, path, line, message)` for determinism.[[src/audit/collect.rs:sort_findings]]
+by `(category_rank, code, path, line, message)` for determinism.[[src/audit/collect/findings.rs:sort_findings]]
 
 Category rank (lower sorts first):[[src/audit/report.rs:category_rank]]
 
@@ -165,9 +165,9 @@ Category rank (lower sorts first):[[src/audit/report.rs:category_rank]]
 | `AUDIT-PERM-OTHER` | permission | info | any other capability string |
 
 Permission findings are emitted once per distinct capability (deduplicated by
-capability across all sites).[[src/audit/collect.rs:permission_findings]] Lockfile
+capability across all sites).[[src/audit/collect/findings.rs:permission_findings]] Lockfile
 findings are mutually staged: a missing-but-required lockfile returns
-`AUDIT-LOCK-MISSING` and suppresses the stale check.[[src/audit/collect.rs:lockfile_findings]]
+`AUDIT-LOCK-MISSING` and suppresses the stale check.[[src/audit/collect/findings.rs:lockfile_findings]]
 The `lint`/`policy` categories have ranks reserved but emit no codes today.
 
 ## Analysis Model
@@ -179,15 +179,15 @@ collector iterates to a fixpoint: starting from an empty set, it repeatedly mark
 any not-yet-fallible function whose *relevant block* can let an error escape,
 stopping when a pass marks nothing new. The relevant block is the `TRAP` handler
 body when a trap exists (body errors route there first), otherwise the function
-body.[[src/audit/collect.rs:fallible_functions]]
+body.[[src/audit/collect/source.rs:fallible_functions]]
 
 A block "escapes" if it contains a `FAIL` or `PROPAGATE` (recursively, through
-`IF`/`MATCH`/loop bodies), or if it contains a fallible call.[[src/audit/collect.rs:block_escapes]]
+`IF`/`MATCH`/loop bodies), or if it contains a fallible call.[[src/audit/collect/source.rs:block_escapes]]
 
 ### Trap classification
 
 A function's `TRAP` handler is classified by inspecting its body, in priority
-order:[[src/audit/collect.rs:classify_trap]]
+order:[[src/audit/collect/source.rs:classify_trap]]
 
 | Classification | Condition |
 |---|---|
@@ -199,7 +199,7 @@ order:[[src/audit/collect.rs:classify_trap]]
 ### Capability inference
 
 A call site's capability is inferred from the callee's package prefix (the
-segment before the first `.`):[[src/audit/collect.rs:builtin_capability]]
+segment before the first `.`):[[src/audit/collect/source.rs:builtin_capability]]
 
 | Package | Capability |
 |---|---|
@@ -214,7 +214,7 @@ fallible, the call's `capability` field).
 ### Fallible-call table
 
 A call is fallible if its callee's package is a known-fallible builtin namespace,
-or if it names a user function already in the fallible set:[[src/audit/collect.rs:is_fallible_call]]
+or if it names a user function already in the fallible set:[[src/audit/collect/source.rs:is_fallible_call]]
 
 ```text
 fallible builtin packages: fs, io, json, net, thread
@@ -225,7 +225,7 @@ otherwise:                 callee ∈ fallible-user-function set
 
 `LET name = <call>` is recognized as a resource binding when the callee matches
 this table (scanned recursively through `IF`/`MATCH`/loop bodies). Recognized
-resources have `native = false` and `closeMayFail = true`:[[src/audit/collect.rs:resource_producer]]
+resources have `native = false` and `closeMayFail = true`:[[src/audit/collect/source.rs:resource_producer]]
 
 | Callee | resourceType | closeOp |
 |---|---|---|
@@ -239,7 +239,7 @@ resources have `native = false` and `closeMayFail = true`:[[src/audit/collect.rs
 `projectHashMatches` compares the lockfile's stored `projectHash` against a
 freshly computed lowercase-hex SHA-256 over the canonical, sorted serialization
 of the manifest `packages[]` request tuples (`name`, `ident`, `version`, `pin`,
-`source`, NUL-separated, newline-terminated, then sorted).[[src/audit/collect.rs:project_hash]]
+`source`, NUL-separated, newline-terminated, then sorted).[[src/audit/collect/mod.rs:project_hash]]
 
 ## See Also
 

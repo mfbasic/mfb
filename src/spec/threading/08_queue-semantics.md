@@ -35,7 +35,7 @@ arena at send time, then the reader just dequeues the already-materialized value
 - Worker→parent (`thread.emit`) loads the parent arena state from control-block
   offset 88 and copies the message into it.
 - Parent→worker (`thread.send`) and all reads use the worker arena state at
-  offset 80. [[src/target/shared/code/mod.rs:thread_queue_write_helper]]
+  offset 80. [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]]
 
 Resource handles move as scalar handles through the resource queues without the
 flat-block deep copy used for data-plane values.
@@ -60,7 +60,7 @@ enqueue success:
   the error handler, where it remains owned by the sender and can be released. The
   typechecker treats the argument at index 1 of `thread.start`, `thread.send`, and
   `thread.transfer` as a move (`ExprMode::Transfer`); a borrowed resource cannot be
-  transferred (`OWNERSHIP_BORROWED_RESOURCE_OPERATION`). [[src/typecheck.rs:Transfer]]
+  transferred (`OWNERSHIP_BORROWED_RESOURCE_OPERATION`). [[src/typecheck/mod.rs:Transfer]]
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal

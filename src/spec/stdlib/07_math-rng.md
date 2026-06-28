@@ -14,7 +14,7 @@ The per-function API (signatures, parameters, errors) is owned by
 ## Constants
 
 The generator uses the canonical PCG64 128-bit constants. Each is held as two
-64-bit limbs (high, low). [[src/target/shared/code/mod.rs:PCG_MULT_HI]]
+64-bit limbs (high, low). [[src/target/shared/code/error_constants.rs:PCG_MULT_HI]]
 
 | Name | Value (128-bit) | Role |
 |------|-----------------|------|
@@ -24,7 +24,7 @@ The generator uses the canonical PCG64 128-bit constants. Each is held as two
 The stream is fixed: every generator on every thread uses the same `INC`, so
 two generators seeded identically produce identical sequences. There is no
 selectable PCG stream; independence between threads comes from distinct seeds,
-not distinct increments. [[src/target/shared/code/mod.rs:PCG_INC_HI]]
+not distinct increments. [[src/target/shared/code/error_constants.rs:PCG_INC_HI]]
 
 ## State advance
 
@@ -36,7 +36,7 @@ state := state * MULT + INC          ; all arithmetic mod 2^128
 
 computed from the two 64-bit limbs `(lo, hi)` held in registers. The product is
 the low 128 bits of `state * MULT`; the increment is added with carry across the
-limbs. [[src/target/shared/code/mod.rs:emit_pcg_step]]
+limbs. [[src/target/shared/code/entry_and_arena.rs:emit_pcg_step]]
 
 ```text
 emit_pcg_step(lo, hi):
@@ -59,7 +59,7 @@ encoders are `mul`, `umulh`, `adds`, `adc`.
 
 After advancing, the 64-bit result is the **XSL-RR** permutation of the new
 128-bit state: XOR the two halves, then rotate right by a count taken from the
-top 6 bits of the high half. [[src/target/shared/code/mod.rs:lower_rng_next]]
+top 6 bits of the high half. [[src/target/shared/code/entry_and_arena.rs:lower_rng_next]]
 
 ```text
 rot := hi >> 58                 ; top 6 bits of the high limb (0..63)
@@ -76,13 +76,13 @@ emitted. [[src/arch/aarch64/abi.rs:rotate_right_registers]]
 88/96), runs `emit_pcg_step`, stores the advanced state back, and returns the
 XSL-RR output in `x0`. It is a leaf helper and clobbers the caller-saved
 registers, so `math::rand` spills its bounds across the call.
-[[src/target/shared/code/mod.rs:RNG_NEXT_SYMBOL]]
+[[src/target/shared/code/error_constants.rs:RNG_NEXT_SYMBOL]]
 
 ## Seeding dance
 
 Reseeding from a single 64-bit `seed` follows the canonical PCG initialization:
 zero the state, step once, add the seed, step again. The result is stored to the
-arena RNG words. [[src/target/shared/code/mod.rs:lower_rng_seed_at]]
+arena RNG words. [[src/target/shared/code/entry_and_arena.rs:lower_rng_seed_at]]
 
 ```text
 _mfb_rng_seed_at(arena_ptr, seed):
@@ -114,7 +114,7 @@ Before any user code runs (including global initializers, which may call
 entropy pool. The 8-byte seed scratch is pre-filled with the arena address so a
 `getentropy` failure still yields a varying seed; `getentropy`/`getrandom`
 overwrites it on success. The seed is then passed to `_mfb_rng_seed_at`.
-[[src/target/shared/code/mod.rs:RNG_SEED_SYMBOL]]
+[[src/target/shared/code/error_constants.rs:RNG_SEED_SYMBOL]]
 
 ```text
 entry:
@@ -133,7 +133,7 @@ generator. The parent draws one 64-bit value with `_mfb_rng_next` (advancing the
 parent's own stream) and uses it as the child's seed via `_mfb_rng_seed_at`. The
 draw runs in the parent, where `x19` is the parent arena, so it is race-free; the
 child arena pointer is reloaded from the thread control block afterward (the draw
-clobbers `x0`–`x18`). [[src/target/shared/code/mod.rs:RNG_NEXT_SYMBOL]]
+clobbers `x0`–`x18`). [[src/target/shared/code/error_constants.rs:RNG_NEXT_SYMBOL]]
 
 ```text
 parent (at thread spawn):

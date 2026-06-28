@@ -27,7 +27,7 @@ The reader does **not** verify the cryptographic signature; that is the package 
 
 * `MFPC` magic and `bcMajor == 2` (the structured-Binary-Representation clean break; `1` is rejected as predating the format).
 * The section table fits within the payload, and each section's `offset + length` stays within the payload.
-* The required sections are present: `MANIFEST`, `STRING_POOL`, `TYPE_TABLE`, `CONST_POOL`, `IMPORT_TABLE`, `EXPORT_TABLE`, `FUNCTION_TABLE`, `IR`, `ABI_INDEX`. (`GLOBAL_TABLE`, `RESOURCE_TABLE`, `DOC` are optional on read.) [[src/binary_repr.rs:read_binary_repr_package]]
+* The required sections are present: `MANIFEST`, `STRING_POOL`, `TYPE_TABLE`, `CONST_POOL`, `IMPORT_TABLE`, `EXPORT_TABLE`, `FUNCTION_TABLE`, `IR`, `ABI_INDEX`. (`GLOBAL_TABLE`, `RESOURCE_TABLE`, `DOC` are optional on read.) [[src/binary_repr/reader.rs:read_binary_repr_package]]
 * Each metadata table parses exactly — every `read_*` table function rejects leftover trailing bytes within its section.
 * `STRING_POOL` entries are valid UTF-8.
 * `EXPORT_TABLE` kinds are only `1` (func) / `2` (sub); `IMPORT_TABLE`/`ABI_INDEX` pin bytes are `0`/`1`.
@@ -36,7 +36,7 @@ The reader does **not** verify the cryptographic signature; that is the package 
 
 ### IR payload
 
-* `decode_binary_repr` checks the `MFBR` magic and `version == 2`, then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error. [[src/ir.rs:decode_binary_repr]]
+* `decode_binary_repr` checks the `MFBR` magic and `version == 2`, then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error. [[src/ir/binary.rs:decode_binary_repr]]
 
 ## Compile-time guarantees (assumed on import, not re-checked)
 

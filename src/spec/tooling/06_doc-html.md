@@ -23,7 +23,7 @@ mfb pkg doc  → write_package_doc     → doc::from_package(PackageDocs) ┘
 The two builders produce the same `DocPage` shape; the differences are entirely
 in the input and the public/internal partition (below).
 
-[[src/doc.rs:from_source]] [[src/doc.rs:from_package]] [[src/main.rs:build_source_doc_page]] [[src/main.rs:write_package_doc]]
+[[src/doc.rs:from_source]] [[src/doc.rs:from_package]] [[src/cli/doc.rs:build_source_doc_page]] [[src/cli/pkg.rs:write_package_doc]]
 
 | Aspect | `from_source` (source DOC blocks) | `from_package` (compiled `.mfp`) |
 |---|---|---|
@@ -257,7 +257,7 @@ name and otherwise empty fields and renders it — producing the standard chrome
 with the `No documentation is available.` body. This path is unique to
 `pkg doc`; `mfb doc` always has at least the parsed source to work from.
 
-[[src/doc.rs:render_empty_html]] [[src/binary_repr.rs:PackageDocs]]
+[[src/doc.rs:render_empty_html]] [[src/binary_repr/mod.rs:PackageDocs]]
 
 ## Command Resolution and Exit Codes
 
@@ -270,7 +270,7 @@ a directory, the project manifest is validated, the project is parsed and resolv
 and its DOC blocks are validated (`resolver::validate_project_docs`). `--out`
 defaults to `doc.html`.
 
-[[src/main.rs:run_doc_command]] [[src/main.rs:build_source_doc_page]]
+[[src/cli/doc.rs:run_doc_command]] [[src/cli/doc.rs:build_source_doc_page]]
 
 | Exit | Condition |
 |---|---|
@@ -282,7 +282,7 @@ Because validation failures still write the HTML (the page is built from whateve
 parsed), a CI gate that wants "docs are clean" must check for exit `1`, not the
 presence of the output file.
 
-[[src/main.rs:run_doc_command]]
+[[src/cli/doc.rs:run_doc_command]]
 
 ### `mfb pkg doc <name-or-path> [--out <file>]`
 
@@ -292,7 +292,7 @@ A missing package is an error. The `.mfp` header and `doc` section are read; an
 empty doc section yields the empty page (still exit success). `--out` defaults to
 `doc.html`.
 
-[[src/main.rs:run_pkg_doc]] [[src/main.rs:write_package_doc]]
+[[src/cli/pkg.rs:run_pkg_doc]] [[src/cli/pkg.rs:write_package_doc]]
 
 `pkg doc` reports through `PkgCommandError`, which the top-level `pkg` dispatch
 maps to exit codes:
@@ -303,7 +303,7 @@ maps to exit codes:
 | `1` | `PkgCommandError::Failed` — package not found, decode failure, or IO error |
 | `2` | `PkgCommandError::Usage` — `--out` without a value, unknown `--flag`, missing `<name-or-path>`, or more than one target |
 
-[[src/main.rs:run_pkg_command]] [[src/main.rs:run_pkg_doc]]
+[[src/cli/pkg.rs:run_pkg_command]] [[src/cli/pkg.rs:run_pkg_doc]]
 
 ## See Also
 

@@ -94,7 +94,7 @@ compiler resolves the first identifier in the import using this order
    match the import and `kind` must be `package`.
 6. Otherwise, the declared package is missing from the package store and the
    import is a compile-time error (`IMPORT_PACKAGE_NOT_INSTALLED`).
-[[src/resolver.rs:resolve_imported_package]]
+[[src/resolver/packages.rs:resolve_imported_package]]
 
 `<project_root>/packages` is the resolved dependency store, similar in role to
 `node_modules` in Node projects. It is managed by the package manager. The

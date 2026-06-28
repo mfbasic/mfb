@@ -86,7 +86,7 @@ The server decodes `authKey`/`proof`, verifies the proof against the
 registration message, and records the owner. A duplicate owner name yields a
 `409 Conflict` (message contains `already in use`); malformed input yields
 `400`.[[repository/src/server.rs:register]][[repository/src/server.rs:conflict_or_bad_request]]
-The CLI prints `Registered owner <owner> with auth fingerprint <fp>`.[[src/main.rs:run_repo_command]]
+The CLI prints `Registered owner <owner> with auth fingerprint <fp>`.[[src/cli/repo.rs:run_repo_command]]
 
 ## Challenge-Response Authentication
 
@@ -150,7 +150,7 @@ Response `LoginResponse`:[[repository/src/server.rs:LoginResponse]]
 The server completes the challenge (verifying the signature over the challenge
 message). A replayed/already-consumed challenge yields `409` (message contains
 `reused challenge`).[[repository/src/server.rs:login]][[repository/src/server.rs:conflict_or_bad_request]]
-The CLI prints `Authenticated owner <owner> until <expiresAt>`.[[src/main.rs:run_repo_command]]
+The CLI prints `Authenticated owner <owner> until <expiresAt>`.[[src/cli/repo.rs:run_repo_command]]
 
 ### Session Token (JWT)
 
@@ -264,7 +264,7 @@ package version.[[repository/src/server.rs:publish_package]]
 
 ## `pkg publish`: Validate-then-Publish
 
-`mfb pkg publish <owner_name> <package>` is a build-then-two-call sequence:[[src/main.rs:publish_package_project]]
+`mfb pkg publish <owner_name> <package>` is a build-then-two-call sequence:[[src/cli/pkg.rs:publish_package_project]]
 
 1. Validate the package `project.json`; require kind `package`.
 2. `build --sign <owner>` in `Validate` mode to produce the signed `<name>.mfp`.

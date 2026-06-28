@@ -48,9 +48,9 @@ package in one of two forms and reports a status:
    dependency. If `ident` is absent it defaults to the manifest's `name`.
 
 The compiled `.mfp` file is checked first; the source-package manifest is the
-fallback. If neither exists, the status is `InvalidPackage`.[[src/main.rs:verify_package_dependency]]
+fallback. If neither exists, the status is `InvalidPackage`.[[src/cli/pkg.rs:verify_package_dependency]]
 
-`package_dependency_status` produces one of three outcomes:[[src/main.rs:package_dependency_status]]
+`package_dependency_status` produces one of three outcomes:[[src/cli/pkg.rs:package_dependency_status]]
 
 - `InvalidPackage` — the installed `name` does not equal the declared name, the
   installed package could not be read or parsed, or both sides carry a non-empty
@@ -62,7 +62,7 @@ Version matching is **exact string** comparison: an expected version matches
 only when it is empty (no constraint) or byte-for-byte equal to the installed
 version. Range syntax such as `^1.2.3` or `~1.2.3` is treated as a literal
 string and therefore never matches a concrete version like `1.9.0` — it yields
-`NeedsUpdate`.[[src/main.rs:package_version_matches]] The `pin` flag does not
+`NeedsUpdate`.[[src/cli/pkg.rs:package_version_matches]] The `pin` flag does not
 change this verification result: pinned and unpinned dependencies are checked
 with the same exact-string version comparison.
 
@@ -70,7 +70,7 @@ The `pin` flag is enforced separately, during the build's binary-representation
 merge of compiled packages. There, a pinned dependency whose `version` differs
 from the installed `.mfp` header version is a hard error
 (`package \`<name>\` is pinned to version <v>, but installed package is version
-<w>`), aborting the build rather than reporting a status.[[src/main.rs:2666]]
+<w>`), aborting the build rather than reporting a status.[[src/manifest/package.rs:installed_package_files]]
 
 ## Using Packages During Compilation
 
@@ -83,7 +83,7 @@ packageName.exportName
 ```
 
 These signatures are passed into `ir::lower_project_with_external_functions`
-so calls to package functions survive lowering with proper function types.[[src/ir.rs:lower_project_with_external_functions]]
+so calls to package functions survive lowering with proper function types.[[src/ir/lower.rs:lower_project_with_external_functions]]
 
 For native executable builds, the package's bodies are not left as external
 symbols. The native back end decodes each installed package's binary

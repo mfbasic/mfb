@@ -20,7 +20,7 @@ the final executable container (Mach-O or ELF) and writes it to disk itself.
 Both backends target aarch64 only. The macOS backend emits one Mach-O
 executable; the Linux backend emits two ELF executables (glibc and musl
 flavors) for console builds, or one for app-mode builds.
-[[src/os/macos/link.rs:encode_unsigned_mach_o]]
+[[src/os/macos/link/macho.rs:encode_unsigned_mach_o]]
 
 ## Reading order
 

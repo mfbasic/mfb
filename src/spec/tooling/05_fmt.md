@@ -255,7 +255,7 @@ block; blank lines emit empty; every other line prints at the current `depth`.
 
 ## CLI: flags, selection, exit codes
 
-`mfb fmt [--check] [--indent N] [location]`. [[src/main.rs:run_fmt_command]]
+`mfb fmt [--check] [--indent N] [location]`. [[src/cli/fmt.rs:run_fmt_command]]
 
 | Flag | Default | Meaning |
 |------|---------|---------|
@@ -266,9 +266,9 @@ block; blank lines emit empty; every other line prints at the current `depth`.
 **File selection** (`format_path`): a `.mfb` file is formatted alone (a
 non-`.mfb` file is an error); a directory is treated as a project — its
 `project.json` is validated and `selected_source_paths` enumerates the `.mfb`
-input set (see `./mfb spec tooling source-selection`). [[src/main.rs:format_path]]
+input set (see `./mfb spec tooling source-selection`). [[src/cli/fmt.rs:format_path]]
 
-**Behavior and exit codes:** [[src/main.rs:run_fmt_command]] [[src/main.rs:format_path]]
+**Behavior and exit codes:** [[src/cli/fmt.rs:run_fmt_command]] [[src/cli/fmt.rs:format_path]]
 
 | Mode | Per file | Process exit |
 |------|----------|--------------|
@@ -280,7 +280,7 @@ input set (see `./mfb spec tooling source-selection`). [[src/main.rs:format_path
 In `--check` mode, when one or more files would change, the formatter emits the
 general diagnostic **`FMT_CHECK_FAILED`** (code `2-200-0101`, severity Error,
 "one or more source files are not formatted (mfb fmt --check)") before exiting
-non-zero. [[src/rules.rs:FMT_CHECK_FAILED]] [[src/main.rs:format_path]]
+non-zero. [[src/rules/table.rs:FMT_CHECK_FAILED]] [[src/cli/fmt.rs:format_path]]
 
 ## See Also
 

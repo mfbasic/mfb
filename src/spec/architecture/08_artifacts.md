@@ -1,6 +1,6 @@
 # Artifact Summary
 
-Every build artifact, the flag that produces it, and what it contains.[[src/main.rs:BuildOutput]]
+Every build artifact, the flag that produces it, and what it contains.[[src/cli/build.rs:BuildOutput]]
 
 | Artifact | Command | Producer | Meaning |
 | --- | --- | --- | --- |

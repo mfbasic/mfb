@@ -23,7 +23,7 @@ the merge has already rewritten each package definition into its identity-prefix
 `<id>.package.symbol` form, the resulting symbol is
 `_mfb_fn_<id>_package_symbol`. (Compiler-internal sigil-prefixed functions use a
 reserved `_mfb_ifn_` namespace instead, which user and package functions can
-never reach.) [[src/target/shared/nir.rs:function_symbol]]
+never reach.) [[src/target/shared/nir/symbols.rs:function_symbol]]
 
 Cross-package calls and worker entry points resolve to these symbols after the IR
 merge, with `Nothing` results initialized to the canonical zero value, the same

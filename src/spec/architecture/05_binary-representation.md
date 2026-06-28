@@ -27,7 +27,7 @@ point of the boundary:
   versioned format. Because the encoding is a faithful, structure-preserving
   serialization, a consumer **decodes it straight back into IR** and lowers it
   through the single `IR → NIR → native` codegen used for the executable's own
-  code — no second, package-only code path.[[src/binary_repr.rs:read_binary_repr_package]]
+  code — no second, package-only code path.[[src/binary_repr/reader.rs:read_binary_repr_package]]
 
 The binary representation layer lowers IR into an architecture-independent package
 image that starts with `MFPC` magic and contains sectioned data — a string pool,
@@ -60,7 +60,7 @@ references to the identity-prefixed definitions (`ir::apply_package_identity`).
 Package functions therefore flow through the single `IR → NIR → native` codegen
 as ordinary merged functions (emitted under the normal `_mfb_fn_…` symbol
 namespace), not as `_mfb_pkg_*` imports. The only true NIR imports are native
-`LINK` thunks and platform symbols.[[src/target/shared/nir.rs:merge_packages]]
+`LINK` thunks and platform symbols.[[src/target/shared/nir/lower.rs:merge_packages]]
 
 The per-package identity that `read_package_ir_with_identity` produces is a hash
 over the MFPC container; its byte derivation is documented in

@@ -13,7 +13,7 @@ bytes are identical in both cases.
 ## Container layout
 
 Constants: VM base `0x1_0000_0000`, page size `0x4000` (16 KiB), import stub size
-12 bytes. Segments are emitted in this order: [[src/os/macos/link.rs:VM_BASE]]
+12 bytes. Segments are emitted in this order: [[src/os/macos/link/mod.rs:VM_BASE]]
 
 ```text
 __PAGEZERO     vm 0, size = VM base, no file backing, no access
@@ -68,7 +68,7 @@ Foundation   /System/Library/Frameworks/Foundation.framework/Foundation
 libobjc      /usr/lib/libobjc.A.dylib
 libz         /usr/lib/libz.1.dylib
 ```
-[[src/os/macos/link.rs:dylib_path]]
+[[src/os/macos/link/mod.rs:dylib_path]]
 
 Console builds draw their POSIX/pthread/math surface from `libSystem` using
 Darwin C ABI symbol names (leading underscore: `_write`, `_read`, `_open`,
@@ -91,7 +91,7 @@ ad-hoc code signature, even for a static, import-free image. The
   CodeDirectory page size is 4096, distinct from the 16 KiB Mach-O page size).
 
 The image is encoded once unsigned to compute the hashes, then re-encoded with
-the signature in place. [[src/os/macos/link.rs:code_signature]]
+the signature in place. [[src/os/macos/link/commands.rs:code_signature]]
 
 This ad-hoc signature is distinct from the optional `__MFB,__sign` segment, which
 carries MFBASIC's own executable signing metadata when the build supplies it.
@@ -124,14 +124,14 @@ so the executable written to `Contents/MacOS/<project>` is byte-identical to the
 console output for the same image — only the on-disk layout and the
 `Info.plist` differ. The executable file is then chmod'd to `0o755` (the
 `Info.plist` is written with default permissions, not marked executable).
-[[src/os/macos/link.rs:write_app_bundle]] [[src/os/macos/link.rs:write_executable_file]]
+[[src/os/macos/link/mod.rs:write_app_bundle]] [[src/os/macos/link/mod.rs:write_executable_file]]
 
 The project name is substituted into every `Info.plist` string field
 (`CFBundleName`, `CFBundleExecutable`, and the `dev.mfbasic.<project>`
 identifier) after XML-escaping. The escaper replaces the five XML predefined
 entities — `&`→`&amp;`, `<`→`&lt;`, `>`→`&gt;`, `"`→`&quot;`, `'`→`&apos;` — so a
 project name containing metacharacters produces a well-formed plist.
-[[src/os/macos/link.rs:plist_escape]]
+[[src/os/macos/link/mod.rs:plist_escape]]
 
 ## See Also
 

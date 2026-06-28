@@ -15,7 +15,7 @@ language types); the stage that parses them while specializing generics is
 ## Canonical grammar
 
 A type name is produced by `parse_type_name`, which is recursive: every nested
-type is itself a canonical type name. [[src/ast.rs:parse_type_name]]
+type is itself a canonical type name. [[src/ast/expr.rs:parse_type_name]]
 
 ```
 Type        := FuncType | "(" Type ")" | BaseName [" OF " Args]
@@ -51,7 +51,7 @@ one leading and one trailing space each:
 - `") AS "` — function parameter list from return type.
 - `", "` — successive template / function-parameter arguments
   (`args.join(", ")`). Splitting is on the literal two-character `", "`.
-  [[src/ast.rs:parse_type_name]]
+  [[src/ast/expr.rs:parse_type_name]]
 - `"RES "` — the leading resource-transfer prefix on a collection element/value
   or thread plane (see below).
 
@@ -59,7 +59,7 @@ one leading and one trailing space each:
 them by `strip_prefix`/`split_once` on the surrounding literal, not by tokenizing.
 The resolver, for example, dispatches purely on `strip_prefix("List OF ")`,
 `strip_prefix("Map OF ")`, `split_once(" TO ")`, `split_once(") AS ")`.
-[[src/resolver.rs:resolve_type_name]] [[src/monomorph.rs:func_type_parts]]
+[[src/resolver/resolution.rs:resolve_type_name]] [[src/monomorph/helpers.rs:func_type_parts]]
 
 ## Base names and bare-id normalization
 
@@ -69,12 +69,12 @@ its bare internal id: `net::Url` becomes `Url`, `http::Response` becomes
 `Response`, so no downstream stage ever sees a qualified built-in type. The
 rewrite is `qualified_builtin_type`, which only fires when the qualifier is a
 built-in import **and** the member is a built-in type id; otherwise the dotted
-name passes through unchanged. [[src/ast.rs:parse_type_base_name]]
+name passes through unchanged. [[src/ast/expr.rs:parse_type_base_name]]
 [[src/builtins/mod.rs:qualified_builtin_type]]
 
 The same normalization is mirrored in the resolver so a qualified built-in type
 in a fully-qualified context resolves to its bare id rather than erroring.
-[[src/resolver.rs:resolve_package_qualified_name]]
+[[src/resolver/resolution.rs:resolve_package_qualified_name]]
 
 ## Dotted names: `pkg::Ident` and `EnumType.Member`
 
@@ -83,11 +83,11 @@ separator**. Two distinct surface syntaxes collapse onto it at parse time:
 
 - A `::`-qualified reference `pkg::Ident` is rewritten to dotted `pkg.Ident`
   by `finish_qualified_name`. Exactly two parts are allowed; a third `::`
-  segment is a parse error. [[src/ast.rs:finish_qualified_name]]
+  segment is a parse error. [[src/ast/expr.rs:finish_qualified_name]]
 - A member access `EnumType.Member` is already written with `.`, so an
   enum-member reference and a (non-built-in) package-qualified name share one
   flat spelling. The resolver routes any name containing `.` to
-  package-qualified resolution. [[src/resolver.rs:resolve_type_name]]
+  package-qualified resolution. [[src/resolver/resolution.rs:resolve_type_name]]
 
 A non-built-in user/dependency type therefore keeps its dotted qualifier in the
 flat string; only built-in package types are stripped to bare ids.
@@ -109,7 +109,7 @@ scope-ownership transfers across a function boundary.
 keyword token but the marker is harmless and later rejected by type checking) and
 after `Map ... TO`. Consumers strip it with
 `strip_prefix("RES ").unwrap_or(...)` before resolving the underlying type.
-[[src/ast.rs:parse_type_name]] [[src/resolver.rs:resolve_type_name]]
+[[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type_name]]
 
 The thread resource plane is structurally distinct: it is an **infix** ` RES `
 clause between message and `" TO "`, not a leading prefix — see threads below.
@@ -119,7 +119,7 @@ clause between message and `" TO "`, not a leading prefix — see threads below.
 `parse_thread_type_name` handles `Thread`/`ThreadWorker` bodies after `<kind> OF`.
 The base token's case is canonicalized to exactly `Thread` or `ThreadWorker`. The
 body has three shapes, and a resource-only thread defaults its message to
-`Nothing`: [[src/ast.rs:parse_thread_type_name]]
+`Nothing`: [[src/ast/expr.rs:parse_thread_type_name]]
 
 ```
 Thread OF Msg TO Out               ' data-only
@@ -148,11 +148,11 @@ every built-in `OF`-bearing shape (`List OF`, `Map OF`, `MapEntry OF`,
 `Result OF`, `Thread OF`, `ThreadWorker OF`, and the `FUNC(`/`ISOLATED FUNC(`
 prefixes); only a base that is none of these is treated as a user template. The
 remainder after `" OF "` is split on top-level `", "` into the argument list.
-[[src/monomorph.rs:user_template_parts]] [[src/monomorph.rs:split_top_level_commas]]
+[[src/monomorph/helpers.rs:user_template_parts]] [[src/monomorph/helpers.rs:split_top_level_commas]]
 
 The resolver applies the same precedence: it checks the built-in prefixes first,
 then treats `base OF args` as a template only when `base` is a known type or an
-active template parameter, splitting `args` on `", "`. [[src/resolver.rs:resolve_type_name]]
+active template parameter, splitting `args` on `", "`. [[src/resolver/resolution.rs:resolve_type_name]]
 The template machinery itself is [language templates](./mfb spec language
 templates).
 
@@ -162,7 +162,7 @@ The encoding's defining property is that it round-trips through pure string
 operations. `concrete_type_name` (the monomorphizer's substitution pass)
 reconstructs each form by the identical prefix tests the parser used to build it,
 recursing on the sub-strings and re-joining with the same separators:
-[[src/monomorph.rs:concrete_type_name]]
+[[src/monomorph/lower.rs:concrete_type_name]]
 
 ```
 strip_prefix("List OF ")        -> "List OF " + recurse(element)
@@ -175,8 +175,8 @@ user_template_parts             -> instantiate_type(name, args)
 
 Map/MapEntry bodies are split with `split_top_level_to` (a `" TO "`
 `split_once`) and function/template argument lists with `split_top_level_commas`
-(a `", "` split). [[src/monomorph.rs:split_top_level_to]]
-[[src/monomorph.rs:func_type_parts]] Any new type shape must be added in lockstep
+(a `", "` split). [[src/monomorph/helpers.rs:split_top_level_to]]
+[[src/monomorph/helpers.rs:func_type_parts]] Any new type shape must be added in lockstep
 to **all** of: `parse_type_name`, `resolve_type_name`, `concrete_type_name`
 (plus its sibling substitution passes), and the type checker — there is no shared
 parser to change in one place.

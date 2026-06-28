@@ -2,7 +2,7 @@
 
 The Linux backend (`src/os/linux/link.rs`) is cross-compiled and writes ELF64
 aarch64 executables directly. It does not invoke `ld`, `gold`, `lld`, `gcc`,
-`clang`, or any host linker. [[src/os/linux/link.rs:encode_dynamic_elf]]
+`clang`, or any host linker. [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 A console build emits two flavors, one per dynamic loader / library naming:
 
@@ -53,7 +53,7 @@ relocation in `.rela`: `R_AARCH64_JUMP_SLOT` for `ImportKind::Function`,
 `R_AARCH64_GLOB_DAT` for `ImportKind::Data` (addend always 0). External
 `branch26` relocations are resolved to the stub; external `page21`/`pageoff12`
 to the GOT slot. The linker emits one `DT_NEEDED` per distinct imported library.
-[[src/os/linux/link.rs:R_AARCH64_JUMP_SLOT]]
+[[src/os/linux/link/mod.rs:R_AARCH64_JUMP_SLOT]]
 
 ## Symbol versioning
 
@@ -64,7 +64,7 @@ indices starting at 2 (1 = unversioned global). This is intended for versioned
 exports such as OpenSSL 3's `OPENSSL_3.0.0`. The current encode path emits all
 imports unversioned, so production builds produce no `.gnu.version*` sections;
 the path is exercised by the linker tests (validated against the glibc
-`GLIBC_2.17` aarch64 baseline). [[src/os/linux/link.rs:encode_dynamic_elf]]
+`GLIBC_2.17` aarch64 baseline). [[src/os/linux/link/elf.rs:encode_dynamic_elf]]
 
 ## Initializers
 

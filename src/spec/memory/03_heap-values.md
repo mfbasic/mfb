@@ -103,7 +103,7 @@ Error                              ErrorLoc
 OOM-degraded error with no origin) is represented by an **offset-0 sentinel**
 (offset 0 can never address a real inlined block, since the data region starts at
 24); `emit_load_error_fields` maps it back to a null pointer when loading the
-fallible-call ABI registers. [[src/target/shared/code/builder_misc.rs:emit_load_error_fields]] Construction, field access, copy, and
+fallible-call ABI registers. [[src/target/shared/code/builder_codegen_primitives.rs:emit_load_error_fields]] Construction, field access, copy, and
 thread-transfer reuse the generic flat-record machinery — copying an `Error` is
 one `memcpy`.
 
@@ -148,7 +148,7 @@ stores each union block inline by its runtime `size`.
 
 A **resource** union (all variants are resource handles; a union is all-data or
 all-resource, never mixed — rule `TYPE_MIXED_RESOURCE_UNION` in `rules.rs`) is
-**not** reshaped [[src/rules.rs:TYPE_MIXED_RESOURCE_UNION]] — it keeps the fixed
+**not** reshaped [[src/rules/table.rs:TYPE_MIXED_RESOURCE_UNION]] — it keeps the fixed
 `{U64 activeMemberTag@0, resource-handle-ptr@8}` layout, and the handle is moved
 (never deep-copied) so the resource is closed exactly once.
 

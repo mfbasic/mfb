@@ -37,7 +37,7 @@ format. In particular, it primarily consumes:
 
 Fields such as `include`, `exclude`, `role`, `targets`, and richer repository
 metadata are documented for the project format but are not the active source of
-build behavior in the compiler code reviewed here.[[src/main.rs:validate_project_manifest]]
+build behavior in the compiler code reviewed here.[[src/manifest/mod.rs:validate_project_manifest]]
 
 ## Source Discovery and Parsing
 
@@ -66,7 +66,7 @@ Current discovery behavior:
 - Per-root `include`/`exclude` glob patterns are applied by the source collector
   (`matches_source_patterns` in `src/ast.rs`). When unspecified, `include`
   defaults to `["**/*.mfb"]` and `exclude` defaults to empty, so every nested
-  `.mfb` file is collected by default.[[src/ast.rs:matches_source_patterns]]
+  `.mfb` file is collected by default.[[src/ast/manifest.rs:matches_source_patterns]]
 
 ## Source-File Selection
 
@@ -78,7 +78,7 @@ root, then keeps each file whose project-relative path satisfies the entry's
 `.mfb` file is collected. Results are returned in a stable, sorted order. The
 same selection feeds both `parse_project` (AST builds) and `selected_source_paths`
 (raw-text tools such as `mfb fmt`). The full glob-matching algorithm is
-`./mfb spec tooling source-selection`.[[src/ast.rs:collect_selected_source_files]]
+`./mfb spec tooling source-selection`.[[src/ast/manifest.rs:collect_selected_source_files]]
 
 ## Compiler-Owned Prelude
 
@@ -86,7 +86,7 @@ same selection feeds both `parse_project` (AST builds) and `selected_source_path
 all selected user sources. Its path is the sentinel `BUILTIN_PRELUDE_PATH`
 (`"<builtin prelude>"`), and it is appended last so the user's first source file
 remains `files[0]` — the monomorphizer emits generated instantiations into that
-first file.[[src/ast.rs:builtin_prelude_file]]
+first file.[[src/ast/manifest.rs:builtin_prelude_file]]
 
 The prelude declares the always-in-scope generic record templates
 `Pair OF A, B` (fields `first AS A`, `second AS B`) and `Partition OF T` (fields
@@ -98,7 +98,7 @@ special-cased.
 `AstProject::to_json` filters this file out by path, so the prelude does not
 appear in `mfb build -ast` golden output. The resolver, monomorphizer, and type
 checker all consume the full project (prelude included), so `Pair` and
-`Partition` resolve, monomorphize, and type-check as if user-declared.[[src/ast.rs:BUILTIN_PRELUDE_PATH]]
+`Partition` resolve, monomorphize, and type-check as if user-declared.[[src/ast/manifest.rs:BUILTIN_PRELUDE_PATH]]
 
 ## Built-in Package Augmentation
 
@@ -117,7 +117,7 @@ json -> csv -> regex -> datetime -> http -> net
 already present so the `net` dependency is detected and its companion injected.
 Each augmenter takes the previous augmenter's output, so the augmented AST that
 reaches the `Resolver` is the cumulative result of the whole chain. (The
-`collections` package is injected earlier, during `parse_project`.)[[src/resolver.rs:resolve_project_with]]
+`collections` package is injected earlier, during `parse_project`.)[[src/resolver/mod.rs:resolve_project_with]]
 
 ## Name Resolution
 
@@ -136,7 +136,7 @@ built-in packages — `File` (fs), `TermColor` and `TermSize` (term), `Socket`,
 `Listener`, `Address`, `UdpSocket`, `Datagram`, `DatagramText` (net), and
 `TlsSocket` (tls). The package-contributed names are referenced by constant
 (e.g. `builtins::fs::FILE_TYPE`) so the resolver list and the packages stay in
-sync.[[src/resolver.rs:BUILTIN_TYPES]]
+sync.[[src/resolver/mod.rs:BUILTIN_TYPES]]
 
 Before resolving, the resolver runs the built-in package augmentation chain
 described above (see "Built-in Package Augmentation"), so the rest of resolution
@@ -159,7 +159,7 @@ parsed AST
 
 The second resolution pass is important because monomorphization rewrites
 generic/template code into concrete declarations that must also obey normal
-symbol rules.[[src/monomorph.rs:monomorphize_project]]
+symbol rules.[[src/monomorph/mod.rs:monomorphize_project]]
 
 ## Monomorphization
 
@@ -198,7 +198,7 @@ Rules enforced by the implementation:
 - A `FUNC` executable entry must return `Integer`.
 - The entry may have zero parameters or one `List OF String` parameter.
 - The args parameter must not declare a default value.
-- Missing or invalid executable entries are compile-time errors.[[src/main.rs:validate_entry_point]]
+- Missing or invalid executable entries are compile-time errors.[[src/manifest/entry.rs:validate_entry_point]]
 
 The resulting IR entry records the entry name, return type, and whether the
 program accepts command-line arguments.

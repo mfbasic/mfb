@@ -3,7 +3,7 @@
 In the Binary Representation, calls reference functions by id, as an
 `IrValue::Call` or `IrValue::CallResult` node naming the target. The
 `CallResult` auto-unwrap is the ordinary `Result` desugaring owned by
-`./mfb spec language error-model` — not a thread-specific mechanism. [[src/ir.rs:CallResult]]
+`./mfb spec language error-model` — not a thread-specific mechanism. [[src/ir/value.rs:CallResult]]
 
 Inside one package, local function ids are package-local. They are not globally
 unique across `.mfp` files.
@@ -19,7 +19,7 @@ under each package's deterministic identity prefix (`<id>.package.symbol`). This
 identity-prefixed IR merge is the generic consumption mechanic owned by
 `./mfb spec architecture binary-representation`; it applies the prefix as a consistent link-time
 rename of every definition and reference and de-duplicates content reached via two
-dependency paths. [[src/ir.rs:prefix_package_symbols]]
+dependency paths. [[src/ir/package.rs:prefix_package_symbols]]
 
 The thread-relevant consequence: the consumer must not assume that package-local
 function id `0` in two packages is the same function. It resolves through package

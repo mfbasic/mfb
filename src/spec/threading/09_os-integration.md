@@ -54,7 +54,7 @@ the OS reclaim the arena instead.
 Raw Linux thread syscalls such as `clone`, `clone3`, `futex`, `set_tid_address`,
 `gettid`, `tgkill`, and thread-local raw `exit` are not the threading ABI for
 the current Linux backend. They may be used by libc internally, but generated
-thread helpers must call the libc/pthread interface. [[src/target/shared/code/mod.rs:lower_thread_start_helper]]
+thread helpers must call the libc/pthread interface. [[src/target/shared/code/runtime_helpers.rs:lower_thread_start_helper]]
 
 ## See Also
 

@@ -19,7 +19,7 @@ linkAliases     vec<(alias str, target str)>
 
 ## `IrLinkFunction`
 
-Each `IrLinkFunction` (`encode_link_function` in `src/ir.rs`) is encoded in this exact field order: [[src/ir.rs:encode_link_function]]
+Each `IrLinkFunction` (`encode_link_function` in `src/ir.rs`) is encoded in this exact field order: [[src/ir/binary.rs:encode_link_function]]
 
 ```text
 alias            str          MFBASIC-facing wrapper name as exported
@@ -44,7 +44,7 @@ free             optional (slot str, symbol str)  paired free/close for a return
 
 ## `IrLinkExpr`
 
-`successOn` and `result` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node: [[src/ir.rs:encode_link_expr]]
+`successOn` and `result` are small predicate/mapping expression trees (`encode_link_expr`), one tag byte per node: [[src/ir/binary.rs:encode_link_expr]]
 
 ```text
 0 = Var                       the call's raw return value
@@ -85,12 +85,12 @@ bit 2 = sendable to thread
 bit 3 = close may fail
 ```
 
-`closeFunctionId` is interpreted by flags: for a **native** `LINK` resource (`native` set, `standard` clear) it is the **string id** of the close op's name; for a built-in **standard** resource (`native` and `standard` both set) it is a sentinel function id (e.g. the built-in fs/net close ids). This is exactly how `read_resource_table`'s decode distinguishes the two. [[src/binary_repr.rs:read_resource_table]]
+`closeFunctionId` is interpreted by flags: for a **native** `LINK` resource (`native` set, `standard` clear) it is the **string id** of the close op's name; for a built-in **standard** resource (`native` and `standard` both set) it is a sentinel function id (e.g. the built-in fs/net close ids). This is exactly how `read_resource_table`'s decode distinguishes the two. [[src/binary_repr/reader.rs:read_resource_table]]
 
 The current compiler's flag assignment:
 
-* Standard built-in resources (`File`, `Socket`, `Listener`) get `native | standard | close-may-fail`, plus `sendable` when the registry marks the type sendable (`standard_resource_flags`). [[src/binary_repr.rs:standard_resource_flags]]
-* A native `LINK` resource gets `native`, plus `sendable`/`close-may-fail` as declared by the `LINK` block (`add_native`). [[src/binary_repr.rs:add_native]]
+* Standard built-in resources (`File`, `Socket`, `Listener`) get `native | standard | close-may-fail`, plus `sendable` when the registry marks the type sendable (`standard_resource_flags`). [[src/binary_repr/writer.rs:standard_resource_flags]]
+* A native `LINK` resource gets `native`, plus `sendable`/`close-may-fail` as declared by the `LINK` block (`add_native`). [[src/binary_repr/sections.rs:add_native]]
 
 Default rule: resources are not sendable to threads unless explicitly marked sendable.
 

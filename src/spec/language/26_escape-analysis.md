@@ -45,7 +45,7 @@ implementation in `src/escape.rs`. (CORRECTION to a common belief: the
 `typecheck.rs` or `ir.rs` — those files only invoke `escape::analyze_function`.
 The unrelated `native_member_bare` match for `append|prepend|insert|set` at
 `src/typecheck.rs` is a different check at a different call site, not a
-replication of this set.) [[src/typecheck.rs:check_function]] [[src/ir.rs:lower_function]]
+replication of this set.) [[src/typecheck/mod.rs:check_function]] [[src/ir/lower.rs:lower_function]]
 
 Soundness rests on the borrow rule (`TYPE_RESOURCE_BORROW_INVALIDATE`,
 §15.6): a borrowed resource cannot escape a callee, so a resource enters a

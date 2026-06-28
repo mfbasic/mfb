@@ -286,7 +286,7 @@ first use — then reads the matching entry's payload at `Data + valueOffset`;
 missing keys fail with `ErrNotFound`. The probe covers every scalar key type
 (`String`, `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, i.e. all valid map key
 types); any other key type falls back to a generic linear scan over the live
-lookup entries. [[src/target/shared/code/builder_collection_updates.rs:lower_map_get]]
+lookup entries. [[src/target/shared/code/builder_collection_query.rs:lower_map_get]]
 
 ### `append`
 
@@ -294,7 +294,7 @@ lookup entries. [[src/target/shared/code/builder_collection_updates.rs:lower_map
 
 - **In-place (`MUT`, amortized O(1)).** When the buffer is a uniquely-owned `MUT`
   working buffer with headroom (`capacity > count` and enough `dataCapacity`),
-  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/target/shared/code/builder_collection_updates.rs:lower_list_append_in_place]]
+  `lower_list_append_in_place` writes the new item payload at `Data + dataLength`, [[src/target/shared/code/builder_collection_mutate.rs:lower_list_append_in_place]]
   fills the next spare lookup entry, and bumps `count`/`dataLength` in place — no
   reallocation. If headroom is insufficient it first grows the buffer using the
   geometric shape in *Capacity Headroom and Growth* (reallocate-and-copy once,
@@ -309,7 +309,7 @@ lookup entries. [[src/target/shared/code/builder_collection_updates.rs:lower_map
 in place, like `append`. It is excluded while the binding is an active `FOR EACH`
 iterable — an overwrite of an existing entry is observable to the snapshotting
 iterator, unlike a beyond-`count` append, so that case takes the value path.
-[[src/target/shared/code/builder_collection_updates.rs:lower_list_set_in_place]]
+[[src/target/shared/code/builder_collection_mutate.rs:lower_list_set_in_place]]
 
 - **`List`.** When the replacement payload fits the target slot
   (`newValueLength <= oldValueLength` — always true for fixed-width elements and
@@ -329,7 +329,7 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
   when full. Insertion order is preserved, and the new key is folded into the hash
   index per *Map Hash Index* (incremental `_mfb_rt_map_bucket_put` when built, or
   `bucketsReady = 0` when a grow moved the bucket region).
-  [[src/target/shared/code/builder_collection_updates.rs:lower_map_set_in_place]]
+  [[src/target/shared/code/builder_collection_mutate.rs:lower_map_set_in_place]]
 
 The source `collections::sort` is an insertion sort built on `set`, so its
 per-swap `items = collections::set(items, j, …)` overwrites now run in place:
@@ -339,7 +339,7 @@ argument (the argument itself is never modified).
 ### `insert`
 
 `List` `insert` is **not** an in-place shift. `lower_list_insert_collection`
-allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/target/shared/code/builder_collection_updates.rs:lower_list_insert_collection]]
+allocates a fresh **tight** buffer sized for `count + insertedCount` entries and [[src/target/shared/code/builder_collection_mutate.rs:lower_list_insert_collection]]
 `dataLength + insertedDataLength` bytes, copies the pre-insertion data region then
 the inserted data region verbatim, splices the lookup table (head, inserted,
 tail), and writes a tight header (`capacity == count`, `dataCapacity ==
@@ -354,7 +354,7 @@ one), allocates a fresh tight buffer sized for `count - 1` entries and
 `dataLength - removedValueLength` bytes, and copies the surviving entries through
 `emit_copy_collection_entries`, which **re-packs each live payload at a running
 destination offset and rewrites each entry's `valueOffset`** to its compacted
-position. [[src/target/shared/code/builder_collection_updates.rs:lower_list_remove_at]]
+position. [[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]]
 
 ### Map Updates
 

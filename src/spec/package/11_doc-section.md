@@ -35,7 +35,7 @@ DocEntry:
 ```
 
 `str` is a `u32` byte length followed by that many UTF-8 bytes. A consumer that
-does not recognize section id `17` skips it; doc data never affects execution. [[src/binary_repr.rs:read_doc_table]]
+does not recognize section id `17` skips it; doc data never affects execution. [[src/binary_repr/reader.rs:read_doc_table]]
 
 ## See Also
 

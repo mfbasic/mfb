@@ -22,7 +22,7 @@ The merge happens in `nir::merge_packages` (`src/target/shared/nir.rs`):
 4. The consumer's `package.symbol` references are rewritten to the
    identity-prefixed definitions (`ir::apply_package_identity`).
 
-[[src/target/shared/nir.rs:merge_packages]]
+[[src/target/shared/nir/lower.rs:merge_packages]]
 
 Package functions are therefore ordinary merged functions by the time the linker
 runs. A package-to-package call is an internal `branch26` to an `_mfb_fn_…`
@@ -46,7 +46,7 @@ linkage.
   function, named `_mfb_linker_<alias>_<name>` (each `alias`/`name` component is
   sanitized so non-alphanumeric, non-`_` characters become `_`).
 
-[[src/target/shared/nir.rs:LINK_INIT_SYMBOL]] [[src/target/shared/nir.rs:link_thunk_symbol]]
+[[src/target/shared/nir/mod.rs:LINK_INIT_SYMBOL]] [[src/target/shared/nir/mod.rs:link_thunk_symbol]]
 
 NIR lowering routes calls to these thunks through the ordinary import path:
 `link_routing_imports` emits a synthetic `NirImport` (package `"link"`) for every
@@ -56,7 +56,7 @@ target; each alias is registered under both `binding.alias` (as importers see it
 and the bare alias name (as the defining project sees it), so either form
 resolves.
 
-[[src/target/shared/nir.rs:link_routing_imports]]
+[[src/target/shared/nir/lower.rs:link_routing_imports]]
 
 The object plan does not treat these as unresolved imports. When the module has
 any `LINK` functions, `plan.rs` collects `LINK_INIT_SYMBOL` plus one
@@ -64,7 +64,7 @@ any `LINK` functions, `plan.rs` collects `LINK_INIT_SYMBOL` plus one
 DEFINED local symbols the backend emits — not external symbols to be satisfied at
 link time.
 
-[[src/target/shared/plan.rs:link_symbols]]
+[[src/target/shared/plan/mod.rs:link_symbols]]
 
 ## Transitive platform imports
 

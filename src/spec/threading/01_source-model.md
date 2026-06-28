@@ -27,7 +27,7 @@ signature that is simultaneously `imported_package_export`, `FunctionKind::Func`
 and `isolated`; failure reports `TYPE_CALL_ARGUMENT_MISMATCH` with the message
 `thread.start entry point must be an exported ISOLATED FUNC from an imported
 package.`. The parameter-shape and return-type checks are the ordinary
-function-reference signature match performed by `builtins::thread::resolve_call`. [[src/typecheck.rs:check_thread_builtin_call]]
+function-reference signature match performed by `builtins::thread::resolve_call`. [[src/typecheck/builtins.rs:check_thread_builtin_call]]
 
 ## Thread type grammar (parsing)
 
@@ -48,12 +48,12 @@ union, and resource types may cross a boundary) are owned by
 - Thread sendability is a type property decided by `is_thread_sendable_type` in
   `typecheck.rs`; it is not stored as a per-value flag in every value's memory
   block. Opaque resource handles opt in through resource metadata
-  (`resource_registry.is_sendable`). [[src/typecheck.rs:is_thread_sendable_type]]
+  (`resource_registry.is_sendable`). [[src/typecheck/resources.rs:is_thread_sendable_type]]
 - Statically known non-sendable `In`, `Msg`, `Out`, or `Res` types are rejected
   before lowering by `check_thread_boundary_sendability`, error code
   `TYPE_THREAD_NOT_SENDABLE`. The data plane is additionally resource-free: a
   `Msg` that is itself a resource type is rejected at `thread::send` with guidance
-  to use `thread::transfer`. [[src/typecheck.rs:check_thread_boundary_sendability]]
+  to use `thread::transfer`. [[src/typecheck/resources.rs:check_thread_boundary_sendability]]
 - Runtime helpers and the verifier still consult type metadata so queued values
   can be moved, dropped, or closed correctly.
 

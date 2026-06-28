@@ -17,9 +17,9 @@ codegen error (`stack arguments are not implemented`). [[src/arch/aarch64/abi.rs
 more than 8 parameters cannot be lowered.
 
 In the prologue, parameter *N* is simply read from `x{N}`; the parameter's type
-plays no part in choosing its register. [[src/target/shared/code/mod.rs:3283]] At a call site, each argument is
+plays no part in choosing its register. [[src/target/shared/code/function_lowering.rs:lower_function]] At a call site, each argument is
 lowered, spilled to a stack slot, then reloaded into a scratch register and moved
-into the positional `x{index}` — again with no type dispatch. [[src/target/shared/code/builder_misc.rs:emit_prepared_call_args]]
+into the positional `x{index}` — again with no type dispatch. [[src/target/shared/code/builder_emit_helpers.rs:emit_prepared_call_args]]
 
 ### Float and Fixed arguments go in `x` registers
 
@@ -28,7 +28,7 @@ floating arguments in `v0..v7`. MFBASIC does **not**: a `Float` or `Fixed`
 argument is passed as its raw 8-byte bit pattern in a general-purpose `x`
 register, in the same positional slot as any integer or pointer. `storage_for_type`
 classifies both `Float` and `Fixed` as 8-byte / 8-align scalars, and the argument
-machinery moves their bits through `x` registers like everything else. [[src/target/shared/plan.rs:storage_for_type]]
+machinery moves their bits through `x` registers like everything else. [[src/target/shared/plan/lower.rs:storage_for_type]]
 
 The floating-point register file (`d0`, `d1`, …) is used **only at FP-arithmetic
 sites**: the operand's bits are moved out of its `x` register with `fmov d, x`
@@ -48,7 +48,7 @@ fallible-call-abi` and is not re-tabulated here.
 ## Storage Classes
 
 Every type is reduced to one `StorageClass` with a fixed size and alignment
-before lowering. The taxonomy: [[src/target/shared/plan.rs:StorageClass]] [[src/target/shared/plan.rs:storage_for_type]]
+before lowering. The taxonomy: [[src/target/shared/plan/mod.rs:StorageClass]] [[src/target/shared/plan/lower.rs:storage_for_type]]
 
 ```text
 StorageClass   source types                size  align
@@ -65,7 +65,7 @@ StorageClass   source types                size  align
 composite types collapse to it: `String`, `Error`, every `List OF …`, `Map OF …`,
 `MapEntry OF …`, `Result OF …`, `Thread OF …`/`ThreadWorker OF …`, `FUNC(…)` /
 `ISOLATED FUNC(…)` closure types, the file/dir resource handles, and any
-user-declared record or union name. [[src/target/shared/plan.rs:is_reference_type]] [[src/target/shared/plan.rs:is_user_type_name]] A resource value (optionally
+user-declared record or union name. [[src/target/shared/plan/lower.rs:is_reference_type]] [[src/target/shared/plan/lower.rs:is_user_type_name]] A resource value (optionally
 `RES`-marked, e.g. `RES File`) is also a `Reference` — a pointer to its backing
 record — and an unknown type is a hard error. The byte layouts behind a
 `Reference` are owned by `./mfb spec memory heap-values`.
@@ -76,7 +76,7 @@ all three behave identically (8-byte slot in an `x` register).
 
 ## Call Kinds
 
-Each call carries a `CallKind` describing how the target is reached: [[src/target/shared/plan.rs:CallKind]]
+Each call carries a `CallKind` describing how the target is reached: [[src/target/shared/plan/mod.rs:CallKind]]
 
 ```text
 CallKind    target
@@ -94,7 +94,7 @@ in `x28` (see Reserved Registers).
 
 Scratch values use a **bump allocator** over a fixed physical map. The builder's
 `next_register` counter starts at `8` and increments by one per allocation;
-`temporary_register` maps the counter to a physical register: [[src/arch/aarch64/abi.rs:temporary_register]] [[src/target/shared/code/builder_misc.rs:allocate_register]]
+`temporary_register` maps the counter to a physical register: [[src/arch/aarch64/abi.rs:temporary_register]] [[src/target/shared/code/builder_codegen_primitives.rs:allocate_register]]
 
 ```text
 allocation  physical     allocation  physical
@@ -111,10 +111,10 @@ spilling.** Requesting an allocation past `26` (i.e. past `x28`) is a hard error
 (`exhausted physical registers`). [[src/arch/aarch64/abi.rs:temporary_register]] This is why a sufficiently deep nested
 expression must be broken into separate `LET` bindings — each statement resets the
 counter back to `8` (`reset_temporary_registers`), so the limit is per-expression,
-not per-function. [[src/target/shared/code/builder_misc.rs:reset_temporary_registers]]
+not per-function. [[src/target/shared/code/builder_codegen_primitives.rs:reset_temporary_registers]]
 
 When the allocator hands out a callee-saved register (`x20..x28`), it records it
-so the frame finalizer saves and restores it (`mark_register_used`). [[src/target/shared/code/builder_misc.rs:mark_register_used]]
+so the frame finalizer saves and restores it (`mark_register_used`). [[src/target/shared/code/builder_codegen_primitives.rs:mark_register_used]]
 
 ## Reserved Registers
 
@@ -123,10 +123,10 @@ Two registers carry pinned roles in the convention:
 * **`x19` — arena-state** (`ARENA_STATE_REGISTER`). Pins the current package
   instance's arena-state for the life of the call chain; never handed out by the
   temporary allocator (the bump map skips `x18`/`x19`). Owned by `./mfb spec
-  memory arenas`. [[src/target/shared/code/mod.rs:ARENA_STATE_REGISTER]]
+  memory arenas`. [[src/target/shared/code/error_constants.rs:ARENA_STATE_REGISTER]]
 * **`x28` — closure environment** (`CLOSURE_ENV_REGISTER`). Holds the captured
   environment pointer for an `Indirect` (closure) call; owned by `./mfb spec
-  memory closures`. [[src/target/shared/code/mod.rs:CLOSURE_ENV_REGISTER]]
+  memory closures`. [[src/target/shared/code/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
 Unlike `x19`, `x28` is **not** excluded from the temporary map: it is the highest
 register the bump allocator can reach (allocation `26`), so `x28` serves double
@@ -135,7 +135,7 @@ duty as both the closure-environment register and the final scratch slot.
 ## Stack Frame, Prologue, and Epilogue
 
 There is **no `x29` frame-pointer chain**. `finalize_frame` builds the frame once
-the body is lowered: [[src/target/shared/code/mod.rs:finalize_frame]]
+the body is lowered: [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
 
 1. If the body contains **any** `bl`/`blr` and `x30` (the link register) is not
    already in the callee-saved set, `x30` is added to it automatically. [[src/arch/aarch64/abi.rs:link_register]]
@@ -161,7 +161,7 @@ The prologue is `sub sp, sp, #total` followed by one `str` per callee-saved
 register at `sp + index*8`. **Every `ret`** is rewritten to first reload all
 callee-saved registers (in reverse), then `add sp, sp, #total`, then return — so
 the save/restore is repeated at each return site rather than via a single shared
-epilogue. [[src/target/shared/code/mod.rs:finalize_frame]]
+epilogue. [[src/target/shared/code/codegen_utils.rs:finalize_frame]]
 
 The callee-saved set the convention preserves is **`x19..x28`**
 (`is_callee_saved`); `x0..x17` and `x30` are caller-saved (`x30` only auto-added

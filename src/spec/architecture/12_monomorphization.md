@@ -8,7 +8,7 @@ internalized. The rest of the pipeline consumes this concrete AST, never the
 original. Because the pass *introduces* new declarations and rewrites names, the
 build runs the resolver again immediately afterward (see
 `./mfb spec architecture frontend`).
-[[src/monomorph.rs:monomorphize_project]]
+[[src/monomorph/mod.rs:monomorphize_project]]
 
 This pass is the **single source of truth for overload resolution and symbol
 mangling**. Overload resolution does not happen in the resolver or the type
@@ -29,7 +29,7 @@ Any diagnostic sets `had_error` and the pass returns `Err(())`.
 The pass uses one string form for every generated symbol — a base name followed
 by `$`-joined, sanitized type tokens. This is the symbol form that IR,
 package metadata, package merge, and the linker all consume.
-[[src/monomorph.rs:mangle_name]]
+[[src/monomorph/helpers.rs:mangle_name]]
 
 ```text
 mangle_name(name, [T1, T2])      -> name$<san(T1)>$<san(T2)>
@@ -38,7 +38,7 @@ sanitize_type_name(t)            -> every char not [A-Za-z0-9_] becomes '$'
 
 `sanitize_type_name` maps each non-alphanumeric, non-underscore character to `$`,
 so a structured type string flattens to a `$`-only-delimited token.
-[[src/monomorph.rs:sanitize_type_name]] For example `List OF Integer` →
+[[src/monomorph/helpers.rs:sanitize_type_name]] For example `List OF Integer` →
 `List$OF$Integer`, and a template instantiation `box<Integer>` mangles to
 `box$Integer`.
 
@@ -54,11 +54,11 @@ A return-type-disambiguated symbol appends an `AS` segment then the return type
 (`args.push("AS"); args.push(return_type)`). Because `AS` is a reserved keyword
 and can never be a parameter type, this segment can never collide with a
 parameter-distinguished mangled name.
-[[src/monomorph.rs:overload_concrete_name]]
+[[src/monomorph/helpers.rs:overload_concrete_name]]
 
 Imported-overload resolution recovers base names by **splitting on `$`** — it
 groups a package's exported `Func`/`Sub` symbols by the substring before the
-first `$`. [[src/monomorph.rs:collect_imported_overloads]]
+first `$`. [[src/monomorph/helpers.rs:collect_imported_overloads]]
 
 The grammar of the type-token strings that `sanitize_type_name` flattens (and
 that `unify_type` parses) is canonical in `./mfb spec language type-name-encoding`.
@@ -72,7 +72,7 @@ expansion; later uses reuse the already-emitted concrete declaration via
 
 ### Functions — `instantiate_function`
 
-For a call to a template function: [[src/monomorph.rs:instantiate_function]]
+For a call to a template function: [[src/monomorph/lower.rs:instantiate_function]]
 
 1. Look up the template by base name; non-template names return `None` (the call
    falls through to overload resolution).
@@ -92,7 +92,7 @@ For a call to a template function: [[src/monomorph.rs:instantiate_function]]
 `instantiate_type(name, args)` mangles the concrete name, records the
 `concrete -> (base, args)` mapping in `type_instantiations` (used by
 `template_view_type` to invert mangling), and on first use lowers the template
-under the per-parameter substitution. [[src/monomorph.rs:instantiate_type]] A
+under the per-parameter substitution. [[src/monomorph/lower.rs:instantiate_type]] A
 constructor instantiates its type either from the expected (contextual) type, or
 by unifying field types against the constructor argument types.
 
@@ -100,7 +100,7 @@ by unifying field types against the constructor argument types.
 
 `unify_type(pattern, actual, params, substitutions)` is the structural matcher
 driving both function-argument and constructor-field inference.
-[[src/monomorph.rs:unify_type]]
+[[src/monomorph/helpers.rs:unify_type]]
 
 ```text
 unify(pattern, actual):
@@ -127,7 +127,7 @@ implements.
 ## `expression_type`: the local inference engine
 
 `expression_type(expr, context)` computes the argument types fed into unification
-and overload resolution. [[src/monomorph.rs:expression_type]] It is a small,
+and overload resolution. [[src/monomorph/lower.rs:expression_type]] It is a small,
 context-driven inference pass — not the type checker — and returns `None` when a
 type cannot be determined locally.
 
@@ -169,12 +169,12 @@ A call is lowered in `lower_expression`'s `Call` arm, which tries, in order:
 
 ### `resolve_overload`
 
-`resolve_overload(name, arg_types, expected, line)`: [[src/monomorph.rs:resolve_overload]]
+`resolve_overload(name, arg_types, expected, line)`: [[src/monomorph/lower.rs:resolve_overload]]
 
 - Returns `None` for an overridable built-in name (those route through
   `resolve_general_builtin_override`) or for a name with ≤1 declaration.
 - Filters candidates by `params_match` — **exact arity and exact positional type
-  equality, no coercion**. [[src/monomorph.rs:params_match]] Default values never
+  equality, no coercion**. [[src/monomorph/helpers.rs:params_match]] Default values never
   distinguish or fill within an overload set, so every parameter must be supplied.
 - One survivor → that overload's mangled symbol via the `overload_key`.
 - Several survivors → a **return-type overload set** (identical parameter types,
@@ -183,9 +183,9 @@ A call is lowered in `lower_expression`'s `Call` arm, which tries, in order:
 
 The per-overload map key is `overload_key` = `name(p1,p2) AS ReturnType`, so a
 return-type set maps each member to its own distinct concrete symbol.
-[[src/monomorph.rs:overload_key]] A name belongs to a return-type set when ≥2 of
+[[src/monomorph/helpers.rs:overload_key]] A name belongs to a return-type set when ≥2 of
 its declarations share parameter types (`param_types_eq`), which forces the
-`AS`-segment in their concrete names. [[src/monomorph.rs:param_types_eq]]
+`AS`-segment in their concrete names. [[src/monomorph/helpers.rs:param_types_eq]]
 
 ### Built-in-named overrides
 
@@ -194,7 +194,7 @@ overridable general built-in (even a sole declaration). The built-in is
 authoritative for the types it already supports: an override is selected **only
 when** `general::resolve_call` rejects the argument types (the gap-fill rule). A
 non-matching call keeps the bare built-in name for codegen dispatch.
-[[src/monomorph.rs:resolve_general_builtin_override]] A user FUNC whose name is an
+[[src/monomorph/lower.rs:resolve_general_builtin_override]] A user FUNC whose name is an
 overridable built-in is *always* force-mangled at registration so its codegen
 symbol never equals the built-in's dispatch name.
 
@@ -208,14 +208,14 @@ sites:
 |------|-------------------------|
 | `LET … AS T = …` | the declared type `T` |
 | `RETURN <call>` | the enclosing function's return type (only when the operand is a call) |
-| call argument slot | the selected parameter's declared type — **only when the argument is itself a call** [[src/monomorph.rs:arg_slot_expected]] |
+| call argument slot | the selected parameter's declared type — **only when the argument is itself a call** [[src/monomorph/helpers.rs:arg_slot_expected]] |
 | list literal element | the `List OF` element of the surrounding expected type |
 | typed constructor field | the field's declared type |
 
 The argument-slot expectation is supplied only when the callee names **exactly
 one** user function (`single_signature_params` returns `None` for an overloaded,
 package, or unknown callee), because that is the only place a return-type set
-nested as an argument can resolve. [[src/monomorph.rs:single_signature_params]]
+nested as an argument can resolve. [[src/monomorph/lower.rs:single_signature_params]]
 Literals always keep their own inferred typing, never an expected type, in the
 argument-slot and return positions.
 
@@ -223,7 +223,7 @@ argument-slot and return positions.
 
 Overloads exported by an imported package are resolved against compiled `.mfp`
 metadata, since the importer has no AST for them.
-[[src/monomorph.rs:collect_imported_overloads]]
+[[src/monomorph/helpers.rs:collect_imported_overloads]]
 
 `collect_imported_overloads` runs once at construction. For each distinct
 `(binding, package)` import pair it:
@@ -238,12 +238,12 @@ metadata, since the importer has no AST for them.
 `resolve_imported_overload(callee, arg_types)` then finds the candidate whose
 arity and per-position `types_compatible` match, returning the
 package-qualified mangled name the package merge expects.
-[[src/monomorph.rs:resolve_imported_overload]] `types_compatible` is token-wise
+[[src/monomorph/lower.rs:resolve_imported_overload]] `types_compatible` is token-wise
 equality with `Unknown` as a wildcard on either side.
-[[src/monomorph.rs:types_compatible]] Both the declared parameter type and the
+[[src/monomorph/lower.rs:types_compatible]] Both the declared parameter type and the
 actual argument type are first run through `normalize_type`, which strips every
 known qualifier prefix so an importer's `sqlite.Db` matches the package's bare
-`Db`. [[src/monomorph.rs:normalize_type]]
+`Db`. [[src/monomorph/lower.rs:normalize_type]]
 
 ## `collections::` internalization
 
@@ -251,7 +251,7 @@ A call whose callee is `binding.member` where `binding` is bound to the built-in
 `collections` package (or an alias) and `member` is a collections function is
 rewritten to the internal generic implementation `__collections_<member>` before
 instantiation, so it expands like any other generic function.
-[[src/monomorph.rs:collections_internal_callee]] The set of collections binding
+[[src/monomorph/lower.rs:collections_internal_callee]] The set of collections binding
 names is computed once from the imports (`collections::collections_bindings`).
 Non-collections calls return the callee unchanged.
 

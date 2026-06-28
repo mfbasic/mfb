@@ -9,7 +9,7 @@ The thread trampoline stores the worker's returned result tag and value/error in
 the control block, and also captures the error's `ErrorLoc` origin pointer into
 the dedicated `result error source` field (control-block offset 96). This
 preserves the worker's terminal-error source location (file, line, char) across
-the thread boundary. [[src/target/shared/code/mod.rs:THREAD_OFFSET_RESULT_SOURCE]] `thread::waitFor` reads the stored result, materializes any
+the thread boundary. [[src/target/shared/code/runtime_helpers.rs:THREAD_OFFSET_RESULT_SOURCE]] `thread::waitFor` reads the stored result, materializes any
 heap-backed payload into the caller's arena before user code observes it, and
 closes the parent `Thread` handle before behaving like a normal fallible call:
 

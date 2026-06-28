@@ -5,12 +5,12 @@ single registry. A rule binds four immutable fields — a numeric `code`, a
 SCREAMING_SNAKE_CASE symbolic `name`, a `Severity`, and a fixed `message`
 template — so that call sites name a rule by its symbolic name only, and the
 code, severity, and human message are looked up centrally and rendered
-uniformly. [[src/rules.rs:Rule]] [[src/rules.rs:RULES]]
+uniformly. [[src/rules/mod.rs:Rule]] [[src/rules/table.rs:RULES]]
 
 ## The Rule Record
 
 A `Rule` is four `&'static str`/enum fields; the registry `RULES` is a flat
-`&[Rule]` slice. [[src/rules.rs:Rule]] [[src/rules.rs:RULES]]
+`&[Rule]` slice. [[src/rules/mod.rs:Rule]] [[src/rules/table.rs:RULES]]
 
 | field | type | role |
 | --- | --- | --- |
@@ -23,14 +23,14 @@ The **symbolic name is the real primary key.** A call site passes only a
 `rule_name`; `rule_for` linear-scans `RULES` for the entry whose `name` matches
 and returns it, falling back to a synthetic `0-000-0000 UNKNOWN_RULE` error rule
 when no name matches (a missing rule never panics — it degrades to a generic
-error). [[src/rules.rs:rule_for]] The `code` is therefore a stable display label,
+error). [[src/rules/mod.rs:rule_for]] The `code` is therefore a stable display label,
 not the lookup key, which is why two rules may legitimately carry the same code
 as long as their names differ (see *Code Collisions*).
 
 ## Severity
 
 Three severities, in descending order of consequence; `Severity` implements
-`Display` as the lowercase word shown in the diagnostic header. [[src/rules.rs:Severity]]
+`Display` as the lowercase word shown in the diagnostic header. [[src/rules/mod.rs:Severity]]
 
 | variant | rendered | meaning |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ Three severities, in descending order of consequence; `Severity` implements
 | `Info` | `info` | positive/confirmatory note (e.g. validation passed) |
 
 Severity is fixed per rule in the table — it is not raised or lowered at the
-call site. The unknown-rule fallback is always `Error`. [[src/rules.rs:rule_for]]
+call site. The unknown-rule fallback is always `Error`. [[src/rules/mod.rs:rule_for]]
 
 ## The `G-SSS-EEEE` Code Scheme
 
@@ -50,7 +50,7 @@ hierarchically: the group is the broad compiler phase/concern, the subsystem is
 the specific component within that group, and the error number is the rule's
 ordinal within its subsystem. The values below are the partition **as it actually
 appears in `RULES`** (verified against every entry); they are the live namespace,
-not an aspirational allocation. [[src/rules.rs:RULES]]
+not an aspirational allocation. [[src/rules/table.rs:RULES]]
 
 ### Groups (`G`)
 
@@ -66,7 +66,7 @@ not an aspirational allocation. [[src/rules.rs:RULES]]
 Groups `4` and `7+` are unused in the current registry; `SSS` slots within a
 group are likewise sparse (group 2 jumps `200, 201, 203, 205` — `202`/`204` are
 unallocated). The scheme leaves room; it does not densely fill it.
-[[src/rules.rs:RULES]]
+[[src/rules/table.rs:RULES]]
 
 ### Subsystems (`SSS`) and their populations
 
@@ -94,7 +94,7 @@ guaranteed dense or monotonic**: subsystem `2-203` allocates a high block at
 unallocated), and `2-200` mixes a low
 validation block (`0001`-`0011`) with a high orchestration block
 (`0100`/`0101`). Treat `EEEE` as an opaque ordinal, never as a count.
-[[src/rules.rs:RULES]]
+[[src/rules/table.rs:RULES]]
 
 ### Code Collisions
 
@@ -104,18 +104,18 @@ DOC-semantics block: **`2-205-0001`** is both `PACKAGE_VERSION_UNSUPPORTED` and
 `DOC_UNRESOLVED`; **`2-205-0002`** is both `NATIVE_MANIFEST_INVALID` and
 `DOC_NAME_MISMATCH`. Diagnostics for these resolve correctly because each call
 site names the rule symbolically; the shared code is a display-label collision
-only. [[src/rules.rs:rule_for]] [[src/rules.rs:RULES]]
+only. [[src/rules/mod.rs:rule_for]] [[src/rules/table.rs:RULES]]
 
 ## Diagnostic Rendering
 
 Two rendering entry points exist, both writing to **stderr** via `eprintln!`.
-[[src/rules.rs:show_diagnostic]] [[src/rules.rs:show_general_diagnostic]]
+[[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_diagnostic]]
 
 ### Located diagnostics — `show_diagnostic`
 
 `show_diagnostic(rule_name, detailed_message, filename, line, start_pos,
 end_pos)` renders a source-context window, a caret underline, the header line,
-and a detail line. [[src/rules.rs:show_diagnostic]]
+and a detail line. [[src/rules/mod.rs:show_diagnostic]]
 
 **Source-context window.** It re-reads the file and prints up to three lines of
 context ending at the offending line. The displayed line is clamped into range
@@ -142,7 +142,7 @@ eprintln!(
 
 `start_pos`/`end_pos` are 1-based columns. If the file cannot be read, or
 `lines` is empty, the context block and caret are skipped and only the header +
-detail are emitted. [[src/rules.rs:show_diagnostic]]
+detail are emitted. [[src/rules/mod.rs:show_diagnostic]]
 
 **Header + detail.** The header packs location, severity, code, name, and
 message; the detail is the call-site-supplied `detailed_message` indented 15
@@ -193,17 +193,17 @@ severity[CODE NAME]: message-template
                detailed message
 ```
 
-[[src/rules.rs:show_general_diagnostic]]
+[[src/rules/mod.rs:show_general_diagnostic]]
 
 In both forms the `message` is the rule's fixed template (no interpolation); the
 case-specific facts live entirely in the `detailed_message` detail line supplied
-by the caller. [[src/rules.rs:show_diagnostic]] [[src/rules.rs:show_general_diagnostic]]
+by the caller. [[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_general_diagnostic]]
 
 ## The Rule Registry
 
 The complete registry follows, grouped by subsystem. All 180 rules are listed;
 none are omitted. Each row is `code | NAME | severity | message`, transcribed
-verbatim from the table. [[src/rules.rs:RULES]] Unless noted, severity is
+verbatim from the table. [[src/rules/table.rs:RULES]] Unless noted, severity is
 `error`.
 
 ### `1-100` — MFBASIC source intake
@@ -477,7 +477,7 @@ DOC block semantics (resolver):
 ### `0-000` — Fallback (synthetic)
 
 Not a member of `RULES`; constructed inline by `rule_for` when a call site names
-a rule that is not in the registry. [[src/rules.rs:rule_for]]
+a rule that is not in the registry. [[src/rules/mod.rs:rule_for]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |

@@ -6,7 +6,7 @@ Platform import decisions are made during native planning, in the shared entry
 `src/target/linux_aarch64/plan.rs`) delegate to it. The concrete
 `(library, symbol)` selection lives in the per-target `plan.rs` platform object.
 The linker does not pick libraries; it only materializes what the plan recorded.
-[[src/target/shared/plan.rs:lower_module_for_platform]]
+[[src/target/shared/plan/lower.rs:lower_module_for_platform]]
 
 ## The `PlatformImport` record
 
@@ -17,7 +17,7 @@ library      target library/soname the symbol must be resolved from
 symbol       the dynamic symbol name codegen references
 required_by  the internal symbol that caused the import
 ```
-[[src/target/shared/plan.rs:PlatformImport]]
+[[src/target/shared/plan/mod.rs:PlatformImport]]
 
 `platform_imports` collects imports, in order, from:
 
@@ -34,7 +34,7 @@ fields (`library`, `symbol`, `required_by`) already match an existing entry. The
 same symbol required by two different functions is kept twice at this layer; the
 linker later collapses imports to one dynamic dependency and one GOT slot per
 distinct `(library, symbol)`.
-[[src/target/shared/plan.rs:push_platform_import]]
+[[src/target/shared/plan/symbols.rs:push_platform_import]]
 
 ## Target-specific library and symbol selection
 
@@ -102,7 +102,7 @@ thunk symbol — an internal `branch26`, not an external relocation. The dynamic
 dependency on the user library is expressed only through `dlopen` at run time, so
 the `LINK` library name does not appear in the executable's dynamic dependency
 metadata.
-[[src/target/shared/plan.rs:CallKind]]
+[[src/target/shared/plan/mod.rs:CallKind]]
 
 ## App-mode toolkit imports
 

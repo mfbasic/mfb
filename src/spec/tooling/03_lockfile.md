@@ -19,7 +19,7 @@ or by a future package manager) and consumed here.
 
 The audit collector probes the path; a missing file yields a summary with
 `present = false` and no version/hash comparison, while a present file is parsed
-as JSON. [[src/audit/collect.rs:collect_lockfile]]
+as JSON. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 ## JSON shape
 
@@ -40,7 +40,7 @@ as JSON. [[src/audit/collect.rs:collect_lockfile]]
 Both fields are optional at the parse layer: a malformed object (or one missing a
 key) leaves the corresponding summary value unset rather than erroring. Parsing
 that fails entirely (unreadable file or invalid JSON) leaves `version` and the
-hash-match result unset while still reporting `present = true`. [[src/audit/collect.rs:collect_lockfile]]
+hash-match result unset while still reporting `present = true`. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 Any other keys a writer chooses to record (resolved versions, content hashes,
 sources) are **ignored** by the current reader; only `lockfileVersion` and
@@ -52,7 +52,7 @@ sources) are **ignored** by the current reader; only `lockfileVersion` and
 serialization of the manifest's `packages[]` request tuples. It hashes what the
 project *requests*, not what is installed — so it changes when a dependency is
 added, removed, or its request fields edited, but not when an installed `.mfp`
-changes on disk. [[src/audit/collect.rs:project_hash]]
+changes on disk. [[src/audit/collect/mod.rs:project_hash]]
 
 The exact construction:
 
@@ -60,7 +60,7 @@ The exact construction:
    normalized to a request tuple `(name, ident, version, pin, source)`; entries
    whose `name` is blank are dropped, `ident` defaults to `name`, `version` and
    `source` default to the empty string, and `pin` defaults to `false`.
-   [[src/main.rs:project_package_dependency]]
+   [[src/manifest/package.rs:project_package_dependency]]
 2. Render each tuple to a line by joining the five fields with a NUL (`U+0000`)
    separator and appending a trailing newline (`\n`):
 
@@ -73,17 +73,17 @@ The exact construction:
    hash independent of the order packages appear in `project.json`.
 4. Feed the sorted lines, in order, into a single SHA-256 stream (each line's
    UTF-8 bytes, including its `\0` separators and trailing `\n`).
-5. The digest is rendered as lowercase hexadecimal (64 chars). [[src/main.rs:hex_bytes]]
+5. The digest is rendered as lowercase hexadecimal (64 chars). [[src/cli/pkg.rs:hex_bytes]]
 
 An empty or absent `packages[]` hashes the empty input — a fixed digest, the
 SHA-256 of zero bytes. Comparison is exact string equality against the stored
-`projectHash`; there is no normalization of the stored value. [[src/audit/collect.rs:collect_lockfile]]
+`projectHash`; there is no normalization of the stored value. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 ## `--locked` policy
 
 The `mfb audit --locked` flag elevates lock-file staleness/absence from advisory
 to fatal. It is plumbed through `AuditInputs.locked` into the lock-file summary
-and the finding pass; without it, the same conditions are non-fatal. [[src/audit/collect.rs:lockfile_findings]]
+and the finding pass; without it, the same conditions are non-fatal. [[src/audit/collect/findings.rs:lockfile_findings]]
 
 | Condition | Without `--locked` | With `--locked` |
 | --- | --- | --- |
@@ -95,7 +95,7 @@ A missing lock file under `--locked` short-circuits: the missing-finding is
 emitted and the stale check is skipped (there is nothing to compare). The stale
 check fires only when the file is present *and* the hash comparison resolved to a
 definite mismatch (`Some(false)`); an unparseable lock file leaves the result
-unset and emits no stale finding. [[src/audit/collect.rs:lockfile_findings]]
+unset and emits no stale finding. [[src/audit/collect/findings.rs:lockfile_findings]]
 
 `AUDIT-LOCK-MISSING` and `AUDIT-LOCK-STALE` are category `lockfile` findings. The
 finding catalogue (codes, categories, severities, and the `mfb.audit.v1` JSON
@@ -121,7 +121,7 @@ on-disk `mfb.lock` keys above:
 | `projectHashMatches` | on-disk `projectHash` vs computed | `null` when absent/unparsed |
 
 The on-disk `projectHash` string is **not** echoed in the report — only the
-boolean match result is. [[src/audit/collect.rs:collect_lockfile]]
+boolean match result is. [[src/audit/collect/lockfile.rs:collect_lockfile]]
 
 ## See Also
 

@@ -50,7 +50,7 @@ Verification failure rejects the package with a toolchain diagnostic. It is not 
 > validity) are the design target and are partly enforced earlier by the
 > resolver/type-checker on the project's own IR before encoding; they are not yet
 > all re-checked on a decoded third-party package. The full verifier-invariant
-> catalogue is owned by `./mfb spec package verifier-rules`. [[src/main.rs:read_mfp_header]] [[src/binary_repr.rs:MFPC_MAJOR_VERSION]] [[src/ir.rs:verify_package]]
+> catalogue is owned by `./mfb spec package verifier-rules`. [[src/manifest/package.rs:read_mfp_header]] [[src/binary_repr/mod.rs:MFPC_MAJOR_VERSION]] [[src/ir/binary.rs:verify_package]]
 
 A future VM is not foreclosed: it would either interpret the structured, typed Binary Representation directly or lower it through the same `IR -> NIR -> native` path. The artifact contract remains: packages are portable `.mfp` Binary Representation packages; executables are native platform binaries.
 

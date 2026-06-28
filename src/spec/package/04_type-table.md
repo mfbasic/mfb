@@ -9,7 +9,7 @@ TypeEntry[typeCount]
 
 ## Built-in type IDs
 
-These IDs are reserved and do not need table entries (`primitive_type_name` / `TypeTable::type_id` in `src/binary_repr.rs`): [[src/binary_repr.rs:primitive_type_name]]
+These IDs are reserved and do not need table entries (`primitive_type_name` / `TypeTable::type_id` in `src/binary_repr.rs`): [[src/binary_repr/reader.rs:primitive_type_name]]
 
 ```text
 1          = Nothing
@@ -27,7 +27,7 @@ These IDs are reserved and do not need table entries (`primitive_type_name` / `T
 0xFFFFFEFC = TermSize  (builtin record)
 ```
 
-Id `0` is unused (there is no `Invalid` sentinel constant). Id `9` is **retired** — it was the old `TerminalSize` and is now free. The built-in handle/record types deliberately occupy a high reserved range descending from `0xFFFFFF00` rather than the low range: any id at or above `FIRST_TABLE_TYPE_ID` (`10`) would collide with a per-package table type id and silently corrupt another package's first table type in the signature hash. [[src/binary_repr.rs:FIRST_TABLE_TYPE_ID]]
+Id `0` is unused (there is no `Invalid` sentinel constant). Id `9` is **retired** — it was the old `TerminalSize` and is now free. The built-in handle/record types deliberately occupy a high reserved range descending from `0xFFFFFF00` rather than the low range: any id at or above `FIRST_TABLE_TYPE_ID` (`10`) would collide with a per-package table type id and silently corrupt another package's first table type in the signature hash. [[src/binary_repr/mod.rs:FIRST_TABLE_TYPE_ID]]
 
 `Error` is structural (fields `code`, `message`), and `TermColor`/`TermSize` are structural builtin records (`TermColor` has `r`/`g`/`b`; `TermSize` has `columns`/`rows`); referencing them interns those field-name strings but still resolves to the reserved id.
 
@@ -93,7 +93,7 @@ repeated variantCount times:
     fieldType   typeId
 ```
 
-Included variants from `UNION ... INCLUDES ...` are flattened into the resulting concrete union (`concrete_union_variants` recursively expands each included union's variants in declaration order, then appends this union's own variants). [[src/binary_repr.rs:concrete_union_variants]] There is no subtype relation; the included union's variants simply become variants of this one.
+Included variants from `UNION ... INCLUDES ...` are flattened into the resulting concrete union (`concrete_union_variants` recursively expands each included union's variants in declaration order, then appends this union's own variants). [[src/binary_repr/writer.rs:concrete_union_variants]] There is no subtype relation; the included union's variants simply become variants of this one.
 
 ## Enum payload
 

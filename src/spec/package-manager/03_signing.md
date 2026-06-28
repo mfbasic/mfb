@@ -63,21 +63,21 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 
 ## `build --sign`: local-key vs repository-key match
 
-`mfb build --sign <owner>` resolves signing material through `load_build_signing_info`, which is only honored for package and executable builds (validate output); other outputs error. [[src/main.rs:load_build_signing_info]]
+`mfb build --sign <owner>` resolves signing material through `load_build_signing_info`, which is only honored for package and executable builds (validate output); other outputs error. [[src/cli/build.rs:load_build_signing_info]]
 
 The match is two-stage and both checks must pass:
 
 1. Fetch the repository signing info for `owner` (`signing_info` → `/keys/signing`, session-authenticated). [[repository/src/client.rs:signing_info]]
-2. Read the local private key, derive its public key, and decode the repository `signingKey`. If `localPublic != serverSigningPublic`, fail with `local private key does not match repository signing key`. [[src/main.rs:load_build_signing_info]]
+2. Read the local private key, derive its public key, and decode the repository `signingKey`. If `localPublic != serverSigningPublic`, fail with `local private key does not match repository signing key`. [[src/cli/build.rs:load_build_signing_info]]
 3. Compute `fingerprint(localPublic)`; if it differs from `signingFingerprint`, fail with `local private key fingerprint does not match repository signing key`.
 
-On success it composes the `ed25519:`-prefixed `identKey`/`signingKey` strings, builds the executable-signing JSON, and returns a `BuildSigningInfo { owner, ident_key, ident_fingerprint, signing_fingerprint, private_key, executable_metadata }`. [[src/main.rs:load_build_signing_info]]
+On success it composes the `ed25519:`-prefixed `identKey`/`signingKey` strings, builds the executable-signing JSON, and returns a `BuildSigningInfo { owner, ident_key, ident_fingerprint, signing_fingerprint, private_key, executable_metadata }`. [[src/cli/build.rs:load_build_signing_info]]
 
-For **package** builds the identity fields are stamped into the binary-representation metadata via `apply_signing_metadata` (sets `ident_key`, `ident_fingerprint`, `signing_fingerprint`, `author = owner`), and the loaded private key is passed to `write_package`, which produces the `.mfp` Ed25519 signature (`signatureType = 1`; see container-format). [[src/main.rs:apply_signing_metadata]] For **executable** builds the JSON blob below is embedded instead.
+For **package** builds the identity fields are stamped into the binary-representation metadata via `apply_signing_metadata` (sets `ident_key`, `ident_fingerprint`, `signing_fingerprint`, `author = owner`), and the loaded private key is passed to `write_package`, which produces the `.mfp` Ed25519 signature (`signatureType = 1`; see container-format). [[src/cli/build.rs:apply_signing_metadata]] For **executable** builds the JSON blob below is embedded instead.
 
 ## Executable signing metadata (`mfb-signing-v1`)
 
-Executable builds embed a single-line JSON object describing the signer. Field order and the trailing newline are fixed by the formatter; string values are JSON-escaped. [[src/main.rs:executable_signing_metadata_json]]
+Executable builds embed a single-line JSON object describing the signer. Field order and the trailing newline are fixed by the formatter; string values are JSON-escaped. [[src/cli/build.rs:executable_signing_metadata_json]]
 
 ```json
 {"format":"mfb-signing-v1","owner":"<owner>","author":"<owner>","identKey":"ed25519:<base64>","identFingerprint":"<hex>","signingKey":"ed25519:<base64>","signingFingerprint":"<hex>","signatureType":"Ed25519"}
@@ -94,7 +94,7 @@ Executable builds embed a single-line JSON object describing the signer. Field o
 | `signingFingerprint` | hex SHA-256 fingerprint of the signing key |
 | `signatureType` | constant `Ed25519` |
 
-The blob is UTF-8 bytes (`.into_bytes()`) and threaded to `target::write_executable` as the executable signing metadata. [[src/main.rs:load_build_signing_info]]
+The blob is UTF-8 bytes (`.into_bytes()`) and threaded to `target::write_executable` as the executable signing metadata. [[src/cli/build.rs:load_build_signing_info]]
 
 ## Trust boundary
 

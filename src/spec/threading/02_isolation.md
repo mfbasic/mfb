@@ -7,7 +7,7 @@ An `ISOLATED` declaration must itself be an exported `FUNC` (not a `SUB`, and no
 private/package-visible). `typecheck.rs` enforces this at declaration time,
 reporting `ISOLATED function `<name>` must be an exported FUNC declaration.` for a
 violation. This is independent of the call-site check in `thread::start`, which
-additionally requires the entry to come from an *imported* package. [[src/typecheck.rs:check_thread_builtin_call]]
+additionally requires the entry to come from an *imported* package. [[src/typecheck/builtins.rs:check_thread_builtin_call]]
 
 An isolated worker may still call:
 
@@ -30,7 +30,7 @@ owns and reclaims the copy. The boundary copy is *not* the builder's
 `copy_flat_block`: the queue-write helpers hand-emit `arena_alloc` plus a byte-copy
 loop, using the receiver's arena state read from the control block (worker arena
 state at offset 80, parent arena state at offset 88 for worker→parent sends). The
-conceptual model (flat block, single alloc + copy) holds. [[src/target/shared/code/mod.rs:thread_queue_write_helper]]
+conceptual model (flat block, single alloc + copy) holds. [[src/target/shared/code/runtime_helpers_thread.rs:thread_queue_write_helper]]
 
 The move-consumes rule for non-copyable sendable values (including sendable
 resource handles) — a successful `thread::start`/`thread::send` consumes the

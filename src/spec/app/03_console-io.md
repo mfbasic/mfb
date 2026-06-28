@@ -29,11 +29,11 @@ diverge and are flagged.
 The read helpers (`readLine`/`readChar`/`readByte`/`input`) are **not** rewritten
 for app mode beyond the input-mode prelude — they remain the standard console
 helpers that read fd 0. The only thing that makes them window-aware is the pipe
-`dup2`'d onto fd 0 at bootstrap. [[src/target/shared/code/mod.rs:lower_io_read_byte_helper]]
+`dup2`'d onto fd 0 at bootstrap. [[src/target/shared/code/io_helpers.rs:lower_io_read_byte_helper]]
 
 `io::write`/`flush`/`input`/`isTerminal` are dispatched to the platform
 `emit_app_*` bodies only when `app_mode` is set; otherwise the normal console
-lowering is used. [[src/target/macos_aarch64/app.rs:emit_app_io_write_helper]]
+lowering is used. [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_write_helper]]
 
 ### Result ABI
 
@@ -41,7 +41,7 @@ Every app-mode io helper obeys the standard fallible-call result ABI: tag in
 `x0` (`0` = `RESULT_OK_TAG`), value in `x1`. The write/flush helpers return
 `OK` with no value; `isTerminal` returns `OK(TRUE)`; `io::input` forwards the
 `x0`/`x1`/`x2` result of the underlying `io::readLine` helper unchanged.
-[[src/target/macos_aarch64/app.rs:emit_app_io_is_terminal_helper]]
+[[src/target/macos_aarch64/app/app_io.rs:emit_app_io_is_terminal_helper]]
 
 ## The input pipe (fd 0 redirection)
 
@@ -58,7 +58,7 @@ pipe(fds@sp+OFF_PIPE)        OFF_PIPE = 24   ; fds[0]=read @sp+24, fds[1]=write 
 dup2(fds[0], 0)                              ; read end -> stdin (fd 0)
 objc_setAssociatedObject(app, &PIPE_ASSOC_KEY, fds[1], ASSIGN)
 ```
-[[src/target/macos_aarch64/app.rs:OFF_PIPE]]
+[[src/target/macos_aarch64/app/mod.rs:OFF_PIPE]]
 
 Linux layout — fds live in the writable `_mfb_gtkapp_state` global so every
 helper reaches them without register preservation:
@@ -68,11 +68,11 @@ helper reaches them without register preservation:
 | `ST_PIPE_READ_FD` | 40 | pipe read fd (then `dup2`'d to 0) |
 | `ST_PIPE_WRITE_FD` | 48 | pipe write fd (key handler writes here) |
 
-[[src/target/linux_aarch64/gtk.rs:ST_PIPE_WRITE_FD]]
+[[src/target/linux_aarch64/gtk/mod.rs:ST_PIPE_WRITE_FD]]
 
 When no window is attached (the macOS `MFB_MACAPP_HEADLESS` test path, or before
 the window exists) there is no transcript/buffer and the write helpers fall back
-to `write()` on fd 1/2 directly; reads still come from fd 0. [[src/target/macos_aarch64/app.rs:emit_app_io_write_helper]]
+to `write()` on fd 1/2 directly; reads still come from fd 0. [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_write_helper]]
 
 ## The key handler that feeds the pipe
 
@@ -80,7 +80,7 @@ Typed keys are captured by a key event handler on the transcript view and
 translated into bytes written to the pipe write fd. macOS overrides
 `keyDown:` on a synthesized `MFBTextView : NSTextView`; Linux installs a GTK
 `key-pressed` controller handler. Both run on the GUI main thread.
-[[src/target/macos_aarch64/app.rs:emit_key_down_helper]] [[src/target/linux_aarch64/gtk.rs:emit_key_pressed_handler]]
+[[src/target/macos_aarch64/app/term_view.rs:emit_key_down_helper]] [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_key_pressed_handler]]
 
 The handler dispatches on the current input mode and the key:
 
@@ -96,7 +96,7 @@ The handler dispatches on the current input mode and the key:
 - **Line modes**, Backspace/Delete (macOS `8` / `127`; Linux `GDK_KEY_BackSpace`):
   drop the last character from the line buffer (and, in line-echo mode on macOS,
   from the transcript text storage). The Linux transcript echo-delete is byte-
-  granular and ASCII-only (SCAFFOLD, plan-05). [[src/target/linux_aarch64/gtk.rs:emit_key_pressed_handler]]
+  granular and ASCII-only (SCAFFOLD, plan-05). [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_key_pressed_handler]]
 
 The macOS handler returns `Nothing`; the Linux handler returns `TRUE` for keys
 it consumes and `FALSE` otherwise (so window shortcuts still fire).
@@ -105,7 +105,7 @@ it consumes and `FALSE` otherwise (so window shortcuts still fire).
 
 macOS keeps the pending line in an `NSMutableString` attached to `NSApplication`
 via `INPUT_LINE_KEY` (RETAIN association). Committing reads its `UTF8String`,
-`write()`s those bytes plus a `'\n'`, then `setString:@""` clears it. [[src/target/macos_aarch64/app.rs:emit_key_down_helper]]
+`write()`s those bytes plus a `'\n'`, then `setString:@""` clears it. [[src/target/macos_aarch64/app/term_view.rs:emit_key_down_helper]]
 
 Linux keeps it in the state global:
 
@@ -115,7 +115,7 @@ Linux keeps it in the state global:
 | `ST_LINE_BUF` | 72 | accumulated UTF-8 bytes (cap `LINE_BUF_CAP` = 1024) |
 
 Committing `write()`s `ST_LINE_BUF[0..ST_LINE_LEN]` then a `'\n'` to
-`ST_PIPE_WRITE_FD`, then resets `ST_LINE_LEN` to 0. [[src/target/linux_aarch64/gtk.rs:ST_LINE_BUF]]
+`ST_PIPE_WRITE_FD`, then resets `ST_LINE_LEN` to 0. [[src/target/linux_aarch64/gtk/mod.rs:ST_LINE_BUF]]
 
 ## Input modes (line vs raw)
 
@@ -130,21 +130,21 @@ waiting.
 | line, echo | `INPUT_MODE_LINE_ECHO` `1` | `MODE_LINE_ECHO` `1` | `io::input` | whole line on Return | typed chars + newline echoed to transcript |
 | raw, no echo | `INPUT_MODE_RAW_NO_ECHO` `2` | `MODE_RAW` `2` | `io::readChar` / `io::readByte` | each key's bytes immediately | none |
 
-[[src/target/macos_aarch64/app.rs:INPUT_MODE_LINE_ECHO]] [[src/target/linux_aarch64/gtk.rs:ST_INPUT_MODE]]
+[[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_LINE_ECHO]] [[src/target/linux_aarch64/gtk/mod.rs:ST_INPUT_MODE]]
 
 macOS stores the mode as an objc associated object on `NSApplication` under
 `INPUT_MODE_KEY` (ASSIGN); Linux stores it at `ST_INPUT_MODE` (offset 56) in the
 state global. On macOS the default (no `io::input`) is never written, so the
 handler's line path runs whenever the mode is not `2` — only line-echo (`1`)
-triggers the transcript echo. [[src/target/macos_aarch64/app.rs:INPUT_MODE_KEY]]
+triggers the transcript echo. [[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_KEY]]
 
 ### Mode toggles
 
 - `io::input` sets line-echo, renders the prompt, then calls `io::readLine`.
-  [[src/target/macos_aarch64/app.rs:emit_app_io_input_helper]]
+  [[src/target/macos_aarch64/app/app_io.rs:emit_app_io_input_helper]]
 - `io::readChar` / `io::readByte` set raw mode via `emit_set_raw_input_mode`,
   injected at the *start* of the console read-char/read-byte helper bodies in app
-  mode, before the fd-0 read. [[src/target/macos_aarch64/app.rs:emit_set_raw_input_mode]] [[src/target/shared/code/mod.rs:lower_io_read_byte_helper]]
+  mode, before the fd-0 read. [[src/target/macos_aarch64/app/app_io.rs:emit_set_raw_input_mode]] [[src/target/shared/code/io_helpers.rs:lower_io_read_byte_helper]]
 - `io::readLine` does not change the mode; it relies on the zero-initialized /
   unset default (line, no echo).
 

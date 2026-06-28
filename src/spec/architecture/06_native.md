@@ -51,7 +51,7 @@ also rewrites supported built-in calls into runtime-call forms where needed.
 Runtime-helper detection is implemented in `src/target/shared/runtime.rs`.
 
 The compiler scans IR values for calls into built-in packages. It records
-which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[src/target/shared/runtime.rs:RuntimeHelper]]
+which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
 - `datetime`
 - `fs`
@@ -114,7 +114,7 @@ backends currently declare the same set.[[src/target/macos_aarch64/mod.rs:runtim
 
 `required_helpers` computes the exact set of `RuntimeHelper` families an IR
 project needs, walking every function body and value recursively. Two cases are
-not visible from plain runtime-call dispatch and are handled specially:[[src/target/shared/runtime.rs:required_helpers]]
+not visible from plain runtime-call dispatch and are handled specially:[[src/target/shared/runtime/usage.rs:required_helpers]]
 
 - **Resource-union binds.** A `Bind` of a resource type pulls in the helper for
   that type's close op. A `Bind` of a *resource-union* type drops by dispatching
@@ -264,7 +264,7 @@ The code generator also adds:
 The shared code generator (`src/target/shared/code/mod.rs`) is OS-independent.
 Everything that differs between macOS and Linux is funnelled through the
 `CodegenPlatform` trait, implemented by `src/target/macos_aarch64/code.rs` and
-`src/target/linux_aarch64/code.rs`.[[src/target/shared/code/mod.rs:CodegenPlatform]]
+`src/target/linux_aarch64/code.rs`.[[src/target/shared/code/types.rs:CodegenPlatform]]
 
 The seam carries two kinds of platform knowledge: ABI struct layouts queried as
 scalar accessors, and `emit_*` methods that splice platform-specific

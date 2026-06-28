@@ -27,7 +27,7 @@ of the pipeline: synthesized lambda names use it (`$lambda0`) and the
 monomorphizer's concrete-symbol mangling uses it as the type-token delimiter
 (`name$<san(T1)>$<san(T2)>`). Reusing `$` would conflate three unrelated naming
 domains. `#` is free and untypeable, so it is reserved exclusively for this
-purpose. [[src/internal_name.rs:INTERNAL_SIGIL]] [[src/ir.rs:3051]]
+purpose. [[src/internal_name.rs:INTERNAL_SIGIL]] [[src/ir/lower.rs:internalize]]
 
 See `./mfb spec architecture monomorphization` for the `$` mangling scheme and
 `./mfb spec language lexical-structure` for the lexer's reserved-character set.
@@ -68,7 +68,7 @@ sigil name is unreachable from user code. [[src/internal_name.rs:internalize]]
 The sigil name is a plain string from the lexer onward; it survives unchanged
 through the AST and into the IR, where it guarantees no collision with any user
 symbol. The IR construction re-applies `internalize` when synthesizing references
-to internal definitions. [[src/ir.rs:3015]]
+to internal definitions. [[src/ir/lower.rs:internalize]]
 
 | Stage          | Form                | Notes                                            |
 |----------------|---------------------|--------------------------------------------------|
@@ -87,7 +87,7 @@ function becomes `_mfb_fn_<fragment>`. Because the two namespaces are disjoint a
 the user can never mint a sigil name, an internal function can never collide with
 a user function at link time. `strip_sigil` returns `None` for a plain
 `__`-prefixed string (as a user would type), so a user-authored `__name` is *not*
-treated as internal. [[src/internal_name.rs:strip_sigil]] [[src/target/shared/nir.rs:function_symbol]]
+treated as internal. [[src/internal_name.rs:strip_sigil]] [[src/target/shared/nir/symbols.rs:function_symbol]]
 
 ```text
 strip_sigil("#json_parse")  -> Some("json_parse")
@@ -100,7 +100,7 @@ function_symbol("parse")       -> "_mfb_fn_parse"
 The `<fragment>` is produced by `symbol_fragment`, which maps every character
 outside `[A-Za-z0-9_]` to `_`. See `./mfb spec architecture native` for the native
 IR symbol model and `./mfb spec linker symbols-and-relocations` for the
-`_mfb_ifn_` / `_mfb_fn_` namespace catalog. [[src/target/shared/nir.rs:symbol_fragment]]
+`_mfb_ifn_` / `_mfb_fn_` namespace catalog. [[src/target/shared/nir/symbols.rs:symbol_fragment]]
 
 ## Display name: diagnostics
 
@@ -109,7 +109,7 @@ maps a sigil name back to its readable `__` form for diagnostics (and returns
 non-internal names unchanged). The monomorphizer uses it when reporting errors
 against internal generic implementations such as `collections::sort`, so the user
 sees `__collections_sort` rather than `#collections_sort`.
-[[src/internal_name.rs:display_name]] [[src/monomorph.rs:433]]
+[[src/internal_name.rs:display_name]] [[src/monomorph/helpers.rs:internalize]]
 
 ```text
 display_name("#collections_sort") -> "__collections_sort"

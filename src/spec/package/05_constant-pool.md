@@ -46,6 +46,6 @@ Error    code i64, message stringId   (reserved layout; see below)
 
 The current compiler's `ConstPool::add` produces kinds `1`-`7` only. Kind `8` (`Error`) has a reserved layout but is **not currently emitted** — there is no source form that lowers an `Error` literal into `CONST_POOL`, and `add` returns an error for any non-scalar constant. The reader will carry an unknown-but-well-formed entry through, but no producer writes one today.
 
-`Fixed` constants are parsed from a decimal string into a 32.32 fixed-point value with round-half-up on the fractional part (`fixed_raw_from_decimal`). [[src/binary_repr.rs:fixed_raw_from_decimal]]
+`Fixed` constants are parsed from a decimal string into a 32.32 fixed-point value with round-half-up on the fractional part (`fixed_raw_from_decimal`). [[src/binary_repr/writer.rs:fixed_raw_from_decimal]]
 
 Float constants must use canonical quiet NaN representation if NaN constants are ever allowed. Implementations may reject NaN constants in source if deterministic behavior is not yet specified.

@@ -13,7 +13,7 @@ ClosureObject (CLOSURE_OBJECT_SIZE = 16 bytes, arena-allocated, 8-aligned)
 The object is allocated with `arena_alloc(16, 8)` from the constructing scope's
 arena. `code` holds the resolved symbol address of the lambda-lifted body; `env`
 holds either a pointer to a separate capture environment (a closure with captures)
-or the null sentinel `0` (a bare function reference). [[src/target/shared/code/mod.rs:CLOSURE_OBJECT_SIZE]] [[src/target/shared/code/mod.rs:CLOSURE_OFFSET_CODE]] [[src/target/shared/code/mod.rs:CLOSURE_OFFSET_ENV]]
+or the null sentinel `0` (a bare function reference). [[src/target/shared/code/error_constants.rs:CLOSURE_OBJECT_SIZE]] [[src/target/shared/code/error_constants.rs:CLOSURE_OFFSET_CODE]] [[src/target/shared/code/error_constants.rs:CLOSURE_OFFSET_ENV]]
 
 ## Function Reference vs Closure
 
@@ -27,7 +27,7 @@ sole determinant of whether an env allocation happens:
   capture environment first, populates its slots, then builds the 16-byte object
   with `code = <symbol>` and `env = <env pointer>`. With an empty capture list a
   `Closure` degrades to the `FunctionRef` shape (env word set to `0`), so an env
-  object is produced *only* when there is at least one capture. [[src/target/shared/nir.rs:NirValue]] [[src/target/shared/code/builder_values.rs:268]]
+  object is produced *only* when there is at least one capture. [[src/target/shared/nir/mod.rs:NirValue]] [[src/target/shared/code/builder_values.rs:268]]
 
 Both forms share the identical 16-byte object layout, so a call site dispatches the
 same way regardless of which producer made the value.
@@ -59,7 +59,7 @@ A slot's word holds one of two things, set by the capture's `by_ref` flag:
 - **By-ref capture (`by_ref = true`).** The slot stores a **pointer to the parent
   binding's slot** rather than a value. The capturing body binds a *reference*
   local that dereferences through this pointer on every read and write, so the
-  callback observes and mutates the live parent binding (a `MUT` slot-borrow). [[src/target/shared/nir.rs:NirValue]] [[src/target/shared/code/builder_values.rs:399]]
+  callback observes and mutates the live parent binding (a `MUT` slot-borrow). [[src/target/shared/nir/mod.rs:NirValue]] [[src/target/shared/code/builder_values.rs:399]]
 
 A `Capture` read inside the body loads the raw slot word from the active
 environment at `index * 8`. For a by-value capture that word is the value/block
@@ -70,14 +70,14 @@ reference local derefs. [[src/target/shared/code/builder_values.rs:399]]
 
 During codegen of a closure body, the reserved register **x28 =
 `CLOSURE_ENV_REGISTER`** holds the active closure's environment pointer. Every
-`Capture` load reads from `[x28 + index*8]`. [[src/target/shared/code/mod.rs:CLOSURE_ENV_REGISTER]]
+`Capture` load reads from `[x28 + index*8]`. [[src/target/shared/code/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
 x28 is established by the **caller** at the call site, not by the callee prologue.
 `emit_function_value_call` loads `code` from `[obj+0]` and `env` from `[obj+8]`,
 moves `env` into x28, then `blr code`. Because x28 is reserved and a call may
 itself be made from inside an enclosing closure body, the caller **saves its own
 x28 to a stack slot before the call and restores it afterward**, so the enclosing
-closure's environment survives the nested call. [[src/target/shared/code/builder_misc.rs:emit_function_value_call]]
+closure's environment survives the nested call. [[src/target/shared/code/builder_emit_helpers.rs:emit_function_value_call]]
 
 ```text
 function-value call (caller side)
@@ -99,7 +99,7 @@ restores the closure environment the same way a normal call does: it loads the
 entry closure object from the control block, reads `env` from `[obj + 8]` into x28
 and `code` from `[obj + 0]`, and branches to the body — having saved the caller's
 x28 (and arena-state register) into the trampoline frame first. The per-worker
-arena handling is owned by `./mfb spec threading thread-runtime-helpers`. [[src/target/shared/code/mod.rs:CLOSURE_ENV_REGISTER]]
+arena handling is owned by `./mfb spec threading thread-runtime-helpers`. [[src/target/shared/code/error_constants.rs:CLOSURE_ENV_REGISTER]]
 
 ## See Also
 

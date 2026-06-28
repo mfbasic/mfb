@@ -6,13 +6,13 @@ bootstrap and its helpers are emitted as hand-written aarch64 by
 `emit_app_program_entry`, which returns the bootstrap (`_main`), the worker shim,
 and the transcript/finish/delegate/input/term helper functions. The standard
 program entry runs separately on the worker under `_mfb_macapp_program`
-(`MACAPP_PROGRAM_SYMBOL`). [[src/target/macos_aarch64/app.rs:emit_app_program_entry]]
+(`MACAPP_PROGRAM_SYMBOL`). [[src/target/macos_aarch64/app/mod.rs:emit_app_program_entry]]
 
 All Objective-C interaction goes through the public runtime
 (`objc_msgSend`/`sel_registerName`/`objc_allocateClassPair`/...); classes are
 obtained by loading the `_OBJC_CLASS_$_*` data symbols through the GOT, which also
 force-loads AppKit/Foundation. No private API is used.
-[[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+[[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 ## `_main` bootstrap
 
@@ -36,7 +36,7 @@ _main stack frame (FRAME_SIZE = 32):
   [sp+24]  OFF_PIPE   int fds[2]      input pipe (read @+24, write @+28)
 ```
 
-[[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+[[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 The unconditional bootstrap prefix builds the application and window:
 
@@ -50,7 +50,7 @@ The unconditional bootstrap prefix builds the application and window:
 - `headless = getenv("MFB_MACAPP_HEADLESS")` (`STR_HEADLESS_ENV`); the result gates
   all GUI construction below.
 
-[[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+[[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 ### GUI construction (skipped when headless != 0)
 
@@ -58,7 +58,7 @@ A `compare REG_HEADLESS, 0` / `branch_ne after_show` guards the GUI section. Whe
 the env var is set the bootstrap branches to `after_show`, building no view and
 showing no window — the io helpers then find no associated NSTextView and fall
 back to the fd sink (see [Headless path](#headless-path-mfb_macapp_headless)).
-[[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+[[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 The GUI path constructs, in order:
 
@@ -72,7 +72,7 @@ The GUI path constructs, in order:
    `setFont:[NSFont userFixedPitchFontOfSize:13]` (`TRANSCRIPT_FONT_SIZE`),
    `setEditable:NO`, `setSelectable:YES`, then installed as the scroll view's
    document view with `setHasVerticalScroller:YES` and added to the content view.
-   The text view is stashed on NSApp under `ASSOC_KEY`. [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+   The text view is stashed on NSApp under `ASSOC_KEY`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 2. **TermView surface.** The window and scroll view are stashed under
    `WINDOW_ASSOC_KEY`/`SCROLLVIEW_ASSOC_KEY`. A **`TermView : NSView`** class is
    synthesized with methods `drawRect:` (`"v@:{CGRect=dddd}"`), `isFlipped`
@@ -81,7 +81,7 @@ The GUI path constructs, in order:
    `NSMakeRect(0,0,900,640)` (`TERM_VIEW_WIDTH`/`TERM_VIEW_HEIGHT`),
    auto-sized to fill, initialized by the internal `_mfb_macapp_term_init`, and
    stashed under `TERMVIEW_ASSOC_KEY`. See `./mfb spec app term-backend`.
-   [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+   [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 3. **App delegate.** An **`MFBAppDelegate : NSObject`** (`STR_DELEGATE_CLASS`) is
    synthesized with two methods and set as `[app setDelegate:]`:
    - `applicationShouldTerminateAfterLastWindowClosed:` (type `"c@:@"`,
@@ -90,21 +90,21 @@ The GUI path constructs, in order:
    - `applicationDidFinishLaunching:` (type `"v@:@"`, `STR_INPUT_TYPES`), IMP
      `_mfb_macapp_did_finish_launching` — spawns the worker thread (below).
 
-   [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]] [[src/target/macos_aarch64/app.rs:emit_should_terminate_helper]]
+   [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]] [[src/target/macos_aarch64/app/bootstrap.rs:emit_should_terminate_helper]]
 4. **Input plumbing.** An `NSMutableString` line buffer (`[NSMutableString string]`)
    is stashed under `INPUT_LINE_KEY` with `OBJC_ASSOCIATION_RETAIN_NONATOMIC` (3rd
    arg `1`). Then `pipe(fds)`; `dup2(fds[0], 0)` redirects the program's stdin
    reads onto the window input pipe; the write end `fds[1]` is stashed under
-   `PIPE_ASSOC_KEY`. See `./mfb spec app console-io`. [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+   `PIPE_ASSOC_KEY`. See `./mfb spec app console-io`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 5. **Application menu.** `mainMenu` (NSMenu) → `appMenuItem` (NSMenuItem) →
    `appMenu` (NSMenu) → a **Quit** item titled `"Quit"` (`STR_QUIT`) with
    `setAction:@selector(terminate:)` (the standard `[NSApp terminate:]`) and
    `setKeyEquivalent:@"q"` (`STR_QUIT_KEY`, Cmd-Q). `[app setMainMenu:mainMenu]`.
-   [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+   [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 6. **Show & activate.** `[window makeKeyAndOrderFront:nil]`,
    `[app activateIgnoringOtherApps:YES]`, `[window makeFirstResponder:textview]`
    so keypresses reach the transcript. The `after_show` label follows.
-   [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+   [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 ### Worker spawn and event loop
 
@@ -117,16 +117,16 @@ After `after_show`, the bootstrap re-tests `REG_HEADLESS`:
   `applicationDidFinishLaunching:` later spawns the worker. The bootstrap then runs
   the AppKit event loop with `[NSApp run]` (`SEL_RUN`), which does not return under
   normal operation; if it ever does, `_exit(0)`. The `&argblock` pointer stays
-  valid because `_main` blocks forever in `[NSApp run]`. [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+  valid because `_main` blocks forever in `[NSApp run]`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 - **Headless**: there is no run loop or delegate callback, so the worker is spawned
   inline — `pthread_create(&tid, NULL, _mfb_macapp_worker, &argblock)` — and `_main`
   spins (`branch_self`) while the worker runs the program and exits the process.
-  [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+  [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 `applicationDidFinishLaunching:` (`_mfb_macapp_did_finish_launching`, main thread)
 re-fetches `[NSApplication sharedApplication]`, reads the `&argblock` pointer back
 out of `ARG_ASSOC_KEY`, and `pthread_create`s the worker (the `pthread_t` is
-discarded; the worker is never joined). [[src/target/macos_aarch64/app.rs:emit_did_finish_launching_helper]]
+discarded; the worker is never joined). [[src/target/macos_aarch64/app/bootstrap.rs:emit_did_finish_launching_helper]]
 
 ## Worker pthread shim
 
@@ -136,12 +136,12 @@ call on a 16-byte temp frame), then, when the language entry accepts args
 (`AppEntrySpec.language_entry_accepts_args`), unpacks the `{argc, argv}` block:
 `argv` from `[arg+OFF_ARGV]` into `x1`, `argc` from `[arg+OFF_ARGC]` into `x0`. It
 then tail-calls the standard program entry `_mfb_macapp_program`
-(`MACAPP_PROGRAM_SYMBOL`), which never returns. [[src/target/macos_aarch64/app.rs:emit_worker_shim]]
+(`MACAPP_PROGRAM_SYMBOL`), which never returns. [[src/target/macos_aarch64/app/bootstrap.rs:emit_worker_shim]]
 
 The autorelease pool is mandatory: the worker creates autoreleased Cocoa objects
 (NSString/NSFont/...), and on the GUI keep-open path the thread parks rather than
 exits — but were it to exit, the thread-exit autorelease-pool cleanup would crash
-draining improperly-pooled objects. [[src/target/macos_aarch64/app.rs:emit_worker_shim]]
+draining improperly-pooled objects. [[src/target/macos_aarch64/app/bootstrap.rs:emit_worker_shim]]
 
 ## Program-finish path (window stays open)
 
@@ -158,10 +158,10 @@ the headless fallback inside the finish helper itself) still terminates via
   `_mfb_rt_term_term_off` to auto-restore the transcript if TUI mode is still
   active (it gates on the active flag, so it is a safe no-op otherwise);
   the exit code is preserved across the call via `sp+40`. `x19` is still the
-  pinned arena-state base that `term_off` reads. [[src/target/macos_aarch64/app.rs:emit_finish_helper]]
+  pinned arena-state base that `term_off` reads. [[src/target/macos_aarch64/app/bootstrap.rs:emit_finish_helper]]
 - It fetches the transcript view via `objc_getAssociatedObject(NSApp, &ASSOC_KEY)`.
   **nil** (headless / no window) → `headless_exit`: `_exit(code)`, preserving the
-  console-like behavior the runtime tests rely on. [[src/target/macos_aarch64/app.rs:emit_finish_helper]]
+  console-like behavior the runtime tests rely on. [[src/target/macos_aarch64/app/bootstrap.rs:emit_finish_helper]]
 - **GUI**: it appends `"\nProgram exited with code "` (`STR_EXIT_PREFIX`), then the
   decimal exit code formatted in-register by `emit_format_exit_code` (0..255 →
   ASCII into the stack buffer at `sp+40`, leading zeros suppressed, count in `x22`)
@@ -171,7 +171,7 @@ the headless fallback inside the finish helper itself) still terminates via
   because the worker has made Cocoa calls and the thread-exit autorelease-pool
   cleanup would SIGSEGV draining them. The main thread's event loop keeps the
   window open until the user closes it, at which point the delegate terminates the
-  whole process. [[src/target/macos_aarch64/app.rs:emit_finish_helper]] [[src/target/macos_aarch64/app.rs:emit_format_exit_code]]
+  whole process. [[src/target/macos_aarch64/app/bootstrap.rs:emit_finish_helper]] [[src/target/macos_aarch64/app/bootstrap.rs:emit_format_exit_code]]
 
 ## Transcript append helper
 
@@ -185,7 +185,7 @@ global) and dereferenced once for the key. The run is appended to
 Appending an explicitly-attributed run is required: a plain `appendString:`
 ignores the view's font and renders in the default proportional system font.
 `waitUntilDone:YES` makes the write synchronous (so `io::flush` is a no-op).
-[[src/target/macos_aarch64/app.rs:emit_append_helper]]
+[[src/target/macos_aarch64/app/bootstrap.rs:emit_append_helper]]
 
 ## Per-process state: associated objects on NSApp
 
@@ -196,7 +196,7 @@ Each key symbol is emitted by `app_mode_data_objects` as a `raw` 1-byte object
 (`align 1`, value `00`, layout "associated-object key (unique address)"); only the
 symbol's address is meaningful. Worker-thread helpers reach the stashed objects by
 fetching `[NSApplication sharedApplication]` and calling
-`objc_getAssociatedObject(app, &KEY)`. [[src/target/macos_aarch64/app.rs:app_mode_data_objects]]
+`objc_getAssociatedObject(app, &KEY)`. [[src/target/macos_aarch64/app/mod.rs:app_mode_data_objects]]
 
 | Key symbol | Stored object | Association |
 |------------|---------------|-------------|
@@ -210,12 +210,12 @@ fetching `[NSApplication sharedApplication]` and calling
 | `INPUT_MODE_KEY` (`_mfb_macapp_inputmode_key`) | app input mode (1=line/echo, 2=raw/no-echo) | (set by io helpers) |
 | `ARG_ASSOC_KEY` (`_mfb_macapp_argblock_key`) | `&{argc, argv}` block pointer | ASSIGN |
 
-[[src/target/macos_aarch64/app.rs:app_mode_data_objects]]
+[[src/target/macos_aarch64/app/mod.rs:app_mode_data_objects]]
 
 The same scheme stores the AppKit data the SEL/string constants reference: all
 selector and C-string constants are emitted as NUL-terminated `raw` C strings
 (`align 1`) by `app_mode_data_objects`; selectors are interned at runtime through
-`sel_registerName`. [[src/target/macos_aarch64/app.rs:app_mode_data_objects]]
+`sel_registerName`. [[src/target/macos_aarch64/app/mod.rs:app_mode_data_objects]]
 
 ## Headless path (`MFB_MACAPP_HEADLESS`)
 
@@ -226,7 +226,7 @@ spinning `_main`. With no transcript view associated under `ASSOC_KEY`, the io
 helpers fall back to the file-descriptor sink and the finish helper takes the
 `headless_exit` → `_exit(code)` branch. This drives the automated runtime tests
 through the same construction-free worker and program-exit code the GUI path uses,
-while preserving console-like exit semantics. [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]] [[src/target/macos_aarch64/app.rs:emit_finish_helper]]
+while preserving console-like exit semantics. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]] [[src/target/macos_aarch64/app/bootstrap.rs:emit_finish_helper]]
 
 ## See Also
 

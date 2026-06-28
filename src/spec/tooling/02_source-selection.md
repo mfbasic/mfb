@@ -11,7 +11,7 @@ project-manifest`; this topic owns only the *selection algorithm* over it.
 ## Source Entries
 
 Each element of the manifest `sources` array contributes one **source entry**:
-[[src/ast.rs:source_entries]]
+[[src/ast/manifest.rs:source_entries]]
 
 | Field     | JSON type          | Required | Default              |
 | --------- | ------------------ | -------- | -------------------- |
@@ -23,16 +23,16 @@ Each element of the manifest `sources` array contributes one **source entry**:
 missing or non-string is silently dropped. `include`/`exclude` arrays keep only
 their string elements; non-string elements are dropped. When `include` is absent
 the default `["**/*.mfb"]` is substituted; when `exclude` is absent the empty
-list is substituted (nothing excluded). [[src/ast.rs:source_entries]]
+list is substituted (nothing excluded). [[src/ast/manifest.rs:source_entries]]
 
 Selection iterates the entries in manifest order, building one combined,
 de-duplicated set. The two public entry points share the same collector:
 `parse_project` (the build path) and `selected_source_paths` (raw-source tools
-such as `mfb fmt`) both call `collect_selected_source_files`. [[src/ast.rs:collect_selected_source_files]]
+such as `mfb fmt`) both call `collect_selected_source_files`. [[src/ast/manifest.rs:collect_selected_source_files]]
 
 ## Per-Entry Resolution
 
-For each entry, in order: [[src/ast.rs:collect_selected_source_files]]
+For each entry, in order: [[src/ast/manifest.rs:collect_selected_source_files]]
 
 1. **Join** `root` onto the project directory. If the joined path does not exist,
    emit `MFB_SOURCE_ROOT_MISSING` and fail.
@@ -45,7 +45,7 @@ For each entry, in order: [[src/ast.rs:collect_selected_source_files]]
    - If the root is a **file**: it is selected directly **iff** its extension is
      `mfb`. `include`/`exclude` are *ignored* for a file root — a file root names
      exactly one file. A file root whose extension is not `mfb` selects nothing
-     (and then trips the empty check below). [[src/ast.rs:collect_selected_source_files]]
+     (and then trips the empty check below). [[src/ast/manifest.rs:collect_selected_source_files]]
    - If the root is a **directory**: walk it recursively (see *Recursive Walk*),
      keeping each `.mfb` file whose root-relative path matches the entry's
      `include`/`exclude` patterns.
@@ -59,28 +59,28 @@ For each entry, in order: [[src/ast.rs:collect_selected_source_files]]
 
 After all entries are processed, the combined list is sorted once more by display
 path so the final order is deterministic regardless of entry order.
-[[src/ast.rs:collect_selected_source_files]]
+[[src/ast/manifest.rs:collect_selected_source_files]]
 
 Only files with the `mfb` extension are ever collected; the extension test
 `extension() == Some("mfb")` is applied both to file roots and to every walked
-entry. [[src/ast.rs:collect_mfb_files]]
+entry. [[src/ast/manifest.rs:collect_mfb_files]]
 
 ## Recursive Walk
 
-A directory root is walked depth-first via `read_dir`. [[src/ast.rs:collect_mfb_files]] At each directory:
+A directory root is walked depth-first via `read_dir`. [[src/ast/manifest.rs:collect_mfb_files]] At each directory:
 
 - The directory is canonicalized and re-checked for containment (a symlinked
   subdirectory pointing outside the project fails the walk — see *Containment*).
 - A **visited-set** of canonical directory paths guards against symlink cycles:
   re-entering an already-visited canonical directory returns immediately, so a
-  loop terminates instead of recursing forever. [[src/ast.rs:collect_mfb_files]]
+  loop terminates instead of recursing forever. [[src/ast/manifest.rs:collect_mfb_files]]
 - Each entry is canonicalized and containment-checked before use.
 - Subdirectories recurse; non-`.mfb` files are skipped.
 - A surviving `.mfb` file's path is made **relative to the logical root** (the
   directory `root`, not the project), backslashes normalized to `/`, and tested
   against the entry's patterns with `matches_source_patterns`. A file matches
   when it matches **any** `include` pattern and **no** `exclude` pattern.
-  [[src/ast.rs:matches_source_patterns]]
+  [[src/ast/manifest.rs:matches_source_patterns]]
 
 Glob patterns are matched against the **root-relative** path. With root `src` and
 include `pkg/**/*.mfb`, the file `src/pkg/keep.mfb` is tested as `pkg/keep.mfb`.
@@ -92,9 +92,9 @@ per-entry and final display-path sorts, never from walk order.
 
 Patterns are matched **segment-wise** on `/`. Both the pattern and the path have
 backslashes normalized to `/`, then each is split on `/` into segments; matching
-is recursive over the segment lists. [[src/ast.rs:glob_matches]]
+is recursive over the segment lists. [[src/ast/manifest.rs:glob_matches]]
 
-Segment-level rules: [[src/ast.rs:glob_match_segments]]
+Segment-level rules: [[src/ast/manifest.rs:glob_match_segments]]
 
 | Pattern segment | Meaning                                                         |
 | --------------- | -------------------------------------------------------------- |
@@ -106,11 +106,11 @@ the rest of the pattern against the current position, or (if the path is
 non-empty) keeps `**` and drops one path segment — so `**/*.mfb` matches both
 `main.mfb` (zero segments consumed) and `pkg/main.mfb` (one). An ordinary segment
 requires a path segment to be present and to match component-wise before
-recursing on the tails. [[src/ast.rs:glob_match_segments]]
+recursing on the tails. [[src/ast/manifest.rs:glob_match_segments]]
 
 Within a single segment, `glob_match_component` does a classic backtracking
 wildcard match (the bytewise two-pointer algorithm with a remembered star
-position): [[src/ast.rs:glob_match_component]]
+position): [[src/ast/manifest.rs:glob_match_component]]
 
 | Within-segment token | Meaning                                              |
 | -------------------- | --------------------------------------------------- |
@@ -123,9 +123,9 @@ escape mechanism — every byte other than `*` and `?` is a literal, including `
 Matching is byte-exact and case-sensitive. A `*` within a segment binds inside
 that segment only: `pkg/*.mfb` matches `pkg/main.mfb` but **not**
 `pkg/nested/main.mfb` (the single `*` segment cannot span the `/`). Use `**` to
-cross directories. [[src/ast.rs:glob_match_segments]]
+cross directories. [[src/ast/manifest.rs:glob_match_segments]]
 
-Worked results (from the in-tree tests): [[src/ast.rs:glob_matches]]
+Worked results (from the in-tree tests): [[src/ast/manifest.rs:glob_matches]]
 
 ```text
 **/*.mfb        vs  main.mfb           -> match
@@ -140,7 +140,7 @@ pkg/*.mfb       vs  pkg/nested/main.mfb-> no match
 
 A path is *within the project* when it equals the canonical project directory or
 is a prefix-descendant of it (`Path::starts_with` on the canonical paths).
-[[src/ast.rs:path_within_project]] The check runs on **canonical** paths, so it
+[[src/ast/manifest.rs:path_within_project]] The check runs on **canonical** paths, so it
 sees through symlinks: a `src` symlink pointing at a sibling directory outside the
 project resolves outside and is rejected. The check is applied at three points —
 the entry root, every directory entered during the walk, and every directory
@@ -150,7 +150,7 @@ Inside the walk, a containment failure is surfaced as `MFB_SOURCE_OUTSIDE_PROJEC
 and then propagated as a `PermissionDenied` I/O error to abort the walk. The
 caller suppresses a duplicate `MFB_SOURCE_READ_FAILED` for `PermissionDenied`
 specifically (the real diagnostic was already shown); any other walk I/O error
-*does* surface as `MFB_SOURCE_READ_FAILED`. [[src/ast.rs:collect_selected_source_files]]
+*does* surface as `MFB_SOURCE_READ_FAILED`. [[src/ast/manifest.rs:collect_selected_source_files]]
 
 ## Duplicate / Overlap Detection
 
@@ -160,7 +160,7 @@ their display paths differ. The first entry to select a canonical path records
 which root claimed it; a later entry selecting the same canonical path triggers
 `MFB_SOURCE_OVERLAP`, whose message names the selected file (as a
 project-relative display path) and both the previous and current `root` strings.
-The selection then fails. [[src/ast.rs:collect_selected_source_files]] A single
+The selection then fails. [[src/ast/manifest.rs:collect_selected_source_files]] A single
 entry never overlaps itself (the recursive walk visits each file once and the
 visited-set prevents cycle re-entry).
 
@@ -169,17 +169,17 @@ visited-set prevents cycle re-entry).
 `collect_selected_source_files` yields, per file, a `SelectedSource` carrying both
 the **canonical** path (`actual_path`, used to read bytes and to key
 de-duplication) and the **display** path (`display_path`, the on-disk path used
-for diagnostics and sort order). [[src/ast.rs:SelectedSource]] `parse_project`
+for diagnostics and sort order). [[src/ast/manifest.rs:SelectedSource]] `parse_project`
 reads each canonical path and parses it; `selected_source_paths` returns the
-canonical paths alone for raw-text tooling. [[src/ast.rs:selected_source_paths]]
+canonical paths alone for raw-text tooling. [[src/ast/manifest.rs:selected_source_paths]]
 The compiler then appends its own built-in prelude and any imported built-in
 package source *after* the user files, so the user's first selected file remains
-`files[0]` (the monomorphizer's emission target). [[src/ast.rs:parse_project]]
+`files[0]` (the monomorphizer's emission target). [[src/ast/manifest.rs:parse_project]]
 
 ## Diagnostics
 
 All five are errors that abort selection; codes are the `rules` table entries.
-[[src/rules.rs:RULES]]
+[[src/rules/table.rs:RULES]]
 
 | Name                         | Code        | Raised when                                                          |
 | ---------------------------- | ----------- | ------------------------------------------------------------------- |

@@ -9,12 +9,12 @@ call-routing imports plus a load-time initializer, and every emitted entity is
 assigned its final, mangled link symbol. The shared IR it lowers from is
 `./mfb spec architecture ir`; the concrete `_mfb_fn_` callee names it consumes
 originate in `./mfb spec architecture monomorphization`.
-[[src/target/shared/nir.rs:NirModule]] [[src/target/shared/nir.rs:lower_module]]
+[[src/target/shared/nir/mod.rs:NirModule]] [[src/target/shared/nir/lower.rs:lower_module]]
 
 By the time `lower_module` runs, imported packages have already been decoded and
 merged into the `IrProject` (see `merge_packages`), so every function flows
 through this one lowering and there are no package-level imports left to resolve.
-[[src/target/shared/nir.rs:merge_packages]]
+[[src/target/shared/nir/lower.rs:merge_packages]]
 
 ## Module shape
 
@@ -36,9 +36,9 @@ NirModule {
 If the project has any global bindings, `lower_functions` prepends a synthetic
 private SUB named `__mfb_init_globals_<project>` whose body is one `StoreGlobal`
 per binding; it runs before user code to materialize global initializers.
-[[src/target/shared/nir.rs:lower_functions]]
-[[src/target/shared/nir.rs:lower_global_initializer]]
-[[src/target/shared/nir.rs:global_initializer_name]]
+[[src/target/shared/nir/lower.rs:lower_functions]]
+[[src/target/shared/nir/lower.rs:lower_global_initializer]]
+[[src/target/shared/nir/symbols.rs:global_initializer_name]]
 
 ## Op set
 
@@ -46,7 +46,7 @@ per binding; it runs before user code to materialize global initializers.
 is structural (`lower_op` recurses through nested bodies via `lower_ops`); the
 only renames are `IrOp::AssignGlobal` -> `StoreGlobal` (with an empty `type_`
 and a wrapped value) and otherwise a 1:1 mapping.
-[[src/target/shared/nir.rs:lower_op]] [[src/target/shared/nir.rs:NirOp]]
+[[src/target/shared/nir/lower.rs:lower_op]] [[src/target/shared/nir/mod.rs:NirOp]]
 
 | Op | JSON `"op"` | Fields | Notes |
 |----|-------------|--------|-------|
@@ -69,11 +69,11 @@ and a wrapped value) and otherwise a 1:1 mapping.
 | `Trap` | `trap` | `name`, `body[]` | error-handler region |
 
 `LoopKind` serializes as the lowercase strings `for` / `do` / `while`.
-[[src/target/shared/nir.rs:loop_kind_name]]
+[[src/target/shared/nir/json.rs:loop_kind_name]]
 
 A `Match` case is a `NirMatchPattern` (`Else`, `Value(v)`, or `OneOf([v…])`),
 an optional guard value, and a body. Patterns serialize with `"kind"` of
-`else` / `value` / `oneOf`. [[src/target/shared/nir.rs:NirMatchPattern]]
+`else` / `value` / `oneOf`. [[src/target/shared/nir/mod.rs:NirMatchPattern]]
 
 ## Value taxonomy
 
@@ -81,8 +81,8 @@ an optional guard value, and a body. Patterns serialize with `"kind"` of
 the matching `IrValue`. Two variants carry no IR counterpart and are *introduced*
 during NIR lowering: `RuntimeCall` (a builtin routed to a runtime helper, see
 below) and `Global` gains a `type_` field that lowering fills with an empty
-string (the IR `Global` is just a name). [[src/target/shared/nir.rs:lower_value]]
-[[src/target/shared/nir.rs:NirValue]]
+string (the IR `Global` is just a name). [[src/target/shared/nir/lower.rs:lower_value]]
+[[src/target/shared/nir/mod.rs:NirValue]]
 
 | Value | JSON `"kind"` | Shape |
 |-------|---------------|-------|
@@ -112,7 +112,7 @@ string (the IR `Global` is just a name). [[src/target/shared/nir.rs:lower_value]
 `Call`, `CallResult`, `RuntimeCall`, `Binary`, and `Unary` each carry a
 `NirSourceLoc { line, column }` for runtime-error attribution; the file is on
 the owning `NirFunction::file`. The `loc` is *not* serialized to JSON.
-[[src/target/shared/nir.rs:NirSourceLoc]]
+[[src/target/shared/nir/mod.rs:NirSourceLoc]]
 
 ## Call routing: native-direct vs runtime-call
 
@@ -124,14 +124,14 @@ The one semantically interesting rewrite happens in `lower_value` for
    `native_builtin_target`, plus a fixed list: `len`, the `fs.path*` family,
    the numeric coercions (`toByte`/`toFixed`/`toFloat`/`toInt`/`toString`), the
    `is*` predicates, and the `math.abs`/`math.min`/… inline-math group.
-   [[src/target/shared/runtime.rs:is_native_direct_call]]
+   [[src/target/shared/runtime/usage.rs:is_native_direct_call]]
 2. Otherwise `helper_for_call(target)` -> if it returns a `RuntimeHelper`,
    rewrite to `NirValue::RuntimeCall { helper, target, args, loc }`. The helper
    is one of `Datetime`, `Fs`, `General`, `Io`, `Math`, `Net`, `Strings`,
    `Term`, `Thread`, `Tls`; the symbol the backend calls is
    `_mfb_rt_<helper>_<sanitized-target>` (`./mfb spec memory runtime-helper-abi`).
-   [[src/target/shared/runtime.rs:helper_for_call]]
-   [[src/target/shared/runtime.rs:RuntimeHelper]]
+   [[src/target/shared/runtime/mod.rs:helper_for_call]]
+   [[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 3. Otherwise (a user function) -> stay `NirValue::Call`; the backend mangles
    `target` to `_mfb_fn_…` at code-gen time.
 
@@ -141,7 +141,7 @@ fallible call (`./mfb spec memory fallible-call-abi`).
 ### Builtin default-argument rewrites
 
 Two builtins get a synthetic trailing argument synthesized during lowering, so
-the backend always sees a fixed arity: [[src/target/shared/nir.rs:lower_value]]
+the backend always sees a fixed arity: [[src/target/shared/nir/lower.rs:lower_value]]
 
 ```text
 fs.openFile(path)          -> append Const String "read"         (mode default)
@@ -156,7 +156,7 @@ The injected `fs.tempDirectory` is itself a `RuntimeCall` (helper `Fs`), so the
 
 NIR is where final link symbols are assigned. All fragments are sanitized by
 `symbol_fragment`: every character outside `[A-Za-z0-9_]` becomes `_`.
-[[src/target/shared/nir.rs:symbol_fragment]]
+[[src/target/shared/nir/symbols.rs:symbol_fragment]]
 
 | Entity | Helper | Form |
 |--------|--------|------|
@@ -171,8 +171,8 @@ NIR is where final link symbols are assigned. All fragments are sanitized by
 `function_symbol` keys off `internal_name::strip_sigil`: a sigil-prefixed
 (`#`) name lands in the reserved `_mfb_ifn_` namespace so a compiler-injected
 builtin can never collide with a user function (always `_mfb_fn_`).
-[[src/target/shared/nir.rs:function_symbol]]
-[[src/target/shared/nir.rs:global_symbol]]
+[[src/target/shared/nir/symbols.rs:function_symbol]]
+[[src/target/shared/nir/symbols.rs:global_symbol]]
 [[src/internal_name.rs:strip_sigil]]
 How these symbols are emitted and relocated is `./mfb spec linker
 symbols-and-relocations`.
@@ -184,12 +184,12 @@ symbols-and-relocations`.
 `link_thunk_symbol`. This re-uses the ordinary import-resolution path so a call
 to a native function dispatches to its generated marshaling thunk. A re-export
 alias (`ir.link_aliases`) gets a second import routing to the same thunk, under
-the bare alias name. [[src/target/shared/nir.rs:link_routing_imports]]
-[[src/target/shared/nir.rs:link_thunk_symbol]]
+the bare alias name. [[src/target/shared/nir/lower.rs:link_routing_imports]]
+[[src/target/shared/nir/mod.rs:link_thunk_symbol]]
 
 `LINK_INIT_SYMBOL` (`_mfb_linker_init`) names the per-program load-time
 initializer that runs `dlopen`/`dlsym` before `main`.
-[[src/target/shared/nir.rs:LINK_INIT_SYMBOL]] See `./mfb spec linker
+[[src/target/shared/nir/mod.rs:LINK_INIT_SYMBOL]] See `./mfb spec linker
 package-linking` and `./mfb spec language native-libraries`.
 
 ## `mfb-nir` JSON (`mfb build -nir`)
@@ -198,7 +198,7 @@ package-linking` and `./mfb spec language native-libraries`.
 fixed at `"format": "mfb-nir"`, `"version": 1`. The `globals` key is omitted
 entirely when there are no globals. Source locations and the `For` header `loc`
 are intentionally dropped; `Capture.byRef` is emitted only when true.
-[[src/target/shared/nir.rs:to_json]]
+[[src/target/shared/nir/json.rs:to_json]]
 
 ```json
 {
@@ -236,7 +236,7 @@ are intentionally dropped; `Capture.byRef` is emitted only when true.
 
 `"buildMode"` reflects `NativeBuildMode::as_str()` (`console` or `macos-app`).
 `union` types serialize with `includes`/`variants` and `enum` types with
-`members` instead of `fields`. [[src/target/shared/nir.rs:to_json]]
+`members` instead of `fields`. [[src/target/shared/nir/json.rs:to_json]]
 
 ## See Also
 

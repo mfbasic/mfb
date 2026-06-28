@@ -6,7 +6,7 @@ an optional *expected* (contextual) type down to a few syntactic positions, whil
 everything else synthesizes types **bottom-up**. There is no general unification,
 no type variables, and no least-upper-bound; the only "widening" steps are
 literal coercion (asymmetric, literal-shapes only) and union-variant subsumption.
-[[src/typecheck.rs:infer_expression_with_expected]]
+[[src/typecheck/inference.rs:infer_expression_with_expected]]
 
 The per-type rules, literal range checks, and the *defaultable* predicate are
 canonical in `./mfb spec language types`; this page owns how those types are
@@ -18,7 +18,7 @@ type fits an expected one.
 `infer_expression(expr)` is a wrapper that calls
 `infer_expression_with_expected(expr, expected = None)`. The expected type is set
 to `Some(T)` only at these call sites; everywhere else it is `None`.
-[[src/typecheck.rs:infer_expression]]
+[[src/typecheck/inference.rs:infer_expression]]
 
 | Position | Expected type | Site |
 |----------|---------------|------|
@@ -38,14 +38,14 @@ These positions are **synthesized bottom-up only** (expected is never consulted)
 
 - **Binary and unary operands.** `Binary`/`Unary` arms infer each operand with a
   bare `infer_expression` (`ExprMode::Read`, no expected), then combine.
-  [[src/typecheck.rs:infer_binary]]
+  [[src/typecheck/inference.rs:infer_binary]]
 - **Member-access targets.** The target of `a.field` / `a::member` is inferred
   with no expected type.
 - **Map-literal entries.** Map literals are inferred from their **explicit**
   `Map OF K TO V` annotation; `K` and `V` are never inferred from the entries.
   Each key/value expression is then *checked* against `K`/`V`. A bare map literal
   with no `OF` clause is not a valid synthesis source.
-  [[src/typecheck.rs:infer_map_literal]]
+  [[src/typecheck/inference.rs:infer_map_literal]]
 
 ### Call arguments — expected is NOT pushed into the argument
 
@@ -56,7 +56,7 @@ then validates it with `expression_compatible(param_type, actual, Some(expr))`.
 Literal coercion (e.g. `Integer` literal → `Byte`/`Fixed`) therefore happens at
 the **check** site, not by re-inferring the literal at the parameter type. The
 only contextual use of the parameter type for a call is **return-type-overload
-disambiguation** (see below). [[src/typecheck.rs:check_call]]
+disambiguation** (see below). [[src/typecheck/inference.rs:check_call]]
 
 ### Return-type-overload disambiguation
 
@@ -70,7 +70,7 @@ when the inferred argument/expected types still leave the call unresolved. The
 final, authoritative overload resolution + symbol mangling lives in
 `./mfb spec architecture monomorphization` — see `resolve_overload`/`params_match`,
 which require **exact** arity and positional type equality with no coercion.
-[[src/typecheck.rs:lookup_visible_call_sig]] [[src/monomorph.rs:resolve_overload]]
+[[src/typecheck/mod.rs:lookup_visible_call_sig]] [[src/monomorph/lower.rs:resolve_overload]]
 
 ## Literal Coercion — `expression_compatible`
 
@@ -104,12 +104,12 @@ Properties:
 - `Fixed` accepts any numeric literal **unconditionally** (no range check at this
   layer); range/precision rules for `Fixed` are in `./mfb spec language types`.
 
-[[src/typecheck.rs:expression_compatible]] [[src/typecheck.rs:numeric_literal_type]]
+[[src/typecheck/types.rs:expression_compatible]] [[src/typecheck/helpers.rs:numeric_literal_type]]
 
 ## Structural Assignability — `compatible`
 
 `compatible(expected, actual)` is the pure structural relation (no expression in
-hand, so no literal coercion). [[src/typecheck.rs:compatible]]
+hand, so no literal coercion). [[src/typecheck/types.rs:compatible]]
 
 ```text
 compatible(E, A):
@@ -140,12 +140,12 @@ Key points:
 - **`RES` is stripped before comparing.** The `RES` element marker is an
   ownership-axis annotation, not a distinct value type, so a `File` fits a
   `RES File` slot and vice versa. `./mfb spec language resource-management`.
-  [[src/typecheck.rs:strip_res]]
+  [[src/typecheck/helpers.rs:strip_res]]
 - **Containers are invariant.** `List`, `Map`, `Result`, `Thread`,
   `ThreadWorker` compare element-/component-wise via `compatible` recursively;
   there is no covariance. The optional resource plane of a thread type uses
   `compatible_optional`: both absent, or both present and compatible (a
-  present/absent mismatch is incompatible). [[src/typecheck.rs:compatible_optional]]
+  present/absent mismatch is incompatible). [[src/typecheck/types.rs:compatible_optional]]
 - **Bare vs qualified user types.** An imported type is registered under its bare
   name (`Db`) while an importer writes a qualified reference (`binding.Db`); a
   trailing-segment match makes these equal so a returned package type fits a
@@ -165,23 +165,23 @@ Key points:
 ## Numeric and Ordering Predicates
 
 `is_numeric(T)` is `true` for `Byte`, `Fixed`, `Float`, `Integer`, **and
-`Unknown`**. [[src/typecheck.rs:is_numeric]]
+`Unknown`**. [[src/typecheck/types.rs:is_numeric]]
 
 Operator typing in `infer_binary` follows from these predicates rather than from
-`compatible`: [[src/typecheck.rs:infer_binary]]
+`compatible`: [[src/typecheck/inference.rs:infer_binary]]
 
 - **`=` / `<>`** accept **any two numerics** with *no* compatibility requirement
   (e.g. `Byte = Float` is allowed and yields `Boolean`). Otherwise the operands
   must be mutually `compatible` *and* both `is_comparable`.
 - **`<` `>` `<=` `>=`** accept **two numerics** or **two Strings**
   (`is_orderable_string` is `String` or `Unknown`). Mixed String/numeric is a
-  type error. [[src/typecheck.rs:is_orderable_string]]
+  type error. [[src/typecheck/types.rs:is_orderable_string]]
 - **`AND` / `OR` / `XOR`** require `Boolean`-compatible operands; **`NOT`** a
   `Boolean` operand; **`&`** two `String`-compatible operands.
 - Other arithmetic operators require two numerics and produce
   `numeric_binary_result_type(op, left, right)` — a bottom-up promotion (e.g.
   `Integer + Float → Float`) defined by the numeric-promotion table, never by
-  the expected type. [[src/typecheck.rs:numeric_binary_result_type]]
+  the expected type. [[src/typecheck/helpers.rs:numeric_binary_result_type]]
 
 `Unknown` flows through every predicate as permissive (numeric, orderable,
 comparable), so a single upstream error does not cascade into spurious
@@ -191,7 +191,7 @@ operator-mismatch diagnostics.
 
 When a list literal has **no** expected `List OF E` context, `infer_list_literal`
 synthesizes the element type from the **first element** and then *checks* every
-later element against it: [[src/typecheck.rs:infer_list_literal]]
+later element against it: [[src/typecheck/inference.rs:infer_list_literal]]
 
 ```text
 infer_list_literal(values, expected):

@@ -20,6 +20,6 @@ bit 0      = mutable
 bits 1-2   = visibility:  0 = private, 1 = package, 2 = export
 ```
 
-So `MUT` sets bit 0 and `LET` clears it; the visibility two-bit field is `binding.visibility` (`encode`: `private` → `0<<1`, `package` → `1<<1`, `export` → `2<<1`; `decode`: `(flags >> 1) & 0b11`). [[src/binary_repr.rs:read_global_table]] No "initialized by constant/function" bits exist. There is no separate "exported" bit — a global is exported when its visibility field is `export` (`2`).
+So `MUT` sets bit 0 and `LET` clears it; the visibility two-bit field is `binding.visibility` (`encode`: `private` → `0<<1`, `package` → `1<<1`, `export` → `2<<1`; `decode`: `(flags >> 1) & 0b11`). [[src/binary_repr/reader.rs:read_global_table]] No "initialized by constant/function" bits exist. There is no separate "exported" bit — a global is exported when its visibility field is `export` (`2`).
 
 Globals are initialized by executing their IR-level initializer. (Cross-package initialization ordering is a merge/runtime concern handled when package IR is merged into the project; it is not encoded as data in this table.)

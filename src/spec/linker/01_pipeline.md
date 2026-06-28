@@ -40,7 +40,7 @@ stages in order:
    (`os::<platform>::write_linked_executable`, or the app-bundle / per-flavor
    variants).
 
-[[src/target/shared/lower.rs:lower_project]] [[src/arch/aarch64/encode.rs:encode]]
+[[src/target/shared/lower.rs:lower_project]] [[src/arch/aarch64/encode/mod.rs:encode]]
 
 ## The linker's contract
 

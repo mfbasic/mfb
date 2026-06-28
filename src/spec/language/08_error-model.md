@@ -116,19 +116,19 @@ Both are read-only: an `Error`/`ErrorLoc` cannot be user-constructed (`TYPE_READ
 
 ## 8.5b Reserved internal type names
 
-`Result` and its success member `Ok` are the runtime's private representation of a fallible outcome (§8.8) and are not types a user may write. The resolver rejects them in any type position: naming `Result`, `Ok`, or a parameterized `Result OF ...` is reported as `TYPE_RESULT_NOT_USER_VISIBLE` ("`Result` is an internal type; declare the success type directly"), rather than falling through to the generic unknown-type error. The same resolver also treats the internal placeholder `Unknown` — and any currently active template parameter — as always resolved, so neither produces an unknown-type diagnostic. [[src/resolver.rs:resolve_type_name]]
+`Result` and its success member `Ok` are the runtime's private representation of a fallible outcome (§8.8) and are not types a user may write. The resolver rejects them in any type position: naming `Result`, `Ok`, or a parameterized `Result OF ...` is reported as `TYPE_RESULT_NOT_USER_VISIBLE` ("`Result` is an internal type; declare the success type directly"), rather than falling through to the generic unknown-type error. The same resolver also treats the internal placeholder `Unknown` — and any currently active template parameter — as always resolved, so neither produces an unknown-type diagnostic. [[src/resolver/resolution.rs:resolve_type_name]]
 
 Because these names still appear in compiler-internal positions, two resolution paths skip them deliberately so they are never re-checked as user types:
 
-* Constructor resolution special-cases `Error`, `Ok`, and `Err`: when a constructor's type name is one of these, the type-name resolution step is skipped (only the arguments are resolved). [[src/resolver.rs:resolve_expression]]
-* `MATCH`-pattern resolution skips the `Ok` union type: a union pattern whose type name is `Ok` is not resolved as a user type (the desugaring in §8.8 introduces `Ok` arms internally). [[src/resolver.rs:resolve_match_pattern]]
+* Constructor resolution special-cases `Error`, `Ok`, and `Err`: when a constructor's type name is one of these, the type-name resolution step is skipped (only the arguments are resolved). [[src/resolver/resolution.rs:resolve_expression]]
+* `MATCH`-pattern resolution skips the `Ok` union type: a union pattern whose type name is `Ok` is not resolved as a user type (the desugaring in §8.8 introduces `Ok` arms internally). [[src/resolver/resolution.rs:resolve_match_pattern]]
 
 ## 8.6 Rules
 
 1. At most one function-level `TRAP` per function, at the bottom, after normal flow.
 2. The trap payload is always `Error`; written `TRAP(err)` with no type. The same spelling is used for the inline and function-level forms.
 3. The function-level trap block is reachable only via `FAIL` (in the body), an auto-propagated failure from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
-4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error (`TYPE_PROPAGATE_REQUIRES_TRAP`); use `FAIL e` instead. `FAIL`'s operand must be `Error`-typed (`TYPE_FAIL_REQUIRES_ERROR`). [[src/rules.rs:344]]
+4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error (`TYPE_PROPAGATE_REQUIRES_TRAP`); use `FAIL e` instead. `FAIL`'s operand must be `Error`-typed (`TYPE_FAIL_REQUIRES_ERROR`). [[src/rules/table.rs:344]]
 5. With no enclosing `TRAP`, any failure (from `FAIL` or an auto-propagated call) becomes the function's failure to its caller.
 6. Every function-level `TRAP` path must end in `RETURN` (for a `FUNC`), `EXIT SUB` (for a `SUB`), `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
 7. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.
@@ -158,7 +158,7 @@ FUNC main(args AS List OF String) AS Integer
 END FUNC
 ```
 
-The actual name is the manifest entry value, so `main` above is illustrative. The accepted entry signatures are closed: a `SUB` entry has success type `Nothing`, a `FUNC` entry must have success type `Integer`, and the only allowed parameter is one `List OF String` argument. Multiple matching entry declarations, a missing entry declaration in an executable, any other parameter list, or any non-`Integer` `FUNC` entry return type are compile-time errors. [[src/main.rs:validate_entry_point]]
+The actual name is the manifest entry value, so `main` above is illustrative. The accepted entry signatures are closed: a `SUB` entry has success type `Nothing`, a `FUNC` entry must have success type `Integer`, and the only allowed parameter is one `List OF String` argument. Multiple matching entry declarations, a missing entry declaration in an executable, any other parameter list, or any non-`Integer` `FUNC` entry return type are compile-time errors. [[src/manifest/entry.rs:validate_entry_point]]
 
 When an entry declares `args AS List OF String`, the runtime passes the command-line argument vector as an owned immutable list. `collections::get(args, 0)` is the program name as invoked by the host. Subsequent elements are user arguments in order.
 

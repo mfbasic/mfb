@@ -20,7 +20,7 @@ divergences are flagged.
 The GUI setters write the same per-program TUI slots the console backend reads.
 These live in the program-entry frame just past the program globals/`LINK` slots,
 reached off the pinned arena-state register `x19` at `term_state_offset + field`.
-Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/target/shared/code/mod.rs:TERM_STATE_ACTIVE_OFFSET]]
+Eight `u64` slots, zero-initialized (the inert TUI-off default). [[src/target/shared/code/error_constants.rs:TERM_STATE_ACTIVE_OFFSET]]
 
 | Field | Offset | Meaning |
 |-------|--------|---------|
@@ -37,10 +37,10 @@ The GUI `term::on`/`off`/`setForeground`/`setBackground`/`setBold`/
 exactly as the console backend would, then additionally drive the surface (below).
 Pure readers — `term::isOn` and the attribute getters — keep the shared console
 implementation; the app dispatcher returns `None` for them so they read the global
-the setters maintain. [[src/target/macos_aarch64/app.rs:emit_app_term_helper]]
+the setters maintain. [[src/target/macos_aarch64/app/app_io.rs:emit_app_term_helper]]
 
 `store_term_state` is the one-line writer: `mov x9, #value; str x9, [x19,
-term_state_offset+field]`. [[src/target/macos_aarch64/app.rs:store_term_state]]
+term_state_offset+field]`. [[src/target/macos_aarch64/app/app_io.rs:store_term_state]]
 
 ## macOS: `TermView : NSView`
 
@@ -51,7 +51,7 @@ The `_main` bootstrap synthesizes `TermView` at runtime via
 grid state is a separate `calloc`'d buffer, attached as an associated object,
 because `object_getIndexedIvars` storage is not reliably backed for
 runtime-synthesized classes). Five methods are added, then
-`objc_registerClassPair`. [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+`objc_registerClassPair`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 | Selector | Type encoding | IMP symbol |
 |----------|---------------|------------|
@@ -64,7 +64,7 @@ runtime-synthesized classes). Five methods are added, then
 `isFlipped` returns YES so row 0 is at the top and cell `(row, col)` maps to
 `(col*cellW, row*cellH)` in the flipped space. `acceptsFirstResponder` returns
 YES so the surface can take keyboard focus while TUI mode is active. Both are
-constant `mov x0, #1; ret` stubs. [[src/target/macos_aarch64/app.rs:emit_term_view_is_flipped]] [[src/target/macos_aarch64/app.rs:emit_term_accepts_first_responder]]
+constant `mov x0, #1; ret` stubs. [[src/target/macos_aarch64/app/term_view.rs:emit_term_view_is_flipped]] [[src/target/macos_aarch64/app/term_view.rs:emit_term_accepts_first_responder]]
 
 After registration the bootstrap allocates one instance
 (`initWithFrame:NSMakeRect(0,0,900,640)`), sets
@@ -73,13 +73,13 @@ After registration the bootstrap allocates one instance
 NSApp under `_mfb_macapp_termview_key` (OBJC_ASSOCIATION_ASSIGN; the alloc +1
 keeps it alive). The window, the transcript scroll view, and the transcript text
 view are likewise stashed under `_mfb_macapp_window_key`,
-`_mfb_macapp_scrollview_key`, and `_mfb_macapp_textview_key`. [[src/target/macos_aarch64/app.rs:emit_main_bootstrap]]
+`_mfb_macapp_scrollview_key`, and `_mfb_macapp_textview_key`. [[src/target/macos_aarch64/app/bootstrap.rs:emit_main_bootstrap]]
 
 ### Grid-state struct (`TVSTATE` associated object)
 
 A `calloc`'d buffer attached to the view via `objc_setAssociatedObject(view,
 &TVSTATE_KEY, state, OBJC_ASSOCIATION_ASSIGN)` — a plain C buffer the runtime
-never messages. Twelve 8-byte fields = 96 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app.rs:emit_term_init_helper]]
+never messages. Twelve 8-byte fields = 96 bytes (`TV_STATE_SIZE`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
 
 | Field | Offset | Type | Meaning |
 |-------|--------|------|---------|
@@ -114,7 +114,7 @@ offset  size  field
  14      2    (padding)
 ```
 
-Cell address: `cells + (row*cols + col) * 16` (`lsl #4`). [[src/target/macos_aarch64/app.rs:emit_term_view_draw_rect]]
+Cell address: `cells + (row*cols + col) * 16` (`lsl #4`). [[src/target/macos_aarch64/app/term_view.rs:emit_term_view_draw_rect]]
 
 ### `term_init` — grid sizing
 
@@ -134,12 +134,12 @@ Cell address: `cells + (row*cols + col) * 16` (`lsl #4`). [[src/target/macos_aar
 8. attach `state` via `TVSTATE_KEY`.
 
 The grid is **not** resized on live window resize (the autoresizing mask scales
-the view, but cols/rows are fixed at init). [[src/target/macos_aarch64/app.rs:emit_term_init_helper]]
+the view, but cols/rows are fixed at init). [[src/target/macos_aarch64/app/term_view.rs:emit_term_init_helper]]
 
 ### `drawRect:` — the renderer
 
 `void drawRect:(NSRect dirty)` (self x0, _cmd x1, rect d0..d3). Spills the dirty
-rect immediately (the FP arg regs are clobbered by the first call). [[src/target/macos_aarch64/app.rs:emit_term_view_draw_rect]]
+rect immediately (the FP arg regs are clobbered by the first call). [[src/target/macos_aarch64/app/term_view.rs:emit_term_view_draw_rect]]
 
 1. Fill the dirty rect black: `[[NSColor blackColor] set]; NSRectFill(rect)`.
 2. If no state or no `cells`, stop (clean black surface).
@@ -164,14 +164,14 @@ rect immediately (the FP arg regs are clobbered by the first call). [[src/target
 
 Colour decode (`emit_color_from_packed`): `r = (p & 255)/255`, `g = ((p>>8) &
 255)/255`, `b = ((p>>16) & 255)/255`, alpha 1.0; NSColor class is held in x26 and
-the `colorWith…` selector spilled, so no selector lookup clobbers the components. [[src/target/macos_aarch64/app.rs:emit_color_from_packed]]
+the `colorWith…` selector spilled, so no selector lookup clobbers the components. [[src/target/macos_aarch64/app/term_view.rs:emit_color_from_packed]]
 
 ### `mfbWriteString:` — grid writer
 
 `void mfbWriteString:(id self, SEL, NSString *str)`. Invoked on the main thread
 via `performSelectorOnMainThread:withObject:waitUntilDone:`, so grid mutation +
 redraw are serialized in program order with the other surface ops. Iterates
-`[str characterAtIndex:i]`: [[src/target/macos_aarch64/app.rs:emit_term_write_string_helper]]
+`[str characterAtIndex:i]`: [[src/target/macos_aarch64/app/term_view.rs:emit_term_write_string_helper]]
 
 - `\n` (10) → newline, `\r` (13) → carriage return, `\t` (9) → tab handling.
 - printable: wrap to col 0 / next row when `cursor_col >= cols`; scroll up when
@@ -185,15 +185,15 @@ redraw are serialized in program order with the other surface ops. Iterates
 
 `_mfb_macapp_term_scroll(void *state)`: `memmove(cells, cells+rowBytes,
 (rows-1)*rowBytes)` then `bzero` the new bottom row, where `rowBytes =
-cols*16`. Main-thread only. [[src/target/macos_aarch64/app.rs:emit_term_scroll_helper]]
+cols*16`. Main-thread only. [[src/target/macos_aarch64/app/term_view.rs:emit_term_scroll_helper]]
 
 `_mfb_macapp_term_clear(id termView)`: resolve state via `TVSTATE_KEY`, `bzero`
 the whole grid (`rows*cols*16`) and home the cursor `(0,0)`. Pure heap mutation,
-safe from the worker thread. [[src/target/macos_aarch64/app.rs:emit_term_clear_helper]]
+safe from the worker thread. [[src/target/macos_aarch64/app/term_view.rs:emit_term_clear_helper]]
 
 ### Content-view swap (`term::on` / `term::off`)
 
-`term::on` (`emit_app_term_on_helper`): [[src/target/macos_aarch64/app.rs:emit_app_term_on_helper]]
+`term::on` (`emit_app_term_on_helper`): [[src/target/macos_aarch64/app/app_io.rs:emit_app_term_on_helper]]
 
 1. Reset the term-state global to defaults (active=1, fg=white, bg=black,
    bold=0, underline=0, cursorVisible=1).
@@ -211,7 +211,7 @@ safe from the worker thread. [[src/target/macos_aarch64/app.rs:emit_term_clear_h
 Returns `RESULT_OK_TAG` (0).
 
 `term::off` (`emit_app_term_off_helper`): no-op when already off (the §4.2 gate
-reads `active` off `x19`). Otherwise, with a window attached: [[src/target/macos_aarch64/app.rs:emit_app_term_off_helper]]
+reads `active` off `x19`). Otherwise, with a window attached: [[src/target/macos_aarch64/app/app_io.rs:emit_app_term_off_helper]]
 
 1. `scroll = objc_getAssociatedObject(app, &SCROLLVIEW_KEY)`;
    `setContentView:scroll` on the main thread — restores the transcript.
@@ -227,7 +227,7 @@ Headless `term::off` skips the AppKit work and only clears `active`.
 transcript's `keyDown:`. Input remains an `io::` concern: raw mode writes the
 key's UTF-8 to the window input pipe immediately; line mode buffers until Return,
 echoing typed characters into the surface. Runs on the main thread. The
-cell/render model itself does not interpret keys. [[src/target/macos_aarch64/app.rs:emit_term_key_down_helper]]
+cell/render model itself does not interpret keys. [[src/target/macos_aarch64/app/term_view.rs:emit_term_key_down_helper]]
 
 ## Linux: `GtkDrawingArea` + Cairo (SCAFFOLD divergences)
 
@@ -235,13 +235,13 @@ The Linux backend is the analog of the macOS `TermView` but structurally
 different. The drawing area is created up front, held off-window by a ref, and
 swapped in as the window child on `term::on`. The Linux runtime carries
 documented SCAFFOLD-status gaps (e.g. cursor rendering §6.7 and `io::terminalSize`
-/ interactive resize, Phase 6, absent). [[src/target/linux_aarch64/gtk.rs:emit_main_bootstrap]]
+/ interactive resize, Phase 6, absent). [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_main_bootstrap]]
 
 ### Grid storage — one `_mfb_gtkapp_state` global, parallel static arrays
 
 Unlike macOS's per-view `calloc`'d `TermCell[]`, Linux stores the grid inline in
 the single process-wide `_mfb_gtkapp_state` struct as **three parallel arrays**
-with a fixed stride, so storage is static (no per-resize realloc). [[src/target/linux_aarch64/gtk.rs:ST_TERM_CHARS]]
+with a fixed stride, so storage is static (no per-resize realloc). [[src/target/linux_aarch64/gtk/mod.rs:ST_TERM_CHARS]]
 
 | Field (relative offsets, after the io/input state) | Meaning |
 |------|---------|
@@ -269,7 +269,7 @@ bits = packed RGB (`r|g<<8|b<<16`, the console convention so the arena getters
 agree); **bit 24 = COLOR_SET** (explicit colour, so 0 means "use default" and
 black is still distinguishable); **bit 25 (fg) = bold**; **bit 26 (fg) =
 underline**. macOS instead carries bold/underline as dedicated `TermCell` bytes
-and treats `bg == 0` as "no background fill". [[src/target/linux_aarch64/gtk.rs:COLOR_SET]]
+and treats `bg == 0` as "no background fill". [[src/target/linux_aarch64/gtk/mod.rs:COLOR_SET]]
 
 ### Renderer + ops
 
@@ -278,18 +278,18 @@ callback: paint the whole area black (`cairo_paint`), then per active cell fill
 the bg rect (when COLOR_SET) and `cairo_show_text` the glyph using
 `cairo_select_font_face("monospace", …, weight)` at `TERM_FONT_SIZE=16`, in the
 cell's fg colour. `emit_cairo_color` divides each packed channel by 255 into
-`cairo_set_source_rgb`. [[src/target/linux_aarch64/gtk.rs:emit_term_draw_helper]] [[src/target/linux_aarch64/gtk.rs:emit_cairo_color]]
+`cairo_set_source_rgb`. [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_draw_helper]] [[src/target/linux_aarch64/gtk/term_draw.rs:emit_cairo_color]]
 
 The surface swap and redraw run as main-loop idle callbacks (GTK calls must run
 on the main loop): `_mfb_gtkapp_term_show_idle` / `_hide_idle` / `_redraw_idle`.
 The worker-side writer `_mfb_gtkapp_term_write` mutates the grid arrays and
 `_mfb_gtkapp_term_scroll` shifts chars/fg/bg up one row at the bottom edge;
 `_mfb_gtkapp_term_init` derives the geometry once at activate before the worker
-touches the grid. [[src/target/linux_aarch64/gtk.rs:emit_term_show_idle_helper]] [[src/target/linux_aarch64/gtk.rs:emit_term_write_helper]]
+touches the grid. [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_show_idle_helper]] [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_write_helper]]
 
 Like macOS, the Linux helpers update the shared console term-state global off the
 pinned arena register (`ARENA_REG = x19`) so `isOn` and the attribute getters
-agree across backends. [[src/target/linux_aarch64/gtk.rs:ARENA_REG]]
+agree across backends. [[src/target/linux_aarch64/gtk/mod.rs:ARENA_REG]]
 
 ## See Also
 

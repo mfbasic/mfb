@@ -51,7 +51,7 @@ Function kinds:
 1 = binary representation function (structured Binary Representation body)
 ```
 
-Kind `1` (`FUNCTION_BINARY_REPR`) is the **only** kind the current compiler emits — every lowered function, including ones that wrap imported or native targets, is written as kind `1`. [[src/binary_repr.rs:FUNCTION_BINARY_REPR]] Other kind numbers (imported / native wrapper / built-in reference / package initializer) are not produced by the current encoder.
+Kind `1` (`FUNCTION_BINARY_REPR`) is the **only** kind the current compiler emits — every lowered function, including ones that wrap imported or native targets, is written as kind `1`. [[src/binary_repr/mod.rs:FUNCTION_BINARY_REPR]] Other kind numbers (imported / native wrapper / built-in reference / package initializer) are not produced by the current encoder.
 
 Function flags (u16):
 
@@ -62,7 +62,7 @@ bit 3 = sub
 bit 5 = returnsNothingOnSuccess
 ```
 
-There is **no** "exported" flag bit. A function is exported precisely when it is kind `1` and the private bit is clear (`is_exported_function`); `lower_function` sets the private bit for any non-`export` visibility. [[src/binary_repr.rs:is_exported_function]] A `SUB` sets both the sub bit and `returnsNothingOnSuccess`; a function declared to return `Nothing` also sets `returnsNothingOnSuccess`; an `ISOLATED` function sets the isolated bit. Bit 0 and bit 4 are unused.
+There is **no** "exported" flag bit. A function is exported precisely when it is kind `1` and the private bit is clear (`is_exported_function`); `lower_function` sets the private bit for any non-`export` visibility. [[src/binary_repr/reader.rs:is_exported_function]] A `SUB` sets both the sub bit and `returnsNothingOnSuccess`; a function declared to return `Nothing` also sets `returnsNothingOnSuccess`; an `ISOLATED` function sets the isolated bit. Bit 0 and bit 4 are unused.
 
 The `returnType` is the declared success type. The effective runtime result is always `Result OF returnType`, consistent with the language rule that every function returns `Result` and call sites auto-unwrap or auto-propagate unless directly matched. Whether a function contains a trap is read directly from its Binary Representation body (a `Trap` region), not from a flag/PC pair.
 

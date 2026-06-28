@@ -4,8 +4,8 @@ The human-readable JSON dump of the typed IR, emitted by `mfb build -ir`.
 
 `mfb build -ir` lowers the concrete AST to an `IrProject`, then writes
 `<name>.ir` next to the project (the file is named from the project name, not the
-flag).[[src/main.rs:BuildOutput]][[src/ir.rs:write_ir]] The contents are
-`IrProject::to_json`, a hand-rolled pretty-printer.[[src/ir.rs:to_json]]
+flag).[[src/cli/build.rs:BuildOutput]][[src/ir/lower.rs:write_ir]] The contents are
+`IrProject::to_json`, a hand-rolled pretty-printer.[[src/ir/json.rs:to_json]]
 
 This is a DISTINCT, separately versioned debug serialization. It is **not** the
 MFBR binary wire format that ships inside `.mfp` packages (see the `package
@@ -15,7 +15,7 @@ is lossy and for human inspection only; nothing reads it back.
 
 ## Header
 
-Every dump is a single JSON object opening with a fixed header:[[src/ir.rs:to_json]]
+Every dump is a single JSON object opening with a fixed header:[[src/ir/json.rs:to_json]]
 
 ```json
 {
@@ -32,17 +32,17 @@ Every dump is a single JSON object opening with a fixed header:[[src/ir.rs:to_js
 - `project` is the project name string.
 - `entry` is the optional executable entry point, or `null` for a package.
 - `bindings` is **omitted entirely** when there are no top-level bindings (not
-  emitted as an empty array).[[src/ir.rs:to_json]]
+  emitted as an empty array).[[src/ir/json.rs:to_json]]
 - `types` and `functions` are always present (possibly empty).
 
 Indentation is produced by manual padding; `join_json` separates array elements
-with a bare comma and each node prepends its own newline + pad.[[src/ir.rs:join_json]]
+with a bare comma and each node prepends its own newline + pad.[[src/ir/json.rs:join_json]]
 The output is conventional JSON; strings are escaped by the shared
 `json_string` helper.[[src/main.rs:json_string]]
 
 ## Node shapes
 
-### entry[[src/ir.rs:EntryPoint]]
+### entry[[src/ir/mod.rs:EntryPoint]]
 
 ```json
 { "name": "...", "returns": "...", "accepts_args": true }
@@ -50,7 +50,7 @@ The output is conventional JSON; strings are escaped by the shared
 
 `returns` is a type-name string; `accepts_args` is a bare boolean.
 
-### bindings[[src/ir.rs:IrBinding]]
+### bindings[[src/ir/types.rs:IrBinding]]
 
 Top-level program globals, one object per binding:
 
@@ -60,7 +60,7 @@ Top-level program globals, one object per binding:
 
 `value` is a value node (below) or `null`.
 
-### types[[src/ir.rs:IrType]]
+### types[[src/ir/types.rs:IrType]]
 
 The shape is selected by `kind`, one of `"type"`, `"union"`, `"enum"`. An
 unknown kind is `unreachable!`.
@@ -71,25 +71,25 @@ unknown kind is `unreachable!`.
 | `union` | `kind`, `visibility`, `name`, `includes` (array of strings), `variants` (array of variant nodes) |
 | `enum` | `kind`, `visibility`, `name`, `members` (array of member nodes) |
 
-Field node:[[src/ir.rs:IrField]]
+Field node:[[src/ir/types.rs:IrField]]
 
 ```json
 { "visibility": "..." | null, "name": "...", "type": "..." }
 ```
 
-Variant node (union):[[src/ir.rs:IrVariant]]
+Variant node (union):[[src/ir/types.rs:IrVariant]]
 
 ```json
 { "name": "...", "fields": [ <field>, ... ] }
 ```
 
-Enum member node:[[src/ir.rs:IrEnumMember]]
+Enum member node:[[src/ir/types.rs:IrEnumMember]]
 
 ```json
 { "name": "..." }
 ```
 
-### functions[[src/ir.rs:IrFunction]]
+### functions[[src/ir/mod.rs:IrFunction]]
 
 ```json
 {
@@ -102,7 +102,7 @@ Enum member node:[[src/ir.rs:IrEnumMember]]
 }
 ```
 
-Param node:[[src/ir.rs:IrParam]]
+Param node:[[src/ir/types.rs:IrParam]]
 
 ```json
 { "name": "...", "type": "...", "default": <value> | null }
@@ -110,7 +110,7 @@ Param node:[[src/ir.rs:IrParam]]
 
 ## Ops
 
-Each op node carries an `"op"` discriminator string.[[src/ir.rs:IrOp]] The
+Each op node carries an `"op"` discriminator string.[[src/ir/op.rs:IrOp]] The
 emitted name differs from the Rust variant name where noted.
 
 | `op` | Variant | Payload keys |
@@ -133,15 +133,15 @@ emitted name differs from the Rust variant name where noted.
 | `forEach` | `ForEach` | `name`, `type`, `iterable`, `body` |
 | `trap` | `Trap` | `name`, `body` |
 
-`loop` names come from `loop_kind_name`: `"for"`, `"do"`, `"while"`.[[src/ir.rs:loop_kind_name]]
+`loop` names come from `loop_kind_name`: `"for"`, `"do"`, `"while"`.[[src/ir/json.rs:loop_kind_name]]
 
-Match-case node:[[src/ir.rs:IrMatchCase]]
+Match-case node:[[src/ir/value.rs:IrMatchCase]]
 
 ```json
 { "pattern": <pattern>, "guard": <value> | null, "body": [ <op>, ... ] }
 ```
 
-Match-pattern node, keyed by `kind`:[[src/ir.rs:IrMatchPattern]]
+Match-pattern node, keyed by `kind`:[[src/ir/value.rs:IrMatchPattern]]
 
 | `kind` | Payload |
 | --- | --- |
@@ -151,7 +151,7 @@ Match-pattern node, keyed by `kind`:[[src/ir.rs:IrMatchPattern]]
 
 ## Values
 
-Expression values are tagged by a `"kind"` string.[[src/ir.rs:IrValue]] Values
+Expression values are tagged by a `"kind"` string.[[src/ir/value.rs:IrValue]] Values
 serialize inline (the `to_json` indent argument is ignored for values).
 
 | `kind` | Variant | Payload keys |
@@ -178,22 +178,22 @@ serialize inline (the `to_json` indent argument is ignored for values).
 | `binary` | `Binary` | `op` (string), `left`, `right` |
 | `unary` | `Unary` | `op` (string), `operand` |
 
-Record-update node (used by `with`):[[src/ir.rs:IrRecordUpdate]]
+Record-update node (used by `with`):[[src/ir/types.rs:IrRecordUpdate]]
 
 ```json
 { "field": "...", "value": <value> }
 ```
 
 `capture` is the one variant whose key set varies: by-value captures omit
-`byRef`, slot-borrow captures emit `"byRef": true`.[[src/ir.rs:IrValue]]
+`byRef`, slot-borrow captures emit `"byRef": true`.[[src/ir/value.rs:IrValue]]
 
 ## Notes
 
 - `version` is `1` and independent of the MFBR `BINARY_REPR_VERSION`; bump one
-  without the other.[[src/ir.rs:to_json]][[src/ir.rs:BINARY_REPR_VERSION]]
+  without the other.[[src/ir/json.rs:to_json]][[src/ir/binary.rs:BINARY_REPR_VERSION]]
 - Native back-end IR fields on `IrProject` (`native_resources`,
   `link_functions`, `link_aliases`, `docs`) are part of the in-memory model but
-  are **not** serialized into the `.ir` dump.[[src/ir.rs:to_json]]
+  are **not** serialized into the `.ir` dump.[[src/ir/json.rs:to_json]]
 - The dump is write-only; the binary representation (`architecture
   binary-representation`) is the round-trippable form.
 

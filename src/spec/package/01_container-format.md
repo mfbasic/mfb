@@ -216,10 +216,10 @@ The current container reader (`mfp_binary_repr_payload` in `src/binary_repr.rs`,
 * `magic` does not match. The current compiler reports this as `package does not have the MFP package magic`.
 * `containerMajor` is not `1`. The current compiler reports this as `unsupported MFP container major version <n>`.
 * `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
-* `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`. [[src/binary_repr.rs:validate_mfp_signature_header]]
+* `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`. [[src/binary_repr/reader.rs:validate_mfp_signature_header]]
 * The declared signature length runs past the end of the file. The current compiler reports this as `truncated .mfp signature`.
 * `binaryReprLength` does not exactly match the remaining byte count, or there are trailing bytes after `packageBinaryRepr`. The current compiler reports both as `invalid .mfp binary representation length`.
-* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`. The identity comparison covers `name`, `ident`, `version`, `identKey`, `identFingerprint`, and `signingFingerprint` (`validate_container_manifest_identity`). [[src/binary_repr.rs:validate_container_manifest_identity]]
+* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`. The identity comparison covers `name`, `ident`, `version`, `identKey`, `identFingerprint`, and `signingFingerprint` (`validate_container_manifest_identity`). [[src/binary_repr/reader.rs:validate_container_manifest_identity]]
 
 The MFPC payload's own `bcMajor` (which must be `2`) is checked separately when the payload is parsed (`read_binary_repr_package`), reported as `unsupported MFPC major version <n> (expected 2); this package predates the structured Binary Representation format and must be rebuilt`. This is a **clean break** from the old flat opcode payload (`bcMajor = 1`), which is rejected outright.
 

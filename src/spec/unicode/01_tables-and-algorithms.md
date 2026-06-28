@@ -193,8 +193,8 @@ entries/sequences symbols and the entry count differ.
 builtin (`module_uses_unicode_runtime_tables` gates inclusion). Each table's
 bytes come from a hex serializer in `unicode_runtime_tables.rs`; sizes and
 alignments are fixed per table (u16 tables align 2, u32 / record tables align
-4). [[src/target/shared/code/mod.rs:unicode_runtime_data_objects]]
-[[src/target/shared/code/mod.rs:module_uses_unicode_runtime_tables]]
+4). [[src/target/shared/code/data_objects.rs:unicode_runtime_data_objects]]
+[[src/target/shared/code/module_analysis.rs:module_uses_unicode_runtime_tables]]
 
 | Symbol (`_mfb_unicode_*`)        | Element / record       | Align |
 |----------------------------------|------------------------|-------|
@@ -210,7 +210,7 @@ alignments are fixed per table (u16 tables align 2, u32 / record tables align
 | `lowercase_entries` / `_sequences` | 16-byte record / u32 | 4     |
 | `casefold_entries` / `_sequences`  | 16-byte record / u32 | 4     |
 
-[[src/target/shared/code/mod.rs:UNICODE_STAGE1_SYMBOL]]
+[[src/target/shared/code/error_constants.rs:UNICODE_STAGE1_SYMBOL]]
 
 The emitter reads each table's `.len()` from `unicode_runtime_tables::tables()`
 to compute object sizes; the runtime helpers likewise pass `tables().*.len()` as
@@ -235,7 +235,7 @@ maintaining a two-field state machine — `state_bc` (boundclass) and `state_icb
 (Indic conjunct break) — and for each new scalar looks up `boundclass` and
 `indic_conjunct_break` from the property record, then asks two helpers: whether
 to break before this scalar, and how to fold it into the running state.
-[[src/target/shared/code/builder_strings_package.rs:lower_strings_graphemes]]
+[[src/target/shared/code/builder_strings_builtins.rs:lower_strings_graphemes]]
 
 `emit_grapheme_break_branch` is the boundary decision, encoding the UAX #29 rules
 in order: GB3 (CR×LF no-break), GB4/GB5 (control boundaries), GB6/GB7/GB8 (Hangul
@@ -260,7 +260,7 @@ ZWJ=14, EXTENDED_PICTOGRAPHIC=19, E_ZWG=20) and conjunct-break values
 
 `strings::normalizeNfc` performs full NFD-then-recompose in five passes over a
 scalar buffer. NFD on its own is the first three passes.
-[[src/target/shared/code/builder_strings_package.rs:lower_strings_normalize_nfc]]
+[[src/target/shared/code/builder_strings_builtins.rs:lower_strings_normalize_nfc]]
 
 1. **Count + allocate.** Decode each scalar, look it up in the NFD mapping table,
    and sum the decomposed lengths (or 1 for scalars with no entry) to size a
@@ -284,7 +284,7 @@ scalar buffer. NFD on its own is the first three passes.
 
 NFC composition therefore reads `combining_class`, `comb_index`, `comb_length`,
 and the `COMB_IS_SECOND` flag from property records, plus the two combinations
-tables and the NFD mapping tables. [[src/target/shared/code/builder_strings_package.rs:lower_strings_normalize_nfc]]
+tables and the NFD mapping tables. [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_normalize_nfc]]
 
 ## Runtime algorithm: case folding and upper/lower casing
 
@@ -295,7 +295,7 @@ the output (summing the encoded widths of each scalar's mapped sequence, or the
 scalar's own width when there is no mapping entry), then arena-allocates the
 result and a writing pass that re-decodes, re-looks-up, and UTF-8-encodes either
 the mapped sequence or the original scalar. A zero-length lookup result means
-"identity" (no mapping). [[src/target/shared/code/builder_strings_package.rs:lower_strings_case_map]]
+"identity" (no mapping). [[src/target/shared/code/builder_strings_builtins.rs:lower_strings_case_map]]
 [[src/target/shared/code/builder_strings_package.rs:UnicodeCaseMap]]
 
 All three maps are full (sequence-valued), so multi-scalar expansions like

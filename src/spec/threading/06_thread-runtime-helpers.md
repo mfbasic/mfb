@@ -27,7 +27,7 @@ _mfb_rt_thread_trampoline              ; pthread start routine
 ```
 
 These helpers are compiler-owned runtime helpers. They are not source-level
-`LINK` imports and do not appear as package dependencies. [[src/target/shared/code/mod.rs:lower_thread_helper]]
+`LINK` imports and do not appear as package dependencies. [[src/target/shared/code/runtime_helpers.rs:lower_thread_helper]]
 
 ## Direction split
 
@@ -67,7 +67,7 @@ storing:
 
 It then asks the OS to start `_mfb_rt_thread_trampoline`, passing the control
 block pointer as the pthread argument (see `os-integration`). A `pthread_create`
-failure is reported as `ErrInterrupted`. [[src/target/shared/code/mod.rs:lower_thread_start_helper]]
+failure is reported as `ErrInterrupted`. [[src/target/shared/code/runtime_helpers.rs:lower_thread_start_helper]]
 
 ## Trampoline
 
@@ -89,7 +89,7 @@ x1 = input value
 - Closes the inbound and resource queues (broadcasting their waiters), then, under
   the outbound queue lock, stores the result into the control block and marks the
   thread `complete` (unless the parent already dropped the handle, in which case
-  the result is discarded). It returns `NULL` to pthread. [[src/target/shared/code/mod.rs:lower_thread_trampoline]]
+  the result is discarded). It returns `NULL` to pthread. [[src/target/shared/code/runtime_helpers.rs:lower_thread_trampoline]]
 
 If the stored result references worker-arena storage, the worker arena remains
 owned by the control block until the result is materialized for the parent or the

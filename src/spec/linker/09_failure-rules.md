@@ -39,7 +39,7 @@ when:
   no dylib ordinal;
 - a file write or permission change fails.
 
-[[src/os/macos/link.rs:297]] [[src/os/linux/link.rs:167]]
+[[src/os/macos/link/mod.rs:patch_relocations]] [[src/os/linux/link/mod.rs:patch_relocations]]
 
 A required package export or ABI dependency that cannot be resolved fails earlier,
 during the package merge into IR (see `package-linking`), not in the linker —

@@ -49,7 +49,7 @@ The manifest identity, `identKey`, `identFingerprint`, and `signingFingerprint` 
 
 Current compiler values (`encode_manifest`):
 
-* `binaryReprMajor`/`binaryReprMinor` are written as `1`/`0`, `languageMajor`/`languageMinor` as `1`/`0`, and `minimumRuntimeMajor`/`minimumRuntimeMinor` as `1`/`0`. These are emitted as fixed constants, not derived, and the reader (`read_manifest`) reads past them without validating. [[src/binary_repr.rs:encode_manifest]]
+* `binaryReprMajor`/`binaryReprMinor` are written as `1`/`0`, `languageMajor`/`languageMinor` as `1`/`0`, and `minimumRuntimeMajor`/`minimumRuntimeMinor` as `1`/`0`. These are emitted as fixed constants, not derived, and the reader (`read_manifest`) reads past them without validating. [[src/binary_repr/writer.rs:encode_manifest]]
 * `dependencyCount` equals the number of `IMPORT_TABLE` entries.
 * `nativeLinkCount` is **always `0`** — native binding counts are not surfaced here (native `LINK` data lives in the `IR` payload trailer). The reader reads and discards it.
 * `exportCount` equals the number of exported callable functions (see `EXPORT_TABLE`).
@@ -121,7 +121,7 @@ Export kinds the current compiler emits and the reader accepts:
 2 = sub        (exported SUB)
 ```
 
-The current `EXPORT_TABLE` carries **only callable exports** — exported `FUNC` (kind `1`) and `SUB` (kind `2`). `encode_exports` walks the function table and writes one entry per exported (non-private) function; `targetId` is that function's index in `FUNCTION_TABLE`, `flags` is `0`. The reader (`read_export_table` → `decode_callable_export_kind`) accepts only kinds `1` and `2` and rejects any other value. [[src/binary_repr.rs:decode_callable_export_kind]]
+The current `EXPORT_TABLE` carries **only callable exports** — exported `FUNC` (kind `1`) and `SUB` (kind `2`). `encode_exports` walks the function table and writes one entry per exported (non-private) function; `targetId` is that function's index in `FUNCTION_TABLE`, `flags` is `0`. The reader (`read_export_table` → `decode_callable_export_kind`) accepts only kinds `1` and `2` and rejects any other value. [[src/binary_repr/reader.rs:decode_callable_export_kind]]
 
 Exported **types** (record/union/enum) are not listed in `EXPORT_TABLE`. They are surfaced through `TYPE_TABLE` and `ABI_INDEX` instead (the latter carrying their ABI hashes). Higher kind numbers for top-level `LET`/`MUT`, constructors, and native wrappers are not part of the current encoding.
 
@@ -170,7 +170,7 @@ The current declaration kinds in `ABI_INDEX` are exactly the kinds `encode_expor
 
 `AbiIndex::from_project` emits one entry per exported function (kinds `1`/`2`) followed by one entry per exported type whose `abi_export_kind` is set (kinds `3`/`4`/`5`). Exported constants, globals, native wrappers, and resource types are **not** currently given their own ABI entries — the kinds `6`-`10` are not produced. (A resource type does appear, but as its underlying record type, kind `3`.)
 
-The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed by `abiFormatVersion` (u16). For a **function or sub** (`function_sig_hash`) the remaining input is: [[src/binary_repr.rs:function_sig_hash]]
+The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed by `abiFormatVersion` (u16). For a **function or sub** (`function_sig_hash`) the remaining input is: [[src/binary_repr/reader.rs:function_sig_hash]]
 
 * the literal string `"function"`,
 * the export kind (u16),
@@ -181,9 +181,9 @@ The hash input is built by `AbiSerializer` and begins with `MFBABI\0` followed b
 
 Note what is **not** in the function hash today: parameter names, resource ownership/borrow/consume annotations, and explicit error/result behaviour. Two functions that differ only in those respects currently hash identically.
 
-For an exported **type** (`type_sig_hash`) the input is `MFBABI\0`, `abiFormatVersion`, the literal `"type"`, the export kind (u16), and the structural serialization of the type. [[src/binary_repr.rs:type_sig_hash]] The structural serializer (`serialize_type`) encodes records as their field names + field types + visibility, unions as their variant names + variant fields, enums as their member names + ordinals, and the compiler-owned templates (`List`/`Map`/`Result`/`Thread`/`ThreadWorker`/`MapEntry`/function types) by a tag string plus their component types. Primitive types serialize by id + name; a back-reference scheme keeps recursive/shared types finite. Reordering record fields, union variants, or enum members — or changing an ordinal — therefore changes the hash.
+For an exported **type** (`type_sig_hash`) the input is `MFBABI\0`, `abiFormatVersion`, the literal `"type"`, the export kind (u16), and the structural serialization of the type. [[src/binary_repr/reader.rs:type_sig_hash]] The structural serializer (`serialize_type`) encodes records as their field names + field types + visibility, unions as their variant names + variant fields, enums as their member names + ordinals, and the compiler-owned templates (`List`/`Map`/`Result`/`Thread`/`ThreadWorker`/`MapEntry`/function types) by a tag string plus their component types. Primitive types serialize by id + name; a back-reference scheme keeps recursive/shared types finite. Reordering record fields, union variants, or enum members — or changing an ordinal — therefore changes the hash.
 
-`exportAbiCount` is validated against `EXPORT_TABLE` by `validate_abi_index`: every `EXPORT_TABLE` entry must have a matching `ABI_INDEX` entry with the same `name` and `kind` **and** a `sigHash` equal to the hash recomputed from the function table. [[src/binary_repr.rs:validate_abi_index]] Because `EXPORT_TABLE` holds only callable exports while `ABI_INDEX` additionally holds type exports, the two are **not** required to have equal length or matching order — only that each callable export is covered.
+`exportAbiCount` is validated against `EXPORT_TABLE` by `validate_abi_index`: every `EXPORT_TABLE` entry must have a matching `ABI_INDEX` entry with the same `name` and `kind` **and** a `sigHash` equal to the hash recomputed from the function table. [[src/binary_repr/reader.rs:validate_abi_index]] Because `EXPORT_TABLE` holds only callable exports while `ABI_INDEX` additionally holds type exports, the two are **not** required to have equal length or matching order — only that each callable export is covered.
 
 `dependencyAbiCount` is validated against `IMPORT_TABLE` by package import name and package ident (`validate_abi_index` requires the sorted `(name, ident)` sets to match). Each dependency ABI entry repeats the requested `version` and `pin` state and records every imported symbol whose ABI shape was used while compiling this package, and the reader requires the dependency edge's `version`/`pin`/used-symbol list to match the corresponding `IMPORT_TABLE` entry exactly. These hashes are also present in `IMPORT_TABLE` so tools that only need dependency requirements can read one section.
 

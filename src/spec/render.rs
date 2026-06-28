@@ -903,7 +903,7 @@ mod tests {
     #[test]
     fn provenance_citations_are_stripped() {
         // Inline citations vanish and their surrounding spaces collapse.
-        let out = render("a value [[src/ir.rs:IrValue]] is flat", &plain_style(80));
+        let out = render("a value [[src/ir/value.rs:IrValue]] is flat", &plain_style(80));
         assert_eq!(out, "a value is flat");
         // Also stripped from one-line summaries.
         assert_eq!(plain("Flat values [[src/foo.rs:bar]] only"), "Flat values only");
@@ -915,9 +915,9 @@ mod tests {
     fn provenance_citations_are_stripped_in_headings() {
         // Headings bypass parse_inline; the citation must still not render, and
         // the underline rule must match the visible title length, not include it.
-        let out = render("### entry[[src/ir.rs:EntryPoint]]", &plain_style(80));
+        let out = render("### entry[[src/ir/mod.rs:EntryPoint]]", &plain_style(80));
         assert_eq!(out, "entry");
-        let h2 = render("## bindings [[src/ir.rs:IrBinding]]", &plain_style(80));
+        let h2 = render("## bindings [[src/ir/types.rs:IrBinding]]", &plain_style(80));
         assert_eq!(h2.lines().next().unwrap(), "bindings");
     }
 
