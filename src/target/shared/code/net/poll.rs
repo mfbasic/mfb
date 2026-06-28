@@ -1,0 +1,209 @@
+//! Native code generation for the `net` package poll/timeout helpers:
+//! `net.poll` readiness checks and `net.setReadTimeout`/`net.setWriteTimeout`
+//! socket-option machinery. See the parent module for the shared emitters.
+
+use std::collections::HashMap;
+
+use super::*;
+
+// ---------------------------------------------------------------------------
+// net.poll
+// ---------------------------------------------------------------------------
+
+pub(in crate::target::shared::code) fn lower_net_poll_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    const FRAME_SIZE: usize = 48;
+    const LR_OFFSET: usize = 0;
+    const POLLFD_OFFSET: usize = 16;
+
+    let closed = format!("{symbol}_closed");
+    let invalid = format!("{symbol}_invalid");
+    let poll_fail = format!("{symbol}_poll_fail");
+    let not_ready = format!("{symbol}_not_ready");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        // x1 = timeoutMs; reject negative timeouts.
+        abi::compare_immediate("x1", "0"),
+        abi::branch_lt(&invalid),
+        abi::move_register("x12", "x1"),
+        abi::load_u64("x9", abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_ne(&closed),
+        abi::load_u64("x9", abi::return_register(), FILE_OFFSET_FD),
+        // pollfd { int fd; short events = POLLIN; short revents; }
+        abi::store_u64("x9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("x10", "Integer", POLLIN),
+        abi::store_u8("x10", abi::stack_pointer(), POLLFD_OFFSET + 4),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 5),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 6),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 7),
+        // poll(&pollfd, 1, timeoutMs)
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("x1", "Integer", "1"),
+        abi::move_register("x2", "x12"),
+    ]);
+    platform.emit_libc_call(
+        "poll",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&poll_fail),
+        abi::branch_eq(&not_ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&not_ready),
+        abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&poll_fail),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed));
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([
+        abi::label(&done),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ]);
+    Ok((frame(FRAME_SIZE), instructions, relocations))
+}
+
+// ---------------------------------------------------------------------------
+// net.setReadTimeout / net.setWriteTimeout
+// ---------------------------------------------------------------------------
+
+pub(in crate::target::shared::code) fn lower_net_set_timeout_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    write: bool,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+    const FRAME_SIZE: usize = 48;
+    const LR_OFFSET: usize = 0;
+    const FD_OFFSET: usize = 8;
+    const TIMEVAL_OFFSET: usize = 16; // tv_sec (8) + tv_usec (8)
+
+    let closed = format!("{symbol}_closed");
+    let invalid = format!("{symbol}_invalid");
+    let set_fail = format!("{symbol}_set_fail");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        // x1 = timeoutMs; reject negatives.
+        abi::compare_immediate("x1", "0"),
+        abi::branch_lt(&invalid),
+        abi::load_u64("x9", abi::return_register(), FILE_OFFSET_CLOSED),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_ne(&closed),
+        abi::load_u64("x9", abi::return_register(), FILE_OFFSET_FD),
+        abi::store_u64("x9", abi::stack_pointer(), FD_OFFSET),
+        // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
+        abi::move_immediate("x10", "Integer", "1000"),
+        abi::unsigned_divide_registers("x11", "x1", "x10"),
+        abi::multiply_subtract_registers("x12", "x11", "x10", "x1"),
+        abi::move_immediate("x13", "Integer", "1000"),
+        abi::multiply_registers("x12", "x12", "x13"),
+        abi::store_u64("x11", abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::store_u64("x12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+        // setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO/SO_SNDTIMEO, &tv, 16)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate("x1", "Integer", platform.sol_socket()),
+        abi::move_immediate(
+            "x2",
+            "Integer",
+            if write {
+                platform.so_sndtimeo()
+            } else {
+                platform.so_rcvtimeo()
+            },
+        ),
+        abi::add_immediate("x3", abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::move_immediate("x4", "Integer", "16"),
+    ]);
+    platform.emit_libc_call(
+        "setsockopt",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&set_fail),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+        abi::label(&set_fail),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&invalid));
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed));
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([
+        abi::label(&done),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ]);
+    Ok((frame(FRAME_SIZE), instructions, relocations))
+}
