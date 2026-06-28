@@ -1,0 +1,22 @@
+IMPORT collections
+IMPORT io
+
+' Builds a 20000-item Map OF Integer TO Integer with collections::set, then looks
+' each key up with collections::get. Stresses map lookup *scaling*: with a linear
+' scan this is O(n^2) (~0.3s); the Phase 6 FNV-1a hash index makes build and
+' lookup O(1) average.
+
+FUNC main AS Integer
+  MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+  FOR i = 0 TO 19999
+    m = collections::set(m, i, i)
+  NEXT
+
+  MUT sum AS Integer = 0
+  FOR i = 0 TO 19999
+    sum = sum + collections::get(m, i)
+  NEXT
+
+  io::print("count: " & toString(len(m)) & " sum: " & toString(sum))
+  RETURN 0
+END FUNC

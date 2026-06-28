@@ -982,54 +982,84 @@ impl CodeBuilder<'_> {
         let dcap_keep = self.label("mapset_dcap_keep");
         let done = self.label("mapset_done");
 
-        // --- Scan for the key (allocate_register temps, like lower_map_get). ---
-        self.reset_temporary_registers();
-        let collection = self.allocate_register()?;
-        let key = self.allocate_register()?;
-        let count = self.allocate_register()?;
-        let index = self.allocate_register()?;
-        let entry = self.allocate_register()?;
-        let key_offset = self.allocate_register()?;
-        let key_length = self.allocate_register()?;
-        self.emit(abi::load_u64(&collection, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::move_immediate(&index, "Integer", "0"));
-        self.emit(abi::add_immediate(&entry, &collection, COLLECTION_HEADER_SIZE));
-        self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_registers(&index, &count));
-        self.emit(abi::branch_ge(&not_found));
-        self.emit(abi::load_u64(
-            &key_offset,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &key_length,
-            &entry,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
-        self.emit_collection_payload_match_branch(
-            key_type,
-            &collection,
-            &key_offset,
-            &key_length,
-            &key,
-            &found,
-            &next,
-        )?;
-        self.emit(abi::label(&next));
-        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(&index, &index, 1));
-        self.emit(abi::branch(&loop_label));
+        // --- Locate the key: O(1) hash probe for eligible key types, else the
+        // linear scan. Both store the found entry address + index and branch to
+        // `found_handle`, or branch to `not_found`. The probe also lazily builds the
+        // bucket index, so a build-via-`set` loop stays O(n). ---
+        let found_handle = self.label("mapset_found_handle");
+        if Self::map_key_probe_eligible(key_type) {
+            let entry_slot =
+                self.emit_map_probe(map_slot, key_slot, key_type, &not_found)?;
+            // emit_map_probe already stored the entry address; record the index too
+            // (x0 held it before the entry-address math, so recompute it from the
+            // entry address: index = (entry - map - HEADER) / ENTRY).
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), entry_slot));
+            self.emit(abi::load_u64("x10", abi::stack_pointer(), map_slot));
+            self.emit(abi::subtract_registers("x9", "x9", "x10"));
+            self.emit(abi::subtract_immediate("x9", "x9", COLLECTION_HEADER_SIZE));
+            self.emit(abi::move_immediate(
+                "x16",
+                "Integer",
+                &COLLECTION_ENTRY_SIZE.to_string(),
+            ));
+            self.emit(abi::unsigned_divide_registers("x9", "x9", "x16"));
+            self.emit(abi::store_u64("x9", abi::stack_pointer(), found_index_slot));
+            self.emit(abi::load_u64("x9", abi::stack_pointer(), entry_slot));
+            self.emit(abi::store_u64("x9", abi::stack_pointer(), found_entry_slot));
+            self.emit(abi::branch(&found_handle));
+        } else {
+            self.reset_temporary_registers();
+            let collection = self.allocate_register()?;
+            let key = self.allocate_register()?;
+            let count = self.allocate_register()?;
+            let index = self.allocate_register()?;
+            let entry = self.allocate_register()?;
+            let key_offset = self.allocate_register()?;
+            let key_length = self.allocate_register()?;
+            self.emit(abi::load_u64(&collection, abi::stack_pointer(), map_slot));
+            self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
+            self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+            self.emit(abi::move_immediate(&index, "Integer", "0"));
+            self.emit(abi::add_immediate(&entry, &collection, COLLECTION_HEADER_SIZE));
+            self.emit(abi::label(&loop_label));
+            self.emit(abi::compare_registers(&index, &count));
+            self.emit(abi::branch_ge(&not_found));
+            self.emit(abi::load_u64(
+                &key_offset,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &key_length,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+            ));
+            self.emit_collection_payload_match_branch(
+                key_type,
+                &collection,
+                &key_offset,
+                &key_length,
+                &key,
+                &found,
+                &next,
+            )?;
+            self.emit(abi::label(&next));
+            self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+            self.emit(abi::add_immediate(&index, &index, 1));
+            self.emit(abi::branch(&loop_label));
+            self.emit(abi::label(&found));
+            self.emit(abi::store_u64(&entry, abi::stack_pointer(), found_entry_slot));
+            self.emit(abi::store_u64(&index, abi::stack_pointer(), found_index_slot));
+            self.emit(abi::branch(&found_handle));
+        }
 
-        // --- Found: overwrite the value when it fits, else append-and-repoint. ---
-        self.emit(abi::label(&found));
-        self.emit(abi::store_u64(&entry, abi::stack_pointer(), found_entry_slot));
-        self.emit(abi::store_u64(&index, abi::stack_pointer(), found_index_slot));
+        // --- Found handling (shared): overwrite the value when it fits, else
+        // append-and-repoint. Slot-based so it serves both the probe and scan. ---
+        self.emit(abi::label(&found_handle));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), found_entry_slot));
         self.emit(abi::load_u64(
             "x9",
-            &entry,
+            "x8",
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         )); // oldValLen
         self.emit(abi::load_u64("x14", abi::stack_pointer(), val_len_slot)); // newValLen
@@ -1117,6 +1147,8 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             "x15",
         ));
+        // Reserve the map hash bucket region (x14 = capacity, unchanged on vgrow).
+        self.emit_reserve_map_buckets(true, "x14", abi::return_register(), "x16");
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1286,6 +1318,8 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             "x15",
         ));
+        // Reserve the map hash bucket region (x14 = new capacity).
+        self.emit_reserve_map_buckets(true, "x14", abi::return_register(), "x16");
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1401,6 +1435,27 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64("x9", abi::stack_pointer(), data_offset_slot));
         self.emit(abi::store_u64("x9", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        // Keep the hash index current: if the buckets are already built (a prior
+        // probe), insert the new entry incrementally so a build-via-`set` loop stays
+        // O(n). The grow path reset the ready flag (the bucket region moved), so it
+        // falls through here and is rebuilt lazily on the next probe. The 2*capacity
+        // load factor guarantees a free slot for a spare-slot insert.
+        let skip_put = self.label("mapset_skip_put");
+        self.emit(abi::load_u8("x9", "x8", COLLECTION_OFFSET_BUCKETS_READY));
+        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::branch_eq(&skip_put));
+        self.emit(abi::load_u64("x0", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x1", "x0", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::subtract_immediate("x1", "x1", 1)); // new entry index
+        self.emit(abi::branch_link(MAP_BUCKET_PUT_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: MAP_BUCKET_PUT_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::label(&skip_put));
 
         self.emit(abi::label(&done));
         let result = self.allocate_register()?;
@@ -1599,6 +1654,14 @@ impl CodeBuilder<'_> {
             collection,
             COLLECTION_OFFSET_FLAGS_VERSION,
         ));
+        // Mark the map hash index not-ready (built lazily on first probe); a no-op
+        // field for lists. Fresh, grown, and copied collections all reset it here.
+        self.emit(abi::move_immediate("x22", "Byte", "0"));
+        self.emit(abi::store_u8(
+            "x22",
+            collection,
+            COLLECTION_OFFSET_BUCKETS_READY,
+        ));
         self.emit(abi::store_u64(count, collection, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(
             capacity,
@@ -1789,6 +1852,8 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             "x14",
         ));
+        // Reserve the map hash bucket region (x12 = total count = capacity).
+        self.emit_reserve_map_buckets(true, "x12", abi::return_register(), "x15");
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -2021,6 +2086,8 @@ impl CodeBuilder<'_> {
         // store stale pointers.
         self.emit(abi::store_u64("x14", abi::stack_pointer(), count_slot));
         self.emit(abi::store_u64("x15", abi::stack_pointer(), data_len_slot));
+        // Reserve the map hash bucket region (x14 = remaining count = capacity).
+        self.emit_reserve_map_buckets(true, "x14", abi::return_register(), "x16");
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -2273,6 +2340,85 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Whether a map key type uses the FNV-1a bucket probe (plan-02 Phase 6). The
+    /// probe compares key bytes, which is exactly the linear scan's comparison for
+    /// these types; other key types keep the scan.
+    pub(super) fn map_key_probe_eligible(key_type: &str) -> bool {
+        matches!(
+            key_type,
+            "String" | "Integer" | "Float" | "Fixed" | "Byte" | "Boolean"
+        )
+    }
+
+    /// Materialize the query key as a (pointer in `x1`, byte length in `x2`) pair
+    /// for the map probe — the same bytes `emit_copy_payload_to_collection` stored
+    /// for the key. `String` keys point past the length word; fixed-width keys
+    /// point at their stack slot.
+    pub(super) fn emit_map_query_key(
+        &mut self,
+        key_type: &str,
+        key_slot: usize,
+    ) -> Result<(), String> {
+        match key_type {
+            "String" => {
+                self.emit(abi::load_u64("x9", abi::stack_pointer(), key_slot));
+                self.emit(abi::load_u64("x2", "x9", 0));
+                self.emit(abi::add_immediate("x1", "x9", 8));
+            }
+            "Boolean" | "Byte" => {
+                self.emit(abi::add_immediate("x1", abi::stack_pointer(), key_slot));
+                self.emit(abi::move_immediate("x2", "Integer", "1"));
+            }
+            "Integer" | "Float" | "Fixed" => {
+                self.emit(abi::add_immediate("x1", abi::stack_pointer(), key_slot));
+                self.emit(abi::move_immediate("x2", "Integer", "8"));
+            }
+            other => {
+                return Err(format!(
+                    "native map probe does not support key type '{other}'"
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Probe the map (pointer in `collection_slot`) for the key (in `key_slot`) via
+    /// `_mfb_rt_map_probe`; branch to `not_found_label` when absent, otherwise store
+    /// the matching entry address into a fresh stack slot and return its offset.
+    pub(super) fn emit_map_probe(
+        &mut self,
+        collection_slot: usize,
+        key_slot: usize,
+        key_type: &str,
+        not_found_label: &str,
+    ) -> Result<usize, String> {
+        self.emit_map_query_key(key_type, key_slot)?;
+        self.emit(abi::load_u64("x0", abi::stack_pointer(), collection_slot));
+        self.emit(abi::branch_link(MAP_PROBE_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: MAP_PROBE_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        // x0 = entry index, or -1 (signed negative) when absent.
+        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::branch_lt(not_found_label));
+        let entry_slot = self.allocate_stack_object("map_probe_entry", 8);
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x9", "x0", "x16"));
+        self.emit(abi::load_u64("x10", abi::stack_pointer(), collection_slot));
+        self.emit(abi::add_registers("x9", "x9", "x10"));
+        self.emit(abi::add_immediate("x9", "x9", COLLECTION_HEADER_SIZE));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), entry_slot));
+        Ok(entry_slot)
+    }
+
     pub(super) fn lower_map_get(
         &mut self,
         collection_slot: usize,
@@ -2281,13 +2427,42 @@ impl CodeBuilder<'_> {
         key_type: &str,
         value_type: &str,
     ) -> Result<ValueResult, String> {
-        if key_type == "String" {
-            return self.lower_string_key_map_get(
-                collection_slot,
-                key_slot,
-                collection_type,
+        if Self::map_key_probe_eligible(key_type) {
+            let not_found = self.label("map_get_not_found");
+            let done = self.label("map_get_done");
+            let entry_slot = self.emit_map_probe(collection_slot, key_slot, key_type, &not_found)?;
+            self.reset_temporary_registers();
+            let collection = self.allocate_register()?;
+            let entry = self.allocate_register()?;
+            let value_offset = self.allocate_register()?;
+            let value_length = self.allocate_register()?;
+            self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
+            self.emit(abi::load_u64(&entry, abi::stack_pointer(), entry_slot));
+            self.emit(abi::load_u64(
+                &value_offset,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+            ));
+            self.emit(abi::load_u64(
+                &value_length,
+                &entry,
+                COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+            ));
+            let result = self.emit_load_collection_payload(
                 value_type,
-            );
+                &collection,
+                &value_offset,
+                &value_length,
+            )?;
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&not_found));
+            self.emit_not_found_return()?;
+            self.emit(abi::label(&done));
+            return Ok(ValueResult {
+                type_: value_type.to_string(),
+                location: result,
+                text: format!("get({collection_type}, {key_type}) [hash]"),
+            });
         }
         self.reset_temporary_registers();
         let collection = self.allocate_register()?;

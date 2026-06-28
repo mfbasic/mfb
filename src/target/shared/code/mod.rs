@@ -300,6 +300,25 @@ const COLLECTION_ENTRY_OFFSET_KEY_LENGTH: usize = 16;
 const COLLECTION_ENTRY_OFFSET_VALUE_OFFSET: usize = 24;
 const COLLECTION_ENTRY_OFFSET_VALUE_LENGTH: usize = 32;
 const COLLECTION_ENTRY_FLAG_USED: usize = 1;
+// Map hash index (plan-02 Phase 6). A `Map` reserves a bucket array of
+// `2*capacity` u64 entries **after** the data region (so the capacity-based data
+// base is unchanged); each bucket holds `entryIndex + 1` (0 = empty) addressed by
+// FNV-1a(key) mod bucketCount with linear probing. The bucket region is derived
+// metadata: a 1-byte "ready" flag in the header's free padding (offset 4) is 0 on
+// every fresh/copied/grown map and set to 1 once `_mfb_rt_map_build_buckets` fills
+// it lazily on the first probe — so copy/transfer just reserve space + mark
+// not-ready and the next probe recomputes, with no stale offsets. `set` maintains
+// the index incrementally (`_mfb_rt_map_bucket_put`) so building a map via repeated
+// `set` stays O(n). Lists never probe; their bucket region is empty (`2*0`-sized
+// for a tight list is 0, and the field stays 0).
+const COLLECTION_OFFSET_BUCKETS_READY: usize = 4;
+const MAP_BUCKET_SIZE: usize = 8;
+const MAP_BUILD_BUCKETS_SYMBOL: &str = "_mfb_rt_map_build_buckets";
+const MAP_BUCKET_PUT_SYMBOL: &str = "_mfb_rt_map_bucket_put";
+const MAP_PROBE_SYMBOL: &str = "_mfb_rt_map_probe";
+/// FNV-1a 64-bit offset basis / prime (decimal) for the map key hash.
+const FNV1A_BASIS: &str = "14695981039346656037";
+const FNV1A_PRIME: &str = "1099511628211";
 // Geometric growth shape for the append grow path (plan-01 §5): start small,
 // double until a taper threshold, then ×1.5. Lookup slots and data bytes grow
 // independently. Literals and known-size builders ignore these (exact alloc).
@@ -1451,6 +1470,21 @@ pub(crate) fn lower_module_for_platform(
         .any(|symbol| symbol == "_mfb_rt_fs_fs_listDirectory")
     {
         code_functions.push(lower_sort_string_list_helper());
+    }
+    // Map hash index (plan-02 Phase 6): the probe lazily builds the buckets and is
+    // the only caller of the build helper; the put helper backs the in-place `set`
+    // insert. The probe/put are internal `bl` targets emitted during code lowering
+    // (not IR-level runtime symbols), so gate on whether any lowered function
+    // references them. Emit all three together (the probe calls build).
+    let uses_map_hash = code_functions.iter().any(|function| {
+        function.relocations.iter().any(|relocation| {
+            relocation.to == MAP_PROBE_SYMBOL || relocation.to == MAP_BUCKET_PUT_SYMBOL
+        })
+    });
+    if uses_map_hash {
+        code_functions.push(lower_map_build_buckets_helper());
+        code_functions.push(lower_map_bucket_put_helper());
+        code_functions.push(lower_map_probe_helper());
     }
     if module_uses_call(module, "fs.pathJoin") {
         code_functions.push(lower_fs_path_join_helper(platform));
@@ -13564,6 +13598,324 @@ fn lower_fs_path_join_helper(platform: &dyn CodegenPlatform) -> CodeFunction {
         returns: "String".to_string(),
         frame: CodeFrame {
             stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations,
+    }
+}
+
+/// Build the FNV-1a hash buckets for the `Map` whose pointer is in `x0`
+/// (plan-02 Phase 6). Zeroes the `2*capacity`-entry bucket array that sits past
+/// the data region, then for each lookup entry hashes its key bytes
+/// (`dataBase + keyOffset`, `keyLength`) and open-addresses `entryIndex + 1` into
+/// the first empty bucket, finally setting the header "ready" flag. Preserves
+/// `x0`/`x1`/`x2` (so it is safe to call from the probe); uses `x3`–`x17` scratch;
+/// makes no calls. A `count == 0` map fills nothing.
+fn lower_map_build_buckets_helper() -> CodeFunction {
+    let symbol = MAP_BUILD_BUCKETS_SYMBOL;
+    let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+    let zloop = format!("{symbol}_zloop");
+    let zdone = format!("{symbol}_zdone");
+    let eloop = format!("{symbol}_eloop");
+    let edone = format!("{symbol}_edone");
+    let hloop = format!("{symbol}_hloop");
+    let hdone = format!("{symbol}_hdone");
+    let ploop = format!("{symbol}_ploop");
+    let place = format!("{symbol}_place");
+    let nowrap = format!("{symbol}_nowrap");
+    let instructions = vec![
+        abi::label("entry"),
+        // dataBase (x11) = x0 + HEADER + capacity*ENTRY ; bucketBase (x12) += dataCap.
+        abi::load_u64("x9", "x0", COLLECTION_OFFSET_COUNT),
+        abi::load_u64("x14", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate("x16", "Integer", &entry_size),
+        abi::multiply_registers("x11", "x14", "x16"),
+        abi::add_registers("x11", "x11", "x0"),
+        abi::add_immediate("x11", "x11", COLLECTION_HEADER_SIZE),
+        abi::load_u64("x15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers("x12", "x11", "x15"),
+        abi::shift_left_immediate("x10", "x14", 1), // bucketCount = 2*capacity
+        abi::move_immediate("x8", "Integer", FNV1A_PRIME),
+        // Zero the bucket array.
+        abi::move_immediate("x13", "Integer", "0"),
+        abi::label(&zloop),
+        abi::compare_registers("x13", "x10"),
+        abi::branch_ge(&zdone),
+        abi::shift_left_immediate("x7", "x13", 3),
+        abi::add_registers("x7", "x12", "x7"),
+        abi::move_immediate("x6", "Integer", "0"),
+        abi::store_u64("x6", "x7", 0),
+        abi::add_immediate("x13", "x13", 1),
+        abi::branch(&zloop),
+        abi::label(&zdone),
+        // For each entry: hash its key, open-address its index+1.
+        abi::move_immediate("x13", "Integer", "0"),
+        abi::label(&eloop),
+        abi::compare_registers("x13", "x9"),
+        abi::branch_ge(&edone),
+        abi::move_immediate("x16", "Integer", &entry_size),
+        abi::multiply_registers("x14", "x13", "x16"),
+        abi::add_registers("x14", "x14", "x0"),
+        abi::add_immediate("x14", "x14", COLLECTION_HEADER_SIZE), // entry addr
+        abi::load_u64("x15", "x14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers("x15", "x11", "x15"), // keyPtr
+        abi::load_u64("x17", "x14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
+        abi::move_immediate("x16", "Integer", FNV1A_BASIS), // h
+        abi::move_register("x5", "x15"),
+        abi::move_register("x6", "x17"),
+        abi::label(&hloop),
+        abi::compare_immediate("x6", "0"),
+        abi::branch_eq(&hdone),
+        abi::load_u8("x3", "x5", 0),
+        abi::exclusive_or_registers("x16", "x16", "x3"),
+        abi::multiply_registers("x16", "x16", "x8"),
+        abi::add_immediate("x5", "x5", 1),
+        abi::subtract_immediate("x6", "x6", 1),
+        abi::branch(&hloop),
+        abi::label(&hdone),
+        // slot = h mod bucketCount.
+        abi::unsigned_divide_registers("x4", "x16", "x10"),
+        abi::multiply_subtract_registers("x4", "x4", "x10", "x16"),
+        abi::label(&ploop),
+        abi::shift_left_immediate("x7", "x4", 3),
+        abi::add_registers("x7", "x12", "x7"),
+        abi::load_u64("x6", "x7", 0),
+        abi::compare_immediate("x6", "0"),
+        abi::branch_eq(&place),
+        abi::add_immediate("x4", "x4", 1),
+        abi::compare_registers("x4", "x10"),
+        abi::branch_lo(&nowrap),
+        abi::move_immediate("x4", "Integer", "0"),
+        abi::label(&nowrap),
+        abi::branch(&ploop),
+        abi::label(&place),
+        abi::add_immediate("x6", "x13", 1),
+        abi::store_u64("x6", "x7", 0),
+        abi::add_immediate("x13", "x13", 1),
+        abi::branch(&eloop),
+        abi::label(&edone),
+        abi::move_immediate("x6", "Integer", "1"),
+        abi::store_u8("x6", "x0", COLLECTION_OFFSET_BUCKETS_READY),
+        abi::return_(),
+    ];
+    CodeFunction {
+        name: "runtime.mapBuildBuckets".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// Incrementally insert lookup entry `x1` of the `Map` in `x0` into its (already
+/// built) bucket array (plan-02 Phase 6): hashes that entry's key and stores
+/// `x1 + 1` into the first empty bucket. The `2*capacity` load factor guarantees a
+/// free slot until the next capacity grow (which marks the index not-ready). Used
+/// by the in-place `set` insert so building a map via repeated `set` stays O(n).
+/// Makes no calls; preserves `x0`.
+fn lower_map_bucket_put_helper() -> CodeFunction {
+    let symbol = MAP_BUCKET_PUT_SYMBOL;
+    let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+    let hloop = format!("{symbol}_hloop");
+    let hdone = format!("{symbol}_hdone");
+    let ploop = format!("{symbol}_ploop");
+    let place = format!("{symbol}_place");
+    let nowrap = format!("{symbol}_nowrap");
+    let instructions = vec![
+        abi::label("entry"),
+        abi::load_u64("x14", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate("x16", "Integer", &entry_size),
+        abi::multiply_registers("x11", "x14", "x16"),
+        abi::add_registers("x11", "x11", "x0"),
+        abi::add_immediate("x11", "x11", COLLECTION_HEADER_SIZE), // dataBase
+        abi::load_u64("x15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers("x12", "x11", "x15"), // bucketBase
+        abi::shift_left_immediate("x10", "x14", 1), // bucketCount
+        abi::move_immediate("x8", "Integer", FNV1A_PRIME),
+        // entry addr = x0 + HEADER + x1*ENTRY.
+        abi::move_immediate("x16", "Integer", &entry_size),
+        abi::multiply_registers("x14", "x1", "x16"),
+        abi::add_registers("x14", "x14", "x0"),
+        abi::add_immediate("x14", "x14", COLLECTION_HEADER_SIZE),
+        abi::load_u64("x15", "x14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers("x15", "x11", "x15"),
+        abi::load_u64("x17", "x14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::move_immediate("x16", "Integer", FNV1A_BASIS),
+        abi::move_register("x5", "x15"),
+        abi::move_register("x6", "x17"),
+        abi::label(&hloop),
+        abi::compare_immediate("x6", "0"),
+        abi::branch_eq(&hdone),
+        abi::load_u8("x3", "x5", 0),
+        abi::exclusive_or_registers("x16", "x16", "x3"),
+        abi::multiply_registers("x16", "x16", "x8"),
+        abi::add_immediate("x5", "x5", 1),
+        abi::subtract_immediate("x6", "x6", 1),
+        abi::branch(&hloop),
+        abi::label(&hdone),
+        abi::unsigned_divide_registers("x4", "x16", "x10"),
+        abi::multiply_subtract_registers("x4", "x4", "x10", "x16"),
+        abi::label(&ploop),
+        abi::shift_left_immediate("x7", "x4", 3),
+        abi::add_registers("x7", "x12", "x7"),
+        abi::load_u64("x6", "x7", 0),
+        abi::compare_immediate("x6", "0"),
+        abi::branch_eq(&place),
+        abi::add_immediate("x4", "x4", 1),
+        abi::compare_registers("x4", "x10"),
+        abi::branch_lo(&nowrap),
+        abi::move_immediate("x4", "Integer", "0"),
+        abi::label(&nowrap),
+        abi::branch(&ploop),
+        abi::label(&place),
+        abi::add_immediate("x6", "x1", 1),
+        abi::store_u64("x6", "x7", 0),
+        abi::return_(),
+    ];
+    CodeFunction {
+        name: "runtime.mapBucketPut".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Nothing".to_string(),
+        frame: CodeFrame {
+            stack_size: 0,
+            callee_saved: Vec::new(),
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations: Vec::new(),
+    }
+}
+
+/// Probe the `Map` in `x0` for the key whose bytes are `x1` (pointer) / `x2`
+/// (length); returns the matching `entryIndex` in `x0`, or `-1` when absent
+/// (plan-02 Phase 6). Lazily builds the buckets (calling
+/// `_mfb_rt_map_build_buckets`) when the header "ready" flag is 0, so a freshly
+/// allocated, copied, or grown map recomputes its index on first lookup. Key
+/// equality is byte-wise over `keyLength` bytes — identical to the linear-scan
+/// comparison it replaces. Has a one-slot frame to preserve the link register
+/// across the build call.
+fn lower_map_probe_helper() -> CodeFunction {
+    let symbol = MAP_PROBE_SYMBOL;
+    const FRAME: usize = 16;
+    let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+    let ready = format!("{symbol}_ready");
+    let notfound = format!("{symbol}_notfound");
+    let hloop = format!("{symbol}_hloop");
+    let hdone = format!("{symbol}_hdone");
+    let ploop = format!("{symbol}_ploop");
+    let pnext = format!("{symbol}_pnext");
+    let nowrap = format!("{symbol}_nowrap");
+    let cloop = format!("{symbol}_cloop");
+    let cmatch = format!("{symbol}_cmatch");
+    let done = format!("{symbol}_done");
+    let instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
+        // Lazy build if not ready (build preserves x0/x1/x2).
+        abi::load_u8("x9", "x0", COLLECTION_OFFSET_BUCKETS_READY),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_ne(&ready),
+        abi::branch_link(MAP_BUILD_BUCKETS_SYMBOL),
+        abi::label(&ready),
+        abi::load_u64("x9", "x0", COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate("x9", "0"),
+        abi::branch_eq(&notfound),
+        abi::load_u64("x14", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate("x16", "Integer", &entry_size),
+        abi::multiply_registers("x11", "x14", "x16"),
+        abi::add_registers("x11", "x11", "x0"),
+        abi::add_immediate("x11", "x11", COLLECTION_HEADER_SIZE), // dataBase
+        abi::load_u64("x15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers("x12", "x11", "x15"), // bucketBase
+        abi::shift_left_immediate("x10", "x14", 1), // bucketCount
+        abi::move_immediate("x8", "Integer", FNV1A_PRIME),
+        // Hash the query key (x1/x2).
+        abi::move_immediate("x16", "Integer", FNV1A_BASIS),
+        abi::move_register("x5", "x1"),
+        abi::move_register("x6", "x2"),
+        abi::label(&hloop),
+        abi::compare_immediate("x6", "0"),
+        abi::branch_eq(&hdone),
+        abi::load_u8("x3", "x5", 0),
+        abi::exclusive_or_registers("x16", "x16", "x3"),
+        abi::multiply_registers("x16", "x16", "x8"),
+        abi::add_immediate("x5", "x5", 1),
+        abi::subtract_immediate("x6", "x6", 1),
+        abi::branch(&hloop),
+        abi::label(&hdone),
+        abi::unsigned_divide_registers("x4", "x16", "x10"),
+        abi::multiply_subtract_registers("x4", "x4", "x10", "x16"), // slot
+        abi::label(&ploop),
+        abi::shift_left_immediate("x7", "x4", 3),
+        abi::add_registers("x7", "x12", "x7"),
+        abi::load_u64("x6", "x7", 0),
+        abi::compare_immediate("x6", "0"),
+        abi::branch_eq(&notfound),
+        abi::subtract_immediate("x13", "x6", 1), // candidate idx
+        abi::move_immediate("x16", "Integer", &entry_size),
+        abi::multiply_registers("x15", "x13", "x16"),
+        abi::add_registers("x15", "x15", "x0"),
+        abi::add_immediate("x15", "x15", COLLECTION_HEADER_SIZE), // entry addr
+        abi::load_u64("x17", "x15", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::compare_registers("x17", "x2"),
+        abi::branch_ne(&pnext),
+        abi::load_u64("x16", "x15", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers("x16", "x11", "x16"), // storedPtr
+        abi::move_register("x5", "x1"),          // queryCursor
+        abi::move_register("x6", "x2"),          // remaining
+        abi::label(&cloop),
+        abi::compare_immediate("x6", "0"),
+        abi::branch_eq(&cmatch),
+        abi::load_u8("x3", "x5", 0),
+        abi::load_u8("x17", "x16", 0),
+        abi::compare_registers("x3", "x17"),
+        abi::branch_ne(&pnext),
+        abi::add_immediate("x5", "x5", 1),
+        abi::add_immediate("x16", "x16", 1),
+        abi::subtract_immediate("x6", "x6", 1),
+        abi::branch(&cloop),
+        abi::label(&cmatch),
+        abi::move_register("x0", "x13"),
+        abi::branch(&done),
+        abi::label(&pnext),
+        abi::add_immediate("x4", "x4", 1),
+        abi::compare_registers("x4", "x10"),
+        abi::branch_lo(&nowrap),
+        abi::move_immediate("x4", "Integer", "0"),
+        abi::label(&nowrap),
+        abi::branch(&ploop),
+        abi::label(&notfound),
+        abi::move_immediate("x0", "Integer", "0"),
+        abi::subtract_immediate("x0", "x0", 1), // -1
+        abi::label(&done),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
+        abi::add_stack(FRAME),
+        abi::return_(),
+    ];
+    let relocations = vec![CodeRelocation {
+        from: symbol.to_string(),
+        to: MAP_BUILD_BUCKETS_SYMBOL.to_string(),
+        kind: "branch26".to_string(),
+        binding: "internal".to_string(),
+        library: None,
+    }];
+    CodeFunction {
+        name: "runtime.mapProbe".to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: "Integer".to_string(),
+        frame: CodeFrame {
+            stack_size: FRAME,
             callee_saved: vec![abi::link_register().to_string()],
         },
         stack_slots: Vec::new(),

@@ -280,6 +280,15 @@ impl CodeBuilder<'_> {
             abi::return_register(),
             "x10",
         ));
+        // A map's tight copy reserves its (count-sized) hash bucket region; x9
+        // still holds count. The copy is marked not-ready so the buckets are
+        // recomputed on first probe (no stale offsets across copy/transfer).
+        self.emit_reserve_map_buckets(
+            layout.kind == COLLECTION_KIND_MAP,
+            "x9",
+            abi::return_register(),
+            "x10",
+        );
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1163,10 +1172,17 @@ impl CodeBuilder<'_> {
         let collection_slot = self.allocate_stack_object("collection_literal", 8);
         let alloc_ok = self.label("collection_alloc_ok");
         self.emit(abi::load_u64("x8", abi::stack_pointer(), data_len_slot));
+        // A map reserves a `2*capacity` u64 bucket array past the data region;
+        // capacity == count for a literal, so fold it into the constant.
+        let bucket_bytes = if layout.kind == COLLECTION_KIND_MAP {
+            count * MAP_BUCKET_SIZE * 2
+        } else {
+            0
+        };
         self.emit(abi::move_immediate(
             "x9",
             "Integer",
-            &(COLLECTION_HEADER_SIZE + count * COLLECTION_ENTRY_SIZE).to_string(),
+            &(COLLECTION_HEADER_SIZE + count * COLLECTION_ENTRY_SIZE + bucket_bytes).to_string(),
         ));
         self.emit(abi::add_registers(abi::return_register(), "x8", "x9"));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
@@ -1231,6 +1247,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_VALUE_TYPE));
         self.emit(abi::move_immediate("x8", "Byte", "1"));
         self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_FLAGS_VERSION));
+        // Map hash index built lazily on first probe (no-op field for lists).
+        self.emit(abi::move_immediate("x8", "Byte", "0"));
+        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_BUCKETS_READY));
         self.emit(abi::move_immediate("x8", "Integer", &count.to_string()));
         self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_CAPACITY));
@@ -1490,6 +1509,27 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers("x8", "x8", "x9"));
         self.emit(abi::store_u64("x8", abi::stack_pointer(), data_offset_slot));
         Ok(())
+    }
+
+    /// Add the map hash-index bucket-region byte size (`2*capacity` u64 buckets =
+    /// `capacity * MAP_BUCKET_SIZE * 2` bytes) held in `capacity_reg` onto the
+    /// running allocation size in `size_reg`, using `scratch_reg` (plan-02
+    /// Phase 6). A no-op for lists (`is_map == false`) so list allocations are
+    /// unchanged. The bucket region sits past the data region, so the
+    /// capacity-based data base (`emit_collection_data_pointer`) is unaffected.
+    pub(super) fn emit_reserve_map_buckets(
+        &mut self,
+        is_map: bool,
+        capacity_reg: &str,
+        size_reg: &str,
+        scratch_reg: &str,
+    ) {
+        if !is_map {
+            return;
+        }
+        // 2 * capacity buckets * 8 bytes = capacity << 4.
+        self.emit(abi::shift_left_immediate(scratch_reg, capacity_reg, 4));
+        self.emit(abi::add_registers(size_reg, size_reg, scratch_reg));
     }
 
     pub(super) fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {

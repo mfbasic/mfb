@@ -303,6 +303,24 @@ impl CodeBuilder<'_> {
             ));
         }
 
+        if Self::map_key_probe_eligible(&key_type) {
+            self.reset_temporary_registers();
+            let not_found = self.label("has_key_not_found");
+            let done = self.label("has_key_done");
+            let _ = self.emit_map_probe(collection_slot, key_slot, &key_type, &not_found)?;
+            let result = self.allocate_register()?;
+            self.emit(abi::move_immediate(&result, "Boolean", "true"));
+            self.emit(abi::branch(&done));
+            self.emit(abi::label(&not_found));
+            self.emit(abi::move_immediate(&result, "Boolean", "false"));
+            self.emit(abi::label(&done));
+            return Ok(ValueResult {
+                type_: "Boolean".to_string(),
+                location: result,
+                text: format!("hasKey({}) [hash]", collection.type_),
+            });
+        }
+
         self.reset_temporary_registers();
         let result = self.allocate_register()?;
         let loop_label = self.label("has_key_loop");
