@@ -1,0 +1,29 @@
+$ mfb build -ast tests/func_vector_lerp_valid
+Wrote AST to tests/func_vector_lerp_valid/func_vector_lerp_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_vector_lerp_valid
+Wrote IR to tests/func_vector_lerp_valid/func_vector_lerp_valid.ir
+[exit 0]
+$ mfb build tests/func_vector_lerp_valid
+Wrote executable to tests/func_vector_lerp_valid/func_vector_lerp_valid.out
+[exit 0]
+$ tests/func_vector_lerp_valid/func_vector_lerp_valid.out
+lerp Float2 t=0.5 = (2.00, 3.00)
+lerp Float2 t=2.0 = (1.00, 2.00)
+lerp Float3 t=0.5 = (1.50, 1.50, 2.00)
+lerp Float3 t=2.0 = (2.00, 1.00, 2.00)
+lerp Float4 t=0.5 = (1.50, 1.50, 1.00, 2.50)
+lerp Float4 t=2.0 = (2.00, 1.00, 0.00, 1.00)
+lerp Fixed2 t=0.5 = (2.00, 3.00)
+lerp Fixed2 t=2.0 = (1.00, 2.00)
+lerp Fixed3 t=0.5 = (1.50, 1.50, 2.00)
+lerp Fixed3 t=2.0 = (2.00, 1.00, 2.00)
+lerp Fixed4 t=0.5 = (1.50, 1.50, 1.00, 2.50)
+lerp Fixed4 t=2.0 = (2.00, 1.00, 0.00, 1.00)
+lerp Integer2 t=0.5 = (2, 3)
+lerp Integer2 t=2.0 = (1, 2)
+lerp Integer3 t=0.5 = (2, 2, 2)
+lerp Integer3 t=2.0 = (2, 1, 2)
+lerp Integer4 t=0.5 = (2, 2, 1, 3)
+lerp Integer4 t=2.0 = (2, 1, 0, 1)
+[exit 0]

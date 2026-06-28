@@ -1,0 +1,12 @@
+$ mfb build -ast tests/func_vector_normalize_zero_integer_rt
+Wrote AST to tests/func_vector_normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.ast
+[exit 0]
+$ mfb build -ir tests/func_vector_normalize_zero_integer_rt
+Wrote IR to tests/func_vector_normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.ir
+[exit 0]
+$ mfb build tests/func_vector_normalize_zero_integer_rt
+Wrote executable to tests/func_vector_normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.out
+[exit 0]
+$ tests/func_vector_normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.out
+Code: 77050002 Message: vector::normalize of a zero-length vector
+[exit 255]

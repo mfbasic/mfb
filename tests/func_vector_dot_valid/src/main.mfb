@@ -1,0 +1,16 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  io::print("dot Float2 = " & toString(vector::dot(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])))
+  io::print("dot Float3 = " & toString(vector::dot(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0])))
+  io::print("dot Float4 = " & toString(vector::dot(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0])))
+  io::print("dot Fixed2 = " & toString(vector::dot(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)])))
+  io::print("dot Fixed3 = " & toString(vector::dot(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])))
+  io::print("dot Fixed4 = " & toString(vector::dot(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)])))
+  io::print("dot Integer2 = " & toString(vector::dot(vector::Integer2[3, 4], vector::Integer2[1, 2])))
+  io::print("dot Integer3 = " & toString(vector::dot(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2])))
+  io::print("dot Integer4 = " & toString(vector::dot(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1])))
+  RETURN 0
+END FUNC

@@ -156,6 +156,9 @@ pub fn lower_project_with_external_functions(
         .expect("built-in regex package source must parse");
     let augmented = builtins::datetime::augmented_project(&augmented)
         .expect("built-in datetime package source must parse");
+    // `vector` imports only intrinsic `math` (plan-06-vector.md §5).
+    let augmented = builtins::vector::augmented_project(&augmented)
+        .expect("built-in vector package source must parse");
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)
         .expect("built-in http package source must parse");
@@ -1950,6 +1953,15 @@ fn expression_type(
                 return builtins::math::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::vector::is_vector_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::vector::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::bits::is_bits_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2381,6 +2393,24 @@ fn lower_expression_with_expected(
         },
         Expression::Identifier(value) => {
             let canonical_value = canonical_import_name(value, context);
+            // A `vector::` record constant (`vector::upFloat3`) inlines a record
+            // constructor at every use site, copying by value (plan-06-vector.md
+            // §4.19). It must be handled before the scalar-fold path below, which
+            // expects a single literal value.
+            if let Some((type_, components)) =
+                builtins::vector::constant_components(&canonical_value)
+            {
+                return IrValue::Constructor {
+                    type_,
+                    args: components
+                        .into_iter()
+                        .map(|(component_type, component_value)| IrValue::Const {
+                            type_: component_type,
+                            value: component_value,
+                        })
+                        .collect(),
+                };
+            }
             if builtins::is_package_constant(&canonical_value) {
                 let type_ = builtins::package_constant_type_name(&canonical_value)
                     .unwrap_or("Unknown")
@@ -2581,6 +2611,23 @@ fn lower_expression_with_expected(
             let resolved_target = package_override
                 .or_else(|| {
                     builtins::datetime::implementation_name(&canonical_callee, args.len())
+                        .map(|name| crate::internal_name::internalize(&name))
+                })
+                .or_else(|| {
+                    // `vector::` resolves a type-specific internal name from the
+                    // call's argument record types (plan-06-vector.md §5), e.g.
+                    // `vector.length(Float3)` -> `#vector_length_float3`.
+                    if !builtins::vector::is_vector_call(&canonical_callee) {
+                        return None;
+                    }
+                    let arg_types: Vec<String> = arguments
+                        .iter()
+                        .map(call_arg_value)
+                        .map(|argument| {
+                            expression_type(argument, locals, context).unwrap_or_default()
+                        })
+                        .collect();
+                    builtins::vector::implementation_name(&canonical_callee, &arg_types)
                         .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {

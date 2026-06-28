@@ -1,0 +1,9 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  LET a AS vector::Float2 = vector::reject(vector::Float2[1.0,2.0], vector::Integer2[1,2])
+  LET b AS vector::Float2 = vector::reject(vector::Float2[1.0,2.0])
+  RETURN 0
+END FUNC

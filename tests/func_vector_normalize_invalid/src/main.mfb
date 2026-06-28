@@ -1,0 +1,9 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  LET a AS vector::Float3 = vector::normalize(5.0)
+  LET b AS vector::Float3 = vector::normalize(vector::Float3[1.0,2.0,3.0], vector::Float3[1.0,2.0,3.0])
+  RETURN 0
+END FUNC

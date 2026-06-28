@@ -1,0 +1,9 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  LET a AS vector::Fixed2 = vector::clamp_length(vector::Fixed2[toFixed(1.0),toFixed(2.0)], 2.0)
+  LET b AS vector::Float2 = vector::clamp_length(vector::Float2[1.0,2.0])
+  RETURN 0
+END FUNC

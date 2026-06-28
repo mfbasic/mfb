@@ -1,0 +1,10 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  LET a AS vector::Float2 = vector::lerp(vector::Float2[1.0,2.0], vector::Float2[3.0,4.0])
+  LET b AS vector::Float2 = vector::lerp(vector::Float2[1.0,2.0], vector::Float2[3.0,4.0], 1)
+  LET c AS vector::Float2 = vector::lerp(vector::Float2[1.0,2.0], vector::Integer2[3,4], 0.5)
+  RETURN 0
+END FUNC

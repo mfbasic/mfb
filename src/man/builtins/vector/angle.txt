@@ -1,0 +1,53 @@
+NAME
+  angle - unsigned angle between two vectors in radians
+
+SYNOPSIS
+  vector::angle(a AS T_N, b AS T_N) AS T
+
+PACKAGE
+  vector
+
+IMPORTS
+  IMPORT vector
+
+DESCRIPTION
+  Returns the unsigned angle in radians between a and b:
+  acos(clamp(dot(a, b) / (length(a)*length(b)), -1, 1)). The cosine is
+  clamped to [-1, 1] before acos so rounding can never push it out of
+  domain -- the function is total for any two non-zero vectors. Float
+  uses the in-tree Float acos; Fixed and Integer use the deterministic
+  Q32.32 acos, and Integer rounds the radian result to an Integer
+  (degenerate, 0..3). Either input zero-length raises ErrInvalidArgument.
+
+PARAMETERS
+  a AS T_N
+    the first vector; must be non-zero
+
+  b AS T_N
+    the second vector, same type; must be non-zero
+
+RETURN VALUE
+  AS T
+    the angle in radians, in the element type
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when either input has zero length.
+
+TYPE CHECKING
+  Overloaded over the nine vector record types; the two vectors of a
+  binary call must be the same type. T is the element type and T_N the
+  N-dimensional vector. No mixed-type or cross-dimension overload exists.
+
+EXAMPLES
+  Right angle between the axes:
+
+    IMPORT vector
+    IMPORT io
+    FUNC main AS Integer
+      io::print(toString(vector::angle(vector::Float2[1.0,0.0], vector::Float2[0.0,1.0])))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  dot, slerp

@@ -1,0 +1,7 @@
+IMPORT vector
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(vector::normalize(vector::Integer2[0, 0])))
+  RETURN 0
+END FUNC

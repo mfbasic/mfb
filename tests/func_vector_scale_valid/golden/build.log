@@ -1,0 +1,20 @@
+$ mfb build -ast tests/func_vector_scale_valid
+Wrote AST to tests/func_vector_scale_valid/func_vector_scale_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_vector_scale_valid
+Wrote IR to tests/func_vector_scale_valid/func_vector_scale_valid.ir
+[exit 0]
+$ mfb build tests/func_vector_scale_valid
+Wrote executable to tests/func_vector_scale_valid/func_vector_scale_valid.out
+[exit 0]
+$ tests/func_vector_scale_valid/func_vector_scale_valid.out
+scale Float2 = (3.00, 8.00)
+scale Float3 = (2.00, 2.00, 4.00)
+scale Float4 = (2.00, 2.00, 0.00, 4.00)
+scale Fixed2 = (3.00, 8.00)
+scale Fixed3 = (2.00, 2.00, 4.00)
+scale Fixed4 = (2.00, 2.00, 0.00, 4.00)
+scale Integer2 = (3, 8)
+scale Integer3 = (2, 2, 4)
+scale Integer4 = (2, 2, 0, 4)
+[exit 0]

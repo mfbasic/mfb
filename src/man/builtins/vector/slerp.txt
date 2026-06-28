@@ -1,0 +1,57 @@
+NAME
+  slerp - spherical linear interpolation
+
+SYNOPSIS
+  vector::slerp(a AS T_N, b AS T_N, t AS Float) AS T_N
+
+PACKAGE
+  vector
+
+IMPORTS
+  IMPORT vector
+
+DESCRIPTION
+  Interpolates along the great-circle arc from a to b: with omega =
+  angle(a, b) and s = sin(omega), the result is
+  (sin((1-t)*omega)/s)*a + (sin(t*omega)/s)*b, with t unclamped. Near the
+  degenerate parallel or antiparallel poles (sin(omega) ~ 0) it falls
+  back to lerp_unclamped to stay numerically stable. slerp interpolates
+  direction; it preserves magnitude only when length(a) == length(b).
+  The trig is deterministic (Fixed Q32.32 or in-tree Float). Either
+  input zero-length raises ErrInvalidArgument.
+
+PARAMETERS
+  a AS T_N
+    the start vector; must be non-zero
+
+  b AS T_N
+    the end vector, same type; must be non-zero
+
+  t AS Float
+    interpolation parameter, not clamped
+
+RETURN VALUE
+  AS T_N
+    the spherically interpolated vector
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when either input has zero length.
+
+TYPE CHECKING
+  Overloaded over the nine vector record types; the two vectors of a
+  binary call must be the same type. T is the element type and T_N the
+  N-dimensional vector. No mixed-type or cross-dimension overload exists.
+
+EXAMPLES
+  Halfway along the arc between the axes:
+
+    IMPORT vector
+    IMPORT io
+    FUNC main AS Integer
+      io::print(toString(vector::slerp(vector::Float2[1.0,0.0], vector::Float2[0.0,1.0], 0.5)))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  lerp, lerp_unclamped, angle

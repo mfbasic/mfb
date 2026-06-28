@@ -1,0 +1,20 @@
+$ mfb build -ast tests/func_vector_max_valid
+Wrote AST to tests/func_vector_max_valid/func_vector_max_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_vector_max_valid
+Wrote IR to tests/func_vector_max_valid/func_vector_max_valid.ir
+[exit 0]
+$ mfb build tests/func_vector_max_valid
+Wrote executable to tests/func_vector_max_valid/func_vector_max_valid.out
+[exit 0]
+$ tests/func_vector_max_valid/func_vector_max_valid.out
+max Float2 = (3.00, 4.00)
+max Float3 = (2.00, 2.00, 2.00)
+max Float4 = (2.00, 2.00, 2.00, 4.00)
+max Fixed2 = (3.00, 4.00)
+max Fixed3 = (2.00, 2.00, 2.00)
+max Fixed4 = (2.00, 2.00, 2.00, 4.00)
+max Integer2 = (3, 4)
+max Integer3 = (2, 2, 2)
+max Integer4 = (2, 2, 2, 4)
+[exit 0]

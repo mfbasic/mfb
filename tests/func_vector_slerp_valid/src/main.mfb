@@ -1,0 +1,16 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  io::print("slerp Float2 = " & toString(vector::slerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 0.5)))
+  io::print("slerp Float3 = " & toString(vector::slerp(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0], 0.5)))
+  io::print("slerp Float4 = " & toString(vector::slerp(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0], 0.5)))
+  io::print("slerp Fixed2 = " & toString(vector::slerp(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)], 0.5)))
+  io::print("slerp Fixed3 = " & toString(vector::slerp(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)], 0.5)))
+  io::print("slerp Fixed4 = " & toString(vector::slerp(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)], 0.5)))
+  io::print("slerp Integer2 = " & toString(vector::slerp(vector::Integer2[3, 4], vector::Integer2[1, 2], 0.5)))
+  io::print("slerp Integer3 = " & toString(vector::slerp(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2], 0.5)))
+  io::print("slerp Integer4 = " & toString(vector::slerp(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1], 0.5)))
+  RETURN 0
+END FUNC

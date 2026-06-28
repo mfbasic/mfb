@@ -1,0 +1,11 @@
+IMPORT vector
+IMPORT io
+IMPORT math
+
+
+FUNC main AS Integer
+  io::print("rotate_2d Float2 = " & toString(vector::rotate_2d(vector::Float2[3.0, 4.0], math::pi2)))
+  io::print("rotate_2d Fixed2 = " & toString(vector::rotate_2d(vector::Fixed2[toFixed(3.0), toFixed(4.0)], math::pi2)))
+  io::print("rotate_2d Integer2 = " & toString(vector::rotate_2d(vector::Integer2[3, 4], math::pi2)))
+  RETURN 0
+END FUNC

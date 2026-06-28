@@ -1,0 +1,7 @@
+IMPORT vector
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(vector::clamp_length(vector::Float2[1.0, 1.0], 0.0 - 1.0)))
+  RETURN 0
+END FUNC

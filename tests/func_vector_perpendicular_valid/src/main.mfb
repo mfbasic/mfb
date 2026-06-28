@@ -1,0 +1,10 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  io::print("perpendicular Float2 = " & toString(vector::perpendicular(vector::Float2[3.0, 4.0])))
+  io::print("perpendicular Fixed2 = " & toString(vector::perpendicular(vector::Fixed2[toFixed(3.0), toFixed(4.0)])))
+  io::print("perpendicular Integer2 = " & toString(vector::perpendicular(vector::Integer2[3, 4])))
+  RETURN 0
+END FUNC

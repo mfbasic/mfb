@@ -1,0 +1,51 @@
+NAME
+  reflect - reflect a vector about a normal
+
+SYNOPSIS
+  vector::reflect(v AS T_N, n AS T_N) AS T_N
+
+PACKAGE
+  vector
+
+IMPORTS
+  IMPORT vector
+
+DESCRIPTION
+  Returns v - 2*dot(v, n)*n: the reflection of v across the hyperplane
+  with normal n. n is taken as given and is NOT normalized -- pass a
+  unit normal for a length-preserving reflection. Exact for every
+  element type (multiply and subtract only).
+
+PARAMETERS
+  v AS T_N
+    the incoming vector
+
+  n AS T_N
+    the surface normal (caller supplies a unit normal)
+
+RETURN VALUE
+  AS T_N
+    the reflected vector
+
+ERRORS
+  77050010 (ErrOverflow)
+  Raised when an Integer or Fixed result exceeds the representable range,
+  as in the scalar math:: functions.
+
+TYPE CHECKING
+  Overloaded over the nine vector record types; the two vectors of a
+  binary call must be the same type. T is the element type and T_N the
+  N-dimensional vector. No mixed-type or cross-dimension overload exists.
+
+EXAMPLES
+  Reflect about the +y axis:
+
+    IMPORT vector
+    IMPORT io
+    FUNC main AS Integer
+      io::print(toString(vector::reflect(vector::Float2[1.0,-1.0], vector::Float2[0.0,1.0])))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  project, reject

@@ -1,0 +1,48 @@
+NAME
+  normalize - unit vector in the same direction
+
+SYNOPSIS
+  vector::normalize(v AS T_N) AS T_N
+
+PACKAGE
+  vector
+
+IMPORTS
+  IMPORT vector
+
+DESCRIPTION
+  Returns a vector of length 1 pointing the same way as v: each
+  component divided by length(v). Float and Fixed use correctly-rounded
+  division; Integer rounds each quotient half away from zero, which is
+  intentionally lossy (most Integer unit vectors land in -1, 0, 1). A
+  zero-length v has no direction and raises ErrInvalidArgument.
+
+PARAMETERS
+  v AS T_N
+    the vector to normalize; must be non-zero
+
+RETURN VALUE
+  AS T_N
+    the unit vector
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when v has zero length.
+
+TYPE CHECKING
+  Overloaded over the nine vector record types; the two vectors of a
+  binary call must be the same type. T is the element type and T_N the
+  N-dimensional vector. No mixed-type or cross-dimension overload exists.
+
+EXAMPLES
+  Normalize to a unit vector:
+
+    IMPORT vector
+    IMPORT io
+    FUNC main AS Integer
+      io::print(toString(vector::normalize(vector::Float3[3.0, 0.0, 4.0])))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  length, clamp_length

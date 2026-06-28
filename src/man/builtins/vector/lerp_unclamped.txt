@@ -1,0 +1,53 @@
+NAME
+  lerp_unclamped - linear interpolation, extrapolating outside [0, 1]
+
+SYNOPSIS
+  vector::lerp_unclamped(a AS T_N, b AS T_N, t AS Float) AS T_N
+
+PACKAGE
+  vector
+
+IMPORTS
+  IMPORT vector
+
+DESCRIPTION
+  Like lerp but uses t verbatim with no clamp, so t outside [0, 1]
+  extrapolates past the endpoints. Same per-element-type rules and
+  Integer rounding as lerp.
+
+PARAMETERS
+  a AS T_N
+    the start vector (t = 0)
+
+  b AS T_N
+    the end vector (t = 1), same type as a
+
+  t AS Float
+    interpolation parameter, not clamped
+
+RETURN VALUE
+  AS T_N
+    the interpolated or extrapolated vector
+
+ERRORS
+  77050010 (ErrOverflow)
+  Raised when an Integer or Fixed result exceeds the representable range,
+  as in the scalar math:: functions.
+
+TYPE CHECKING
+  Overloaded over the nine vector record types; the two vectors of a
+  binary call must be the same type. T is the element type and T_N the
+  N-dimensional vector. No mixed-type or cross-dimension overload exists.
+
+EXAMPLES
+  Extrapolate beyond the endpoint:
+
+    IMPORT vector
+    IMPORT io
+    FUNC main AS Integer
+      io::print(toString(vector::lerp_unclamped(vector::Float2[0.0,0.0], vector::Float2[10.0,0.0], 2.0)))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  lerp, slerp

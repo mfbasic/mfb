@@ -1,0 +1,7 @@
+IMPORT vector
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(vector::slerp(vector::Float2[0.0, 0.0], vector::Float2[1.0, 0.0], 0.5)))
+  RETURN 0
+END FUNC

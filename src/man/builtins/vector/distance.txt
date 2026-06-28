@@ -1,0 +1,47 @@
+NAME
+  distance - distance between two points
+
+SYNOPSIS
+  vector::distance(a AS T_N, b AS T_N) AS T
+
+PACKAGE
+  vector
+
+IMPORTS
+  IMPORT vector
+
+DESCRIPTION
+  Returns length(a - b): the Euclidean distance between the two points,
+  with the same per-element-type rules and Integer rounding as length.
+
+PARAMETERS
+  a AS T_N
+    the first point
+
+  b AS T_N
+    the second point, same type as a
+
+RETURN VALUE
+  AS T
+    the distance, in the element type
+
+ERRORS
+  None.
+
+TYPE CHECKING
+  Overloaded over the nine vector record types; the two vectors of a
+  binary call must be the same type. T is the element type and T_N the
+  N-dimensional vector. No mixed-type or cross-dimension overload exists.
+
+EXAMPLES
+  Distance between two 2D points:
+
+    IMPORT vector
+    IMPORT io
+    FUNC main AS Integer
+      io::print(toString(vector::distance(vector::Float2[0.0, 0.0], vector::Float2[3.0, 4.0])))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  length

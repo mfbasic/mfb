@@ -128,6 +128,8 @@ pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
+    // `vector` imports only intrinsic `math` (plan-06-vector.md §5).
+    let augmented = builtins::vector::augmented_project(&augmented)?;
     // `http` before `net`: `http_package.mfb` imports `net` (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;

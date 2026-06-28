@@ -30,6 +30,10 @@ built-in injection chain.
   the LEB128/varint integer codecs), built on the `bits` package and
   `strings::toBytes`. The integer bitwise/shift/rotate primitives in `bits` are
   native single-instruction operations documented in `./mfb man bits`.
+- `vector` — the nine fixed-width math-vector value records and the overloaded
+  geometry/interpolation/utility/2D functions over them: the value model, the
+  type-resolved dispatch, the per-function formulas, the single round-half-away
+  Integer rule, and the no-libm determinism guarantee.
 
 ## See Also
 

@@ -1,0 +1,99 @@
+NAME
+  vector - fixed-width math vectors with overloaded geometry and 2D helpers
+
+SYNOPSIS
+  IMPORT vector
+  vector::Float3[x, y, z]
+  vector::length(v)
+  vector::normalize(v)
+  vector::dot(a, b)
+  vector::cross(a, b)
+  vector::lerp(a, b, t)
+  vector::upFloat3
+
+DESCRIPTION
+  The vector package provides nine small fixed-width math-vector value records --
+  Float2/3/4, Fixed2/3/4, and Integer2/3/4 -- and a set of overloaded geometry,
+  interpolation, component-wise utility, and 2D functions over them, plus a set
+  of package-level direction constants. vector is a built-in package: IMPORT
+  vector needs no manifest dependency.
+
+  Each type is an ordinary value record of N homogeneous 8-byte fields named x,
+  y, z, w (as many as the dimension): a 2-vector has x and y, a 3-vector adds z,
+  a 4-vector adds w. They copy by value, drop with no heap frees, and are
+  thread-sendable. Construct them positionally with bracket syntax, for example
+  vector::Float3[3.0, 0.0, 4.0]; the element type of every component matches the
+  type's name (Float, Fixed, or Integer). See mfb man vector types.
+
+  Every function is overloaded by the exact record type and arity of its
+  arguments, resolved at compile time, and the return type follows: length,
+  distance, dot, and angle return the element scalar; the geometry, interpolation,
+  and utility functions return a vector of the argument's type. Two vectors passed
+  to a binary function must be the same type -- there is no mixed-type or
+  cross-dimension overload. cross is the generalized (n-1)-ary cross product, so
+  its arity is dimension-specific: one vector in 2D (the left perpendicular), two
+  in 3D, three in 4D. perpendicular and rotate_2d are 2D only.
+
+  Results are deterministic and identical across targets for every element type.
+  The algebraic functions use only correctly-rounded operations (hardware square
+  root and IEEE arithmetic for Float, Q32.32 for Fixed, and a deterministic
+  rounding integer square root for Integer); the three trigonometric members
+  (angle, slerp, rotate_2d) use math::'s deterministic Fixed and in-tree Float
+  trig, never libm. Evaluation is in a fixed left-to-right component order.
+
+  Integer is supported for every function where it is mathematically defined.
+  Every Integer result that comes from a real-valued computation -- length,
+  distance, the normalize components, the project/reject quotient, lerp, slerp,
+  rotate_2d, clamp_length -- rounds half away from zero (matching math::round);
+  dot and cross are exact. Most Integer unit vectors are therefore degenerate
+  (components in -1, 0, 1), but the rounding keeps them as direction-faithful as
+  integers allow.
+
+  toString over any vector renders "(x, y, z)" with each component formatted by
+  its own scalar toString. The package also exports 42 direction constants named
+  <base><Type><N>, referenced without parentheses like math::pi: zeroFloat3,
+  oneInteger2, upFixed4, rightInteger3, forwardFloat4, and so on. zero, one, up
+  (+y axis), and right (+x axis) exist for all nine types; forward (+z axis)
+  exists only for the 3D and 4D types (it is undefined in 2D).
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised by normalize of a zero-length vector, project or reject onto a
+  zero-length vector, angle or slerp with a zero-length input, and clamp_length
+  with a negative maximum.
+
+  77050010 (ErrOverflow)
+  Raised by abs of the minimum representable Integer or Fixed value, and by any
+  Integer operation whose intermediate or result exceeds the Integer range, as in
+  the scalar math:: functions.
+
+FUNCTIONS
+  abs                component-wise absolute value
+  angle              unsigned angle between two vectors in radians
+  clamp_length       cap a vector's magnitude, preserving direction
+  cross              generalized (n-1)-ary cross product
+  distance           distance between two points
+  dot                dot (inner) product
+  length             Euclidean length (magnitude)
+  lerp               clamped linear interpolation
+  lerp_unclamped     linear interpolation, extrapolating outside [0, 1]
+  max                component-wise maximum
+  min                component-wise minimum
+  normalize          unit vector in the same direction
+  perpendicular      2D left perpendicular (-y, x)
+  project            vector projection of a onto b
+  reflect            reflect a vector about a normal
+  reject             component of a orthogonal to b
+  rotate_2d          rotate a 2D vector counterclockwise by an angle
+  scale              component-wise (Hadamard) product
+  slerp              spherical linear interpolation
+
+CONSTANTS
+  zero<Type><N>      all-zero vector (all nine types)
+  one<Type><N>       all-one vector (all nine types)
+  up<Type><N>        +y axis unit vector (all nine types)
+  right<Type><N>     +x axis unit vector (all nine types)
+  forward<Type><N>   +z axis unit vector (3D and 4D only)
+
+Run `mfb man vector <function>` for details, or `mfb man vector types` for the
+record types.

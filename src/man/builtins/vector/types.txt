@@ -1,0 +1,85 @@
+NAME
+  types - the vector package record types
+
+SYNOPSIS
+  vector::Float2
+  vector::Float3
+  vector::Float4
+  vector::Fixed2
+  vector::Fixed3
+  vector::Fixed4
+  vector::Integer2
+  vector::Integer3
+  vector::Integer4
+
+PACKAGE
+  vector
+
+IMPORTS
+  IMPORT vector
+
+DESCRIPTION
+  The vector package provides nine fixed-width math-vector value records, one per
+  element type (Float, Fixed, Integer) and dimension (2, 3, 4). Each is an
+  ordinary value record of N homogeneous 8-byte fields named x, y, z, w, in that
+  order, as many as the dimension. They copy by value, drop with no heap frees
+  (all components are scalars), and are thread-sendable.
+
+  Construct a vector positionally with bracket syntax, with one argument per
+  field of the element type: vector::Float3[3.0, 0.0, 4.0],
+  vector::Integer2[1, 2], vector::Fixed4[toFixed(1.0), toFixed(0.0),
+  toFixed(0.0), toFixed(0.0)]. Read a component with field access (v.x, v.y,
+  v.z, v.w). The functions in this package are overloaded on these types; see
+  mfb man vector.
+
+TYPES
+  vector::Float2
+    A 2D vector with Float components.
+
+    x AS Float
+      first axis component
+    y AS Float
+      second axis component
+
+  vector::Float3
+    A 3D vector with Float components (adds z to Float2).
+
+    x AS Float
+      first axis component
+    y AS Float
+      second axis component
+    z AS Float
+      third axis component
+
+  vector::Float4
+    A 4D vector with Float components (adds w to Float3).
+
+    x AS Float
+      first axis component
+    y AS Float
+      second axis component
+    z AS Float
+      third axis component
+    w AS Float
+      fourth axis component
+
+  vector::Fixed2
+    A 2D vector with Fixed (Q32.32) components; fields x, y.
+
+  vector::Fixed3
+    A 3D vector with Fixed components; fields x, y, z.
+
+  vector::Fixed4
+    A 4D vector with Fixed components; fields x, y, z, w.
+
+  vector::Integer2
+    A 2D vector with Integer components; fields x, y.
+
+  vector::Integer3
+    A 3D vector with Integer components; fields x, y, z.
+
+  vector::Integer4
+    A 4D vector with Integer components; fields x, y, z, w.
+
+SEE ALSO
+  length, normalize, dot, cross, lerp

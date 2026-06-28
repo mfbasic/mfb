@@ -1,0 +1,57 @@
+NAME
+  lerp - clamped linear interpolation
+
+SYNOPSIS
+  vector::lerp(a AS T_N, b AS T_N, t AS Float) AS T_N
+
+PACKAGE
+  vector
+
+IMPORTS
+  IMPORT vector
+
+DESCRIPTION
+  Returns a + (b - a)*t component-wise, with t first clamped to [0, 1] so
+  the result always lies on the segment from a to b. t is a Float for
+  every element type; for Fixed it is converted with toFixed after the
+  clamp, and for Integer the interpolation is computed in Float and each
+  component is rounded half away from zero. Use lerp_unclamped to
+  extrapolate beyond the endpoints.
+
+PARAMETERS
+  a AS T_N
+    the start vector (t = 0)
+
+  b AS T_N
+    the end vector (t = 1), same type as a
+
+  t AS Float
+    interpolation parameter, clamped to [0, 1]
+
+RETURN VALUE
+  AS T_N
+    the interpolated vector
+
+ERRORS
+  77050010 (ErrOverflow)
+  Raised when an Integer or Fixed result exceeds the representable range,
+  as in the scalar math:: functions.
+
+TYPE CHECKING
+  Overloaded over the nine vector record types; the two vectors of a
+  binary call must be the same type. T is the element type and T_N the
+  N-dimensional vector. No mixed-type or cross-dimension overload exists.
+
+EXAMPLES
+  Midpoint, and a clamped overshoot:
+
+    IMPORT vector
+    IMPORT io
+    FUNC main AS Integer
+      io::print(toString(vector::lerp(vector::Float2[0.0,0.0], vector::Float2[10.0,0.0], 0.5)))
+        io::print(toString(vector::lerp(vector::Float2[0.0,0.0], vector::Float2[10.0,0.0], 2.0)))
+      RETURN 0
+    END FUNC
+
+SEE ALSO
+  lerp_unclamped, slerp

@@ -1,0 +1,10 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  LET a AS Float = vector::length(vector::Float3[1.0,2.0,3.0], vector::Float3[1.0,2.0,3.0])
+  LET b AS Float = vector::length(5.0)
+  LET c AS Float = vector::length(vector::Float2[1.0,2.0])
+  RETURN 0
+END FUNC

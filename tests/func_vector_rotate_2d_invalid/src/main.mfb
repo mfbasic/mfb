@@ -1,0 +1,10 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  LET a AS vector::Float3 = vector::rotate_2d(vector::Float3[1.0,2.0,3.0], 1.0)
+  LET b AS vector::Float2 = vector::rotate_2d(vector::Float2[1.0,2.0])
+  LET c AS vector::Float2 = vector::rotate_2d(vector::Float2[1.0,2.0], 1)
+  RETURN 0
+END FUNC

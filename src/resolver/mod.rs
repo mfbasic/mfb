@@ -67,6 +67,9 @@ pub fn resolve_project_with(
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
     let augmented = builtins::datetime::augmented_project(&augmented)?;
+    // `vector` imports only the intrinsic `math` package, so it has no source
+    // ordering dependency (plan-06-vector.md §5).
+    let augmented = builtins::vector::augmented_project(&augmented)?;
     // `http` is injected before `net`: `http_package.mfb` imports `net`, so the
     // net source companion must be added only after http's source is present for
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).

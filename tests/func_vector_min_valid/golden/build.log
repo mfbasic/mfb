@@ -1,0 +1,20 @@
+$ mfb build -ast tests/func_vector_min_valid
+Wrote AST to tests/func_vector_min_valid/func_vector_min_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_vector_min_valid
+Wrote IR to tests/func_vector_min_valid/func_vector_min_valid.ir
+[exit 0]
+$ mfb build tests/func_vector_min_valid
+Wrote executable to tests/func_vector_min_valid/func_vector_min_valid.out
+[exit 0]
+$ tests/func_vector_min_valid/func_vector_min_valid.out
+min Float2 = (1.00, 2.00)
+min Float3 = (1.00, 1.00, 2.00)
+min Float4 = (1.00, 1.00, 0.00, 1.00)
+min Fixed2 = (1.00, 2.00)
+min Fixed3 = (1.00, 1.00, 2.00)
+min Fixed4 = (1.00, 1.00, 0.00, 1.00)
+min Integer2 = (1, 2)
+min Integer3 = (1, 1, 2)
+min Integer4 = (1, 1, 0, 1)
+[exit 0]

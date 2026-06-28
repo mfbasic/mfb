@@ -1,0 +1,20 @@
+$ mfb build -ast tests/func_vector_normalize_valid
+Wrote AST to tests/func_vector_normalize_valid/func_vector_normalize_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_vector_normalize_valid
+Wrote IR to tests/func_vector_normalize_valid/func_vector_normalize_valid.ir
+[exit 0]
+$ mfb build tests/func_vector_normalize_valid
+Wrote executable to tests/func_vector_normalize_valid/func_vector_normalize_valid.out
+[exit 0]
+$ tests/func_vector_normalize_valid/func_vector_normalize_valid.out
+normalize Float2 = (0.60, 0.80)
+normalize Float3 = (0.33, 0.67, 0.67)
+normalize Float4 = (0.20, 0.40, 0.40, 0.80)
+normalize Fixed2 = (0.59, 0.79)
+normalize Fixed3 = (0.33, 0.66, 0.66)
+normalize Fixed4 = (0.19, 0.39, 0.39, 0.79)
+normalize Integer2 = (1, 1)
+normalize Integer3 = (0, 1, 1)
+normalize Integer4 = (0, 0, 0, 1)
+[exit 0]

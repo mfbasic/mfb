@@ -1,0 +1,20 @@
+$ mfb build -ast tests/func_vector_length_valid
+Wrote AST to tests/func_vector_length_valid/func_vector_length_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_vector_length_valid
+Wrote IR to tests/func_vector_length_valid/func_vector_length_valid.ir
+[exit 0]
+$ mfb build tests/func_vector_length_valid
+Wrote executable to tests/func_vector_length_valid/func_vector_length_valid.out
+[exit 0]
+$ tests/func_vector_length_valid/func_vector_length_valid.out
+length Float2 = 5.00
+length Float3 = 3.00
+length Float4 = 5.00
+length Fixed2 = 5.00
+length Fixed3 = 3.00
+length Fixed4 = 5.00
+length Integer2 = 5
+length Integer3 = 3
+length Integer4 = 5
+[exit 0]

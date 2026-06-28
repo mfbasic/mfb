@@ -1,0 +1,16 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  io::print("project Float2 = " & toString(vector::project(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])))
+  io::print("project Float3 = " & toString(vector::project(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0])))
+  io::print("project Float4 = " & toString(vector::project(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0])))
+  io::print("project Fixed2 = " & toString(vector::project(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)])))
+  io::print("project Fixed3 = " & toString(vector::project(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])))
+  io::print("project Fixed4 = " & toString(vector::project(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)])))
+  io::print("project Integer2 = " & toString(vector::project(vector::Integer2[3, 4], vector::Integer2[1, 2])))
+  io::print("project Integer3 = " & toString(vector::project(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2])))
+  io::print("project Integer4 = " & toString(vector::project(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1])))
+  RETURN 0
+END FUNC

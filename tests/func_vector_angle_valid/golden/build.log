@@ -1,0 +1,20 @@
+$ mfb build -ast tests/func_vector_angle_valid
+Wrote AST to tests/func_vector_angle_valid/func_vector_angle_valid.ast
+[exit 0]
+$ mfb build -ir tests/func_vector_angle_valid
+Wrote IR to tests/func_vector_angle_valid/func_vector_angle_valid.ir
+[exit 0]
+$ mfb build tests/func_vector_angle_valid
+Wrote executable to tests/func_vector_angle_valid/func_vector_angle_valid.out
+[exit 0]
+$ tests/func_vector_angle_valid/func_vector_angle_valid.out
+angle Float2 = 0.18
+angle Float3 = 0.48
+angle Float4 = 0.86
+angle Fixed2 = 0.17
+angle Fixed3 = 0.47
+angle Fixed4 = 0.85
+angle Integer2 = 0
+angle Integer3 = 0
+angle Integer4 = 1
+[exit 0]

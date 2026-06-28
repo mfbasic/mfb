@@ -17,6 +17,7 @@ pub(crate) mod strings;
 pub(crate) mod term;
 pub(crate) mod thread;
 pub(crate) mod tls;
+pub(crate) mod vector;
 
 pub(crate) use resource::{ResourceInfo, ResourceKind, ResourceRegistry};
 
@@ -40,6 +41,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
             | "term"
             | "thread"
             | "tls"
+            | "vector"
     )
 }
 
@@ -53,6 +55,7 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
         || term::is_builtin_type(name)
         || thread::is_builtin_type(name)
         || tls::is_builtin_type(name)
+        || vector::is_builtin_type(name)
 }
 
 /// The internal helper a built-in package provides as an **override** of an
@@ -65,6 +68,9 @@ pub(crate) fn is_builtin_type(name: &str) -> bool {
 pub(crate) fn general_override_target(builtin: &str, arg_type: &str) -> Option<&'static str> {
     match (builtin, arg_type) {
         ("toString", t) if t == net::URL_TYPE => Some("__net_urlToString"),
+        // The nine `vector::` value records render `"(x, y, z)"` via a companion
+        // renderer (plan-06-vector.md §4.18).
+        ("toString", t) if vector::is_builtin_type(t) => vector::tostring_override_target(t),
         _ => None,
     }
 }
@@ -216,6 +222,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || term::is_term_call(name)
         || thread::is_thread_call(name)
         || tls::is_tls_call(name)
+        || vector::is_vector_call(name)
         || call_return_type_name(name).is_some()
 }
 
@@ -227,11 +234,15 @@ pub(crate) fn is_builtin_member(name: &str) -> bool {
 /// friends (`Float`/`Fixed`) or an `errorCode::Err*` registry value (`Integer`).
 /// These are keyed package-qualified (`"math.pi"`, `"errorCode.ErrNotFound"`).
 pub(crate) fn is_package_constant(name: &str) -> bool {
-    math::is_math_constant(name) || errorcode::is_errorcode_constant(name)
+    math::is_math_constant(name)
+        || errorcode::is_errorcode_constant(name)
+        || vector::is_vector_constant(name)
 }
 
 pub(crate) fn package_constant_type_name(name: &str) -> Option<&'static str> {
-    math::constant_type_name(name).or_else(|| errorcode::constant_type_name(name))
+    math::constant_type_name(name)
+        .or_else(|| errorcode::constant_type_name(name))
+        .or_else(|| vector::constant_type_name(name))
 }
 
 pub(crate) fn package_constant_value(name: &str) -> Option<&'static str> {
@@ -256,4 +267,5 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| term::call_param_names(name))
         .or_else(|| tls::call_param_names(name))
         .or_else(|| thread::call_param_names(name))
+        .or_else(|| vector::call_param_names(name))
 }

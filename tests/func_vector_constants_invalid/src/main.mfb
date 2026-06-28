@@ -1,0 +1,9 @@
+IMPORT vector
+IMPORT io
+
+
+FUNC main AS Integer
+  LET a AS vector::Float2 = vector::forwardFloat2
+  LET b AS vector::Integer2 = vector::zeroFloat2
+  RETURN 0
+END FUNC
