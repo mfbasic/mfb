@@ -1,3 +1,11 @@
+// These kernels deliberately spell out full-precision fdlibm/Remez constants
+// (the `hi` halves of double-double reductions such as `LN2`, `LOG10_E`,
+// `INV_PIO2`). They sit near `std::f64::consts::*` but must NOT be swapped for
+// them — the std const is a single rounded double, whereas these are paired with
+// their `lo` tails to recombine past double precision. Allow the deny-by-default
+// correctness lint for the whole module.
+#![allow(clippy::approx_constant)]
+
 use super::simd_kernel_coeffs::{COS_COEFFS, EXP_COEFFS, LOG_COEFFS, SIN_COEFFS};
 use super::*;
 
