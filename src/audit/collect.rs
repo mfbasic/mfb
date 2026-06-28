@@ -138,7 +138,7 @@ fn collect_dependencies(
 
     let mut entries: Vec<DependencyEntry> = packages
         .iter()
-        .filter_map(crate::project_package_dependency)
+        .filter_map(crate::manifest::package::project_package_dependency)
         .map(|dependency| {
             let package_file = project_dir
                 .join("packages")
@@ -149,17 +149,17 @@ fn collect_dependencies(
             let status;
 
             if package_file.is_file() {
-                match crate::read_mfp_header(&package_file) {
+                match crate::manifest::package::read_mfp_header(&package_file) {
                     Ok(header) => {
                         resolved_version = Some(header.version.clone());
-                        signature = Some(crate::signature_type_name(header.signature_type));
+                        signature = Some(crate::cli::pkg::signature_type_name(header.signature_type));
                         content_hash = std::fs::read(&package_file)
                             .ok()
                             .and_then(|bytes| {
                                 crate::target::package_mfp::package_content_hash(&bytes).ok()
                             })
-                            .map(|hash| crate::hex_bytes(&hash));
-                        status = verify_status_label(crate::package_dependency_status(
+                            .map(|hash| crate::cli::pkg::hex_bytes(&hash));
+                        status = verify_status_label(crate::cli::pkg::package_dependency_status(
                             &dependency,
                             &header.name,
                             &header.ident,
@@ -190,11 +190,11 @@ fn collect_dependencies(
     entries
 }
 
-fn verify_status_label(status: crate::PackageVerifyStatus) -> String {
+fn verify_status_label(status: crate::cli::pkg::PackageVerifyStatus) -> String {
     match status {
-        crate::PackageVerifyStatus::Ok => "ok",
-        crate::PackageVerifyStatus::NeedsUpdate => "needs-update",
-        crate::PackageVerifyStatus::InvalidPackage => "invalid",
+        crate::cli::pkg::PackageVerifyStatus::Ok => "ok",
+        crate::cli::pkg::PackageVerifyStatus::NeedsUpdate => "needs-update",
+        crate::cli::pkg::PackageVerifyStatus::InvalidPackage => "invalid",
     }
     .to_string()
 }
@@ -213,7 +213,7 @@ fn collect_packages(
     let mut entries = Vec::new();
     for dependency in packages
         .iter()
-        .filter_map(crate::project_package_dependency)
+        .filter_map(crate::manifest::package::project_package_dependency)
     {
         let package_file = project_dir
             .join("packages")
@@ -222,12 +222,12 @@ fn collect_packages(
             continue;
         }
         let display = format!("packages/{}.mfp", dependency.name);
-        let header = crate::read_mfp_header(&package_file);
+        let header = crate::manifest::package::read_mfp_header(&package_file);
         let info = crate::binary_repr::read_package_info(&package_file);
         let content_hash = std::fs::read(&package_file)
             .ok()
             .and_then(|bytes| crate::target::package_mfp::package_content_hash(&bytes).ok())
-            .map(|hash| crate::hex_bytes(&hash))
+            .map(|hash| crate::cli::pkg::hex_bytes(&hash))
             .unwrap_or_default();
 
         match (header, info) {
@@ -235,7 +235,7 @@ fn collect_packages(
                 name: header.name.clone(),
                 version: header.version.clone(),
                 path: display,
-                signature: crate::signature_type_name(header.signature_type),
+                signature: crate::cli::pkg::signature_type_name(header.signature_type),
                 content_hash,
                 verifier: "ok".to_string(),
                 exports: info.export_count,
@@ -319,7 +319,7 @@ pub fn project_hash(manifest: &HashMap<String, JsonValue>) -> String {
         .and_then(|value| value.get::<Vec<JsonValue>>())
         .into_iter()
         .flatten()
-        .filter_map(crate::project_package_dependency)
+        .filter_map(crate::manifest::package::project_package_dependency)
         .map(|dependency| {
             format!(
                 "{}\u{0}{}\u{0}{}\u{0}{}\u{0}{}\n",
@@ -337,7 +337,7 @@ pub fn project_hash(manifest: &HashMap<String, JsonValue>) -> String {
     for tuple in tuples {
         hasher.update(tuple.as_bytes());
     }
-    crate::hex_bytes(hasher.finalize().as_slice())
+    crate::cli::pkg::hex_bytes(hasher.finalize().as_slice())
 }
 
 // ---------------------------------------------------------------------------
@@ -954,7 +954,7 @@ fn package_findings(
     };
     for dependency in declared
         .iter()
-        .filter_map(crate::project_package_dependency)
+        .filter_map(crate::manifest::package::project_package_dependency)
     {
         let package_file = project_dir
             .join("packages")

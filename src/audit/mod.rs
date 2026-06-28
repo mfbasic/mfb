@@ -73,7 +73,7 @@ fn parse_format(value: &str) -> Result<AuditFormat, String> {
 /// `0` clean, `1` error-severity findings, `3` unreadable/malformed input.
 pub fn run(options: &AuditOptions) -> i32 {
     let project_path = options.location.join("project.json");
-    let Ok(manifest) = crate::validate_project_manifest(&project_path) else {
+    let Ok(manifest) = crate::manifest::validate_project_manifest(&project_path) else {
         return 3;
     };
 
@@ -99,7 +99,7 @@ pub fn run(options: &AuditOptions) -> i32 {
     {
         return 3;
     }
-    let Ok(entry) = crate::validate_entry_point(&options.location, &manifest, &concrete_ast) else {
+    let Ok(entry) = crate::manifest::entry::validate_entry_point(&options.location, &manifest, &concrete_ast) else {
         return 3;
     };
     if crate::typecheck::check_project(&options.location, &concrete_ast).is_err() {
@@ -111,7 +111,7 @@ pub fn run(options: &AuditOptions) -> i32 {
         root_display: options.location.to_string_lossy().replace('\\', "/"),
         manifest: &manifest,
         ast: &ast,
-        kind: crate::project_kind(&manifest).to_string(),
+        kind: crate::manifest::project_kind(&manifest).to_string(),
         entry: entry.map(|entry| entry.name),
         locked: options.locked,
     };
