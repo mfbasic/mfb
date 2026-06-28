@@ -53,16 +53,7 @@ fn print_package_man(package: &man::PackageDoc) {
         print_man_page(page);
         if !package.functions.is_empty() {
             println!();
-            println!("{}", man_entry_heading(package));
-            for function in package.functions {
-                println!("  {:<18} {}", function.name, function.summary);
-            }
-            println!();
-            println!(
-                "Run `mfb man {} <{}>` for details.",
-                package.name,
-                man_entry_name(package)
-            );
+            print_entry_listing(package, false);
         }
         return;
     }
@@ -74,16 +65,55 @@ fn print_package_man(package: &man::PackageDoc) {
     println!("Usage:");
     println!("  {}", package.usage);
     println!();
-    println!("{}:", man_entry_heading(package));
-    for function in package.functions {
-        println!("  {:<18} {}", function.name, function.summary);
+    print_entry_listing(package, true);
+}
+
+/// Print the package's entries, splitting constants out from functions so a
+/// reference such as `math::pi` is never listed alongside callables like
+/// `math::sin`. `colon_heading` matches the legacy `FUNCTIONS:` styling of the
+/// pageless layout. The trailing hint always points at the entry kind the
+/// package's two-argument lookup expects.
+fn print_entry_listing(package: &man::PackageDoc, colon_heading: bool) {
+    let (constants, functions): (Vec<_>, Vec<_>) = package
+        .functions
+        .iter()
+        .partition(|function| is_constant(function));
+
+    let colon = if colon_heading { ":" } else { "" };
+    let mut printed = false;
+    if !constants.is_empty() {
+        println!("CONSTANTS{colon}");
+        for constant in &constants {
+            println!("  {:<18} {}", constant.name, constant.summary);
+        }
+        printed = true;
     }
+    if !functions.is_empty() {
+        if printed {
+            println!();
+        }
+        println!("{}{colon}", man_entry_heading(package));
+        for function in &functions {
+            println!("  {:<18} {}", function.name, function.summary);
+        }
+    }
+
     println!();
     println!(
         "Run `mfb man {} <{}>` for details.",
         package.name,
         man_entry_name(package)
     );
+}
+
+/// A constant entry renders as a value reference (`math::pi AS Float`) rather
+/// than a call: its synopsis carries the `package::name` qualifier and an
+/// `AS <Type>` clause but no argument list. This deliberately excludes the
+/// `flow`/`types` topic pages (no `::`) and the `json::types` record-type page
+/// (no `AS`), leaving them under their usual heading.
+fn is_constant(function: &man::FunctionDoc) -> bool {
+    let signature = function.signature;
+    !signature.contains('(') && signature.contains("::") && signature.contains(" AS ")
 }
 
 fn man_entry_heading(package: &man::PackageDoc) -> &'static str {

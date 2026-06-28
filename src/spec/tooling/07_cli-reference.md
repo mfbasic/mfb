@@ -244,7 +244,11 @@ cell is escaped (`escape_spec_cell`).[[src/cli/spec.rs:print_spec_listing]]
 index, one arg a package's function/topic listing, two args a single function
 page; an unknown package/function or more than two args exits `2`.[[src/cli/man.rs:show_man]]
 The `man` listing heading is `TOPICS`/`topic` for the `types` package and
-`FUNCTIONS`/`function` otherwise.[[src/cli/man.rs:man_entry_heading]]
+`FUNCTIONS`/`function` otherwise.[[src/cli/man.rs:man_entry_heading]] Within a
+package listing, value-reference entries (a synopsis qualified `package::name`
+with an `AS <Type>` clause and no argument list, e.g. `math::pi`) are split into
+a separate `CONSTANTS` section printed ahead of the `FUNCTIONS`/`TOPICS`
+list.[[src/cli/man.rs:is_constant]]
 
 ## See Also
 
