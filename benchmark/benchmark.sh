@@ -15,6 +15,9 @@ benchmarks=(
   float-leibniz
   float-nbody
   float-mandelbrot
+  math-trig
+  math-invtrig
+  math-explog
   io-read
   io-write
   list-append

@@ -1,0 +1,24 @@
+IMPORT io
+IMPORT math
+
+' Forward-trig kernel stress test. Sweeps an angle x across [0.001, ~1.5)
+' (kept just below pi/2 so tan stays finite) and accumulates
+' sin(x) + cos(x) + tan(x) + atan2(x, 1+x) over 2,000 * 1,000 = 2,000,000
+' iterations (8,000,000 kernel calls). Exercises MFBASIC's custom
+' sin/cos/tan/atan2 kernels (severed from libm) against C's math.h and
+' Python's math module. The final checksum is printed so the three
+' implementations can be sanity-checked against one another.
+
+FUNC main AS Integer
+  MUT acc AS Float = 0.0
+  MUT x AS Float = 0.001
+  FOR rep = 0 TO 1999
+    x = 0.001
+    FOR i = 0 TO 999
+      acc = acc + math::sin(x) + math::cos(x) + math::tan(x) + math::atan2(x, 1.0 + x)
+      x = x + 0.0015
+    NEXT
+  NEXT
+  io::print("trig: " & toString(acc, toByte(6)))
+  RETURN 0
+END FUNC
