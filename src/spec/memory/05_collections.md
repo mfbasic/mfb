@@ -27,7 +27,8 @@ CollectionHeader
   U8 keyType         ; 0 for List
   U8 valueType
   U8 flagsVersion
-  U8[4] reserved
+  U8 bucketsReady    ; Map hash index built? 0 = no (rebuild lazily), 1 = yes
+  U8[3] reserved
   U64 count          ; logical live item count
   U64 capacity       ; lookup entry capacity
   U64 dataLength     ; used bytes in data region
@@ -43,6 +44,9 @@ LookupEntry[capacity]
 
 Data[dataCapacity]
   packed key and value payload bytes
+
+Buckets[2 * capacity]   ; Map only (List reserves none); see Map Hash Index
+  U64                   ; entryIndex + 1, or 0 = empty
 ```
 
 Header and lookup entries have fixed aligned sizes. Version 1 uses a 40-byte
@@ -56,6 +60,10 @@ padding and alignment.
 - `keyType` identifies the map key payload type. It is `0` for `List`.
 - `valueType` identifies the list item type or map value type.
 - `flagsVersion` identifies the layout version and collection-level flags.
+- `bucketsReady` is `1` when a `Map`'s hash index (the `Buckets` array) is built
+  and `0` otherwise; it is `0` on every fresh, copied, or grown map and set to `1`
+  the first time the index is probed (see *Map Hash Index*). It is unused (`0`)
+  for a `List`.
 - `count` is the number of live logical entries.
 - `capacity` is the number of lookup entries allocated. It may exceed `count`:
   the spare slots are working-buffer headroom (see *Capacity Headroom*).
@@ -93,8 +101,36 @@ For `List`, lookup entry order is list order. There is no `logicalIndex` field.
 The list index is the lookup table index.
 
 For `Map`, lookup entry order is the implementation-defined stable iteration
-order. The initial implementation may scan entries linearly. Future hash/probe
-metadata may be added through a new layout version.
+order — **insertion order**, which the hash index below does not perturb (the
+`LookupEntry` array stays insertion-ordered; the buckets are separate derived
+metadata). `keys`/`values`/iteration walk this array directly.
+
+### Map Hash Index
+
+A `Map` carries a hash index in the `Buckets` array that sits **after** the data
+region (a `List` reserves none). It makes key lookup O(1) average instead of the
+linear entry scan, without disturbing the capacity-based data base or the
+insertion-ordered entries. [[src/target/shared/code/mod.rs:lower_map_probe_helper]]
+
+- **Size and addressing.** `Buckets` has `2 * capacity` `U64` slots (load factor
+  ≤ 0.5), based at `header + capacity*entryStride + dataCapacity`. Each slot holds
+  `entryIndex + 1`, or `0` for empty. A key maps to a bucket by
+  `FNV-1a(keyBytes) mod (2*capacity)` with linear probing; equality is the
+  byte-wise comparison over `keyLength` bytes — identical to the linear scan, so
+  `Float` keys still compare bitwise (`+0.0`≠`-0.0`, `NaN`=`NaN`).
+- **Derived, lazy, and recomputed — never authoritative.** The entries + data are
+  the source of truth; the buckets are rebuildable from them. `bucketsReady` is
+  `0` on every fresh allocation (and a fresh allocation's bucket bytes are
+  uninitialized), so the index is built lazily on the first probe and `bucketsReady`
+  set to `1`. **Copy and thread transfer never copy the buckets verbatim**: a
+  shrink-to-fit copy/transfer reserves the (count-sized) bucket region and leaves
+  `bucketsReady = 0`, so the receiver recomputes against its own capacity — no
+  stale offsets, deterministic across the boundary.
+- **Incremental maintenance.** In-place `set` inserts a new key into the buckets
+  in O(1) when they are already built (`_mfb_rt_map_bucket_put`) and invalidates
+  (`bucketsReady = 0`) when a capacity grow moves/resizes the region, so building a
+  map with repeated `set` stays O(n). An in-place value overwrite or value-grow
+  leaves keys/indices unchanged and so leaves the index valid.
 
 The data region packs every **flat** payload directly, addressed by the lookup
 entry's `valueOffset`/`valueLength`: primitive
@@ -335,8 +371,6 @@ from `capacity`, never `count` — is what keeps that headroom unobservable.
 
 ## Open Questions
 
-- Whether map lookup should gain hash/probe metadata (currently a linear scan)
-  in layout version 1 or a future version.
 - Whether future layout versions should also inline the **non-flat** nested
   collection payloads that still remain 8-byte pointer handles (flat nested
   collections are already inlined, since Phase 5a).
