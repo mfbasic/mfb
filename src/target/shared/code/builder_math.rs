@@ -983,24 +983,31 @@ impl CodeBuilder<'_> {
         bits: &str,
         infinity_error: FloatInfinityError,
     ) -> Result<(), String> {
-        let exponent = self.allocate_register()?;
-        let mantissa = self.allocate_register()?;
+        // A finite f64 has a biased exponent below 0x7FF. Drop the sign bit by
+        // shifting left one — the remaining magnitude pattern orders the three
+        // classes under a single unsigned compare: every finite value is
+        // strictly below `+inf << 1` (0xFFE0000000000000), `+inf`/`-inf` land
+        // exactly on it, and every NaN is above it. This replaces the old
+        // exponent+mantissa mask pair (two 64-bit immediates, two `and`s, two
+        // scratch registers) with one shift, one immediate, and one compare, and
+        // it never hardcodes a result scratch register (see the negation note in
+        // `lower_numeric_unary_negation`).
+        let magnitude = self.allocate_register()?;
         let ok = self.label("float_result_finite");
-        let infinity = self.label("float_result_infinity");
-        self.emit(abi::move_immediate("x17", "Integer", "9218868437227405312"));
-        self.emit(abi::and_registers(&exponent, bits, "x17"));
-        self.emit(abi::compare_registers(&exponent, "x17"));
-        self.emit(abi::branch_ne(&ok));
-        self.emit(abi::move_immediate("x17", "Integer", "4503599627370495"));
-        self.emit(abi::and_registers(&mantissa, bits, "x17"));
-        self.emit(abi::compare_immediate(&mantissa, "0"));
-        self.emit(abi::branch_eq(&infinity));
-        self.emit_float_nan_return()?;
-        self.emit(abi::label(&infinity));
+        let nan = self.label("float_result_nan");
+        self.emit(abi::shift_left_immediate(&magnitude, bits, 1));
+        // 0xFFE0000000000000 == (+inf bits) << 1.
+        self.emit(abi::move_immediate("x17", "Integer", "18437736874454810624"));
+        self.emit(abi::compare_registers(&magnitude, "x17"));
+        self.emit(abi::branch_lo(&ok)); // unsigned < +inf<<1 => finite
+        self.emit(abi::branch_hi(&nan)); // unsigned > +inf<<1 => NaN
+        // Equal => the value is exactly ±inf.
         match infinity_error {
             FloatInfinityError::Infinity => self.emit_float_inf_return()?,
             FloatInfinityError::Overflow => self.emit_float_overflow_return()?,
         }
+        self.emit(abi::label(&nan));
+        self.emit_float_nan_return()?;
         self.emit(abi::label(&ok));
         Ok(())
     }
