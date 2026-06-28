@@ -770,8 +770,9 @@ impl CodeBuilder<'_> {
     /// insertion guarantee the buffer is unaliased, and `by_ref` locals are
     /// excluded. Unlike append, an overwrite is observable to an enclosing
     /// `FOR EACH` over the same binding, so that case is excluded
-    /// (`for_each_iterable_locals`). The map overload stays on the rebuild path
-    /// until Phase 3.
+    /// (`for_each_iterable_locals`). The map overload (Phase 3) is the same shape:
+    /// scan for the key, overwrite the value in place when it fits, append a new
+    /// entry into spare slot/data headroom otherwise (geometric grow when full).
     fn try_inplace_set_assign(
         &mut self,
         name: &str,
@@ -801,55 +802,85 @@ impl CodeBuilder<'_> {
             return Ok(false);
         };
         let collection_type = local.type_.clone();
-        // Phase 1 is the LIST overload only; the map overload (Phase 3) falls
-        // through to the rebuild path.
-        let Some(element_type) = super::list_element_type(&collection_type) else {
-            return Ok(false);
-        };
         if super::CollectionTypeLayout::from_type(&collection_type).is_none() {
             return Ok(false);
         }
-        // The list `set` overload's item argument is always a single element of
-        // type `T` (typecheck-enforced), so — unlike append's bulk-vs-single gate —
-        // no static element-type check is needed; the post-lowering `item.type_`
-        // check below catches any mismatch.
-        let index = self.lower_value(&args[1])?;
-        if index.type_ != "Integer" {
-            return Err(format!(
-                "native collection set list index must be Integer, got {}",
-                index.type_
+        if let Some(element_type) = super::list_element_type(&collection_type) {
+            // The list `set` item is always a single element of type `T`
+            // (typecheck-enforced), so — unlike append's bulk-vs-single gate — no
+            // static element-type check is needed; the post-lowering `item.type_`
+            // check catches any mismatch.
+            let index = self.lower_value(&args[1])?;
+            if index.type_ != "Integer" {
+                return Err(format!(
+                    "native collection set list index must be Integer, got {}",
+                    index.type_
+                ));
+            }
+            let index_slot = self.allocate_stack_object("inplace_set_index", 8);
+            self.emit(abi::store_u64(
+                &index.location,
+                abi::stack_pointer(),
+                index_slot,
             ));
-        }
-        let index_slot = self.allocate_stack_object("inplace_set_index", 8);
-        self.emit(abi::store_u64(
-            &index.location,
-            abi::stack_pointer(),
-            index_slot,
-        ));
-        let item = self.lower_value(&args[2])?;
-        if item.type_ != element_type {
-            return Err(format!(
-                "native collection set list item must be {element_type}, got {}",
-                item.type_
+            let item = self.lower_value(&args[2])?;
+            if item.type_ != element_type {
+                return Err(format!(
+                    "native collection set list item must be {element_type}, got {}",
+                    item.type_
+                ));
+            }
+            let item_slot = self.allocate_stack_object("inplace_set_item", 8);
+            self.emit(abi::store_u64(
+                &item.location,
+                abi::stack_pointer(),
+                item_slot,
             ));
+            self.lower_list_set_in_place(
+                stack_offset,
+                index_slot,
+                item_slot,
+                &collection_type,
+                &element_type,
+            )?;
+            if let Some(local) = self.locals.get_mut(name) {
+                local.constant = None;
+            }
+            return Ok(true);
         }
-        let item_slot = self.allocate_stack_object("inplace_set_item", 8);
-        self.emit(abi::store_u64(
-            &item.location,
-            abi::stack_pointer(),
-            item_slot,
-        ));
-        self.lower_list_set_in_place(
-            stack_offset,
-            index_slot,
-            item_slot,
-            &collection_type,
-            &element_type,
-        )?;
-        if let Some(local) = self.locals.get_mut(name) {
-            local.constant = None;
+        if let Some((key_type, value_type)) = super::map_type_parts(&collection_type) {
+            let key = self.lower_value(&args[1])?;
+            if key.type_ != key_type {
+                return Err(format!(
+                    "native collection set map key must be {key_type}, got {}",
+                    key.type_
+                ));
+            }
+            let key_slot = self.allocate_stack_object("inplace_set_key", 8);
+            self.emit(abi::store_u64(&key.location, abi::stack_pointer(), key_slot));
+            let val = self.lower_value(&args[2])?;
+            if val.type_ != value_type {
+                return Err(format!(
+                    "native collection set map value must be {value_type}, got {}",
+                    val.type_
+                ));
+            }
+            let value_slot = self.allocate_stack_object("inplace_set_value", 8);
+            self.emit(abi::store_u64(&val.location, abi::stack_pointer(), value_slot));
+            self.lower_map_set_in_place(
+                stack_offset,
+                key_slot,
+                value_slot,
+                &collection_type,
+                &key_type,
+                &value_type,
+            )?;
+            if let Some(local) = self.locals.get_mut(name) {
+                local.constant = None;
+            }
+            return Ok(true);
         }
-        Ok(true)
+        Ok(false)
     }
 
     /// Recognize `name = name & x` (and the left-associated chain

@@ -919,6 +919,371 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Set `key -> value` in the map whose buffer pointer lives in `map_slot`,
+    /// **mutating the buffer in place** (plan-02 §4.3). Linear-scans for the key
+    /// (lookup stays O(n) until the Phase 6 hash): on a hit, overwrites the value
+    /// bytes when the new value fits the old slot (`newLen <= oldLen`) — else falls
+    /// back to the rebuild (remove+concat). On a miss, writes the key+value into a
+    /// spare lookup slot and the spare data tail (the entry packed exactly like
+    /// `emit_write_collection_entry` — key then value, each aligned), bumping
+    /// `count`/`dataLength`; when the live buffer is full it grows geometrically
+    /// (copying entries + data verbatim, capacity-based base) and then writes. The
+    /// caller guarantees unique ownership and not an active `FOR EACH` iterable.
+    pub(super) fn lower_map_set_in_place(
+        &mut self,
+        map_slot: usize,
+        key_slot: usize,
+        value_slot: usize,
+        map_type: &str,
+        key_type: &str,
+        value_type: &str,
+    ) -> Result<ValueResult, String> {
+        let layout = CollectionTypeLayout::from_type(map_type)
+            .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
+        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
+            self.mark_register_used(register);
+        }
+        let key_align = self.collection_payload_alignment(key_type);
+        let value_align = self.collection_payload_alignment(value_type);
+        let key_payload = PayloadSlot {
+            slot: key_slot,
+            type_: key_type.to_string(),
+        };
+        let value_payload = PayloadSlot {
+            slot: value_slot,
+            type_: value_type.to_string(),
+        };
+        let key_len_slot = self.emit_payload_length_to_stack(&key_payload, "mapset_klen")?;
+        let val_len_slot = self.emit_payload_length_to_stack(&value_payload, "mapset_vlen")?;
+        let found_entry_slot = self.allocate_stack_object("mapset_found_entry", 8);
+        let new_data_len_slot = self.allocate_stack_object("mapset_newdlen", 8);
+        let new_cap_slot = self.allocate_stack_object("mapset_newcap", 8);
+        let new_dcap_slot = self.allocate_stack_object("mapset_newdcap", 8);
+        let new_buf_slot = self.allocate_stack_object("mapset_newbuf", 8);
+        let data_offset_slot = self.allocate_stack_object("mapset_doff", 8);
+        let voff_slot = self.allocate_stack_object("mapset_voff", 8);
+        let without_slot = self.allocate_stack_object("mapset_without", 8);
+        let singleton_slot = self.allocate_stack_object("mapset_singleton", 8);
+        let entry_addr_slot = self.allocate_stack_object("mapset_entry_addr", 8);
+
+        let loop_label = self.label("mapset_loop");
+        let next = self.label("mapset_next");
+        let found = self.label("mapset_found");
+        let not_found = self.label("mapset_not_found");
+        let rebuild = self.label("mapset_rebuild");
+        let grow = self.label("mapset_grow");
+        let write = self.label("mapset_write");
+        let alloc_ok = self.label("mapset_alloc_ok");
+        let dcap_keep = self.label("mapset_dcap_keep");
+        let done = self.label("mapset_done");
+
+        // --- Scan for the key (allocate_register temps, like lower_map_get). ---
+        self.reset_temporary_registers();
+        let collection = self.allocate_register()?;
+        let key = self.allocate_register()?;
+        let count = self.allocate_register()?;
+        let index = self.allocate_register()?;
+        let entry = self.allocate_register()?;
+        let key_offset = self.allocate_register()?;
+        let key_length = self.allocate_register()?;
+        self.emit(abi::load_u64(&collection, abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
+        self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::add_immediate(&entry, &collection, COLLECTION_HEADER_SIZE));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_registers(&index, &count));
+        self.emit(abi::branch_ge(&not_found));
+        self.emit(abi::load_u64(
+            &key_offset,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64(
+            &key_length,
+            &entry,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit_collection_payload_match_branch(
+            key_type,
+            &collection,
+            &key_offset,
+            &key_length,
+            &key,
+            &found,
+            &next,
+        )?;
+        self.emit(abi::label(&next));
+        self.emit(abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(&index, &index, 1));
+        self.emit(abi::branch(&loop_label));
+
+        // --- Found: overwrite the value when it fits, else rebuild. ---
+        self.emit(abi::label(&found));
+        self.emit(abi::store_u64(&entry, abi::stack_pointer(), found_entry_slot));
+        self.emit(abi::load_u64(
+            "x9",
+            &entry,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        )); // oldValLen
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), val_len_slot)); // newValLen
+        self.emit(abi::compare_registers("x14", "x9"));
+        self.emit(abi::branch_hi(&rebuild)); // newLen > oldLen → rebuild
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), found_entry_slot));
+        self.emit(abi::load_u64(
+            "x13",
+            "x8",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::store_u64("x13", abi::stack_pointer(), voff_slot));
+        self.emit_copy_payload_to_collection(map_slot, val_len_slot, &value_payload, voff_slot)?;
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), found_entry_slot));
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), val_len_slot));
+        self.emit(abi::store_u64(
+            "x14",
+            "x8",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit(abi::branch(&done));
+
+        // --- Rebuild (value grew): remove_key then concat a fresh singleton. ---
+        self.emit(abi::label(&rebuild));
+        let without = self.lower_map_remove_key(map_slot, key_slot, map_type, key_type)?;
+        self.emit(abi::store_u64(
+            &without.location,
+            abi::stack_pointer(),
+            without_slot,
+        ));
+        let singleton = self.lower_collection_values(
+            map_type,
+            vec![CollectionValueSlot {
+                key: Some(PayloadSlot {
+                    slot: key_slot,
+                    type_: key_type.to_string(),
+                }),
+                value: PayloadSlot {
+                    slot: value_slot,
+                    type_: value_type.to_string(),
+                },
+            }],
+            "mapset rebuild singleton",
+        )?;
+        self.emit(abi::store_u64(
+            &singleton.location,
+            abi::stack_pointer(),
+            singleton_slot,
+        ));
+        let rebuilt = self.lower_map_concat(without_slot, singleton_slot, map_type)?;
+        self.emit(abi::store_u64(
+            &rebuilt.location,
+            abi::stack_pointer(),
+            map_slot,
+        ));
+        self.emit(abi::branch(&done));
+
+        // --- Not found: compute the would-be new dataLength after the insert. ---
+        self.emit(abi::label(&not_found));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), new_data_len_slot));
+        self.emit_align_offset_slot(new_data_len_slot, key_align);
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), key_len_slot));
+        self.emit(abi::add_registers("x8", "x8", "x9"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), new_data_len_slot));
+        self.emit_align_offset_slot(new_data_len_slot, value_align);
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), val_len_slot));
+        self.emit(abi::add_registers("x8", "x8", "x9"));
+        self.emit(abi::store_u64("x8", abi::stack_pointer(), new_data_len_slot));
+        // Room check: count < capacity AND newDataLength <= dataCapacity.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::compare_registers("x9", "x10"));
+        self.emit(abi::branch_ge(&grow));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::compare_registers("x12", "x11"));
+        self.emit(abi::branch_hi(&grow));
+        self.emit(abi::branch(&write));
+
+        // --- Grow: geometric capacity + data, copy entries/data verbatim. ---
+        self.emit(abi::label(&grow));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_CAPACITY));
+        self.emit_geometric_step(
+            "x10",
+            "x14",
+            "x15",
+            COLLECTION_GROW_LOOKUP_INIT,
+            COLLECTION_GROW_LOOKUP_TAPER,
+            "mapset_grow_cap",
+        );
+        self.emit(abi::store_u64("x14", abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit_geometric_step(
+            "x10",
+            "x14",
+            "x15",
+            COLLECTION_GROW_DATA_INIT,
+            COLLECTION_GROW_DATA_TAPER,
+            "mapset_grow_dcap",
+        );
+        // newDataCapacity = max(step(dataCapacity), newDataLength).
+        self.emit(abi::load_u64("x11", abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::compare_registers("x14", "x11"));
+        self.emit(abi::branch_hi(&dcap_keep));
+        self.emit(abi::branch_eq(&dcap_keep));
+        self.emit(abi::move_register("x14", "x11"));
+        self.emit(abi::label(&dcap_keep));
+        self.emit(abi::store_u64("x14", abi::stack_pointer(), new_dcap_slot));
+        // alloc = HEADER + newCapacity * ENTRY + newDataCapacity.
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x17", "x14", "x16"));
+        self.emit(abi::add_immediate(
+            abi::return_register(),
+            "x17",
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::load_u64("x15", abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            abi::return_register(),
+            "x15",
+        ));
+        self.emit(abi::move_immediate("x1", "Integer", "8"));
+        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_ALLOC_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::branch_eq(&alloc_ok));
+        self.emit_allocation_error_return()?;
+        self.emit(abi::label(&alloc_ok));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), new_buf_slot));
+        // Header: old count / old dataLength, new capacity / data capacity.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64("x14", abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::load_u64("x15", abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit_write_collection_header_full(&layout, "x1", "x9", "x14", "x11", "x15");
+        // Copy the data region verbatim (dataLength bytes), capacity-based base.
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit_collection_data_pointer("x17", "x1");
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit_collection_data_pointer("x20", "x8");
+        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance("x17", "x20", "x14", "x22", "mapset_grow_data");
+        // Copy the live lookup entries verbatim (count * ENTRY bytes).
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::add_immediate("x20", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x21", "x9", "x16"));
+        self.emit_block_copy_advance("x17", "x20", "x21", "x22", "mapset_grow_entries");
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
+        self.emit(abi::store_u64("x1", abi::stack_pointer(), map_slot));
+        self.emit(abi::branch(&write));
+
+        // --- Write the new entry into slot[count], key+value aligned in data. ---
+        self.emit(abi::label(&write));
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64("x9", abi::stack_pointer(), data_offset_slot));
+        // entryAddr = map + HEADER + count * ENTRY.
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::move_immediate(
+            "x16",
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers("x13", "x9", "x16"));
+        self.emit(abi::add_immediate("x12", "x8", COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_registers("x12", "x12", "x13"));
+        self.emit(abi::store_u64("x12", abi::stack_pointer(), entry_addr_slot));
+        self.emit(abi::move_immediate(
+            "x13",
+            "Byte",
+            &COLLECTION_ENTRY_FLAG_USED.to_string(),
+        ));
+        self.emit(abi::store_u8("x13", "x12", COLLECTION_ENTRY_OFFSET_FLAGS));
+        // Key: align, record keyOffset/keyLength, copy bytes.
+        self.emit_align_offset_slot(data_offset_slot, key_align);
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), entry_addr_slot));
+        self.emit(abi::load_u64("x13", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::store_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::load_u64("x13", abi::stack_pointer(), key_len_slot));
+        self.emit(abi::store_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
+        self.emit_copy_payload_to_collection(map_slot, key_len_slot, &key_payload, data_offset_slot)?;
+        // Value: align, record valueOffset/valueLength, copy bytes.
+        self.emit_align_offset_slot(data_offset_slot, value_align);
+        self.emit(abi::load_u64("x12", abi::stack_pointer(), entry_addr_slot));
+        self.emit(abi::load_u64("x13", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::store_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::load_u64("x13", abi::stack_pointer(), val_len_slot));
+        self.emit(abi::store_u64(
+            "x13",
+            "x12",
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+        self.emit_copy_payload_to_collection(
+            map_slot,
+            val_len_slot,
+            &value_payload,
+            data_offset_slot,
+        )?;
+        // Header: count++, dataLength = final data offset.
+        self.emit(abi::load_u64("x8", abi::stack_pointer(), map_slot));
+        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate("x9", "x9", 1));
+        self.emit(abi::store_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64("x9", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::store_u64("x9", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+
+        self.emit(abi::label(&done));
+        let result = self.allocate_register()?;
+        self.emit(abi::load_u64(&result, abi::stack_pointer(), map_slot));
+        Ok(ValueResult {
+            type_: map_type.to_string(),
+            location: result,
+            text: format!("map set in place {map_type}"),
+        })
+    }
+
     pub(super) fn lower_list_remove_at(
         &mut self,
         base_slot: usize,

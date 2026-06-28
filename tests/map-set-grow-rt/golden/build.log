@@ -1,0 +1,15 @@
+$ mfb build -ast tests/map-set-grow-rt
+Wrote AST to tests/map-set-grow-rt/map_set_grow_rt.ast
+[exit 0]
+$ mfb build -ir tests/map-set-grow-rt
+Wrote IR to tests/map-set-grow-rt/map_set_grow_rt.ir
+[exit 0]
+$ mfb build tests/map-set-grow-rt
+Wrote executable to tests/map-set-grow-rt/map_set_grow_rt.out
+[exit 0]
+$ tests/map-set-grow-rt/map_set_grow_rt.out
+insert count=1000 sum=999000 [0]=0 [999]=1998
+overwrite [500]=123456 count=1000
+strval fits=x|second grow=muchlongervalue|second
+intkeys 0:0 10:1 20:999 30:3 40:4 
+[exit 0]
