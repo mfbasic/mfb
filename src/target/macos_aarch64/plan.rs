@@ -480,18 +480,10 @@ impl plan::NativePlanPlatform for Platform {
             }];
         }
         let symbol = match target {
-            "math.pow" => "_pow",
-            "math.exp" => "_exp",
-            "math.log" => "_log",
-            "math.log10" => "_log10",
-            "math.fmod" => "_fmod",
-            "math.sin" => "_sin",
-            "math.cos" => "_cos",
-            "math.tan" => "_tan",
-            "math.asin" => "_asin",
-            "math.acos" => "_acos",
-            "math.atan" => "_atan",
-            "math.atan2" => "_atan2",
+            // Every Float `math::` transcendental, `pow`, `atan2`, `tan`, and the
+            // `Float MOD` (`fmod`) now lower to in-tree NEON/GPR kernels
+            // (plan-01-libm-kernels), so no `math.*` row imports libm any more —
+            // an `mfb` build links zero platform math symbols.
             // The PCG64 RNG draws its program-startup seed from the OS entropy
             // pool; both `math::rand` and `math::seed` keep the entry seed random.
             "math.rand" | "math.seed" => "_getentropy",
@@ -502,5 +494,29 @@ impl plan::NativePlanPlatform for Platform {
             symbol: symbol.to_string(),
             required_by: required_by.to_string(),
         }]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::plan::NativePlanPlatform;
+
+    /// plan-01-libm-kernels Phase 5: every Float `math::` transcendental, `pow`,
+    /// `atan2`, `tan`, and `Float MOD` (`fmod`) lowers to an in-tree kernel, so no
+    /// `math.*` target may resolve to a libSystem math import.
+    #[test]
+    fn no_libm_math_imports() {
+        let platform = Platform;
+        for target in [
+            "math.pow", "math.exp", "math.log", "math.log10", "math.fmod",
+            "math.sin", "math.cos", "math.tan", "math.asin", "math.acos",
+            "math.atan", "math.atan2",
+        ] {
+            assert!(
+                platform.native_call_imports(target, "_main").is_empty(),
+                "{target} still resolves to a platform math import"
+            );
+        }
     }
 }

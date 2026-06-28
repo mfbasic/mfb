@@ -78,29 +78,28 @@ itself, so `initializers` is empty and no `.init_array` is produced.
 ```text
 interpreter  /lib/ld-linux-aarch64.so.1
 libc.so.6        C/POSIX runtime functions
-libm.so.6        math functions (pow, sin, cos, atan2, …)
 libpthread.so.0  pthread_create for thread::start
 ```
 
-These three sonames each become a `DT_NEEDED` entry. The per-call
+Each soname an import names becomes a `DT_NEEDED` entry. The per-call
 `(library, symbol)` mapping (e.g. `io::print`→`write` from `libc.so.6`,
-`math::sin`→`sin` from `libm.so.6`, `thread::start`→`pthread_create` from
-`libpthread.so.0`) is owned by ./mfb spec linker import-selection. Imported
-symbols use plain ELF names with no leading underscore.
+`thread::start`→`pthread_create` from `libpthread.so.0`) is owned by ./mfb spec
+linker import-selection. Imported symbols use plain ELF names with no leading
+underscore. `libm.so` is **not** needed: every `math::` transcendental, `pow`,
+`atan2`, `tan`, and `Float MOD` (`fmod`) lowers to an in-tree kernel.
 
 ## musl flavor
 
 ```text
 interpreter  /lib/ld-musl-aarch64.so.1
 libc.musl-aarch64.so.1   C/POSIX runtime functions and pthread_create
-libm.so.1                math functions (pow, sin, cos, atan2, …)
 ```
 
 musl exposes the pthread entry points from libc, so the pthread surface
 (`pthread_create` for `thread::start`) is imported from
-`libc.musl-aarch64.so.1` rather than a separate pthread library, and the math
-surface from `libm.so.1`. The per-call symbol mapping is owned by ./mfb spec
-linker import-selection.
+`libc.musl-aarch64.so.1` rather than a separate pthread library. As on glibc,
+`libm.so` is not needed — the `math::` kernels are in-tree. The per-call symbol
+mapping is owned by ./mfb spec linker import-selection.
 
 ## Executable signing metadata
 

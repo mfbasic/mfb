@@ -21,8 +21,9 @@ just the app's.
 For Linux, runtime helpers used only inside package IR must still add the
 same platform dynamic imports as helpers used by the app package. For example,
 a worker package that calls `fs::readText`, `io::print`, or `thread::start`
-must cause the final Linux executable to import the required libc, libm, or
-libpthread symbols even if the app source does not call those helpers directly.
+must cause the final Linux executable to import the required libc or libpthread
+symbols even if the app source does not call those helpers directly. (`math::`
+needs no such import — its kernels are in-tree, so no package pulls `libm`.)
 
 It is not valid to make a package-to-package call by preserving a raw
 package-local function id and hoping the executable package order makes it

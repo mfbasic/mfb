@@ -19,13 +19,6 @@ impl Platform {
         }
     }
 
-    fn libm(&self) -> &'static str {
-        match self.flavor {
-            LinuxFlavor::Glibc => "libm.so.6",
-            LinuxFlavor::Musl => "libm.so.1",
-        }
-    }
-
     fn libpthread(&self) -> &'static str {
         match self.flavor {
             LinuxFlavor::Glibc => "libpthread.so.0",
@@ -365,28 +358,40 @@ impl plan::NativePlanPlatform for Platform {
         if target == "toString" {
             return vec![self.libc_import("snprintf", required_by)];
         }
-        let symbol = match target {
-            "math.pow" => "pow",
-            "math.exp" => "exp",
-            "math.log" => "log",
-            "math.log10" => "log10",
-            "math.fmod" => "fmod",
-            "math.sin" => "sin",
-            "math.cos" => "cos",
-            "math.tan" => "tan",
-            "math.asin" => "asin",
-            "math.acos" => "acos",
-            "math.atan" => "atan",
-            "math.atan2" => "atan2",
-            // The PCG64 RNG seeds itself from the OS entropy pool at program
-            // startup; `getentropy` lives in libc, not libm.
-            "math.rand" | "math.seed" => return vec![self.libc_import("getentropy", required_by)],
-            _ => return Vec::new(),
-        };
-        vec![PlatformImport {
-            library: self.libm().to_string(),
-            symbol: symbol.to_string(),
-            required_by: required_by.to_string(),
-        }]
+        // Every Float `math::` transcendental, `pow`, `atan2`, `tan`, and the
+        // `Float MOD` (`fmod`) now lower to in-tree NEON/GPR kernels
+        // (plan-01-libm-kernels), so no `math.*` row imports libm any more — a
+        // Linux executable can drop `libm.so` from its needed-library set.
+        // The PCG64 RNG seeds itself from the OS entropy pool at program startup;
+        // `getentropy` lives in libc, not libm.
+        if matches!(target, "math.rand" | "math.seed") {
+            return vec![self.libc_import("getentropy", required_by)];
+        }
+        Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::plan::NativePlanPlatform;
+
+    /// plan-01-libm-kernels Phase 5: no `math.*` target resolves to a `libm.so`
+    /// import on either flavor (the kernels are all in-tree).
+    #[test]
+    fn no_libm_math_imports() {
+        for flavor in [LinuxFlavor::Glibc, LinuxFlavor::Musl] {
+            let platform = Platform { flavor };
+            for target in [
+                "math.pow", "math.exp", "math.log", "math.log10", "math.fmod",
+                "math.sin", "math.cos", "math.tan", "math.asin", "math.acos",
+                "math.atan", "math.atan2",
+            ] {
+                assert!(
+                    platform.native_call_imports(target, "_main").is_empty(),
+                    "{target} still resolves to a libm import ({flavor:?})"
+                );
+            }
+        }
     }
 }

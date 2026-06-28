@@ -22,12 +22,14 @@ DESCRIPTION
   accepts the name base or value, and the second accepts the name exponent or
   power.
 
-  The Float overload evaluates the power with host floating-point arithmetic,
-  so it accepts any base and exponent the underlying platform routine accepts,
-  including fractional and negative exponents. A combination with no real
-  result, such as a negative base raised to a fractional exponent, produces a
-  NaN result, and a magnitude too large to represent produces an infinite
-  result; both are reported as errors rather than returned.
+  The Float overload is evaluated by a hand-written in-tree kernel (fdlibm
+  __ieee754_pow, no external math library), accepting any base and exponent,
+  including fractional and negative exponents, and a negative base raised to an
+  integer exponent (for example pow(-2.0, 3.0) is -8.0, following the sign of an
+  odd exponent). A combination with no real result, such as a negative base
+  raised to a fractional exponent, produces a NaN result, and a magnitude too
+  large to represent produces an infinite result; both are reported as errors
+  rather than returned. Results are within 1 ULP of macOS libm.
 
   The Fixed overload computes a deterministic raw Q32.32 result without using
   host floating-point, so the result is identical across targets. A
@@ -57,9 +59,9 @@ OVERLOADS
     overload(s) above, but a per-element failure is reported once, after
     every element has been processed (the partially built result List is
     discarded), so the error is deterministic regardless of which element
-    triggered it. Float results come from a hand-written NEON f64 kernel (no
-    external math library) and are faithfully rounded (within 1 ULP for
-    almost all inputs).
+    triggered it. Float results come from the same hand-written in-tree pow
+    kernel as the scalar overload (no external math library), within 1 ULP of
+    macOS libm, so math::pow(x, y) equals math::pow([x], [y])[0] bit-for-bit.
 
 PARAMETERS
   base AS Float | Fixed

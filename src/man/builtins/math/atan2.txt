@@ -27,8 +27,9 @@ DESCRIPTION
   second is the horizontal component; the argument types select which overload
   is called.
 
-  The Float overload evaluates the angle with host floating-point arithmetic.
-  The Fixed overload computes the angle using deterministic fixed-point (Q32.32)
+  The Float overload evaluates the angle with a hand-written NEON f64 kernel
+  (no external math library), within 1 ULP of macOS libm and identical on every
+  target. The Fixed overload computes the angle using deterministic fixed-point (Q32.32)
   arithmetic without host floating-point, so the result is identical across
   targets, then rounds it to the nearest representable Fixed value.
 

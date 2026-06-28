@@ -57,9 +57,11 @@ OVERLOADS
     errors as the scalar overload(s) above, but a per-element failure is
     reported once, after every element has been processed (the partially
     built result List is discarded), so the error is deterministic
-    regardless of which element triggered it. Float results come from a
-    hand-written NEON f64 kernel (no external math library) and are
-    faithfully rounded (within 1 ULP for almost all inputs).
+    regardless of which element triggered it. Float results come from the
+    same hand-written NEON f64 kernel as the scalar overload (no external
+    math library) and are faithfully rounded — within 1 ULP of the true
+    value (a double-double sin/cos with a compensated divide) — so
+    math::tan(x) equals math::tan([x])[0] bit-for-bit.
 
 PARAMETERS
   value AS Float | Fixed

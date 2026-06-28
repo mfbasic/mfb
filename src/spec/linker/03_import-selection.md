@@ -41,12 +41,16 @@ distinct `(library, symbol)`.
 The platform object maps each runtime helper or built-in call to a concrete
 `(library, symbol)`:
 
-- macOS uses `libSystem` for the C/POSIX/pthread/math surface, and Darwin C ABI
+- macOS uses `libSystem` for the C/POSIX/pthread surface, and Darwin C ABI
   symbol names carry a leading underscore (`_write`, `_read`, `_open`,
-  `_clock_gettime`, `_pthread_create`, `_pow`, `_sin`).
+  `_clock_gettime`, `_pthread_create`).
 - Linux uses unprefixed ELF symbol names (`write`, `read`, `open`,
-  `clock_gettime`, `pthread_create`, `pow`, `sin`) and splits the surface across
-  several sonames whose names depend on the flavor (see below).
+  `clock_gettime`, `pthread_create`) and splits the surface across several
+  sonames whose names depend on the flavor (see below).
+- The `math::` surface imports **nothing**: every `Float` transcendental, `pow`,
+  `atan2`, `tan`, and the `Float MOD` (`fmod`) lowers to an in-tree NEON/GPR
+  kernel, so no `math.*` call selects a platform math symbol and no build links
+  `libm`.
 
 Representative mappings (the symbol set per call is what that helper actually
 uses):
@@ -58,7 +62,9 @@ uses):
 - `datetime` now/monotonic helpers require `clock_gettime`.
 - `thread::start` requires `pthread_create` plus the pthread mutex/cond
   primitives.
-- `math::sin` and similar require the platform math symbol.
+- `math::` calls require **no** platform symbol — `math::rand`/`math::seed` pull
+  only `getentropy` (libc) for the startup seed; the transcendentals, `pow`,
+  `atan2`, `tan`, and `Float MOD` are in-tree kernels.
 
 ### Linux flavor differences
 
@@ -67,15 +73,14 @@ The Linux platform object selects sonames by flavor:
 ```text
                 glibc                       musl
 libc      libc.so.6                   libc.musl-aarch64.so.1
-libm      libm.so.6                   libm.so.1
 libpthread libpthread.so.0            (folded into libc.musl-aarch64.so.1)
 ```
 
 So `thread::start` imports `pthread_create` from `libpthread.so.0` on glibc but
-from `libc.musl-aarch64.so.1` on musl, and `math::sin` imports `sin` from
-`libm.so.6` (glibc) or `libm.so.1` (musl). Because the two flavors choose
-different sonames, each flavor is planned and linked independently from the same
-NIR (see `linux-aarch64`).
+from `libc.musl-aarch64.so.1` on musl. Because the two flavors choose different
+sonames, each flavor is planned and linked independently from the same NIR (see
+`linux-aarch64`). There is no `libm` row: the `math::` kernels are in-tree, so no
+flavor lists `libm.so` as a needed library.
 
 ## Native `LINK` bindings
 

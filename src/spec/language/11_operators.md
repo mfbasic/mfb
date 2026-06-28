@@ -41,7 +41,7 @@ Operator edge cases:
 - `NOT` is a prefix unary operator that binds tighter than `AND`/`OR`/`XOR` but looser than the comparison operators, so `NOT a = b` parses as `NOT (a = b)`.
 - Checked numeric failures from operators are ordinary failures and therefore auto-propagate unless handled by a `TRAP`.
 - `/`, `MOD`, and `^` use the numeric promotion table in §4.1. `DIV` always returns `Float`.
-- `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`-result `MOD` lowers through the platform `fmod` runtime call. A `Fixed`-result `MOD` does **not** use `fmod`: it computes the remainder directly on the raw signed Q32.32 representation with an integer divide plus multiply-subtract (`emit_fixed_binary` in `builder_numeric.rs`), failing with `ErrInvalidArgument` (`77050002`) on a zero divisor.
+- `MOD` is available for every numeric operand pairing and uses a truncation-toward-zero quotient to compute the remainder. A `Float`-result `MOD` lowers to an in-tree exact `fmod` kernel (`emit_float_fmod` in `builder_numeric.rs` — the IEEE bitwise remainder over GPRs, bit-identical to libm, no platform `fmod` call), guarded by an `ErrFloatDomain` (`77050012`) pre-check on a zero divisor. A `Fixed`-result `MOD` computes the remainder directly on the raw signed Q32.32 representation with an integer divide plus multiply-subtract (`emit_fixed_binary` in `builder_numeric.rs`), failing with `ErrInvalidArgument` (`77050002`) on a zero divisor.
 
 Pipeline (`|>`) notes:
 
