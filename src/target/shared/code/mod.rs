@@ -14428,6 +14428,7 @@ mod builder_conversions;
 mod builder_emit_helpers;
 mod builder_fixed_math;
 mod builder_fs_paths;
+mod builder_inplace_assign;
 mod builder_math;
 mod builder_numeric;
 mod builder_search;
