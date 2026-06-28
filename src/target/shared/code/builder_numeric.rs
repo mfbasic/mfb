@@ -220,10 +220,15 @@ impl CodeBuilder<'_> {
                 self.emit(abi::subtract_registers(&register, &zero, &operand.location));
             }
             "Float" => {
+                // Negation just flips the sign bit, so a finite operand stays
+                // finite — and every live MFBASIC Float is finite (inf/NaN are
+                // always errors, never values). No overflow/NaN check is needed.
+                // (The old emit_float_result_check here also hardcoded `x17` as
+                // scratch, which corrupted the result when the allocator handed
+                // out x16/x17 — e.g. two inline `-literal` call arguments.)
                 self.emit(abi::float_move_d_from_x("d0", &operand.location));
                 self.emit(abi::float_negate_d("d0", "d0"));
                 self.emit(abi::float_move_x_from_d(&register, "d0"));
-                self.emit_float_result_check(&register, FloatInfinityError::Infinity)?;
             }
             other => {
                 return Err(format!(

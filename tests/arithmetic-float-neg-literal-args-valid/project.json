@@ -1,0 +1,1 @@
+{ "name": "arithmetic-float-neg-literal-args-valid", "version": "0.1.0", "mfb": "1.0", "kind": "executable", "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }], "entry": "main", "targets": ["native"] }

@@ -1,0 +1,31 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic-float-neg-literal-args-valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "6" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.min", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.1" } }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.0" } }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.max", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "3.5" } }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2.5" } }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.atan2", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.1" } }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.0" } }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.pow", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2.0" } }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2.0" } }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.clamp", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "5.0" } }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "4.0" } }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "1.0" } }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}
