@@ -211,13 +211,17 @@ FUNC __regex_scalarToCp(ch AS String) AS Integer
 END FUNC
 
 FUNC __regex_toScalars(s AS String) AS List OF String
+  ' Split into Unicode *scalars* (regex indexes by scalar, never grapheme) in one
+  ' O(n) pass: utf32Encode walks the UTF-8 once, then each scalar is materialized
+  ' via the in-place MUT append. Replaces the O(n^2) per-index strings::mid(s,i,1)
+  ' (each re-walks from the start), which ran on every regex call (plan-02 §6b).
   MUT out AS List OF String = []
-  LET m AS Integer = len(s)
-  MUT i AS Integer = 0
-  WHILE i < m
-    out = collections::append(out, strings::mid(s, i, 1))
-    i = i + 1
-  WEND
+  LET cps AS List OF Integer = encoding::utf32Encode(s)
+  FOR EACH cp IN cps
+    LET one AS List OF Integer = [cp]
+    LET scalar AS String = encoding::utf32Decode(one)
+    out = collections::append(out, scalar)
+  NEXT
   RETURN out
 END FUNC
 

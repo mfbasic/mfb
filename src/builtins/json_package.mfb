@@ -345,22 +345,34 @@ FUNC __json_parseArray(chars AS List OF String, index AS Integer) AS __json_Node
 END FUNC
 
 FUNC __json_parseArrayItems(chars AS List OF String, index AS Integer, items AS List OF Json) AS __json_Node
-  LET parsed AS __json_Node = __json_parseValue(chars, index)
-  LET nextItems AS List OF Json = collections::append(items, parsed.value)
-  LET nextIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
-  IF nextIndex >= len(chars) THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-
-  LET ch AS String = collections::get(chars, nextIndex)
-  IF ch = "," THEN
-    RETURN __json_parseArrayItems(chars, nextIndex + 1, nextItems)
-  ELSEIF ch = "]" THEN
-    LET value AS Json = JsonArr[nextItems]
-    RETURN __json_Node[value, nextIndex + 1]
-  END IF
-
-  FAIL error(77050003, "invalid JSON format")
+  ' Iterative accumulation so `acc = collections::append(acc, item)` hits the
+  ' in-place MUT append (plan-02 Phase 4 fallback): O(n) instead of the O(n^2)
+  ' functional `LET next = append(items, ...)` that bound a fresh name every
+  ' element. The typed `LET item` lets the in-place gate classify the element.
+  MUT acc AS List OF Json = items
+  MUT idx AS Integer = index
+  MUT finished AS Boolean = FALSE
+  MUT endIndex AS Integer = index
+  WHILE finished = FALSE
+    LET parsed AS __json_Node = __json_parseValue(chars, idx)
+    LET item AS Json = parsed.value
+    acc = collections::append(acc, item)
+    LET nextIndex AS Integer = __json_skipWhitespace(chars, parsed.index)
+    IF nextIndex >= len(chars) THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+    LET ch AS String = collections::get(chars, nextIndex)
+    IF ch = "," THEN
+      idx = nextIndex + 1
+    ELSEIF ch = "]" THEN
+      finished = TRUE
+      endIndex = nextIndex + 1
+    ELSE
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+  WEND
+  LET value AS Json = JsonArr[acc]
+  RETURN __json_Node[value, endIndex]
 END FUNC
 
 FUNC __json_parseObject(chars AS List OF String, index AS Integer) AS __json_Node
@@ -377,41 +389,52 @@ FUNC __json_parseObject(chars AS List OF String, index AS Integer) AS __json_Nod
 END FUNC
 
 FUNC __json_parseObjectItems(chars AS List OF String, index AS Integer, fields AS Map OF String TO Json) AS __json_Node
-  LET nextIndex AS Integer = __json_skipWhitespace(chars, index)
-  IF nextIndex >= len(chars) THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-  LET quote AS String = collections::get(chars, nextIndex)
-  IF quote <> "\"" THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-
-  LET keyState AS __json_StringNode = __json_parseString(chars, nextIndex + 1, "")
-  LET colonIndex AS Integer = __json_skipWhitespace(chars, keyState.index)
-  IF colonIndex >= len(chars) THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-  LET colon AS String = collections::get(chars, colonIndex)
-  IF colon <> ":" THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-
-  LET valueState AS __json_Node = __json_parseValue(chars, colonIndex + 1)
-  LET nextFields AS Map OF String TO Json = collections::set(fields, keyState.value, valueState.value)
-  LET afterValue AS Integer = __json_skipWhitespace(chars, valueState.index)
-  IF afterValue >= len(chars) THEN
-    FAIL error(77050003, "invalid JSON format")
-  END IF
-
-  LET ch AS String = collections::get(chars, afterValue)
-  IF ch = "," THEN
-    RETURN __json_parseObjectItems(chars, afterValue + 1, nextFields)
-  ELSEIF ch = "}" THEN
-    LET value AS Json = JsonObj[nextFields]
-    RETURN __json_Node[value, afterValue + 1]
-  END IF
-
-  FAIL error(77050003, "invalid JSON format")
+  ' Iterative accumulation, mirroring the array parser. `acc = set(acc, key, val)`
+  ' uses the in-place MUT map set once Phase 3 lands; today it is the rebuild path
+  ' (no regression). Eliminating the recursion also avoids deep call stacks on
+  ' large objects (plan-02 Phase 4 fallback).
+  MUT acc AS Map OF String TO Json = fields
+  MUT idx AS Integer = index
+  MUT finished AS Boolean = FALSE
+  MUT endIndex AS Integer = index
+  WHILE finished = FALSE
+    LET nextIndex AS Integer = __json_skipWhitespace(chars, idx)
+    IF nextIndex >= len(chars) THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+    LET quote AS String = collections::get(chars, nextIndex)
+    IF quote <> "\"" THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+    LET keyState AS __json_StringNode = __json_parseString(chars, nextIndex + 1, "")
+    LET colonIndex AS Integer = __json_skipWhitespace(chars, keyState.index)
+    IF colonIndex >= len(chars) THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+    LET colon AS String = collections::get(chars, colonIndex)
+    IF colon <> ":" THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+    LET valueState AS __json_Node = __json_parseValue(chars, colonIndex + 1)
+    LET key AS String = keyState.value
+    LET val AS Json = valueState.value
+    acc = collections::set(acc, key, val)
+    LET afterValue AS Integer = __json_skipWhitespace(chars, valueState.index)
+    IF afterValue >= len(chars) THEN
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+    LET ch AS String = collections::get(chars, afterValue)
+    IF ch = "," THEN
+      idx = afterValue + 1
+    ELSEIF ch = "}" THEN
+      finished = TRUE
+      endIndex = afterValue + 1
+    ELSE
+      FAIL error(77050003, "invalid JSON format")
+    END IF
+  WEND
+  LET value AS Json = JsonObj[acc]
+  RETURN __json_Node[value, endIndex]
 END FUNC
 
 FUNC __json_parseString(chars AS List OF String, index AS Integer, current AS String) AS __json_StringNode
