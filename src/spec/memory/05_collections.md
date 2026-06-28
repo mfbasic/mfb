@@ -263,6 +263,36 @@ types use the generic linear scan. [[src/target/shared/code/builder_collection_u
 - **Snapshot/value path.** A value-semantic append produces a fresh allocation
   holding the existing items plus the new one.
 
+### `set`
+
+`collections::set(name, index/key, item)` on a uniquely-owned `MUT` local (the
+`name = collections::set(name, …)` self-assignment idiom) mutates the live buffer
+in place, like `append`. It is excluded while the binding is an active `FOR EACH`
+iterable — an overwrite of an existing entry is observable to the snapshotting
+iterator, unlike a beyond-`count` append, so that case takes the value path.
+[[src/target/shared/code/builder_collection_updates.rs:lower_list_set_in_place]]
+
+- **`List`.** When the replacement payload fits the target slot
+  (`newValueLength <= oldValueLength` — always true for fixed-width elements and
+  same-size records/strings) the value bytes are overwritten at the entry's
+  `valueOffset` and `valueLength` is patched: no allocation, no copy. A longer
+  payload falls back to the value-semantic rebuild (`removeAt` + `insert`). An
+  out-of-range index fails with `ErrIndexOutOfRange`, like the value path.
+- **`Map`.** `lower_map_set_in_place` linear-scans for the key. A hit whose new
+  value fits overwrites in place; a hit whose value grew rebuilds
+  (`removeKey` + concat). A miss writes the key+value into a spare lookup slot and
+  the spare data tail — the entry packed exactly like a literal entry (key then
+  value, each aligned to its payload alignment) — and bumps `count`/`dataLength`,
+  growing the buffer geometrically (capacity and `dataCapacity` stepped
+  independently, entries and data copied verbatim against the capacity-based base)
+  when full. Insertion order is preserved.
+  [[src/target/shared/code/builder_collection_updates.rs:lower_map_set_in_place]]
+
+The source `collections::sort` is an insertion sort built on `set`, so its
+per-swap `items = collections::set(items, j, …)` overwrites now run in place:
+the sort is a stable in-place O(n²)-comparison / O(1)-swap pass over a copy of the
+argument (the argument itself is never modified).
+
 ### `insert`
 
 `List` `insert` is **not** an in-place shift. `lower_list_insert_collection`
@@ -287,7 +317,8 @@ position. [[src/target/shared/code/builder_collection_updates.rs:lower_list_remo
 
 For `Map`, setting or removing keys updates lookup entries and packed key/value
 payloads. The current implementation uses a linear scan. Missing removed keys are
-ignored.
+ignored. In-place `set` (insert into spare headroom, or value overwrite) is
+described under [`set`](#set) above; `removeKey` takes the value path.
 
 ## Compaction
 
