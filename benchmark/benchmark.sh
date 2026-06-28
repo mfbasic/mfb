@@ -12,28 +12,29 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # set their own BENCH_RUNS.
 benchmarks=(
   empty
-  primes
-  recurse-fib
-  recurse-ackermann
   float-leibniz
   float-nbody
   float-mandelbrot
+  io-read
+  io-write
   list-append
   list-append2
-  list-prepend
   list-copy
-  list-set
   list-distinct
   list-groupby
-  map-set
-  string-concat
-  record-update
+  list-prepend
+  list-set
   list-sort
+  map-lookup-large
+  map-set
   parse-csv
   parse-json
   parse-regex
-  io-write
-  io-read
+  primes
+  recurse-fib
+  recurse-ackermann
+  record-update
+  string-concat
   thread-sum
 )
 
