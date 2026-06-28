@@ -2600,6 +2600,8 @@ mod term;
 mod tls;
 mod type_utils;
 use type_utils::*;
+mod serialization_utils;
+use serialization_utils::*;
 
 fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
     &[
@@ -2785,22 +2787,6 @@ fn standard_error_message_symbol(message: &str) -> Option<&'static str> {
     standard_error_messages()
         .iter()
         .find_map(|(_, candidate, symbol)| (*candidate == message).then_some(*symbol))
-}
-
-fn join_json<T: ToCodeJson>(values: &[T], indent: usize) -> String {
-    values
-        .iter()
-        .map(|value| value.to_json(indent))
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-fn json_string_list(values: &[String]) -> String {
-    values
-        .iter()
-        .map(|value| json_string(value))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
 
 #[cfg(test)]
