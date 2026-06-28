@@ -400,13 +400,50 @@ def _build_recon(coeff_table):
     def ktan(x):
         return ksin(x) / kcos(x)
 
+    # fdlibm __atan 4-segment reduction + minimax aT polynomial — the EXACT
+    # sequence the codegen emits (builder_simd_float_math.rs::emit_atan_core),
+    # strict <=1 ULP. (The C["atan"] primitive above is a single-segment fit kept
+    # for provenance; the shipped kernel uses these fdlibm aT constants instead.)
+    ATAN_HI = [4.63647609000806093515e-01, 7.85398163397448278999e-01,
+               9.82793723247329054082e-01, 1.57079632679489655800e+00]
+    ATAN_LO = [2.26987774529616870924e-17, 3.06161699786838301793e-17,
+               1.39033110312309984516e-17, 6.12323399573676603587e-17]
+    AT = [3.33333333333329318027e-01, -1.99999999998764832476e-01,
+          1.42857142725034663711e-01, -1.11111104054623557880e-01,
+          9.09088713343650656196e-02, -7.69187620504482999495e-02,
+          6.66107313738753120669e-02, -5.83357013379057348645e-02,
+          4.97687799461593236017e-02, -3.65315727442169155270e-02,
+          1.62858201153657823623e-02]
+
+    def _athorner(w, coeffs):
+        acc = coeffs[-1]
+        for c in reversed(coeffs[:-1]):
+            acc = fma(acc, w, c)
+        return acc
+
     def katan(x):
         ax = abs(x)
-        if ax <= 1.0:
-            r = ax * _poly_f64(C["atan"], ax * ax)
+        if ax >= 2.4375:
+            reduced = -1.0 / ax
+            off_hi, off_lo = ATAN_HI[3], ATAN_LO[3]
+        elif ax >= 1.1875:
+            reduced = (ax - 1.5) / (1.0 + 1.5 * ax)
+            off_hi, off_lo = ATAN_HI[2], ATAN_LO[2]
+        elif ax >= 0.6875:
+            reduced = (ax - 1.0) / (ax + 1.0)
+            off_hi, off_lo = ATAN_HI[1], ATAN_LO[1]
+        elif ax >= 0.4375:
+            reduced = (2.0 * ax - 1.0) / (2.0 + ax)
+            off_hi, off_lo = ATAN_HI[0], ATAN_LO[0]
         else:
-            inv = 1.0 / ax
-            r = math.pi / 2.0 - inv * _poly_f64(C["atan"], inv * inv)
+            reduced = ax
+            off_hi = off_lo = 0.0
+        z = reduced * reduced
+        w = z * z
+        s1 = z * _athorner(w, [AT[0], AT[2], AT[4], AT[6], AT[8], AT[10]])
+        s2 = w * _athorner(w, [AT[1], AT[3], AT[5], AT[7], AT[9]])
+        t = reduced * (s1 + s2)
+        r = off_hi - ((t - off_lo) - reduced)
         return math.copysign(r, x)
 
     def kasin(x):

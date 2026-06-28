@@ -51,7 +51,10 @@ impl CodeBuilder<'_> {
             "seed" if args.len() == 1 => self.lower_math_seed(&args[0]),
             "sqrt" if args.len() == 1 => self.lower_math_sqrt(&args[0]),
             "pow" if args.len() == 2 => self.lower_external_math(function, args),
-            "atan2" if args.len() == 2 => self.lower_external_math(function, args),
+            // Scalar Float atan2 shares the strict array Atan2 kernel (so
+            // `math::atan2(y, x)` and `math::atan2([y], [x])[0]` are bit-identical
+            // and no libm `atan2` is imported); Fixed keeps the Q32.32 path.
+            "atan2" if args.len() == 2 => self.lower_math_scalar_binary(function, args),
             // Scalar Float exp/log/log10/sin/cos share the array NEON kernels
             // (plan-01-simd §4.7: one deterministic surface, <=1 ULP of libm, and
             // the kernels' float error codes — ErrFloatDomain/ErrFloatInf/
@@ -172,6 +175,67 @@ impl CodeBuilder<'_> {
                 self.lower_simd_float_scalar(kernel, &value.location, text)
             }
             "Fixed" => self.lower_fixed_external_math(function, &[value]),
+            other => Err(format!("math.{function} does not accept {other}")),
+        }
+    }
+
+    /// Scalar `atan2`/`pow`: `Float` runs the shared NEON binary kernel
+    /// (bit-identical to the array overload, no libm import); `Fixed` keeps the
+    /// deterministic Q32.32 path. Mirrors `lower_external_math`'s arg spilling so
+    /// a later argument's lowering cannot clobber the first.
+    fn lower_math_scalar_binary(
+        &mut self,
+        function: &str,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        use super::builder_simd_float_math::FloatBinaryKernel;
+        let left = self.lower_value(&args[0])?;
+        let left_slot = self.allocate_stack_object("scalar_binary_left", 8);
+        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        let right = self.lower_value(&args[1])?;
+        let right_slot = self.allocate_stack_object("scalar_binary_right", 8);
+        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        if left.type_ != right.type_ {
+            return Err(format!(
+                "math.{function} requires matching argument types, got {} and {}",
+                left.type_, right.type_
+            ));
+        }
+        let text = format!("math.{function}({}, {})", left.text, right.text);
+        match left.type_.as_str() {
+            "Float" => {
+                let kernel = match function {
+                    "atan2" => FloatBinaryKernel::Atan2,
+                    "pow" => FloatBinaryKernel::Pow,
+                    _ => return Err(format!("math.{function} has no scalar Float binary kernel")),
+                };
+                self.reset_temporary_registers();
+                let left_reg = self.allocate_register()?;
+                self.emit(abi::load_u64(&left_reg, abi::stack_pointer(), left_slot));
+                let right_reg = self.allocate_register()?;
+                self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
+                self.lower_simd_float_binary_scalar(kernel, &left_reg, &right_reg, text)
+            }
+            "Fixed" => {
+                self.reset_temporary_registers();
+                let left_reg = self.allocate_register()?;
+                self.emit(abi::load_u64(&left_reg, abi::stack_pointer(), left_slot));
+                let right_reg = self.allocate_register()?;
+                self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
+                let values = vec![
+                    ValueResult {
+                        type_: "Fixed".to_string(),
+                        location: left_reg,
+                        text: left.text,
+                    },
+                    ValueResult {
+                        type_: "Fixed".to_string(),
+                        location: right_reg,
+                        text: right.text,
+                    },
+                ];
+                self.lower_fixed_external_math(function, &values)
+            }
             other => Err(format!("math.{function} does not accept {other}")),
         }
     }

@@ -837,6 +837,36 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Lower a *scalar* binary `Float` overload (`atan2`/`pow`) onto the array
+    /// binary kernel by broadcasting both operands into both `.2d` lanes and
+    /// extracting lane 0 — the binary analog of `lower_simd_float_scalar`, so
+    /// `math::f(y, x)` and `math::f([y], [x])[0]` are bit-identical. The same
+    /// per-lane error checks run, so the scalar error codes match the array.
+    pub(super) fn lower_simd_float_binary_scalar(
+        &mut self,
+        kernel: FloatBinaryKernel,
+        left_loc: &str,
+        right_loc: &str,
+        text: String,
+    ) -> Result<ValueResult, String> {
+        self.emit(abi::vector_dup_from_x("v0", left_loc));
+        self.emit(abi::vector_dup_from_x("v1", right_loc));
+        self.emit(abi::vector_eor("v22", "v22", "v22"));
+        self.emit(abi::vector_eor("v24", "v24", "v24")); // inf/overflow mask
+        self.emit_float_binary_setup(kernel);
+        self.emit_float_binary_body(kernel);
+        for err in kernel.errors() {
+            self.emit_float_error_reduce(*err)?;
+        }
+        let dst = self.allocate_register()?;
+        self.emit(abi::vector_extract_to_x(&dst, "v0", 0));
+        Ok(ValueResult {
+            type_: "Float".to_string(),
+            location: dst,
+            text,
+        })
+    }
+
     fn emit_float_binary_setup(&mut self, kernel: FloatBinaryKernel) {
         match kernel {
             FloatBinaryKernel::Atan2 => {
@@ -862,8 +892,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_orr("v2", "v23", "v21")); // copysign(pi, y)
                 self.emit(abi::vector_and("v2", "v2", "v20")); // & (x<0)
                 self.emit(abi::vector_fadd("v0", "v0", "v2"));
-                // ErrFloatNan: NaN result (NaN/inf input).
                 self.emit_result_nan_into_v22();
+                // self.emit(abi::vector_orr("v2", "v23", "v21")); // copysign(pi, y)
+                // self.emit(abi::vector_and("v2", "v2", "v20")); // & (x<0)
+                // self.emit(abi::vector_fadd("v0", "v0", "v2"));
+                // self.emit_result_nan_into_v22();
             }
             FloatBinaryKernel::Pow => {
                 // pow(x=v0, y=v1) = exp(y * log(x)). Re-broadcast each kernel's
@@ -892,6 +925,18 @@ impl CodeBuilder<'_> {
 pub(super) enum FloatBinaryKernel {
     /// `atan2(y, x)`.
     Atan2,
-    /// `pow(base, exponent) = exp(exponent * log(base))`.
+    /// `pow(base, exponent)`.
     Pow,
+}
+
+impl FloatBinaryKernel {
+    /// The error checks this kernel performs, matching the scalar man pages.
+    /// `atan2` only ever fails with a NaN result (NaN/inf input); `pow` (Phase 4)
+    /// also raises `ErrFloatInf` on overflow (its `exp` core sets the `v24` mask).
+    fn errors(self) -> &'static [FloatError] {
+        match self {
+            FloatBinaryKernel::Atan2 => &[FloatError::Nan],
+            FloatBinaryKernel::Pow => &[FloatError::Nan, FloatError::Inf],
+        }
+    }
 }

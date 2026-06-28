@@ -1,0 +1,50 @@
+{
+  "project": "func_math_atan2_determinism_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "math", "line": 2 },
+    { "module": "collections", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "one",
+      "line": 9,
+      "params": [
+      { "name": "y", "type": "Float", "default": null },
+      { "name": "x", "type": "Float", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "number", "value": "17" }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "yl", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "y" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "xl", "type": "List OF Float", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "x" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.atan2", "arguments": [{ "kind": "identifier", "value": "y" }, { "kind": "identifier", "value": "x" }] }, { "kind": "identifier", "value": "p" }] }, "right": { "kind": "string", "value": " " } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "call", "callee": "math.atan2", "arguments": [{ "kind": "identifier", "value": "yl" }, { "kind": "identifier", "value": "xl" }] }, { "kind": "number", "value": "0" }] }, { "kind": "identifier", "value": "p" }] } }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "one", "arguments": [{ "kind": "number", "value": "1.0" }, { "kind": "number", "value": "1.0" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "one", "arguments": [{ "kind": "number", "value": "3.0" }, { "kind": "number", "value": "4.0" }] }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "ny", "type": "Float", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "number", "value": "2.0" } }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "nx", "type": "Float", "value": { "kind": "binary", "operator": "-", "left": { "kind": "number", "value": "0.0" }, "right": { "kind": "number", "value": "3.0" } }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "one", "arguments": [{ "kind": "identifier", "value": "ny" }, { "kind": "identifier", "value": "nx" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "one", "arguments": [{ "kind": "number", "value": "0.5" }, { "kind": "number", "value": "0.0" }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 23 }
+      ]
+    }
+    ]
+  }
+  ]
+}
