@@ -183,6 +183,9 @@ pub(super) fn lower_function(
         };
         instructions.splice(insert_at..insert_at, zeroing);
     }
+    // Store-to-load forwarding over the lowered stream (offsets are still
+    // pre-prologue here, before finalize_frame shifts them).
+    peephole::forward_stores_to_loads(&mut instructions);
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(
         &mut instructions,
@@ -293,6 +296,7 @@ pub(super) fn lower_builtin_function_wrapper(
     builder.emit(abi::return_());
 
     let mut instructions = builder.instructions;
+    peephole::forward_stores_to_loads(&mut instructions);
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(
         &mut instructions,

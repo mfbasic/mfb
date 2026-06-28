@@ -2292,6 +2292,7 @@ mod serialization_utils;
 use serialization_utils::*;
 mod function_lowering;
 use function_lowering::*;
+mod peephole;
 
 fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
     &[

@@ -13,6 +13,15 @@ impl CodeInstruction {
         self
     }
 
+    /// Value of a named field, if present. Used by the peephole pass to read
+    /// register/offset operands without re-deriving them from the encoder.
+    pub(crate) fn get(&self, name: &str) -> Option<&str> {
+        self.fields
+            .iter()
+            .find(|(key, _)| *key == name)
+            .map(|(_, value)| value.as_str())
+    }
+
     pub(super) fn validate(&self) -> Result<(), String> {
         let required: &[&str] = match self.op {
             CodeOp::Label => &["name"],
