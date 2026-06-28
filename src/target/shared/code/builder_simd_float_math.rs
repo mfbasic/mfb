@@ -350,22 +350,33 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// `asin(x)` / `acos(x)` via `asin(x) = atan(x / sqrt(1 - x^2))` (NEON `fdiv`
-    /// yields ±inf at x=±1, and `atan(inf) = ±pi/2`); `acos = pi/2 - asin`.
-    /// `ErrInvalidArgument` for `|x| > 1`. Faithfully rounded (within a few ULP).
+    /// `asin(x)` via `asin(x) = atan(x / sqrt(1 - x^2))` and `acos(x)` via the
+    /// half-angle identity `acos(x) = 2*atan( sqrt( (1-x)/(1+x) ) )`. NEON `fdiv`
+    /// yields ±inf at the domain edge (`x=±1` for asin, `x=-1` for acos), which
+    /// `atan` maps to the correct ±pi/2, so the endpoints come out exact. `acos`
+    /// uses the half-angle form rather than `pi/2 - asin` to avoid catastrophic
+    /// cancellation as `x → +1` (where `acos → 0`); `1±x` is exact for `|x| <= 1`
+    /// (Sterbenz), so both stay ≤1 ULP. `ErrInvalidArgument` for `|x| > 1`.
     fn emit_asin_acos_body(&mut self, want_acos: bool) {
         // Domain: |x| > 1 fails.
         self.emit(abi::vector_and("v1", "v0", "v19")); // ax
         self.emit(abi::vector_fcmgt("v6", "v1", "v16")); // ax > 1
         self.emit(abi::vector_orr("v22", "v22", "v6"));
-        // arg = x / sqrt(1 - x^2).
-        self.emit(abi::vector_orr("v7", "v16", "v16")); // 1.0
-        self.emit(abi::vector_fmls("v7", "v0", "v0")); // 1 - x*x
-        self.emit(abi::vector_fsqrt("v7", "v7"));
-        self.emit(abi::vector_fdiv("v0", "v0", "v7")); // arg → v0
-        self.emit_atan_core(); // v0 = atan(arg) = asin(x)
-        if want_acos {
-            self.emit(abi::vector_fsub("v0", "v17", "v0")); // pi/2 - asin
+        if !want_acos {
+            // asin(x) = atan(x / sqrt(1 - x^2)).
+            self.emit(abi::vector_orr("v7", "v16", "v16")); // 1.0
+            self.emit(abi::vector_fmls("v7", "v0", "v0")); // 1 - x*x
+            self.emit(abi::vector_fsqrt("v7", "v7"));
+            self.emit(abi::vector_fdiv("v0", "v0", "v7")); // arg → v0
+            self.emit_atan_core(); // v0 = atan(arg) = asin(x)
+        } else {
+            // acos(x) = 2*atan( sqrt( (1-x)/(1+x) ) ).
+            self.emit(abi::vector_fsub("v6", "v16", "v0")); // 1 - x
+            self.emit(abi::vector_fadd("v7", "v16", "v0")); // 1 + x
+            self.emit(abi::vector_fdiv("v0", "v6", "v7")); // (1-x)/(1+x)
+            self.emit(abi::vector_fsqrt("v0", "v0")); // sqrt(...) >= 0
+            self.emit_atan_core(); // v0 = atan(sqrt(...))
+            self.emit(abi::vector_fadd("v0", "v0", "v0")); // 2*atan(...)
         }
     }
 

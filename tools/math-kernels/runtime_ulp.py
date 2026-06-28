@@ -45,6 +45,8 @@ try:
         "atan2": lambda a: _mp.atan2(_mp.mpf(a[0]), _mp.mpf(a[1])),
         "tan": lambda a: _mp.tan(_mp.mpf(a[0])),
         "pow": lambda a: _mp.power(_mp.mpf(a[0]), _mp.mpf(a[1])),
+        "asin": lambda a: _mp.asin(_mp.mpf(a[0])),
+        "acos": lambda a: _mp.acos(_mp.mpf(a[0])),
     }
 except ImportError:
     _TRUTH = None
@@ -95,8 +97,8 @@ def _call_expr(fn, vnames):
     as call arguments corrupt the lowering — orthogonal to these kernels)."""
     if fn == "atan2":
         return f"math::atan2({vnames[0]}, {vnames[1]})"
-    if fn == "tan":
-        return f"math::tan({vnames[0]})"
+    if fn in ("tan", "asin", "acos"):
+        return f"math::{fn}({vnames[0]})"
     if fn == "pow":
         return f"math::pow({vnames[0]}, {vnames[1]})"
     if fn == "fmod":
@@ -123,6 +125,9 @@ def _eligible(fn, args, expected):
         # MFBASIC has no NaN value, so this degenerate input is out of scope.
         if args[0] == 0.0 and args[1] == 0.0:
             return False
+    if fn in ("asin", "acos"):
+        if abs(args[0]) > 1.0:
+            return False  # |x| > 1 → ErrFloatDomain, never returns a value
     if fn == "fmod":
         if args[1] == 0.0:
             return False  # ErrFloatDomain pre-check, never reaches the kernel
@@ -278,7 +283,7 @@ def run(fn, ref_dir, mfb, decimals, limit):
 
 def main(argv):
     ap = argparse.ArgumentParser()
-    ap.add_argument("fn", choices=["atan2", "tan", "pow", "fmod"])
+    ap.add_argument("fn", choices=["atan2", "tan", "pow", "fmod", "asin", "acos"])
     here = os.path.dirname(os.path.abspath(__file__))
     ap.add_argument("--ref", default=os.path.join(here, "..", "..",
                                                    "tests", "_data", "math_kernel_ref"))

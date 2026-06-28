@@ -1,8 +1,10 @@
 IMPORT io
 IMPORT math
 
-' Vectorized math::acos over a Float list — NEON kernel (acos via atan(x/sqrt(1-x^2))).
-' ErrInvalidArgument for |x|>1. Faithfully rounded (within a few ULP of libm).
+' Vectorized math::acos over a Float list — NEON kernel via the half-angle
+' identity acos(x) = 2*atan(sqrt((1-x)/(1+x))), which stays <=1 ULP of macOS libm
+' across the whole domain (no pi/2 - asin cancellation as x -> 1).
+' ErrInvalidArgument for |x|>1.
 FUNC main AS Integer
   LET p AS Byte = 15
   LET xs AS List OF Float = [0.0, 0.5, 0.0 - 0.5, 1.0, 0.25]

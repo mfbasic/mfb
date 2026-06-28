@@ -10,7 +10,7 @@ Wrote executable to tests/func_math_acos_floatarray_valid/func_math_acos_floatar
 $ tests/func_math_acos_floatarray_valid/func_math_acos_floatarray_valid.out
 1.570796326794897
 1.047197551196598
-2.094395102393196
+2.094395102393195
 0.000000000000000
 1.318116071652818
 [exit 0]

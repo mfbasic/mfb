@@ -499,16 +499,11 @@ def _build_recon(coeff_table):
         return r
 
     def kacos(x):
-        # Cancellation-safe: for x near 1 use acos(x) = 2*asin(sqrt((1-x)/2)).
-        if x > 0.5:
-            t = 0.5 * (1.0 - x)
-            s = math.sqrt(t)
-            return 2.0 * katan(s / math.sqrt(fma(-s, s, 1.0)))
-        if x < -0.5:
-            t = 0.5 * (1.0 + x)
-            s = math.sqrt(t)
-            return math.pi - 2.0 * katan(s / math.sqrt(fma(-s, s, 1.0)))
-        return math.pi / 2.0 - kasin(x)
+        # Mirrors the codegen: acos(x) = 2*atan(sqrt((1-x)/(1+x))), the half-angle
+        # identity. Stable for all x in [-1,1] (1±x is exact by Sterbenz), avoiding
+        # the pi/2 - asin cancellation as x -> +1 where acos -> 0. At x=-1 the
+        # divide yields +inf so atan gives pi/2 and 2*pi/2 = pi exactly.
+        return 2.0 * katan(math.sqrt((1.0 - x) / (1.0 + x)))
 
     def katan2(y, x):
         if x > 0.0:

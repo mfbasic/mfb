@@ -41,19 +41,17 @@ vectors in `tests/_data/math_kernel_ref/<fn>.ref`. The kernels meet it as follow
 
 | Function(s) | Bound | Notes |
 |---|---|---|
-| `exp`, `log`, `log10`, `sin`, `cos`, `atan`, `asin`, `atan2` | **≤1 ULP** of macOS libm | double-double-compensated Remez polynomials; fdlibm 4-segment `atan` |
+| `exp`, `log`, `log10`, `sin`, `cos`, `atan`, `asin`, `acos`, `atan2` | **≤1 ULP** of macOS libm | double-double-compensated Remez polynomials; fdlibm 4-segment `atan`; `acos` via the half-angle identity `2·atan(√((1−x)/(1+x)))` |
 | `pow` | **≤1 ULP** of macOS libm | fdlibm `__ieee754_pow` in log2 space; negative base with an integer exponent matches libm (`(-2)^3 = -8`) |
 | `tan` | **faithfully rounded — ≤1 ULP of the TRUE value** | more accurate than macOS libm; see below |
 | `fmod` | **0 ULP — bit-identical** to libm | the IEEE remainder is exactly representable |
 | `Fixed` transcendentals, `Fixed MOD` | deterministic Q32.32 | platform-independent by construction; not an `f64` bound |
 
-**Known limitation — `acos` near `±1`.** `acos(x)` is currently evaluated as
-`π/2 − asin(x)`, which loses precision to catastrophic cancellation as `x → +1`
-(where the result tends to `0`): e.g. `acos(0.999999)` is ~10²–10³ ULP from the
-true value, growing closer to the pole. `asin` itself, and `acos` away from `±1`,
-are within 1 ULP. The cancellation-safe reconstruction is already modeled in
-`tools/math-kernels/gen_coeffs.py` (`kacos`, the `2·atan(√((1−x)/(1+x)))` form);
-porting it into the kernel is the open fix.
+`acos` deliberately uses the half-angle identity rather than `π/2 − asin(x)`: the
+latter cancels catastrophically as `x → +1` (where `acos → 0`), while `1±x` is
+exact for `|x| ≤ 1` (Sterbenz), so `2·atan(√((1−x)/(1+x)))` stays ≤1 ULP across the
+whole domain. The endpoints fall out of IEEE arithmetic — at `x = −1` the divide
+yields `+inf`, `atan(+inf) = π/2`, and `2·(π/2) = π` exactly.
 
 ## The oracle is not correctly-rounded — the `tan` deviation
 
@@ -73,8 +71,7 @@ Two consequences a maintainer should expect:
   `tan` — that is intended and more correct, not a regression.
 
 For every other function the kernel and macOS libm agree to ≤1 ULP, so the
-distinction only matters for `tan` (and, in the other direction, for the `acos`
-limitation above, where the kernel is the less accurate one).
+distinction only matters for `tan`.
 
 `pow` is a separate cautionary tale: the natural-log identity `exp(y·log x)` is
 **not** faithfully roundable across `pow`'s dynamic range — the `n·ln2` reduction
