@@ -1,0 +1,18 @@
+IMPORT io
+
+' plan-01-libm-kernels Phase 4: scalar math::pow matches libm's negative-base
+' integer-exponent rule (the fdlibm sign/odd-even handling): (-2)^3 = -8,
+' (-2)^2 = 4, (-2)^-3 = -0.125. A non-integer exponent of a negative base has
+' no real result (ErrFloatNan) — see func_math_pow_negbase_invalid_rt.
+IMPORT math
+FUNC main AS Integer
+  LET p AS Byte = 6
+  LET nb AS Float = 0.0 - 2.0
+  io::print(toString(math::pow(nb, 3.0), p))
+  io::print(toString(math::pow(nb, 2.0), p))
+  LET ne AS Float = 0.0 - 3.0
+  io::print(toString(math::pow(nb, ne), p))
+  LET nb3 AS Float = 0.0 - 3.0
+  io::print(toString(math::pow(nb3, 4.0), p))
+  RETURN 0
+END FUNC

@@ -2269,6 +2269,7 @@ mod builder_fs_paths;
 mod builder_inplace_assign;
 mod builder_math;
 mod builder_numeric;
+mod builder_pow;
 mod builder_search;
 mod builder_simd_fixed_math;
 mod builder_simd_float_math;

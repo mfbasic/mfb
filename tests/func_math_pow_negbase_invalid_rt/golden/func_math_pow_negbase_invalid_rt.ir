@@ -1,0 +1,29 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_math_pow_negbase_invalid_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "4" } },
+    { "op": "bind", "mutable": false, "name": "nb", "type": "Float", "value": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "2.0" } } },
+    { "op": "bind", "mutable": false, "name": "frac", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.5" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.pow", "args": [{ "kind": "local", "name": "nb" }, { "kind": "local", "name": "frac" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

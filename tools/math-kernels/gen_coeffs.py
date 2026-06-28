@@ -523,14 +523,12 @@ def _build_recon(coeff_table):
         return 0.0
 
     def kpow(x, y):
-        # Negative base with an INTEGER exponent: |x|**y with libm's sign rule
-        # ((-1)**y), matching the kernel's fdlibm sign/integer handling
-        # (plan-01-libm-kernels §4.4). A non-integer exponent of a negative base
-        # has no real result (the kernel's error path) and is not captured.
-        if x < 0.0 and float(y).is_integer():
-            mag = kexp(y * klog(-x))
-            return -mag if (int(y) & 1) else mag
-        return kexp(y * klog(x))     # positive base
+        # fdlibm `__ieee754_pow` — the EXACT scalar kernel the codegen emits
+        # (builder_pow.rs). `exp(y*log x)` is not faithfully rounded for large
+        # |y*log x| (the natural-log reduction `n*ln2` loses bits), so pow works in
+        # log2 space with the integer exponent split off exactly. Faithfully
+        # rounded incl. negative base + integer exponent ((-2)**3 = -8).
+        return _kpow_fdlibm(x, y)
 
     return {
         "exp": kexp, "log": klog, "log10": klog10,
@@ -538,6 +536,136 @@ def _build_recon(coeff_table):
         "asin": kasin, "acos": kacos, "atan": katan,
         "atan2": katan2, "pow": kpow,
     }
+
+
+def _kpow_fdlibm(x, y):
+    """fdlibm `__ieee754_pow` in f64 — mirrors builder_pow.rs::emit_pow_scalar.
+    Self-contained (its own constants, not the fitted exp/log primitives)."""
+    import struct
+    fma = math.fma
+
+    def hi(v):
+        return (struct.unpack('<Q', struct.pack('<d', v))[0] >> 32) & 0xFFFFFFFF
+
+    def lo(v):
+        return struct.unpack('<Q', struct.pack('<d', v))[0] & 0xFFFFFFFF
+
+    def set_hi(v, hw):
+        b = struct.unpack('<Q', struct.pack('<d', v))[0] & 0xFFFFFFFF
+        return struct.unpack('<d', struct.pack('<Q', ((hw & 0xFFFFFFFF) << 32) | b))[0]
+
+    def lowz(v):
+        return struct.unpack('<d', struct.pack('<Q',
+               struct.unpack('<Q', struct.pack('<d', v))[0] & 0xFFFFFFFF00000000))[0]
+
+    def s32(v):
+        v &= 0xFFFFFFFF
+        return v - 0x100000000 if v >= 0x80000000 else v
+
+    bp = [1.0, 1.5]
+    dp_h = [0.0, 5.84962487220764160156e-01]
+    dp_l = [0.0, 1.35003920212974897128e-08]
+    two53 = 9007199254740992.0
+    Lc = [5.99999999999994648725e-01, 4.28571428578550184252e-01, 3.33333329818377432918e-01,
+          2.72728123808534006489e-01, 2.30660745775561366331e-01, 2.06975017800338417784e-01]
+    Pc = [1.66666666666666019037e-01, -2.77777777770155933842e-03, 6.61375632143793436117e-05,
+          -1.65339022054652515390e-06, 4.13813679705723846039e-08]
+    lg2 = 6.93147180559945286227e-01
+    lg2_h = 6.93147182464599609375e-01
+    lg2_l = -1.90465429995776804525e-09
+    cp = 9.61796693925975554329e-01
+    cp_h = 9.61796700954437255859e-01
+    cp_l = -7.02846165095275826516e-09
+
+    hx = s32(hi(x))
+    if (hi(y) & 0x7fffffff) == 0 and lo(y) == 0:
+        return 1.0
+    # sign / integer-exponent rule
+    s = 1.0
+    if hx < 0:
+        if abs(y) >= two53:
+            pass  # even integer
+        elif not float(y).is_integer():
+            return float('nan')
+        elif int(y) & 1:
+            s = -1.0
+    ax = abs(x)
+    # log2(ax) -> (t1, t2)
+    n_exp = 0
+    if hi(ax) < 0x00100000:
+        ax *= two53
+        n_exp -= 53
+    h2 = hi(ax)
+    n_exp += (h2 >> 20) - 1023
+    j = h2 & 0xfffff
+    if j <= 0x3988E:
+        k = 0
+    elif j < 0xBB67A:
+        k = 1
+    else:
+        k = 0
+        n_exp += 1
+        j -= 0x100000
+    ax = set_hi(ax, (j + 0x3ff00000) & 0xFFFFFFFF)
+    u = ax - bp[k]
+    v = 1.0 / (ax + bp[k])
+    ss = u * v
+    s_h = lowz(ss)
+    t_h = set_hi(0.0, (((hi(ax) >> 1) | 0x20000000) + 0x00080000 + (k << 18)) & 0xFFFFFFFF)
+    t_l = ax - (t_h - bp[k])
+    s_l = v * ((u - s_h * t_h) - s_h * t_l)
+    s2 = ss * ss
+    r = s2 * s2 * (Lc[0] + s2 * (Lc[1] + s2 * (Lc[2] + s2 * (Lc[3] + s2 * (Lc[4] + s2 * Lc[5])))))
+    r += s_l * (s_h + ss)
+    s2 = s_h * s_h
+    t_h = lowz(3.0 + s2 + r)
+    t_l = r - ((t_h - 3.0) - s2)
+    u = s_h * t_h
+    v = s_l * t_h + t_l * ss
+    p_h = lowz(u + v)
+    p_l = v - (p_h - u)
+    z_h = cp_h * p_h
+    z_l = cp_l * p_h + p_l * cp + dp_l[k]
+    t = float(n_exp)
+    t1 = lowz(((z_h + z_l) + dp_h[k]) + t)
+    t2 = z_l - (((t1 - t) - dp_h[k]) - z_h)
+    # y * log2(ax) -> p_h + p_l ; z
+    y1 = lowz(y)
+    p_l = (y - y1) * t1 + y * t2
+    p_h = y1 * t1
+    z = p_l + p_h
+    j = s32(hi(z))
+    if j >= 0x40900000:
+        return s * 1.0e300 * 1.0e300
+    if (j & 0x7fffffff) >= 0x4090cc00:
+        return s * 1.0e-300 * 1.0e-300
+    # 2**(p_h + p_l)
+    i = j & 0x7fffffff
+    n = 0
+    if i > 0x3fe00000:
+        kk = (i >> 20) - 0x3ff
+        n = (j + (0x100000 >> (kk + 1))) & 0xFFFFFFFF
+        kk = ((n & 0x7fffffff) >> 20) - 0x3ff
+        t = set_hi(0.0, (n & ~(0xfffff >> kk)) & 0xFFFFFFFF)
+        n = ((n & 0xfffff) | 0x100000) >> (20 - kk)
+        if j < 0:
+            n = -n
+        p_h -= t
+    t = lowz(p_l + p_h)
+    u = t * lg2_h
+    v = (p_l - (t - p_h)) * lg2 + t * lg2_l
+    z = u + v
+    w = v - (z - u)
+    t = z * z
+    t1 = z - t * (Pc[0] + t * (Pc[1] + t * (Pc[2] + t * (Pc[3] + t * Pc[4]))))
+    r = (z * t1) / (t1 - 2.0) - (w + z * w)
+    z = 1.0 - (r - z)
+    jj = s32(hi(z)) + (n << 20)
+    if (jj >> 20) <= 0:
+        z = math.ldexp(z, n)
+    else:
+        z = set_hi(z, jj & 0xFFFFFFFF)
+    return s * z
 
 
 def _read_ref(path):

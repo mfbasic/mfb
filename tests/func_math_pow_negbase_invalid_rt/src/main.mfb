@@ -1,0 +1,12 @@
+IMPORT io
+
+' A negative base with a NON-integer exponent has no real result: math::pow
+' raises ErrFloatNan (matching libm and the man page).
+IMPORT math
+FUNC main AS Integer
+  LET p AS Byte = 4
+  LET nb AS Float = 0.0 - 2.0
+  LET frac AS Float = 0.5
+  io::print(toString(math::pow(nb, frac), p))
+  RETURN 0
+END FUNC

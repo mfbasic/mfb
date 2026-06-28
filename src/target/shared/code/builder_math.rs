@@ -50,7 +50,9 @@ impl CodeBuilder<'_> {
             "rand" if args.len() == 2 => self.lower_math_rand(args),
             "seed" if args.len() == 1 => self.lower_math_seed(&args[0]),
             "sqrt" if args.len() == 1 => self.lower_math_sqrt(&args[0]),
-            "pow" if args.len() == 2 => self.lower_external_math(function, args),
+            // Scalar Float pow shares the strict array Pow kernel (negative-base
+            // integer exponents included); Fixed keeps the Q32.32 path.
+            "pow" if args.len() == 2 => self.lower_math_scalar_binary(function, args),
             // Scalar Float atan2 shares the strict array Atan2 kernel (so
             // `math::atan2(y, x)` and `math::atan2([y], [x])[0]` are bit-identical
             // and no libm `atan2` is imported); Fixed keeps the Q32.32 path.
@@ -202,6 +204,20 @@ impl CodeBuilder<'_> {
         }
         let text = format!("math.{function}({}, {})", left.text, right.text);
         match left.type_.as_str() {
+            "Float" if function == "pow" => {
+                // pow is a scalar GPR+FP fdlibm kernel (not SIMD); it produces inf
+                // on overflow and NaN for a negative base with a non-integer
+                // exponent, which the result check turns into ErrFloatInf /
+                // ErrFloatNan (matching the scalar pow man page).
+                self.reset_temporary_registers();
+                let left_reg = self.allocate_register()?;
+                self.emit(abi::load_u64(&left_reg, abi::stack_pointer(), left_slot));
+                let right_reg = self.allocate_register()?;
+                self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
+                let result = self.emit_pow_scalar(&left_reg, &right_reg)?;
+                self.emit_float_result_check(&result, FloatInfinityError::Infinity)?;
+                Ok(ValueResult { type_: "Float".to_string(), location: result, text })
+            }
             "Float" => {
                 let kernel = match function {
                     "atan2" => FloatBinaryKernel::Atan2,
@@ -262,12 +278,16 @@ impl CodeBuilder<'_> {
                 left.type_, right.type_
             ));
         }
+        let text = format!("math.{function}({}, {})", left.text, right.text);
+        // pow is a per-element scalar fdlibm kernel (strict <=1 ULP, negative-base
+        // integer exponents); atan2 stays on the SIMD binary kernel.
+        if function == "pow" {
+            return self.lower_pow_array(left_slot, right_slot, text);
+        }
         let kernel = match function {
             "atan2" => FloatBinaryKernel::Atan2,
-            "pow" => FloatBinaryKernel::Pow,
             _ => return Err(format!("math.{function} has no binary array overload")),
         };
-        let text = format!("math.{function}({}, {})", left.text, right.text);
         self.lower_simd_float_binary(kernel, left_slot, right_slot, text)
     }
 
