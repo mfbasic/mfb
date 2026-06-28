@@ -59,6 +59,9 @@ pub(super) fn lower_function(
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
+        next_vreg: 0,
+        vreg_eager: Vec::new(),
+        regalloc_kind: regalloc::active_kind(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -136,6 +139,9 @@ pub(super) fn lower_function(
     if !builder.current_block_returns() {
         builder.emit_return_exit(None)?;
     }
+    // Color virtual registers to physical registers (plan-03 Stage A) before the
+    // body is moved out for the peephole pass and finalize_frame.
+    builder.run_register_allocation();
     let mut instructions = builder.instructions;
     // Zero every string self-append capacity shadow at function entry: the buffer a
     // parameter or first assignment hands the local is tight (no spare). Stores are
@@ -248,6 +254,9 @@ pub(super) fn lower_builtin_function_wrapper(
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
+        next_vreg: 0,
+        vreg_eager: Vec::new(),
+        regalloc_kind: regalloc::active_kind(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -295,6 +304,7 @@ pub(super) fn lower_builtin_function_wrapper(
     ));
     builder.emit(abi::return_());
 
+    builder.run_register_allocation();
     let mut instructions = builder.instructions;
     peephole::forward_stores_to_loads(&mut instructions);
     let mut stack_slots = builder.stack_slots;

@@ -30,6 +30,17 @@ struct CodeBuilder<'a> {
     used_callee_saved: Vec<String>,
     stack_size: usize,
     next_register: usize,
+    /// Next virtual-register index `allocate_register` will hand out. Virtual
+    /// registers are colored to physical registers after the whole function is
+    /// lowered (`regalloc::allocate`); the bump-and-reset replay uses
+    /// `vreg_eager` (plan-03 Stage A).
+    next_vreg: u32,
+    /// Per-virtual-register physical register the bump allocator computed
+    /// eagerly at allocation time (index == virtual register number). Consumed
+    /// by `regalloc::allocate` to reproduce the legacy assignment byte-for-byte.
+    vreg_eager: Vec<String>,
+    /// The register-allocation strategy selected for this build (`-regalloc`).
+    regalloc_kind: regalloc::RegallocKind,
     next_label: usize,
     trap: Option<TrapState>,
     loop_stack: Vec<LoopLabels>,
@@ -1786,6 +1797,9 @@ fn lower_direct_builtin_runtime_helper(
         used_callee_saved: Vec::new(),
         stack_size: 0,
         next_register: 8,
+        next_vreg: 0,
+        vreg_eager: Vec::new(),
+        regalloc_kind: regalloc::active_kind(),
         next_label: 0,
         trap: None,
         loop_stack: Vec::new(),
@@ -1844,6 +1858,7 @@ fn lower_direct_builtin_runtime_helper(
     ));
     builder.emit(abi::return_());
 
+    builder.run_register_allocation();
     let mut instructions = builder.instructions;
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(
@@ -2293,6 +2308,7 @@ use serialization_utils::*;
 mod function_lowering;
 use function_lowering::*;
 mod peephole;
+pub(crate) mod regalloc;
 
 fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
     &[

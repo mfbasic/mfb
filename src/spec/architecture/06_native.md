@@ -259,6 +259,34 @@ The code generator also adds:
 
 `mfb build -ncode` writes `<project>.ncode`.
 
+### Register Allocation
+
+Lowerings do not name physical temporary registers directly. `allocate_register`
+mints a **virtual register**, carried in the instruction stream as the sentinel
+`%vN` in any register-valued operand field. After a function is fully lowered, a
+coloring pass (`src/target/shared/code/regalloc`) rewrites every `%vN` to a
+physical register, before the peephole pass and `finalize_frame` (which expect
+physical names).[[src/target/shared/code/regalloc/mod.rs:allocate]]
+
+The allocator is split into two layers so a future x86_64 backend reuses the
+core:
+
+- **ISA-neutral core** (`src/target/shared/code/regalloc`): the virtual-register
+  representation, the rewrite pass, and the pluggable `AllocationStrategy`
+  interface. It names no physical registers.
+- **Per-ISA register model** (`src/arch/<isa>/regmodel.rs`): the `RegisterModel`
+  trait answers every register question — the allocatable banks and their class
+  (integer vs FP/SIMD), the caller/callee-saved partition per class, ABI-pinned
+  and scratch registers, and the spill/reload/move emitters. AArch64 implements
+  it now; an x86_64 sibling implements the same trait later.[[src/arch/aarch64/regmodel.rs:RegisterModel]]
+
+The allocation method is a swappable `AllocationStrategy`, selected by the
+`-regalloc <name>` build flag (default `bump`). The `bump` strategy
+(`BumpAndReset`) replays the legacy per-statement bump numbering and is
+byte-identical to the pre-allocator backend; it is retained as the differential
+reference oracle. Liveness-driven strategies (linear-scan) slot in as additional
+implementations without touching the rewrite pass or the register model.
+
 ### The CodegenPlatform Seam
 
 The shared code generator (`src/target/shared/code/mod.rs`) is OS-independent.

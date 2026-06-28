@@ -1043,7 +1043,10 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_callable_branch(&mut self, location: &str) {
-        if location.starts_with('x') {
+        // A callable held in a register (a physical `x*` or a not-yet-colored
+        // virtual register) is an indirect `blr`; a bare function symbol is a
+        // direct `bl` + relocation.
+        if location.starts_with('x') || regalloc::parse_vreg(location).is_some() {
             self.emit(abi::branch_link_register(location));
             return;
         }

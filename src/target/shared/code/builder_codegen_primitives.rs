@@ -2,15 +2,42 @@ use super::*;
 
 impl CodeBuilder<'_> {
     pub(super) fn allocate_register(&mut self) -> Result<String, String> {
-        let register = abi::temporary_register(self.next_register).map_err(|err| {
+        // Mint a virtual register. The physical register is assigned after the
+        // whole function is lowered (`regalloc::allocate`). We still compute the
+        // bump allocator's eager physical here — both to drive the byte-identical
+        // `BumpAndReset` replay (index == virtual register number) and to mark
+        // its callee-saved use in the legacy order so the frame layout is
+        // unchanged (plan-03 Stage A §4.1).
+        let physical = abi::temporary_register(self.next_register).map_err(|err| {
             format!(
                 "{err} while lowering native function '{}'",
                 self.current_symbol
             )
         })?;
         self.next_register += 1;
-        self.mark_register_used(&register);
-        Ok(register)
+        self.mark_register_used(&physical);
+        let vreg = self.next_vreg;
+        self.next_vreg += 1;
+        debug_assert_eq!(self.vreg_eager.len(), vreg as usize);
+        self.vreg_eager.push(physical);
+        Ok(regalloc::vreg_name(vreg))
+    }
+
+    /// Color the fully-lowered instruction stream: rewrite every virtual
+    /// register to a physical register (or spill slot) using the selected
+    /// strategy, extending `used_callee_saved` with any callee-saved register
+    /// the strategy newly used. Must run after the body is fully emitted and
+    /// before the peephole pass and `finalize_frame`, which both expect physical
+    /// register names (plan-03 Stage A).
+    pub(super) fn run_register_allocation(&mut self) {
+        let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
+        regalloc::allocate(
+            self.regalloc_kind,
+            &mut self.instructions,
+            &self.vreg_eager,
+            &mut self.used_callee_saved,
+            &model,
+        );
     }
 
     pub(super) fn mark_register_used(&mut self, register: &str) {
