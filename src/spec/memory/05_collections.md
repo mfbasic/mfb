@@ -280,10 +280,13 @@ For a `List`, `collections::get(value, index)` validates `0 <= index < count`,
 reads `LookupEntry[index]`, then reads the payload at `Data + valueOffset` with
 `valueLength`. An out-of-range or negative index fails with `ErrIndexOutOfRange`.
 
-For a `Map`, `collections::get(value, key)` scans live lookup entries until the
-key payload matches; missing keys fail with `ErrNotFound`. A `String`-keyed map
-takes a dedicated comparison fast path (`lower_string_key_map_get`); other key
-types use the generic linear scan. [[src/target/shared/code/builder_collection_updates.rs:lower_string_key_map_get]]
+For a `Map`, `collections::get(value, key)` looks the key up through the *Map
+Hash Index* — an O(1)-average FNV-1a bucket probe that lazily builds the index on
+first use — then reads the matching entry's payload at `Data + valueOffset`;
+missing keys fail with `ErrNotFound`. The probe covers every scalar key type
+(`String`, `Integer`, `Float`, `Fixed`, `Byte`, `Boolean`, i.e. all valid map key
+types); any other key type falls back to a generic linear scan over the live
+lookup entries. [[src/target/shared/code/builder_collection_updates.rs:lower_map_get]]
 
 ### `append`
 
@@ -314,14 +317,18 @@ iterator, unlike a beyond-`count` append, so that case takes the value path.
   `valueOffset` and `valueLength` is patched: no allocation, no copy. A longer
   payload falls back to the value-semantic rebuild (`removeAt` + `insert`). An
   out-of-range index fails with `ErrIndexOutOfRange`, like the value path.
-- **`Map`.** `lower_map_set_in_place` linear-scans for the key. A hit whose new
+- **`Map`.** `lower_map_set_in_place` locates the key with the same hash probe as
+  `get` (linear-scan fallback for non-probe key types), which also lazily builds
+  the bucket index so a build-via-`set` loop stays O(n). A hit whose new
   value fits overwrites in place; a hit whose value grew rebuilds
   (`removeKey` + concat). A miss writes the key+value into a spare lookup slot and
   the spare data tail — the entry packed exactly like a literal entry (key then
   value, each aligned to its payload alignment) — and bumps `count`/`dataLength`,
   growing the buffer geometrically (capacity and `dataCapacity` stepped
   independently, entries and data copied verbatim against the capacity-based base)
-  when full. Insertion order is preserved.
+  when full. Insertion order is preserved, and the new key is folded into the hash
+  index per *Map Hash Index* (incremental `_mfb_rt_map_bucket_put` when built, or
+  `bucketsReady = 0` when a grow moved the bucket region).
   [[src/target/shared/code/builder_collection_updates.rs:lower_map_set_in_place]]
 
 The source `collections::sort` is an insertion sort built on `set`, so its
@@ -352,9 +359,11 @@ position. [[src/target/shared/code/builder_collection_updates.rs:lower_list_remo
 ### Map Updates
 
 For `Map`, setting or removing keys updates lookup entries and packed key/value
-payloads. The current implementation uses a linear scan. Missing removed keys are
+payloads. Key lookup goes through the *Map Hash Index* (O(1)-average FNV-1a probe,
+with a linear-scan fallback for any non-probe key type). Missing removed keys are
 ignored. In-place `set` (insert into spare headroom, or value overwrite) is
-described under [`set`](#set) above; `removeKey` takes the value path.
+described under [`set`](#set) above; `removeKey` takes the value path, which
+re-tightens the buffer and leaves `bucketsReady = 0` for a lazy rebuild.
 
 ## Compaction
 
