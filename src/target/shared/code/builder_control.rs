@@ -218,6 +218,7 @@ impl CodeBuilder<'_> {
                         // general reassignment path entirely.
                         if !self.try_inplace_append_assign(name, value, stack_offset, by_ref)?
                             && !self.try_inplace_set_assign(name, value, stack_offset, by_ref)?
+                            && !self.try_inplace_prepend_assign(name, value, stack_offset, by_ref)?
                             && !self.try_inplace_concat_assign(name, value, stack_offset, by_ref)?
                         {
                             // Reassignment installs a fresh independent block; the old
@@ -881,6 +882,72 @@ impl CodeBuilder<'_> {
             return Ok(true);
         }
         Ok(false)
+    }
+
+    /// Recognize `name = collections::prepend(name, item)` on a uniquely-owned
+    /// `MUT` list local and lower it as an in-place prepend (plan-02 §3): shift the
+    /// live lookup entries right by one and write the new entry at index 0, with the
+    /// new element's payload appended to the spare data tail — no per-op allocation
+    /// (geometric grow only when full). Still O(n) per op (the entry shift), but it
+    /// drops the alloc + double-copy the value-semantic insert did each call. Like
+    /// `set`, the entry shift is observable to an enclosing `FOR EACH` over the same
+    /// binding, so that case is excluded. Returns `true` when handled.
+    fn try_inplace_prepend_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        if by_ref {
+            return Ok(false);
+        }
+        let NirValue::Call { target, args, .. } = value else {
+            return Ok(false);
+        };
+        if crate::builtins::native_builtin_target(target) != Some("prepend") || args.len() != 2 {
+            return Ok(false);
+        }
+        let NirValue::Local(arg0) = &args[0] else {
+            return Ok(false);
+        };
+        if arg0 != name {
+            return Ok(false);
+        }
+        if self.for_each_iterable_locals.iter().any(|n| n == name) {
+            return Ok(false);
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let list_type = local.type_.clone();
+        let Some(element_type) = super::list_element_type(&list_type) else {
+            return Ok(false);
+        };
+        if super::CollectionTypeLayout::from_type(&list_type).is_none() {
+            return Ok(false);
+        }
+        // `prepend` always takes a single element of the list element type
+        // (a bulk form is rejected in `lower_collection_prepend`), so no static
+        // gate is needed; the post-lowering check catches any mismatch.
+        let item = self.lower_value(&args[1])?;
+        if item.type_ != element_type {
+            return Err(format!(
+                "native collection prepend item must be {element_type}, got {}",
+                item.type_
+            ));
+        }
+        let item_slot = self.allocate_stack_object("inplace_prepend_item", 8);
+        self.emit(abi::store_u64(
+            &item.location,
+            abi::stack_pointer(),
+            item_slot,
+        ));
+        self.lower_list_prepend_in_place(stack_offset, item_slot, &list_type, &element_type)?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
     }
 
     /// Recognize `name = name & x` (and the left-associated chain
