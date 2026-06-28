@@ -5266,6 +5266,8 @@ mod io_helpers;
 use io_helpers::*;
 mod runtime_helpers;
 use runtime_helpers::*;
+mod runtime_helpers_thread;
+use runtime_helpers_thread::*;
 mod data_objects;
 use data_objects::*;
 mod module_analysis;
