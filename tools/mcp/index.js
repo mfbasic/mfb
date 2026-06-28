@@ -176,7 +176,7 @@ server.tool(
 async function main() {
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  log(`ready; logging to ${LOG_FILE}`);
+  // log(`ready; logging to ${LOG_FILE}`);
   // Stays alive until the transport closes (stdin EOF / client disconnect).
 }
 
