@@ -30,6 +30,25 @@ from decimal import Decimal
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from ulp import ulp_diff, bits_to_f64  # noqa: E402
 
+# Optional: compare against the mathematically-true value (mpmath) as well as the
+# captured macOS-libm reference. macOS libm is not correctly-rounded for every
+# function (notably `tan`, which is up to ~2 ULP off the true value at some
+# inputs), so a kernel that is *more* accurate than macOS would otherwise look
+# like it "fails" the macOS bar at exactly the points macOS itself is wrong. The
+# real correctness gate is ULP-vs-truth.
+try:
+    import mpmath as _mp  # noqa: N812
+    _mp.mp.dps = 50
+    # `fmod` is exact (its 0-ULP-vs-macOS bit-exact match is the definitive gate),
+    # so it needs no truth mode.
+    _TRUTH = {
+        "atan2": lambda a: _mp.atan2(_mp.mpf(a[0]), _mp.mpf(a[1])),
+        "tan": lambda a: _mp.tan(_mp.mpf(a[0])),
+        "pow": lambda a: _mp.power(_mp.mpf(a[0]), _mp.mpf(a[1])),
+    }
+except ImportError:
+    _TRUTH = None
+
 # fdlibm medium-range trig reduction limit (matches gen_coeffs.py); beyond it the
 # kernel would need Payne-Hanek, which is out of scope here exactly as for sin/cos.
 _TRIG_PRIMARY = 2.0 ** 20 * (math.pi / 2.0)
@@ -208,7 +227,9 @@ def run(fn, ref_dir, mfb, decimals, limit):
             print(f"  RAISED {fn}{tuple(args)} (exp {expected!r}) — excluded", file=sys.stderr)
         chosen = [c for c in chosen if c not in errored]
 
-    buckets = {"p": [0, 0, 0, []], "e": [0, 0, 0, []]}
+    truth_fn = _TRUTH.get(fn) if _TRUTH else None
+    # buckets: count, ok_macos, max_macos, misses, ok_truth, max_truth, macos_bad_vs_truth
+    buckets = {"p": [0, 0, 0, [], 0, 0, 0], "e": [0, 0, 0, [], 0, 0, 0]}
     for (args, expected), line in zip(chosen, got_lines):
         got = float(line)
         u = ulp_diff(got, expected)
@@ -216,24 +237,43 @@ def run(fn, ref_dir, mfb, decimals, limit):
         b[0] += 1
         if u <= 1:
             b[1] += 1
-        else:
-            b[3].append((args, got, expected, u))
         b[2] = max(b[2], u)
+        if truth_fn is not None:
+            t = float(truth_fn(args))
+            ut = ulp_diff(got, t)
+            if ut <= 1:
+                b[4] += 1
+            else:
+                b[3].append((args, got, expected, t, ut))
+            b[5] = max(b[5], ut)
+            if ulp_diff(expected, t) > 1:
+                b[6] += 1
+        elif u > 1:
+            b[3].append((args, got, expected, None, u))
 
     p, e = buckets["p"], buckets["e"]
     print(f"{fn}: runtime kernel vs macOS-libm reference ({decimals}-decimal recovery)")
     ppct = (100.0 * p[1] / p[0]) if p[0] else 0.0
-    print(f"  primary : {p[0]:5d} vectors  {ppct:6.2f}% <=1ULP  maxULP={p[2]}")
+    print(f"  primary : {p[0]:5d} vectors  {ppct:6.2f}% <=1ULP vs macOS  maxULP={p[2]}")
+    if truth_fn is not None:
+        tpct = (100.0 * p[4] / p[0]) if p[0] else 0.0
+        print(f"            {p[0]:5d} vectors  {tpct:6.2f}% <=1ULP vs TRUTH  maxULP={p[5]}"
+              f"   (macOS itself >1ULP vs truth on {p[6]} of these)")
     if e[0]:
         epct = 100.0 * e[1] / e[0]
-        print(f"  extended: {e[0]:5d} vectors  {epct:6.2f}% <=1ULP  maxULP={e[2]} "
+        print(f"  extended: {e[0]:5d} vectors  {epct:6.2f}% <=1ULP vs macOS  maxULP={e[2]} "
               f"(large-arg / Payne-Hanek, out of scope)")
     if skipped_unrecoverable:
         print(f"  skipped : {skipped_unrecoverable} vectors (|result| too small for "
               f"{decimals}-decimal recovery)")
-    for args, got, expected, u in p[3][:12]:
-        print(f"    MISS {fn}{tuple(args)}: got {got!r} exp {expected!r}  {u} ULP")
-    return 0 if p[1] == p[0] else 3
+    for row in p[3][:12]:
+        args, got, expected, t, u = row
+        extra = f" truth {t!r}" if t is not None else ""
+        print(f"    MISS {fn}{tuple(args)}: got {got!r} exp {expected!r}{extra}  {u} ULP")
+    # Gate on ULP-vs-truth when available (the real correctness bar); otherwise on
+    # ULP-vs-macOS.
+    ok = (p[4] == p[0]) if truth_fn is not None else (p[1] == p[0])
+    return 0 if ok else 3
 
 
 def main(argv):

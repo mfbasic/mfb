@@ -533,37 +533,65 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// `tan(x) = sin(x) / cos(x)`: one reduction, compensated sin_r/cos_r, both
-    /// quadrant selections, divide. Strict <=1 ULP except a couple of inputs very
-    /// near an asymptote, where a double-double range reduction (future work)
-    /// would be needed; ~99.8% of the reference within 1 ULP, max 2.
+    /// `tan(x) = sin(x) / cos(x)`, strict <=1 ULP. `sin_r` and `cos_r` are
+    /// computed as double-doubles (compensated Horner), the quadrant
+    /// selection/sign is applied to BOTH the hi and lo halves, and the final
+    /// quotient is evaluated with a one-step double-double-accurate division
+    /// (`q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`). Carrying the lo
+    /// halves through the divide closes the near-pole 2-ULP residual the plain
+    /// `fdiv` left. (Medium-range Cody-Waite reduction, like sin/cos; huge
+    /// arguments would need Payne-Hanek, out of scope.)
     fn emit_tan_body(&mut self) {
         self.emit_sincos_reduce(); // reduced=v2, quad=v5
-        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2
+        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2 (Horner var, survives)
+        // cos_r as a double-double (hi,lo) → stash in v25/v26.
         self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS);
-        self.emit(abi::vector_fadd("v23", "v3", "v4")); // cos_r → v23
+        self.emit(abi::vector_orr("v25", "v3", "v3")); // cos_hi
+        self.emit(abi::vector_orr("v26", "v4", "v4")); // cos_lo
+        // sin_r = reduced * P_sin(r2) as a double-double → stash in v23/v24.
         self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS);
-        self.emit_twoprod("v6", "v7", "v2", "v3");
-        self.emit(abi::vector_fmla("v7", "v2", "v4"));
-        self.emit(abi::vector_fadd("v24", "v6", "v7")); // sin_r → v24
-        // Quadrant masks b0 (v1), b1 (v2).
-        self.emit(abi::vector_shl("v1", "v5", 63));
-        self.emit(abi::vector_sshr("v1", "v1", 63));
+        self.emit_twoprod("v6", "v7", "v2", "v3"); // reduced*sin_hi → (v6,v7)
+        self.emit(abi::vector_fmla("v7", "v2", "v4")); // lo += reduced*sin_lo
+        self.emit(abi::vector_orr("v23", "v6", "v6")); // sin_hi
+        self.emit(abi::vector_orr("v24", "v7", "v7")); // sin_lo
+        // Quadrant masks: b0 → v27, b1 → v2.
+        self.emit(abi::vector_shl("v27", "v5", 63));
+        self.emit(abi::vector_sshr("v27", "v27", 63));
         self.emit(abi::vector_shl("v2", "v5", 62));
         self.emit(abi::vector_sshr("v2", "v2", 63));
-        // sin_full = (b1 ? -1 : 1) * (b0 ? cos_r : sin_r) → v0.
-        self.emit(abi::vector_orr("v3", "v1", "v1"));
-        self.emit(abi::vector_bsl("v3", "v23", "v24"));
-        self.emit(abi::vector_fneg("v4", "v3"));
-        self.emit(abi::vector_orr("v0", "v2", "v2"));
-        self.emit(abi::vector_bsl("v0", "v4", "v3"));
-        // cos_full = ((b0^b1) ? -1 : 1) * (b0 ? sin_r : cos_r) → v1.
-        self.emit(abi::vector_orr("v3", "v1", "v1"));
-        self.emit(abi::vector_bsl("v3", "v24", "v23"));
-        self.emit(abi::vector_fneg("v4", "v3"));
-        self.emit(abi::vector_eor("v1", "v1", "v2"));
-        self.emit(abi::vector_bsl("v1", "v4", "v3"));
-        self.emit(abi::vector_fdiv("v0", "v0", "v1")); // tan = sin/cos
+        // sin_full = (b1 ? -1 : 1) * (b0 ? cos_r : sin_r), as a dd → (v28,v29).
+        self.emit(abi::vector_orr("v3", "v27", "v27"));
+        self.emit(abi::vector_bsl("v3", "v25", "v23")); // b0?cos_hi:sin_hi
+        self.emit(abi::vector_orr("v4", "v27", "v27"));
+        self.emit(abi::vector_bsl("v4", "v26", "v24")); // b0?cos_lo:sin_lo
+        self.emit(abi::vector_fneg("v6", "v3"));
+        self.emit(abi::vector_fneg("v7", "v4"));
+        self.emit(abi::vector_orr("v28", "v2", "v2"));
+        self.emit(abi::vector_bsl("v28", "v6", "v3")); // sin_full_hi
+        self.emit(abi::vector_orr("v29", "v2", "v2"));
+        self.emit(abi::vector_bsl("v29", "v7", "v4")); // sin_full_lo
+        // cos_full = ((b0^b1) ? -1 : 1) * (b0 ? sin_r : cos_r), as a dd → (v30,v31).
+        self.emit(abi::vector_orr("v3", "v27", "v27"));
+        self.emit(abi::vector_bsl("v3", "v23", "v25")); // b0?sin_hi:cos_hi
+        self.emit(abi::vector_orr("v4", "v27", "v27"));
+        self.emit(abi::vector_bsl("v4", "v24", "v26")); // b0?sin_lo:cos_lo
+        self.emit(abi::vector_fneg("v6", "v3"));
+        self.emit(abi::vector_fneg("v7", "v4"));
+        self.emit(abi::vector_eor("v1", "v27", "v2")); // b0^b1
+        self.emit(abi::vector_orr("v30", "v1", "v1"));
+        self.emit(abi::vector_bsl("v30", "v6", "v3")); // cos_full_hi
+        self.emit(abi::vector_orr("v31", "v1", "v1"));
+        self.emit(abi::vector_bsl("v31", "v7", "v4")); // cos_full_lo
+        // Double-double-accurate divide: sh=v28 sl=v29 ch=v30 cl=v31.
+        self.emit(abi::vector_fdiv("v0", "v28", "v30")); // q = sh/ch
+        self.emit(abi::vector_fneg("v3", "v0")); // -q
+        self.emit(abi::vector_orr("v4", "v28", "v28"));
+        self.emit(abi::vector_fmla("v4", "v3", "v30")); // sh - q*ch (fma residual)
+        self.emit(abi::vector_orr("v6", "v29", "v29"));
+        self.emit(abi::vector_fmls("v6", "v0", "v31")); // sl - q*cl
+        self.emit(abi::vector_fadd("v4", "v4", "v6")); // num
+        self.emit(abi::vector_fdiv("v4", "v4", "v30")); // num/ch
+        self.emit(abi::vector_fadd("v0", "v0", "v4")); // tan = q + num/ch
     }
 
     /// `exp` kernel: n=floor(x/ln2+0.5), Cody-Waite r, Horner P(r), scale 2^n.

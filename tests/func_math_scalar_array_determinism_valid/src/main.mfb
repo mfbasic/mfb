@@ -2,7 +2,7 @@ IMPORT io
 IMPORT math
 IMPORT collections
 
-' plan-01-simd §4.7 "one deterministic surface": scalar log/log10/sin/cos run the
+' plan-01-simd §4.7 / plan-01-libm-kernels: scalar log/log10/sin/cos/tan run the
 ' SAME NEON kernel as the array overload, so math::f(x) == math::f([x])[0]
 ' bit-identically (each printed pair must be equal).
 SUB one(x AS Float)
@@ -13,6 +13,7 @@ SUB one(x AS Float)
   io::print("log10 " & toString(math::log10(x), p) & " " & toString(collections::get(math::log10(xl), 0), p))
   io::print("sin " & toString(math::sin(x), p) & " " & toString(collections::get(math::sin(xl), 0), p))
   io::print("cos " & toString(math::cos(x), p) & " " & toString(collections::get(math::cos(xl), 0), p))
+  io::print("tan " & toString(math::tan(x), p) & " " & toString(collections::get(math::tan(xl), 0), p))
 END SUB
 
 FUNC main AS Integer
