@@ -14435,6 +14435,7 @@ mod builder_simd_fixed_math;
 mod builder_simd_float_math;
 mod builder_simd_math;
 mod builder_strings;
+mod builder_strings_builtins;
 mod builder_strings_package;
 mod builder_value_semantics;
 mod builder_values;
