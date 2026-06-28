@@ -14418,6 +14418,7 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
 mod builder_arena_transfer;
 mod builder_bits;
 mod builder_codegen_primitives;
+mod builder_collection_compare;
 mod builder_collection_layout;
 mod builder_collection_mutate;
 mod builder_collection_queries;
