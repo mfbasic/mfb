@@ -17,14 +17,17 @@ exercise everything a <=1 ULP claim must cover:
     between the structured points.
 
 Only IN-DOMAIN inputs are emitted: out-of-domain handling (asin/acos outside
-[-1,1], log of <=0, pow of negative base, ...) is the kernels' per-lane error
-path and is covered by the _invalid/_rt function tests, not by ULP vectors.
+[-1,1], log of <=0, pow of a negative base with a *fractional* exponent, ...) is
+the kernels' per-lane error path and is covered by the _invalid/_rt function
+tests, not by ULP vectors. Note pow of a *negative base with an integer
+exponent* IS in-domain — the kernel matches libm there ((-2)^3 = -8;
+plan-01-libm-kernels §4.4) — so those vectors are emitted.
 
 Output: lines of lowercase 16-hex-digit IEEE-754 bit patterns (big-endian byte
 order == the integer bit pattern == capture_ref's "%016llx"). Unary functions
-emit one value per line; atan2/pow emit two (x then y).
+emit one value per line; atan2/pow/fmod emit two (x then y).
 
-Usage:  python3 gen_inputs.py <fn>        # fn = exp|log|...|atan2|pow
+Usage:  python3 gen_inputs.py <fn>        # fn = exp|log|...|atan2|pow|fmod
         python3 gen_inputs.py --list      # list known functions
 """
 import math
@@ -198,6 +201,63 @@ def inputs_pow():
         v = math.pow(b, e)
         if math.isfinite(v) and v > 0.0:
             pts.append((b, e))
+    # Negative base with an INTEGER exponent — in-domain since the kernel matches
+    # libm's sign/integer handling (plan-01-libm-kernels §4.4). Both parities so
+    # the odd/even sign branch is exercised; non-integer exponents stay out of
+    # domain (the per-lane error path) and are deliberately not emitted here.
+    neg_bases = [-0.5, -1.0, -1.5, -2.0, -math.e, -10.0, -0.1, -100.0]
+    int_exps = [-4.0, -3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0, 4.0, 10.0, 11.0]
+    for b in neg_bases:
+        for e in int_exps:
+            v = math.pow(b, e)
+            if math.isfinite(v):
+                pts.append((b, e))
+    for _ in range(200):
+        b = -math.exp(rng.uniform(-5.0, 5.0))      # negative base
+        e = float(int(rng.uniform(-12.0, 12.0)))   # integer exponent
+        v = math.pow(b, e)
+        if math.isfinite(v):
+            pts.append((b, e))
+    return pts
+
+
+def inputs_fmod():
+    # fmod(a, b) = a - n*b is EXACT, so the kernel must be bit-identical (0 ULP)
+    # to libm. Coverage targets the bitwise remainder algorithm: a wide spread of
+    # exponent gaps (drives the subtractive-reduction iteration count), every
+    # sign combination (result takes a's sign), and the boundary cases libm
+    # special-cases — |a|<|b| (returns a), |a|==|b| and exact multiples (returns
+    # +-0 with a's sign). A zero divisor never reaches the kernel (the Float MOD
+    # ErrFloatDomain pre-check guards it), so b == 0 is not emitted.
+    rng = Rng(0xF0D)
+    pts = []
+    structured = [
+        (7.5, 2.0), (7.5, -2.0), (-7.5, 2.0), (-7.5, -2.0),  # sign matrix
+        (1.0, 3.0), (-1.0, 3.0),                              # |a| < |b| -> a
+        (5.0, 5.0), (-5.0, 5.0), (6.0, 2.0), (-9.0, 3.0),     # exact multiple -> +-0
+        (5.3, 5.3), (-5.3, 5.3),                              # |a| == |b| -> +-0
+        (1e300, 1e-300), (1e300, 3.0), (1e-300, 1e-308),      # huge exponent gaps
+        (123456.789, 1.0), (123456.789, 0.5),                 # near-integer reductions
+        (3.0, 1e300), (2.5, 1e16),                            # |a| << |b| -> a
+        (1.0, math.ldexp(1.0, -1070)),                        # subnormal divisor
+        (math.ldexp(1.0, -1070), math.ldexp(1.0, -1074)),     # subnormal a and b
+        (math.pi, math.e), (-math.pi, math.e), (math.e, math.pi),
+    ]
+    pts += structured
+    # Powers-of-two operands: the remainder is exact and stresses the exponent
+    # alignment with no mantissa noise.
+    p2 = [math.ldexp(1.0, k) for k in (-40, -10, -1, 0, 1, 10, 40)]
+    for a in p2:
+        for b in p2:
+            pts.append((a, b))
+            pts.append((-a, b))
+    # Pseudo-random fill across many magnitudes and both signs.
+    for _ in range(500):
+        a = math.copysign(math.exp(rng.uniform(-40.0, 40.0)), rng.uniform(-1.0, 1.0))
+        b = math.copysign(math.exp(rng.uniform(-40.0, 40.0)), rng.uniform(-1.0, 1.0))
+        if b == 0.0:
+            continue
+        pts.append((a, b))
     return pts
 
 
@@ -213,8 +273,9 @@ PLANS = {
     "atan": inputs_atan,
     "atan2": inputs_atan2,
     "pow": inputs_pow,
+    "fmod": inputs_fmod,
 }
-BINARY = {"atan2", "pow"}
+BINARY = {"atan2", "pow", "fmod"}
 
 
 def dedup(seq):

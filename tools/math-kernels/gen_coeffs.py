@@ -447,7 +447,14 @@ def _build_recon(coeff_table):
         return 0.0
 
     def kpow(x, y):
-        return kexp(y * klog(x))     # positive base (in-domain capture set)
+        # Negative base with an INTEGER exponent: |x|**y with libm's sign rule
+        # ((-1)**y), matching the kernel's fdlibm sign/integer handling
+        # (plan-01-libm-kernels §4.4). A non-integer exponent of a negative base
+        # has no real result (the kernel's error path) and is not captured.
+        if x < 0.0 and float(y).is_integer():
+            mag = kexp(y * klog(-x))
+            return -mag if (int(y) & 1) else mag
+        return kexp(y * klog(x))     # positive base
 
     return {
         "exp": kexp, "log": klog, "log10": klog10,

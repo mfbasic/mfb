@@ -28,7 +28,7 @@
  *
  * Build:  cc -O0 -std=c11 -Wall -Wextra -o capture_ref capture_ref.c -lm
  * Usage:  ./capture_ref <fn>   (fn = exp|log|log10|sin|cos|tan|
- *                                    asin|acos|atan|atan2|pow)
+ *                                    asin|acos|atan|atan2|pow|fmod)
  *         gen_inputs.py emits the stdin stream; capture.sh wires them together.
  */
 
@@ -63,15 +63,17 @@ struct binary_entry {
     binary_fn fn;
 };
 
-/* The 9 unary transcendentals and 2 binary ones from §4.6. These resolve to the
- * system libm symbols at link time — the call below IS the macOS-libm value. */
+/* The 9 unary transcendentals and the binary ones from §4.6, plus fmod (the
+ * Float MOD operator; plan-01-libm-kernels §4.1). These resolve to the system
+ * libm symbols at link time — the call below IS the macOS-libm value. fmod is
+ * exact, so its reference locks the kernel to a bit-identical (0 ULP) result. */
 static const struct unary_entry UNARY[] = {
     {"exp", exp},   {"log", log},   {"log10", log10},
     {"sin", sin},   {"cos", cos},   {"tan", tan},
     {"asin", asin}, {"acos", acos}, {"atan", atan},
 };
 static const struct binary_entry BINARY[] = {
-    {"atan2", atan2}, {"pow", pow},
+    {"atan2", atan2}, {"pow", pow}, {"fmod", fmod},
 };
 
 static int parse_bits(const char *tok, uint64_t *out) {

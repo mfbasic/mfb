@@ -25,7 +25,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUT_DIR="${1:-$HERE/reference}"
 
-FUNCS=(exp log log10 sin cos tan asin acos atan atan2 pow)
+FUNCS=(exp log log10 sin cos tan asin acos atan atan2 pow fmod)
 
 if [[ "$(uname -s)" != "Darwin" ]]; then
   echo "capture.sh: refusing to run on $(uname -s) — the reference oracle is" >&2
@@ -63,8 +63,12 @@ for fn in "${FUNCS[@]}"; do
     echo "#   libm:   $LIBM_ID"
     echo "#   cc:     $CC_VER"
     echo "#   Date:   $DATE (UTC)"
-    echo "# Each NEON f64 kernel result must be within <=1 ULP of expected_bits."
-    if [[ "$fn" == "atan2" || "$fn" == "pow" ]]; then
+    if [[ "$fn" == "fmod" ]]; then
+      echo "# fmod is exact: each kernel result must be BIT-IDENTICAL (0 ULP) to expected_bits."
+    else
+      echo "# Each NEON f64 kernel result must be within <=1 ULP of expected_bits."
+    fi
+    if [[ "$fn" == "atan2" || "$fn" == "pow" || "$fn" == "fmod" ]]; then
       echo "# Format: <x_bits> <y_bits> <expected_bits>  (lowercase IEEE-754 hex)"
     else
       echo "# Format: <x_bits> <expected_bits>  (lowercase IEEE-754 hex)"
