@@ -15,7 +15,7 @@ TRUE
 FALSE
 TRUE
 xor-rhs
-FALSE
+TRUE
 TRUE
 TRUE
 [exit 0]

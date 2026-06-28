@@ -1,0 +1,39 @@
+{
+  "project": "codegen_register_pressure_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "deep",
+      "line": 8,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "3" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "4" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "5" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "6" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "7" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "8" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "9" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "10" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "11" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "12" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "13" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "14" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "15" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "16" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "17" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "18" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "19" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "20" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "21" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "22" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "23" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "24" } }, "right": { "kind": "binary", "operator": "+", "left": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "25" } }, "right": { "kind": "identifier", "value": "n" } } } } } } } } } } } } } } } } } } } } } } } } } }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "deep", "arguments": [{ "kind": "number", "value": "2" }] }] }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ]
+    }
+    ]
+  }
+  ]
+}

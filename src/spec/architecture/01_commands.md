@@ -21,9 +21,9 @@ The CLI supports these build-related commands:
 - `mfb build -target os-arch [location]` selects a native target instead of
   the host target.
 - `mfb build -regalloc name [location]` selects the native backend's
-  register-allocation strategy. The default is `bump` (the byte-identical
-  reference allocator); an unknown name is rejected with the list of available
-  strategies.[[src/target/shared/code/regalloc/mod.rs:parse_kind]]
+  register-allocation strategy. The default is `linear-scan` (liveness-driven,
+  with spilling); `bump` selects the byte-identical legacy reference allocator.
+  An unknown name is rejected with the list of available strategies.[[src/target/shared/code/regalloc/mod.rs:parse_kind]]
 - `mfb build --sign owner [location]` signs the emitted artifact with the
   registered repository owner's key. For package projects this produces a signed
   `.mfp` container; for executable projects it records signing metadata. At most

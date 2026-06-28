@@ -3,41 +3,71 @@ use super::*;
 impl CodeBuilder<'_> {
     pub(super) fn allocate_register(&mut self) -> Result<String, String> {
         // Mint a virtual register. The physical register is assigned after the
-        // whole function is lowered (`regalloc::allocate`). We still compute the
-        // bump allocator's eager physical here — both to drive the byte-identical
-        // `BumpAndReset` replay (index == virtual register number) and to mark
-        // its callee-saved use in the legacy order so the frame layout is
-        // unchanged (plan-03 Stage A §4.1).
-        let physical = abi::temporary_register(self.next_register).map_err(|err| {
-            format!(
-                "{err} while lowering native function '{}'",
-                self.current_symbol
-            )
-        })?;
-        self.next_register += 1;
-        self.mark_register_used(&physical);
+        // whole function is lowered (`regalloc::allocate`).
         let vreg = self.next_vreg;
         self.next_vreg += 1;
         debug_assert_eq!(self.vreg_eager.len(), vreg as usize);
-        self.vreg_eager.push(physical);
+        // Advance the bump counter for *both* strategies. Some lowerings advance
+        // it as a positional reservation (`while self.next_register <= 12 { … }`
+        // in `builder_numeric`), so it must always move or those loops never
+        // terminate; linear-scan simply ignores the counter when coloring.
+        let slot = self.next_register;
+        self.next_register += 1;
+        match self.regalloc_kind {
+            regalloc::RegallocKind::BumpAndReset => {
+                // Compute the bump allocator's eager physical now — both to drive
+                // the byte-identical `BumpAndReset` replay (index == virtual
+                // register number) and to mark its callee-saved use in the legacy
+                // order so the frame layout is unchanged (plan-03 Stage A §4.1).
+                let physical = abi::temporary_register(slot).map_err(|err| {
+                    format!(
+                        "{err} while lowering native function '{}'",
+                        self.current_symbol
+                    )
+                })?;
+                self.mark_register_used(&physical);
+                self.vreg_eager.push(physical);
+            }
+            regalloc::RegallocKind::LinearScan => {
+                // No eager physical: the liveness-driven coloring assigns physical
+                // registers (or spill slots) after the whole function is lowered,
+                // so a deep expression that would overflow the bump pool no longer
+                // fails — it spills instead (plan-03 Stage B §4.4).
+                self.vreg_eager.push(String::new());
+            }
+        }
         Ok(regalloc::vreg_name(vreg))
     }
 
     /// Color the fully-lowered instruction stream: rewrite every virtual
     /// register to a physical register (or spill slot) using the selected
-    /// strategy, extending `used_callee_saved` with any callee-saved register
-    /// the strategy newly used. Must run after the body is fully emitted and
-    /// before the peephole pass and `finalize_frame`, which both expect physical
-    /// register names (plan-03 Stage A).
+    /// strategy. Allocates frame slots for any spills and records the
+    /// callee-saved registers the coloring used so `finalize_frame` saves them.
+    /// Must run after the body is fully emitted and before the peephole pass and
+    /// `finalize_frame`, which both expect physical register names (plan-03).
     pub(super) fn run_register_allocation(&mut self) {
         let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
-        regalloc::allocate(
+        let spill_base = self.stack_size;
+        let outcome = regalloc::allocate(
             self.regalloc_kind,
             &mut self.instructions,
             &self.vreg_eager,
-            &mut self.used_callee_saved,
             &model,
+            spill_base,
         );
+        for offset in &outcome.spill_slots {
+            self.stack_slots.push(CodeStackSlot {
+                name: format!("spill_{}", self.stack_slots.len()),
+                type_: "spill".to_string(),
+                offset: *offset as i32,
+            });
+        }
+        self.stack_size = spill_base + outcome.spill_slots.len() * 8;
+        for register in outcome.extra_callee_saved {
+            if !self.used_callee_saved.iter().any(|saved| *saved == register) {
+                self.used_callee_saved.push(register);
+            }
+        }
     }
 
     pub(super) fn mark_register_used(&mut self, register: &str) {

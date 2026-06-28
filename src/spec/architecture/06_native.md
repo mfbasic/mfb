@@ -281,11 +281,15 @@ core:
   it now; an x86_64 sibling implements the same trait later.[[src/arch/aarch64/regmodel.rs:RegisterModel]]
 
 The allocation method is a swappable `AllocationStrategy`, selected by the
-`-regalloc <name>` build flag (default `bump`). The `bump` strategy
-(`BumpAndReset`) replays the legacy per-statement bump numbering and is
-byte-identical to the pre-allocator backend; it is retained as the differential
-reference oracle. Liveness-driven strategies (linear-scan) slot in as additional
-implementations without touching the rewrite pass or the register model.
+`-regalloc <name>` build flag. The default, `linear-scan`, computes liveness over
+the lowered stream and colors the integer class by live interval, spilling to a
+stack slot under pressure (so a deeply nested expression no longer fails — it
+spills); a value live across a call is spilled, since no register survives an
+internal runtime helper. The `bump` strategy (`BumpAndReset`) replays the legacy
+per-statement bump numbering and is byte-identical to the pre-allocator backend;
+it is retained as the differential reference oracle (`-regalloc bump`). Further
+strategies (graph-coloring) slot in without touching the rewrite pass or the
+register model.
 
 ### The CodegenPlatform Seam
 

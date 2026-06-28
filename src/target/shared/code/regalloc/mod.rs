@@ -42,6 +42,9 @@ pub(crate) enum RegallocKind {
     /// Replay the legacy per-statement bump numbering. Byte-identical to the
     /// pre-allocator backend; kept permanently as the `-regalloc bump` oracle.
     BumpAndReset,
+    /// Liveness-driven linear-scan over the integer class with spilling
+    /// (plan-03 Stage B).
+    LinearScan,
 }
 
 impl RegallocKind {
@@ -49,13 +52,14 @@ impl RegallocKind {
     pub(crate) fn name(self) -> &'static str {
         match self {
             RegallocKind::BumpAndReset => "bump",
+            RegallocKind::LinearScan => "linear-scan",
         }
     }
 }
 
 /// Names accepted by `-regalloc`, for the error message on an unknown value.
 pub(crate) fn available_strategies() -> &'static [&'static str] {
-    &["bump"]
+    &["bump", "linear-scan"]
 }
 
 /// Parse a `-regalloc` value, listing the available strategies on an unknown
@@ -63,6 +67,7 @@ pub(crate) fn available_strategies() -> &'static [&'static str] {
 pub(crate) fn parse_kind(value: &str) -> Result<RegallocKind, String> {
     match value {
         "bump" => Ok(RegallocKind::BumpAndReset),
+        "linear-scan" => Ok(RegallocKind::LinearScan),
         other => Err(format!(
             "unknown -regalloc strategy `{other}` (available: {})",
             available_strategies().join(", ")
@@ -78,10 +83,11 @@ pub(crate) fn set_strategy(kind: RegallocKind) {
     let _ = SELECTED.set(kind);
 }
 
-/// The active allocation strategy, defaulting to [`RegallocKind::BumpAndReset`]
-/// (Stage A's only strategy and default, §Phases.1).
+/// The active allocation strategy, defaulting to [`RegallocKind::LinearScan`]
+/// (the liveness-driven allocator with spilling, plan-03 Stage B). `bump` remains
+/// available as the byte-identical reference oracle via `-regalloc bump`.
 pub(crate) fn active_kind() -> RegallocKind {
-    *SELECTED.get().unwrap_or(&RegallocKind::BumpAndReset)
+    *SELECTED.get().unwrap_or(&RegallocKind::LinearScan)
 }
 
 /// The inputs an [`AllocationStrategy`] consumes to color a function.
@@ -133,38 +139,60 @@ impl AllocationStrategy for BumpAndReset {
     }
 }
 
+/// What coloring produced that the caller (`finalize_frame` setup) must apply:
+/// the stack-slot offsets allocated for spilled values and the callee-saved
+/// registers the coloring newly used.
+pub(crate) struct AllocOutcome {
+    /// Offsets (pre-prologue, `sp`-relative) of stack slots allocated for spills,
+    /// in slot order. Empty for [`RegallocKind::BumpAndReset`].
+    pub(crate) spill_slots: Vec<usize>,
+    /// Callee-saved registers the coloring used that the frame must save. Empty
+    /// for `BumpAndReset` (it marks them during lowering).
+    pub(crate) extra_callee_saved: Vec<String>,
+}
+
 /// Color a fully-lowered function and rewrite its virtual registers in place.
 ///
 /// `eager` holds the bump allocator's per-virtual-register physical (index ==
-/// virtual register number). `used_callee_saved` is extended with any
-/// callee-saved register the strategy newly used (so `finalize_frame` saves it).
-/// Must run before the peephole pass and `finalize_frame` (which expect physical
-/// register names).
+/// virtual register number), used by `BumpAndReset`. `spill_base_offset` is the
+/// current frame size, where any spill slots are placed. Must run before the
+/// peephole pass and `finalize_frame` (which expect physical register names).
 pub(crate) fn allocate(
     kind: RegallocKind,
-    instructions: &mut [CodeInstruction],
+    instructions: &mut Vec<CodeInstruction>,
     eager: &[String],
-    used_callee_saved: &mut Vec<String>,
     model: &dyn RegisterModel,
-) {
-    let strategy: &dyn AllocationStrategy = match kind {
-        RegallocKind::BumpAndReset => &BumpAndReset,
-    };
-    let allocation = strategy.assign(&AllocInput {
-        instructions,
-        eager,
-        model,
-    });
-    rewrite(instructions, &allocation.physical);
-    for register in allocation.extra_callee_saved {
-        if !used_callee_saved.iter().any(|saved| *saved == register) {
-            used_callee_saved.push(register);
+    spill_base_offset: usize,
+) -> AllocOutcome {
+    match kind {
+        RegallocKind::BumpAndReset => {
+            let allocation = BumpAndReset.assign(&AllocInput {
+                instructions,
+                eager,
+                model,
+            });
+            rewrite(instructions, &allocation.physical);
+            AllocOutcome {
+                spill_slots: Vec::new(),
+                extra_callee_saved: allocation.extra_callee_saved,
+            }
+        }
+        RegallocKind::LinearScan => {
+            let result = linear_scan::run(instructions, model, spill_base_offset);
+            *instructions = result.instructions;
+            let spill_slots = (0..result.spill_slot_count)
+                .map(|k| spill_base_offset + k * 8)
+                .collect();
+            AllocOutcome {
+                spill_slots,
+                extra_callee_saved: result.extra_callee_saved,
+            }
         }
     }
 }
 
 /// Substitute every virtual-register sentinel in the stream with its assigned
-/// physical register.
+/// physical register (the `BumpAndReset` rewrite).
 fn rewrite(instructions: &mut [CodeInstruction], physical: &[String]) {
     for instruction in instructions.iter_mut() {
         for (_name, value) in instruction.fields.iter_mut() {
@@ -177,6 +205,9 @@ fn rewrite(instructions: &mut [CodeInstruction], physical: &[String]) {
         }
     }
 }
+
+mod analysis;
+mod linear_scan;
 
 #[cfg(test)]
 mod tests;

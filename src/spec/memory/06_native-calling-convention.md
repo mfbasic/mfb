@@ -90,31 +90,32 @@ A closure value is a 16-byte object `{code@0, env@8}`; an `Indirect` call loads
 the code pointer and branches with `blr`, having placed the captured environment
 in `x28` (see Reserved Registers).
 
-## Temporary Registers and the No-Spill Limit
+## Temporary Registers and Register Allocation
 
-Scratch values use a **bump allocator** over a fixed physical map. The builder's
-`next_register` counter starts at `8` and increments by one per allocation;
-`temporary_register` maps the counter to a physical register: [[src/arch/aarch64/abi.rs:temporary_register]] [[src/target/shared/code/builder_codegen_primitives.rs:allocate_register]]
+Lowerings do not name physical temporary registers. `allocate_register` mints a
+**virtual register** carried in the instruction stream; after a function is fully
+lowered, a coloring pass assigns each virtual register a physical register (or a
+spill slot). The method is a pluggable strategy selected by `-regalloc <name>`
+(see `./mfb spec architecture native`). [[src/target/shared/code/builder_codegen_primitives.rs:allocate_register]] [[src/target/shared/code/regalloc/mod.rs:allocate]]
 
-```text
-allocation  physical     allocation  physical
-   8..17     x8..x17        22         x24
-   18        x20            23         x25
-   19        x21            24         x26
-   20        x22            25         x27
-   21        x23            26         x28
-```
+The default strategy, **`linear-scan`**, computes liveness over the lowered
+stream and colors the integer class by live interval, reusing a register as soon
+as its previous occupant dies and **spilling to a stack slot under pressure**.
+A value whose live range crosses a call is spilled, since no register survives an
+internal runtime helper (e.g. `_mfb_arena_alloc` clobbers callee-saved
+`x20`–`x28`). Because pressure spills rather than failing, there is **no
+"break a deep expression into `LET` bindings" limit** — an arbitrarily nested
+expression compiles. [[src/target/shared/code/regalloc/linear_scan.rs:run]]
 
-Allocation `8` is `x8`; allocation `17` is `x17`; allocations `18..26` skip the
-reserved `x18`/`x19` and map onto the callee-saved `x20..x28`. **There is no
-spilling.** Requesting an allocation past `26` (i.e. past `x28`) is a hard error
-(`exhausted physical registers`). [[src/arch/aarch64/abi.rs:temporary_register]] This is why a sufficiently deep nested
-expression must be broken into separate `LET` bindings — each statement resets the
-counter back to `8` (`reset_temporary_registers`), so the limit is per-expression,
-not per-function. [[src/target/shared/code/builder_codegen_primitives.rs:reset_temporary_registers]]
+The reference strategy, **`bump`**, replays the legacy fixed numbering — the
+`next_register` counter starts at `8` and `temporary_register` maps it to a
+physical register (`8..17` → `x8..x17`; `18..26` → the callee-saved `x20..x28`,
+skipping the reserved `x18`/`x19`); allocation past `26` is a hard error. It is
+byte-identical to the pre-allocator backend and kept as the differential oracle
+(`-regalloc bump`). [[src/arch/aarch64/abi.rs:temporary_register]] [[src/target/shared/code/regalloc/mod.rs:BumpAndReset]]
 
-When the allocator hands out a callee-saved register (`x20..x28`), it records it
-so the frame finalizer saves and restores it (`mark_register_used`). [[src/target/shared/code/builder_codegen_primitives.rs:mark_register_used]]
+When the coloring uses a callee-saved register (`x20..x28`), it is recorded so
+the frame finalizer saves and restores it. [[src/target/shared/code/builder_codegen_primitives.rs:mark_register_used]]
 
 ## Reserved Registers
 
