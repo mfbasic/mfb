@@ -14415,16 +14415,18 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
     }
 }
 
+mod builder_arena_transfer;
 mod builder_bits;
+mod builder_codegen_primitives;
 mod builder_collection_layout;
 mod builder_collection_queries;
 mod builder_collection_updates;
 mod builder_control;
 mod builder_conversions;
+mod builder_emit_helpers;
 mod builder_fixed_math;
 mod builder_fs_paths;
 mod builder_math;
-mod builder_misc;
 mod builder_numeric;
 mod builder_search;
 mod builder_simd_fixed_math;
@@ -14432,6 +14434,7 @@ mod builder_simd_float_math;
 mod builder_simd_math;
 mod builder_strings;
 mod builder_strings_package;
+mod builder_value_semantics;
 mod builder_values;
 mod datetime;
 mod link_thunk;
