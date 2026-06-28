@@ -1,0 +1,294 @@
+use crate::arch::aarch64::encode::{EncodedImage, EncodedSection, ImportKind};
+use crate::os::linux::flavor::LinuxFlavor;
+use std::fs;
+use std::os::unix::fs::PermissionsExt;
+use std::path::{Path, PathBuf};
+
+const IMAGE_BASE: u64 = 0x400000;
+const TEXT_FILE_OFFSET: usize = 0x1000;
+const PAGE_SIZE: usize = 0x1000;
+const R_AARCH64_GLOB_DAT: u32 = 1025;
+const R_AARCH64_JUMP_SLOT: u32 = 1026;
+
+mod elf;
+#[cfg(test)]
+mod tests;
+
+use elf::*;
+
+pub(crate) fn write_executable(
+    project_dir: &Path,
+    project_name: &str,
+    flavor: LinuxFlavor,
+    app_mode: bool,
+    image: &EncodedImage,
+) -> Result<PathBuf, String> {
+    let mut text = image.text.clone();
+    let text_vmaddr = IMAGE_BASE + TEXT_FILE_OFFSET as u64;
+    let main_entry_offset = image
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == image.entry)
+        .filter(|symbol| symbol.section == EncodedSection::Text)
+        .map(|symbol| symbol.offset)
+        .ok_or_else(|| format!("entry symbol '{}' does not resolve to text", image.entry))?;
+    let import_locations = if image.imports.is_empty() {
+        ImportLocations::default()
+    } else {
+        append_import_stubs(&mut text, image, text_vmaddr)?
+    };
+    let data_offset = align(TEXT_FILE_OFFSET + text.len(), PAGE_SIZE);
+    let data_vmaddr = IMAGE_BASE + data_offset as u64;
+    patch_relocations(
+        &mut text,
+        image,
+        text_vmaddr,
+        data_vmaddr,
+        &import_locations,
+    )?;
+    let entry_offset = main_entry_offset;
+    let bytes = if image.imports.is_empty() {
+        encode_static_elf(
+            entry_offset,
+            &text,
+            &image.data,
+            image.signing_metadata.as_deref(),
+        )
+    } else {
+        encode_dynamic_elf(flavor, entry_offset, &text, &image.data, image)?
+    };
+    // App mode (plan-05-linux-app.md §5.2) emits a single glibc `<name>.out`; the
+    // console build emits one flavored `<name>-{glibc,musl}.out` per libc world.
+    let path = if app_mode {
+        project_dir.join(format!("{project_name}.out"))
+    } else {
+        project_dir.join(format!("{project_name}-{}.out", flavor.suffix()))
+    };
+    fs::write(&path, bytes)
+        .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
+    let mut permissions = fs::metadata(&path)
+        .map_err(|err| format!("failed to read '{}': {err}", path.display()))?
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&path, permissions)
+        .map_err(|err| format!("failed to mark '{}' executable: {err}", path.display()))?;
+    Ok(path)
+}
+
+fn patch_relocations(
+    text: &mut [u8],
+    image: &EncodedImage,
+    text_vmaddr: u64,
+    data_vmaddr: u64,
+    import_locations: &ImportLocations,
+) -> Result<(), String> {
+    for relocation in &image.relocations {
+        match relocation.binding.as_str() {
+            "internal" if relocation.kind == "branch26" => {
+                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let word = 0x9400_0000
+                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize);
+                write_u32(text, relocation.offset, word);
+            }
+            "data" if relocation.kind == "page21" => {
+                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let pc = text_vmaddr + relocation.offset as u64;
+                let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
+                let encoded = page_delta as u32;
+                let immlo = encoded & 0b11;
+                let immhi = (encoded >> 2) & 0x7ffff;
+                let rd = read_u32(text, relocation.offset) & 0x1f;
+                write_u32(
+                    text,
+                    relocation.offset,
+                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
+                );
+            }
+            "data" if relocation.kind == "pageoff12" => {
+                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let imm12 = (target & 0xfff) as u32;
+                let word = read_u32(text, relocation.offset);
+                let rd = word & 0x1f;
+                let rn = (word >> 5) & 0x1f;
+                write_u32(
+                    text,
+                    relocation.offset,
+                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
+                );
+            }
+            "external" if relocation.kind == "branch26" => {
+                let Some(&target) = import_locations.stubs.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-aarch64 linker cannot bind external symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let word = 0x9400_0000
+                    | branch_imm26(text_vmaddr as usize + relocation.offset, target as usize);
+                write_u32(text, relocation.offset, word);
+            }
+            // Imported data global addressed through its GOT slot (plan-linker.md
+            // §6.1): the slot is filled by a GLOB_DAT dynamic relocation.
+            "external" if relocation.kind == "page21" => {
+                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-aarch64 linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let pc = text_vmaddr + relocation.offset as u64;
+                let page_delta = ((target & !0xfff) as i64 - (pc & !0xfff) as i64) >> 12;
+                let encoded = page_delta as u32;
+                let immlo = encoded & 0b11;
+                let immhi = (encoded >> 2) & 0x7ffff;
+                let rd = read_u32(text, relocation.offset) & 0x1f;
+                write_u32(
+                    text,
+                    relocation.offset,
+                    0x9000_0000 | (immlo << 29) | (immhi << 5) | rd,
+                );
+            }
+            "external" if relocation.kind == "pageoff12" => {
+                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-aarch64 linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let imm12 = (target & 0xfff) as u32;
+                let word = read_u32(text, relocation.offset);
+                let rd = word & 0x1f;
+                let rn = (word >> 5) & 0x1f;
+                write_u32(
+                    text,
+                    relocation.offset,
+                    0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
+                );
+            }
+            _ => {
+                return Err(format!(
+                    "linux-aarch64 linker does not support relocation {} {}",
+                    relocation.binding, relocation.kind
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+#[derive(Default)]
+struct ImportLocations {
+    stubs: std::collections::HashMap<String, u64>,
+    /// GOT entry vmaddr per imported symbol, used to address imported data
+    /// globals directly (plan-linker.md §6.1).
+    got_entries: std::collections::HashMap<String, u64>,
+}
+
+fn append_import_stubs(
+    text: &mut Vec<u8>,
+    image: &EncodedImage,
+    text_vmaddr: u64,
+) -> Result<ImportLocations, String> {
+    let mut locations = ImportLocations::default();
+    let stub_count = image.imports.len();
+    let text_len_with_stubs = text.len() + stub_count * 12;
+    let data_offset = align(TEXT_FILE_OFFSET + text_len_with_stubs, PAGE_SIZE);
+    let got_offset = dynamic_prefix_size(image, text_len_with_stubs);
+    let got_vmaddr = IMAGE_BASE + data_offset as u64 + got_offset as u64;
+    for (index, import) in image.imports.iter().enumerate() {
+        let stub_vmaddr = text_vmaddr + text.len() as u64;
+        let entry_vmaddr = got_vmaddr + (index * 8) as u64;
+        // Every import gets a GOT slot. Function imports also get a call stub
+        // that branches through it; data globals are addressed via the GOT slot
+        // directly (their stub is unused).
+        emit_import_stub(text, stub_vmaddr, entry_vmaddr);
+        locations.stubs.insert(import.symbol.clone(), stub_vmaddr);
+        locations
+            .got_entries
+            .insert(import.symbol.clone(), entry_vmaddr);
+    }
+    Ok(locations)
+}
+
+fn emit_import_stub(text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) {
+    let page_delta = ((got_vmaddr & !0xfff) as i64 - (stub_vmaddr & !0xfff) as i64) >> 12;
+    let encoded = page_delta as u32;
+    let immlo = encoded & 0b11;
+    let immhi = (encoded >> 2) & 0x7ffff;
+    put_u32(text, 0x9000_0010 | (immlo << 29) | (immhi << 5));
+    put_u32(
+        text,
+        0xf940_0211 | ((((got_vmaddr & 0xfff) / 8) as u32) << 10),
+    );
+    put_u32(text, 0xd61f_0220);
+}
+
+fn symbol_vmaddr(
+    image: &EncodedImage,
+    symbol_name: &str,
+    text_vmaddr: u64,
+    data_vmaddr: u64,
+) -> Result<u64, String> {
+    let symbol = image
+        .symbols
+        .iter()
+        .find(|symbol| symbol.name == symbol_name)
+        .ok_or_else(|| format!("symbol '{symbol_name}' does not resolve"))?;
+    Ok(match symbol.section {
+        EncodedSection::Text => text_vmaddr + symbol.offset as u64,
+        EncodedSection::Data => data_vmaddr + symbol.offset as u64,
+    })
+}
+
+
+/// The classic SysV/ELF symbol hash, used for `Vernaux.vna_hash`
+/// (plan-linker.md §6.2).
+fn elf_hash(name: &[u8]) -> u32 {
+    let mut hash: u32 = 0;
+    for &byte in name {
+        hash = (hash << 4).wrapping_add(byte as u32);
+        let high = hash & 0xf000_0000;
+        if high != 0 {
+            hash ^= high >> 24;
+        }
+        hash &= !high;
+    }
+    hash
+}
+
+fn put_dynamic(bytes: &mut Vec<u8>, tag: u64, value: u64) {
+    put_u64(bytes, tag);
+    put_u64(bytes, value);
+}
+
+fn branch_imm26(source: usize, target: usize) -> u32 {
+    let delta = target as isize - source as isize;
+    ((delta / 4) as i32 as u32) & 0x03ff_ffff
+}
+
+fn align(value: usize, alignment: usize) -> usize {
+    (value + alignment - 1) & !(alignment - 1)
+}
+
+fn read_u32(bytes: &[u8], offset: usize) -> u32 {
+    u32::from_le_bytes(bytes[offset..offset + 4].try_into().expect("slice length"))
+}
+
+fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+}
+
+fn put_u16(bytes: &mut Vec<u8>, value: u16) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn put_u32(bytes: &mut Vec<u8>, value: u32) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
+
+fn put_u64(bytes: &mut Vec<u8>, value: u64) {
+    bytes.extend_from_slice(&value.to_le_bytes());
+}
