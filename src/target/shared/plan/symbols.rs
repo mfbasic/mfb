@@ -293,14 +293,9 @@ pub(super) fn collect_platform_imports_from_value(
         NirValue::MemberAccess { target, .. } => {
             collect_platform_imports_from_value(platform, required_by, target, imports)
         }
-        NirValue::Binary {
-            op, left, right, ..
-        } => {
-            if op == "MOD" {
-                for import in platform.native_call_imports("math.fmod", required_by) {
-                    push_platform_import(imports, import);
-                }
-            }
+        NirValue::Binary { left, right, .. } => {
+            // `Float MOD Float` lowers to the in-tree exact `fmod` kernel
+            // (builder_numeric::emit_float_fmod), so it no longer imports libm.
             collect_platform_imports_from_value(platform, required_by, left, imports);
             collect_platform_imports_from_value(platform, required_by, right, imports);
         }
