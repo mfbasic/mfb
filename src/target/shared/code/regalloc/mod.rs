@@ -56,6 +56,14 @@ pub(crate) fn parse_fp_vreg(value: &str) -> Option<u32> {
 pub(crate) enum RegallocKind {
     /// Replay the legacy per-statement bump numbering. Byte-identical to the
     /// pre-allocator backend; kept permanently as the `-regalloc bump` oracle.
+    ///
+    /// This is a debugging/differential reference, **not** a correct allocator:
+    /// it has no spilling, so on high register pressure it reuses a still-live
+    /// register and miscompiles — exactly the legacy bug class [`LinearScan`] was
+    /// built to fix. Known divergences where bump is the wrong one (and
+    /// linear-scan correct) are `tests/logic-valid` (a value clobbered across a
+    /// call) and the `float-nbody` benchmark (the advance loop's float pressure).
+    /// Never default to it or treat its output as a correctness baseline.
     BumpAndReset,
     /// Liveness-driven linear-scan over the integer class with spilling
     /// (plan-03 Stage B).
