@@ -493,6 +493,8 @@ pub(super) fn lower_function(
     // Store-to-load forwarding over the lowered stream (offsets are still
     // pre-prologue here, before finalize_frame shifts them).
     peephole::forward_stores_to_loads(&mut instructions);
+    // Drop the GP shuttle a checked float value round-trips through (plan-16).
+    peephole::remove_fp_shuttles(&mut instructions);
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(
         &mut instructions,
@@ -614,6 +616,7 @@ pub(super) fn lower_builtin_function_wrapper(
     builder.run_register_allocation();
     let mut instructions = builder.instructions;
     peephole::forward_stores_to_loads(&mut instructions);
+    peephole::remove_fp_shuttles(&mut instructions);
     let mut stack_slots = builder.stack_slots;
     let frame = finalize_frame(
         &mut instructions,

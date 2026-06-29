@@ -273,6 +273,76 @@ pub(super) fn physical_busy(bits: PhysMask, index: u32) -> bool {
     bits & (1u64 << index) != 0
 }
 
+/// Per-instruction **live-out** of the integer physical registers, computed over
+/// a fully-colored stream (no virtual registers remain). `live_out[i]` is the set
+/// of `x0`–`x30` whose value at the point *after* instruction `i` may still be
+/// read before being overwritten. Used by the FP-shuttle peephole to prove a GPR
+/// that only carried a float's bit pattern is dead and the shuttle can be dropped.
+///
+/// A call destroys its caller-saved registers, so they are modeled as definitions
+/// (killed) at the call — a value left in one is not live across it.
+pub(super) fn integer_live_out(instructions: &[CodeInstruction]) -> Vec<PhysMask> {
+    let model = ClassModel {
+        parse_vreg: |_| None,
+        physical_index: int_physical_index,
+        is_fp: false,
+    };
+    let n = instructions.len();
+    let blocks = build_cfg(instructions);
+    let nb = blocks.len();
+
+    let mut phys_def: Vec<PhysMask> = vec![0; n];
+    let mut phys_use: Vec<PhysMask> = vec![0; n];
+    for (i, instruction) in instructions.iter().enumerate() {
+        let eff = effect(instruction, &model);
+        if eff.is_call {
+            phys_def[i] |= call_clobber_mask(instruction, false);
+        }
+        for d in &eff.defs {
+            if let Some(p) = (model.physical_index)(d) {
+                phys_def[i] |= 1u64 << p;
+            }
+        }
+        for u in &eff.uses {
+            if let Some(p) = (model.physical_index)(u) {
+                phys_use[i] |= 1u64 << p;
+            }
+        }
+    }
+
+    let mut phys_in: Vec<PhysMask> = vec![0; nb];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for b in (0..nb).rev() {
+            let mut live = 0u64;
+            for &s in &blocks[b].succ {
+                live |= phys_in[s];
+            }
+            for i in (blocks[b].start..blocks[b].end).rev() {
+                live = (live & !phys_def[i]) | phys_use[i];
+            }
+            if live != phys_in[b] {
+                phys_in[b] = live;
+                changed = true;
+            }
+        }
+    }
+
+    let mut live_out: Vec<PhysMask> = vec![0; n];
+    for b in 0..nb {
+        let mut live = 0u64;
+        for &s in &blocks[b].succ {
+            live |= phys_in[s];
+        }
+        for i in (blocks[b].start..blocks[b].end).rev() {
+            live_out[i] = live;
+            live = (live & !phys_def[i]) | phys_use[i];
+        }
+    }
+    live_out
+}
+
 /// Run CFG construction and liveness, returning compact per-virtual-register
 /// intervals and per-instruction physical occupancy.
 ///

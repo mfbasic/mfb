@@ -113,6 +113,35 @@ fn encodes_fmov_d_from_d() {
 }
 
 #[test]
+fn encodes_fabs_d() {
+    // FABS (scalar, double) d5, d3 — checked against `as -arch arm64`.
+    assert_eq!(
+        encode_one(
+            &CodeInstruction::new("fabs_d")
+                .field("dst", "d5")
+                .field("src", "d3")
+        ),
+        0x1e60_c065
+    );
+}
+
+#[test]
+fn encodes_b_vs_branch() {
+    // `b.vs` (overflow set, the FP-domain NaN branch) must encode condition 0b0110,
+    // distinct from `b.vc` (0b0111) — swapping them would trap every finite float.
+    let mut encoder = fresh_encoder();
+    // Reserve the label position one word ahead, then emit and patch.
+    encoder.labels.insert("target".to_string(), 4);
+    encoder
+        .emit_instruction(&CodeInstruction::new("b.vs").field("target", "target"))
+        .unwrap();
+    encoder.patch_labels().unwrap();
+    let word = u32::from_le_bytes(encoder.text[..4].try_into().unwrap());
+    // 0x54000006 (b.vs) | imm19(=1) << 5.
+    assert_eq!(word, 0x5400_0026);
+}
+
+#[test]
 fn encodes_fp_scalar_spill_load_store() {
     let mut encoder = fresh_encoder();
     for inst in [

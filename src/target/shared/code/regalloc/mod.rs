@@ -269,5 +269,22 @@ fn rewrite(
 mod analysis;
 mod linear_scan;
 
+/// Thin wrappers exposing integer liveness to the FP-shuttle peephole
+/// (`super::peephole`), which proves a GPR carrying only a float's bit pattern is
+/// dead before dropping the shuttle. (The analysis items are `pub(super)` within
+/// `regalloc`, so they are surfaced to the parent module through these wrappers
+/// rather than re-exported.)
+pub(super) fn integer_live_out(instructions: &[CodeInstruction]) -> Vec<u64> {
+    analysis::integer_live_out(instructions)
+}
+
+pub(super) fn physical_busy(bits: u64, index: u32) -> bool {
+    analysis::physical_busy(bits, index)
+}
+
+pub(super) fn int_physical_index(name: &str) -> Option<u32> {
+    analysis::int_physical_index(name)
+}
+
 #[cfg(test)]
 mod tests;

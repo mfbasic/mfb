@@ -36,6 +36,7 @@
 
 use crate::arch::aarch64::{abi, ops::CodeOp};
 
+use super::regalloc;
 use super::types::CodeInstruction;
 
 /// What an instruction does to the registers that forwarding cares about.
@@ -183,5 +184,163 @@ pub(super) fn forward_stores_to_loads(instructions: &mut [CodeInstruction]) {
             Effect::NoDef => {}
             Effect::Barrier => slots.clear(),
         }
+    }
+}
+
+/// Remove the GP shuttle that a float value round-trips through purely to satisfy
+/// the GP-native value model (plan-16 Piece B). After the FP-domain finiteness
+/// check (`emit_float_result_check_fp`), the GPR a float result is `fmov`'d into
+/// is read only by its own spill store, and a float operand reloaded as a GPR is
+/// read only by the `fmov` that puts it back in a `d`-register. Both can be done
+/// directly in the FP domain:
+///
+/// ```text
+///   fmov xN, dM ; str xN, [sp,#k]   (xN dead after)  ->  str d dM, [sp,#k]
+///   ldr xN, [sp,#k] ; fmov dM, xN   (xN dead after)  ->  ldr d dM, [sp,#k]
+/// ```
+///
+/// The 64 bits a `str d`/`ldr d` move are identical to the GPR store/load, so a
+/// slot written by one and read by the other (e.g. an `ldr x` reload of a result
+/// spilled with `str d`) stays correct. Soundness rests entirely on `xN` being
+/// dead immediately after the second instruction — proven with integer
+/// live-out over the colored stream — so dropping its definition removes nothing
+/// another instruction needs.
+///
+/// Runs after `forward_stores_to_loads` and on physical registers (post register
+/// allocation), before `finalize_frame`.
+pub(super) fn remove_fp_shuttles(instructions: &mut Vec<CodeInstruction>) {
+    let live_out = regalloc::integer_live_out(instructions);
+    // Index of the first (def) instruction of each matched pair -> the rewritten
+    // second instruction. The def instruction is dropped; the second is replaced.
+    let mut drop_def: Vec<bool> = vec![false; instructions.len()];
+    let mut replacement: Vec<Option<CodeInstruction>> =
+        std::iter::repeat_with(|| None).take(instructions.len()).collect();
+
+    let mut i = 0;
+    while i + 1 < instructions.len() {
+        let first = &instructions[i];
+        let second = &instructions[i + 1];
+        // The GPR that must be provably dead after `second` for the fold to be
+        // sound, plus the rewritten `second`, if this is a foldable pair.
+        let folded: Option<(u32, CodeInstruction)> = match (first.op, second.op) {
+            // Result shuttle: fmov xN, dM ; str xN, [base,#off]  ->  str d dM, [base,#off].
+            (CodeOp::FMovXFromD, CodeOp::StrU64) => fold_pair(
+                first.get("dst"),
+                first.get("src"),
+                second.get("src"),
+                second.get("base"),
+                second.get("offset"),
+                abi::store_double,
+            ),
+            // Operand reload: ldr xN, [base,#off] ; fmov dM, xN  ->  ldr d dM, [base,#off].
+            (CodeOp::LdrU64, CodeOp::FMovDFromX) => fold_pair(
+                first.get("dst"),
+                second.get("dst"),
+                second.get("src"),
+                first.get("base"),
+                first.get("offset"),
+                abi::load_double,
+            ),
+            _ => None,
+        };
+        if let Some((reg_index, rewritten)) = folded {
+            if !regalloc::physical_busy(live_out[i + 1], reg_index) {
+                drop_def[i] = true;
+                replacement[i + 1] = Some(rewritten);
+                i += 2;
+                continue;
+            }
+        }
+        i += 1;
+    }
+
+    if drop_def.iter().all(|drop| !drop) {
+        return;
+    }
+    let mut rewritten = Vec::with_capacity(instructions.len());
+    for (index, instruction) in instructions.drain(..).enumerate() {
+        if drop_def[index] {
+            continue;
+        }
+        match replacement[index].take() {
+            Some(replacement) => rewritten.push(replacement),
+            None => rewritten.push(instruction),
+        }
+    }
+    *instructions = rewritten;
+}
+
+/// Validate and build a folded FP load/store. `gpr` is the shuttle GPR (defined by
+/// the first instruction, used by the second); `fpr` is the `d`-register; `linked`
+/// is the GPR the second instruction names that must equal `gpr` for the pair to
+/// be the expected shuttle. Returns the GPR's physical index (for the liveness
+/// gate) and the rewritten FP memory op addressing `[base,#offset]`. Bails out
+/// (returns `None`) if any operand is missing, the GPR is not a real `x`-register,
+/// or `base` aliases the shuttle GPR (its definition is about to be dropped).
+fn fold_pair(
+    gpr: Option<&str>,
+    fpr: Option<&str>,
+    linked: Option<&str>,
+    base: Option<&str>,
+    offset: Option<&str>,
+    build: fn(&str, &str, usize) -> CodeInstruction,
+) -> Option<(u32, CodeInstruction)> {
+    let (gpr, fpr, linked, base, offset) = (gpr?, fpr?, linked?, base?, offset?);
+    if gpr != linked || gpr == base {
+        return None;
+    }
+    let index = regalloc::int_physical_index(gpr)?;
+    let offset: usize = offset.parse().ok()?;
+    Some((index, build(fpr, base, offset)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn op(name: &str) -> CodeInstruction {
+        CodeInstruction::new(name)
+    }
+
+    /// The result shuttle `fmov xN,dM ; str xN,[sp,#k]` collapses to `str d dM`
+    /// when `xN` is dead afterwards, and the reload `ldr xN ; fmov dM,xN`
+    /// collapses to `ldr d dM` likewise.
+    #[test]
+    fn folds_dead_result_and_operand_shuttles() {
+        let mut instructions = vec![
+            op("fmov_x_from_d").field("dst", "x8").field("src", "d11"),
+            op("str_u64").field("src", "x8").field("base", "sp").field("offset", "1120"),
+            // x8 redefined here, so it is dead after the store above.
+            op("ldr_u64").field("dst", "x8").field("base", "sp").field("offset", "80"),
+            op("fmov_d_from_x").field("dst", "d9").field("src", "x8"),
+            op("ret"),
+        ];
+        remove_fp_shuttles(&mut instructions);
+        assert_eq!(instructions.len(), 3);
+        assert_eq!(instructions[0].op, CodeOp::StrD);
+        assert_eq!(instructions[0].get("src"), Some("d11"));
+        assert_eq!(instructions[0].get("offset"), Some("1120"));
+        assert_eq!(instructions[1].op, CodeOp::LdrD);
+        assert_eq!(instructions[1].get("dst"), Some("d9"));
+        assert_eq!(instructions[1].get("offset"), Some("80"));
+        assert_eq!(instructions[2].op, CodeOp::Ret);
+    }
+
+    /// When the shuttle GPR is still live after the store (read by a later
+    /// instruction before being redefined), the fold is unsound and must not fire.
+    #[test]
+    fn keeps_shuttle_when_gpr_still_live() {
+        let mut instructions = vec![
+            op("fmov_x_from_d").field("dst", "x8").field("src", "d11"),
+            op("str_u64").field("src", "x8").field("base", "sp").field("offset", "1120"),
+            // x8 is read here, so it must survive the store.
+            op("add").field("dst", "x9").field("lhs", "x8").field("rhs", "x8"),
+            op("ret"),
+        ];
+        let before = instructions.len();
+        remove_fp_shuttles(&mut instructions);
+        assert_eq!(instructions.len(), before);
+        assert_eq!(instructions[0].op, CodeOp::FMovXFromD);
+        assert_eq!(instructions[1].op, CodeOp::StrU64);
     }
 }
