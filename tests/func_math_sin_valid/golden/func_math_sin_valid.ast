@@ -22,7 +22,13 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "number", "value": "0.0" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 7 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "number", "value": "1.5707963268" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "identifier", "value": "fixedHalfPi" }] }, { "kind": "identifier", "value": "p" }] }] }, "line": 9 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 10 }
+      { "kind": "binding", "mutable": false, "name": "q", "type": "Byte", "value": { "kind": "number", "value": "15" }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "number", "value": "0.7" }] }, { "kind": "identifier", "value": "q" }] }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "number", "value": "2.0" }] }, { "kind": "identifier", "value": "q" }] }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "number", "value": "4.0" }] }, { "kind": "identifier", "value": "q" }] }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "number", "value": "5.0" }] }, { "kind": "identifier", "value": "q" }] }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "math.sin", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2.0" } }] }, { "kind": "identifier", "value": "q" }] }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 18 }
       ]
     }
     ]

@@ -23,6 +23,12 @@
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }, { "kind": "local", "name": "p" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "const", "type": "Float", "value": "3.1415926536" }] }, { "kind": "local", "name": "p" }] }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "local", "name": "fixedPi" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "bind", "mutable": false, "name": "q", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "15" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "const", "type": "Float", "value": "0.7" }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "const", "type": "Float", "value": "4.0" }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "const", "type": "Float", "value": "5.0" }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.cos", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2.0" } }] }, { "kind": "local", "name": "q" }] }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }

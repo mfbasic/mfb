@@ -360,7 +360,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_dup_from_x("v0", value_loc));
         self.emit(abi::vector_eor("v22", "v22", "v22"));
         self.emit_float_kernel_setup(kernel);
-        self.emit_float_kernel_body(kernel);
+        // A single scalar lane can branch on the quadrant and run just one of the
+        // sin/cos polynomials (the array body computes both because its lanes can
+        // disagree). Bit-identical, ~half the work; other kernels share the body.
+        match kernel {
+            FloatKernel::Sin => self.emit_sin_cos_body_scalar(false),
+            FloatKernel::Cos => self.emit_sin_cos_body_scalar(true),
+            _ => self.emit_float_kernel_body(kernel),
+        }
         for err in kernel.errors() {
             self.emit_float_error_reduce(*err)?;
         }
@@ -482,12 +489,12 @@ impl CodeBuilder<'_> {
     /// restore the sign. Constants: v16=1.0, v17=pi/2, v18=sign mask, v19=abs
     /// mask. Reused by asin/acos. (Faithfully rounded; strict <=1 ULP needs a
     /// segmented argument reduction.)
-    /// `v0[lane] = mask ? val : v0[lane]` accumulator select, using `v24` scratch
-    /// (free in the atan core; `mask` is preserved for reuse).
+    /// `acc[lane] = mask ? val : acc[lane]` accumulator select. `BIT acc, val,
+    /// mask` inserts `val`'s bits into `acc` where `mask` is set — one instruction,
+    /// leaving `mask` and `val` untouched (both are reused across atan's segments),
+    /// bit-identical to the old `orr;bsl;orr` triple.
     fn emit_vsel(&mut self, acc: &str, mask: &str, val: &str) {
-        self.emit(abi::vector_orr("v24", mask, mask));
-        self.emit(abi::vector_bsl("v24", val, acc));
-        self.emit(abi::vector_orr(acc, "v24", "v24"));
+        self.emit(abi::vector_bit(acc, val, mask));
     }
 
     /// fdlibm 4-segment `atan(x)` (input/result in `v0`): reduce `|x|` into a tiny
@@ -639,6 +646,71 @@ impl CodeBuilder<'_> {
             self.emit(abi::vector_bsl("v4", "v3", "v1"));
             self.emit(abi::vector_orr("v0", "v4", "v4"));
         }
+    }
+
+    /// Scalar-only `sin`/`cos`: branch on the quadrant's bit0 and evaluate only
+    /// the single polynomial the result needs. The array body must compute both
+    /// `sin_r` and `cos_r` because its two lanes can land in different quadrants;
+    /// a scalar call has one lane, so it can branch and skip the unused
+    /// double-double Horner. Bit-identical to `emit_sin_cos_body` — same Cody-Waite
+    /// reduction, same compensated polynomial, same sign select — for ~half the
+    /// polynomial work. (`tan` still needs both halves and keeps the array body.)
+    fn emit_sin_cos_body_scalar(&mut self, want_cos: bool) {
+        self.emit_sincos_reduce(); // reduced=v2, quad=v5
+        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2 (Horner var)
+        // Negate mask → v25 (the Horner never touches v25/v26): sin negates on
+        // bit1, cos on bit0^bit1. Matches emit_sin_cos_body's branchless masks.
+        self.emit(abi::vector_shl("v26", "v5", 63));
+        self.emit(abi::vector_sshr("v26", "v26", 63)); // bit0 all-ones
+        self.emit(abi::vector_shl("v25", "v5", 62));
+        self.emit(abi::vector_sshr("v25", "v25", 63)); // bit1 all-ones
+        if want_cos {
+            self.emit(abi::vector_eor("v25", "v26", "v25")); // bit0 XOR bit1
+        }
+        // Branch on bit0. sin: bit0 ? cos_r : sin_r; cos: bit0 ? sin_r : cos_r.
+        self.emit(abi::vector_extract_to_x("x0", "v5", 0));
+        self.emit(abi::move_immediate("x1", "Integer", "1"));
+        self.emit(abi::and_registers("x0", "x0", "x1"));
+        let bit0_clear = self.label("simd_sc_bit0_clear");
+        let sc_done = self.label("simd_sc_done");
+        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::branch_eq(&bit0_clear));
+        // bit0 set.
+        if !want_cos {
+            self.emit_cos_r_into("v0");
+        } else {
+            self.emit_sin_r_into("v0");
+        }
+        self.emit(abi::branch(&sc_done));
+        self.emit(abi::label(&bit0_clear));
+        // bit0 clear.
+        if !want_cos {
+            self.emit_sin_r_into("v0");
+        } else {
+            self.emit_cos_r_into("v0");
+        }
+        self.emit(abi::label(&sc_done));
+        // Apply the sign: v0 = negmask ? -v0 : v0 (BIT inserts -v0 where set).
+        self.emit(abi::vector_fneg("v3", "v0"));
+        self.emit(abi::vector_bit("v0", "v3", "v25"));
+        self.emit_result_nan_into_v22();
+    }
+
+    /// `cos_r = collapse(P_cos(r2))` into `dst` (Horner var in `v1`). The exact
+    /// instruction sequence emit_sin_cos_body uses, so the result is bit-identical.
+    fn emit_cos_r_into(&mut self, dst: &str) {
+        self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS);
+        self.emit(abi::vector_fadd(dst, "v3", "v4"));
+    }
+
+    /// `sin_r = collapse(r * P_sin(r2))` into `dst` (reduced angle in `v2`, Horner
+    /// var in `v1`); carries the lo half through the multiply, exactly as
+    /// emit_sin_cos_body — bit-identical.
+    fn emit_sin_r_into(&mut self, dst: &str) {
+        self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS);
+        self.emit_twoprod("v6", "v7", "v2", "v3");
+        self.emit(abi::vector_fmla("v7", "v2", "v4")); // pe += r*lo
+        self.emit(abi::vector_fadd(dst, "v6", "v7"));
     }
 
     /// `tan(x) = sin(x) / cos(x)`, strict <=1 ULP. `sin_r` and `cos_r` are

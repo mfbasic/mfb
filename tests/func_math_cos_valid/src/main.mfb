@@ -7,5 +7,13 @@ FUNC main AS Integer
   io::print(toString(math::cos(0.0), p))
   io::print(toString(math::cos(3.1415926536), p))
   io::print(toString(math::cos(fixedPi), p))
+  ' Scalar kernel quadrant coverage: the scalar path branches on the reduced
+  ' quadrant, so exercise all four (and a negative argument) at full precision.
+  LET q AS Byte = 15
+  io::print(toString(math::cos(0.7), q))    ' quadrant 0: cos_r branch
+  io::print(toString(math::cos(2.0), q))    ' quadrant 1: sin_r branch, negated
+  io::print(toString(math::cos(4.0), q))    ' quadrant 2: cos_r branch, negated
+  io::print(toString(math::cos(5.0), q))    ' quadrant 3: sin_r branch
+  io::print(toString(math::cos(-2.0), q))   ' negative argument
   RETURN 0
 END FUNC
