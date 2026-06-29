@@ -370,7 +370,7 @@ pub(super) fn finalize_frame(
     let mut prologue = Vec::new();
     prologue.push(abi::subtract_stack(total_stack_size));
     for (index, register) in callee_saved.iter().enumerate() {
-        prologue.push(abi::store_u64(register, abi::stack_pointer(), index * 8));
+        prologue.push(save_callee_saved(register, index * 8));
     }
 
     let insert_at = if instructions
@@ -387,7 +387,7 @@ pub(super) fn finalize_frame(
     for instruction in instructions.drain(..) {
         if instruction.op == CodeOp::Ret {
             for (index, register) in callee_saved.iter().enumerate().rev() {
-                rewritten.push(abi::load_u64(register, abi::stack_pointer(), index * 8));
+                rewritten.push(restore_callee_saved(register, index * 8));
             }
             rewritten.push(abi::add_stack(total_stack_size));
             rewritten.push(instruction);
@@ -400,6 +400,31 @@ pub(super) fn finalize_frame(
     CodeFrame {
         stack_size: total_stack_size,
         callee_saved,
+    }
+}
+
+/// Whether `register` is a 64-bit FP scalar (`d0`–`d31`), which must be spilled
+/// with `str d`/`ldr d` in the callee-save area rather than the GPR `str`/`ldr`
+/// (plan-03 Stage D callee-saved FP).
+fn is_fp_register(register: &str) -> bool {
+    register
+        .strip_prefix('d')
+        .is_some_and(|rest| rest.parse::<u8>().is_ok())
+}
+
+fn save_callee_saved(register: &str, offset: usize) -> CodeInstruction {
+    if is_fp_register(register) {
+        abi::store_double(register, abi::stack_pointer(), offset)
+    } else {
+        abi::store_u64(register, abi::stack_pointer(), offset)
+    }
+}
+
+fn restore_callee_saved(register: &str, offset: usize) -> CodeInstruction {
+    if is_fp_register(register) {
+        abi::load_double(register, abi::stack_pointer(), offset)
+    } else {
+        abi::load_u64(register, abi::stack_pointer(), offset)
     }
 }
 

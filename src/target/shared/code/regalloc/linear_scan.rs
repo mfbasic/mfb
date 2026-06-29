@@ -101,6 +101,11 @@ pub(super) fn run(
     let mut assigned_index: HashMap<u32, u32> = HashMap::new();
     let mut spilled: Vec<u32> = Vec::new();
 
+    // Whether a value of this class that crosses a call may stay in a register —
+    // only in a *callee-saved* one (plan-03 Stage D). The integer class always
+    // spills across a call; the FP class can keep the value in `d8`–`d15`.
+    let survives_in_callee_saved = model.callee_saved_survives_calls(class);
+
     for &(v, s, e) in &vregs {
         // Expire intervals that ended before this one starts.
         active.retain(|&(end, _, pi)| {
@@ -111,12 +116,17 @@ pub(super) fn run(
                 true
             }
         });
-        if crosses_call(s, e) {
+        let crosses = crosses_call(s, e);
+        if crosses && !survives_in_callee_saved {
             spilled.push(v);
             continue;
         }
-        let choice = allocatable.iter().find(|&&(_, pi)| {
-            (active_mask & (1u64 << pi)) == 0 && !phys_busy_in(pi, s, e)
+        // A call-free value prefers any free register (caller-saved first); a
+        // value live across a call must take a callee-saved one that survives it.
+        let choice = allocatable.iter().find(|&&(name, pi)| {
+            (active_mask & (1u64 << pi)) == 0
+                && !phys_busy_in(pi, s, e)
+                && (!crosses || model.is_callee_saved(name))
         });
         match choice {
             Some(&(name, pi)) => {
