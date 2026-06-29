@@ -259,6 +259,9 @@ impl CodeBuilder<'_> {
             // Observation boundary: a `Float` field updated via WITH must be
             // finite (plan-17).
             self.observe_float(&update.value, &value)?;
+            // Materialize a `d`-native float before the field-payload spill
+            // (plan-01 float-dnative).
+            let value = self.materialize_float(value)?;
             let value_slot = self.allocate_stack_object("with_update_value", 8);
             self.emit(abi::store_u64(
                 &value.location,

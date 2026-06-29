@@ -592,6 +592,10 @@ impl CodeBuilder<'_> {
         // the only Float→String path (`print` formats through them), and a
         // non-arithmetic Float argument is already finite by the invariant.
         self.observe_float(&args[0], &value)?;
+        // The value is spilled through an integer slot and reloaded into a GPR
+        // for formatting, so a `d`-native float is materialized into a GPR first
+        // (plan-01 float-dnative). Identity for every GP-native value.
+        let value = self.materialize_float(value)?;
         let value_slot = self.allocate_stack_object("to_string_value", 8);
         self.emit(abi::store_u64(
             &value.location,

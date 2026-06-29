@@ -60,6 +60,8 @@ impl CodeBuilder<'_> {
         // Observation boundary: an in-place appended `Float` must be finite
         // (plan-17).
         self.observe_float(&args[1], &item)?;
+        // Materialize a `d`-native float before the payload spill (plan-01).
+        let item = self.materialize_float(item)?;
         let item_slot = self.allocate_stack_object("inplace_append_item", 8);
         self.emit(abi::store_u64(
             &item.location,
@@ -148,6 +150,7 @@ impl CodeBuilder<'_> {
                     item.type_
                 ));
             }
+            let item = self.materialize_float(item)?;
             let item_slot = self.allocate_stack_object("inplace_set_item", 8);
             self.emit(abi::store_u64(
                 &item.location,
@@ -177,6 +180,7 @@ impl CodeBuilder<'_> {
                     key.type_
                 ));
             }
+            let key = self.materialize_float(key)?;
             let key_slot = self.allocate_stack_object("inplace_set_key", 8);
             self.emit(abi::store_u64(&key.location, abi::stack_pointer(), key_slot));
             let val = self.lower_value(&args[2])?;
@@ -189,6 +193,7 @@ impl CodeBuilder<'_> {
                     val.type_
                 ));
             }
+            let val = self.materialize_float(val)?;
             let value_slot = self.allocate_stack_object("inplace_set_value", 8);
             self.emit(abi::store_u64(&val.location, abi::stack_pointer(), value_slot));
             self.lower_map_set_in_place(
@@ -263,6 +268,7 @@ impl CodeBuilder<'_> {
                 item.type_
             ));
         }
+        let item = self.materialize_float(item)?;
         let item_slot = self.allocate_stack_object("inplace_prepend_item", 8);
         self.emit(abi::store_u64(
             &item.location,

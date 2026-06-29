@@ -154,7 +154,10 @@ impl CodeBuilder<'_> {
         arg: &NirValue,
     ) -> Result<ValueResult, String> {
         use super::builder_simd_float_math::FloatKernel;
+        // The scalar kernel reads the operand's bits from a GPR, so materialize a
+        // `d`-native float into one first (plan-01 float-dnative).
         let value = self.lower_value(arg)?;
+        let value = self.materialize_float(value)?;
         match value.type_.as_str() {
             "Float" => {
                 let text = format!("math.{function}({})", value.text);
@@ -190,10 +193,14 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         use super::builder_simd_float_math::FloatBinaryKernel;
+        // The kernels read each operand's bits from a GPR slot, so materialize a
+        // `d`-native float before spilling (plan-01 float-dnative).
         let left = self.lower_value(&args[0])?;
+        let left = self.materialize_float(left)?;
         let left_slot = self.allocate_stack_object("scalar_binary_left", 8);
         self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
         let right = self.lower_value(&args[1])?;
+        let right = self.materialize_float(right)?;
         let right_slot = self.allocate_stack_object("scalar_binary_right", 8);
         self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
         if left.type_ != right.type_ {
@@ -402,6 +409,7 @@ impl CodeBuilder<'_> {
 
     fn lower_math_abs(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        let value = self.materialize_float(value)?;
         let dst = self.allocate_register()?;
         match value.type_.as_str() {
             "Integer" | "Fixed" => {
@@ -539,6 +547,7 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(&args[0])?;
+        let left = self.materialize_float(left)?;
         let left_slot = self.allocate_stack_object("math_minmax_left", 8);
         self.emit(abi::store_u64(
             &left.location,
@@ -546,6 +555,7 @@ impl CodeBuilder<'_> {
             left_slot,
         ));
         let right = self.lower_value(&args[1])?;
+        let right = self.materialize_float(right)?;
         let right_slot = self.allocate_stack_object("math_minmax_right", 8);
         self.emit(abi::store_u64(
             &right.location,
@@ -608,6 +618,7 @@ impl CodeBuilder<'_> {
 
     fn lower_math_clamp(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
+        let value = self.materialize_float(value)?;
         let value_slot = self.allocate_stack_object("math_clamp_value", 8);
         self.emit(abi::store_u64(
             &value.location,
@@ -615,6 +626,7 @@ impl CodeBuilder<'_> {
             value_slot,
         ));
         let low = self.lower_value(&args[1])?;
+        let low = self.materialize_float(low)?;
         let low_slot = self.allocate_stack_object("math_clamp_low", 8);
         self.emit(abi::store_u64(
             &low.location,
@@ -622,6 +634,7 @@ impl CodeBuilder<'_> {
             low_slot,
         ));
         let high = self.lower_value(&args[2])?;
+        let high = self.materialize_float(high)?;
         let high_slot = self.allocate_stack_object("math_clamp_high", 8);
         self.emit(abi::store_u64(
             &high.location,
@@ -707,6 +720,7 @@ impl CodeBuilder<'_> {
         arg: &NirValue,
     ) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        let value = self.materialize_float(value)?;
         let dst = self.allocate_register()?;
         match value.type_.as_str() {
             "Float" => {
@@ -893,6 +907,7 @@ impl CodeBuilder<'_> {
 
     fn lower_math_sqrt(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        let value = self.materialize_float(value)?;
         match value.type_.as_str() {
             "Float" => {
                 let dst = self.allocate_register()?;
@@ -1082,8 +1097,16 @@ impl CodeBuilder<'_> {
             if let Some(loc) = super::builder_values::value_loc(value) {
                 self.current_loc = loc;
             }
-            let outcome =
-                self.emit_float_result_check(&result.location, FloatInfinityError::Overflow);
+            // A `d`-native result is checked in the FP domain (plan-01
+            // float-dnative): the value is still resident in its FP register, so
+            // the boundary check reads it there and the store-back stays a plain
+            // `str d` with no GPR shuttle — exactly the promoted-accumulator path
+            // (plan-16/17). A GP-native result is checked on its bit pattern.
+            let outcome = if Self::float_is_dnative(result) {
+                self.emit_float_result_check_fp(&result.location, FloatInfinityError::Overflow)
+            } else {
+                self.emit_float_result_check(&result.location, FloatInfinityError::Overflow)
+            };
             self.current_loc = saved;
             outcome?;
         }

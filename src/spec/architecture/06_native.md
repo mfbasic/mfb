@@ -271,11 +271,26 @@ names).[[src/target/shared/code/regalloc/mod.rs:allocate]]
 
 The integer and FP/SIMD classes have separate physical files that never
 interfere, so each is colored by an independent linear-scan pass over its own
-operands. Chained `Float` arithmetic stays resident in `d`-registers (`fadd d, d,
-d`) instead of round-tripping its bit pattern through a GPR between operations: a
-float op records that its result GPR is also resident in a `d`-register, and a
-parent float op reads that `d`-register directly. (This residency is sound only
-under liveness-based coloring, so the `bump` oracle keeps the legacy round-trip.)
+operands.
+
+A `Float` value is **`d`-register-native** (plan-01 float-dnative): its canonical
+home is a `d`-register, not a general-purpose register holding the bit pattern. A
+float arithmetic result, a unary negation, and a `Float` local/global load all
+carry their FP virtual register (`%fN`) directly in the value, so chained
+arithmetic (`fadd d, d, d`), `fcmp` comparisons, the FP-domain finiteness check
+(plan-17), and a `Float` local store/load (`str d`/`ldr d`) all stay in the FP
+domain with no `fmov`-to-GPR shuttle and no stack traffic as integer bits. A GPR
+copy is materialized **lazily**, through a single choke point, only at the
+consumers that genuinely need the raw bits: integer/bitwise reinterpretation,
+`toString`/print formatting, `toInt`/`toByte`/`toFixed` conversion, map-key
+hashing, comparison spill, collection/record/closure-env element stores, call
+arguments and returns (the `Float` arg/return ABI still travels in a GPR), and
+thread marshalling. Storing a `d`-native float writes the same 8 bytes a `str x`
+would (`str d`), so copy/transfer/golden output is unchanged — only the in-flight
+register class differs. (The carrier is sound only under liveness-based coloring,
+so the `bump` oracle keeps the legacy GP-native round-trip; `MOD`/`^` run
+hardcoded-register kernels and stay GP-native too.)
+
 A value live across a call stays in a callee-saved `d8`–`d15` rather than
 spilling. A loop-carried float accumulator — a non-escaping `Float` local
 assigned in a loop body — is **promoted** to a `d`-register held across the whole

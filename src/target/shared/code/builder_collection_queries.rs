@@ -36,11 +36,9 @@ impl CodeBuilder<'_> {
 
         let key = self.lower_value(&args[1])?;
         let key_slot = self.allocate_stack_object("get_key", 8);
-        self.emit(abi::store_u64(
-            &key.location,
-            abi::stack_pointer(),
-            key_slot,
-        ));
+        // A `d`-native float map key stores via `str d`, bit-identical to the
+        // `str x` a later bitwise key compare reads (plan-01 float-dnative).
+        self.store_value_at(&key, abi::stack_pointer(), key_slot);
 
         if let Some(element_type) = list_element_type(&collection.type_) {
             if key.type_ != "Integer" {
@@ -91,11 +89,9 @@ impl CodeBuilder<'_> {
 
         let item = self.lower_value(&args[1])?;
         let item_slot = self.allocate_stack_object("contains_item", 8);
-        self.emit(abi::store_u64(
-            &item.location,
-            abi::stack_pointer(),
-            item_slot,
-        ));
+        // A `d`-native float item stores via `str d`, bit-identical to the
+        // `str x` the element compare reads back (plan-01 float-dnative).
+        self.store_value_at(&item, abi::stack_pointer(), item_slot);
 
         let Some(element_type) = list_element_type(&collection.type_) else {
             return Err(format!(
@@ -204,19 +200,12 @@ impl CodeBuilder<'_> {
 
         let key = self.lower_value(&args[1])?;
         let key_slot = self.allocate_stack_object("get_or_key", 8);
-        self.emit(abi::store_u64(
-            &key.location,
-            abi::stack_pointer(),
-            key_slot,
-        ));
+        // `d`-native float key/default store via `str d` (plan-01 float-dnative).
+        self.store_value_at(&key, abi::stack_pointer(), key_slot);
 
         let default = self.lower_value(&args[2])?;
         let default_slot = self.allocate_stack_object("get_or_default", 8);
-        self.emit(abi::store_u64(
-            &default.location,
-            abi::stack_pointer(),
-            default_slot,
-        ));
+        self.store_value_at(&default, abi::stack_pointer(), default_slot);
 
         if let Some(element_type) = list_element_type(&collection.type_) {
             if key.type_ != "Integer" {
@@ -284,11 +273,8 @@ impl CodeBuilder<'_> {
         ));
         let key = self.lower_value(&args[1])?;
         let key_slot = self.allocate_stack_object("has_key_key", 8);
-        self.emit(abi::store_u64(
-            &key.location,
-            abi::stack_pointer(),
-            key_slot,
-        ));
+        // `d`-native float key stores via `str d` (plan-01 float-dnative).
+        self.store_value_at(&key, abi::stack_pointer(), key_slot);
 
         let Some((key_type, _)) = map_type_parts(&collection.type_) else {
             return Err(format!(

@@ -92,21 +92,58 @@ impl CodeBuilder<'_> {
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(left)?;
+        // `d`-native float fast path (plan-01 float-dnative): when the operation
+        // yields a `Float`, both operands are consumed directly in the FP domain
+        // with no GPR spill/reload — the `d`-register-native operand never leaves
+        // its FP register. The liveness allocator keeps the left operand's
+        // register live across the right operand's lowering (spilling it as a `d`
+        // across any nested call), so no manual round-trip is needed. Only
+        // available under `LinearScan`, and only for the pure-FP operators:
+        // `MOD`/`^` run hardcoded-register kernels (the in-tree `fmod`/`pow`)
+        // that assume the reset register file and GPR-reloaded operands the
+        // general path provides.
+        //
+        // The result type — not the left operand type — gates this: `Float -
+        // Fixed` promotes to `Fixed` (Fixed dominates), so it must take the
+        // general path's `Fixed` lowering. The right operand's static type
+        // decides the result type without lowering it twice; an unknown type
+        // conservatively falls through to the general path.
+        if self.dnative_floats()
+            && left.type_ == "Float"
+            && matches!(op, "+" | "-" | "*" | "/" | "DIV")
+        {
+            let result_is_float = self
+                .static_type_name(right)
+                .as_deref()
+                .map(|right_type| {
+                    numeric_binary_result_type(op, "Float", right_type) == "Float"
+                })
+                .unwrap_or(false);
+            if result_is_float {
+                return self.lower_float_arithmetic_dnative(op, left, right);
+            }
+        }
         // Carry FP-residency (plan-03 Stage C) across the operand slot
         // round-trip: the reloaded operand register holds the same value, so it
         // is resident in the same `d`-register.
         let left_resident = self.float_residents.get(&left.location).cloned();
         let left_slot = self.allocate_stack_object("arith_left", 8);
+        // A `d`-native float operand (possible here only as the right operand of
+        // an `Integer op Float`) materializes its bits into a GPR before the
+        // integer-style slot spill (plan-01 float-dnative §4.1). For every
+        // GP-native value this is the identity, so the bump oracle is unchanged.
+        let left_spill = self.float_value_as_gpr(&left)?;
         self.emit(abi::store_u64(
-            &left.location,
+            &left_spill,
             abi::stack_pointer(),
             left_slot,
         ));
         let right = self.lower_value(right)?;
         let right_resident = self.float_residents.get(&right.location).cloned();
         let right_slot = self.allocate_stack_object("arith_right", 8);
+        let right_spill = self.float_value_as_gpr(&right)?;
         self.emit(abi::store_u64(
-            &right.location,
+            &right_spill,
             abi::stack_pointer(),
             right_slot,
         ));
@@ -143,6 +180,12 @@ impl CodeBuilder<'_> {
             text: right_text,
         };
         let register = self.allocate_register()?;
+        // The result location is `register` for every type except a `d`-native
+        // float op, which keeps its result in an FP register (returned by
+        // `emit_float_binary`). This path is reached for `Float` only in the
+        // `Integer op Float` case (a float left operand takes the fast path
+        // above); the integer/fixed cases always land in `register`.
+        let mut result_location = register.clone();
         match result_type.as_str() {
             "Byte" | "Integer" => {
                 self.emit_integer_binary(op, &left, &right, &register, result_type == "Byte")?;
@@ -189,7 +232,9 @@ impl CodeBuilder<'_> {
                     self.emit_fixed_binary(op, &left, &right, &register)?;
                 }
             }
-            "Float" => self.emit_float_binary(op, &left, &right, &register)?,
+            "Float" => {
+                result_location = self.emit_float_binary(op, &left, &right, &register)?;
+            }
             other => {
                 return Err(format!(
                     "native code plan cannot lower arithmetic result type '{other}'"
@@ -198,8 +243,36 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: result_type,
-            location: register,
+            location: result_location,
             text: format!("({} {op} {})", left.text, right.text),
+        })
+    }
+
+    /// `d`-native float arithmetic (plan-01 float-dnative): both operands are
+    /// consumed in the FP domain and the result stays in an FP virtual register,
+    /// so no GPR spill/reload round-trip is emitted. `left` is the already-lowered
+    /// `Float` left operand (so the result is `Float`); `right` is its NIR value,
+    /// lowered here. The left operand's register survives the right operand's
+    /// lowering under the liveness allocator (spilled as a `d` across any nested
+    /// call), so it does not need to be manually preserved.
+    fn lower_float_arithmetic_dnative(
+        &mut self,
+        op: &str,
+        left: ValueResult,
+        right: &NirValue,
+    ) -> Result<ValueResult, String> {
+        let left_text = left.text.clone();
+        let right = self.lower_value(right)?;
+        let result_type = numeric_binary_result_type(op, &left.type_, &right.type_).to_string();
+        let right_text = right.text.clone();
+        // `dst` is used only by the GP-result operators (`MOD`/`^`); the pure-FP
+        // operators ignore it and return their FP register.
+        let dst = self.allocate_register()?;
+        let location = self.emit_float_binary(op, &left, &right, &dst)?;
+        Ok(ValueResult {
+            type_: result_type,
+            location,
+            text: format!("({op_left} {op} {op_right})", op_left = left_text, op_right = right_text),
         })
     }
 
@@ -208,6 +281,7 @@ impl CodeBuilder<'_> {
         operand: ValueResult,
     ) -> Result<ValueResult, String> {
         let register = self.allocate_register()?;
+        let mut location = register.clone();
         match operand.type_.as_str() {
             "Byte" => {
                 let ok = self.label("byte_unary_ok");
@@ -229,13 +303,24 @@ impl CodeBuilder<'_> {
                 self.emit(abi::move_immediate(&zero, "Integer", "0"));
                 self.emit(abi::subtract_registers(&register, &zero, &operand.location));
             }
-            "Float" => {
+            "Float" if self.dnative_floats() => {
                 // Negation just flips the sign bit, so a finite operand stays
                 // finite — and every live MFBASIC Float is finite (inf/NaN are
                 // always errors, never values). No overflow/NaN check is needed.
-                // (The old emit_float_result_check here also hardcoded `x17` as
-                // scratch, which corrupted the result when the allocator handed
-                // out x16/x17 — e.g. two inline `-literal` call arguments.)
+                // `d`-native: negate in the FP domain and keep the result in its
+                // FP register, so the value never round-trips through a GPR
+                // (plan-01 float-dnative).
+                let d_operand = self.operand_as_double(&operand)?;
+                let d_res = self.allocate_fp_register()?;
+                self.emit(abi::float_negate_d(&d_res, &d_operand));
+                location = d_res;
+            }
+            "Float" => {
+                // GP-native (bump oracle): flip the sign in `d0` and shuttle the
+                // bits back to a GPR. (The old emit_float_result_check here also
+                // hardcoded `x17` as scratch, which corrupted the result when the
+                // allocator handed out x16/x17 — e.g. two inline `-literal` call
+                // arguments.)
                 self.emit(abi::float_move_d_from_x("d0", &operand.location));
                 self.emit(abi::float_negate_d("d0", "d0"));
                 self.emit(abi::float_move_x_from_d(&register, "d0"));
@@ -248,7 +333,7 @@ impl CodeBuilder<'_> {
         }
         Ok(ValueResult {
             type_: operand.type_,
-            location: register,
+            location,
             text: format!("(-{})", operand.text),
         })
     }
@@ -260,6 +345,11 @@ impl CodeBuilder<'_> {
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(left)?;
+        // The comparison machinery spills each operand through an integer slot
+        // (`str x`/`ldr x`) before loading it as a double for `fcmp`, so a
+        // `d`-native float is materialized into a GPR first (plan-01
+        // float-dnative). Identity for every GP-native value.
+        let left = self.materialize_float(left)?;
         let left_slot = self.allocate_stack_object("cmp_left", 8);
         self.emit(abi::store_u64(
             &left.location,
@@ -307,6 +397,7 @@ impl CodeBuilder<'_> {
         }
         if matches!(left.type_.as_str(), "Byte" | "Integer" | "Fixed" | "Float") {
             let right = self.lower_value(right)?;
+            let right = self.materialize_float(right)?;
             let right_slot = self.allocate_stack_object("cmp_right", 8);
             self.emit(abi::store_u64(
                 &right.location,
@@ -863,22 +954,26 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
+    /// Lower a `Float` arithmetic operator and return the **location of the
+    /// result** (plan-01 float-dnative). Under the `d`-native model the result
+    /// stays in its FP virtual register (`%fN`) and that register is returned, so
+    /// no `fmov`-to-GPR shuttle is emitted; under the bump oracle the result is
+    /// moved back to `dst` (a GPR) exactly as before and `dst` is returned. No
+    /// finiteness check is emitted here: an anonymous intermediate may be
+    /// non-finite and a transient that recovers to finite must not trap — the
+    /// check fires only where the value crosses an observation boundary
+    /// (plan-17), where `observe_float` reads the returned location.
     pub(super) fn emit_float_binary(
         &mut self,
         op: &str,
         left: &ValueResult,
         right: &ValueResult,
         dst: &str,
-    ) -> Result<(), String> {
+    ) -> Result<String, String> {
         match op {
             // The pure-FP arithmetic ops run on FP virtual registers so a chained
             // operand stays resident in a `d`-register instead of round-tripping
-            // through a GPR (plan-03 Stage C). The result is materialized back to
-            // `dst` (a GPR) for the value model, and that GPR is recorded as also
-            // resident in `d_res` for any parent float op. No finiteness check is
-            // emitted here: an anonymous intermediate may be non-finite and a
-            // transient that recovers to finite must not trap — the check fires
-            // only where the value crosses an observation boundary (plan-17).
+            // through a GPR (plan-03 Stage C).
             "+" | "-" | "*" | "/" | "DIV" => {
                 let d_left = self.operand_as_double(left)?;
                 let d_right = self.operand_as_double(right)?;
@@ -893,13 +988,14 @@ impl CodeBuilder<'_> {
                     // never `ErrFloatDomain` (plan-17 §4.3).
                     _ => self.emit(abi::float_divide_d(&d_res, &d_left, &d_right)),
                 }
-                self.emit(abi::float_move_x_from_d(dst, &d_res));
-                // FP-residency is sound only under liveness-based allocation: the
-                // bump oracle reuses `d0`–`d7` every statement, so a recorded
-                // resident would be clobbered. Record it only for linear-scan.
-                if self.regalloc_kind == regalloc::RegallocKind::LinearScan {
-                    self.float_residents.insert(dst.to_string(), d_res);
+                // `d`-native model: the FP register *is* the value's home; return
+                // it so consumers stay in the FP domain and the GP shuttle is
+                // never created. Bump oracle: shuttle to `dst` and return `dst`.
+                if self.dnative_floats() {
+                    return Ok(d_res);
                 }
+                self.emit(abi::float_move_x_from_d(dst, &d_res));
+                return Ok(dst.to_string());
             }
             "MOD" => {
                 self.load_numeric_as_double("d0", left)?;
@@ -942,14 +1038,89 @@ impl CodeBuilder<'_> {
                 ));
             }
         }
-        Ok(())
+        // `MOD`/`^` leave their result in `dst` (a GPR); they are not on a hot
+        // path and stay GP-native.
+        Ok(dst.to_string())
+    }
+
+    /// Whether the `d`-register-native float value model is in effect (plan-01
+    /// float-dnative). It is sound only under the liveness-driven allocator (an
+    /// FP virtual register held in a `ValueResult` must survive to its consumers;
+    /// the bump oracle reuses `d0`–`d7` every statement), so the carrier flip is
+    /// gated to `LinearScan` — the bump reference path stays byte-identical.
+    pub(super) fn dnative_floats(&self) -> bool {
+        self.regalloc_kind == regalloc::RegallocKind::LinearScan
+    }
+
+    /// Whether `value` is a `Float` whose canonical home is a `d`-register: its
+    /// `location` is an FP virtual register (`%fN`) rather than a GPR/slot holding
+    /// the bit pattern (plan-01 float-dnative). Such a value is consumed directly
+    /// in the FP domain by float-aware sites (`operand_as_double`,
+    /// `load_numeric_as_double`, `fcmp`, the FP-domain finiteness check, a `str d`
+    /// store) and materialized into a GPR on demand by [`Self::float_value_as_gpr`]
+    /// for every site that needs the raw bits.
+    pub(super) fn float_is_dnative(value: &ValueResult) -> bool {
+        value.type_ == "Float" && regalloc::parse_fp_vreg(&value.location).is_some()
+    }
+
+    /// The single choke point every consumer that needs a `Float`'s **bit
+    /// pattern in a GPR** calls (plan-01 float-dnative §4.1). For a GP-native
+    /// value it is the identity (returns the existing location); for a
+    /// `d`-register-native value it materializes the bits with one `fmov x, d`
+    /// into a fresh GPR. Routing all bit consumers through here is what makes the
+    /// carrier flip safe — a value that lives only in a `d`-register reaches a GPR
+    /// consumer correctly instead of leaking its FP virtual register into a GP
+    /// instruction (which would fail to encode rather than silently miscompile).
+    pub(super) fn float_value_as_gpr(&mut self, value: &ValueResult) -> Result<String, String> {
+        if Self::float_is_dnative(value) {
+            let gpr = self.allocate_register()?;
+            self.emit(abi::float_move_x_from_d(&gpr, &value.location));
+            return Ok(gpr);
+        }
+        Ok(value.location.clone())
+    }
+
+    /// Return `value` with its bits in a GPR (plan-01 float-dnative): a `d`-native
+    /// `Float` is `fmov`'d into a fresh GP register and rewrapped as a GP-native
+    /// `ValueResult`; every other value (already GP-native) is returned unchanged.
+    /// Consumers that hand a value's `location` to a GP instruction — comparisons,
+    /// conversions, the math kernels, call/return marshalling — call this so a
+    /// `d`-native float never leaks its FP register into a GP-context encoding.
+    pub(super) fn materialize_float(&mut self, value: ValueResult) -> Result<ValueResult, String> {
+        if Self::float_is_dnative(&value) {
+            let gpr = self.allocate_register()?;
+            self.emit(abi::float_move_x_from_d(&gpr, &value.location));
+            return Ok(ValueResult {
+                type_: value.type_,
+                location: gpr,
+                text: value.text,
+            });
+        }
+        Ok(value)
+    }
+
+    /// Store `value` into `[base + offset]`. A `d`-native `Float` is stored
+    /// straight from its FP register (`str d`); every other value stores its GPR
+    /// (`str x`). The 8 bytes written are identical either way, so a slot written
+    /// by `str d` and later read as `ldr x` (copy/transfer/marshalling) is
+    /// unchanged — only the in-flight register class differs (plan-01
+    /// float-dnative §1 non-goals).
+    pub(super) fn store_value_at(&mut self, value: &ValueResult, base: &str, offset: usize) {
+        if Self::float_is_dnative(value) {
+            self.emit(abi::store_double(&value.location, base, offset));
+        } else {
+            self.emit(abi::store_u64(&value.location, base, offset));
+        }
     }
 
     /// Materialize `value` into a `d`-register and return it. A `Float` operand
-    /// already resident in an FP virtual register (a prior float op's result) is
-    /// returned directly with no reload; otherwise a fresh FP virtual register is
-    /// loaded (plan-03 Stage C).
+    /// already resident in an FP virtual register (a prior float op's result, or a
+    /// `d`-native load) is returned directly with no reload; otherwise a fresh FP
+    /// virtual register is loaded (plan-03 Stage C / plan-01 float-dnative).
     pub(super) fn operand_as_double(&mut self, value: &ValueResult) -> Result<String, String> {
+        if Self::float_is_dnative(value) {
+            return Ok(value.location.clone());
+        }
         if value.type_ == "Float" {
             if let Some(resident) = self.float_residents.get(&value.location).cloned() {
                 return Ok(resident);
@@ -1253,6 +1424,12 @@ impl CodeBuilder<'_> {
         value: &ValueResult,
     ) -> Result<(), String> {
         match value.type_.as_str() {
+            // A `d`-native float is already in an FP register: move it `d`-to-`d`
+            // (no GPR round-trip). A GP-native float carries its bits in `value
+            // .location` and is moved across the `fmov d, x` boundary.
+            "Float" if Self::float_is_dnative(value) => {
+                self.emit(abi::float_move_d_from_d(dst, &value.location))
+            }
             "Float" => self.emit(abi::float_move_d_from_x(dst, &value.location)),
             "Byte" | "Integer" => self.emit(abi::signed_convert_to_float_d(dst, &value.location)),
             "Fixed" => {
@@ -1277,7 +1454,12 @@ impl CodeBuilder<'_> {
         match value.type_.as_str() {
             "Fixed" => self.emit(abi::move_register(dst, &value.location)),
             "Byte" | "Integer" => self.emit_integer_to_fixed_value(&value.location, dst)?,
-            "Float" => self.emit_float_bits_to_fixed_value(&value.location, dst)?,
+            "Float" => {
+                // The Float→Fixed conversion reads the f64 bit pattern, so a
+                // `d`-native float is materialized into a GPR first (plan-01).
+                let bits = self.float_value_as_gpr(value)?;
+                self.emit_float_bits_to_fixed_value(&bits, dst)?
+            }
             other => {
                 return Err(format!(
                     "native Fixed comparison cannot load operand type '{other}'"

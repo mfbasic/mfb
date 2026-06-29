@@ -131,10 +131,19 @@ impl CodeBuilder<'_> {
                     });
                 }
                 // A loop-promoted float local lives in an FP register, not its
-                // slot (plan-03 Stage D part 2): materialize the value into a GPR
-                // (the value model needs the bits) and mark it FP-resident so a
-                // chained float op reads the register directly with no reload.
+                // slot (plan-03 Stage D part 2). Under the `d`-native value model
+                // its FP register *is* the value's home, so return it directly —
+                // no GPR materialization (plan-01 float-dnative). Under the bump
+                // oracle the value model needs the bits, so shuttle to a GPR and
+                // mark it FP-resident so a chained float op skips the reload.
                 if let Some(d) = self.promoted_float_locals.get(name).cloned() {
+                    if self.dnative_floats() {
+                        return Ok(ValueResult {
+                            type_: "Float".to_string(),
+                            location: d,
+                            text: name.clone(),
+                        });
+                    }
                     let register = self.allocate_register()?;
                     self.emit(abi::float_move_x_from_d(&register, &d));
                     self.float_residents.insert(register.clone(), d);
@@ -151,6 +160,20 @@ impl CodeBuilder<'_> {
                 let type_ = local.type_.clone();
                 let stack_offset = local.stack_offset;
                 let by_ref = local.by_ref;
+                // A non-borrowed `Float` local loads straight into an FP register
+                // (`ldr d`) under the `d`-native model, so it feeds float
+                // arithmetic with no `ldr x` + `fmov` shuttle (plan-01
+                // float-dnative). A `by_ref` local needs a pointer deref first, so
+                // it stays on the GPR path.
+                if self.dnative_floats() && type_ == "Float" && !by_ref {
+                    let d = self.allocate_fp_register()?;
+                    self.emit(abi::load_double(&d, abi::stack_pointer(), stack_offset));
+                    return Ok(ValueResult {
+                        type_,
+                        location: d,
+                        text: name.clone(),
+                    });
+                }
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), stack_offset));
                 if by_ref {
@@ -199,6 +222,18 @@ impl CodeBuilder<'_> {
                     type_.clone()
                 };
                 let address = self.load_global_address(name)?;
+                // A `Float` global loads straight into an FP register under the
+                // `d`-native model (plan-01 float-dnative), mirroring the local
+                // load path.
+                if self.dnative_floats() && value_type == "Float" {
+                    let d = self.allocate_fp_register()?;
+                    self.emit(abi::load_double(&d, &address, 0));
+                    return Ok(ValueResult {
+                        type_: value_type,
+                        location: d,
+                        text: name.clone(),
+                    });
+                }
                 let register = self.allocate_register()?;
                 self.emit(abi::load_u64(&register, &address, 0));
                 Ok(ValueResult {
@@ -361,6 +396,9 @@ impl CodeBuilder<'_> {
                         // closure env is read back when the closure runs, so it
                         // must be finite (plan-17).
                         self.observe_float(capture, &value)?;
+                        // Materialize a `d`-native float before storing it into
+                        // the closure env (plan-01 float-dnative).
+                        let value = self.materialize_float(value)?;
                         let env_register = self.allocate_register()?;
                         self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                         self.emit(abi::store_u64(&value.location, &env_register, index * 8));
@@ -776,6 +814,9 @@ impl CodeBuilder<'_> {
                     // Observation boundary: a `Float` record/union field must be
                     // finite (plan-17).
                     self.observe_float(arg, &value)?;
+                    // Materialize a `d`-native float before the field-payload
+                    // spill (plan-01 float-dnative).
+                    let value = self.materialize_float(value)?;
                     let slot = self.allocate_stack_object("constructor_arg", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     arg_values.push(value);

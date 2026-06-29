@@ -11,6 +11,9 @@ const DECIMAL_EXPONENT_CLAMP: &str = "1000";
 impl CodeBuilder<'_> {
     pub(super) fn lower_to_int(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
+        // A `d`-native float's bits are read by the conversion, so materialize it
+        // into a GPR first (plan-01 float-dnative). Identity for other types.
+        let value = self.materialize_float(value)?;
         // `toInt(value)` with a `Byte` is a width-narrowing move; the 2-arg
         // radix form is `String`-only, so a `Byte` here is always 1-arg.
         if value.type_ == "Byte" {
@@ -464,6 +467,9 @@ impl CodeBuilder<'_> {
 
     pub(super) fn lower_to_fixed(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        // A `d`-native float's bits are read by the conversion, so materialize it
+        // into a GPR first (plan-01 float-dnative).
+        let value = self.materialize_float(value)?;
         let value_slot = self.allocate_stack_object("to_fixed_value", 8);
         self.emit(abi::store_u64(
             &value.location,
@@ -585,6 +591,9 @@ impl CodeBuilder<'_> {
         arg: &NirValue,
     ) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
+        // The predicate reads the operand's bits, so materialize a `d`-native
+        // float into a GPR first (plan-01 float-dnative).
+        let value = self.materialize_float(value)?;
         let result = self.allocate_register()?;
         let true_label = self.label(name);
         let done_label = self.label(&format!("{name}_done"));

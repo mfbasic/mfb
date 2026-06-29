@@ -12,11 +12,8 @@ impl CodeBuilder<'_> {
             ));
             let needle = self.lower_value(&args[1])?;
             let needle_slot = self.allocate_stack_object("find_list_needle", 8);
-            self.emit(abi::store_u64(
-                &needle.location,
-                abi::stack_pointer(),
-                needle_slot,
-            ));
+            // `d`-native float needle stores via `str d` (plan-01 float-dnative).
+            self.store_value_at(&needle, abi::stack_pointer(), needle_slot);
             let start_slot = self.allocate_stack_object("find_list_start", 8);
             if let Some(start) = args.get(2) {
                 let start = self.lower_value(start)?;

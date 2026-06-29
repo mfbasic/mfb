@@ -1500,6 +1500,13 @@ impl CodeBuilder<'_> {
         if let (Some(value), Some(result)) = (value, result.as_ref()) {
             self.observe_float(value, result)?;
         }
+        // The return value travels in a GPR (`RESULT_VALUE_REGISTER`), so a
+        // `d`-native float is materialized into one first (ABI option (b),
+        // plan-01 float-dnative §4.3). Identity for every GP-native value.
+        let result = match result {
+            Some(result) => Some(self.materialize_float(result)?),
+            None => None,
+        };
         if self.active_cleanups.is_empty() {
             if let Some(result) = &result {
                 if result.type_ != "Nothing" {

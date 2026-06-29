@@ -30,6 +30,10 @@ impl CodeBuilder<'_> {
             // (user FUNC/SUB, runtime helper, or native `LINK` thunk) and must
             // be finite (plan-17).
             self.observe_float(arg, &value)?;
+            // Arguments are marshalled through integer slots/registers, so a
+            // `d`-native float is materialized into a GPR first (ABI option (b),
+            // plan-01 float-dnative §4.3). Identity for GP-native values.
+            let value = self.materialize_float(value)?;
             let slot = self.allocate_stack_object(slot_name, 8);
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
             arg_values.push(value);
@@ -347,6 +351,9 @@ impl CodeBuilder<'_> {
             // Observation boundary: a `Float` sent across a thread boundary is
             // observable on the other side and must be finite (plan-17).
             self.observe_float(arg, &value)?;
+            // Materialize a `d`-native float before marshalling it across the
+            // thread boundary (plan-01 float-dnative).
+            let value = self.materialize_float(value)?;
             let slot = self.allocate_stack_object("runtime_thread_send_arg", 8);
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
             arg_values.push(value);

@@ -22,6 +22,9 @@ impl CodeBuilder<'_> {
         // Observation boundary: a `Float` appended element must be finite
         // (plan-17).
         self.observe_float(&args[1], &item)?;
+        // A `d`-native float item is materialized into a GPR before being
+        // spilled into the collection payload (plan-01 float-dnative).
+        let item = self.materialize_float(item)?;
         let insert_slot =
             self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
         let index_slot = self.allocate_stack_object("append_index", 8);
@@ -61,6 +64,8 @@ impl CodeBuilder<'_> {
         if item.type_ == list.type_ {
             return Err("native collection prepend expects a single item, not a list".to_string());
         }
+        // Materialize a `d`-native float before the payload spill (plan-01).
+        let item = self.materialize_float(item)?;
         let insert_slot =
             self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
         let index_slot = self.allocate_stack_object("prepend_index", 8);
@@ -112,6 +117,8 @@ impl CodeBuilder<'_> {
         if item.type_ == list.type_ {
             return Err("native collection insert expects a single item, not a list".to_string());
         }
+        // Materialize a `d`-native float before the payload spill (plan-01).
+        let item = self.materialize_float(item)?;
         let insert_slot =
             self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
         self.lower_list_insert_collection(
@@ -234,6 +241,8 @@ impl CodeBuilder<'_> {
                     element_type, item.type_
                 ));
             }
+            // Materialize a `d`-native float before the payload spill (plan-01).
+            let item = self.materialize_float(item)?;
             let singleton_slot =
                 self.collection_argument_as_list_slot(&collection.type_, &element_type, item)?;
             let removed =
@@ -269,6 +278,7 @@ impl CodeBuilder<'_> {
                     key_type, key.type_
                 ));
             }
+            let key = self.materialize_float(key)?;
             let key_slot = self.allocate_stack_object("set_map_key", 8);
             self.emit(abi::store_u64(
                 &key.location,
@@ -284,6 +294,7 @@ impl CodeBuilder<'_> {
                     value_type, value.type_
                 ));
             }
+            let value = self.materialize_float(value)?;
             let value_slot = self.allocate_stack_object("set_map_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
@@ -352,11 +363,8 @@ impl CodeBuilder<'_> {
             ));
         }
         let key_slot = self.allocate_stack_object("remove_key_key", 8);
-        self.emit(abi::store_u64(
-            &key.location,
-            abi::stack_pointer(),
-            key_slot,
-        ));
+        // `d`-native float key stores via `str d` (plan-01 float-dnative).
+        self.store_value_at(&key, abi::stack_pointer(), key_slot);
         self.lower_map_remove_key(map_slot, key_slot, &map.type_, &key_type)
     }
 

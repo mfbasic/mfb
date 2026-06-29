@@ -83,11 +83,9 @@ impl CodeBuilder<'_> {
                             // Observation boundary: a `Float` becoming a named
                             // binding must be finite (plan-17).
                             self.observe_float(value, &result)?;
-                            self.emit(abi::store_u64(
-                                &result.location,
-                                abi::stack_pointer(),
-                                stack_offset,
-                            ));
+                            // A `d`-native `Float` stores via `str d` (plan-01
+                            // float-dnative); every other value via `str x`.
+                            self.store_value_at(&result, abi::stack_pointer(), stack_offset);
                         } else {
                             let result = self.lower_default_value(type_)?;
                             // The default empty `String` is static rodata; copy it
@@ -211,7 +209,7 @@ impl CodeBuilder<'_> {
                             self.observe_float(value, &result)?;
                         }
                         let address = self.load_global_address(name)?;
-                        self.emit(abi::store_u64(&result.location, &address, 0));
+                        self.store_value_at(&result, &address, 0);
                     }
                     NirOp::Assign { name, value } => {
                         // A loop-promoted float local is updated in its FP
@@ -276,12 +274,21 @@ impl CodeBuilder<'_> {
                             } else {
                                 None
                             };
-                            let result_location = if let Some(slot) = assign_slot {
+                            // What to store: the value itself, or a GPR reloaded
+                            // from the thread/resource cleanup slot (never a
+                            // `Float`, so always GP-native there). A `d`-native
+                            // `Float` is stored via `str d` (plan-01
+                            // float-dnative).
+                            let store_value = if let Some(slot) = assign_slot {
                                 let register = self.allocate_register()?;
                                 self.emit(abi::load_u64(&register, abi::stack_pointer(), slot));
-                                register
+                                ValueResult {
+                                    type_: result.type_.clone(),
+                                    location: register,
+                                    text: String::new(),
+                                }
                             } else {
-                                result.location.clone()
+                                result.clone()
                             };
                             if by_ref {
                                 // A reference local (non-escaping `MUT` borrow): write
@@ -293,13 +300,9 @@ impl CodeBuilder<'_> {
                                     abi::stack_pointer(),
                                     stack_offset,
                                 ));
-                                self.emit(abi::store_u64(&result_location, &slot_pointer, 0));
+                                self.store_value_at(&store_value, &slot_pointer, 0);
                             } else {
-                                self.emit(abi::store_u64(
-                                    &result_location,
-                                    abi::stack_pointer(),
-                                    stack_offset,
-                                ));
+                                self.store_value_at(&store_value, abi::stack_pointer(), stack_offset);
                             }
                             // A reference local never folds to a constant (see Bind).
                             let constant = if by_ref {
@@ -334,11 +337,7 @@ impl CodeBuilder<'_> {
                         // must be finite (plan-17).
                         self.observe_float(value, &result)?;
                         let value_slot = self.allocate_stack_object("state_assign_value", 8);
-                        self.emit(abi::store_u64(
-                            &result.location,
-                            abi::stack_pointer(),
-                            value_slot,
-                        ));
+                        self.store_value_at(&result, abi::stack_pointer(), value_slot);
                         let ptr = self.allocate_register()?;
                         self.emit(abi::load_u64(&ptr, abi::stack_pointer(), stack_offset));
                         let val = self.allocate_register()?;
@@ -627,11 +626,7 @@ impl CodeBuilder<'_> {
         // Observation boundary: a `Float` loop counter's initial value is a
         // named binding and must be finite (plan-17).
         self.observe_float(start, &start_value)?;
-        self.emit(abi::store_u64(
-            &start_value.location,
-            abi::stack_pointer(),
-            local_slot,
-        ));
+        self.store_value_at(&start_value, abi::stack_pointer(), local_slot);
         let previous = self.locals.insert(
             name.to_string(),
             LocalValue {
@@ -715,11 +710,7 @@ impl CodeBuilder<'_> {
         // Observation boundary: the incremented `Float` counter is written back
         // to its named slot, so a non-finite step must trap (plan-17).
         self.observe_float(&increment_node, &increment)?;
-        self.emit(abi::store_u64(
-            &increment.location,
-            abi::stack_pointer(),
-            local_slot,
-        ));
+        self.store_value_at(&increment, abi::stack_pointer(), local_slot);
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&end_label));
         self.end_loop_promotion(promoted)?;
@@ -864,7 +855,14 @@ impl CodeBuilder<'_> {
     /// result (an FP-resident result is a `d`-to-`d` move; a GPR result is moved
     /// in via `fmov d, x`).
     pub(super) fn update_promoted_float(&mut self, d: &str, result: &ValueResult) {
-        if let Some(d_res) = self.float_residents.get(&result.location).cloned() {
+        // A `d`-native result already lives in an FP register: move it `d`-to-`d`
+        // (plan-01 float-dnative). Otherwise reuse a recorded FP resident, or
+        // shuttle the GPR bits in (`fmov d, x`).
+        if Self::float_is_dnative(result) {
+            if result.location != d {
+                self.emit(abi::float_move_d_from_d(d, &result.location));
+            }
+        } else if let Some(d_res) = self.float_residents.get(&result.location).cloned() {
             if d_res != d {
                 self.emit(abi::float_move_d_from_d(d, &d_res));
             }
