@@ -2,14 +2,31 @@
 set -u
 
 if [ "$#" -lt 2 ]; then
-  echo "usage: test-accept.sh <mfb-exe> <actual-output-dir>" >&2
+  echo "usage: test-accept.sh <mfb-exe> <actual-output-dir> [name-glob ...]" >&2
+  echo "  name-glob: optional shell glob(s) matched against each test dir name;" >&2
+  echo "             when given, only matching tests run (e.g. 'collection-*' 'func_math_*')." >&2
   exit 2
 fi
 
 MFB_EXE=$1
 ACTUAL_ROOT=$2
+shift 2
+FILTERS=("$@")
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
+
+# Returns 0 if $1 matches any filter glob, or if no filters were given.
+matches_filter() {
+  [ "${#FILTERS[@]}" -eq 0 ] && return 0
+  local name=$1 pat
+  for pat in "${FILTERS[@]}"; do
+    # shellcheck disable=SC2254
+    case "$name" in
+      $pat) return 0 ;;
+    esac
+  done
+  return 1
+}
 
 if [ -n "${MFB_TARGET:-}" ]; then
   target_name="$MFB_TARGET"
@@ -51,6 +68,7 @@ else
 fi
 
 failures=0
+ran=0
 
 project_name() {
   sed -n 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$1/project.json" | head -n 1
@@ -105,6 +123,8 @@ for test_dir in "$TEST_ROOT"/*; do
   [ -f "$test_dir/project.json" ] || continue
 
   test_name=$(basename "$test_dir")
+  matches_filter "$test_name" || continue
+  ran=$((ran + 1))
   package_name=$(project_name "$test_dir")
   if [ -z "$package_name" ]; then
     echo "could not read project name for $test_name" >&2
@@ -318,9 +338,14 @@ for test_dir in "$TEST_ROOT"/*; do
     "$actual_dir/$package_name.$target_name.app.ncode"
 done
 
+if [ "${#FILTERS[@]}" -ne 0 ] && [ "$ran" -eq 0 ]; then
+  echo "no tests matched filter: ${FILTERS[*]}" >&2
+  exit 2
+fi
+
 if [ "$failures" -ne 0 ]; then
-  echo "acceptance tests failed: $failures mismatch(es)" >&2
+  echo "acceptance tests failed: $failures mismatch(es) ($ran test(s) ran)" >&2
   exit 1
 fi
 
-echo "acceptance tests passed"
+echo "acceptance tests passed ($ran test(s) ran)"
