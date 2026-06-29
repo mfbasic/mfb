@@ -366,6 +366,7 @@ impl CodeBuilder<'_> {
         match kernel {
             FloatKernel::Sin => self.emit_sin_cos_body_scalar(false),
             FloatKernel::Cos => self.emit_sin_cos_body_scalar(true),
+            FloatKernel::Tan => self.emit_tan_body_scalar(),
             _ => self.emit_float_kernel_body(kernel),
         }
         for err in kernel.errors() {
@@ -763,15 +764,63 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_orr("v31", "v1", "v1"));
         self.emit(abi::vector_bsl("v31", "v7", "v4")); // cos_full_lo
         // Double-double-accurate divide: sh=v28 sl=v29 ch=v30 cl=v31.
-        self.emit(abi::vector_fdiv("v0", "v28", "v30")); // q = sh/ch
+        self.emit_tan_divide("v28", "v29", "v30", "v31");
+    }
+
+    /// One-step double-double-accurate quotient `tan = sh:sl / ch:cl` into `v0`:
+    /// `q = sh/ch; tan = q + (fma(-q,ch,sh) + (sl - q*cl))/ch`. Reads only the
+    /// four operand registers; scratch is v0/v3/v4/v6.
+    fn emit_tan_divide(&mut self, sh: &str, sl: &str, ch: &str, cl: &str) {
+        self.emit(abi::vector_fdiv("v0", sh, ch)); // q = sh/ch
         self.emit(abi::vector_fneg("v3", "v0")); // -q
-        self.emit(abi::vector_orr("v4", "v28", "v28"));
-        self.emit(abi::vector_fmla("v4", "v3", "v30")); // sh - q*ch (fma residual)
-        self.emit(abi::vector_orr("v6", "v29", "v29"));
-        self.emit(abi::vector_fmls("v6", "v0", "v31")); // sl - q*cl
+        self.emit(abi::vector_orr("v4", sh, sh));
+        self.emit(abi::vector_fmla("v4", "v3", ch)); // sh - q*ch (fma residual)
+        self.emit(abi::vector_orr("v6", sl, sl));
+        self.emit(abi::vector_fmls("v6", "v0", cl)); // sl - q*cl
         self.emit(abi::vector_fadd("v4", "v4", "v6")); // num
-        self.emit(abi::vector_fdiv("v4", "v4", "v30")); // num/ch
+        self.emit(abi::vector_fdiv("v4", "v4", ch)); // num/ch
         self.emit(abi::vector_fadd("v0", "v0", "v4")); // tan = q + num/ch
+    }
+
+    /// Scalar-only `tan`: `tan` has period π, so the quadrant reduces to bit0 —
+    /// the bit1 signs negate BOTH the numerator and denominator double-doubles
+    /// together and cancel in the quotient (bit-identically). A single scalar
+    /// lane can therefore branch on bit0 and pick the (num,den) dd pair directly,
+    /// dropping the whole branchless sin_full/cos_full quadrant-selection block
+    /// the 2-lane array body needs. The two compensated Horners still run (the
+    /// ratio needs both halves); only the selection is removed.
+    fn emit_tan_body_scalar(&mut self) {
+        self.emit_sincos_reduce(); // reduced=v2, quad=v5
+        self.emit(abi::vector_fmul("v1", "v2", "v2")); // r2 (Horner var, survives)
+        // cos_r as a double-double (hi,lo) → v25/v26.
+        self.emit_compensated_horner("v3", "v4", "v1", &COS_COEFFS);
+        self.emit(abi::vector_orr("v25", "v3", "v3")); // cos_hi
+        self.emit(abi::vector_orr("v26", "v4", "v4")); // cos_lo
+        // sin_r = reduced * P_sin(r2) as a double-double → v23/v24.
+        self.emit_compensated_horner("v3", "v4", "v1", &SIN_COEFFS);
+        self.emit_twoprod("v6", "v7", "v2", "v3"); // reduced*sin_hi → (v6,v7)
+        self.emit(abi::vector_fmla("v7", "v2", "v4")); // lo += reduced*sin_lo
+        self.emit(abi::vector_orr("v23", "v6", "v6")); // sin_hi
+        self.emit(abi::vector_orr("v24", "v7", "v7")); // sin_lo
+        // bit0 ? -cos_r/sin_r : sin_r/cos_r (bit1 cancels in the ratio).
+        self.emit(abi::vector_extract_to_x("x0", "v5", 0));
+        self.emit(abi::move_immediate("x1", "Integer", "1"));
+        self.emit(abi::and_registers("x0", "x0", "x1"));
+        let bit0_clear = self.label("simd_tan_bit0_clear");
+        let tan_done = self.label("simd_tan_done");
+        self.emit(abi::compare_immediate("x0", "0"));
+        self.emit(abi::branch_eq(&bit0_clear));
+        // bit0 set: num = cos_r, den = -sin_r.
+        self.emit(abi::vector_fneg("v30", "v23")); // -sin_hi
+        self.emit(abi::vector_fneg("v31", "v24")); // -sin_lo
+        self.emit_tan_divide("v25", "v26", "v30", "v31");
+        self.emit(abi::branch(&tan_done));
+        self.emit(abi::label(&bit0_clear));
+        // bit0 clear: num = sin_r, den = cos_r.
+        self.emit_tan_divide("v23", "v24", "v25", "v26");
+        self.emit(abi::label(&tan_done));
+        // tan fails only on a NaN result (NaN/inf input) — same as the array body.
+        self.emit_result_nan_into_v22();
     }
 
     /// `exp` kernel: n=floor(x/ln2+0.5), Cody-Waite r, Horner P(r), scale 2^n.
