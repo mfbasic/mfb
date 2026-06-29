@@ -93,6 +93,26 @@ fn encodes_umulh_adc_and_rorv() {
 }
 
 #[test]
+fn encodes_fmov_d_from_d() {
+    let mut encoder = fresh_encoder();
+    for inst in [
+        CodeInstruction::new("fmov_d_from_d")
+            .field("dst", "d5")
+            .field("src", "d3"),
+        CodeInstruction::new("fmov_d_from_d")
+            .field("dst", "d8")
+            .field("src", "d0"),
+    ] {
+        encoder.emit_instruction(&inst).unwrap();
+    }
+    let mut expected = Vec::new();
+    for word in [0x1e60_4065_u32, 0x1e60_4008] {
+        expected.extend_from_slice(&word.to_le_bytes());
+    }
+    assert_eq!(encoder.text, expected);
+}
+
+#[test]
 fn encodes_fp_scalar_spill_load_store() {
     let mut encoder = fresh_encoder();
     for inst in [

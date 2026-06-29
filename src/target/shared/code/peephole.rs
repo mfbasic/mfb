@@ -107,6 +107,7 @@ fn classify(instruction: &CodeInstruction) -> Effect<'_> {
         | CodeOp::LdrU8
         | CodeOp::FMovXFromD
         | CodeOp::FMovDFromX
+        | CodeOp::FMovDFromD
         | CodeOp::FAddD
         | CodeOp::FSubD
         | CodeOp::FMulD

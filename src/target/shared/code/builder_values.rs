@@ -130,6 +130,20 @@ impl CodeBuilder<'_> {
                         text: name.clone(),
                     });
                 }
+                // A loop-promoted float local lives in an FP register, not its
+                // slot (plan-03 Stage D part 2): materialize the value into a GPR
+                // (the value model needs the bits) and mark it FP-resident so a
+                // chained float op reads the register directly with no reload.
+                if let Some(d) = self.promoted_float_locals.get(name).cloned() {
+                    let register = self.allocate_register()?;
+                    self.emit(abi::float_move_x_from_d(&register, &d));
+                    self.float_residents.insert(register.clone(), d);
+                    return Ok(ValueResult {
+                        type_: "Float".to_string(),
+                        location: register,
+                        text: name.clone(),
+                    });
+                }
                 let local = self
                     .locals
                     .get(name)

@@ -206,6 +206,13 @@ impl CodeBuilder<'_> {
                         self.emit(abi::store_u64(&result.location, &address, 0));
                     }
                     NirOp::Assign { name, value } => {
+                        // A loop-promoted float local is updated in its FP
+                        // register, not its slot (plan-03 Stage D part 2).
+                        if let Some(d) = self.promoted_float_locals.get(name).cloned() {
+                            let result = self.lower_value(value)?;
+                            self.update_promoted_float(&d, &result);
+                            return Ok(());
+                        }
                         let (stack_offset, by_ref) = {
                             let local = self.locals.get(name).ok_or_else(|| {
                                 format!("native code assignment unknown local '{name}'")
@@ -472,6 +479,7 @@ impl CodeBuilder<'_> {
                         condition,
                         body,
                     } => {
+                        let promoted = self.begin_loop_promotion(body, None)?;
                         let loop_label = self.label("while_loop");
                         let end_label = self.label("while_end");
                         self.emit(abi::label(&loop_label));
@@ -490,6 +498,7 @@ impl CodeBuilder<'_> {
                         self.emit(abi::branch(&loop_label));
                         self.emit(abi::label(&end_label));
                         self.clear_local_constants();
+                        self.end_loop_promotion(promoted)?;
                     }
                     NirOp::For {
                         name,
@@ -503,6 +512,7 @@ impl CodeBuilder<'_> {
                         self.lower_numeric_for(name, type_, start, end, step, body, *loc)?;
                     }
                     NirOp::DoUntil { body, condition } => {
+                        let promoted = self.begin_loop_promotion(body, None)?;
                         let loop_label = self.label("do_loop");
                         let condition_label = self.label("do_until");
                         let end_label = self.label("do_end");
@@ -528,6 +538,7 @@ impl CodeBuilder<'_> {
                         self.emit(abi::branch_eq(&loop_label));
                         self.emit(abi::label(&end_label));
                         self.clear_local_constants();
+                        self.end_loop_promotion(promoted)?;
                     }
                     NirOp::ForEach {
                         name,
@@ -608,6 +619,7 @@ impl CodeBuilder<'_> {
             },
         );
 
+        let promoted = self.begin_loop_promotion(body, Some(name))?;
         let loop_label = self.label("for_loop");
         let continue_label = self.label("for_continue");
         let end_label = self.label("for_end");
@@ -684,6 +696,7 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&end_label));
+        self.end_loop_promotion(promoted)?;
         if let Some(previous) = previous {
             self.locals.insert(name.to_string(), previous);
         } else {
@@ -741,6 +754,96 @@ impl CodeBuilder<'_> {
                 }
                 _ => {}
             }
+        }
+    }
+
+    /// Begin loop-carried promotion of safe float-accumulator locals for a loop
+    /// with body `body` (plan-03 Stage D part 2). Each promotable local's slot
+    /// value is loaded into a fresh FP virtual register held for the loop, and
+    /// its folded constant is cleared so loop reads use the register. Returns the
+    /// promoted names for `end_loop_promotion`. Emit this *before* the loop
+    /// header so the load runs once on entry.
+    pub(super) fn begin_loop_promotion(
+        &mut self,
+        body: &[NirOp],
+        exclude: Option<&str>,
+    ) -> Result<Vec<String>, String> {
+        // A loop-carried register is only sound under the liveness-driven
+        // allocator; the bump oracle reuses `d0`–`d7` per statement.
+        if self.regalloc_kind != regalloc::RegallocKind::LinearScan {
+            return Ok(Vec::new());
+        }
+        let mut top_assigns = std::collections::HashSet::new();
+        let mut excluded = std::collections::HashSet::new();
+        scan_loop_locals(body, 0, &mut top_assigns, &mut excluded);
+        // A numeric `FOR` induction variable is reassigned by the loop's own
+        // increment (a slot store the lowering adds), so it is never promotable.
+        if let Some(name) = exclude {
+            excluded.insert(name.to_string());
+        }
+        let mut names: Vec<String> = top_assigns
+            .into_iter()
+            .filter(|name| !excluded.contains(name))
+            .collect();
+        names.sort();
+        let mut promoted = Vec::new();
+        for name in names {
+            if self.address_taken_locals.contains(&name)
+                || self.promoted_float_locals.contains_key(&name)
+                || self.owner_collections.contains(&name)
+            {
+                continue;
+            }
+            let Some(local) = self.locals.get(&name) else {
+                continue;
+            };
+            if local.type_ != "Float" || local.by_ref {
+                continue;
+            }
+            let stack_offset = local.stack_offset;
+            let gpr = self.allocate_register()?;
+            let d = self.allocate_fp_register()?;
+            self.emit(abi::load_u64(&gpr, abi::stack_pointer(), stack_offset));
+            self.emit(abi::float_move_d_from_x(&d, &gpr));
+            if let Some(local) = self.locals.get_mut(&name) {
+                local.constant = None;
+            }
+            self.promoted_float_locals.insert(name.clone(), d);
+            promoted.push(name);
+        }
+        Ok(promoted)
+    }
+
+    /// Store each promoted local back to its slot and end its promotion. Emit
+    /// this *after* the loop's exit label — every loop exit (normal, `EXIT`/
+    /// break) reaches that label, and a `RETURN` inside the loop reads the
+    /// register directly and leaves the function, so a single store-back covers
+    /// all exits for a non-escaping local.
+    pub(super) fn end_loop_promotion(&mut self, promoted: Vec<String>) -> Result<(), String> {
+        for name in promoted {
+            let Some(d) = self.promoted_float_locals.remove(&name) else {
+                continue;
+            };
+            let Some(stack_offset) = self.locals.get(&name).map(|local| local.stack_offset) else {
+                continue;
+            };
+            let gpr = self.allocate_register()?;
+            self.emit(abi::float_move_x_from_d(&gpr, &d));
+            self.emit(abi::store_u64(&gpr, abi::stack_pointer(), stack_offset));
+        }
+        Ok(())
+    }
+
+    /// Update a promoted float local's resident register from an assignment
+    /// result (an FP-resident result is a `d`-to-`d` move; a GPR result is moved
+    /// in via `fmov d, x`).
+    pub(super) fn update_promoted_float(&mut self, d: &str, result: &ValueResult) {
+        if let Some(d_res) = self.float_residents.get(&result.location).cloned() {
+            if d_res != d {
+                self.emit(abi::float_move_d_from_d(d, &d_res));
+            }
+        } else {
+            self.emit(abi::float_move_d_from_x(d, &result.location));
         }
     }
 

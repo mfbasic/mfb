@@ -80,6 +80,7 @@ impl CodeInstruction {
             CodeOp::Adrp | CodeOp::AddPageOff => &["dst", "symbol"],
             CodeOp::FMovXFromD
             | CodeOp::FMovDFromX
+            | CodeOp::FMovDFromD
             | CodeOp::FNegD
             | CodeOp::FSqrtD
             | CodeOp::SCvtfDFromX

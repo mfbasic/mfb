@@ -66,6 +66,9 @@ pub(crate) enum CodeOp {
     AddPageOff,
     FMovXFromD,
     FMovDFromX,
+    /// `fmov Dd, Dn` — move one scalar `d`-register into another, used to update a
+    /// loop-promoted float local's resident register (plan-03 Stage D).
+    FMovDFromD,
     FAddD,
     FSubD,
     FMulD,
@@ -210,6 +213,7 @@ impl CodeOp {
             CodeOp::AddPageOff => "add_pageoff",
             CodeOp::FMovXFromD => "fmov_x_from_d",
             CodeOp::FMovDFromX => "fmov_d_from_x",
+            CodeOp::FMovDFromD => "fmov_d_from_d",
             CodeOp::FAddD => "fadd_d",
             CodeOp::FSubD => "fsub_d",
             CodeOp::FMulD => "fmul_d",
@@ -341,6 +345,7 @@ impl CodeOp {
             "add_pageoff" => Ok(CodeOp::AddPageOff),
             "fmov_x_from_d" => Ok(CodeOp::FMovXFromD),
             "fmov_d_from_x" => Ok(CodeOp::FMovDFromX),
+            "fmov_d_from_d" => Ok(CodeOp::FMovDFromD),
             "fadd_d" => Ok(CodeOp::FAddD),
             "fsub_d" => Ok(CodeOp::FSubD),
             "fmul_d" => Ok(CodeOp::FMulD),

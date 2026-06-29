@@ -276,6 +276,13 @@ d`) instead of round-tripping its bit pattern through a GPR between operations: 
 float op records that its result GPR is also resident in a `d`-register, and a
 parent float op reads that `d`-register directly. (This residency is sound only
 under liveness-based coloring, so the `bump` oracle keeps the legacy round-trip.)
+A value live across a call stays in a callee-saved `d8`–`d15` rather than
+spilling. A loop-carried float accumulator — a non-escaping `Float` local
+assigned in a loop body — is **promoted** to a `d`-register held across the whole
+loop: loaded from its slot once on entry, read and updated in the register each
+iteration, and stored back once on exit, so the per-iteration slot round-trip
+disappears. A local whose address is taken, or that is touched inside a nested
+loop, is never promoted (its slot stays authoritative).
 
 The allocator is split into two layers so a future x86_64 backend reuses the
 core:

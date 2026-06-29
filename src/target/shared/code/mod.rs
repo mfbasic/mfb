@@ -52,6 +52,16 @@ struct CodeBuilder<'a> {
     /// names hold the same value and neither vreg is ever redefined; the allocator
     /// keeps the FP vreg live (or spills/reloads it) wherever it is used.
     float_residents: HashMap<String, String>,
+    /// Float locals currently promoted to an FP virtual register for the duration
+    /// of an enclosing loop (plan-03 Stage D part 2): name -> the `%fN` holding
+    /// the live value. While promoted, reads of the local come from this register
+    /// and writes update it, instead of round-tripping its stack slot every
+    /// iteration; it is loaded once before the loop and stored back once after.
+    promoted_float_locals: HashMap<String, String>,
+    /// Locals whose address is taken anywhere in the function (a `LocalRef`).
+    /// Such a local may be observed or mutated through the borrow, so it is never
+    /// loop-promoted (its slot must stay authoritative).
+    address_taken_locals: HashSet<String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     next_label: usize,
@@ -1816,6 +1826,8 @@ fn lower_direct_builtin_runtime_helper(
         next_fp_vreg: 0,
         fp_vreg_eager: Vec::new(),
         float_residents: HashMap::new(),
+        promoted_float_locals: HashMap::new(),
+        address_taken_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         next_label: 0,
         trap: None,

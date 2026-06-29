@@ -19,6 +19,299 @@ pub(super) fn expanded_nir_union_variants<'a>(
     variants
 }
 
+/// Collect the names of every local whose address is taken (`LocalRef`) anywhere
+/// in `ops`. A loop-promoted local must have *no* such borrow, since a callback
+/// holding the borrow could read or mutate the slot while the value lives only in
+/// a register (plan-03 Stage D part 2). The matches are exhaustive on purpose:
+/// missing a `LocalRef` would be unsound, so the compiler must force every
+/// variant to be handled.
+pub(super) fn collect_address_taken_locals(ops: &[NirOp], out: &mut HashSet<String>) {
+    for op in ops {
+        match op {
+            NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } => {
+                if let Some(v) = value {
+                    collect_value_local_refs(v, out);
+                }
+            }
+            NirOp::Assign { value, .. }
+            | NirOp::StateAssign { value, .. }
+            | NirOp::Eval { value }
+            | NirOp::ExitProgram { code: value }
+            | NirOp::Fail { error: value } => collect_value_local_refs(value, out),
+            NirOp::Return { value } => {
+                if let Some(v) = value {
+                    collect_value_local_refs(v, out);
+                }
+            }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                collect_value_local_refs(condition, out);
+                collect_address_taken_locals(then_body, out);
+                collect_address_taken_locals(else_body, out);
+            }
+            NirOp::Match { value, cases } => {
+                collect_value_local_refs(value, out);
+                for case in cases {
+                    if let NirMatchPattern::Value(v) = &case.pattern {
+                        collect_value_local_refs(v, out);
+                    }
+                    if let NirMatchPattern::OneOf(values) = &case.pattern {
+                        for v in values {
+                            collect_value_local_refs(v, out);
+                        }
+                    }
+                    if let Some(guard) = &case.guard {
+                        collect_value_local_refs(guard, out);
+                    }
+                    collect_address_taken_locals(&case.body, out);
+                }
+            }
+            NirOp::While {
+                condition, body, ..
+            }
+            | NirOp::DoUntil { body, condition } => {
+                collect_value_local_refs(condition, out);
+                collect_address_taken_locals(body, out);
+            }
+            NirOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                collect_value_local_refs(start, out);
+                collect_value_local_refs(end, out);
+                collect_value_local_refs(step, out);
+                collect_address_taken_locals(body, out);
+            }
+            NirOp::ForEach { iterable, body, .. } => {
+                collect_value_local_refs(iterable, out);
+                collect_address_taken_locals(body, out);
+            }
+            NirOp::Trap { body, .. } => collect_address_taken_locals(body, out),
+        }
+    }
+}
+
+fn collect_value_local_refs(value: &NirValue, out: &mut HashSet<String>) {
+    match value {
+        NirValue::LocalRef { name, .. } => {
+            out.insert(name.clone());
+        }
+        NirValue::Const { .. }
+        | NirValue::Local(_)
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Capture { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for v in captures {
+                collect_value_local_refs(v, out);
+            }
+        }
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. }
+        | NirValue::ListLiteral { values: args, .. } => {
+            for v in args {
+                collect_value_local_refs(v, out);
+            }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value }
+        | NirValue::MemberAccess { target: value, .. }
+        | NirValue::Unary { operand: value, .. } => collect_value_local_refs(value, out),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_value_local_refs(target, out);
+            for update in updates {
+                collect_value_local_refs(&update.value, out);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (k, v) in entries {
+                collect_value_local_refs(k, out);
+                collect_value_local_refs(v, out);
+            }
+        }
+        NirValue::Binary { left, right, .. } => {
+            collect_value_local_refs(left, out);
+            collect_value_local_refs(right, out);
+        }
+    }
+}
+
+/// Collect every local *read* (`Local`) in `value`. Exhaustive on purpose.
+fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
+    match value {
+        NirValue::Local(name) => {
+            out.insert(name.clone());
+        }
+        NirValue::Const { .. }
+        | NirValue::LocalRef { .. }
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Capture { .. } => {}
+        NirValue::Closure { captures, .. } => {
+            for v in captures {
+                collect_value_local_reads(v, out);
+            }
+        }
+        NirValue::Call { args, .. }
+        | NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. }
+        | NirValue::ListLiteral { values: args, .. } => {
+            for v in args {
+                collect_value_local_reads(v, out);
+            }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value }
+        | NirValue::MemberAccess { target: value, .. }
+        | NirValue::Unary { operand: value, .. } => collect_value_local_reads(value, out),
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_value_local_reads(target, out);
+            for update in updates {
+                collect_value_local_reads(&update.value, out);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (k, v) in entries {
+                collect_value_local_reads(k, out);
+                collect_value_local_reads(v, out);
+            }
+        }
+        NirValue::Binary { left, right, .. } => {
+            collect_value_local_reads(left, out);
+            collect_value_local_reads(right, out);
+        }
+    }
+}
+
+/// Walk a loop body collecting, at `depth` 0 (this loop's own level), the locals
+/// directly assigned (`top_assigns` — the loop-carried-accumulator candidates),
+/// and into `excluded` every local that is bound inside the body, is a loop
+/// induction variable, or is read/assigned inside a *nested* loop (depth ≥ 1).
+/// A candidate that is excluded is never promoted, so a nested loop always sees
+/// the authoritative stack slot (plan-03 Stage D part 2).
+pub(super) fn scan_loop_locals(
+    ops: &[NirOp],
+    depth: u32,
+    top_assigns: &mut HashSet<String>,
+    excluded: &mut HashSet<String>,
+) {
+    let reads = |v: &NirValue, excluded: &mut HashSet<String>| {
+        if depth >= 1 {
+            collect_value_local_reads(v, excluded);
+        }
+    };
+    for op in ops {
+        match op {
+            NirOp::Bind { name, value, .. } => {
+                excluded.insert(name.clone());
+                if let Some(v) = value {
+                    reads(v, excluded);
+                }
+            }
+            NirOp::Assign { name, value } => {
+                if depth == 0 {
+                    top_assigns.insert(name.clone());
+                } else {
+                    excluded.insert(name.clone());
+                }
+                reads(value, excluded);
+            }
+            NirOp::StoreGlobal { value, .. } => {
+                if let Some(v) = value {
+                    reads(v, excluded);
+                }
+            }
+            NirOp::StateAssign { value, .. }
+            | NirOp::Eval { value }
+            | NirOp::ExitProgram { code: value }
+            | NirOp::Fail { error: value } => reads(value, excluded),
+            NirOp::Return { value } => {
+                if let Some(v) = value {
+                    reads(v, excluded);
+                }
+            }
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                reads(condition, excluded);
+                scan_loop_locals(then_body, depth, top_assigns, excluded);
+                scan_loop_locals(else_body, depth, top_assigns, excluded);
+            }
+            NirOp::Match { value, cases } => {
+                reads(value, excluded);
+                for case in cases {
+                    if let Some(guard) = &case.guard {
+                        reads(guard, excluded);
+                    }
+                    scan_loop_locals(&case.body, depth, top_assigns, excluded);
+                }
+            }
+            NirOp::While {
+                condition, body, ..
+            }
+            | NirOp::DoUntil { body, condition } => {
+                if depth >= 1 {
+                    collect_value_local_reads(condition, excluded);
+                } else {
+                    // The nested loop's condition is at depth+1.
+                    collect_value_local_reads(condition, excluded);
+                }
+                scan_loop_locals(body, depth + 1, top_assigns, excluded);
+            }
+            NirOp::For {
+                name,
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                excluded.insert(name.clone());
+                reads(start, excluded);
+                reads(end, excluded);
+                reads(step, excluded);
+                scan_loop_locals(body, depth + 1, top_assigns, excluded);
+            }
+            NirOp::ForEach {
+                name,
+                iterable,
+                body,
+                ..
+            } => {
+                excluded.insert(name.clone());
+                reads(iterable, excluded);
+                scan_loop_locals(body, depth + 1, top_assigns, excluded);
+            }
+            NirOp::Trap { body, .. } => {
+                scan_loop_locals(body, depth, top_assigns, excluded)
+            }
+        }
+    }
+}
+
 pub(super) fn lower_function(
     function: &NirFunction,
     function_symbols: &HashMap<String, String>,
@@ -65,6 +358,8 @@ pub(super) fn lower_function(
         next_fp_vreg: 0,
         fp_vreg_eager: Vec::new(),
         float_residents: HashMap::new(),
+        promoted_float_locals: HashMap::new(),
+        address_taken_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         next_label: 0,
         trap: None,
@@ -139,6 +434,8 @@ pub(super) fn lower_function(
     // Pre-allocate the capacity shadow slot for every in-place string self-append
     // target so bind/assign sites can reset it and the prologue can zero it.
     builder.prescan_string_self_appends(&function.body);
+    // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
+    collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
     builder.lower_ops(&function.body)?;
     if !builder.current_block_returns() {
         builder.emit_return_exit(None)?;
@@ -264,6 +561,8 @@ pub(super) fn lower_builtin_function_wrapper(
         next_fp_vreg: 0,
         fp_vreg_eager: Vec::new(),
         float_residents: HashMap::new(),
+        promoted_float_locals: HashMap::new(),
+        address_taken_locals: HashSet::new(),
         regalloc_kind: regalloc::active_kind(),
         next_label: 0,
         trap: None,

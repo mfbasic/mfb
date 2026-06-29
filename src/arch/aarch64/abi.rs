@@ -502,6 +502,13 @@ pub(crate) fn float_move_d_from_x(dst: &str, src: &str) -> CodeInstruction {
         .field("src", src)
 }
 
+/// `fmov Dd, Dn` — copy one scalar `d`-register into another.
+pub(crate) fn float_move_d_from_d(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fmov_d_from_d")
+        .field("dst", dst)
+        .field("src", src)
+}
+
 pub(crate) fn float_add_d(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("fadd_d")
         .field("dst", dst)

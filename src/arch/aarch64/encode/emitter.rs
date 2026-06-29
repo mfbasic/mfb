@@ -261,6 +261,10 @@ impl Encoder {
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
+            "fmov_d_from_d" => self.emit_fmov_d_from_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
             "fadd_d" => self.emit_fadd_d(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "lhs")?)?,
@@ -759,6 +763,11 @@ impl Encoder {
 
     fn emit_fmov_d_from_x(&mut self, dd: u8, rn: u8) -> Result<(), String> {
         self.emit_word(0x9e67_0000 | ((rn as u32) << 5) | dd as u32)
+    }
+
+    /// `FMOV Dd, Dn` — scalar double register-to-register move.
+    fn emit_fmov_d_from_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
+        self.emit_word(0x1e60_4000 | ((dn as u32) << 5) | dd as u32)
     }
 
     fn emit_fadd_d(&mut self, dd: u8, dn: u8, dm: u8) -> Result<(), String> {
