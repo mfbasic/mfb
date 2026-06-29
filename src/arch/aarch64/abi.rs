@@ -34,6 +34,19 @@ pub(crate) fn temporary_register(allocation: usize) -> Result<String, String> {
     Ok(register)
 }
 
+/// The eager FP temporary register for the `bump` strategy: `d0`–`d7`, restarting
+/// each statement (plan-03 Stage C). The linear-scan default colors FP virtual
+/// registers by liveness and never uses this.
+pub(crate) fn fp_temporary_register(allocation: usize) -> Result<String, String> {
+    if allocation <= 7 {
+        Ok(format!("d{allocation}"))
+    } else {
+        Err(format!(
+            "aarch64 code plan exhausted FP temporary registers at allocation {allocation}"
+        ))
+    }
+}
+
 pub(crate) fn return_register() -> &'static str {
     RETURN_REGISTER
 }
@@ -443,6 +456,22 @@ pub(crate) fn store_u32(src: &str, base: &str, offset: usize) -> CodeInstruction
 
 pub(crate) fn store_u8(src: &str, base: &str, offset: usize) -> CodeInstruction {
     CodeInstruction::new("str_u8")
+        .field("src", src)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
+/// `ldr d<dst>, [<base>, #offset]` — load a 64-bit FP scalar (spill reload).
+pub(crate) fn load_double(dst: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("ldr_d")
+        .field("dst", dst)
+        .field("base", base)
+        .field("offset", &offset.to_string())
+}
+
+/// `str d<src>, [<base>, #offset]` — store a 64-bit FP scalar (spill).
+pub(crate) fn store_double(src: &str, base: &str, offset: usize) -> CodeInstruction {
+    CodeInstruction::new("str_d")
         .field("src", src)
         .field("base", base)
         .field("offset", &offset.to_string())

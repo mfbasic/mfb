@@ -43,11 +43,11 @@ pub(crate) trait RegisterModel {
     /// across a `bl` must not be colored into one of these.
     fn caller_saved(&self, class: RegClass) -> &'static [&'static str];
 
-    /// Emit a spill of `reg` to the stack slot at `[sp, #offset]`.
-    fn emit_spill(&self, reg: &str, offset: usize) -> CodeInstruction;
+    /// Emit a spill of `reg` (of `class`) to the stack slot at `[sp, #offset]`.
+    fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction;
 
-    /// Emit a reload of `reg` from the stack slot at `[sp, #offset]`.
-    fn emit_reload(&self, reg: &str, offset: usize) -> CodeInstruction;
+    /// Emit a reload of `reg` (of `class`) from the stack slot at `[sp, #offset]`.
+    fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction;
 
     /// Emit a register-to-register move within a class.
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction;
@@ -71,14 +71,12 @@ const INT_CALLER_SAVED: &[&str] = &[
     "x15", "x16", "x17",
 ];
 
-/// Allocatable scalar FP registers: caller-saved `d0`–`d7` scratch first, then
-/// callee-saved `d8`–`d15` for values live across a call/inlined kernel
-/// (plan-03 §4.6). `d16`–`d31` are caller-saved and clobbered by the inlined
-/// `math::` NEON kernels, so they are not handed out as long-lived homes.
-const FP_ALLOCATABLE: &[&str] = &[
-    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "d10", "d11", "d12", "d13", "d14",
-    "d15",
-];
+/// Allocatable scalar FP registers (plan-03 Stage C): the caller-saved `d0`–`d7`
+/// scratch only. The callee-saved `d8`–`d15` are added in Stage D (loop-carried
+/// residency), together with their `finalize_frame` save/restore. `d16`–`d31`
+/// are caller-saved and clobbered by the inlined `math::` NEON kernels, so they
+/// are never handed out as long-lived homes.
+const FP_ALLOCATABLE: &[&str] = &["d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7"];
 
 /// Caller-saved FP registers: `d0`–`d7` and `d16`–`d31` (the low 64 bits of
 /// `v0`–`v7` / `v16`–`v31`, the kernel-clobbered set, §4.6).
@@ -122,12 +120,18 @@ impl RegisterModel for Aarch64RegisterModel {
         }
     }
 
-    fn emit_spill(&self, reg: &str, offset: usize) -> CodeInstruction {
-        abi::store_u64(reg, abi::stack_pointer(), offset)
+    fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
+        match class {
+            RegClass::Int => abi::store_u64(reg, abi::stack_pointer(), offset),
+            RegClass::Fp => abi::store_double(reg, abi::stack_pointer(), offset),
+        }
     }
 
-    fn emit_reload(&self, reg: &str, offset: usize) -> CodeInstruction {
-        abi::load_u64(reg, abi::stack_pointer(), offset)
+    fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
+        match class {
+            RegClass::Int => abi::load_u64(reg, abi::stack_pointer(), offset),
+            RegClass::Fp => abi::load_double(reg, abi::stack_pointer(), offset),
+        }
     }
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {

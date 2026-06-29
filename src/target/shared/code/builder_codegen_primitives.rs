@@ -39,6 +39,33 @@ impl CodeBuilder<'_> {
         Ok(regalloc::vreg_name(vreg))
     }
 
+    /// Mint a floating-point (`d`-class) virtual register (plan-03 Stage C). The
+    /// physical `d`-register is assigned after the whole function is lowered;
+    /// chained float arithmetic stays resident in `d`-registers instead of
+    /// round-tripping its bit pattern through a GPR.
+    pub(super) fn allocate_fp_register(&mut self) -> Result<String, String> {
+        let vreg = self.next_fp_vreg;
+        self.next_fp_vreg += 1;
+        debug_assert_eq!(self.fp_vreg_eager.len(), vreg as usize);
+        match self.regalloc_kind {
+            regalloc::RegallocKind::BumpAndReset => {
+                // The bump oracle replays a per-statement `d0`–`d7` sequence.
+                let physical = abi::fp_temporary_register(self.next_fp_register).map_err(|err| {
+                    format!(
+                        "{err} while lowering native function '{}'",
+                        self.current_symbol
+                    )
+                })?;
+                self.next_fp_register += 1;
+                self.fp_vreg_eager.push(physical);
+            }
+            regalloc::RegallocKind::LinearScan => {
+                self.fp_vreg_eager.push(String::new());
+            }
+        }
+        Ok(regalloc::fp_vreg_name(vreg))
+    }
+
     /// Color the fully-lowered instruction stream: rewrite every virtual
     /// register to a physical register (or spill slot) using the selected
     /// strategy. Allocates frame slots for any spills and records the
@@ -52,6 +79,7 @@ impl CodeBuilder<'_> {
             self.regalloc_kind,
             &mut self.instructions,
             &self.vreg_eager,
+            &self.fp_vreg_eager,
             &model,
             spill_base,
         );
@@ -80,6 +108,7 @@ impl CodeBuilder<'_> {
 
     pub(super) fn reset_temporary_registers(&mut self) {
         self.next_register = 8;
+        self.next_fp_register = 0;
     }
 
     pub(super) fn local_constants(&self) -> HashMap<String, Option<NirValue>> {

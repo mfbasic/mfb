@@ -92,6 +92,36 @@ fn encodes_umulh_adc_and_rorv() {
     assert_eq!(encoder.text, expected);
 }
 
+#[test]
+fn encodes_fp_scalar_spill_load_store() {
+    let mut encoder = fresh_encoder();
+    for inst in [
+        CodeInstruction::new("str_d")
+            .field("src", "d0")
+            .field("base", "sp")
+            .field("offset", "0"),
+        CodeInstruction::new("ldr_d")
+            .field("dst", "d0")
+            .field("base", "sp")
+            .field("offset", "8"),
+        CodeInstruction::new("str_d")
+            .field("src", "d8")
+            .field("base", "sp")
+            .field("offset", "16"),
+        CodeInstruction::new("ldr_d")
+            .field("dst", "d15")
+            .field("base", "x9")
+            .field("offset", "4088"),
+    ] {
+        encoder.emit_instruction(&inst).unwrap();
+    }
+    let mut expected = Vec::new();
+    for word in [0xfd00_03e0_u32, 0xfd40_07e0, 0xfd00_0be8, 0xfd47_fd2f] {
+        expected.extend_from_slice(&word.to_le_bytes());
+    }
+    assert_eq!(encoder.text, expected);
+}
+
 fn fresh_encoder() -> Encoder {
     Encoder {
         text: Vec::new(),

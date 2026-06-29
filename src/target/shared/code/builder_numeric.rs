@@ -93,6 +93,10 @@ impl CodeBuilder<'_> {
         right: &NirValue,
     ) -> Result<ValueResult, String> {
         let left = self.lower_value(left)?;
+        // Carry FP-residency (plan-03 Stage C) across the operand slot
+        // round-trip: the reloaded operand register holds the same value, so it
+        // is resident in the same `d`-register.
+        let left_resident = self.float_residents.get(&left.location).cloned();
         let left_slot = self.allocate_stack_object("arith_left", 8);
         self.emit(abi::store_u64(
             &left.location,
@@ -100,6 +104,7 @@ impl CodeBuilder<'_> {
             left_slot,
         ));
         let right = self.lower_value(right)?;
+        let right_resident = self.float_residents.get(&right.location).cloned();
         let right_slot = self.allocate_stack_object("arith_right", 8);
         self.emit(abi::store_u64(
             &right.location,
@@ -122,6 +127,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             right_slot,
         ));
+        if let Some(fp) = left_resident {
+            self.float_residents.insert(left_register.clone(), fp);
+        }
+        if let Some(fp) = right_resident {
+            self.float_residents.insert(right_register.clone(), fp);
+        }
         let left = ValueResult {
             type_: left.type_,
             location: left_register,
@@ -851,21 +862,41 @@ impl CodeBuilder<'_> {
         right: &ValueResult,
         dst: &str,
     ) -> Result<(), String> {
-        self.load_numeric_as_double("d0", left)?;
-        self.load_numeric_as_double("d1", right)?;
         match op {
-            "+" => self.emit(abi::float_add_d("d0", "d0", "d1")),
-            "-" => self.emit(abi::float_subtract_d("d0", "d0", "d1")),
-            "*" => self.emit(abi::float_multiply_d("d0", "d0", "d1")),
-            "/" | "DIV" => {
-                self.emit(abi::float_compare_zero_d("d1"));
-                let nonzero = self.label("float_divisor_nonzero");
-                self.emit(abi::branch_ne(&nonzero));
-                self.emit_float_domain_return()?;
-                self.emit(abi::label(&nonzero));
-                self.emit(abi::float_divide_d("d0", "d0", "d1"));
+            // The pure-FP arithmetic ops run on FP virtual registers so a chained
+            // operand stays resident in a `d`-register instead of round-tripping
+            // through a GPR (plan-03 Stage C). The result is materialized back to
+            // `dst` (a GPR) for the finiteness check and the value model, and that
+            // GPR is recorded as also resident in `d_res` for any parent float op.
+            "+" | "-" | "*" | "/" | "DIV" => {
+                let d_left = self.operand_as_double(left)?;
+                let d_right = self.operand_as_double(right)?;
+                let d_res = self.allocate_fp_register()?;
+                match op {
+                    "+" => self.emit(abi::float_add_d(&d_res, &d_left, &d_right)),
+                    "-" => self.emit(abi::float_subtract_d(&d_res, &d_left, &d_right)),
+                    "*" => self.emit(abi::float_multiply_d(&d_res, &d_left, &d_right)),
+                    _ => {
+                        self.emit(abi::float_compare_zero_d(&d_right));
+                        let nonzero = self.label("float_divisor_nonzero");
+                        self.emit(abi::branch_ne(&nonzero));
+                        self.emit_float_domain_return()?;
+                        self.emit(abi::label(&nonzero));
+                        self.emit(abi::float_divide_d(&d_res, &d_left, &d_right));
+                    }
+                }
+                self.emit(abi::float_move_x_from_d(dst, &d_res));
+                self.emit_float_result_check(dst, FloatInfinityError::Overflow)?;
+                // FP-residency is sound only under liveness-based allocation: the
+                // bump oracle reuses `d0`–`d7` every statement, so a recorded
+                // resident would be clobbered. Record it only for linear-scan.
+                if self.regalloc_kind == regalloc::RegallocKind::LinearScan {
+                    self.float_residents.insert(dst.to_string(), d_res);
+                }
             }
             "MOD" => {
+                self.load_numeric_as_double("d0", left)?;
+                self.load_numeric_as_double("d1", right)?;
                 // Domain pre-check: b == 0 raises ErrFloatDomain (libm's NaN path
                 // is unreachable — MFBASIC has no NaN value). The exact GPR kernel
                 // is only ever entered with a non-zero, finite divisor.
@@ -882,17 +913,38 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_move_x_from_d(&b_bits, "d1"));
                 let result = self.emit_float_fmod(&a_bits, &b_bits)?;
                 self.emit(abi::float_move_d_from_x("d0", &result));
+                self.emit(abi::float_move_x_from_d(dst, "d0"));
+                self.emit_float_result_check(dst, FloatInfinityError::Overflow)?;
             }
-            "^" => self.emit_float_pow("d0", "d1")?,
+            "^" => {
+                self.load_numeric_as_double("d0", left)?;
+                self.load_numeric_as_double("d1", right)?;
+                self.emit_float_pow("d0", "d1")?;
+                self.emit(abi::float_move_x_from_d(dst, "d0"));
+                self.emit_float_result_check(dst, FloatInfinityError::Overflow)?;
+            }
             other => {
                 return Err(format!(
                     "native code plan does not lower Float operator '{other}'"
                 ));
             }
         }
-        self.emit(abi::float_move_x_from_d(dst, "d0"));
-        self.emit_float_result_check(dst, FloatInfinityError::Overflow)?;
         Ok(())
+    }
+
+    /// Materialize `value` into a `d`-register and return it. A `Float` operand
+    /// already resident in an FP virtual register (a prior float op's result) is
+    /// returned directly with no reload; otherwise a fresh FP virtual register is
+    /// loaded (plan-03 Stage C).
+    pub(super) fn operand_as_double(&mut self, value: &ValueResult) -> Result<String, String> {
+        if value.type_ == "Float" {
+            if let Some(resident) = self.float_residents.get(&value.location).cloned() {
+                return Ok(resident);
+            }
+        }
+        let dst = self.allocate_fp_register()?;
+        self.load_numeric_as_double(&dst, value)?;
+        Ok(dst)
     }
 
     pub(super) fn emit_overflow_if_flags_set(&mut self) -> Result<(), String> {

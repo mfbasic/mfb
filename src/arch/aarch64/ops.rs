@@ -58,6 +58,10 @@ pub(crate) enum CodeOp {
     StrU64,
     StrU32,
     StrU8,
+    /// 64-bit FP scalar load/store (`ldr d`/`str d`), used to spill and reload an
+    /// FP-class virtual register (plan-03 Stage C).
+    LdrD,
+    StrD,
     Adrp,
     AddPageOff,
     FMovXFromD,
@@ -200,6 +204,8 @@ impl CodeOp {
             CodeOp::StrU64 => "str_u64",
             CodeOp::StrU32 => "str_u32",
             CodeOp::StrU8 => "str_u8",
+            CodeOp::LdrD => "ldr_d",
+            CodeOp::StrD => "str_d",
             CodeOp::Adrp => "adrp",
             CodeOp::AddPageOff => "add_pageoff",
             CodeOp::FMovXFromD => "fmov_x_from_d",
@@ -329,6 +335,8 @@ impl CodeOp {
             "str_u64" => Ok(CodeOp::StrU64),
             "str_u32" => Ok(CodeOp::StrU32),
             "str_u8" => Ok(CodeOp::StrU8),
+            "ldr_d" => Ok(CodeOp::LdrD),
+            "str_d" => Ok(CodeOp::StrD),
             "adrp" => Ok(CodeOp::Adrp),
             "add_pageoff" => Ok(CodeOp::AddPageOff),
             "fmov_x_from_d" => Ok(CodeOp::FMovXFromD),

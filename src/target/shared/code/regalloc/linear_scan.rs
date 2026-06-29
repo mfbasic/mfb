@@ -20,12 +20,10 @@
 
 use std::collections::HashMap;
 
-use crate::arch::aarch64::abi;
 use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
 
 use super::super::types::CodeInstruction;
-use super::analysis::{self, is_tracked_int, physical_busy, physical_index};
-use super::parse_vreg;
+use super::analysis::{self, physical_busy, ClassModel};
 
 pub(super) struct RunResult {
     pub(super) instructions: Vec<CodeInstruction>,
@@ -33,25 +31,29 @@ pub(super) struct RunResult {
     pub(super) extra_callee_saved: Vec<String>,
 }
 
-/// Allocate the integer class over `instructions`. Spill slots are placed at
+/// Allocate one register class over `instructions`. Spill slots are placed at
 /// `spill_base_offset + k*8` (pre-prologue `sp`-relative, shifted later by
-/// `finalize_frame` like every other stack access).
+/// `finalize_frame` like every other stack access). The two physical files never
+/// interfere, so the Int and Fp classes are each allocated by a separate call.
 pub(super) fn run(
     instructions: &[CodeInstruction],
     model: &dyn RegisterModel,
+    class: RegClass,
+    class_model: &ClassModel,
     spill_base_offset: usize,
 ) -> RunResult {
-    let live = analysis::analyze(instructions);
+    let live = analysis::analyze(instructions, class_model);
     let n = instructions.len();
 
     // Per-physical sorted index lists where the physical is busy, for O(log)
-    // "is physical p busy anywhere in [s, e]" interference checks.
-    let mut phys_busy_indices: Vec<Vec<usize>> = vec![Vec::new(); 31];
+    // "is physical p busy anywhere in [s, e]" interference checks. 32 covers
+    // both x0–x30 and d0–d31.
+    let mut phys_busy_indices: Vec<Vec<usize>> = vec![Vec::new(); 32];
     for (i, &mask) in live.phys_busy_at.iter().enumerate() {
         if mask == 0 {
             continue;
         }
-        for p in 0..31u32 {
+        for p in 0..32u32 {
             if physical_busy(mask, p) {
                 phys_busy_indices[p as usize].push(i);
             }
@@ -73,9 +75,14 @@ pub(super) fn run(
 
     // Allocatable physicals as (name, index), in preference order.
     let allocatable: Vec<(&str, u32)> = model
-        .allocatable(RegClass::Int)
+        .allocatable(class)
         .iter()
-        .map(|&name| (name, physical_index(name).expect("allocatable must be x0–x30")))
+        .map(|&name| {
+            (
+                name,
+                (class_model.physical_index)(name).expect("allocatable must be a class register"),
+            )
+        })
         .collect();
 
     // Virtual registers sorted by interval start for the linear scan.
@@ -151,23 +158,23 @@ pub(super) fn run(
     let spilled_set: std::collections::HashSet<u32> = spilled.iter().copied().collect();
     let mut out: Vec<CodeInstruction> = Vec::with_capacity(n);
     for (i, instruction) in instructions.iter().enumerate() {
-        let eff = analysis::effect(instruction);
+        let eff = analysis::effect(instruction, class_model);
         let used_spilled: Vec<u32> = eff
             .uses
             .iter()
-            .filter_map(|name| parse_vreg(name))
+            .filter_map(|name| (class_model.parse_vreg)(name))
             .filter(|v| spilled_set.contains(v))
             .collect();
         let def_spilled: Vec<u32> = eff
             .defs
             .iter()
-            .filter_map(|name| parse_vreg(name))
+            .filter_map(|name| (class_model.parse_vreg)(name))
             .filter(|v| spilled_set.contains(v))
             .collect();
 
         let mut scratch_for: HashMap<u32, String> = HashMap::new();
         if !used_spilled.is_empty() || !def_spilled.is_empty() {
-            let mut taken = occupied_at(i, &colored_mask_at, instruction);
+            let mut taken = occupied_at(i, &colored_mask_at, instruction, class_model);
             for &v in used_spilled.iter().chain(def_spilled.iter()) {
                 if scratch_for.contains_key(&v) {
                     continue;
@@ -183,17 +190,17 @@ pub(super) fn run(
         }
 
         for &v in &used_spilled {
-            out.push(model.emit_reload(&scratch_for[&v], spill_slot[&v]));
+            out.push(model.emit_reload(class, &scratch_for[&v], spill_slot[&v]));
         }
-        out.push(substitute(instruction, &assignment, &scratch_for));
+        out.push(substitute(instruction, &assignment, &scratch_for, class_model));
         for &v in &def_spilled {
-            out.push(model.emit_spill(&scratch_for[&v], spill_slot[&v]));
+            out.push(model.emit_spill(class, &scratch_for[&v], spill_slot[&v]));
         }
     }
 
     let mut extra_callee_saved: Vec<String> = Vec::new();
     for phys in assignment.values() {
-        if abi::is_callee_saved(phys) && !extra_callee_saved.iter().any(|s| s == phys) {
+        if model.is_callee_saved(phys) && !extra_callee_saved.iter().any(|s| s == phys) {
             extra_callee_saved.push(phys.clone());
         }
     }
@@ -207,33 +214,38 @@ pub(super) fn run(
 }
 
 /// The physical-occupancy mask at instruction `i` (colored occupancy plus the
-/// instruction's own literal physical operands), for spill-scratch selection.
-fn occupied_at(i: usize, colored_mask_at: &[u64], instruction: &CodeInstruction) -> u64 {
+/// instruction's own literal physical operands of this class), for spill-scratch
+/// selection.
+fn occupied_at(
+    i: usize,
+    colored_mask_at: &[u64],
+    instruction: &CodeInstruction,
+    class_model: &ClassModel,
+) -> u64 {
     let mut mask = colored_mask_at.get(i).copied().unwrap_or(0);
     for (_field, value) in &instruction.fields {
-        if is_tracked_int(value) {
-            if let Some(p) = physical_index(value) {
-                mask |= 1u64 << p;
-            }
+        if let Some(p) = (class_model.physical_index)(value) {
+            mask |= 1u64 << p;
         }
     }
     mask
 }
 
-/// Produce a copy of `instruction` with virtual-register operands replaced:
-/// colored vregs by their physical, spilled vregs by their per-instruction
-/// scratch.
+/// Produce a copy of `instruction` with this class's virtual-register operands
+/// replaced: colored vregs by their physical, spilled vregs by their
+/// per-instruction scratch.
 fn substitute(
     instruction: &CodeInstruction,
     assignment: &HashMap<u32, String>,
     scratch_for: &HashMap<u32, String>,
+    class_model: &ClassModel,
 ) -> CodeInstruction {
     let mut copy = CodeInstruction {
         op: instruction.op,
         fields: instruction.fields.clone(),
     };
     for (_field, value) in copy.fields.iter_mut() {
-        if let Some(v) = parse_vreg(value) {
+        if let Some(v) = (class_model.parse_vreg)(value) {
             if let Some(phys) = assignment.get(&v) {
                 *value = phys.clone();
             } else if let Some(scratch) = scratch_for.get(&v) {

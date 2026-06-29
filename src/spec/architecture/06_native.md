@@ -262,11 +262,20 @@ The code generator also adds:
 ### Register Allocation
 
 Lowerings do not name physical temporary registers directly. `allocate_register`
-mints a **virtual register**, carried in the instruction stream as the sentinel
-`%vN` in any register-valued operand field. After a function is fully lowered, a
-coloring pass (`src/target/shared/code/regalloc`) rewrites every `%vN` to a
-physical register, before the peephole pass and `finalize_frame` (which expect
-physical names).[[src/target/shared/code/regalloc/mod.rs:allocate]]
+mints an integer **virtual register**, carried in the instruction stream as the
+sentinel `%vN`; `allocate_fp_register` mints a floating-point virtual register
+`%fN` (plan-03 Stage C). After a function is fully lowered, a coloring pass
+(`src/target/shared/code/regalloc`) rewrites every virtual register to a physical
+register, before the peephole pass and `finalize_frame` (which expect physical
+names).[[src/target/shared/code/regalloc/mod.rs:allocate]]
+
+The integer and FP/SIMD classes have separate physical files that never
+interfere, so each is colored by an independent linear-scan pass over its own
+operands. Chained `Float` arithmetic stays resident in `d`-registers (`fadd d, d,
+d`) instead of round-tripping its bit pattern through a GPR between operations: a
+float op records that its result GPR is also resident in a `d`-register, and a
+parent float op reads that `d`-register directly. (This residency is sound only
+under liveness-based coloring, so the `bump` oracle keeps the legacy round-trip.)
 
 The allocator is split into two layers so a future x86_64 backend reuses the
 core:
@@ -276,9 +285,11 @@ core:
   interface. It names no physical registers.
 - **Per-ISA register model** (`src/arch/<isa>/regmodel.rs`): the `RegisterModel`
   trait answers every register question — the allocatable banks and their class
-  (integer vs FP/SIMD), the caller/callee-saved partition per class, ABI-pinned
-  and scratch registers, and the spill/reload/move emitters. AArch64 implements
-  it now; an x86_64 sibling implements the same trait later.[[src/arch/aarch64/regmodel.rs:RegisterModel]]
+  (integer `x0`–`x30` vs FP/SIMD `d0`–`d31`, where `d_n` aliases the low 64 bits
+  of the NEON `v_n`), the caller/callee-saved partition per class, ABI-pinned and
+  scratch registers, and the per-class spill/reload/move emitters (`str d`/`ldr
+  d` for the FP class). AArch64 implements it now; an x86_64 sibling implements
+  the same trait later.[[src/arch/aarch64/regmodel.rs:RegisterModel]]
 
 The allocation method is a swappable `AllocationStrategy`, selected by the
 `-regalloc <name>` build flag. The default, `linear-scan`, computes liveness over

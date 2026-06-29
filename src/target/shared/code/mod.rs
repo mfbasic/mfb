@@ -39,6 +39,19 @@ struct CodeBuilder<'a> {
     /// eagerly at allocation time (index == virtual register number). Consumed
     /// by `regalloc::allocate` to reproduce the legacy assignment byte-for-byte.
     vreg_eager: Vec<String>,
+    /// Next FP-class temporary register the bump strategy would hand out
+    /// (`d0`–`d7`, reset per statement), and the FP virtual-register counter and
+    /// per-vreg eager FP physical (plan-03 Stage C).
+    next_fp_register: usize,
+    next_fp_vreg: u32,
+    fp_vreg_eager: Vec<String>,
+    /// Float values whose bits in a GPR `ValueResult.location` are *also* resident
+    /// in an FP virtual register (the `d`-register a float op left its result in).
+    /// Lets a chained float operand be read straight from the `d`-register instead
+    /// of round-tripping back through a GPR (plan-03 Stage C). Sound because both
+    /// names hold the same value and neither vreg is ever redefined; the allocator
+    /// keeps the FP vreg live (or spills/reloads it) wherever it is used.
+    float_residents: HashMap<String, String>,
     /// The register-allocation strategy selected for this build (`-regalloc`).
     regalloc_kind: regalloc::RegallocKind,
     next_label: usize,
@@ -1799,6 +1812,10 @@ fn lower_direct_builtin_runtime_helper(
         next_register: 8,
         next_vreg: 0,
         vreg_eager: Vec::new(),
+        next_fp_register: 0,
+        next_fp_vreg: 0,
+        fp_vreg_eager: Vec::new(),
+        float_residents: HashMap::new(),
         regalloc_kind: regalloc::active_kind(),
         next_label: 0,
         trap: None,

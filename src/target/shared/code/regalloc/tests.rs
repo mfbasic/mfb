@@ -35,6 +35,7 @@ fn bump_rewrite_substitutes_eager_physicals() {
         RegallocKind::BumpAndReset,
         &mut instructions,
         &eager,
+        &[],
         &Aarch64RegisterModel,
         0,
     );
@@ -71,6 +72,7 @@ fn linear_scan_colors_and_spills_across_call() {
         RegallocKind::LinearScan,
         &mut instructions,
         &[String::new()],
+        &[],
         &Aarch64RegisterModel,
         64,
     );
@@ -107,6 +109,7 @@ fn linear_scan_colors_short_range_in_register() {
         RegallocKind::LinearScan,
         &mut instructions,
         &[String::new()],
+        &[],
         &Aarch64RegisterModel,
         0,
     );

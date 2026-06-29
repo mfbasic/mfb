@@ -14,7 +14,6 @@ use std::collections::HashMap;
 use crate::arch::aarch64::ops::CodeOp;
 
 use super::super::types::CodeInstruction;
-use super::parse_vreg;
 
 /// Fields that name a register the instruction *writes*. AArch64 is
 /// three-address with no tied operands, so a `dst` field is always a pure
@@ -24,47 +23,60 @@ const DEF_FIELDS: &[&str] = &["dst"];
 /// Fields that name a register the instruction *reads*.
 const USE_FIELDS: &[&str] = &["src", "lhs", "rhs", "minuend", "base", "register", "addend"];
 
-/// Whether `name` is an integer register the allocator tracks: a virtual
-/// register, or a physical `x0`–`x30`. Excludes `x31`/`xzr` (the constant zero),
-/// `sp`, and any FP/SIMD (`d*`/`v*`) register (Stage B allocates only the integer
-/// class).
-pub(super) fn is_tracked_int(name: &str) -> bool {
-    if parse_vreg(name).is_some() {
-        return true;
-    }
-    physical_index(name).is_some()
+/// Per-register-class hooks the allocator core queries: which operand strings are
+/// this class's virtual registers, and which are its physical registers. The Int
+/// class matches `%vN` / `x0`–`x30`; the Fp class matches `%fN` / `d0`–`d31`. A
+/// register of the *other* class is invisible to a pass (the two physical files
+/// never interfere), so cross-class moves (`fmov x, d`) are handled correctly by
+/// each pass seeing only its own operands.
+#[derive(Clone, Copy)]
+pub(super) struct ClassModel {
+    pub(super) parse_vreg: fn(&str) -> Option<u32>,
+    pub(super) physical_index: fn(&str) -> Option<u32>,
 }
 
-/// The physical-register index `0..=30` of a tracked physical integer register
-/// (`x0`–`x30`), or `None` for a virtual register, `x31`/`xzr`, `sp`, or an FP
-/// register.
-pub(super) fn physical_index(name: &str) -> Option<u32> {
+/// The integer physical-register index `0..=30` (`x0`–`x30`), or `None`.
+/// Excludes `x31`/`xzr`, `sp`, and FP registers.
+pub(super) fn int_physical_index(name: &str) -> Option<u32> {
     let rest = name.strip_prefix('x')?;
     let n: u32 = rest.parse().ok()?;
-    if n <= 30 {
-        Some(n)
-    } else {
-        None
+    (n <= 30).then_some(n)
+}
+
+/// The FP/SIMD physical-register index `0..=31`, or `None`. Matches BOTH the
+/// scalar `d0`–`d31` spelling and the vector `v0`–`v31` spelling, because they
+/// alias the same physical file (`d_n` ⊂ `v_n`): a NEON kernel's hardcoded `v5`
+/// must mark `d5` busy so the allocator never colors an FP value onto it (§4.6).
+pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
+    let rest = name.strip_prefix('d').or_else(|| name.strip_prefix('v'))?;
+    let n: u32 = rest.parse().ok()?;
+    (n <= 31).then_some(n)
+}
+
+impl ClassModel {
+    /// Whether `name` is a register this class tracks (a virtual or physical one).
+    pub(super) fn is_tracked(&self, name: &str) -> bool {
+        (self.parse_vreg)(name).is_some() || (self.physical_index)(name).is_some()
     }
 }
 
-/// The integer registers an instruction defines and uses (tracked names only),
-/// and whether it is a call/syscall (clobbers caller-saved registers).
+/// The registers (of one class) an instruction defines and uses, plus whether it
+/// is a call/syscall (clobbers caller-saved registers).
 pub(super) struct Effect {
     pub(super) defs: Vec<String>,
     pub(super) uses: Vec<String>,
     pub(super) is_call: bool,
 }
 
-pub(super) fn effect(instruction: &CodeInstruction) -> Effect {
+pub(super) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effect {
     let mut defs = Vec::new();
     let mut uses = Vec::new();
     for (name, value) in &instruction.fields {
         if DEF_FIELDS.contains(name) {
-            if is_tracked_int(value) {
+            if model.is_tracked(value) {
                 defs.push(value.clone());
             }
-        } else if USE_FIELDS.contains(name) && is_tracked_int(value) {
+        } else if USE_FIELDS.contains(name) && model.is_tracked(value) {
             uses.push(value.clone());
         }
     }
@@ -195,7 +207,7 @@ pub(super) fn physical_busy(bits: PhysMask, index: u32) -> bool {
 /// would miss, so real dataflow is required; but the live set at any point is
 /// small (statement-local temporaries), so it stays fast even on the
 /// multi-thousand-block generated functions.
-pub(super) fn analyze(instructions: &[CodeInstruction]) -> Liveness {
+pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> Liveness {
     let n = instructions.len();
     let blocks = build_cfg(instructions);
     let nb = blocks.len();
@@ -218,21 +230,21 @@ pub(super) fn analyze(instructions: &[CodeInstruction]) -> Liveness {
         })
     };
     for (i, instruction) in instructions.iter().enumerate() {
-        let eff = effect(instruction);
+        let eff = effect(instruction, model);
         if eff.is_call {
             call_idx.push(i);
         }
         for d in &eff.defs {
-            if let Some(p) = physical_index(d) {
+            if let Some(p) = (model.physical_index)(d) {
                 phys_def[i] |= 1u64 << p;
-            } else if let Some(v) = parse_vreg(d) {
+            } else if let Some(v) = (model.parse_vreg)(d) {
                 vdef[i].push(intern(v, &mut vid_of, &mut vreg_of));
             }
         }
         for u in &eff.uses {
-            if let Some(p) = physical_index(u) {
+            if let Some(p) = (model.physical_index)(u) {
                 phys_use[i] |= 1u64 << p;
-            } else if let Some(v) = parse_vreg(u) {
+            } else if let Some(v) = (model.parse_vreg)(u) {
                 vuse[i].push(intern(v, &mut vid_of, &mut vreg_of));
             }
         }

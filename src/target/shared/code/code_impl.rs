@@ -75,6 +75,8 @@ impl CodeInstruction {
                 &["dst", "base", "offset"]
             }
             CodeOp::StrU64 | CodeOp::StrU32 | CodeOp::StrU8 => &["src", "base", "offset"],
+            CodeOp::LdrD => &["dst", "base", "offset"],
+            CodeOp::StrD => &["src", "base", "offset"],
             CodeOp::Adrp | CodeOp::AddPageOff => &["dst", "symbol"],
             CodeOp::FMovXFromD
             | CodeOp::FMovDFromX

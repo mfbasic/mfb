@@ -233,6 +233,16 @@ impl Encoder {
                 reg(field(instruction, "base")?)?,
                 immediate(field(instruction, "offset")?)?,
             ),
+            "ldr_d" => self.emit_ldr_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
+            "str_d" => self.emit_str_d(
+                reg(field(instruction, "src")?)?,
+                reg(field(instruction, "base")?)?,
+                immediate(field(instruction, "offset")?)?,
+            ),
             "adrp" => self.emit_symbol_ref(
                 "adrp",
                 reg(field(instruction, "dst")?)?,
@@ -837,6 +847,32 @@ impl Encoder {
         let scratch = scratch_excluding(rt, rn);
         self.emit_add_imm(scratch, rn, offset)?;
         self.emit_word(0x7940_0000 | ((scratch as u32) << 5) | rt as u32)
+    }
+
+    /// 64-bit `LDR Dt, [Xn, #offset]` — FP scalar load; offset scaled by 8.
+    fn emit_ldr_d(&mut self, dt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 8 != 0 {
+            return Err(format!("unaligned AArch64 ldr d offset {offset}"));
+        }
+        if let Ok(imm) = checked_imm12(offset / 8) {
+            return self.emit_word(0xfd40_0000 | (imm << 10) | ((rn as u32) << 5) | dt as u32);
+        }
+        let scratch = scratch_excluding(rn, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0xfd40_0000 | ((scratch as u32) << 5) | dt as u32)
+    }
+
+    /// 64-bit `STR Dt, [Xn, #offset]` — FP scalar store; offset scaled by 8.
+    fn emit_str_d(&mut self, dt: u8, rn: u8, offset: u64) -> Result<(), String> {
+        if offset % 8 != 0 {
+            return Err(format!("unaligned AArch64 str d offset {offset}"));
+        }
+        if let Ok(imm) = checked_imm12(offset / 8) {
+            return self.emit_word(0xfd00_0000 | (imm << 10) | ((rn as u32) << 5) | dt as u32);
+        }
+        let scratch = scratch_excluding(rn, rn);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0xfd00_0000 | ((scratch as u32) << 5) | dt as u32)
     }
 
     fn emit_str_u64(&mut self, rt: u8, rn: u8, offset: u64) -> Result<(), String> {

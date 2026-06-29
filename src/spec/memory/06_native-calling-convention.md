@@ -30,11 +30,17 @@ register, in the same positional slot as any integer or pointer. `storage_for_ty
 classifies both `Float` and `Fixed` as 8-byte / 8-align scalars, and the argument
 machinery moves their bits through `x` registers like everything else. [[src/target/shared/plan/lower.rs:storage_for_type]]
 
-The floating-point register file (`d0`, `d1`, …) is used **only at FP-arithmetic
-sites**: the operand's bits are moved out of its `x` register with `fmov d, x`
-(`fmov_d_from_x`), the `fadd`/`fmul`/etc. runs, and the result is moved back into
-an `x` register with `fmov x, d` (`fmov_x_from_d`). [[src/arch/aarch64/abi.rs:float_move_d_from_x]] [[src/target/shared/code/builder_numeric.rs:223]] A `d`-register value never
-crosses a call boundary.
+The floating-point register file (`d0`, `d1`, …) holds `Float` values at
+FP-arithmetic sites. An operand's bits move out of its `x` register with `fmov d,
+x` (`fmov_d_from_x`), the `fadd`/`fmul`/etc. runs, and the result moves back into
+an `x` register with `fmov x, d` (`fmov_x_from_d`) for the finiteness check and
+the value model. [[src/arch/aarch64/abi.rs:float_move_d_from_x]] Under the linear-scan allocator, **chained float arithmetic
+stays resident in `d`-registers** across operations (the FP register class,
+plan-03 Stage C): a parent float op reads its operand straight from the
+`d`-register the child op produced, skipping the GPR round-trip. At every memory
+or ABI boundary (storing to a slot, passing an argument, returning) a `Float` is
+still its 8-byte little-endian form in an `x` register, so its value
+representation and the call ABI are unchanged.
 
 ## Result Passing
 

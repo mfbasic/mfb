@@ -16,24 +16,39 @@
 
 use std::sync::OnceLock;
 
-use crate::arch::aarch64::regmodel::RegisterModel;
+use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
 
+use analysis::ClassModel;
 use super::types::CodeInstruction;
 
-/// The sentinel prefix a virtual register carries in an instruction field. It
-/// cannot collide with any physical register name, immediate, symbol, label, or
-/// type name (none of which begin with `%`).
+/// The sentinel prefix an integer virtual register carries in an instruction
+/// field. It cannot collide with any physical register name, immediate, symbol,
+/// label, or type name (none of which begin with `%`).
 const VREG_PREFIX: &str = "%v";
 
-/// Render virtual register index `n` as its instruction-field sentinel.
+/// The sentinel prefix a floating-point virtual register carries (plan-03 Stage
+/// C). Distinct from the integer prefix so the two classes are allocated
+/// independently.
+const FP_VREG_PREFIX: &str = "%f";
+
+/// Render integer virtual register index `n` as its instruction-field sentinel.
 pub(crate) fn vreg_name(n: u32) -> String {
     format!("{VREG_PREFIX}{n}")
 }
 
-/// Parse a virtual-register sentinel back to its index, or `None` if `value` is
-/// not a virtual register (a physical name, immediate, symbol, …).
+/// Parse an integer virtual-register sentinel back to its index, or `None`.
 pub(crate) fn parse_vreg(value: &str) -> Option<u32> {
     value.strip_prefix(VREG_PREFIX)?.parse().ok()
+}
+
+/// Render floating-point virtual register index `n` as its sentinel.
+pub(crate) fn fp_vreg_name(n: u32) -> String {
+    format!("{FP_VREG_PREFIX}{n}")
+}
+
+/// Parse a floating-point virtual-register sentinel back to its index, or `None`.
+pub(crate) fn parse_fp_vreg(value: &str) -> Option<u32> {
+    value.strip_prefix(FP_VREG_PREFIX)?.parse().ok()
 }
 
 /// Which allocation method to run. Selected by `-regalloc <name>`.
@@ -161,6 +176,7 @@ pub(crate) fn allocate(
     kind: RegallocKind,
     instructions: &mut Vec<CodeInstruction>,
     eager: &[String],
+    fp_eager: &[String],
     model: &dyn RegisterModel,
     spill_base_offset: usize,
 ) -> AllocOutcome {
@@ -171,32 +187,66 @@ pub(crate) fn allocate(
                 eager,
                 model,
             });
-            rewrite(instructions, &allocation.physical);
+            rewrite(instructions, parse_vreg, &allocation.physical);
+            rewrite(instructions, parse_fp_vreg, fp_eager);
             AllocOutcome {
                 spill_slots: Vec::new(),
                 extra_callee_saved: allocation.extra_callee_saved,
             }
         }
         RegallocKind::LinearScan => {
-            let result = linear_scan::run(instructions, model, spill_base_offset);
-            *instructions = result.instructions;
-            let spill_slots = (0..result.spill_slot_count)
+            // Allocate the integer class, then the FP class over the
+            // already-integer-colored stream. The two physical files never
+            // interfere, so each pass sees only its own operands; FP spill slots
+            // are placed after the integer ones.
+            let int_model = ClassModel {
+                parse_vreg,
+                physical_index: analysis::int_physical_index,
+            };
+            let fp_model = ClassModel {
+                parse_vreg: parse_fp_vreg,
+                physical_index: analysis::fp_physical_index,
+            };
+            let int = linear_scan::run(
+                instructions,
+                model,
+                RegClass::Int,
+                &int_model,
+                spill_base_offset,
+            );
+            *instructions = int.instructions;
+            let fp_base = spill_base_offset + int.spill_slot_count * 8;
+            let fp = linear_scan::run(instructions, model, RegClass::Fp, &fp_model, fp_base);
+            *instructions = fp.instructions;
+
+            let total_spills = int.spill_slot_count + fp.spill_slot_count;
+            let spill_slots = (0..total_spills)
                 .map(|k| spill_base_offset + k * 8)
                 .collect();
+            let mut extra_callee_saved = int.extra_callee_saved;
+            for register in fp.extra_callee_saved {
+                if !extra_callee_saved.contains(&register) {
+                    extra_callee_saved.push(register);
+                }
+            }
             AllocOutcome {
                 spill_slots,
-                extra_callee_saved: result.extra_callee_saved,
+                extra_callee_saved,
             }
         }
     }
 }
 
-/// Substitute every virtual-register sentinel in the stream with its assigned
-/// physical register (the `BumpAndReset` rewrite).
-fn rewrite(instructions: &mut [CodeInstruction], physical: &[String]) {
+/// Substitute every virtual-register sentinel matched by `parse` with its
+/// assigned physical register (the `BumpAndReset` rewrite, run once per class).
+fn rewrite(
+    instructions: &mut [CodeInstruction],
+    parse: fn(&str) -> Option<u32>,
+    physical: &[String],
+) {
     for instruction in instructions.iter_mut() {
         for (_name, value) in instruction.fields.iter_mut() {
-            if let Some(index) = parse_vreg(value) {
+            if let Some(index) = parse(value) {
                 let assigned = physical.get(index as usize).unwrap_or_else(|| {
                     panic!("register allocator: virtual register {index} has no assignment")
                 });
