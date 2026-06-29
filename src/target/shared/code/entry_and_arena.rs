@@ -895,6 +895,100 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
     }
 }
 
+/// `_mfb_build_error_loc(x0 = filename String*, x1 = line, x2 = char)` — allocate
+/// an `ErrorLoc` record `{filename(offset)@0, line@8, char@16}` with the filename
+/// String block inlined at offset `ERROR_LOC_OBJECT_SIZE`, and return its pointer
+/// in `x0` (`x0 = 0` on OOM). This is the out-of-line form of the block formerly
+/// emitted inline at every trap site (`emit_build_error_loc`, plan-16); one shared
+/// copy replaces ~48 instructions per site. `filename` is never null (the caller
+/// passes an empty-String constant when the source file is unknown); the length
+/// word it points at drives the inlined block size and the byte copy. Mirrors
+/// `simd_alloc_list`: a framed function that calls `_mfb_arena_alloc` and returns
+/// null rather than propagating an error (it runs *during* error handling).
+pub(super) fn lower_build_error_loc() -> CodeFunction {
+    const FRAME_SIZE: usize = 64;
+    const LR_SLOT: usize = 0;
+    const FN_SLOT: usize = 8;
+    const LINE_SLOT: usize = 16;
+    const CHAR_SLOT: usize = 24;
+    const LEN_SLOT: usize = 32;
+    let mut relocations = Vec::new();
+    let instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME_SIZE),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
+        // Save the caller-saved inputs across the allocation call.
+        abi::store_u64("x0", abi::stack_pointer(), FN_SLOT),
+        abi::store_u64("x1", abi::stack_pointer(), LINE_SLOT),
+        abi::store_u64("x2", abi::stack_pointer(), CHAR_SLOT),
+        // len = *filename; size = 24 (fixed slots) + len + 9 (inlined String block).
+        abi::load_u64("x9", "x0", 0),
+        abi::store_u64("x9", abi::stack_pointer(), LEN_SLOT),
+        abi::add_immediate("x9", "x9", ERROR_LOC_OBJECT_SIZE + 9),
+        abi::move_register(abi::return_register(), "x9"),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+        // x0 = result tag, x1 = pointer. On OOM (tag != ok) return a null pointer.
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_eq("build_error_loc_ok"),
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::branch("build_error_loc_ret"),
+        abi::label("build_error_loc_ok"),
+        // Fixed slots: filename block-relative offset @0 = 24, line @8, char @16.
+        abi::move_immediate("x9", "Integer", &ERROR_LOC_OBJECT_SIZE.to_string()),
+        abi::store_u64("x9", "x1", 0),
+        abi::load_u64("x9", abi::stack_pointer(), LINE_SLOT),
+        abi::store_u64("x9", "x1", 8),
+        abi::load_u64("x9", abi::stack_pointer(), CHAR_SLOT),
+        abi::store_u64("x9", "x1", 16),
+        // Inline the filename String block (len + 9 bytes) at offset 24. The
+        // ErrorLoc pointer (x1) is preserved across the copy (dst walks in x10).
+        // x10 = dst, x11 = src, x12 = remaining, x14 = scratch.
+        abi::add_immediate("x10", "x1", ERROR_LOC_OBJECT_SIZE),
+        abi::load_u64("x11", abi::stack_pointer(), FN_SLOT),
+        abi::load_u64("x12", abi::stack_pointer(), LEN_SLOT),
+        abi::add_immediate("x12", "x12", 9),
+        abi::label("build_error_loc_wloop"),
+        abi::compare_immediate("x12", "8"),
+        abi::branch_lo("build_error_loc_btail"),
+        abi::load_u64("x14", "x11", 0),
+        abi::store_u64("x14", "x10", 0),
+        abi::add_immediate("x11", "x11", 8),
+        abi::add_immediate("x10", "x10", 8),
+        abi::subtract_immediate("x12", "x12", 8),
+        abi::branch("build_error_loc_wloop"),
+        abi::label("build_error_loc_btail"),
+        abi::compare_immediate("x12", "0"),
+        abi::branch_eq("build_error_loc_copy_done"),
+        abi::load_u8("x14", "x11", 0),
+        abi::store_u8("x14", "x10", 0),
+        abi::add_immediate("x11", "x11", 1),
+        abi::add_immediate("x10", "x10", 1),
+        abi::subtract_immediate("x12", "x12", 1),
+        abi::branch("build_error_loc_btail"),
+        abi::label("build_error_loc_copy_done"),
+        abi::move_register(abi::return_register(), "x1"),
+        abi::label("build_error_loc_ret"),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ];
+    relocations.push(internal_branch(BUILD_ERROR_LOC_SYMBOL, ARENA_ALLOC_SYMBOL));
+    CodeFunction {
+        name: "runtime.build_error_loc".to_string(),
+        symbol: BUILD_ERROR_LOC_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Pointer".to_string(),
+        frame: CodeFrame {
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations,
+    }
+}
+
 /// `arena_insert_free(x0 = ptr, x1 = size)` — insert a chunk into the
 /// address-ordered free-list and coalesce with the address-adjacent neighbor on
 /// either side. `size` must already be normalized (≥16, multiple of 16) and

@@ -88,6 +88,11 @@ pub(crate) const ERROR_OBJECT_SIZE: usize = 24;
 /// Byte size of an allocated `ErrorLoc` record: filename(+0), line(+8), char(+16).
 pub(crate) const ERROR_LOC_OBJECT_SIZE: usize = 24;
 pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
+/// Out-of-line `ErrorLoc` builder (plan-16). `x0 = filename String*`,
+/// `x1 = line`, `x2 = char`; returns `x0 = ErrorLoc*`, or `x0 = 0` on OOM. One
+/// shared copy replaces the ~48-instruction block formerly inlined at every trap
+/// site (`emit_build_error_loc`).
+pub(crate) const BUILD_ERROR_LOC_SYMBOL: &str = "_mfb_build_error_loc";
 pub(crate) const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
 /// Shared process-teardown routine: restores the terminal (when `term::` is used)
 /// and frees the main arena, then returns. Called both after the entry FUNC/SUB
