@@ -31,6 +31,19 @@ trap _bench_cleanup EXIT
 # High-resolution wall-clock seconds since the epoch (macOS `date` lacks %N).
 now() { perl -MTime::HiRes=time -e 'printf "%.9f\n", time'; }
 
+# ins_count EXE — number of machine instructions in a native executable (the
+# whole binary, so register-allocation differences on the same program show up
+# directly). Prints "-" when EXE is not a disassemblable file (e.g. the Python
+# interpreter, named on PATH rather than by path).
+ins_count() {
+  local exe="$1"
+  if [ -f "$exe" ] && objdump -d "$exe" >/dev/null 2>&1; then
+    objdump -d "$exe" 2>/dev/null | grep -cE ':[[:space:]]+[0-9a-f]{8}[[:space:]]'
+  else
+    echo "-"
+  fi
+}
+
 # bench_build_mfb DIR — build the MFBASIC project in DIR; sets $MFB_OUT to the
 # resulting executable (named after the project's "name" field).
 bench_build_mfb() {
@@ -55,6 +68,7 @@ bench_build_c() {
 # median / average / min / max wall time.
 time_run() {
   local label="$1"; shift
+  local ins; ins="$(ins_count "$1")"
   local starts="" ends="" i
   for ((i = 0; i < BENCH_RUNS; i++)); do
     starts+="$(now) "
@@ -77,7 +91,7 @@ time_run() {
     my $med = $n % 2
       ? $sorted[int($n / 2)]
       : ($sorted[$n / 2 - 1] + $sorted[$n / 2]) / 2;
-    printf "%-10s med %9.3f ms   avg %9.3f ms   min %9.3f ms   max %9.3f ms   (%d runs)\n",
-      $ARGV[0], $med * 1000, ($sum / $n) * 1000, $min * 1000, $max * 1000, $n;
-  ' "$label" "$starts" "$ends"
+    printf "%-10s %9s ins   med %9.3f ms   avg %9.3f ms   min %9.3f ms   max %9.3f ms   (%d runs)\n",
+      $ARGV[0], $ARGV[3], $med * 1000, ($sum / $n) * 1000, $min * 1000, $max * 1000, $n;
+  ' "$label" "$starts" "$ends" "$ins";
 }
