@@ -378,6 +378,10 @@ pub(crate) fn branch_vc(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.vc").field("target", target)
 }
 
+pub(crate) fn branch_vs(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.vs").field("target", target)
+}
+
 pub(crate) fn branch_hi(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.hi").field("target", target)
 }
@@ -545,6 +549,14 @@ pub(crate) fn float_negate_d(dst: &str, src: &str) -> CodeInstruction {
 
 pub(crate) fn float_sqrt_d(dst: &str, src: &str) -> CodeInstruction {
     CodeInstruction::new("fsqrt_d")
+        .field("dst", dst)
+        .field("src", src)
+}
+
+/// `fabs Dd, Dn` — scalar double absolute value (clears the sign bit), so the
+/// FP-domain finiteness check can fold ±Inf onto a single `fcmp` against +Inf.
+pub(crate) fn float_abs_d(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("fabs_d")
         .field("dst", dst)
         .field("src", src)
 }

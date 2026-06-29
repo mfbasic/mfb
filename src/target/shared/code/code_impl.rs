@@ -65,6 +65,7 @@ impl CodeInstruction {
             | CodeOp::BranchGt
             | CodeOp::BranchLe
             | CodeOp::BranchVc
+            | CodeOp::BranchVs
             | CodeOp::BranchHi
             | CodeOp::BranchLo
             | CodeOp::Branch
@@ -82,6 +83,7 @@ impl CodeInstruction {
             | CodeOp::FMovDFromX
             | CodeOp::FMovDFromD
             | CodeOp::FNegD
+            | CodeOp::FAbsD
             | CodeOp::FSqrtD
             | CodeOp::SCvtfDFromX
             | CodeOp::FCvtzsXFromD

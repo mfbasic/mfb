@@ -1011,4 +1011,44 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok));
         Ok(())
     }
+
+    /// FP-domain twin of [`Self::emit_float_result_check`] (plan-16 Piece B). It
+    /// computes the **same** three-way finite/inf/NaN predicate, but on the value
+    /// while it is still resident in a `d`-register, so the result never has to be
+    /// shuttled into a GPR just to be bit-tested. `value` is a `d`-register; it is
+    /// read-only here (the `fabs` lands in a scratch FP register), so a chained
+    /// float op keeps using it directly.
+    ///
+    /// `fabs` folds ±Inf onto +Inf, then a single `fcmp` against +Inf orders the
+    /// three classes exactly as the integer magnitude compare did: a finite `|x|`
+    /// is strictly less than +Inf, ±Inf compares equal, and a NaN compares
+    /// unordered (the V flag, caught by `b.vs`). The error each class raises — and
+    /// the line/char it stamps — is byte-identical to the GPR path.
+    pub(super) fn emit_float_result_check_fp(
+        &mut self,
+        value: &str,
+        infinity_error: FloatInfinityError,
+    ) -> Result<(), String> {
+        let nan = self.label("float_result_nan");
+        let ok = self.label("float_result_finite");
+        let magnitude = self.allocate_fp_register()?;
+        let positive_inf = self.allocate_fp_register()?;
+        // +inf bits == 0x7FF0000000000000. Materialized through the dedicated
+        // `x17` scratch the error paths already reserve, never a pooled GPR.
+        self.emit(abi::move_immediate("x17", "Integer", "9218868437227405312"));
+        self.emit(abi::float_move_d_from_x(&positive_inf, "x17"));
+        self.emit(abi::float_abs_d(&magnitude, value));
+        self.emit(abi::float_compare_d(&magnitude, &positive_inf));
+        self.emit(abi::branch_vs(&nan)); // unordered => NaN
+        self.emit(abi::branch_ne(&ok)); // |x| < +inf (ordered, not equal) => finite
+        // Fall-through: |x| == +inf, i.e. the value is exactly ±inf.
+        match infinity_error {
+            FloatInfinityError::Infinity => self.emit_float_inf_return()?,
+            FloatInfinityError::Overflow => self.emit_float_overflow_return()?,
+        }
+        self.emit(abi::label(&nan));
+        self.emit_float_nan_return()?;
+        self.emit(abi::label(&ok));
+        Ok(())
+    }
 }

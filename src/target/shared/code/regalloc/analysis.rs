@@ -178,6 +178,7 @@ fn is_block_terminator(op: CodeOp) -> bool {
             | CodeOp::BranchGt
             | CodeOp::BranchLe
             | CodeOp::BranchVc
+            | CodeOp::BranchVs
             | CodeOp::BranchHi
             | CodeOp::BranchLo
             | CodeOp::Ret

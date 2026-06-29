@@ -43,6 +43,10 @@ pub(crate) enum CodeOp {
     BranchGt,
     BranchLe,
     BranchVc,
+    /// `b.vs` — branch if the overflow flag is set. After `fcmp`, V is set on an
+    /// unordered (NaN) result, so this is the FP-domain non-finite NaN check
+    /// (plan-16 Piece B).
+    BranchVs,
     BranchHi,
     BranchLo,
     Branch,
@@ -74,6 +78,9 @@ pub(crate) enum CodeOp {
     FMulD,
     FDivD,
     FNegD,
+    /// `fabs Dd, Dn` — scalar double absolute value, used by the FP-domain
+    /// finiteness check to fold ±Inf together before the `fcmp` (plan-16 Piece B).
+    FAbsD,
     FSqrtD,
     FCmpD,
     FCmpZeroD,
@@ -192,6 +199,7 @@ impl CodeOp {
             CodeOp::BranchGt => "b.gt",
             CodeOp::BranchLe => "b.le",
             CodeOp::BranchVc => "b.vc",
+            CodeOp::BranchVs => "b.vs",
             CodeOp::BranchHi => "b.hi",
             CodeOp::BranchLo => "b.lo",
             CodeOp::Branch => "b",
@@ -219,6 +227,7 @@ impl CodeOp {
             CodeOp::FMulD => "fmul_d",
             CodeOp::FDivD => "fdiv_d",
             CodeOp::FNegD => "fneg_d",
+            CodeOp::FAbsD => "fabs_d",
             CodeOp::FSqrtD => "fsqrt_d",
             CodeOp::FCmpD => "fcmp_d",
             CodeOp::FCmpZeroD => "fcmp_zero_d",
@@ -324,6 +333,7 @@ impl CodeOp {
             "b.gt" => Ok(CodeOp::BranchGt),
             "b.le" => Ok(CodeOp::BranchLe),
             "b.vc" => Ok(CodeOp::BranchVc),
+            "b.vs" => Ok(CodeOp::BranchVs),
             "b.hi" => Ok(CodeOp::BranchHi),
             "b.lo" => Ok(CodeOp::BranchLo),
             "b" => Ok(CodeOp::Branch),
@@ -351,6 +361,7 @@ impl CodeOp {
             "fmul_d" => Ok(CodeOp::FMulD),
             "fdiv_d" => Ok(CodeOp::FDivD),
             "fneg_d" => Ok(CodeOp::FNegD),
+            "fabs_d" => Ok(CodeOp::FAbsD),
             "fsqrt_d" => Ok(CodeOp::FSqrtD),
             "fcmp_d" => Ok(CodeOp::FCmpD),
             "fcmp_zero_d" => Ok(CodeOp::FCmpZeroD),

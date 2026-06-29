@@ -886,7 +886,11 @@ impl CodeBuilder<'_> {
                     }
                 }
                 self.emit(abi::float_move_x_from_d(dst, &d_res));
-                self.emit_float_result_check(dst, FloatInfinityError::Overflow)?;
+                // Check the result while it is still in `d_res` (plan-16 Piece B):
+                // the GPR `dst` materialized above is now needed only for the value
+                // model's store, which the FP-shuttle peephole can fold into a
+                // direct `str d`.
+                self.emit_float_result_check_fp(&d_res, FloatInfinityError::Overflow)?;
                 // FP-residency is sound only under liveness-based allocation: the
                 // bump oracle reuses `d0`–`d7` every statement, so a recorded
                 // resident would be clobbered. Record it only for linear-scan.
@@ -914,14 +918,14 @@ impl CodeBuilder<'_> {
                 let result = self.emit_float_fmod(&a_bits, &b_bits)?;
                 self.emit(abi::float_move_d_from_x("d0", &result));
                 self.emit(abi::float_move_x_from_d(dst, "d0"));
-                self.emit_float_result_check(dst, FloatInfinityError::Overflow)?;
+                self.emit_float_result_check_fp("d0", FloatInfinityError::Overflow)?;
             }
             "^" => {
                 self.load_numeric_as_double("d0", left)?;
                 self.load_numeric_as_double("d1", right)?;
                 self.emit_float_pow("d0", "d1")?;
                 self.emit(abi::float_move_x_from_d(dst, "d0"));
-                self.emit_float_result_check(dst, FloatInfinityError::Overflow)?;
+                self.emit_float_result_check_fp("d0", FloatInfinityError::Overflow)?;
             }
             other => {
                 return Err(format!(

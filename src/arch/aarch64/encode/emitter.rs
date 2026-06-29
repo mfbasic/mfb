@@ -190,6 +190,7 @@ impl Encoder {
             "b.gt" => self.emit_label_branch("b.gt", field(instruction, "target")?),
             "b.le" => self.emit_label_branch("b.le", field(instruction, "target")?),
             "b.vc" => self.emit_label_branch("b.vc", field(instruction, "target")?),
+            "b.vs" => self.emit_label_branch("b.vs", field(instruction, "target")?),
             "b.hi" => self.emit_label_branch("b.hi", field(instruction, "target")?),
             "b.lo" => self.emit_label_branch("b.lo", field(instruction, "target")?),
             "b" => self.emit_label_branch("b", field(instruction, "target")?),
@@ -286,6 +287,10 @@ impl Encoder {
                 reg(field(instruction, "rhs")?)?,
             ),
             "fneg_d" => self.emit_fneg_d(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
+            "fabs_d" => self.emit_fabs_d(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
@@ -790,6 +795,11 @@ impl Encoder {
         self.emit_word(0x1e61_4000 | ((dn as u32) << 5) | dd as u32)
     }
 
+    fn emit_fabs_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
+        // FABS (scalar, double): opcode field 000001 in the FP-1-source group.
+        self.emit_word(0x1e60_c000 | ((dn as u32) << 5) | dd as u32)
+    }
+
     fn emit_fsqrt_d(&mut self, dd: u8, dn: u8) -> Result<(), String> {
         self.emit_word(0x1e61_c000 | ((dn as u32) << 5) | dd as u32)
     }
@@ -1018,6 +1028,7 @@ impl Encoder {
                 "b.gt" => 0x5400_000c | (branch_imm19(patch.offset, target) << 5),
                 "b.le" => 0x5400_000d | (branch_imm19(patch.offset, target) << 5),
                 "b.vc" => 0x5400_0007 | (branch_imm19(patch.offset, target) << 5),
+                "b.vs" => 0x5400_0006 | (branch_imm19(patch.offset, target) << 5),
                 "b.hi" => 0x5400_0008 | (branch_imm19(patch.offset, target) << 5),
                 "b.lo" => 0x5400_0003 | (branch_imm19(patch.offset, target) << 5),
                 other => return Err(format!("unknown AArch64 branch patch '{other}'")),
