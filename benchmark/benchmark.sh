@@ -39,6 +39,7 @@ benchmarks=(
   record-update
   string-concat
   thread-sum
+  vector-math
 )
 
 failed=()
