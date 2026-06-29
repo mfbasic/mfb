@@ -1,0 +1,8 @@
+FUNC main AS Integer
+  ' (1e200*1e200) - (1e200*1e200) = (+Inf) - (+Inf) = NaN. Both products
+  ' are anonymous intermediates (no trap); the NaN reaches the named
+  ' binding and traps there with ErrFloatNaN (plan-17).
+  LET big AS Float = toFloat("1e200")
+  LET x AS Float = (big * big) - (big * big)
+  RETURN 0
+END FUNC

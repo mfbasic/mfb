@@ -390,6 +390,19 @@ pub(crate) fn branch_lo(target: &str) -> CodeInstruction {
     CodeInstruction::new("b.lo").field("target", target)
 }
 
+/// `b.mi` — branch if N set. After `fcmp` this is the IEEE float `<` (an
+/// unordered NaN clears N, so it falls through to the `false` side; plan-17).
+pub(crate) fn branch_mi(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.mi").field("target", target)
+}
+
+/// `b.ls` — branch if C clear or Z set. After `fcmp` this is the IEEE float
+/// `<=` (an unordered NaN has C set and Z clear, so it falls through to the
+/// `false` side; plan-17).
+pub(crate) fn branch_ls(target: &str) -> CodeInstruction {
+    CodeInstruction::new("b.ls").field("target", target)
+}
+
 pub(crate) fn branch(target: &str) -> CodeInstruction {
     CodeInstruction::new("b").field("target", target)
 }

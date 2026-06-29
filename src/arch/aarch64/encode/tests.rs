@@ -142,6 +142,33 @@ fn encodes_b_vs_branch() {
 }
 
 #[test]
+fn encodes_b_mi_and_b_ls_branches() {
+    // `b.mi` (N set) is the IEEE float `<` and `b.ls` (C clear or Z set) the
+    // IEEE float `<=` (plan-17): an unordered NaN must fall to the false side,
+    // so the conditions are 0b0100 and 0b1001 respectively — distinct from the
+    // signed-integer `b.lt` (0b1011) / `b.le` (0b1101) used for `Integer`.
+    let mut encoder = fresh_encoder();
+    encoder.labels.insert("target".to_string(), 4);
+    encoder
+        .emit_instruction(&CodeInstruction::new("b.mi").field("target", "target"))
+        .unwrap();
+    encoder.patch_labels().unwrap();
+    let word = u32::from_le_bytes(encoder.text[..4].try_into().unwrap());
+    // 0x54000004 (b.mi) | imm19(=1) << 5.
+    assert_eq!(word, 0x5400_0024);
+
+    let mut encoder = fresh_encoder();
+    encoder.labels.insert("target".to_string(), 4);
+    encoder
+        .emit_instruction(&CodeInstruction::new("b.ls").field("target", "target"))
+        .unwrap();
+    encoder.patch_labels().unwrap();
+    let word = u32::from_le_bytes(encoder.text[..4].try_into().unwrap());
+    // 0x54000009 (b.ls) | imm19(=1) << 5.
+    assert_eq!(word, 0x5400_0029);
+}
+
+#[test]
 fn encodes_fp_scalar_spill_load_store() {
     let mut encoder = fresh_encoder();
     for inst in [

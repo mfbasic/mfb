@@ -89,6 +89,8 @@ the encoder ORs operand bits into. Field placement is `Rd = bits[4:0]`,
 | `BranchVc` | `b.vc` | `target` | `0x54000007` | cond=`7` (no overflow) |
 | `BranchHi` | `b.hi` | `target` | `0x54000008` | cond=`8` (unsigned >) |
 | `BranchLo` | `b.lo` | `target` | `0x54000003` | cond=`3` (unsigned <) |
+| `BranchMi` | `b.mi` | `target` | `0x54000004` | cond=`4` (N set; IEEE float `<`) |
+| `BranchLs` | `b.ls` | `target` | `0x54000009` | cond=`9` (C clear or Z set; IEEE float `<=`) |
 | `Branch` | `b` | `target` | `0x14000000` | unconditional; `imm26`; label-patched |
 | `BranchLink` | `bl` | `target` | `0x94000000` | emits a `branch26` relocation, not a label patch |
 | `BranchLinkRegister` | `blr` | `register` | `0xD63F0000` | `Rn=bits[9:5]` |

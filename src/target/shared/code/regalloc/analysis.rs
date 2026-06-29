@@ -181,6 +181,8 @@ fn is_block_terminator(op: CodeOp) -> bool {
             | CodeOp::BranchVs
             | CodeOp::BranchHi
             | CodeOp::BranchLo
+            | CodeOp::BranchMi
+            | CodeOp::BranchLs
             | CodeOp::Ret
             | CodeOp::BranchSelf
     )

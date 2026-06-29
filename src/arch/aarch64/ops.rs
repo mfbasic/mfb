@@ -49,6 +49,14 @@ pub(crate) enum CodeOp {
     BranchVs,
     BranchHi,
     BranchLo,
+    /// `b.mi` — branch if N (negative) is set. After `fcmp` an ordered
+    /// less-than sets N and every other ordered relation (and an unordered NaN)
+    /// clears it, so this is the IEEE float `<` (unordered ⇒ false; plan-17).
+    BranchMi,
+    /// `b.ls` — branch if C clear or Z set. After `fcmp` an ordered less-than
+    /// (C=0) or equal (Z=1) takes it while greater and unordered (C=1, Z=0) do
+    /// not, so this is the IEEE float `<=` (unordered ⇒ false; plan-17).
+    BranchLs,
     Branch,
     BranchLink,
     BranchLinkRegister,
@@ -202,6 +210,8 @@ impl CodeOp {
             CodeOp::BranchVs => "b.vs",
             CodeOp::BranchHi => "b.hi",
             CodeOp::BranchLo => "b.lo",
+            CodeOp::BranchMi => "b.mi",
+            CodeOp::BranchLs => "b.ls",
             CodeOp::Branch => "b",
             CodeOp::BranchLink => "bl",
             CodeOp::BranchLinkRegister => "blr",
@@ -336,6 +346,8 @@ impl CodeOp {
             "b.vs" => Ok(CodeOp::BranchVs),
             "b.hi" => Ok(CodeOp::BranchHi),
             "b.lo" => Ok(CodeOp::BranchLo),
+            "b.mi" => Ok(CodeOp::BranchMi),
+            "b.ls" => Ok(CodeOp::BranchLs),
             "b" => Ok(CodeOp::Branch),
             "bl" => Ok(CodeOp::BranchLink),
             "blr" => Ok(CodeOp::BranchLinkRegister),

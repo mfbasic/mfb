@@ -357,6 +357,10 @@ impl CodeBuilder<'_> {
                         // source; its `arena_alloc` clobbers caller-saved scratch
                         // (incl. `env_register`), so reload the env from its slot.
                         let value = self.lower_value_owned(capture)?;
+                        // Observation boundary: a `Float` captured into the
+                        // closure env is read back when the closure runs, so it
+                        // must be finite (plan-17).
+                        self.observe_float(capture, &value)?;
                         let env_register = self.allocate_register()?;
                         self.emit(abi::load_u64(&env_register, abi::stack_pointer(), env_slot));
                         self.emit(abi::store_u64(&value.location, &env_register, index * 8));
@@ -769,6 +773,9 @@ impl CodeBuilder<'_> {
                 let mut arg_slots = Vec::new();
                 for arg in args {
                     let value = self.lower_value(arg)?;
+                    // Observation boundary: a `Float` record/union field must be
+                    // finite (plan-17).
+                    self.observe_float(arg, &value)?;
                     let slot = self.allocate_stack_object("constructor_arg", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     arg_values.push(value);
@@ -1377,7 +1384,7 @@ impl CodeBuilder<'_> {
 }
 
 /// Extract the source location carried by an error-originating NIR value, if any.
-fn value_loc(value: &NirValue) -> Option<NirSourceLoc> {
+pub(super) fn value_loc(value: &NirValue) -> Option<NirSourceLoc> {
     match value {
         NirValue::Call { loc, .. }
         | NirValue::CallResult { loc, .. }

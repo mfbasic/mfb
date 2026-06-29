@@ -1,4 +1,3 @@
-use super::builder_math::FloatInfinityError;
 use super::*;
 
 impl CodeBuilder<'_> {
@@ -539,11 +538,20 @@ impl CodeBuilder<'_> {
             }
         }
 
+        // Float comparisons follow IEEE 754 for non-finite operands (plan-17):
+        // any relation involving `NaN` is false (and `<>` is true). `fcmp` leaves
+        // an unordered result with N clear, C set, Z clear, V set, so `=`/`<>`
+        // (EQ/NE) and `>`/`>=` (GT/GE) already fall to the correct side; only `<`
+        // and `<=` need the FP conditions `MI`/`LS` rather than the signed
+        // `LT`/`LE`, which would wrongly take an unordered NaN as the true side.
+        let is_float = promoted == "Float";
         match op {
             "=" => self.emit(abi::branch_eq(&true_label)),
             "<>" => self.emit(abi::branch_ne(&true_label)),
+            "<" if is_float => self.emit(abi::branch_mi(&true_label)),
             "<" => self.emit(abi::branch_lt(&true_label)),
             ">" => self.emit(abi::branch_gt(&true_label)),
+            "<=" if is_float => self.emit(abi::branch_ls(&true_label)),
             "<=" => self.emit(abi::branch_le(&true_label)),
             ">=" => self.emit(abi::branch_ge(&true_label)),
             other => {
@@ -866,8 +874,11 @@ impl CodeBuilder<'_> {
             // The pure-FP arithmetic ops run on FP virtual registers so a chained
             // operand stays resident in a `d`-register instead of round-tripping
             // through a GPR (plan-03 Stage C). The result is materialized back to
-            // `dst` (a GPR) for the finiteness check and the value model, and that
-            // GPR is recorded as also resident in `d_res` for any parent float op.
+            // `dst` (a GPR) for the value model, and that GPR is recorded as also
+            // resident in `d_res` for any parent float op. No finiteness check is
+            // emitted here: an anonymous intermediate may be non-finite and a
+            // transient that recovers to finite must not trap — the check fires
+            // only where the value crosses an observation boundary (plan-17).
             "+" | "-" | "*" | "/" | "DIV" => {
                 let d_left = self.operand_as_double(left)?;
                 let d_right = self.operand_as_double(right)?;
@@ -876,21 +887,13 @@ impl CodeBuilder<'_> {
                     "+" => self.emit(abi::float_add_d(&d_res, &d_left, &d_right)),
                     "-" => self.emit(abi::float_subtract_d(&d_res, &d_left, &d_right)),
                     "*" => self.emit(abi::float_multiply_d(&d_res, &d_left, &d_right)),
-                    _ => {
-                        self.emit(abi::float_compare_zero_d(&d_right));
-                        let nonzero = self.label("float_divisor_nonzero");
-                        self.emit(abi::branch_ne(&nonzero));
-                        self.emit_float_domain_return()?;
-                        self.emit(abi::label(&nonzero));
-                        self.emit(abi::float_divide_d(&d_res, &d_left, &d_right));
-                    }
+                    // Division by zero is no longer pre-checked: `x/0` → `±Inf`
+                    // and `0/0` → `NaN` flow out as ordinary non-finite results
+                    // and trap at the boundary (`ErrFloatOverflow`/`ErrFloatNaN`),
+                    // never `ErrFloatDomain` (plan-17 §4.3).
+                    _ => self.emit(abi::float_divide_d(&d_res, &d_left, &d_right)),
                 }
                 self.emit(abi::float_move_x_from_d(dst, &d_res));
-                // Check the result while it is still in `d_res` (plan-16 Piece B):
-                // the GPR `dst` materialized above is now needed only for the value
-                // model's store, which the FP-shuttle peephole can fold into a
-                // direct `str d`.
-                self.emit_float_result_check_fp(&d_res, FloatInfinityError::Overflow)?;
                 // FP-residency is sound only under liveness-based allocation: the
                 // bump oracle reuses `d0`–`d7` every statement, so a recorded
                 // resident would be clobbered. Record it only for linear-scan.
@@ -901,16 +904,20 @@ impl CodeBuilder<'_> {
             "MOD" => {
                 self.load_numeric_as_double("d0", left)?;
                 self.load_numeric_as_double("d1", right)?;
-                // Domain pre-check: b == 0 raises ErrFloatDomain (libm's NaN path
-                // is unreachable — MFBASIC has no NaN value). The exact GPR kernel
-                // is only ever entered with a non-zero, finite divisor.
+                // Domain pre-check: b == 0 raises ErrFloatDomain. This stays a
+                // genuine pre-check (not a boundary finiteness check) because the
+                // in-tree exact `fmod` kernel below requires a non-zero, finite
+                // divisor — it does not itself produce the NaN that `a MOD 0`
+                // would otherwise yield (plan-17 keeps ErrFloatDomain here).
                 self.emit(abi::float_compare_zero_d("d1"));
                 let nonzero = self.label("float_mod_divisor_nonzero");
                 self.emit(abi::branch_ne(&nonzero));
                 self.emit_float_domain_return()?;
                 self.emit(abi::label(&nonzero));
                 // Move the f64 bit patterns into GPRs and run the in-tree exact
-                // fmod kernel (no libm). d0/d1 still hold a/b from above.
+                // fmod kernel (no libm). d0/d1 still hold a/b from above. The
+                // result of a finite, non-zero-divisor fmod is always finite, so
+                // no per-op finiteness check is needed (plan-17).
                 let a_bits = self.allocate_register()?;
                 let b_bits = self.allocate_register()?;
                 self.emit(abi::float_move_x_from_d(&a_bits, "d0"));
@@ -918,14 +925,16 @@ impl CodeBuilder<'_> {
                 let result = self.emit_float_fmod(&a_bits, &b_bits)?;
                 self.emit(abi::float_move_d_from_x("d0", &result));
                 self.emit(abi::float_move_x_from_d(dst, "d0"));
-                self.emit_float_result_check_fp("d0", FloatInfinityError::Overflow)?;
             }
             "^" => {
                 self.load_numeric_as_double("d0", left)?;
                 self.load_numeric_as_double("d1", right)?;
+                // `emit_float_pow` keeps its domain guards (whole, non-negative
+                // exponent) but no longer checks the result: an overflow to `Inf`
+                // is an anonymous intermediate that traps only at the boundary
+                // (plan-17).
                 self.emit_float_pow("d0", "d1")?;
                 self.emit(abi::float_move_x_from_d(dst, "d0"));
-                self.emit_float_result_check_fp("d0", FloatInfinityError::Overflow)?;
             }
             other => {
                 return Err(format!(

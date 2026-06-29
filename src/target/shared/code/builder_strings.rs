@@ -586,6 +586,12 @@ impl CodeBuilder<'_> {
 
     pub(super) fn lower_to_string(&mut self, args: &[NirValue]) -> Result<ValueResult, String> {
         let value = self.lower_value(&args[0])?;
+        // Observation boundary: rendering a `Float` to text makes it
+        // user-accessible, so a non-finite arithmetic result must trap here
+        // rather than print as "inf"/"nan" (plan-17). `toString`/`toText` are
+        // the only Float→String path (`print` formats through them), and a
+        // non-arithmetic Float argument is already finite by the invariant.
+        self.observe_float(&args[0], &value)?;
         let value_slot = self.allocate_stack_object("to_string_value", 8);
         self.emit(abi::store_u64(
             &value.location,

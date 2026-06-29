@@ -927,8 +927,11 @@ impl CodeBuilder<'_> {
         values: &[NirValue],
     ) -> Result<ValueResult, String> {
         let mut slots = Vec::new();
-        for value in values {
-            let value = self.lower_value(value)?;
+        for value_node in values {
+            let value = self.lower_value(value_node)?;
+            // Observation boundary: a `Float` list element must be finite
+            // (plan-17).
+            self.observe_float(value_node, &value)?;
             let slot = self.allocate_stack_object("collection_value", 8);
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
             slots.push(CollectionValueSlot {
@@ -948,15 +951,20 @@ impl CodeBuilder<'_> {
         entries: &[(NirValue, NirValue)],
     ) -> Result<ValueResult, String> {
         let mut slots = Vec::new();
-        for (key, value) in entries {
-            let key = self.lower_value(key)?;
+        for (key_node, value_node) in entries {
+            let key = self.lower_value(key_node)?;
+            // Observation boundary: a `Float` map key/value must be finite
+            // (a non-finite key is rejected at insert; plan-17). Map keys still
+            // *compare* bitwise — only finiteness is enforced here.
+            self.observe_float(key_node, &key)?;
             let key_slot = self.allocate_stack_object("collection_key", 8);
             self.emit(abi::store_u64(
                 &key.location,
                 abi::stack_pointer(),
                 key_slot,
             ));
-            let value = self.lower_value(value)?;
+            let value = self.lower_value(value_node)?;
+            self.observe_float(value_node, &value)?;
             let value_slot = self.allocate_stack_object("collection_value", 8);
             self.emit(abi::store_u64(
                 &value.location,

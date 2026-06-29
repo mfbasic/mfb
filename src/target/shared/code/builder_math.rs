@@ -1051,4 +1051,73 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&ok));
         Ok(())
     }
+
+    /// Observation-boundary finiteness check (plan-17). A `Float` becomes
+    /// user-accessible — bound to a named local/global, stored into a
+    /// collection element or record field, returned, printed/converted, or
+    /// passed as an argument — at a handful of NIR sites; this is the single
+    /// choke point each calls so a non-finite traps *there*, at the boundary's
+    /// `line:char`, rather than after every arithmetic op.
+    ///
+    /// Only a fresh float-arithmetic result can be non-finite: the `+ - * /
+    /// MOD ^` operators (and unary negation, which propagates a non-finite
+    /// operand) are the sole producers — a constant, a read of an
+    /// already-finite binding/element/field, or a call result (the callee
+    /// checked its own boundary) is finite by the boundary invariant. So the
+    /// check is emitted only when `value` is such an arithmetic node, which
+    /// also leaves comparisons untouched (they are IEEE, never a boundary) and
+    /// lets a transient that recovers to finite — `1.0 / (1e200 * 1e200)` →
+    /// `+0.0` — flow through with no trap.
+    ///
+    /// An escaping `±Inf` raises `ErrFloatOverflow` (the spec's "arithmetic
+    /// overflow to infinity", byte-identical to the old per-op arithmetic
+    /// check); a `NaN` raises `ErrFloatNaN`.
+    pub(super) fn observe_float(
+        &mut self,
+        value: &NirValue,
+        result: &ValueResult,
+    ) -> Result<(), String> {
+        if result.type_ == "Float" && float_arith_node(value) {
+            let saved = self.current_loc;
+            if let Some(loc) = super::builder_values::value_loc(value) {
+                self.current_loc = loc;
+            }
+            let outcome =
+                self.emit_float_result_check(&result.location, FloatInfinityError::Overflow);
+            self.current_loc = saved;
+            outcome?;
+        }
+        Ok(())
+    }
+
+    /// Observation-boundary check for a loop-promoted float accumulator whose
+    /// value lives in `d` after an assignment update (plan-17). Uses the
+    /// FP-domain variant so the store-back stays peephole-foldable, and fires
+    /// only when the assigned `value` is a fresh arithmetic node.
+    pub(super) fn observe_promoted_float(
+        &mut self,
+        value: &NirValue,
+        d: &str,
+    ) -> Result<(), String> {
+        if float_arith_node(value) {
+            let saved = self.current_loc;
+            if let Some(loc) = super::builder_values::value_loc(value) {
+                self.current_loc = loc;
+            }
+            let outcome = self.emit_float_result_check_fp(d, FloatInfinityError::Overflow);
+            self.current_loc = saved;
+            outcome?;
+        }
+        Ok(())
+    }
+}
+
+/// Whether lowering `value` can yield a non-finite `Float`. Only the float
+/// arithmetic operators produce `NaN`/`Inf`, so a `Binary` (any operator — the
+/// `observe_float` type guard skips the Boolean-result comparisons) or a
+/// `Unary` (negation propagates a non-finite operand) is the only node a
+/// boundary must re-check; every other node is finite by construction
+/// (plan-17).
+pub(super) fn float_arith_node(value: &NirValue) -> bool {
+    matches!(value, NirValue::Binary { .. } | NirValue::Unary { .. })
 }

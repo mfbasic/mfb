@@ -1,0 +1,12 @@
+$ mfb build -ast tests/arithmetic-float-recover-rt
+Wrote AST to tests/arithmetic-float-recover-rt/arithmetic_float_recover_rt.ast
+[exit 0]
+$ mfb build -ir tests/arithmetic-float-recover-rt
+Wrote IR to tests/arithmetic-float-recover-rt/arithmetic_float_recover_rt.ir
+[exit 0]
+$ mfb build tests/arithmetic-float-recover-rt
+Wrote executable to tests/arithmetic-float-recover-rt/arithmetic_float_recover_rt.out
+[exit 0]
+$ tests/arithmetic-float-recover-rt/arithmetic_float_recover_rt.out
+0.00
+[exit 0]

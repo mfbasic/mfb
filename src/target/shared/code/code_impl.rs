@@ -68,6 +68,8 @@ impl CodeInstruction {
             | CodeOp::BranchVs
             | CodeOp::BranchHi
             | CodeOp::BranchLo
+            | CodeOp::BranchMi
+            | CodeOp::BranchLs
             | CodeOp::Branch
             | CodeOp::BranchLink => &["target"],
             CodeOp::BranchLinkRegister => &["register"],

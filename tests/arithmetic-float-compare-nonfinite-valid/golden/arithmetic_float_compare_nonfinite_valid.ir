@@ -1,0 +1,37 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_float_compare_nonfinite_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "z", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
+    { "op": "bind", "mutable": false, "name": "one", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.0" } },
+    { "op": "bind", "mutable": false, "name": "negone", "type": "Float", "value": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "1.0" } } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": ">", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "one" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "<", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "one" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "<", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "z" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": ">", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "z" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "<=", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "z" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": ">=", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "z" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "=", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "z" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "<>", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "z" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "<", "left": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "negone" }, "right": { "kind": "local", "name": "z" } }, "right": { "kind": "const", "type": "Float", "value": "5.0" } }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

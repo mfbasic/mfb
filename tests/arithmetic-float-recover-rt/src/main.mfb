@@ -1,0 +1,11 @@
+IMPORT io
+
+' A non-finite INTERMEDIATE may recover to finite without trapping
+' (plan-17): big*big overflows to +Inf, but 1.0/+Inf is +0.0, which is
+' finite and observable. No trap fires at the binding.
+FUNC main AS Integer
+  LET big AS Float = toFloat("1e200")
+  LET x AS Float = 1.0 / (big * big)
+  io::print(toString(x))
+  RETURN 0
+END FUNC

@@ -82,7 +82,7 @@ The complete `errorCode::` Name → Integer mapping. Verified against
 | `7-703-0008` | `77030008` | `ErrNativeBindingCallFailed`  | Native `LINK` binding call failed its `SUCCESS_ON` gate. |
 | `7-707-0008` | `77070008` | `ErrTlsFailed`                | TLS handshake, certificate validation, SNI validation, or protocol operation failed. |
 | `7-705-0011` | `77050011` | `ErrUnderflow`                | Arithmetic underflow below the destination range. |
-| `7-705-0012` | `77050012` | `ErrFloatDomain`              | Floating-point operation domain is invalid, including divide-by-zero. |
+| `7-705-0012` | `77050012` | `ErrFloatDomain`              | Floating-point operation domain is invalid (negative `sqrt`, non-positive `log`/`log10`, out-of-range `asin`/`acos`, a non-whole or negative `^` exponent, or a `Float MOD 0`). Divide-by-zero is no longer reported here — `x / 0` produces `±Inf`/`NaN` caught at the observation boundary as `ErrFloatOverflow`/`ErrFloatNaN`. |
 | `7-705-0013` | `77050013` | `ErrFloatNaN`                 | Floating-point operation produced a NaN result. |
 | `7-705-0014` | `77050014` | `ErrFloatInf`                 | Floating-point operation produced an infinity result. |
 | `7-705-0015` | `77050015` | `ErrFloatOverflow`            | Floating-point arithmetic overflowed to infinity. |

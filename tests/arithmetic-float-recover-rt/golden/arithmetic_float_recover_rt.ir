@@ -1,0 +1,28 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "arithmetic_float_recover_rt",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "big", "type": "Float", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1e200" }] } },
+    { "op": "bind", "mutable": false, "name": "x", "type": "Float", "value": { "kind": "binary", "op": "/", "left": { "kind": "const", "type": "Float", "value": "1.0" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "big" }, "right": { "kind": "local", "name": "big" } } } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "x" }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

@@ -26,6 +26,10 @@ impl CodeBuilder<'_> {
         let mut arg_slots = Vec::new();
         for arg in args {
             let value = self.lower_value(arg)?;
+            // Observation boundary: a `Float` argument is read by the callee
+            // (user FUNC/SUB, runtime helper, or native `LINK` thunk) and must
+            // be finite (plan-17).
+            self.observe_float(arg, &value)?;
             let slot = self.allocate_stack_object(slot_name, 8);
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
             arg_values.push(value);
@@ -340,6 +344,9 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
         for arg in args {
             let value = self.lower_value(arg)?;
+            // Observation boundary: a `Float` sent across a thread boundary is
+            // observable on the other side and must be finite (plan-17).
+            self.observe_float(arg, &value)?;
             let slot = self.allocate_stack_object("runtime_thread_send_arg", 8);
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
             arg_values.push(value);

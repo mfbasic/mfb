@@ -193,6 +193,8 @@ impl Encoder {
             "b.vs" => self.emit_label_branch("b.vs", field(instruction, "target")?),
             "b.hi" => self.emit_label_branch("b.hi", field(instruction, "target")?),
             "b.lo" => self.emit_label_branch("b.lo", field(instruction, "target")?),
+            "b.mi" => self.emit_label_branch("b.mi", field(instruction, "target")?),
+            "b.ls" => self.emit_label_branch("b.ls", field(instruction, "target")?),
             "b" => self.emit_label_branch("b", field(instruction, "target")?),
             "bl" => self.emit_bl(field(instruction, "target")?),
             "blr" => self.emit_blr(reg(field(instruction, "register")?)?),
@@ -1031,6 +1033,8 @@ impl Encoder {
                 "b.vs" => 0x5400_0006 | (branch_imm19(patch.offset, target) << 5),
                 "b.hi" => 0x5400_0008 | (branch_imm19(patch.offset, target) << 5),
                 "b.lo" => 0x5400_0003 | (branch_imm19(patch.offset, target) << 5),
+                "b.mi" => 0x5400_0004 | (branch_imm19(patch.offset, target) << 5),
+                "b.ls" => 0x5400_0009 | (branch_imm19(patch.offset, target) << 5),
                 other => return Err(format!("unknown AArch64 branch patch '{other}'")),
             };
             self.text[patch.offset..patch.offset + 4].copy_from_slice(&word.to_le_bytes());

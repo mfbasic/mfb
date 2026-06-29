@@ -256,6 +256,9 @@ impl CodeBuilder<'_> {
                 ));
             };
             let value = self.lower_value(&update.value)?;
+            // Observation boundary: a `Float` field updated via WITH must be
+            // finite (plan-17).
+            self.observe_float(&update.value, &value)?;
             let value_slot = self.allocate_stack_object("with_update_value", 8);
             self.emit(abi::store_u64(
                 &value.location,

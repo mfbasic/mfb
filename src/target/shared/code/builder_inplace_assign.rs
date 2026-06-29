@@ -57,6 +57,9 @@ impl CodeBuilder<'_> {
             _ => return Ok(false),
         }
         let item = self.lower_value(&args[1])?;
+        // Observation boundary: an in-place appended `Float` must be finite
+        // (plan-17).
+        self.observe_float(&args[1], &item)?;
         let item_slot = self.allocate_stack_object("inplace_append_item", 8);
         self.emit(abi::store_u64(
             &item.location,
@@ -136,6 +139,9 @@ impl CodeBuilder<'_> {
                 index_slot,
             ));
             let item = self.lower_value(&args[2])?;
+            // Observation boundary: an in-place replacement `Float` element must
+            // be finite (plan-17).
+            self.observe_float(&args[2], &item)?;
             if item.type_ != element_type {
                 return Err(format!(
                     "native collection set list item must be {element_type}, got {}",
@@ -162,6 +168,9 @@ impl CodeBuilder<'_> {
         }
         if let Some((key_type, value_type)) = super::map_type_parts(&collection_type) {
             let key = self.lower_value(&args[1])?;
+            // Observation boundary: an in-place `Float` map key must be finite
+            // (plan-17).
+            self.observe_float(&args[1], &key)?;
             if key.type_ != key_type {
                 return Err(format!(
                     "native collection set map key must be {key_type}, got {}",
@@ -171,6 +180,9 @@ impl CodeBuilder<'_> {
             let key_slot = self.allocate_stack_object("inplace_set_key", 8);
             self.emit(abi::store_u64(&key.location, abi::stack_pointer(), key_slot));
             let val = self.lower_value(&args[2])?;
+            // Observation boundary: an in-place `Float` map value must be finite
+            // (plan-17).
+            self.observe_float(&args[2], &val)?;
             if val.type_ != value_type {
                 return Err(format!(
                     "native collection set map value must be {value_type}, got {}",
@@ -242,6 +254,9 @@ impl CodeBuilder<'_> {
         // (a bulk form is rejected in `lower_collection_prepend`), so no static
         // gate is needed; the post-lowering check catches any mismatch.
         let item = self.lower_value(&args[1])?;
+        // Observation boundary: an in-place prepended `Float` must be finite
+        // (plan-17).
+        self.observe_float(&args[1], &item)?;
         if item.type_ != element_type {
             return Err(format!(
                 "native collection prepend item must be {element_type}, got {}",

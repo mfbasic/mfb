@@ -1495,6 +1495,11 @@ impl CodeBuilder<'_> {
             .map(|(_, standalone)| *standalone)
             .unwrap_or(true);
         let result = lowered.map(|(result, _)| result);
+        // Observation boundary: a returned `Float` becomes the caller's value
+        // and must be finite (plan-17).
+        if let (Some(value), Some(result)) = (value, result.as_ref()) {
+            self.observe_float(value, result)?;
+        }
         if self.active_cleanups.is_empty() {
             if let Some(result) = &result {
                 if result.type_ != "Nothing" {

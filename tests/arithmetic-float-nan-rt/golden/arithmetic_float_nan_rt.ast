@@ -1,0 +1,26 @@
+{
+  "project": "arithmetic_float_nan_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 1,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "big", "type": "Float", "value": { "kind": "call", "callee": "toFloat", "arguments": [{ "kind": "string", "value": "1e200" }] }, "line": 5 },
+      { "kind": "binding", "mutable": false, "name": "x", "type": "Float", "value": { "kind": "binary", "operator": "-", "left": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "big" } }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "big" }, "right": { "kind": "identifier", "value": "big" } } }, "line": 6 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      ]
+    }
+    ]
+  }
+  ]
+}

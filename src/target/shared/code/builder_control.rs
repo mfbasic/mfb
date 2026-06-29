@@ -80,6 +80,9 @@ impl CodeBuilder<'_> {
                             } else {
                                 self.lower_value_owned(value)?
                             };
+                            // Observation boundary: a `Float` becoming a named
+                            // binding must be finite (plan-17).
+                            self.observe_float(value, &result)?;
                             self.emit(abi::store_u64(
                                 &result.location,
                                 abi::stack_pointer(),
@@ -202,6 +205,11 @@ impl CodeBuilder<'_> {
                         } else {
                             self.lower_default_value(&value_type)?
                         };
+                        // Observation boundary: a `Float` global must be finite
+                        // (plan-17).
+                        if let Some(value) = value {
+                            self.observe_float(value, &result)?;
+                        }
                         let address = self.load_global_address(name)?;
                         self.emit(abi::store_u64(&result.location, &address, 0));
                     }
@@ -211,6 +219,12 @@ impl CodeBuilder<'_> {
                         if let Some(d) = self.promoted_float_locals.get(name).cloned() {
                             let result = self.lower_value(value)?;
                             self.update_promoted_float(&d, &result);
+                            // Observation boundary: the promoted accumulator's
+                            // `d`-register holds the named local's value after
+                            // the update, so check it there — the FP-domain
+                            // variant keeps the store-to-slot peephole-foldable
+                            // (plan-16/plan-17).
+                            self.observe_promoted_float(value, &d)?;
                             return Ok(());
                         }
                         let (stack_offset, by_ref) = {
@@ -233,6 +247,9 @@ impl CodeBuilder<'_> {
                             // (the slot is overwritten with the new owner). Deep-copy
                             // an aliasing source so the binding stays unaliased.
                             let result = self.lower_value_owned(value)?;
+                            // Observation boundary: a `Float` reassignment must
+                            // be finite (plan-17).
+                            self.observe_float(value, &result)?;
                             let assign_slot = if Self::is_thread_type(&result.type_) {
                                 let slot = self.allocate_stack_object("thread_assign_value", 8);
                                 self.emit(abi::store_u64(
@@ -313,6 +330,9 @@ impl CodeBuilder<'_> {
                             })?
                             .stack_offset;
                         let result = self.lower_value(value)?;
+                        // Observation boundary: a `Float` resource STATE payload
+                        // must be finite (plan-17).
+                        self.observe_float(value, &result)?;
                         let value_slot = self.allocate_stack_object("state_assign_value", 8);
                         self.emit(abi::store_u64(
                             &result.location,
@@ -604,6 +624,9 @@ impl CodeBuilder<'_> {
     ) -> Result<(), String> {
         let local_slot = self.allocate_stack_object(name, 8);
         let start_value = self.lower_value(start)?;
+        // Observation boundary: a `Float` loop counter's initial value is a
+        // named binding and must be finite (plan-17).
+        self.observe_float(start, &start_value)?;
         self.emit(abi::store_u64(
             &start_value.location,
             abi::stack_pointer(),
@@ -682,13 +705,16 @@ impl CodeBuilder<'_> {
         self.lower_ops(body)?;
         self.loop_stack.pop();
         self.emit(abi::label(&continue_label));
-        let increment = NirValue::Binary {
+        let increment_node = NirValue::Binary {
             op: "+".to_string(),
             left: Box::new(iter),
             right: Box::new(step.clone()),
             loc,
         };
-        let increment = self.lower_value(&increment)?;
+        let increment = self.lower_value(&increment_node)?;
+        // Observation boundary: the incremented `Float` counter is written back
+        // to its named slot, so a non-finite step must trap (plan-17).
+        self.observe_float(&increment_node, &increment)?;
         self.emit(abi::store_u64(
             &increment.location,
             abi::stack_pointer(),

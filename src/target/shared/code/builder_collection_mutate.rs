@@ -19,6 +19,9 @@ impl CodeBuilder<'_> {
             list_slot,
         ));
         let item = self.lower_value(&args[1])?;
+        // Observation boundary: a `Float` appended element must be finite
+        // (plan-17).
+        self.observe_float(&args[1], &item)?;
         let insert_slot =
             self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
         let index_slot = self.allocate_stack_object("append_index", 8);
@@ -52,6 +55,9 @@ impl CodeBuilder<'_> {
             list_slot,
         ));
         let item = self.lower_value(&args[1])?;
+        // Observation boundary: a `Float` prepended element must be finite
+        // (plan-17).
+        self.observe_float(&args[1], &item)?;
         if item.type_ == list.type_ {
             return Err("native collection prepend expects a single item, not a list".to_string());
         }
@@ -100,6 +106,9 @@ impl CodeBuilder<'_> {
             index_slot,
         ));
         let item = self.lower_value(&args[2])?;
+        // Observation boundary: a `Float` inserted element must be finite
+        // (plan-17).
+        self.observe_float(&args[2], &item)?;
         if item.type_ == list.type_ {
             return Err("native collection insert expects a single item, not a list".to_string());
         }
@@ -216,6 +225,9 @@ impl CodeBuilder<'_> {
                 index_slot,
             ));
             let item = self.lower_value(&args[2])?;
+            // Observation boundary: a `Float` replacement element must be finite
+            // (plan-17).
+            self.observe_float(&args[2], &item)?;
             if item.type_ != element_type {
                 return Err(format!(
                     "native collection set list item must be {}, got {}",
@@ -249,6 +261,8 @@ impl CodeBuilder<'_> {
                 map_slot,
             ));
             let key = self.lower_value(&args[1])?;
+            // Observation boundary: a `Float` map key must be finite (plan-17).
+            self.observe_float(&args[1], &key)?;
             if key.type_ != key_type {
                 return Err(format!(
                     "native collection set map key must be {}, got {}",
@@ -262,6 +276,8 @@ impl CodeBuilder<'_> {
                 key_slot,
             ));
             let value = self.lower_value(&args[2])?;
+            // Observation boundary: a `Float` map value must be finite (plan-17).
+            self.observe_float(&args[2], &value)?;
             if value.type_ != value_type {
                 return Err(format!(
                     "native collection set map value must be {}, got {}",
