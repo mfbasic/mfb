@@ -16,6 +16,17 @@ use super::*;
 // non-integer exponent, which the caller turns into ErrFloatInf / ErrFloatNan
 // via emit_float_result_check. x == 0 / |x| == 1 fall out of the general path via
 // natural overflow/underflow, so they need no special branch.
+//
+// plan-03 Phase 1 — register residency. The fdlibm working set (the ~19 f64
+// intermediates and the two inputs) lives entirely in `d`-registers rather than
+// stack slots: the kernel makes no `bl`, so it owns every caller-saved FP
+// register (`d0`-`d7`, `d16`-`d31`) and never touches the callee-saved `d8`-`d15`
+// the surrounding float allocator parks loop-carried values in — exactly the
+// register discipline the SIMD kernels (`builder_simd_float_math.rs`) already
+// follow. `d0`/`d1`/`d2` are scratch; the remaining 21 caller-saved registers are
+// the value homes (see `PowHomes`). This removes every per-op load/store and the
+// GPR bounce the old `pld`/`pst` helpers incurred — the arithmetic is unchanged,
+// so the result is bit-identical (still <=1 ULP, the `pow.ref` golden is stable).
 
 const BP: [f64; 2] = [1.0, 1.5];
 const DP_H: [f64; 2] = [0.0, 5.849_624_872_207_641_601_56e-01];
@@ -45,103 +56,115 @@ const HIGH32_MASK: &str = "18446744069414584320"; // 0xFFFFFFFF00000000
 const ABS_MASK: &str = "9223372036854775807"; // 0x7FFFFFFFFFFFFFFF
 const SIGN_BIT: &str = "9223372036854775808"; // 0x8000000000000000
 
-/// Stack-slot working set for the scalar pow kernel (one f64 per field).
-struct PowSlots {
-    ax: usize,
-    sh: usize,
-    sl: usize,
-    th: usize,
-    tl: usize,
-    rr: usize,
-    uu: usize,
-    vv: usize,
-    ww: usize,
-    ph: usize,
-    pl: usize,
-    zh: usize,
-    zl: usize,
-    t1: usize,
-    t2: usize,
-    s2: usize,
-    tmp: usize,
-    cs: usize,
-    zz: usize,
+/// `d`-register homes for the scalar pow kernel — one register per live f64. All
+/// are caller-saved (the kernel makes no call) and disjoint from the `d0`-`d2`
+/// scratch and the callee-saved `d8`-`d15`. `x`/`y` hold the two inputs.
+struct PowHomes {
+    x: &'static str,
+    y: &'static str,
+    ax: &'static str,
+    sh: &'static str,
+    sl: &'static str,
+    th: &'static str,
+    tl: &'static str,
+    rr: &'static str,
+    uu: &'static str,
+    vv: &'static str,
+    ww: &'static str,
+    ph: &'static str,
+    pl: &'static str,
+    zh: &'static str,
+    zl: &'static str,
+    t1: &'static str,
+    t2: &'static str,
+    s2: &'static str,
+    tmp: &'static str,
+    cs: &'static str,
+    zz: &'static str,
 }
 
+const POW_HOMES: PowHomes = PowHomes {
+    x: "d3",
+    y: "d4",
+    ax: "d5",
+    sh: "d6",
+    sl: "d7",
+    th: "d16",
+    tl: "d17",
+    rr: "d18",
+    uu: "d19",
+    vv: "d20",
+    ww: "d21",
+    ph: "d22",
+    pl: "d23",
+    zh: "d24",
+    zl: "d25",
+    t1: "d26",
+    t2: "d27",
+    s2: "d28",
+    tmp: "d29",
+    cs: "d30",
+    zz: "d31",
+};
+
 impl CodeBuilder<'_> {
-    fn pld(&mut self, d: &str, slot: usize, xs: &str) {
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), slot));
-        self.emit(abi::float_move_d_from_x(d, xs));
+    /// Copy a value home into a working `d`-register (a no-op when they coincide).
+    fn pld(&mut self, d: &str, home: &str) {
+        if d != home {
+            self.emit(abi::float_move_d_from_d(d, home));
+        }
     }
-    fn pst(&mut self, d: &str, slot: usize, xs: &str) {
-        self.emit(abi::float_move_x_from_d(xs, d));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), slot));
+    /// Copy a working `d`-register back into a value home (no-op when identical).
+    fn pst(&mut self, d: &str, home: &str) {
+        if d != home {
+            self.emit(abi::float_move_d_from_d(home, d));
+        }
     }
-    fn pop(&mut self, op: char, dst: usize, a: usize, b: usize, xs: &str) {
-        self.pld("d0", a, xs);
-        self.pld("d1", b, xs);
+    /// `dst = a <op> b`, operating register-to-register (homes are live, so no
+    /// load/store and no scratch are needed; `dst` may alias `a`/`b`).
+    fn pop(&mut self, op: char, dst: &str, a: &str, b: &str) {
         match op {
-            '+' => self.emit(abi::float_add_d("d0", "d0", "d1")),
-            '-' => self.emit(abi::float_subtract_d("d0", "d0", "d1")),
-            '*' => self.emit(abi::float_multiply_d("d0", "d0", "d1")),
-            '/' => self.emit(abi::float_divide_d("d0", "d0", "d1")),
+            '+' => self.emit(abi::float_add_d(dst, a, b)),
+            '-' => self.emit(abi::float_subtract_d(dst, a, b)),
+            '*' => self.emit(abi::float_multiply_d(dst, a, b)),
+            '/' => self.emit(abi::float_divide_d(dst, a, b)),
             _ => unreachable!(),
         }
-        self.pst("d0", dst, xs);
     }
-    fn pconst(&mut self, slot: usize, value: f64, xs: &str) {
+    /// `home = value` (an f64 constant materialized through GPR `xs`).
+    fn pconst(&mut self, home: &str, value: f64, xs: &str) {
         self.emit(abi::move_immediate(xs, "Integer", &value.to_bits().to_string()));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), slot));
+        self.emit(abi::float_move_d_from_x(home, xs));
     }
-    fn plowzero(&mut self, slot: usize, xs: &str, xm: &str) {
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), slot));
+    /// `home &= 0xFFFFFFFF00000000` — zero the low 32 bits of the f64 (fdlibm's
+    /// `SET_LOW_WORD(x, 0)` head/tail split).
+    fn plowzero(&mut self, home: &str, xs: &str, xm: &str) {
+        self.emit(abi::float_move_x_from_d(xs, home));
         self.emit(abi::move_immediate(xm, "Integer", HIGH32_MASK));
         self.emit(abi::and_registers(xs, xs, xm));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), slot));
+        self.emit(abi::float_move_d_from_x(home, xs));
     }
-    /// `out = c[n-1]; out = c[i] + out*var` (Horner, ascending coeffs).
-    fn ppoly(&mut self, var: usize, coeffs: &[f64], out: usize, xs: &str) {
+    /// `out = c[n-1]; out = c[i] + out*var` (Horner, ascending coeffs). Uses `d0`
+    /// (accumulator) and `d1` (coefficient) as scratch; `var`/`out` are homes.
+    fn ppoly(&mut self, var: &str, coeffs: &[f64], out: &str, xs: &str) {
         self.emit(abi::move_immediate(xs, "Integer", &coeffs[coeffs.len() - 1].to_bits().to_string()));
-        self.emit(abi::float_move_d_from_x("d2", xs));
+        self.emit(abi::float_move_d_from_x("d0", xs));
         for &c in coeffs.iter().rev().skip(1) {
-            self.pld("d1", var, xs);
             self.emit(abi::move_immediate(xs, "Integer", &c.to_bits().to_string()));
-            self.emit(abi::float_move_d_from_x("d3", xs));
-            self.emit(abi::float_multiply_d("d2", "d2", "d1"));
-            self.emit(abi::float_add_d("d2", "d2", "d3"));
+            self.emit(abi::float_move_d_from_x("d1", xs));
+            self.emit(abi::float_multiply_d("d0", "d0", var));
+            self.emit(abi::float_add_d("d0", "d0", "d1"));
         }
-        self.pst("d2", out, xs);
+        self.pst("d0", out);
     }
 
     /// Emit scalar `pow(x, y)`; returns a register with the result bit pattern.
     pub(super) fn emit_pow_scalar(&mut self, x_loc: &str, y_loc: &str) -> Result<String, String> {
-        let x_slot = self.allocate_stack_object("pow_x", 8);
-        let y_slot = self.allocate_stack_object("pow_y", 8);
-        self.emit(abi::store_u64(x_loc, abi::stack_pointer(), x_slot));
-        self.emit(abi::store_u64(y_loc, abi::stack_pointer(), y_slot));
+        let s = POW_HOMES;
+        // Inputs arrive in GPRs; move their bit patterns into the value homes.
+        self.emit(abi::float_move_d_from_x(s.x, x_loc));
+        self.emit(abi::float_move_d_from_x(s.y, y_loc));
         self.reset_temporary_registers();
-
-        let s = PowSlots {
-            ax: self.allocate_stack_object("pow_ax", 8),
-            sh: self.allocate_stack_object("pow_sh", 8),
-            sl: self.allocate_stack_object("pow_sl", 8),
-            th: self.allocate_stack_object("pow_th", 8),
-            tl: self.allocate_stack_object("pow_tl", 8),
-            rr: self.allocate_stack_object("pow_r", 8),
-            uu: self.allocate_stack_object("pow_u", 8),
-            vv: self.allocate_stack_object("pow_v", 8),
-            ww: self.allocate_stack_object("pow_w", 8),
-            ph: self.allocate_stack_object("pow_ph", 8),
-            pl: self.allocate_stack_object("pow_pl", 8),
-            zh: self.allocate_stack_object("pow_zh", 8),
-            zl: self.allocate_stack_object("pow_zl", 8),
-            t1: self.allocate_stack_object("pow_t1", 8),
-            t2: self.allocate_stack_object("pow_t2", 8),
-            s2: self.allocate_stack_object("pow_s2", 8),
-            tmp: self.allocate_stack_object("pow_tmp", 8),
-            cs: self.allocate_stack_object("pow_c", 8),
-            zz: self.allocate_stack_object("pow_z", 8),
-        };
 
         let result = self.allocate_register()?;
         let xs_o = self.allocate_register()?;
@@ -159,7 +182,7 @@ impl CodeBuilder<'_> {
         let ret_nan = self.label("pow_ret_nan");
 
         // y == 0 -> 1.0
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), y_slot));
+        self.emit(abi::float_move_x_from_d(xs, s.y));
         self.emit(abi::move_immediate(xm, "Integer", ABS_MASK));
         self.emit(abi::and_registers(xs, xs, xm));
         let y_nonzero = self.label("pow_y_nonzero");
@@ -171,48 +194,48 @@ impl CodeBuilder<'_> {
 
         // Sign / integer-exponent rule for x < 0 (sets smask or jumps to ret_nan).
         self.emit(abi::move_immediate(smask, "Integer", "0"));
-        self.emit_pow_yisint(x_slot, y_slot, xs, xm, xt, smask, &ret_nan);
+        self.emit_pow_yisint(s.x, s.y, xs, xm, xt, smask, &ret_nan);
 
         // ax = |x|
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), x_slot));
+        self.emit(abi::float_move_x_from_d(xs, s.x));
         self.emit(abi::move_immediate(xm, "Integer", ABS_MASK));
         self.emit(abi::and_registers(xs, xs, xm));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), s.ax));
+        self.emit(abi::float_move_d_from_x(s.ax, xs));
 
         // log2(ax) -> (t1, t2)
         self.emit_pow_log2(&s, xs, xm, xt, xu, nexp);
 
         // y*log2(ax) = p_h + p_l ; z = p_h + p_l
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), y_slot));
+        self.emit(abi::float_move_x_from_d(xs, s.y));
         self.emit(abi::move_immediate(xm, "Integer", HIGH32_MASK));
         self.emit(abi::and_registers(xs, xs, xm));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), s.ww)); // ww = y1
-        self.pop('-', s.tmp, y_slot, s.ww, xs); // y - y1
-        self.pop('*', s.tmp, s.tmp, s.t1, xs);
-        self.pop('*', s.cs, y_slot, s.t2, xs); // y*t2
-        self.pop('+', s.pl, s.tmp, s.cs, xs); // p_l
-        self.pop('*', s.ph, s.ww, s.t1, xs); // p_h = y1*t1
-        self.pop('+', s.zz, s.pl, s.ph, xs); // z
+        self.emit(abi::float_move_d_from_x(s.ww, xs)); // ww = y1
+        self.pop('-', s.tmp, s.y, s.ww); // y - y1
+        self.pop('*', s.tmp, s.tmp, s.t1);
+        self.pop('*', s.cs, s.y, s.t2); // y*t2
+        self.pop('+', s.pl, s.tmp, s.cs); // p_l
+        self.pop('*', s.ph, s.ww, s.t1); // p_h = y1*t1
+        self.pop('+', s.zz, s.pl, s.ph); // z
 
         // overflow: (signed) hi32(z) >= 0x40900000  (signed: z negative is never
         // an overflow, so the high word must be sign-extended).
         let not_ovf = self.label("pow_not_ovf");
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.zz));
+        self.emit(abi::float_move_x_from_d(xs, s.zz));
         self.emit(abi::move_immediate(xm, "Integer", "32"));
         self.emit(abi::arithmetic_shift_right_variable(xt, xs, xm));
         self.emit(abi::move_immediate(xm, "Integer", "1083179008")); // 0x40900000
         self.emit(abi::compare_registers(xt, xm));
         self.emit(abi::branch_lt(&not_ovf));
         self.pconst(s.cs, HUGE, xs);
-        self.pop('*', s.tmp, s.cs, s.cs, xs);
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), s.tmp));
+        self.pop('*', s.tmp, s.cs, s.cs);
+        self.emit(abi::float_move_x_from_d(&result, s.tmp));
         self.emit(abi::exclusive_or_registers(&result, &result, smask));
         self.emit(abi::branch(&end));
         self.emit(abi::label(&not_ovf));
 
         // underflow: (hi32(z) & 0x7fffffff) >= 0x4090cc00
         let do_2exp = self.label("pow_do_2exp");
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.zz));
+        self.emit(abi::float_move_x_from_d(xs, s.zz));
         self.emit(abi::shift_right_immediate(xt, xs, 32));
         self.emit(abi::move_immediate(xm, "Integer", "2147483647"));
         self.emit(abi::and_registers(xt, xt, xm));
@@ -220,15 +243,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(xt, xm));
         self.emit(abi::branch_lt(&do_2exp));
         self.pconst(s.cs, TINY, xs);
-        self.pop('*', s.tmp, s.cs, s.cs, xs);
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), s.tmp));
+        self.pop('*', s.tmp, s.cs, s.cs);
+        self.emit(abi::float_move_x_from_d(&result, s.tmp));
         self.emit(abi::exclusive_or_registers(&result, &result, smask));
         self.emit(abi::branch(&end));
         self.emit(abi::label(&do_2exp));
 
         // 2**(p_h + p_l) -> zz
         self.emit_pow_exp2(&s, xs, xm, xt, xu, nexp);
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), s.zz));
+        self.emit(abi::float_move_x_from_d(&result, s.zz));
         self.emit(abi::exclusive_or_registers(&result, &result, smask));
         self.emit(abi::branch(&end));
 
@@ -360,12 +383,13 @@ impl CodeBuilder<'_> {
     }
 
     /// Set `smask` (0 or the sign bit) per the negative-base rule, or jump to
-    /// `ret_nan` (x<0, non-integer y). For x>=0 leaves smask as 0.
+    /// `ret_nan` (x<0, non-integer y). For x>=0 leaves smask as 0. `x`/`y` are the
+    /// value homes holding the inputs.
     #[allow(clippy::too_many_arguments)]
     fn emit_pow_yisint(
         &mut self,
-        x_slot: usize,
-        y_slot: usize,
+        x: &str,
+        y: &str,
         xs: &str,
         xm: &str,
         xt: &str,
@@ -374,12 +398,12 @@ impl CodeBuilder<'_> {
     ) {
         let done = self.label("pow_yisint_done");
         // x >= 0 -> nothing to do.
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), x_slot));
+        self.emit(abi::float_move_x_from_d(xs, x));
         self.emit(abi::compare_immediate(xs, "0"));
         self.emit(abi::branch_ge(&done));
 
         // |y| >= 2^53 -> integer & even -> smask stays 0.
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), y_slot));
+        self.emit(abi::float_move_x_from_d(xs, y));
         self.emit(abi::move_immediate(xm, "Integer", ABS_MASK));
         self.emit(abi::and_registers(xs, xs, xm)); // |y| bits
         self.emit(abi::float_move_d_from_x("d0", xs)); // |y|
@@ -389,7 +413,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&done)); // |y| >= 2^53 -> even integer
 
         // y integer? trunc(y) == y.
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), y_slot));
+        self.emit(abi::float_move_x_from_d(xs, y));
         self.emit(abi::float_move_d_from_x("d0", xs)); // y
         self.emit(abi::float_convert_to_signed_x(xt, "d0")); // trunc(y) (i64)
         self.emit(abi::signed_convert_to_float_d("d1", xt)); // (double)trunc
@@ -406,26 +430,26 @@ impl CodeBuilder<'_> {
     }
 
     /// log2(ax) computed to extra precision into (t1, t2); fdlibm e_pow.c.
-    fn emit_pow_log2(&mut self, s: &PowSlots, xs: &str, xm: &str, xt: &str, xu: &str, nexp: &str) {
+    fn emit_pow_log2(&mut self, s: &PowHomes, xs: &str, xm: &str, xt: &str, xu: &str, nexp: &str) {
         // n_exp = exponent of ax; reduce ax into [1,2).
         // subnormal: hi32(ax) < 0x00100000 -> ax *= 2^53, n_exp -= 53.
         self.emit(abi::move_immediate(nexp, "Integer", "0"));
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.ax));
+        self.emit(abi::float_move_x_from_d(xs, s.ax));
         self.emit(abi::shift_right_immediate(xt, xs, 32)); // hi32(ax)
         let not_sub = self.label("pow_log_notsub");
         self.emit(abi::move_immediate(xm, "Integer", "1048576")); // 0x00100000
         self.emit(abi::compare_registers(xt, xm));
         self.emit(abi::branch_ge(&not_sub));
-        self.pld("d0", s.ax, xs);
+        self.pld("d0", s.ax);
         self.emit_f64_const("d1", xt, TWO53);
         self.emit(abi::float_multiply_d("d0", "d0", "d1"));
-        self.pst("d0", s.ax, xs);
+        self.pst("d0", s.ax);
         self.emit(abi::move_immediate(xm, "Integer", "53"));
         self.emit(abi::subtract_registers(nexp, nexp, xm));
         self.emit(abi::label(&not_sub));
 
         // hi32(ax); n_exp += (hi32>>20) - 1023; j = hi32 & 0xfffff; hi32 = j|0x3ff00000.
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.ax));
+        self.emit(abi::float_move_x_from_d(xs, s.ax));
         self.emit(abi::shift_right_immediate(xt, xs, 32)); // hi32
         self.emit(abi::shift_right_immediate(xm, xt, 20));
         self.emit(abi::move_immediate(xu, "Integer", "1023"));
@@ -463,26 +487,26 @@ impl CodeBuilder<'_> {
         // segments j <= 0xfffff so add == or).
         self.emit(abi::move_immediate(xm, "Integer", "1072693248")); // 0x3ff00000
         self.emit(abi::add_registers(xm, xt, xm)); // new hi word
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.ax));
+        self.emit(abi::float_move_x_from_d(xs, s.ax));
         self.emit(abi::move_immediate(xt, "Integer", "4294967295"));
         self.emit(abi::and_registers(xs, xs, xt)); // low word
         self.emit(abi::shift_left_immediate(xm, xm, 32));
         self.emit(abi::or_registers(xs, xs, xm));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), s.ax)); // ax in [1,2)
+        self.emit(abi::float_move_d_from_x(s.ax, xs)); // ax in [1,2)
 
-        // bp[kk], dp_h[kk], dp_l[kk] into slots th/tl/cs via select on kk.
+        // bp[kk], dp_h[kk], dp_l[kk] into homes cs/th/tl via select on kk.
         // u = ax - bp[kk]; v = 1/(ax + bp[kk]); s = u*v
         self.emit_pow_select(kk, BP[0], BP[1], s.cs, xs, xt); // cs = bp[kk]
-        self.pop('-', s.uu, s.ax, s.cs, xs); // u = ax - bp
-        self.pop('+', s.vv, s.ax, s.cs, xs); // ax + bp
+        self.pop('-', s.uu, s.ax, s.cs); // u = ax - bp
+        self.pop('+', s.vv, s.ax, s.cs); // ax + bp
         // v = 1/(ax+bp)
         self.pconst(s.tmp, 1.0, xs);
-        self.pop('/', s.vv, s.tmp, s.vv, xs);
-        self.pop('*', s.sh, s.uu, s.vv, xs); // s = u*v (sh holds s for now)
+        self.pop('/', s.vv, s.tmp, s.vv);
+        self.pop('*', s.sh, s.uu, s.vv); // s = u*v (sh holds s for now)
         // s_h = lowzero(s)
         self.plowzero(s.sh, xs, xm);
         // t_h = set_hi(0, ((hi32(ax)>>1)|0x20000000)+0x00080000+(kk<<18))
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.ax));
+        self.emit(abi::float_move_x_from_d(xs, s.ax));
         self.emit(abi::shift_right_immediate(xt, xs, 32)); // hi32(ax)
         self.emit(abi::shift_right_immediate(xt, xt, 1));
         self.emit(abi::move_immediate(xm, "Integer", "536870912")); // 0x20000000
@@ -492,80 +516,80 @@ impl CodeBuilder<'_> {
         self.emit(abi::shift_left_immediate(xm, kk, 18)); // kk<<18
         self.emit(abi::add_registers(xt, xt, xm));
         self.emit(abi::shift_left_immediate(xt, xt, 32)); // into high word
-        self.emit(abi::store_u64(xt, abi::stack_pointer(), s.th)); // t_h
+        self.emit(abi::float_move_d_from_x(s.th, xt)); // t_h
         // t_l = ax - (t_h - bp[kk])
-        self.pop('-', s.tmp, s.th, s.cs, xs); // t_h - bp
-        self.pop('-', s.tl, s.ax, s.tmp, xs); // t_l
+        self.pop('-', s.tmp, s.th, s.cs); // t_h - bp
+        self.pop('-', s.tl, s.ax, s.tmp); // t_l
         // s_l = v*((u - s_h*t_h) - s_h*t_l)
-        self.pop('*', s.tmp, s.sh, s.th, xs); // s_h*t_h
-        self.pop('-', s.tmp, s.uu, s.tmp, xs); // u - s_h*t_h
-        self.pop('*', s.zz, s.sh, s.tl, xs); // s_h*t_l
-        self.pop('-', s.tmp, s.tmp, s.zz, xs);
-        self.pop('*', s.sl, s.vv, s.tmp, xs); // s_l
+        self.pop('*', s.tmp, s.sh, s.th); // s_h*t_h
+        self.pop('-', s.tmp, s.uu, s.tmp); // u - s_h*t_h
+        self.pop('*', s.zz, s.sh, s.tl); // s_h*t_l
+        self.pop('-', s.tmp, s.tmp, s.zz);
+        self.pop('*', s.sl, s.vv, s.tmp); // s_l
         // store s (the full u*v) for use as `s` later; recompute: s = sh? we need ss=u*v.
-        self.pop('*', s.zz, s.uu, s.vv, xs); // ss = u*v  (full)
+        self.pop('*', s.zz, s.uu, s.vv); // ss = u*v  (full)
         // s2 = ss*ss
-        self.pop('*', s.s2, s.zz, s.zz, xs);
+        self.pop('*', s.s2, s.zz, s.zz);
         // r = s2*s2*poly_L(s2) + s_l*(s_h+ss)
         self.ppoly(s.s2, &[L1, L2, L3, L4, L5, L6], s.rr, xs); // poly in s2
-        self.pop('*', s.tmp, s.s2, s.s2, xs); // s2*s2
-        self.pop('*', s.rr, s.tmp, s.rr, xs); // s2*s2*poly
-        self.pop('+', s.tmp, s.sh, s.zz, xs); // s_h + ss
-        self.pop('*', s.tmp, s.sl, s.tmp, xs); // s_l*(s_h+ss)
-        self.pop('+', s.rr, s.rr, s.tmp, xs); // r
+        self.pop('*', s.tmp, s.s2, s.s2); // s2*s2
+        self.pop('*', s.rr, s.tmp, s.rr); // s2*s2*poly
+        self.pop('+', s.tmp, s.sh, s.zz); // s_h + ss
+        self.pop('*', s.tmp, s.sl, s.tmp); // s_l*(s_h+ss)
+        self.pop('+', s.rr, s.rr, s.tmp); // r
         // s2 = s_h*s_h
-        self.pop('*', s.s2, s.sh, s.sh, xs);
+        self.pop('*', s.s2, s.sh, s.sh);
         // t_h = lowzero(3 + s2 + r)
         self.pconst(s.tmp, 3.0, xs);
-        self.pop('+', s.tmp, s.tmp, s.s2, xs);
-        self.pop('+', s.th, s.tmp, s.rr, xs);
+        self.pop('+', s.tmp, s.tmp, s.s2);
+        self.pop('+', s.th, s.tmp, s.rr);
         self.plowzero(s.th, xs, xm);
         // t_l = r - ((t_h - 3) - s2)
         self.pconst(s.tmp, 3.0, xs);
-        self.pop('-', s.tmp, s.th, s.tmp, xs); // t_h - 3
-        self.pop('-', s.tmp, s.tmp, s.s2, xs); // (t_h-3)-s2
-        self.pop('-', s.tl, s.rr, s.tmp, xs); // t_l
+        self.pop('-', s.tmp, s.th, s.tmp); // t_h - 3
+        self.pop('-', s.tmp, s.tmp, s.s2); // (t_h-3)-s2
+        self.pop('-', s.tl, s.rr, s.tmp); // t_l
         // u = s_h*t_h ; v = s_l*t_h + t_l*ss
-        self.pop('*', s.uu, s.sh, s.th, xs);
-        self.pop('*', s.tmp, s.sl, s.th, xs);
-        self.pop('*', s.vv, s.tl, s.zz, xs);
-        self.pop('+', s.vv, s.tmp, s.vv, xs);
+        self.pop('*', s.uu, s.sh, s.th);
+        self.pop('*', s.tmp, s.sl, s.th);
+        self.pop('*', s.vv, s.tl, s.zz);
+        self.pop('+', s.vv, s.tmp, s.vv);
         // p_h = lowzero(u+v) ; p_l = v - (p_h - u)
-        self.pop('+', s.ph, s.uu, s.vv, xs);
+        self.pop('+', s.ph, s.uu, s.vv);
         self.plowzero(s.ph, xs, xm);
-        self.pop('-', s.tmp, s.ph, s.uu, xs);
-        self.pop('-', s.pl, s.vv, s.tmp, xs);
+        self.pop('-', s.tmp, s.ph, s.uu);
+        self.pop('-', s.pl, s.vv, s.tmp);
         // z_h = cp_h*p_h ; z_l = cp_l*p_h + p_l*cp + dp_l[kk]
         self.pconst(s.cs, CP_H, xs);
-        self.pop('*', s.zh, s.cs, s.ph, xs);
+        self.pop('*', s.zh, s.cs, s.ph);
         self.pconst(s.cs, CP_L, xs);
-        self.pop('*', s.tmp, s.cs, s.ph, xs); // cp_l*p_h
+        self.pop('*', s.tmp, s.cs, s.ph); // cp_l*p_h
         self.pconst(s.cs, CP, xs);
-        self.pop('*', s.zz, s.pl, s.cs, xs); // p_l*cp
-        self.pop('+', s.tmp, s.tmp, s.zz, xs);
+        self.pop('*', s.zz, s.pl, s.cs); // p_l*cp
+        self.pop('+', s.tmp, s.tmp, s.zz);
         self.emit_pow_select(kk, DP_L[0], DP_L[1], s.cs, xs, xt); // dp_l[kk]
-        self.pop('+', s.zl, s.tmp, s.cs, xs); // z_l
+        self.pop('+', s.zl, s.tmp, s.cs); // z_l
         // t = (double)n_exp
         self.emit(abi::signed_convert_to_float_d("d0", nexp));
-        self.pst("d0", s.tmp, xs); // tmp = t
+        self.pst("d0", s.tmp); // tmp = t
         // t1 = lowzero(((z_h+z_l)+dp_h[kk])+t)
-        self.pop('+', s.t1, s.zh, s.zl, xs);
+        self.pop('+', s.t1, s.zh, s.zl);
         self.emit_pow_select(kk, DP_H[0], DP_H[1], s.cs, xs, xt); // dp_h[kk]
-        self.pop('+', s.t1, s.t1, s.cs, xs);
-        self.pop('+', s.t1, s.t1, s.tmp, xs);
+        self.pop('+', s.t1, s.t1, s.cs);
+        self.pop('+', s.t1, s.t1, s.tmp);
         self.plowzero(s.t1, xs, xm);
         // t2 = z_l - (((t1 - t) - dp_h[kk]) - z_h)
-        self.pop('-', s.zz, s.t1, s.tmp, xs); // t1 - t
-        self.pop('-', s.zz, s.zz, s.cs, xs); // - dp_h[kk]  (cs still dp_h[kk])
-        self.pop('-', s.zz, s.zz, s.zh, xs); // - z_h
-        self.pop('-', s.t2, s.zl, s.zz, xs); // t2
+        self.pop('-', s.zz, s.t1, s.tmp); // t1 - t
+        self.pop('-', s.zz, s.zz, s.cs); // - dp_h[kk]  (cs still dp_h[kk])
+        self.pop('-', s.zz, s.zz, s.zh); // - z_h
+        self.pop('-', s.t2, s.zl, s.zz); // t2
     }
 
     /// 2**(p_h + p_l) into `zz`; fdlibm e_pow.c. `s.ph`/`s.pl` are p_h/p_l.
-    fn emit_pow_exp2(&mut self, s: &PowSlots, xs: &str, xm: &str, xt: &str, xu: &str, nbit: &str) {
+    fn emit_pow_exp2(&mut self, s: &PowHomes, xs: &str, xm: &str, xt: &str, xu: &str, nbit: &str) {
         // j = hi32(z) where z = p_h + p_l (recompute) ; i = j & 0x7fffffff ; k=(i>>20)-0x3ff
-        self.pop('+', s.zz, s.pl, s.ph, xs); // z
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.zz));
+        self.pop('+', s.zz, s.pl, s.ph); // z
+        self.emit(abi::float_move_x_from_d(xs, s.zz));
         self.emit(abi::move_immediate(xm, "Integer", "32"));
         self.emit(abi::arithmetic_shift_right_variable(xt, xs, xm)); // j = hi32(z) signed
         self.emit(abi::move_immediate(xm, "Integer", "2147483647"));
@@ -599,7 +623,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::bitwise_not(xs, xs));
         self.emit(abi::and_registers(xs, nbit, xs)); // n & ~(...)
         self.emit(abi::shift_left_immediate(xs, xs, 32));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), s.tmp)); // t
+        self.emit(abi::float_move_d_from_x(s.tmp, xs)); // t
         // n = ((n & 0xfffff) | 0x100000) >> (20 - k)
         self.emit(abi::move_immediate(xs, "Integer", "1048575"));
         self.emit(abi::and_registers(xs, nbit, xs)); // n & 0xfffff
@@ -616,45 +640,45 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_registers(nbit, xs, nbit));
         self.emit(abi::label(&n_pos));
         // p_h -= t
-        self.pop('-', s.ph, s.ph, s.tmp, xs);
+        self.pop('-', s.ph, s.ph, s.tmp);
         self.emit(abi::label(&no_round));
 
         // t = lowzero(p_l + p_h)
-        self.pop('+', s.tmp, s.pl, s.ph, xs);
+        self.pop('+', s.tmp, s.pl, s.ph);
         self.plowzero(s.tmp, xs, xm);
         // u = t*lg2_h ; v = (p_l-(t-p_h))*lg2 + t*lg2_l
         self.pconst(s.cs, LG2_H, xs);
-        self.pop('*', s.uu, s.tmp, s.cs, xs);
-        self.pop('-', s.zz, s.tmp, s.ph, xs); // t - p_h
-        self.pop('-', s.zz, s.pl, s.zz, xs); // p_l - (t - p_h)
+        self.pop('*', s.uu, s.tmp, s.cs);
+        self.pop('-', s.zz, s.tmp, s.ph); // t - p_h
+        self.pop('-', s.zz, s.pl, s.zz); // p_l - (t - p_h)
         self.pconst(s.cs, LG2, xs);
-        self.pop('*', s.zz, s.zz, s.cs, xs);
+        self.pop('*', s.zz, s.zz, s.cs);
         self.pconst(s.cs, LG2_L, xs);
-        self.pop('*', s.zl, s.tmp, s.cs, xs); // t*lg2_l
-        self.pop('+', s.vv, s.zz, s.zl, xs); // v
+        self.pop('*', s.zl, s.tmp, s.cs); // t*lg2_l
+        self.pop('+', s.vv, s.zz, s.zl); // v
         // z = u + v ; w = v - (z - u)
-        self.pop('+', s.zz, s.uu, s.vv, xs);
-        self.pop('-', s.tmp, s.zz, s.uu, xs); // z - u
-        self.pop('-', s.ww, s.vv, s.tmp, xs); // w
+        self.pop('+', s.zz, s.uu, s.vv);
+        self.pop('-', s.tmp, s.zz, s.uu); // z - u
+        self.pop('-', s.ww, s.vv, s.tmp); // w
         // t = z*z ; t1 = z - t*P(t)
-        self.pop('*', s.tmp, s.zz, s.zz, xs);
+        self.pop('*', s.tmp, s.zz, s.zz);
         self.ppoly(s.tmp, &[P1, P2, P3, P4, P5], s.t1, xs); // P(t)
-        self.pop('*', s.t1, s.tmp, s.t1, xs); // t*P
-        self.pop('-', s.t1, s.zz, s.t1, xs); // z - t*P
+        self.pop('*', s.t1, s.tmp, s.t1); // t*P
+        self.pop('-', s.t1, s.zz, s.t1); // z - t*P
         // r = (z*t1)/(t1-2) - (w + z*w)
-        self.pop('*', s.tmp, s.zz, s.t1, xs); // z*t1
+        self.pop('*', s.tmp, s.zz, s.t1); // z*t1
         self.pconst(s.cs, 2.0, xs);
-        self.pop('-', s.t2, s.t1, s.cs, xs); // t1 - 2
-        self.pop('/', s.tmp, s.tmp, s.t2, xs); // (z*t1)/(t1-2)
-        self.pop('*', s.zl, s.zz, s.ww, xs); // z*w
-        self.pop('+', s.zl, s.ww, s.zl, xs); // w + z*w
-        self.pop('-', s.rr, s.tmp, s.zl, xs); // r
+        self.pop('-', s.t2, s.t1, s.cs); // t1 - 2
+        self.pop('/', s.tmp, s.tmp, s.t2); // (z*t1)/(t1-2)
+        self.pop('*', s.zl, s.zz, s.ww); // z*w
+        self.pop('+', s.zl, s.ww, s.zl); // w + z*w
+        self.pop('-', s.rr, s.tmp, s.zl); // r
         // z = 1 - (r - z)
-        self.pop('-', s.tmp, s.rr, s.zz, xs); // r - z
+        self.pop('-', s.tmp, s.rr, s.zz); // r - z
         self.pconst(s.cs, 1.0, xs);
-        self.pop('-', s.zz, s.cs, s.tmp, xs); // z = 1 - (r-z)
+        self.pop('-', s.zz, s.cs, s.tmp); // z = 1 - (r-z)
         // j = hi32(z) + (n<<20) ; if (j>>20)<=0 -> z=scalbn(z,n) else set_hi(z,j)
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.zz));
+        self.emit(abi::float_move_x_from_d(xs, s.zz));
         self.emit(abi::shift_right_immediate(xt, xs, 32)); // hi32(z) (signed)
         self.emit(abi::shift_left_immediate(xm, nbit, 20)); // n<<20
         self.emit(abi::add_registers(xt, xt, xm)); // j
@@ -667,14 +691,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(xm, "0"));
         self.emit(abi::branch_le(&subnormal));
         // normal: set_hi(z, j)
-        self.emit(abi::load_u64(xs, abi::stack_pointer(), s.zz));
+        self.emit(abi::float_move_x_from_d(xs, s.zz));
         self.emit(abi::move_immediate(xm, "Integer", "4294967295"));
         self.emit(abi::and_registers(xs, xs, xm)); // low word
         self.emit(abi::move_immediate(xm, "Integer", "4294967295"));
         self.emit(abi::and_registers(xt, xt, xm)); // j low 32
         self.emit(abi::shift_left_immediate(xt, xt, 32));
         self.emit(abi::or_registers(xs, xs, xt));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), s.zz));
+        self.emit(abi::float_move_d_from_x(s.zz, xs));
         self.emit(abi::branch(&scaled));
         self.emit(abi::label(&subnormal));
         // z = scalbn(z, n): z *= 2^n via constructing 2^n (n small/negative here).
@@ -682,8 +706,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&scaled));
     }
 
-    /// `slot = select(kk!=0 ? b : a)` as an f64 constant.
-    fn emit_pow_select(&mut self, kk: &str, a: f64, b: f64, slot: usize, xs: &str, _xt: &str) {
+    /// `home = select(kk!=0 ? b : a)` as an f64 constant.
+    fn emit_pow_select(&mut self, kk: &str, a: f64, b: f64, home: &str, xs: &str, _xt: &str) {
         let pick_b = self.label("pow_sel_b");
         let done = self.label("pow_sel_done");
         self.emit(abi::compare_immediate(kk, "0"));
@@ -693,12 +717,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&pick_b));
         self.emit(abi::move_immediate(xs, "Integer", &b.to_bits().to_string()));
         self.emit(abi::label(&done));
-        self.emit(abi::store_u64(xs, abi::stack_pointer(), slot));
+        self.emit(abi::float_move_d_from_x(home, xs));
     }
 
-    /// `slot *= 2**n` for an integer `n` in [-1074, 1023] (fdlibm scalbn, simple
+    /// `home *= 2**n` for an integer `n` in [-1074, 1023] (fdlibm scalbn, simple
     /// path: build the 2**n factor; for the subnormal output path n is small).
-    fn emit_pow_scalbn(&mut self, slot: usize, n: &str, xs: &str, xm: &str, _xt: &str, _xu: &str) {
+    fn emit_pow_scalbn(&mut self, home: &str, n: &str, _xs: &str, xm: &str, _xt: &str, _xu: &str) {
         // factor = (1023 + n) << 52, as a double; z *= factor. For very negative n
         // this can be subnormal, but the pow underflow/overflow gate already
         // excludes the extreme range, so (1023+n) stays a valid exponent here.
@@ -706,8 +730,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(xm, xm, n));
         self.emit(abi::shift_left_immediate(xm, xm, 52));
         self.emit(abi::float_move_d_from_x("d1", xm)); // 2^n
-        self.pld("d0", slot, xs);
+        self.pld("d0", home);
         self.emit(abi::float_multiply_d("d0", "d0", "d1"));
-        self.pst("d0", slot, xs);
+        self.pst("d0", home);
     }
 }
