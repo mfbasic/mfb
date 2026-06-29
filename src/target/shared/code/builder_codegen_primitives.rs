@@ -73,6 +73,19 @@ impl CodeBuilder<'_> {
     /// Must run after the body is fully emitted and before the peephole pass and
     /// `finalize_frame`, which both expect physical register names (plan-03).
     pub(super) fn run_register_allocation(&mut self) {
+        // MIR seam (plan-00-A): the fully-lowered, pre-allocation stream is the
+        // point where the neutral MIR layer sits (`NIR → MIR → select → alloc`,
+        // `mir.md §2`/§3). A `-mir` dump captures this function's MIR here (with
+        // virtual registers intact), and `-codegen mir` routes the stream
+        // through MIR and back — the identity in Phase A, so the allocator sees
+        // a byte-identical input and the whole backend stays byte-identical.
+        if mir::capture_enabled() {
+            mir::capture_function(&self.current_symbol, mir::lower_to_mir(&self.instructions));
+        }
+        if mir::active_codegen() == mir::CodegenKind::Mir {
+            let neutral = mir::lower_to_mir(&self.instructions);
+            self.instructions = mir::select_aarch64(&neutral);
+        }
         let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
         let spill_base = self.stack_size;
         let outcome = regalloc::allocate(

@@ -125,6 +125,16 @@ pub(crate) trait NativeBackend: Sync {
         packages: &[PathBuf],
         build_mode: NativeBuildMode,
     ) -> Result<PathBuf, String>;
+    /// Write the target-neutral MIR dump (`-mir`, plan-00-A §12a). Shares the
+    /// `native_code_plan` capability (same lowering, captured before register
+    /// allocation and instruction selection).
+    fn write_mir(
+        &self,
+        project_dir: &Path,
+        ir: &IrProject,
+        packages: &[PathBuf],
+        build_mode: NativeBuildMode,
+    ) -> Result<PathBuf, String>;
     /// Whether this backend supports app mode (`mfb build -app`). Only macOS
     /// backends advertise this; the CLI rejects `-app` for any other target.
     fn supports_app_mode(&self) -> bool {
@@ -239,6 +249,23 @@ pub fn write_native_code_plan(
     }
     backend.validate(ir, packages)?;
     backend.write_native_code_plan(project_dir, ir, packages, build_mode)
+}
+
+pub fn write_mir(
+    project_dir: &Path,
+    ir: &IrProject,
+    target: &BuildTarget,
+    packages: &[PathBuf],
+    build_mode: NativeBuildMode,
+) -> Result<PathBuf, String> {
+    let backend = backend_for(target)?;
+    // The MIR dump runs the same lowering as `-ncode`, so it shares that
+    // capability gate.
+    if !backend.capabilities().native_code_plan {
+        return Err(format!("MIR output does not support {} yet", target.name()));
+    }
+    backend.validate(ir, packages)?;
+    backend.write_mir(project_dir, ir, packages, build_mode)
 }
 
 pub fn write_package(

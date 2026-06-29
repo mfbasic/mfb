@@ -19,6 +19,9 @@ Wrote native object plan to tests/control-flow-if/control_flow_if.nobj
 $ mfb build -ncode tests/control-flow-if
 Wrote native code plan to tests/control-flow-if/control_flow_if.ncode
 [exit 0]
+$ mfb build -mir tests/control-flow-if
+Wrote MIR to tests/control-flow-if/control_flow_if.mir
+[exit 0]
 $ mfb build tests/control-flow-if
 Wrote executable to tests/control-flow-if/control_flow_if.out
 [exit 0]

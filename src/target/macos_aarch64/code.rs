@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation,
+    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
     NativeCodePlan,
 };
 use crate::target::shared::nir::NirModule;
@@ -17,6 +17,14 @@ pub(crate) fn lower_module(
     packages: &[PathBuf],
 ) -> Result<NativeCodePlan, String> {
     code::lower_module_for_platform(module, native_plan, packages, &Platform)
+}
+
+pub(crate) fn lower_module_mir(
+    module: &NirModule,
+    native_plan: &NativePlan,
+    packages: &[PathBuf],
+) -> Result<MirPlan, String> {
+    code::lower_module_mir_for_platform(module, native_plan, packages, &Platform)
 }
 
 struct Platform;

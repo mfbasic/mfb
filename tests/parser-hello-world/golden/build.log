@@ -16,3 +16,6 @@ Wrote native object plan to tests/parser-hello-world/parser_hello_world.nobj
 $ mfb build -ncode tests/parser-hello-world
 Wrote native code plan to tests/parser-hello-world/parser_hello_world.ncode
 [exit 0]
+$ mfb build -mir tests/parser-hello-world
+Wrote MIR to tests/parser-hello-world/parser_hello_world.mir
+[exit 0]

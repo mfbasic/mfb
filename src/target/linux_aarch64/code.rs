@@ -6,7 +6,7 @@ use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::linux_aarch64::gtk;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
-    NativeCodePlan,
+    MirPlan, NativeCodePlan,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
@@ -18,6 +18,15 @@ pub(crate) fn lower_module(
     flavor: LinuxFlavor,
 ) -> Result<NativeCodePlan, String> {
     code::lower_module_for_platform(module, native_plan, packages, &Platform { flavor })
+}
+
+pub(crate) fn lower_module_mir(
+    module: &NirModule,
+    native_plan: &NativePlan,
+    packages: &[PathBuf],
+    flavor: LinuxFlavor,
+) -> Result<MirPlan, String> {
+    code::lower_module_mir_for_platform(module, native_plan, packages, &Platform { flavor })
 }
 
 struct Platform {

@@ -16,7 +16,7 @@ Commands:
   pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package
   doc [--out file] [location]          Render HTML docs from package or file source
   fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)
-  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project
+  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode|-mir] [-codegen direct|mir] [-target os-arch] [-app] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
   man [package] [function]             Show built-in package and function help
   spec [topic] [subtopic] [--all]      Show the MFBASIC language specification
@@ -39,7 +39,7 @@ Commands:
   pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package
   doc [--out file] [location]          Render HTML docs from package or file source
   fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)
-  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode] [-target os-arch] [-app] [location] Validate and build an MFBASIC project
+  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode|-mir] [-codegen direct|mir] [-target os-arch] [-app] [location] Validate and build an MFBASIC project
   audit [--format text|json] [--locked] [path] Report audit findings for a project
   man [package] [function]             Show built-in package and function help
   spec [topic] [subtopic] [--all]      Show the MFBASIC language specification

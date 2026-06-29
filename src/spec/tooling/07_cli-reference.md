@@ -57,6 +57,9 @@ package).
 | `-nplan` | `NativePlan` | `<name>.nplan` |
 | `-nobj` | `NativeObjectPlan` | `<name>.nobj` |
 | `-ncode` | `NativeCodePlan` | `<name>.ncode` |
+| `-mir` | `Mir` | `<name>.mir` (target-neutral machine IR, virtual registers, no `target`/`arch`) |
+| `-codegen <direct,mir>` / `-codegen=…` | — | code-generation path; default `direct`. `mir` routes the backend through the neutral MIR layer (byte-identical to `direct`) |
+| `-regalloc <bump,linear-scan>` / `-regalloc=…` | — | register-allocation strategy; default `linear-scan`. `bump` is the byte-identical reference oracle |
 | `-target os-arch` / `-target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
 | `--sign owner` / `--sign=owner` | — | sign artifact with owner's repo key; at most one |
 | `-app` | — | GUI app-mode runtime; at most one |
@@ -76,9 +79,12 @@ macOS or Linux target`).[[src/cli/build.rs:build_project]] A duplicate `-app` yi
 `mfb build accepts at most one -app option`. App mode selects
 `NativeBuildMode::LinuxApp`/`MacApp`; console builds use `NativeBuildMode::Console`.
 
-Native intermediate outputs (`-nir`/`-nplan`/`-nobj`/`-ncode`) are **rejected for
-package projects** with the `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` diagnostic; a
-package emits only `.mfp`. An unknown `-flag` yields `unknown build option
+Native intermediate outputs (`-nir`/`-nplan`/`-nobj`/`-ncode`/`-mir`) are **rejected
+for package projects** with the `PACKAGE_NATIVE_OUTPUT_UNSUPPORTED` diagnostic; a
+package emits only `.mfp`. The `-codegen` and `-regalloc` flags require a value
+(`mfb build -codegen requires a path name` / `mfb build -regalloc requires a
+strategy name`) and reject an unknown one (`unknown -codegen path` / `unknown
+-regalloc strategy`). An unknown `-flag` yields `unknown build option
 ` `` `<arg>` `` ``; a second positional yields `mfb build accepts at most one
 [location]`. The location defaults to `.`; the target defaults to the host.
 

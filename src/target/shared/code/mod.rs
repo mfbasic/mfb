@@ -832,6 +832,24 @@ pub(crate) fn lower_module_for_platform(
     Ok(plan)
 }
 
+/// Lower a module to its **MIR** (`-mir` dump, `mir.md §12a`). Runs the same
+/// lowering as [`lower_module_for_platform`] with MIR capture armed, then
+/// assembles the captured per-function MIR (virtual registers, pre-allocation)
+/// into a [`MirPlan`]. Used by the `-mir` build output; the resulting code plan
+/// itself is discarded.
+pub(crate) fn lower_module_mir_for_platform(
+    module: &NirModule,
+    native_plan: &NativePlan,
+    packages: &[PathBuf],
+    platform: &dyn CodegenPlatform,
+) -> Result<MirPlan, String> {
+    mir::begin_capture();
+    let result = lower_module_for_platform(module, native_plan, packages, platform);
+    let captured = mir::take_capture();
+    let plan = result?;
+    Ok(mir::build_mir_plan(&plan, captured))
+}
+
 fn lower_runtime_helper(
     symbol: &str,
     build_mode: crate::target::NativeBuildMode,
@@ -2360,6 +2378,8 @@ mod function_lowering;
 use function_lowering::*;
 mod peephole;
 pub(crate) mod regalloc;
+mod mir;
+pub(crate) use mir::{CodegenKind, MirPlan, active_codegen, parse_codegen, set_codegen};
 
 fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
     &[

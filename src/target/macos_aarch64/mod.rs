@@ -199,6 +199,16 @@ impl NativeBackend for Backend {
     ) -> Result<PathBuf, String> {
         write_native_code_plan(project_dir, ir, &self.target(), packages, build_mode)
     }
+
+    fn write_mir(
+        &self,
+        project_dir: &Path,
+        ir: &IrProject,
+        packages: &[PathBuf],
+        build_mode: NativeBuildMode,
+    ) -> Result<PathBuf, String> {
+        write_mir(project_dir, ir, &self.target(), packages, build_mode)
+    }
 }
 
 fn write_executable(
@@ -314,4 +324,26 @@ fn write_native_code_plan(
     fs::write(&code_path, native_code.to_json())
         .map_err(|err| format!("failed to write '{}': {err}", code_path.display()))?;
     Ok(code_path)
+}
+
+fn write_mir(
+    project_dir: &Path,
+    ir: &IrProject,
+    target: &BuildTarget,
+    packages: &[PathBuf],
+    build_mode: NativeBuildMode,
+) -> Result<PathBuf, String> {
+    validate::validate_target(target)?;
+    validate::validate_project(ir, packages)?;
+    let module = lower::lower_project(ir, target.name(), packages, build_mode)?;
+    validate::validate_nir(&module)?;
+    validate::validate_capabilities(&module, &BACKEND.capabilities())?;
+    let native_plan = plan::lower_module(&module)?;
+    native_plan.validate()?;
+    os::macos::validate_native_object_plan(&native_plan)?;
+    let mir = code::lower_module_mir(&module, &native_plan, packages)?;
+    let mir_path = project_dir.join(format!("{}.mir", ir.name));
+    fs::write(&mir_path, mir.to_json())
+        .map_err(|err| format!("failed to write '{}': {err}", mir_path.display()))?;
+    Ok(mir_path)
 }
