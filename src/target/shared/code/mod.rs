@@ -798,6 +798,26 @@ pub(crate) fn lower_module_for_platform(
         }
     }
 
+    // Math-kernel constant pool: emitted iff some kernel references it (plan-03
+    // Phase 2). A read-only blob of the broadcast f64/i64 constants, each value
+    // duplicated across both `.2d` lanes of a 16-byte slot.
+    if code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == builder_simd_float_math::MATH_CONST_POOL_SYMBOL)
+    }) {
+        let words = builder_simd_float_math::math_const_pool_words();
+        data_objects.push(CodeDataObject {
+            symbol: builder_simd_float_math::MATH_CONST_POOL_SYMBOL.to_string(),
+            kind: "raw".to_string(),
+            layout: "mfb.math.const_pool.v1 { u128 lanes[] }".to_string(),
+            align: 16,
+            size: words.len() * 16,
+            value: builder_simd_float_math::math_const_pool_data_value(),
+        });
+    }
+
     let plan = NativeCodePlan {
         target: module.target.clone(),
         build_mode: module.build_mode,

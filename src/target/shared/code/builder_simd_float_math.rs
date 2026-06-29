@@ -70,6 +70,102 @@ const ATAN_AT: [f64; 11] = [
     1.628_582_011_536_578_236_23e-02,
 ];
 
+// --- Math-kernel constant pool (plan-03 Phase 2 shared infrastructure) ---
+//
+// The scalar `math::` path runs each SIMD kernel body once per call, so every
+// f64/i64 constant it broadcasts was rebuilt from immediates every call: a
+// `movz`+`movk`x3+`dup` chain (5 instructions) per constant, dozens per trig
+// call. Instead, gather every kernel constant into one read-only data object —
+// each value stored duplicated across both `.2d` lanes of a 16-byte slot — load
+// the pool's base once per kernel into a pinned scratch GPR, and replace each
+// broadcast with a single `ldr q, [base, #off]`. Same bit patterns, so the
+// result is bit-identical (the ULP gate and the `.run` goldens are unchanged);
+// `broadcast_f64`/`broadcast_i64` fall back to the old inline build for any value
+// not in the pool, so accuracy can never depend on the pool's coverage.
+
+/// Internal read-only data symbol holding the kernel constant pool. Emitted by
+/// the module assembler iff some function references it (mod.rs).
+pub(super) const MATH_CONST_POOL_SYMBOL: &str = "_mfb_math_const_pool";
+
+/// GPR pinned to the pool base for a kernel's lifetime. `x2` is caller-saved
+/// scratch the register allocator never assigns to a live value (`INT_ALLOCATABLE`
+/// is `x8`+), so it is free to hold the base across the whole body; the array
+/// paths load it *after* their one `bl`, and the bodies make no further call.
+const POOL_BASE: &str = "x2";
+
+/// The deduplicated constant words (f64/i64 bit patterns) the SIMD kernels
+/// broadcast, in a fixed order. Each occupies a 16-byte slot (the value in both
+/// `.2d` lanes), so its byte offset is `index * 16`.
+pub(super) fn math_const_pool_words() -> Vec<u64> {
+    fn add(words: &mut Vec<u64>, bits: u64) {
+        if !words.contains(&bits) {
+            words.push(bits);
+        }
+    }
+    let mut w: Vec<u64> = Vec::new();
+    for v in [
+        LN2, LN2_HI, LN2_LO, SQRT_HALF, LN2_DD_LO, LOG10_E, LOG10_E_DD_LO, INV_PIO2, PIO2_1,
+        PIO2_2, PIO2_2T, 0.5, 1.0, 1.5, 2.0, 3.0, std::f64::consts::FRAC_PI_2, std::f64::consts::PI,
+    ] {
+        add(&mut w, v.to_bits());
+    }
+    for v in ATAN_SEG_THRESH {
+        add(&mut w, v.to_bits());
+    }
+    for v in ATAN_HI {
+        add(&mut w, v.to_bits());
+    }
+    for v in ATAN_LO {
+        add(&mut w, v.to_bits());
+    }
+    for v in ATAN_AT {
+        add(&mut w, v.to_bits());
+    }
+    for v in EXP_COEFFS {
+        add(&mut w, v.to_bits());
+    }
+    for v in LOG_COEFFS {
+        add(&mut w, v.to_bits());
+    }
+    for v in SIN_COEFFS {
+        add(&mut w, v.to_bits());
+    }
+    for v in COS_COEFFS {
+        add(&mut w, v.to_bits());
+    }
+    for v in [
+        1023_i64, -1022, 2047, 1022, 1, 3, i64::MIN, i64::MAX, 1022_i64 << 52,
+        0x800F_FFFF_FFFF_FFFF_u64 as i64,
+    ] {
+        add(&mut w, v as u64);
+    }
+    w
+}
+
+/// The 16-byte-slot byte offset of `bits` in the pool, or `None` if not pooled.
+fn math_const_pool_offset(bits: u64) -> Option<usize> {
+    math_const_pool_words()
+        .iter()
+        .position(|word| *word == bits)
+        .map(|index| index * 16)
+}
+
+/// Hex (the `raw` data-object `value`) for the pool: each word little-endian,
+/// written twice to fill both `.2d` lanes of its 16-byte slot.
+pub(super) fn math_const_pool_data_value() -> String {
+    use std::fmt::Write;
+    let mut hex = String::new();
+    for word in math_const_pool_words() {
+        let le = word.to_le_bytes();
+        for _lane in 0..2 {
+            for byte in le {
+                let _ = write!(hex, "{byte:02x}");
+            }
+        }
+    }
+    hex
+}
+
 /// A unary `math::` Float array kernel and the error (if any) it raises.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum FloatKernel {
@@ -280,6 +376,7 @@ impl CodeBuilder<'_> {
     /// Broadcast the kernel's persistent constants into v16+ (called once before
     /// the loop; v22 is reserved for the error mask).
     fn emit_float_kernel_setup(&mut self, kernel: FloatKernel) {
+        self.emit_load_math_pool_base();
         match kernel {
             FloatKernel::Exp => {
                 self.broadcast_f64("v16", LN2);
@@ -753,20 +850,52 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Load the constant pool's base address into `POOL_BASE` (once per kernel,
+    /// before any broadcast). adrp+add to the read-only pool data symbol.
+    fn emit_load_math_pool_base(&mut self) {
+        self.emit(abi::load_page_address(POOL_BASE, MATH_CONST_POOL_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: MATH_CONST_POOL_SYMBOL.to_string(),
+            kind: "page21".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+        self.emit(abi::add_page_offset(POOL_BASE, POOL_BASE, MATH_CONST_POOL_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: MATH_CONST_POOL_SYMBOL.to_string(),
+            kind: "pageoff12".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        });
+    }
+
     /// Broadcast an `f64` constant's bit pattern into both `.2d` lanes of `vreg`.
+    /// Pooled constants load with one `ldr q` from `POOL_BASE`; anything else
+    /// falls back to building the immediate inline (so the pool's coverage never
+    /// affects correctness).
     fn broadcast_f64(&mut self, vreg: &str, value: f64) {
-        self.emit(abi::move_immediate("x0", "Integer", &value.to_bits().to_string()));
-        self.emit(abi::vector_dup_from_x(vreg, "x0"));
+        if let Some(offset) = math_const_pool_offset(value.to_bits()) {
+            self.emit(abi::vector_load(vreg, POOL_BASE, offset));
+        } else {
+            self.emit(abi::move_immediate("x0", "Integer", &value.to_bits().to_string()));
+            self.emit(abi::vector_dup_from_x(vreg, "x0"));
+        }
     }
 
     /// Broadcast a signed `i64` constant into both `.2d` lanes of `vreg`.
     fn broadcast_i64(&mut self, vreg: &str, value: i64) {
-        self.emit(abi::move_immediate(
-            "x0",
-            "Integer",
-            &(value as u64).to_string(),
-        ));
-        self.emit(abi::vector_dup_from_x(vreg, "x0"));
+        if let Some(offset) = math_const_pool_offset(value as u64) {
+            self.emit(abi::vector_load(vreg, POOL_BASE, offset));
+        } else {
+            self.emit(abi::move_immediate(
+                "x0",
+                "Integer",
+                &(value as u64).to_string(),
+            ));
+            self.emit(abi::vector_dup_from_x(vreg, "x0"));
+        }
     }
 
     /// Lower a two-array `math::` Float overload (`atan2`/`pow`). Both lists must
@@ -907,6 +1036,7 @@ impl CodeBuilder<'_> {
     }
 
     fn emit_float_binary_setup(&mut self, kernel: FloatBinaryKernel) {
+        self.emit_load_math_pool_base();
         match kernel {
             FloatBinaryKernel::Atan2 => {
                 self.broadcast_f64("v16", 1.0);
