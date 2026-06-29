@@ -33,6 +33,82 @@ const USE_FIELDS: &[&str] = &["src", "lhs", "rhs", "minuend", "base", "register"
 pub(super) struct ClassModel {
     pub(super) parse_vreg: fn(&str) -> Option<u32>,
     pub(super) physical_index: fn(&str) -> Option<u32>,
+    /// Whether this is the FP class (selects the FP vs integer clobber sets).
+    pub(super) is_fp: bool,
+}
+
+/// Caller-saved integer registers `x0`–`x17` (clobbered by any call per the PCS).
+const CALLER_SAVED_INT: PhysMask = 0x3_ffff;
+/// Caller-saved FP registers `d0`–`d7` and `d16`–`d31` (`d8`–`d15` are
+/// callee-saved by the PCS; the inlined NEON kernels also avoid `v8`–`v15`).
+const CALLER_SAVED_FP: PhysMask = 0xffff_00ff;
+/// Every integer register `x0`–`x30` — forbidding all of them forces a spill.
+const ALL_INT: PhysMask = 0x7fff_ffff;
+
+/// The set of physical registers (of `is_fp`'s class) a call instruction
+/// destroys, so a value live across it must avoid them (plan-03 §4.3). Modeled
+/// per target:
+/// - `_mfb_arena_alloc` has an empty callee-saved frame and uses
+///   `x0/x1/x9/x10/x14/x15/x16/x20`–`x28` as integer scratch, and **no FP** (see
+///   `.ai/compiler.md`).
+/// - `_mfb_fn_*` / `_mfb_ifn_*` (user and built-in functions, compiled here with a
+///   PCS frame) and libc calls clobber only the caller-saved registers.
+/// - other `_mfb_*` runtime helpers are integer/pointer routines (no FP); their
+///   integer clobber set is taken conservatively as everything (spill).
+/// - `blr` is an indirect call to a PCS function; `svc` is a syscall (no FP).
+pub(super) fn call_clobber_mask(instruction: &CodeInstruction, is_fp: bool) -> PhysMask {
+    // Bits for the `_mfb_arena_alloc` integer scratch set.
+    const ARENA_INT: PhysMask =
+        (1 << 0) | (1 << 1) | (1 << 9) | (1 << 10) | (1 << 14) | (1 << 15) | (1 << 16) | (0x1ff << 20);
+    match instruction.op {
+        CodeOp::Svc => {
+            if is_fp {
+                0
+            } else {
+                CALLER_SAVED_INT
+            }
+        }
+        CodeOp::BranchLinkRegister => {
+            if is_fp {
+                CALLER_SAVED_FP
+            } else {
+                CALLER_SAVED_INT
+            }
+        }
+        CodeOp::BranchLink => {
+            let target = instruction.get("target").unwrap_or("");
+            if target == "_mfb_arena_alloc" {
+                if is_fp {
+                    0
+                } else {
+                    ARENA_INT
+                }
+            } else if target.starts_with("_mfb_fn_") || target.starts_with("_mfb_ifn_") {
+                // User/built-in function: PCS, preserves callee-saved.
+                if is_fp {
+                    CALLER_SAVED_FP
+                } else {
+                    CALLER_SAVED_INT
+                }
+            } else if target.starts_with("_mfb_") {
+                // Other internal runtime helper: integer/pointer, no FP. Its
+                // integer clobber set is unknown, so spill conservatively.
+                if is_fp {
+                    0
+                } else {
+                    ALL_INT
+                }
+            } else {
+                // libc (PCS).
+                if is_fp {
+                    CALLER_SAVED_FP
+                } else {
+                    CALLER_SAVED_INT
+                }
+            }
+        }
+        _ => 0,
+    }
 }
 
 /// The integer physical-register index `0..=30` (`x0`–`x30`), or `None`.
@@ -187,8 +263,10 @@ pub(super) struct Liveness {
     /// instruction with no operand mentioning it), but over only 31 registers it
     /// fits one machine word, so it is cheap even on huge functions.
     pub(super) phys_busy_at: Vec<PhysMask>,
-    /// Sorted indices of call/syscall instructions.
-    pub(super) call_idx: Vec<usize>,
+    /// Call/syscall instructions and the set of this class's physical registers
+    /// each one clobbers (`call_clobber_mask`), sorted by instruction index. A
+    /// value live across a call must avoid that call's clobbered registers.
+    pub(super) call_clobber: Vec<(usize, PhysMask)>,
 }
 
 /// Occupancy bitset over physical registers `x0`–`x30` (31 < 64 bits).
@@ -218,7 +296,7 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
     let mut phys_use: Vec<PhysMask> = vec![0; n];
     let mut vdef: Vec<Vec<u32>> = vec![Vec::new(); n];
     let mut vuse: Vec<Vec<u32>> = vec![Vec::new(); n];
-    let mut call_idx: Vec<usize> = Vec::new();
+    let mut call_clobber: Vec<(usize, PhysMask)> = Vec::new();
     // Virtual-register index -> dense id, and the reverse.
     let mut vid_of: HashMap<u32, u32> = HashMap::new();
     let mut vreg_of: Vec<u32> = Vec::new();
@@ -232,7 +310,7 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
     for (i, instruction) in instructions.iter().enumerate() {
         let eff = effect(instruction, model);
         if eff.is_call {
-            call_idx.push(i);
+            call_clobber.push((i, call_clobber_mask(instruction, model.is_fp)));
         }
         for d in &eff.defs {
             if let Some(p) = (model.physical_index)(d) {
@@ -342,6 +420,6 @@ pub(super) fn analyze(instructions: &[CodeInstruction], model: &ClassModel) -> L
     Liveness {
         vreg_interval,
         phys_busy_at,
-        call_idx,
+        call_clobber,
     }
 }

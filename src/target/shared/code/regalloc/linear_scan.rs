@@ -66,11 +66,18 @@ pub(super) fn run(
             Err(pos) => idx.get(pos).is_some_and(|&j| j <= e),
         }
     };
-    let crosses_call = |s: usize, e: usize| -> bool {
-        match live.call_idx.binary_search(&s) {
-            Ok(_) => true,
-            Err(pos) => live.call_idx.get(pos).is_some_and(|&j| j <= e),
+    // The set of this class's physical registers clobbered by any call in the
+    // half-open span `[s, e]` — a value live across those calls must avoid them.
+    let call_clobber_in = |s: usize, e: usize| -> u64 {
+        let start = live.call_clobber.partition_point(|&(idx, _)| idx < s);
+        let mut mask = 0u64;
+        for &(idx, m) in &live.call_clobber[start..] {
+            if idx > e {
+                break;
+            }
+            mask |= m;
         }
+        mask
     };
 
     // Allocatable physicals as (name, index), in preference order.
@@ -101,11 +108,6 @@ pub(super) fn run(
     let mut assigned_index: HashMap<u32, u32> = HashMap::new();
     let mut spilled: Vec<u32> = Vec::new();
 
-    // Whether a value of this class that crosses a call may stay in a register —
-    // only in a *callee-saved* one (plan-03 Stage D). The integer class always
-    // spills across a call; the FP class can keep the value in `d8`–`d15`.
-    let survives_in_callee_saved = model.callee_saved_survives_calls(class);
-
     for &(v, s, e) in &vregs {
         // Expire intervals that ended before this one starts.
         active.retain(|&(end, _, pi)| {
@@ -116,17 +118,14 @@ pub(super) fn run(
                 true
             }
         });
-        let crosses = crosses_call(s, e);
-        if crosses && !survives_in_callee_saved {
-            spilled.push(v);
-            continue;
-        }
-        // A call-free value prefers any free register (caller-saved first); a
-        // value live across a call must take a callee-saved one that survives it.
-        let choice = allocatable.iter().find(|&&(name, pi)| {
+        // Registers the calls in this value's interval destroy. The value must
+        // avoid them (plan-03 §4.3); e.g. across `_mfb_arena_alloc` an FP value is
+        // unrestricted (it touches no FP) while an integer value avoids `x20`–`x28`.
+        let clobbered = call_clobber_in(s, e);
+        let choice = allocatable.iter().find(|&&(_, pi)| {
             (active_mask & (1u64 << pi)) == 0
+                && (clobbered & (1u64 << pi)) == 0
                 && !phys_busy_in(pi, s, e)
-                && (!crosses || model.is_callee_saved(name))
         });
         match choice {
             Some(&(name, pi)) => {

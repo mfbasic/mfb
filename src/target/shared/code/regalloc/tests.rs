@@ -49,12 +49,13 @@ fn bump_rewrite_substitutes_eager_physicals() {
     assert!(outcome.extra_callee_saved.is_empty());
 }
 
-/// No virtual-register sentinel may survive linear-scan coloring, and a value
-/// whose live range crosses a call must be spilled (a slot allocated for it).
+/// A value live across a call must be colored to a callee-saved register the
+/// call preserves (not a caller-saved one the call clobbers). A generic
+/// (PCS-compliant) call preserves `x19`–`x28`, so the value stays in a register
+/// rather than spilling; whatever register it gets, it must not be caller-saved.
 #[test]
-fn linear_scan_colors_and_spills_across_call() {
-    // v0 = mov_imm 5; bl helper (clobbers); use v0 (str v0). v0 is live across
-    // the call, so it must spill.
+fn linear_scan_keeps_value_across_call_in_callee_saved() {
+    // v0 = mov_imm 5; bl helper; use v0 (str v0). v0 is live across the call.
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("mov_imm")
@@ -76,8 +77,13 @@ fn linear_scan_colors_and_spills_across_call() {
         &Aarch64RegisterModel,
         64,
     );
-    // The value crosses the call, so a spill slot is allocated.
-    assert_eq!(outcome.spill_slots, vec![64]);
+    // No spill, and the chosen register is callee-saved (the call preserves it).
+    assert!(outcome.spill_slots.is_empty());
+    let colored = instructions[1].get("dst").unwrap().to_string();
+    assert!(
+        Aarch64RegisterModel.is_callee_saved(&colored),
+        "value across a call must be in a callee-saved register, got {colored}"
+    );
     // No sentinel survives anywhere in the rewritten stream.
     for instruction in &instructions {
         for (_field, value) in &instruction.fields {
@@ -87,6 +93,40 @@ fn linear_scan_colors_and_spills_across_call() {
             );
         }
     }
+}
+
+/// A value live across `_mfb_arena_alloc` must avoid the registers it clobbers
+/// (`x9`/`x10`/`x14`/`x15`/`x16`/`x20`–`x28`); only `x8`/`x11`/`x12`/`x13`/`x17`
+/// survive, so it takes one of those (or spills) — never a clobbered register.
+#[test]
+fn linear_scan_avoids_arena_alloc_clobbers() {
+    let mut instructions = vec![
+        CodeInstruction::new("label").field("name", "entry"),
+        CodeInstruction::new("mov_imm")
+            .field("dst", &vreg_name(0))
+            .field("type", "Integer")
+            .field("value", "5"),
+        CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+        CodeInstruction::new("str_u64")
+            .field("src", &vreg_name(0))
+            .field("base", "sp")
+            .field("offset", "0"),
+        CodeInstruction::new("ret"),
+    ];
+    allocate(
+        RegallocKind::LinearScan,
+        &mut instructions,
+        &[String::new()],
+        &[],
+        &Aarch64RegisterModel,
+        64,
+    );
+    let colored = instructions[1].get("dst").unwrap().to_string();
+    let survivors = ["x8", "x11", "x12", "x13", "x17"];
+    assert!(
+        colored.starts_with('%') || survivors.contains(&colored.as_str()),
+        "value across arena_alloc must be a survivor register or spilled, got {colored}"
+    );
 }
 
 /// A value with a short, call-free range is colored to a physical register, not

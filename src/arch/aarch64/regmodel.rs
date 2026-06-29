@@ -43,16 +43,6 @@ pub(crate) trait RegisterModel {
     /// across a `bl` must not be colored into one of these.
     fn caller_saved(&self, class: RegClass) -> &'static [&'static str];
 
-    /// Whether a value of `class` can survive a call by living in one of the
-    /// class's callee-saved registers. True for the AArch64 FP class (`d8`–`d15`
-    /// survive every call: runtime helpers touch no FP, libc is PCS-compliant,
-    /// and the inlined NEON kernels avoid `v8`–`v15`). False for the integer
-    /// class — `_mfb_arena_alloc` clobbers callee-saved `x20`–`x28`, so an integer
-    /// value live across a call is always spilled (plan-03 Stage D §4.5/§4.6).
-    fn callee_saved_survives_calls(&self, class: RegClass) -> bool {
-        matches!(class, RegClass::Fp)
-    }
-
     /// Emit a spill of `reg` (of `class`) to the stack slot at `[sp, #offset]`.
     fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction;
 

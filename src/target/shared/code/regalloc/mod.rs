@@ -202,10 +202,12 @@ pub(crate) fn allocate(
             let int_model = ClassModel {
                 parse_vreg,
                 physical_index: analysis::int_physical_index,
+                is_fp: false,
             };
             let fp_model = ClassModel {
                 parse_vreg: parse_fp_vreg,
                 physical_index: analysis::fp_physical_index,
+                is_fp: true,
             };
             let int = linear_scan::run(
                 instructions,
