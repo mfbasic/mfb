@@ -46,22 +46,23 @@ const CALLER_SAVED_FP: PhysMask = 0xffff_00ff;
 const ALL_INT: PhysMask = 0x7fff_ffff;
 
 /// The set of physical registers (of `is_fp`'s class) a call instruction
-/// destroys, so a value live across it must avoid them (plan-03 §4.3). Modeled
-/// per target:
-/// - `_mfb_arena_alloc` has an empty callee-saved frame and uses
-///   `x0/x1/x9/x10/x14/x15/x16/x20`–`x28` as integer scratch, and **no FP** (see
-///   `.ai/compiler.md`).
-/// - `_mfb_fn_*` / `_mfb_ifn_*` (user and built-in functions, compiled here with a
-///   PCS frame) and libc calls clobber only the caller-saved registers.
-/// - other `_mfb_*` runtime helpers are integer/pointer routines (no FP); their
-///   integer clobber set is taken conservatively as everything (spill).
+/// destroys, so a value live across it must avoid them (plan-03 §4.3). Every case
+/// rests on the PCS contract that callee-saved registers (`x19`–`x28`, `d8`–`d15`)
+/// survive any call; only the caller-saved set, plus any extra a given callee is
+/// known to trample, is clobbered. Modeled per target:
+/// - `_mfb_fn_*` / `_mfb_ifn_*` (user/built-in functions, compiled here with a PCS
+///   frame that saves the callee-saved registers it uses) and libc clobber only
+///   caller-saved registers.
+/// - other `_mfb_*` runtime helpers clobber every integer register: the
+///   hand-written `_mfb_arena_alloc` uses callee-saved `x20`–`x28` as scratch
+///   (saving only `x30`), and other helpers' integer clobber sets are unknown.
+///   Their FP clobber still follows the PCS (caller-saved only) — `_mfb_arena_alloc`
+///   touches no FP on its fast path and reaches `mmap` (PCS) when it grows.
 /// - `blr` is an indirect call to a PCS function; `svc` is a syscall (no FP).
 pub(super) fn call_clobber_mask(instruction: &CodeInstruction, is_fp: bool) -> PhysMask {
-    // Bits for the `_mfb_arena_alloc` integer scratch set.
-    const ARENA_INT: PhysMask =
-        (1 << 0) | (1 << 1) | (1 << 9) | (1 << 10) | (1 << 14) | (1 << 15) | (1 << 16) | (0x1ff << 20);
     match instruction.op {
         CodeOp::Svc => {
+            // A syscall preserves callee-saved integer registers and touches no FP.
             if is_fp {
                 0
             } else {
@@ -77,24 +78,19 @@ pub(super) fn call_clobber_mask(instruction: &CodeInstruction, is_fp: bool) -> P
         }
         CodeOp::BranchLink => {
             let target = instruction.get("target").unwrap_or("");
-            if target == "_mfb_arena_alloc" {
-                if is_fp {
-                    0
-                } else {
-                    ARENA_INT
-                }
-            } else if target.starts_with("_mfb_fn_") || target.starts_with("_mfb_ifn_") {
-                // User/built-in function: PCS, preserves callee-saved.
+            if target.starts_with("_mfb_fn_") || target.starts_with("_mfb_ifn_") {
+                // A compiled user/built-in function: PCS, preserves callee-saved.
                 if is_fp {
                     CALLER_SAVED_FP
                 } else {
                     CALLER_SAVED_INT
                 }
             } else if target.starts_with("_mfb_") {
-                // Other internal runtime helper: integer/pointer, no FP. Its
-                // integer clobber set is unknown, so spill conservatively.
+                // A runtime helper: every integer register is treated as
+                // destroyed (`_mfb_arena_alloc` tramples callee-saved `x20`–`x28`),
+                // while FP follows the PCS — caller-saved gone, `d8`–`d15` kept.
                 if is_fp {
-                    0
+                    CALLER_SAVED_FP
                 } else {
                     ALL_INT
                 }

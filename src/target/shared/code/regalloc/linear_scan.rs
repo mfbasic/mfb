@@ -163,7 +163,11 @@ pub(super) fn run(
         masks
     };
 
-    // Rewrite the stream.
+    // Rewrite the stream. Evict-slot base sits just past the per-value spill
+    // slots; the most evictions any single instruction needs sets how many of
+    // those slots the frame must reserve.
+    let evict_base = spill_base_offset + spill_slot_count * 8;
+    let mut max_evictions = 0usize;
     let spilled_set: std::collections::HashSet<u32> = spilled.iter().copied().collect();
     let mut out: Vec<CodeInstruction> = Vec::with_capacity(n);
     for (i, instruction) in instructions.iter().enumerate() {
@@ -182,22 +186,59 @@ pub(super) fn run(
             .collect();
 
         let mut scratch_for: HashMap<u32, String> = HashMap::new();
+        // Registers this instruction actually reads or writes (after coloring) —
+        // a spill scratch may never reuse one of these, even by eviction.
+        let mut operand_mask = 0u64;
+        for name in eff.defs.iter().chain(eff.uses.iter()) {
+            if let Some(p) = (class_model.physical_index)(name) {
+                operand_mask |= 1u64 << p;
+            } else if let Some(v) = (class_model.parse_vreg)(name) {
+                if let Some(&pi) = assigned_index.get(&v) {
+                    operand_mask |= 1u64 << pi;
+                }
+            }
+        }
+        // (victim physical, evict-slot index) for registers borrowed by eviction.
+        let mut evictions: Vec<(String, usize)> = Vec::new();
         if !used_spilled.is_empty() || !def_spilled.is_empty() {
-            let mut taken = occupied_at(i, &colored_mask_at, instruction, class_model);
+            // `occupied` holds a live value (no free scratch there); `reserved`
+            // also tracks the operands and scratches in use at this instruction
+            // (an eviction victim may not be one of those).
+            let mut occupied = occupied_at(i, &colored_mask_at, instruction, class_model);
+            let mut reserved = operand_mask;
             for &v in used_spilled.iter().chain(def_spilled.iter()) {
                 if scratch_for.contains_key(&v) {
                     continue;
                 }
-                let scratch = allocatable
-                    .iter()
-                    .find(|&&(_, pi)| (taken & (1u64 << pi)) == 0)
-                    .map(|&(name, pi)| (name, pi))
-                    .expect("register allocator: no scratch physical free for a spill");
-                taken |= 1u64 << scratch.1;
-                scratch_for.insert(v, scratch.0.to_string());
+                if let Some(&(name, pi)) =
+                    allocatable.iter().find(|&&(_, pi)| (occupied & (1u64 << pi)) == 0)
+                {
+                    // A genuinely free register — no save/restore needed.
+                    occupied |= 1u64 << pi;
+                    reserved |= 1u64 << pi;
+                    scratch_for.insert(v, name.to_string());
+                } else {
+                    // Every register is live, so borrow one that this instruction
+                    // does not itself use, saving and restoring it around the use.
+                    // There are always more registers than operands, so one exists.
+                    let &(name, pi) = allocatable
+                        .iter()
+                        .find(|&&(_, pi)| (reserved & (1u64 << pi)) == 0)
+                        .expect("register allocator: instruction has more operands than registers");
+                    reserved |= 1u64 << pi;
+                    let slot_index = evictions.len();
+                    evictions.push((name.to_string(), slot_index));
+                    scratch_for.insert(v, name.to_string());
+                }
             }
         }
+        max_evictions = max_evictions.max(evictions.len());
 
+        // Save evicted registers, reload used spills, run the instruction, store
+        // defined spills, then restore the evicted registers.
+        for (victim, slot) in &evictions {
+            out.push(model.emit_spill(class, victim, evict_base + slot * 8));
+        }
         for &v in &used_spilled {
             out.push(model.emit_reload(class, &scratch_for[&v], spill_slot[&v]));
         }
@@ -205,7 +246,11 @@ pub(super) fn run(
         for &v in &def_spilled {
             out.push(model.emit_spill(class, &scratch_for[&v], spill_slot[&v]));
         }
+        for (victim, slot) in evictions.iter().rev() {
+            out.push(model.emit_reload(class, victim, evict_base + slot * 8));
+        }
     }
+    let total_slot_count = spill_slot_count + max_evictions;
 
     let mut extra_callee_saved: Vec<String> = Vec::new();
     for phys in assignment.values() {
@@ -217,7 +262,7 @@ pub(super) fn run(
 
     RunResult {
         instructions: out,
-        spill_slot_count,
+        spill_slot_count: total_slot_count,
         extra_callee_saved,
     }
 }

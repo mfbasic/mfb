@@ -95,11 +95,11 @@ fn linear_scan_keeps_value_across_call_in_callee_saved() {
     }
 }
 
-/// A value live across `_mfb_arena_alloc` must avoid the registers it clobbers
-/// (`x9`/`x10`/`x14`/`x15`/`x16`/`x20`–`x28`); only `x8`/`x11`/`x12`/`x13`/`x17`
-/// survive, so it takes one of those (or spills) — never a clobbered register.
+/// `_mfb_arena_alloc` is hand-written and tramples callee-saved `x20`–`x28` on top
+/// of the caller-saved set, so no integer register survives it: an integer value
+/// live across the call must spill (a slot is allocated for it).
 #[test]
-fn linear_scan_avoids_arena_alloc_clobbers() {
+fn linear_scan_spills_integer_across_arena_alloc() {
     let mut instructions = vec![
         CodeInstruction::new("label").field("name", "entry"),
         CodeInstruction::new("mov_imm")
@@ -113,7 +113,7 @@ fn linear_scan_avoids_arena_alloc_clobbers() {
             .field("offset", "0"),
         CodeInstruction::new("ret"),
     ];
-    allocate(
+    let outcome = allocate(
         RegallocKind::LinearScan,
         &mut instructions,
         &[String::new()],
@@ -121,12 +121,16 @@ fn linear_scan_avoids_arena_alloc_clobbers() {
         &Aarch64RegisterModel,
         64,
     );
-    let colored = instructions[1].get("dst").unwrap().to_string();
-    let survivors = ["x8", "x11", "x12", "x13", "x17"];
-    assert!(
-        colored.starts_with('%') || survivors.contains(&colored.as_str()),
-        "value across arena_alloc must be a survivor register or spilled, got {colored}"
-    );
+    assert_eq!(outcome.spill_slots, vec![64]);
+    // No sentinel survives anywhere in the rewritten stream.
+    for instruction in &instructions {
+        for (_field, value) in &instruction.fields {
+            assert!(
+                parse_vreg(value).is_none(),
+                "virtual register {value} survived coloring"
+            );
+        }
+    }
 }
 
 /// A value with a short, call-free range is colored to a physical register, not
