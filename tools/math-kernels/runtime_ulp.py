@@ -47,6 +47,9 @@ try:
         "pow": lambda a: _mp.power(_mp.mpf(a[0]), _mp.mpf(a[1])),
         "asin": lambda a: _mp.asin(_mp.mpf(a[0])),
         "acos": lambda a: _mp.acos(_mp.mpf(a[0])),
+        "exp": lambda a: _mp.e ** _mp.mpf(a[0]),
+        "log": lambda a: _mp.log(_mp.mpf(a[0])),
+        "log10": lambda a: _mp.log(_mp.mpf(a[0]), 10),
     }
 except ImportError:
     _TRUTH = None
@@ -97,7 +100,7 @@ def _call_expr(fn, vnames):
     as call arguments corrupt the lowering — orthogonal to these kernels)."""
     if fn == "atan2":
         return f"math::atan2({vnames[0]}, {vnames[1]})"
-    if fn in ("tan", "asin", "acos"):
+    if fn in ("tan", "asin", "acos", "exp", "log", "log10"):
         return f"math::{fn}({vnames[0]})"
     if fn == "pow":
         return f"math::pow({vnames[0]}, {vnames[1]})"
@@ -128,6 +131,9 @@ def _eligible(fn, args, expected):
     if fn in ("asin", "acos"):
         if abs(args[0]) > 1.0:
             return False  # |x| > 1 → ErrFloatDomain, never returns a value
+    if fn in ("log", "log10"):
+        if args[0] <= 0.0:
+            return False  # x <= 0 → ErrFloatDomain, never returns a value
     if fn == "fmod":
         if args[1] == 0.0:
             return False  # ErrFloatDomain pre-check, never reaches the kernel
@@ -283,7 +289,8 @@ def run(fn, ref_dir, mfb, decimals, limit):
 
 def main(argv):
     ap = argparse.ArgumentParser()
-    ap.add_argument("fn", choices=["atan2", "tan", "pow", "fmod", "asin", "acos"])
+    ap.add_argument("fn", choices=["atan2", "tan", "pow", "fmod", "asin", "acos",
+                                   "exp", "log", "log10"])
     here = os.path.dirname(os.path.abspath(__file__))
     ap.add_argument("--ref", default=os.path.join(here, "..", "..",
                                                    "tests", "_data", "math_kernel_ref"))

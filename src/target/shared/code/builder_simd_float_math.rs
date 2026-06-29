@@ -22,6 +22,11 @@ use super::*;
 
 /// `ln2`, full f64 — exp/log scale constant.
 const LN2: f64 = 0.693_147_180_559_945_309_417_232_121_458_18;
+/// `1/ln2`, full f64 — exp reduces `n = floor(x/ln2 + 0.5)` with a reciprocal
+/// multiply instead of a divide (the Cody-Waite `n*ln2_hi/lo` subtraction keeps
+/// the reduction exact, so this only moves the rounding of `x/ln2` by ≤1 ULP —
+/// validated ≤1 ULP by `runtime_ulp.py exp`).
+const INV_LN2: f64 = 1.442_695_040_888_963_407_359_924_681_001_89;
 /// fdlibm two-part `ln2` so `n*ln2` reconstructs past double precision.
 const LN2_HI: f64 = 6.931_471_803_691_238_164_90e-01;
 const LN2_LO: f64 = 1.908_214_929_270_587_700_02e-10;
@@ -104,8 +109,9 @@ pub(super) fn math_const_pool_words() -> Vec<u64> {
     }
     let mut w: Vec<u64> = Vec::new();
     for v in [
-        LN2, LN2_HI, LN2_LO, SQRT_HALF, LN2_DD_LO, LOG10_E, LOG10_E_DD_LO, INV_PIO2, PIO2_1,
-        PIO2_2, PIO2_2T, 0.5, 1.0, 1.5, 2.0, 3.0, std::f64::consts::FRAC_PI_2, std::f64::consts::PI,
+        LN2, INV_LN2, LN2_HI, LN2_LO, SQRT_HALF, LN2_DD_LO, LOG10_E, LOG10_E_DD_LO, INV_PIO2,
+        PIO2_1, PIO2_2, PIO2_2T, 0.5, 1.0, 1.5, 2.0, 3.0, std::f64::consts::FRAC_PI_2,
+        std::f64::consts::PI,
     ] {
         add(&mut w, v.to_bits());
     }
@@ -387,7 +393,7 @@ impl CodeBuilder<'_> {
         self.emit_load_math_pool_base();
         match kernel {
             FloatKernel::Exp => {
-                self.broadcast_f64("v16", LN2);
+                self.broadcast_f64("v16", INV_LN2);
                 self.broadcast_f64("v17", 0.5);
                 self.broadcast_f64("v18", LN2_HI);
                 self.broadcast_f64("v19", LN2_LO);
@@ -837,8 +843,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_cmeq("v7", "v0", "v0")); // all-ones (bitwise self-eq)
         self.emit(abi::vector_eor("v6", "v6", "v7")); // NaN lanes = all-ones
         self.emit(abi::vector_orr("v22", "v22", "v6"));
-        // n = floor(x/ln2 + 0.5); r = x - n*ln2 (Cody-Waite); Horner P(r).
-        self.emit(abi::vector_fdiv("v1", "v0", "v16"));
+        // n = floor(x*(1/ln2) + 0.5); r = x - n*ln2 (Cody-Waite); Horner P(r).
+        // v16 holds 1/ln2 (reciprocal multiply, not a divide).
+        self.emit(abi::vector_fmul("v1", "v0", "v16"));
         self.emit(abi::vector_fadd("v1", "v1", "v17"));
         self.emit(abi::vector_frintm("v1", "v1"));
         self.emit(abi::vector_orr("v2", "v0", "v0"));
