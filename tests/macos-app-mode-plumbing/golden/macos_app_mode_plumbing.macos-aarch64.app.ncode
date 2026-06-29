@@ -3406,6 +3406,34 @@
     ]
   },
   {
+    "name": "runtime.make_error_result",
+    "symbol": "_mfb_make_error_result",
+    "returns": "Pointer",
+    "frame": { "stackSize": 32, "calleeSaved": ["x30"] },
+    "params": [
+    ],
+    "stackSlots": [
+    ],
+    "instructions": [
+    { "op": "label", "name": "entry" },
+    { "op": "sub_sp", "imm": "32" },
+    { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "x3", "base": "sp", "offset": "8" },
+    { "op": "str_u64", "src": "x4", "base": "sp", "offset": "16" },
+    { "op": "bl", "target": "_mfb_build_error_loc" },
+    { "op": "mov", "dst": "x3", "src": "x0" },
+    { "op": "ldr_u64", "dst": "x1", "base": "sp", "offset": "8" },
+    { "op": "ldr_u64", "dst": "x2", "base": "sp", "offset": "16" },
+    { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
+    { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
+    { "op": "add_sp", "imm": "32" },
+    { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_make_error_result", "to": "_mfb_build_error_loc", "kind": "branch26", "binding": "internal", "library": null }
+    ]
+  },
+  {
     "name": "runtime.simd_alloc_list",
     "symbol": "_mfb_simd_alloc_list",
     "returns": "Pointer",

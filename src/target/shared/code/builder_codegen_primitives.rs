@@ -518,38 +518,40 @@ impl CodeBuilder<'_> {
         code_register: &str,
         message: &str,
     ) -> Result<(), String> {
-        // Preserve the error code across the ErrorLoc allocation (which clobbers
-        // caller-saved registers), then stamp the origin source location into the
-        // dedicated error-source register. Allocation-free (terminal path).
-        let code_slot = self.allocate_stack_object("error_return_code", 8);
-        let loc_slot = self.allocate_stack_object("error_return_loc", 8);
-        self.emit(abi::store_u64(
-            code_register,
-            abi::stack_pointer(),
-            code_slot,
-        ));
-        let loc_register = self.emit_build_error_loc()?;
-        self.emit(abi::store_u64(
-            &loc_register,
-            abi::stack_pointer(),
-            loc_slot,
-        ));
-        self.emit_load_string_address_into(RESULT_ERROR_MESSAGE_REGISTER, message)?;
-        self.emit(abi::load_u64(
-            RESULT_VALUE_REGISTER,
-            abi::stack_pointer(),
-            code_slot,
+        // The whole error-Result assembly (build the ErrorLoc, then land
+        // tag/value/message/source in the return registers) is out-of-line in
+        // `_mfb_make_error_result` (plan-16): each trap site just loads the five
+        // inputs and calls. Move the code to its arg slot (x3) first — the code
+        // may currently live in one of the other arg registers (the allocation
+        // path passes it in x0), so set it before x1/x2/x4/x0 are overwritten.
+        self.emit(abi::move_register("x3", code_register));
+        self.emit(abi::move_immediate(
+            "x1",
+            "Integer",
+            &self.current_loc.line.to_string(),
         ));
         self.emit(abi::move_immediate(
-            RESULT_TAG_REGISTER,
+            "x2",
             "Integer",
-            RESULT_ERR_TAG,
+            &self.current_loc.column.to_string(),
         ));
-        self.emit(abi::load_u64(
-            RESULT_ERROR_SOURCE_REGISTER,
-            abi::stack_pointer(),
-            loc_slot,
-        ));
+        self.emit_load_string_address_into("x4", message)?;
+        // x0 = filename String pointer (empty String when the file is unknown).
+        let filename = self.current_file.clone();
+        if filename.is_empty() {
+            let register = self.load_empty_string_constant()?;
+            self.emit(abi::move_register("x0", &register));
+        } else {
+            self.emit_load_string_constant("x0", &filename)?;
+        }
+        self.emit(abi::branch_link(MAKE_ERROR_RESULT_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: MAKE_ERROR_RESULT_SYMBOL.to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        });
         if let Some(slot) = self.error_arena_restore_slot {
             self.emit(abi::load_u64(
                 ARENA_STATE_REGISTER,

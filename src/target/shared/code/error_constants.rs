@@ -93,6 +93,13 @@ pub(crate) const ARENA_ALLOC_SYMBOL: &str = "_mfb_arena_alloc";
 /// shared copy replaces the ~48-instruction block formerly inlined at every trap
 /// site (`emit_build_error_loc`).
 pub(crate) const BUILD_ERROR_LOC_SYMBOL: &str = "_mfb_build_error_loc";
+/// Out-of-line error-Result assembler (plan-16 "option 2"). Takes the
+/// `_mfb_build_error_loc` inputs plus the code/message and lands the standard
+/// error `Result` in its return registers: `x0 = filename`, `x1 = line`,
+/// `x2 = char`, `x3 = code`, `x4 = message String*` in; returns
+/// `x0 = RESULT_ERR_TAG`, `x1 = code`, `x2 = message`, `x3 = ErrorLoc*`. Collapses
+/// the per-trap-site register shuffle (`emit_error_register_return`) to a call.
+pub(crate) const MAKE_ERROR_RESULT_SYMBOL: &str = "_mfb_make_error_result";
 pub(crate) const ARENA_DESTROY_SYMBOL: &str = "_mfb_arena_destroy";
 /// Shared process-teardown routine: restores the terminal (when `term::` is used)
 /// and frees the main arena, then returns. Called both after the entry FUNC/SUB

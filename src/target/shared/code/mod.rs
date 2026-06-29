@@ -590,6 +590,7 @@ pub(crate) fn lower_module_for_platform(
     }
     code_functions.push(lower_arena_alloc(platform)?);
     code_functions.push(lower_build_error_loc());
+    code_functions.push(lower_make_error_result());
     code_functions.push(lower_simd_alloc_list());
     code_functions.push(lower_arena_insert_free());
     code_functions.push(lower_arena_free());

@@ -989,6 +989,57 @@ pub(super) fn lower_build_error_loc() -> CodeFunction {
     }
 }
 
+/// `_mfb_make_error_result(x0=filename, x1=line, x2=char, x3=code, x4=message*)` —
+/// build an `ErrorLoc` for the source location and land the standard error
+/// `Result` in the return registers: `x0 = RESULT_ERR_TAG`, `x1 = code`,
+/// `x2 = message*`, `x3 = ErrorLoc*` (null on OOM). The out-of-line form of the
+/// per-trap-site register shuffle (`emit_error_register_return`, plan-16); each
+/// site now just loads these five inputs and calls here. Mirrors
+/// `lower_build_error_loc`: a framed function that preserves the code/message
+/// across the `_mfb_build_error_loc` call.
+pub(super) fn lower_make_error_result() -> CodeFunction {
+    const FRAME_SIZE: usize = 32;
+    const LR_SLOT: usize = 0;
+    const CODE_SLOT: usize = 8;
+    const MSG_SLOT: usize = 16;
+    let mut relocations = Vec::new();
+    let instructions = vec![
+        abi::label("entry"),
+        abi::subtract_stack(FRAME_SIZE),
+        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
+        // Preserve code (x3) and message (x4) across the ErrorLoc allocation; x0/x1/x2
+        // are already positioned as `_mfb_build_error_loc`'s filename/line/char args.
+        abi::store_u64("x3", abi::stack_pointer(), CODE_SLOT),
+        abi::store_u64("x4", abi::stack_pointer(), MSG_SLOT),
+        abi::branch_link(BUILD_ERROR_LOC_SYMBOL),
+        // Land the Result: tag=ERR, value=code, message=message, source=ErrorLoc.
+        abi::move_register(RESULT_ERROR_SOURCE_REGISTER, abi::return_register()),
+        abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), CODE_SLOT),
+        abi::load_u64(RESULT_ERROR_MESSAGE_REGISTER, abi::stack_pointer(), MSG_SLOT),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
+        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
+        abi::add_stack(FRAME_SIZE),
+        abi::return_(),
+    ];
+    relocations.push(internal_branch(
+        MAKE_ERROR_RESULT_SYMBOL,
+        BUILD_ERROR_LOC_SYMBOL,
+    ));
+    CodeFunction {
+        name: "runtime.make_error_result".to_string(),
+        symbol: MAKE_ERROR_RESULT_SYMBOL.to_string(),
+        params: Vec::new(),
+        returns: "Pointer".to_string(),
+        frame: CodeFrame {
+            stack_size: FRAME_SIZE,
+            callee_saved: vec![abi::link_register().to_string()],
+        },
+        stack_slots: Vec::new(),
+        instructions,
+        relocations,
+    }
+}
+
 /// `arena_insert_free(x0 = ptr, x1 = size)` — insert a chunk into the
 /// address-ordered free-list and coalesce with the address-adjacent neighbor on
 /// either side. `size` must already be normalized (≥16, multiple of 16) and
