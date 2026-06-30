@@ -41,4 +41,5 @@ the <module> package record types
 
 ## See also
 
-<related functions or types in this package>
+- `mfb man <module>`
+- `mfb man <module> <relatedFunction>`

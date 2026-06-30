@@ -111,10 +111,17 @@ def collect_packages() -> dict[str, dict[str, list[str]]]:
             continue
 
         stem = path.stem
-        label = "general" if stem == "general" else stem
-        call_fn = "is_general_call" if stem == "general" else f"is_{stem}_call"
-
-        functions = [n.replace(".", "::") for n in resolve(idents_in_fn(src, call_fn), const_map)]
+        label = stem
+        # The public call surface is the set of name-constants matched by the
+        # package's call predicate. Most packages list them directly in
+        # `is_<pkg>_call`; some (e.g. vector) delegate to an `is_<pkg>_function`
+        # helper, so scan both predicates and merge (resolve() dedupes).
+        call_idents = [
+            ident
+            for fn in (f"is_{stem}_call", f"is_{stem}_function")
+            for ident in idents_in_fn(src, fn)
+        ]
+        functions = [n.replace(".", "::") for n in resolve(call_idents, const_map)]
         constants = (
             [n.replace(".", "::") for n in resolve(idents_in_fn(src, "is_math_constant"), const_map)]
             if stem == "math"

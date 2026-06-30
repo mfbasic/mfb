@@ -65,4 +65,5 @@ edge-case behavior, units, ordering, mutation/side effects, and platform notes>
 
 ## See also
 
-`<relatedFunction>`, `<relatedFunction>`
+- `mfb man <module> <relatedFunction>`
+- `mfb man <module> <relatedFunction>`
