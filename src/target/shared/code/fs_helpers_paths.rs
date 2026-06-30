@@ -124,12 +124,13 @@ pub(super) fn lower_fs_kind_exists_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     expected_kind: &str,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 288;
-    const LR_OFFSET: usize = 0;
-    const PATH_OFFSET: usize = 8;
-    const ALLOC_OFFSET: usize = 16;
-    const STAT_OFFSET: usize = 32;
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    // Vreg-allocated (plan-00-G Phase 2). The `stat` struct the syscall fills is an
+    // explicit on-stack buffer (`finalize_vreg_body_with_locals`) at `sp + 0`; the
+    // path pointer (held across `arena_alloc`) spills and the allocated C-string
+    // (held across the libc `stat`) stays in a callee-saved register.
+    const STAT_OFFSET: usize = 0;
+    const STAT_BUF_SIZE: usize = 256;
 
     let copy_loop = format!("{symbol}_copy_loop");
     let copy_done = format!("{symbol}_copy_done");
@@ -138,23 +139,25 @@ pub(super) fn lower_fs_kind_exists_helper(
     let missing = format!("{symbol}_missing");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
-    let mut relocations = Vec::new();
-    instructions.extend([
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), PATH_OFFSET),
-        abi::load_u64("x9", abi::return_register(), 0),
-        abi::add_immediate(abi::return_register(), "x9", 1),
+    let mut vregs = Vregs::new();
+    let path = vregs.next();
+    let alloc = vregs.next();
+    let len0 = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&path, abi::return_register()),
+        abi::load_u64(&len0, &path, 0),
+        abi::add_immediate(abi::return_register(), &len0, 1),
         abi::move_immediate("x1", "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(CodeRelocation {
+    ];
+    let mut relocations = vec![CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
-    });
+    }];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
@@ -189,27 +192,34 @@ pub(super) fn lower_fs_kind_exists_helper(
             library: None,
         },
     ]);
+    let len = vregs.next();
+    let src = vregs.next();
+    let dst = vregs.next();
+    let index = vregs.next();
+    let byte = vregs.next();
+    let mode = vregs.next();
+    let mask = vregs.next();
+    let expected = vregs.next();
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_ok),
-        abi::store_u64("x1", abi::stack_pointer(), ALLOC_OFFSET),
-        abi::load_u64("x10", abi::stack_pointer(), PATH_OFFSET),
-        abi::load_u64("x11", "x10", 0),
-        abi::add_immediate("x12", "x10", 8),
-        abi::move_register("x13", "x1"),
-        abi::move_immediate("x14", "Integer", "0"),
+        abi::move_register(&alloc, "x1"),
+        abi::load_u64(&len, &path, 0),
+        abi::add_immediate(&src, &path, 8),
+        abi::move_register(&dst, &alloc),
+        abi::move_immediate(&index, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("x14", "x11"),
+        abi::compare_registers(&index, &len),
         abi::branch_eq(&copy_done),
-        abi::load_u8("x15", "x12", 0),
-        abi::store_u8("x15", "x13", 0),
-        abi::add_immediate("x12", "x12", 1),
-        abi::add_immediate("x13", "x13", 1),
-        abi::add_immediate("x14", "x14", 1),
+        abi::load_u8(&byte, &src, 0),
+        abi::store_u8(&byte, &dst, 0),
+        abi::add_immediate(&src, &src, 1),
+        abi::add_immediate(&dst, &dst, 1),
+        abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "x13", 0),
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), ALLOC_OFFSET),
+        abi::store_u8("x31", &dst, 0),
+        abi::move_register(abi::return_register(), &alloc),
         abi::add_immediate("x1", abi::stack_pointer(), STAT_OFFSET),
     ]);
     platform.emit_path_stat(
@@ -222,14 +232,14 @@ pub(super) fn lower_fs_kind_exists_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&missing),
         abi::load_u16(
-            "x9",
+            &mode,
             abi::stack_pointer(),
             STAT_OFFSET + platform.stat_mode_offset(),
         ),
-        abi::move_immediate("x10", "Integer", FS_MODE_TYPE_MASK),
-        abi::and_registers("x9", "x9", "x10"),
-        abi::move_immediate("x10", "Integer", expected_kind),
-        abi::compare_registers("x9", "x10"),
+        abi::move_immediate(&mask, "Integer", FS_MODE_TYPE_MASK),
+        abi::and_registers(&mode, &mode, &mask),
+        abi::move_immediate(&expected, "Integer", expected_kind),
+        abi::compare_registers(&mode, &expected),
         abi::branch_eq(&found),
         abi::label(&missing),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "0"),
@@ -239,30 +249,23 @@ pub(super) fn lower_fs_kind_exists_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Boolean", "1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
 
-    Ok((
-        CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        instructions,
-        relocations,
-    ))
+    let (frame, stack_slots) =
+        finalize_vreg_body_with_locals(&mut instructions, &[], STAT_BUF_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_fs_current_directory_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 48;
-    const LR_OFFSET: usize = 0;
-    const BUFFER_OFFSET: usize = 8;
-    const LENGTH_OFFSET: usize = 16;
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    // Vreg-allocated (plan-00-G Phase 2). The `getcwd` buffer is arena-allocated
+    // (not on-stack); the buffer pointer and the measured length are held across
+    // the second `arena_alloc`, so as vregs the allocator keeps them in callee-saved
+    // registers / spills them, replacing the old BUFFER_OFFSET/LENGTH_OFFSET slots.
     const GETCWD_CAPACITY: &str = "4096";
 
     let temp_alloc_ok = format!("{symbol}_temp_alloc_ok");
@@ -275,27 +278,28 @@ pub(super) fn lower_fs_current_directory_helper(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
-    let mut relocations = Vec::new();
-    instructions.extend([
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+    let mut vregs = Vregs::new();
+    let buffer = vregs.next();
+    let length = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", GETCWD_CAPACITY),
         abi::move_immediate("x1", "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(CodeRelocation {
+    ];
+    let mut relocations = vec![CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
-    });
+    }];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&temp_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&temp_alloc_ok),
-        abi::store_u64("x1", abi::stack_pointer(), BUFFER_OFFSET),
+        abi::move_register(&buffer, "x1"),
         abi::move_register(abi::return_register(), "x1"),
         abi::move_immediate("x1", "Integer", GETCWD_CAPACITY),
     ]);
@@ -305,22 +309,22 @@ pub(super) fn lower_fs_current_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    let cursor = vregs.next();
+    let byte = vregs.next();
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&read_error),
-        abi::load_u64("x10", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::move_register("x11", "x10"),
-        abi::move_immediate("x12", "Integer", "0"),
+        abi::move_register(&cursor, &buffer),
+        abi::move_immediate(&length, "Integer", "0"),
         abi::label(&count_loop),
-        abi::load_u8("x13", "x11", 0),
-        abi::compare_immediate("x13", "0"),
+        abi::load_u8(&byte, &cursor, 0),
+        abi::compare_immediate(&byte, "0"),
         abi::branch_eq(&count_done),
-        abi::add_immediate("x11", "x11", 1),
-        abi::add_immediate("x12", "x12", 1),
+        abi::add_immediate(&cursor, &cursor, 1),
+        abi::add_immediate(&length, &length, 1),
         abi::branch(&count_loop),
         abi::label(&count_done),
-        abi::store_u64("x12", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::add_immediate(abi::return_register(), "x12", 9),
+        abi::add_immediate(abi::return_register(), &length, 9),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -331,27 +335,29 @@ pub(super) fn lower_fs_current_directory_helper(
         binding: "internal".to_string(),
         library: None,
     });
+    let src = vregs.next();
+    let dst = vregs.next();
+    let index = vregs.next();
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&string_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&string_alloc_ok),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::store_u64("x10", "x1", 0),
-        abi::load_u64("x11", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::add_immediate("x12", "x1", 8),
-        abi::move_immediate("x13", "Integer", "0"),
+        abi::store_u64(&length, "x1", 0),
+        abi::move_register(&src, &buffer),
+        abi::add_immediate(&dst, "x1", 8),
+        abi::move_immediate(&index, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("x13", "x10"),
+        abi::compare_registers(&index, &length),
         abi::branch_eq(&copy_done),
-        abi::load_u8("x14", "x11", 0),
-        abi::store_u8("x14", "x12", 0),
-        abi::add_immediate("x11", "x11", 1),
-        abi::add_immediate("x12", "x12", 1),
-        abi::add_immediate("x13", "x13", 1),
+        abi::load_u8(&byte, &src, 0),
+        abi::store_u8(&byte, &dst, 0),
+        abi::add_immediate(&src, &src, 1),
+        abi::add_immediate(&dst, &dst, 1),
+        abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "x12", 0),
+        abi::store_u8("x31", &dst, 0),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -372,32 +378,20 @@ pub(super) fn lower_fs_current_directory_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
-        abi::return_(),
-    ]);
+    instructions.extend([abi::label(&done), abi::return_()]);
 
-    Ok((
-        CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        instructions,
-        relocations,
-    ))
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_fs_temp_directory_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 48;
-    const LR_OFFSET: usize = 0;
-    const BUFFER_OFFSET: usize = 8;
-    const LENGTH_OFFSET: usize = 16;
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    // Vreg-allocated (plan-00-G Phase 2). The temp-dir path is read into an
+    // arena buffer (not on-stack); the buffer pointer and length are held across
+    // the second `arena_alloc` as vregs (allocator spills / callee-saves them).
     const TEMP_CAPACITY: &str = "4096";
 
     let temp_alloc_ok = format!("{symbol}_temp_alloc_ok");
@@ -408,27 +402,28 @@ pub(super) fn lower_fs_temp_directory_helper(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
-    let mut relocations = Vec::new();
-    instructions.extend([
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
+    let mut vregs = Vregs::new();
+    let buffer = vregs.next();
+    let length = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
         abi::move_immediate(abi::return_register(), "Integer", TEMP_CAPACITY),
         abi::move_immediate("x1", "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(CodeRelocation {
+    ];
+    let mut relocations = vec![CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
-    });
+    }];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&temp_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&temp_alloc_ok),
-        abi::store_u64("x1", abi::stack_pointer(), BUFFER_OFFSET),
+        abi::move_register(&buffer, "x1"),
         abi::move_register(abi::return_register(), "x1"),
         abi::move_immediate("x1", "Integer", TEMP_CAPACITY),
     ]);
@@ -441,7 +436,7 @@ pub(super) fn lower_fs_temp_directory_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&read_error),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), LENGTH_OFFSET),
+        abi::move_register(&length, abi::return_register()),
         abi::add_immediate(abi::return_register(), abi::return_register(), 9),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -453,27 +448,30 @@ pub(super) fn lower_fs_temp_directory_helper(
         binding: "internal".to_string(),
         library: None,
     });
+    let src = vregs.next();
+    let dst = vregs.next();
+    let index = vregs.next();
+    let byte = vregs.next();
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&string_alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&string_alloc_ok),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::store_u64("x10", "x1", 0),
-        abi::load_u64("x11", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::add_immediate("x12", "x1", 8),
-        abi::move_immediate("x13", "Integer", "0"),
+        abi::store_u64(&length, "x1", 0),
+        abi::move_register(&src, &buffer),
+        abi::add_immediate(&dst, "x1", 8),
+        abi::move_immediate(&index, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("x13", "x10"),
+        abi::compare_registers(&index, &length),
         abi::branch_eq(&copy_done),
-        abi::load_u8("x14", "x11", 0),
-        abi::store_u8("x14", "x12", 0),
-        abi::add_immediate("x11", "x11", 1),
-        abi::add_immediate("x12", "x12", 1),
-        abi::add_immediate("x13", "x13", 1),
+        abi::load_u8(&byte, &src, 0),
+        abi::store_u8(&byte, &dst, 0),
+        abi::add_immediate(&src, &src, 1),
+        abi::add_immediate(&dst, &dst, 1),
+        abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "x12", 0),
+        abi::store_u8("x31", &dst, 0),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -494,20 +492,9 @@ pub(super) fn lower_fs_temp_directory_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
-        abi::return_(),
-    ]);
-    Ok((
-        CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        instructions,
-        relocations,
-    ))
+    instructions.extend([abi::label(&done), abi::return_()]);
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_fs_path_operation_helper(
@@ -515,12 +502,10 @@ pub(super) fn lower_fs_path_operation_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     operation: FsPathOperation,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    const FRAME_SIZE: usize = 32;
-    const LR_OFFSET: usize = 0;
-    const PATH_OFFSET: usize = 8;
-    const ALLOC_OFFSET: usize = 16;
-
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    // Vreg-allocated (plan-00-G Phase 2). The path pointer is held across the
+    // `arena_alloc` (spilled); the C-string is consumed by the syscall before any
+    // later call, so it stays in a register.
     let alloc_ok = format!("{symbol}_alloc_ok");
     let copy_loop = format!("{symbol}_copy_loop");
     let copy_done = format!("{symbol}_copy_done");
@@ -528,25 +513,27 @@ pub(super) fn lower_fs_path_operation_helper(
     let call_error = format!("{symbol}_call_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
-    let mut relocations = Vec::new();
-    instructions.extend([
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), PATH_OFFSET),
-        abi::load_u64("x9", abi::return_register(), 0),
-        abi::compare_immediate("x9", "0"),
+    let mut vregs = Vregs::new();
+    let path = vregs.next();
+    let alloc = vregs.next();
+    let len0 = vregs.next();
+    let mut instructions = vec![
+        abi::label("entry"),
+        abi::move_register(&path, abi::return_register()),
+        abi::load_u64(&len0, &path, 0),
+        abi::compare_immediate(&len0, "0"),
         abi::branch_eq(&invalid_path),
-        abi::add_immediate(abi::return_register(), "x9", 1),
+        abi::add_immediate(abi::return_register(), &len0, 1),
         abi::move_immediate("x1", "Integer", "1"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
-    ]);
-    relocations.push(CodeRelocation {
+    ];
+    let mut relocations = vec![CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
         kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
-    });
+    }];
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
         abi::branch_eq(&alloc_ok),
@@ -559,29 +546,33 @@ pub(super) fn lower_fs_path_operation_helper(
         &mut instructions,
         &mut relocations,
     );
+    let len = vregs.next();
+    let src = vregs.next();
+    let dst = vregs.next();
+    let index = vregs.next();
+    let byte = vregs.next();
     instructions.extend([
         abi::branch(&done),
         abi::label(&alloc_ok),
-        abi::store_u64("x1", abi::stack_pointer(), ALLOC_OFFSET),
-        abi::load_u64("x10", abi::stack_pointer(), PATH_OFFSET),
-        abi::load_u64("x11", "x10", 0),
-        abi::add_immediate("x12", "x10", 8),
-        abi::move_register("x13", "x1"),
-        abi::move_immediate("x14", "Integer", "0"),
+        abi::move_register(&alloc, "x1"),
+        abi::load_u64(&len, &path, 0),
+        abi::add_immediate(&src, &path, 8),
+        abi::move_register(&dst, &alloc),
+        abi::move_immediate(&index, "Integer", "0"),
         abi::label(&copy_loop),
-        abi::compare_registers("x14", "x11"),
+        abi::compare_registers(&index, &len),
         abi::branch_eq(&copy_done),
-        abi::load_u8("x15", "x12", 0),
-        abi::compare_immediate("x15", "0"),
+        abi::load_u8(&byte, &src, 0),
+        abi::compare_immediate(&byte, "0"),
         abi::branch_eq(&invalid_path),
-        abi::store_u8("x15", "x13", 0),
-        abi::add_immediate("x12", "x12", 1),
-        abi::add_immediate("x13", "x13", 1),
-        abi::add_immediate("x14", "x14", 1),
+        abi::store_u8(&byte, &dst, 0),
+        abi::add_immediate(&src, &src, 1),
+        abi::add_immediate(&dst, &dst, 1),
+        abi::add_immediate(&index, &index, 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "x13", 0),
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), ALLOC_OFFSET),
+        abi::store_u8("x31", &dst, 0),
+        abi::move_register(abi::return_register(), &alloc),
     ]);
     platform.emit_fs_path_operation(
         symbol,
@@ -622,21 +613,10 @@ pub(super) fn lower_fs_path_operation_helper(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
-        abi::return_(),
-    ]);
+    instructions.extend([abi::label(&done), abi::return_()]);
 
-    Ok((
-        CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        instructions,
-        relocations,
-    ))
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_fs_create_directories_helper(

@@ -1167,7 +1167,7 @@ fn lower_runtime_helper(
             } else {
                 FS_MODE_DIRECTORY
             };
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_kind_exists_helper(symbol, platform_imports, platform, kind)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1184,13 +1184,15 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.currentDirectory" | "fs.tempDirectory" => {
-            let (frame, instructions, relocations) = if spec.call == "fs.currentDirectory" {
+            let (frame, instructions, relocations, stack_slots) = if spec.call
+                == "fs.currentDirectory"
+            {
                 lower_fs_current_directory_helper(symbol, platform_imports, platform)?
             } else {
                 lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
@@ -1201,7 +1203,7 @@ fn lower_runtime_helper(
                 params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -1217,7 +1219,7 @@ fn lower_runtime_helper(
                 "fs.deleteDirectory" => FsPathOperation::Rmdir,
                 _ => unreachable!(),
             };
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_path_operation_helper(symbol, platform_imports, platform, operation)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1234,7 +1236,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })

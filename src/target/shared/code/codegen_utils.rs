@@ -460,6 +460,23 @@ pub(super) fn finalize_vreg_body(
     instructions: &mut Vec<CodeInstruction>,
     reserved: &[&str],
 ) -> (CodeFrame, Vec<CodeStackSlot>) {
+    finalize_vreg_body_with_locals(instructions, reserved, 0)
+}
+
+/// Like [`finalize_vreg_body`], but reserves `local_size` bytes of explicit
+/// `sp`-relative scratch *below* the spill area for a helper that needs a fixed
+/// on-stack buffer (e.g. a `stat`/`getcwd`/`readdir` struct a syscall fills). The
+/// helper addresses that buffer at offsets `0..local_size` from `sp`; the spills
+/// the allocator adds land at `local_size` and up, and [`finalize_frame`] shifts
+/// every `sp`-relative access (buffer and spill alike) past the callee-saved area
+/// uniformly, so the two never overlap. `local_size` is rounded up to 16 to keep
+/// the spill area 8-aligned and the buffer suitably aligned.
+pub(super) fn finalize_vreg_body_with_locals(
+    instructions: &mut Vec<CodeInstruction>,
+    reserved: &[&str],
+    local_size: usize,
+) -> (CodeFrame, Vec<CodeStackSlot>) {
+    let local_size = align(local_size, 16);
     let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
     let outcome = regalloc::allocate(
         regalloc::active_kind(),
@@ -467,7 +484,7 @@ pub(super) fn finalize_vreg_body(
         &[],
         &[],
         &model,
-        0,
+        local_size,
         reserved,
     );
     let mut stack_slots: Vec<CodeStackSlot> = outcome
@@ -480,7 +497,7 @@ pub(super) fn finalize_vreg_body(
             offset: *offset as i32,
         })
         .collect();
-    let stack_size = outcome.spill_slots.len() * 8;
+    let stack_size = local_size + outcome.spill_slots.len() * 8;
     let frame = finalize_frame(
         instructions,
         &mut stack_slots,
