@@ -342,7 +342,6 @@ fn lower_link_thunk(
     let m_slots = function.abi_slots.len();
     let n_out = function.abi_slots.iter().filter(|slot| slot.is_out).count();
 
-    const LR_OFF: usize = 0;
     const STATUS_OFF: usize = 8;
     const CRET_OFF: usize = 16;
     // Scratch slot 24 is reserved for string-return marshaling (RET_OFF).

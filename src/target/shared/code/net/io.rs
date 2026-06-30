@@ -19,7 +19,6 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     platform: &dyn CodegenPlatform,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 64;
-    const LR_OFFSET: usize = 0;
     const FD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 16;
 
@@ -110,7 +109,6 @@ pub(in crate::target::shared::code) fn lower_net_address_helper(
     remote: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 224;
-    const LR_OFFSET: usize = 0;
     const FD_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
     const DST_OFFSET: usize = 24;
@@ -225,7 +223,6 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     text: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 96;
-    const LR_OFFSET: usize = 0;
     const FD_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
     const BUF_OFFSET: usize = 24;
@@ -469,7 +466,6 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
     text: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 96;
-    const LR_OFFSET: usize = 0;
     const FD_OFFSET: usize = 8;
     const SRC_OFFSET: usize = 16; // pointer to the next byte to write
     const REMAINING_OFFSET: usize = 24;
@@ -596,7 +592,6 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
     platform: &dyn CodegenPlatform,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 256;
-    const LR_OFFSET: usize = 0;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
     const RES_OFFSET: usize = 24;
@@ -840,7 +835,6 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     platform: &dyn CodegenPlatform,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 128;
-    const LR_OFFSET: usize = 0;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
     const RES_OFFSET: usize = 24;
@@ -1038,7 +1032,6 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     text: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 224;
-    const LR_OFFSET: usize = 0;
     const FD_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
     const BUF_OFFSET: usize = 24;
@@ -1338,7 +1331,6 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     text: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 144;
-    const LR_OFFSET: usize = 0;
     const FD_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 24; // pointer to payload bytes
     const DLEN_OFFSET: usize = 32; // payload length

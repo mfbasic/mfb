@@ -11,7 +11,7 @@ pub(crate) fn lower_tls_connect_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     if platform.target().contains("macos") {
         return macos::lower_tls_connect_macos(symbol, platform_imports, platform);
     }
@@ -715,7 +715,7 @@ pub(crate) fn lower_tls_connect_helper(
         abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    Ok((frame(FRAME_SIZE), instructions, relocations))
+    Ok((frame(FRAME_SIZE), instructions, relocations, Vec::new()))
 }
 
 // ---------------------------------------------------------------------------
@@ -727,7 +727,7 @@ pub(crate) fn lower_tls_read_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     if platform.target().contains("macos") {
         return macos::lower_tls_read_macos(symbol, platform_imports, platform, text);
     }
@@ -962,7 +962,7 @@ pub(crate) fn lower_tls_read_helper(
         abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    Ok((frame(FRAME_SIZE), instructions, relocations))
+    Ok((frame(FRAME_SIZE), instructions, relocations, Vec::new()))
 }
 
 // ---------------------------------------------------------------------------
@@ -974,7 +974,7 @@ pub(crate) fn lower_tls_write_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     if platform.target().contains("macos") {
         return macos::lower_tls_write_macos(symbol, platform_imports, platform, text);
     }
@@ -1098,7 +1098,7 @@ pub(crate) fn lower_tls_write_helper(
         abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    Ok((frame(FRAME_SIZE), instructions, relocations))
+    Ok((frame(FRAME_SIZE), instructions, relocations, Vec::new()))
 }
 
 // ---------------------------------------------------------------------------
@@ -1109,7 +1109,7 @@ pub(crate) fn lower_tls_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     if platform.target().contains("macos") {
         return macos::lower_tls_close_macos(symbol, platform_imports, platform);
     }
@@ -1243,5 +1243,5 @@ pub(crate) fn lower_tls_close_helper(
         abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    Ok((frame(FRAME_SIZE), instructions, relocations))
+    Ok((frame(FRAME_SIZE), instructions, relocations, Vec::new()))
 }

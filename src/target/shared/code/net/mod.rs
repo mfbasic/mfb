@@ -269,13 +269,6 @@ fn emit_make_handle(
     ]);
 }
 
-fn frame(stack_size: usize) -> CodeFrame {
-    CodeFrame {
-        stack_size,
-        callee_saved: vec![abi::link_register().to_string()],
-    }
-}
-
 // ---------------------------------------------------------------------------
 // net.connectTcp / net.listenTcp
 // ---------------------------------------------------------------------------
@@ -290,7 +283,6 @@ fn lower_net_endpoint_helper(
     address: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 192;
-    const LR_OFFSET: usize = 0;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
     const EXTRA_OFFSET: usize = 24; // timeoutMs (connect) or backlog (listen)
