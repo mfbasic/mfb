@@ -16,7 +16,6 @@ pub(crate) fn lower_tls_connect_helper(
         return macos::lower_tls_connect_macos(symbol, platform_imports, platform);
     }
     const FRAME_SIZE: usize = 256;
-    const LR_OFFSET: usize = 0;
     const FD_OFFSET: usize = 8;
     const HANDLE_OFFSET: usize = 16;
     const CTX_OFFSET: usize = 24;
@@ -53,13 +52,8 @@ pub(crate) fn lower_tls_connect_helper(
     let done = format!("{symbol}_done");
 
     let addr_off = platform.addrinfo_addr_offset();
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    instructions.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        LR_OFFSET,
-    ));
 
     // x0 = host; x1 = port; x2 = timeoutMs; x3 = serverName.
     instructions.extend([
@@ -78,10 +72,10 @@ pub(crate) fn lower_tls_connect_helper(
         ));
     }
     instructions.extend([
-        abi::move_immediate("x9", "Integer", HINTS_FAMILY_WORD),
-        abi::store_u64("x9", abi::stack_pointer(), HINTS_OFFSET),
-        abi::move_immediate("x9", "Integer", SOCK_STREAM),
-        abi::store_u64("x9", abi::stack_pointer(), HINTS_OFFSET + 8),
+        abi::move_immediate("%v9", "Integer", HINTS_FAMILY_WORD),
+        abi::store_u64("%v9", abi::stack_pointer(), HINTS_OFFSET),
+        abi::move_immediate("%v9", "Integer", SOCK_STREAM),
+        abi::store_u64("%v9", abi::stack_pointer(), HINTS_OFFSET + 8),
     ]);
     emit_cstring(
         symbol,
@@ -113,10 +107,10 @@ pub(crate) fn lower_tls_connect_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&resolve_fail),
         // socket(ai_family, ai_socktype, ai_protocol)
-        abi::load_u64("x9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u32(abi::return_register(), "x9", 4),
-        abi::load_u32("x1", "x9", 8),
-        abi::load_u32("x2", "x9", 12),
+        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
+        abi::load_u32(abi::return_register(), "%v9", 4),
+        abi::load_u32("x1", "%v9", 8),
+        abi::load_u32("x2", "%v9", 12),
     ]);
     platform.emit_libc_call(
         "socket",
@@ -130,19 +124,19 @@ pub(crate) fn lower_tls_connect_helper(
         abi::branch_lt(&net_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         // Overwrite sin_port (ai_addr + 2/3) with the requested port.
-        abi::load_u64("x9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64("x9", "x9", addr_off),
-        abi::load_u64("x10", abi::stack_pointer(), PORT_OFFSET),
-        abi::shift_right_immediate("x11", "x10", 8),
-        abi::store_u8("x11", "x9", 2),
-        abi::store_u8("x10", "x9", 3),
+        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64("%v9", "%v9", addr_off),
+        abi::load_u64("%v10", abi::stack_pointer(), PORT_OFFSET),
+        abi::shift_right_immediate("%v11", "%v10", 8),
+        abi::store_u8("%v11", "%v9", 2),
+        abi::store_u8("%v10", "%v9", 3),
     ]);
     // Connect the socket, bounded by timeoutMs when > 0 (non-blocking connect +
     // poll, then restore blocking mode), else a plain blocking connect. Mirrors
     // net::connectTcp. DNS (getaddrinfo above) is not bounded by timeoutMs.
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("%v9", "0"),
         abi::branch_le(&blocking_connect),
         // flags = fcntl(fd, F_GETFL, 0)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
@@ -162,8 +156,8 @@ pub(crate) fn lower_tls_connect_helper(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate("x1", "Integer", "4"),
         abi::load_u64("x2", abi::stack_pointer(), FLAGS_OFFSET),
-        abi::move_immediate("x9", "Integer", platform.o_nonblock()),
-        abi::or_registers("x2", "x2", "x9"),
+        abi::move_immediate("%v9", "Integer", platform.o_nonblock()),
+        abi::or_registers("x2", "x2", "%v9"),
     ]);
     platform.emit_variadic_call(
         "fcntl",
@@ -175,9 +169,9 @@ pub(crate) fn lower_tls_connect_helper(
     // connect(fd, ai_addr, ai_addrlen)
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64("x1", "x9", addr_off),
-        abi::load_u32("x2", "x9", 16),
+        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64("x1", "%v9", addr_off),
+        abi::load_u32("x2", "%v9", 16),
     ]);
     platform.emit_libc_call(
         "connect",
@@ -197,14 +191,15 @@ pub(crate) fn lower_tls_connect_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.push(abi::move_register("%v9", "x9"));
     instructions.extend([
-        abi::compare_immediate("x9", platform.einprogress()),
+        abi::compare_immediate("%v9", platform.einprogress()),
         abi::branch_ne(&net_fail_fd),
         // poll(&pollfd { fd, POLLOUT }, 1, timeoutMs)
-        abi::load_u64("x9", abi::stack_pointer(), FD_OFFSET),
-        abi::store_u64("x9", abi::stack_pointer(), POLLFD_OFFSET),
-        abi::move_immediate("x10", "Integer", "4"), // POLLOUT
-        abi::store_u8("x10", abi::stack_pointer(), POLLFD_OFFSET + 4),
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("%v10", "Integer", "4"), // POLLOUT
+        abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
         abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 5),
         abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 6),
         abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 7),
@@ -224,8 +219,8 @@ pub(crate) fn lower_tls_connect_helper(
         abi::branch_lt(&net_fail_fd),
         abi::branch_eq(&connect_timeout),
         // getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len)
-        abi::move_immediate("x9", "Integer", "4"),
-        abi::store_u64("x9", abi::stack_pointer(), SOLEN_OFFSET),
+        abi::move_immediate("%v9", "Integer", "4"),
+        abi::store_u64("%v9", abi::stack_pointer(), SOLEN_OFFSET),
         abi::store_u64("x31", abi::stack_pointer(), SOERR_OFFSET),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
         abi::move_immediate("x1", "Integer", platform.sol_socket()),
@@ -243,8 +238,8 @@ pub(crate) fn lower_tls_connect_helper(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&net_fail_fd),
-        abi::load_u32("x9", abi::stack_pointer(), SOERR_OFFSET),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u32("%v9", abi::stack_pointer(), SOERR_OFFSET),
+        abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&net_fail_fd),
         // Connected: restore blocking mode with fcntl(fd, F_SETFL, flags).
         abi::label(&nb_connected),
@@ -264,9 +259,9 @@ pub(crate) fn lower_tls_connect_helper(
         // Blocking connect path (timeoutMs <= 0).
         abi::label(&blocking_connect),
         abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), RES_OFFSET),
-        abi::load_u64("x1", "x9", addr_off),
-        abi::load_u32("x2", "x9", 16),
+        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64("x1", "%v9", addr_off),
+        abi::load_u32("x2", "%v9", 16),
     ]);
     platform.emit_libc_call(
         "connect",
@@ -296,13 +291,13 @@ pub(crate) fn lower_tls_connect_helper(
         abi::compare_immediate("x1", "0"),
         abi::branch_le(&hs_timeout_set),
         // tv_sec = ms / 1000, tv_usec = (ms % 1000) * 1000
-        abi::move_immediate("x10", "Integer", "1000"),
-        abi::unsigned_divide_registers("x11", "x1", "x10"),
-        abi::multiply_subtract_registers("x12", "x11", "x10", "x1"),
-        abi::move_immediate("x13", "Integer", "1000"),
-        abi::multiply_registers("x12", "x12", "x13"),
-        abi::store_u64("x11", abi::stack_pointer(), TIMEVAL_OFFSET),
-        abi::store_u64("x12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
+        abi::move_immediate("%v10", "Integer", "1000"),
+        abi::unsigned_divide_registers("%v11", "x1", "%v10"),
+        abi::multiply_subtract_registers("%v12", "%v11", "%v10", "x1"),
+        abi::move_immediate("%v13", "Integer", "1000"),
+        abi::multiply_registers("%v12", "%v12", "%v13"),
+        abi::store_u64("%v11", abi::stack_pointer(), TIMEVAL_OFFSET),
+        abi::store_u64("%v12", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
     ]);
     emit_set_sock_timeouts(
         symbol,
@@ -316,9 +311,9 @@ pub(crate) fn lower_tls_connect_helper(
     instructions.push(abi::label(&hs_timeout_set));
     // SNI/validation name = serverName if non-empty, else host.
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), SNAME_OFFSET),
-        abi::load_u64("x10", "x9", 0),
-        abi::compare_immediate("x10", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), SNAME_OFFSET),
+        abi::load_u64("%v10", "%v9", 0),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_ne(&use_sname),
     ]);
     emit_cstring(
@@ -366,8 +361,8 @@ pub(crate) fn lower_tls_connect_helper(
         &mut relocations,
     )?;
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
     ]);
     // ctx = SSL_CTX_new(method)
@@ -384,8 +379,8 @@ pub(crate) fn lower_tls_connect_helper(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&tls_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
@@ -404,8 +399,8 @@ pub(crate) fn lower_tls_connect_helper(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
     ]);
     // ssl = SSL_new(ctx)
     emit_dlsym(
@@ -421,8 +416,8 @@ pub(crate) fn lower_tls_connect_helper(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&tls_fail),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
@@ -442,8 +437,8 @@ pub(crate) fn lower_tls_connect_helper(
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x1", abi::stack_pointer(), FD_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&tls_fail),
     ]);
@@ -463,8 +458,8 @@ pub(crate) fn lower_tls_connect_helper(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::move_immediate("x1", "Integer", SSL_VERIFY_PEER),
         abi::move_immediate("x2", "Integer", "0"),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
     ]);
     // SSL_set1_host(ssl, sniCstr)
     emit_dlsym(
@@ -481,8 +476,8 @@ pub(crate) fn lower_tls_connect_helper(
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x1", abi::stack_pointer(), SNICSTR_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&tls_fail),
     ]);
@@ -503,15 +498,15 @@ pub(crate) fn lower_tls_connect_helper(
         abi::move_immediate("x1", "Integer", SSL_CTRL_SET_TLSEXT_HOSTNAME),
         abi::move_immediate("x2", "Integer", TLSEXT_NAMETYPE_HOST_NAME),
         abi::load_u64("x3", abi::stack_pointer(), SNICSTR_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         // SSL_ctrl(ssl, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, NULL)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::move_immediate("x1", "Integer", SSL_CTRL_SET_MIN_PROTO_VERSION),
         abi::move_immediate("x2", "Integer", TLS1_2_VERSION),
         abi::move_immediate("x3", "Integer", "0"),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
     ]);
     // r = SSL_connect(ssl); require 1.
     emit_dlsym(
@@ -527,8 +522,8 @@ pub(crate) fn lower_tls_connect_helper(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "1"),
         abi::branch_ne(&tls_fail),
     ]);
@@ -546,15 +541,15 @@ pub(crate) fn lower_tls_connect_helper(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&tls_fail),
     ]);
     // Handshake done: clear SO_*TIMEO (zero timeval) so read/write are unbounded.
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("%v9", "0"),
         abi::branch_le(&hs_timeout_clear),
         abi::store_u64("x31", abi::stack_pointer(), TIMEVAL_OFFSET),
         abi::store_u64("x31", abi::stack_pointer(), TIMEVAL_OFFSET + 8),
@@ -576,13 +571,13 @@ pub(crate) fn lower_tls_connect_helper(
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), FD_OFFSET),
-        abi::store_u64("x9", "x1", TLS_OFFSET_FD),
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("%v9", "x1", TLS_OFFSET_FD),
         abi::store_u64("x31", "x1", TLS_OFFSET_CLOSED),
-        abi::load_u64("x9", abi::stack_pointer(), SSL_OFFSET),
-        abi::store_u64("x9", "x1", TLS_OFFSET_SSL),
-        abi::load_u64("x9", abi::stack_pointer(), CTX_OFFSET),
-        abi::store_u64("x9", "x1", TLS_OFFSET_CTX),
+        abi::load_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
+        abi::store_u64("%v9", "x1", TLS_OFFSET_SSL),
+        abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
+        abi::store_u64("%v9", "x1", TLS_OFFSET_CTX),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -711,11 +706,9 @@ pub(crate) fn lower_tls_connect_helper(
 
     instructions.extend([
         abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    Ok((frame(FRAME_SIZE), instructions, relocations, Vec::new()))
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
 }
 
 // ---------------------------------------------------------------------------
@@ -732,7 +725,6 @@ pub(crate) fn lower_tls_read_helper(
         return macos::lower_tls_read_macos(symbol, platform_imports, platform, text);
     }
     const FRAME_SIZE: usize = 96;
-    const LR_OFFSET: usize = 0;
     const SSL_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
     const BUF_OFFSET: usize = 24;
@@ -754,21 +746,20 @@ pub(crate) fn lower_tls_read_helper(
     let entry_done = format!("{symbol}_entry_done");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
         abi::store_u64("x1", abi::stack_pointer(), MAX_OFFSET),
-        abi::load_u64("x9", abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("x9", abi::return_register(), TLS_OFFSET_SSL),
-        abi::store_u64("x9", abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64("x10", abi::stack_pointer(), MAX_OFFSET),
-        abi::compare_immediate("x10", "0"),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_SSL),
+        abi::store_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v10", abi::stack_pointer(), MAX_OFFSET),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_le(&invalid),
         // Allocate a maxBytes read buffer.
-        abi::move_register(abi::return_register(), "x10"),
+        abi::move_register(abi::return_register(), "%v10"),
         abi::move_immediate("x1", "Integer", "1"),
     ]);
     emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
@@ -798,8 +789,8 @@ pub(crate) fn lower_tls_read_helper(
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x1", abi::stack_pointer(), BUF_OFFSET),
         abi::load_u64("x2", abi::stack_pointer(), MAX_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&peer_closed),
         abi::branch_lt(&read_fail),
@@ -807,32 +798,32 @@ pub(crate) fn lower_tls_read_helper(
     ]);
     if text {
         instructions.extend([
-            abi::load_u64("x10", abi::stack_pointer(), N_OFFSET),
-            abi::add_immediate(abi::return_register(), "x10", 9),
+            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
+            abi::add_immediate(abi::return_register(), "%v10", 9),
             abi::move_immediate("x1", "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::load_u64("x10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("x10", "x1", 0),
-            abi::load_u64("x11", abi::stack_pointer(), BUF_OFFSET),
-            abi::add_immediate("x12", "x1", 8),
-            abi::move_immediate("x13", "Integer", "0"),
+            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
+            abi::store_u64("%v10", "x1", 0),
+            abi::load_u64("%v11", abi::stack_pointer(), BUF_OFFSET),
+            abi::add_immediate("%v12", "x1", 8),
+            abi::move_immediate("%v13", "Integer", "0"),
             abi::store_u64("x1", abi::stack_pointer(), STR_OFFSET),
             abi::label(&str_copy),
-            abi::compare_registers("x13", "x10"),
+            abi::compare_registers("%v13", "%v10"),
             abi::branch_eq(&str_done),
-            abi::load_u8("x14", "x11", 0),
-            abi::store_u8("x14", "x12", 0),
-            abi::add_immediate("x11", "x11", 1),
-            abi::add_immediate("x12", "x12", 1),
-            abi::add_immediate("x13", "x13", 1),
+            abi::load_u8("%v14", "%v11", 0),
+            abi::store_u8("%v14", "%v12", 0),
+            abi::add_immediate("%v11", "%v11", 1),
+            abi::add_immediate("%v12", "%v12", 1),
+            abi::add_immediate("%v13", "%v13", 1),
             abi::branch(&str_copy),
             abi::label(&str_done),
-            abi::store_u8("x31", "x12", 0),
-            abi::load_u64("x9", abi::stack_pointer(), STR_OFFSET),
-            abi::add_immediate(abi::return_register(), "x9", 8),
-            abi::load_u64("x1", "x9", 0),
+            abi::store_u8("x31", "%v12", 0),
+            abi::load_u64("%v9", abi::stack_pointer(), STR_OFFSET),
+            abi::add_immediate(abi::return_register(), "%v9", 8),
+            abi::load_u64("x1", "%v9", 0),
         ]);
         emit_call_validate_utf8(symbol, &encoding_error, &mut instructions, &mut relocations);
         instructions.extend([
@@ -851,50 +842,50 @@ pub(crate) fn lower_tls_read_helper(
         );
     } else {
         instructions.extend([
-            abi::load_u64("x10", abi::stack_pointer(), N_OFFSET),
-            abi::move_immediate("x11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("x12", "x10", "x11"),
-            abi::add_immediate("x12", "x12", COLLECTION_HEADER_SIZE),
-            abi::add_registers(abi::return_register(), "x12", "x10"),
+            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
+            abi::move_immediate("%v11", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::multiply_registers("%v12", "%v10", "%v11"),
+            abi::add_immediate("%v12", "%v12", COLLECTION_HEADER_SIZE),
+            abi::add_registers(abi::return_register(), "%v12", "%v10"),
             abi::move_immediate("x1", "Integer", "8"),
         ]);
         emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
         instructions.extend([
-            abi::move_immediate("x9", "Byte", &COLLECTION_KIND_LIST.to_string()),
-            abi::store_u8("x9", "x1", COLLECTION_OFFSET_KIND),
-            abi::move_immediate("x9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
-            abi::store_u8("x9", "x1", COLLECTION_OFFSET_KEY_TYPE),
-            abi::move_immediate("x9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
-            abi::store_u8("x9", "x1", COLLECTION_OFFSET_VALUE_TYPE),
-            abi::move_immediate("x9", "Byte", "1"),
-            abi::store_u8("x9", "x1", COLLECTION_OFFSET_FLAGS_VERSION),
-            abi::load_u64("x10", abi::stack_pointer(), N_OFFSET),
-            abi::store_u64("x10", "x1", COLLECTION_OFFSET_COUNT),
-            abi::store_u64("x10", "x1", COLLECTION_OFFSET_CAPACITY),
-            abi::store_u64("x10", "x1", COLLECTION_OFFSET_DATA_LENGTH),
-            abi::store_u64("x10", "x1", COLLECTION_OFFSET_DATA_CAPACITY),
-            abi::add_immediate("x11", "x1", COLLECTION_HEADER_SIZE),
-            abi::move_immediate("x12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("x13", "x10", "x12"),
-            abi::add_registers("x14", "x11", "x13"),
-            abi::load_u64("x15", abi::stack_pointer(), BUF_OFFSET),
-            abi::move_immediate("x9", "Integer", "0"),
+            abi::move_immediate("%v9", "Byte", &COLLECTION_KIND_LIST.to_string()),
+            abi::store_u8("%v9", "x1", COLLECTION_OFFSET_KIND),
+            abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_NONE.to_string()),
+            abi::store_u8("%v9", "x1", COLLECTION_OFFSET_KEY_TYPE),
+            abi::move_immediate("%v9", "Byte", &COLLECTION_TYPE_BYTE.to_string()),
+            abi::store_u8("%v9", "x1", COLLECTION_OFFSET_VALUE_TYPE),
+            abi::move_immediate("%v9", "Byte", "1"),
+            abi::store_u8("%v9", "x1", COLLECTION_OFFSET_FLAGS_VERSION),
+            abi::load_u64("%v10", abi::stack_pointer(), N_OFFSET),
+            abi::store_u64("%v10", "x1", COLLECTION_OFFSET_COUNT),
+            abi::store_u64("%v10", "x1", COLLECTION_OFFSET_CAPACITY),
+            abi::store_u64("%v10", "x1", COLLECTION_OFFSET_DATA_LENGTH),
+            abi::store_u64("%v10", "x1", COLLECTION_OFFSET_DATA_CAPACITY),
+            abi::add_immediate("%v11", "x1", COLLECTION_HEADER_SIZE),
+            abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::multiply_registers("%v13", "%v10", "%v12"),
+            abi::add_registers("%v14", "%v11", "%v13"),
+            abi::load_u64("%v15", abi::stack_pointer(), BUF_OFFSET),
+            abi::move_immediate("%v9", "Integer", "0"),
             abi::label(&entry_loop),
-            abi::compare_registers("x9", "x10"),
+            abi::compare_registers("%v9", "%v10"),
             abi::branch_eq(&entry_done),
-            abi::move_immediate("x12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-            abi::store_u8("x12", "x11", COLLECTION_ENTRY_OFFSET_FLAGS),
-            abi::store_u64("x31", "x11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-            abi::store_u64("x31", "x11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-            abi::store_u64("x9", "x11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-            abi::move_immediate("x12", "Integer", "1"),
-            abi::store_u64("x12", "x11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-            abi::add_registers("x12", "x14", "x9"),
-            abi::load_u8("x13", "x15", 0),
-            abi::store_u8("x13", "x12", 0),
-            abi::add_immediate("x15", "x15", 1),
-            abi::add_immediate("x11", "x11", COLLECTION_ENTRY_SIZE),
-            abi::add_immediate("x9", "x9", 1),
+            abi::move_immediate("%v12", "Byte", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+            abi::store_u8("%v12", "%v11", COLLECTION_ENTRY_OFFSET_FLAGS),
+            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+            abi::store_u64("x31", "%v11", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+            abi::store_u64("%v9", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+            abi::move_immediate("%v12", "Integer", "1"),
+            abi::store_u64("%v12", "%v11", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+            abi::add_registers("%v12", "%v14", "%v9"),
+            abi::load_u8("%v13", "%v15", 0),
+            abi::store_u8("%v13", "%v12", 0),
+            abi::add_immediate("%v15", "%v15", 1),
+            abi::add_immediate("%v11", "%v11", COLLECTION_ENTRY_SIZE),
+            abi::add_immediate("%v9", "%v9", 1),
             abi::branch(&entry_loop),
             abi::label(&entry_done),
             abi::move_register(RESULT_VALUE_REGISTER, "x1"),
@@ -958,11 +949,9 @@ pub(crate) fn lower_tls_read_helper(
     );
     instructions.extend([
         abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    Ok((frame(FRAME_SIZE), instructions, relocations, Vec::new()))
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
 }
 
 // ---------------------------------------------------------------------------
@@ -979,7 +968,6 @@ pub(crate) fn lower_tls_write_helper(
         return macos::lower_tls_write_macos(symbol, platform_imports, platform, text);
     }
     const FRAME_SIZE: usize = 80;
-    const LR_OFFSET: usize = 0;
     const SSL_OFFSET: usize = 8;
     const SRC_OFFSET: usize = 16;
     const REMAINING_OFFSET: usize = 24;
@@ -993,32 +981,31 @@ pub(crate) fn lower_tls_write_helper(
     let write_fail = format!("{symbol}_write_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::load_u64("x9", abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&closed),
-        abi::load_u64("x9", abi::return_register(), TLS_OFFSET_SSL),
-        abi::store_u64("x9", abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_SSL),
+        abi::store_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
     ]);
     if text {
         instructions.extend([
-            abi::load_u64("x10", "x1", 0),
-            abi::store_u64("x10", abi::stack_pointer(), REMAINING_OFFSET),
-            abi::add_immediate("x11", "x1", 8),
-            abi::store_u64("x11", abi::stack_pointer(), SRC_OFFSET),
+            abi::load_u64("%v10", "x1", 0),
+            abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
+            abi::add_immediate("%v11", "x1", 8),
+            abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
         ]);
     } else {
         instructions.extend([
-            abi::load_u64("x10", "x1", COLLECTION_OFFSET_COUNT),
-            abi::store_u64("x10", abi::stack_pointer(), REMAINING_OFFSET),
-            abi::move_immediate("x12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
-            abi::multiply_registers("x13", "x10", "x12"),
-            abi::add_immediate("x13", "x13", COLLECTION_HEADER_SIZE),
-            abi::add_registers("x11", "x1", "x13"),
-            abi::store_u64("x11", abi::stack_pointer(), SRC_OFFSET),
+            abi::load_u64("%v10", "x1", COLLECTION_OFFSET_COUNT),
+            abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
+            abi::move_immediate("%v12", "Integer", &COLLECTION_ENTRY_SIZE.to_string()),
+            abi::multiply_registers("%v13", "%v10", "%v12"),
+            abi::add_immediate("%v13", "%v13", COLLECTION_HEADER_SIZE),
+            abi::add_registers("%v11", "x1", "%v13"),
+            abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
         ]);
     }
     emit_dlopen_libssl(
@@ -1043,23 +1030,23 @@ pub(crate) fn lower_tls_write_helper(
     )?;
     instructions.extend([
         abi::label(&write_loop),
-        abi::load_u64("x10", abi::stack_pointer(), REMAINING_OFFSET),
-        abi::compare_immediate("x10", "0"),
+        abi::load_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&write_done),
         // n = SSL_write(ssl, src, remaining)
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
         abi::load_u64("x1", abi::stack_pointer(), SRC_OFFSET),
-        abi::move_register("x2", "x10"),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::move_register("x2", "%v10"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_le(&write_fail),
-        abi::load_u64("x11", abi::stack_pointer(), SRC_OFFSET),
-        abi::load_u64("x10", abi::stack_pointer(), REMAINING_OFFSET),
-        abi::add_registers("x11", "x11", abi::return_register()),
-        abi::subtract_registers("x10", "x10", abi::return_register()),
-        abi::store_u64("x11", abi::stack_pointer(), SRC_OFFSET),
-        abi::store_u64("x10", abi::stack_pointer(), REMAINING_OFFSET),
+        abi::load_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
+        abi::load_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
+        abi::add_registers("%v11", "%v11", abi::return_register()),
+        abi::subtract_registers("%v10", "%v10", abi::return_register()),
+        abi::store_u64("%v11", abi::stack_pointer(), SRC_OFFSET),
+        abi::store_u64("%v10", abi::stack_pointer(), REMAINING_OFFSET),
         abi::branch(&write_loop),
         abi::label(&write_done),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
@@ -1094,11 +1081,9 @@ pub(crate) fn lower_tls_write_helper(
     );
     instructions.extend([
         abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    Ok((frame(FRAME_SIZE), instructions, relocations, Vec::new()))
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
 }
 
 // ---------------------------------------------------------------------------
@@ -1114,7 +1099,6 @@ pub(crate) fn lower_tls_close_helper(
         return macos::lower_tls_close_macos(symbol, platform_imports, platform);
     }
     const FRAME_SIZE: usize = 80;
-    const LR_OFFSET: usize = 0;
     const REC_OFFSET: usize = 8;
     const SSL_OFFSET: usize = 16;
     const CTX_OFFSET: usize = 24;
@@ -1126,21 +1110,20 @@ pub(crate) fn lower_tls_close_helper(
     let load_fail = format!("{symbol}_load_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
     instructions.extend([
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
         abi::store_u64(abi::return_register(), abi::stack_pointer(), REC_OFFSET),
         // Idempotent: a closed handle returns OK.
-        abi::load_u64("x9", abi::return_register(), TLS_OFFSET_CLOSED),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&already),
-        abi::load_u64("x9", abi::return_register(), TLS_OFFSET_SSL),
-        abi::store_u64("x9", abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64("x9", abi::return_register(), TLS_OFFSET_CTX),
-        abi::store_u64("x9", abi::stack_pointer(), CTX_OFFSET),
-        abi::load_u64("x9", abi::return_register(), TLS_OFFSET_FD),
-        abi::store_u64("x9", abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_SSL),
+        abi::store_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_CTX),
+        abi::store_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::return_register(), TLS_OFFSET_FD),
+        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
     ]);
     emit_dlopen_libssl(
         symbol,
@@ -1165,8 +1148,8 @@ pub(crate) fn lower_tls_close_helper(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
     ]);
     // SSL_free(ssl)
     emit_dlsym(
@@ -1182,8 +1165,8 @@ pub(crate) fn lower_tls_close_helper(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
     ]);
     // SSL_CTX_free(ctx)
     emit_dlsym(
@@ -1199,8 +1182,8 @@ pub(crate) fn lower_tls_close_helper(
     )?;
     instructions.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), FNPTR_OFFSET),
-        abi::branch_link_register("x9"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
     ]);
     // close(fd)
     instructions.push(abi::load_u64(
@@ -1217,9 +1200,9 @@ pub(crate) fn lower_tls_close_helper(
     )?;
     // Mark the record closed.
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), REC_OFFSET),
-        abi::move_immediate("x10", "Integer", "1"),
-        abi::store_u64("x10", "x9", TLS_OFFSET_CLOSED),
+        abi::load_u64("%v9", abi::stack_pointer(), REC_OFFSET),
+        abi::move_immediate("%v10", "Integer", "1"),
+        abi::store_u64("%v10", "%v9", TLS_OFFSET_CLOSED),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
@@ -1239,9 +1222,7 @@ pub(crate) fn lower_tls_close_helper(
         abi::label(&already),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    Ok((frame(FRAME_SIZE), instructions, relocations, Vec::new()))
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
 }
