@@ -2032,91 +2032,89 @@ fn lower_map_build_buckets_helper() -> CodeFunction {
     let ploop = format!("{symbol}_ploop");
     let place = format!("{symbol}_place");
     let nowrap = format!("{symbol}_nowrap");
-    let instructions = vec![
+    let mut instructions = vec![
         abi::label("entry"),
         // dataBase (x11) = x0 + HEADER + capacity*ENTRY ; bucketBase (x12) += dataCap.
-        abi::load_u64("x9", "x0", COLLECTION_OFFSET_COUNT),
-        abi::load_u64("x14", "x0", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("x16", "Integer", &entry_size),
-        abi::multiply_registers("x11", "x14", "x16"),
-        abi::add_registers("x11", "x11", "x0"),
-        abi::add_immediate("x11", "x11", COLLECTION_HEADER_SIZE),
-        abi::load_u64("x15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("x12", "x11", "x15"),
-        abi::shift_left_immediate("x10", "x14", 1), // bucketCount = 2*capacity
-        abi::move_immediate("x8", "Integer", FNV1A_PRIME),
+        abi::load_u64("%v9", "x0", COLLECTION_OFFSET_COUNT),
+        abi::load_u64("%v14", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate("%v16", "Integer", &entry_size),
+        abi::multiply_registers("%v11", "%v14", "%v16"),
+        abi::add_registers("%v11", "%v11", "x0"),
+        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
+        abi::load_u64("%v15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers("%v12", "%v11", "%v15"),
+        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount = 2*capacity
+        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
         // Zero the bucket array.
-        abi::move_immediate("x13", "Integer", "0"),
+        abi::move_immediate("%v13", "Integer", "0"),
         abi::label(&zloop),
-        abi::compare_registers("x13", "x10"),
+        abi::compare_registers("%v13", "%v10"),
         abi::branch_ge(&zdone),
-        abi::shift_left_immediate("x7", "x13", 3),
-        abi::add_registers("x7", "x12", "x7"),
-        abi::move_immediate("x6", "Integer", "0"),
-        abi::store_u64("x6", "x7", 0),
-        abi::add_immediate("x13", "x13", 1),
+        abi::shift_left_immediate("%v7", "%v13", 3),
+        abi::add_registers("%v7", "%v12", "%v7"),
+        abi::move_immediate("%v6", "Integer", "0"),
+        abi::store_u64("%v6", "%v7", 0),
+        abi::add_immediate("%v13", "%v13", 1),
         abi::branch(&zloop),
         abi::label(&zdone),
         // For each entry: hash its key, open-address its index+1.
-        abi::move_immediate("x13", "Integer", "0"),
+        abi::move_immediate("%v13", "Integer", "0"),
         abi::label(&eloop),
-        abi::compare_registers("x13", "x9"),
+        abi::compare_registers("%v13", "%v9"),
         abi::branch_ge(&edone),
-        abi::move_immediate("x16", "Integer", &entry_size),
-        abi::multiply_registers("x14", "x13", "x16"),
-        abi::add_registers("x14", "x14", "x0"),
-        abi::add_immediate("x14", "x14", COLLECTION_HEADER_SIZE), // entry addr
-        abi::load_u64("x15", "x14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("x15", "x11", "x15"), // keyPtr
-        abi::load_u64("x17", "x14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
-        abi::move_immediate("x16", "Integer", FNV1A_BASIS), // h
-        abi::move_register("x5", "x15"),
-        abi::move_register("x6", "x17"),
+        abi::move_immediate("%v16", "Integer", &entry_size),
+        abi::multiply_registers("%v14", "%v13", "%v16"),
+        abi::add_registers("%v14", "%v14", "x0"),
+        abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE), // entry addr
+        abi::load_u64("%v15", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers("%v15", "%v11", "%v15"), // keyPtr
+        abi::load_u64("%v17", "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH), // keyLen
+        abi::move_immediate("%v16", "Integer", FNV1A_BASIS), // h
+        abi::move_register("%v5", "%v15"),
+        abi::move_register("%v6", "%v17"),
         abi::label(&hloop),
-        abi::compare_immediate("x6", "0"),
+        abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("x3", "x5", 0),
-        abi::exclusive_or_registers("x16", "x16", "x3"),
-        abi::multiply_registers("x16", "x16", "x8"),
-        abi::add_immediate("x5", "x5", 1),
-        abi::subtract_immediate("x6", "x6", 1),
+        abi::load_u8("%v3", "%v5", 0),
+        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
+        abi::multiply_registers("%v16", "%v16", "%v8"),
+        abi::add_immediate("%v5", "%v5", 1),
+        abi::subtract_immediate("%v6", "%v6", 1),
         abi::branch(&hloop),
         abi::label(&hdone),
         // slot = h mod bucketCount.
-        abi::unsigned_divide_registers("x4", "x16", "x10"),
-        abi::multiply_subtract_registers("x4", "x4", "x10", "x16"),
+        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
+        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"),
         abi::label(&ploop),
-        abi::shift_left_immediate("x7", "x4", 3),
-        abi::add_registers("x7", "x12", "x7"),
-        abi::load_u64("x6", "x7", 0),
-        abi::compare_immediate("x6", "0"),
+        abi::shift_left_immediate("%v7", "%v4", 3),
+        abi::add_registers("%v7", "%v12", "%v7"),
+        abi::load_u64("%v6", "%v7", 0),
+        abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&place),
-        abi::add_immediate("x4", "x4", 1),
-        abi::compare_registers("x4", "x10"),
+        abi::add_immediate("%v4", "%v4", 1),
+        abi::compare_registers("%v4", "%v10"),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("x4", "Integer", "0"),
+        abi::move_immediate("%v4", "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&place),
-        abi::add_immediate("x6", "x13", 1),
-        abi::store_u64("x6", "x7", 0),
-        abi::add_immediate("x13", "x13", 1),
+        abi::add_immediate("%v6", "%v13", 1),
+        abi::store_u64("%v6", "%v7", 0),
+        abi::add_immediate("%v13", "%v13", 1),
         abi::branch(&eloop),
         abi::label(&edone),
-        abi::move_immediate("x6", "Integer", "1"),
-        abi::store_u8("x6", "x0", COLLECTION_OFFSET_BUCKETS_READY),
+        abi::move_immediate("%v6", "Integer", "1"),
+        abi::store_u8("%v6", "x0", COLLECTION_OFFSET_BUCKETS_READY),
         abi::return_(),
     ];
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     CodeFunction {
         name: "runtime.mapBuildBuckets".to_string(),
         symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
-        frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        stack_slots: Vec::new(),
+        frame,
+        stack_slots,
         instructions,
         relocations: Vec::new(),
     }
@@ -2136,67 +2134,65 @@ fn lower_map_bucket_put_helper() -> CodeFunction {
     let ploop = format!("{symbol}_ploop");
     let place = format!("{symbol}_place");
     let nowrap = format!("{symbol}_nowrap");
-    let instructions = vec![
+    let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("x14", "x0", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("x16", "Integer", &entry_size),
-        abi::multiply_registers("x11", "x14", "x16"),
-        abi::add_registers("x11", "x11", "x0"),
-        abi::add_immediate("x11", "x11", COLLECTION_HEADER_SIZE), // dataBase
-        abi::load_u64("x15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("x12", "x11", "x15"), // bucketBase
-        abi::shift_left_immediate("x10", "x14", 1), // bucketCount
-        abi::move_immediate("x8", "Integer", FNV1A_PRIME),
+        abi::load_u64("%v14", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate("%v16", "Integer", &entry_size),
+        abi::multiply_registers("%v11", "%v14", "%v16"),
+        abi::add_registers("%v11", "%v11", "x0"),
+        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE), // dataBase
+        abi::load_u64("%v15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers("%v12", "%v11", "%v15"), // bucketBase
+        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount
+        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
         // entry addr = x0 + HEADER + x1*ENTRY.
-        abi::move_immediate("x16", "Integer", &entry_size),
-        abi::multiply_registers("x14", "x1", "x16"),
-        abi::add_registers("x14", "x14", "x0"),
-        abi::add_immediate("x14", "x14", COLLECTION_HEADER_SIZE),
-        abi::load_u64("x15", "x14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("x15", "x11", "x15"),
-        abi::load_u64("x17", "x14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::move_immediate("x16", "Integer", FNV1A_BASIS),
-        abi::move_register("x5", "x15"),
-        abi::move_register("x6", "x17"),
+        abi::move_immediate("%v16", "Integer", &entry_size),
+        abi::multiply_registers("%v14", "x1", "%v16"),
+        abi::add_registers("%v14", "%v14", "x0"),
+        abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE),
+        abi::load_u64("%v15", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers("%v15", "%v11", "%v15"),
+        abi::load_u64("%v17", "%v14", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::move_immediate("%v16", "Integer", FNV1A_BASIS),
+        abi::move_register("%v5", "%v15"),
+        abi::move_register("%v6", "%v17"),
         abi::label(&hloop),
-        abi::compare_immediate("x6", "0"),
+        abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("x3", "x5", 0),
-        abi::exclusive_or_registers("x16", "x16", "x3"),
-        abi::multiply_registers("x16", "x16", "x8"),
-        abi::add_immediate("x5", "x5", 1),
-        abi::subtract_immediate("x6", "x6", 1),
+        abi::load_u8("%v3", "%v5", 0),
+        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
+        abi::multiply_registers("%v16", "%v16", "%v8"),
+        abi::add_immediate("%v5", "%v5", 1),
+        abi::subtract_immediate("%v6", "%v6", 1),
         abi::branch(&hloop),
         abi::label(&hdone),
-        abi::unsigned_divide_registers("x4", "x16", "x10"),
-        abi::multiply_subtract_registers("x4", "x4", "x10", "x16"),
+        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
+        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"),
         abi::label(&ploop),
-        abi::shift_left_immediate("x7", "x4", 3),
-        abi::add_registers("x7", "x12", "x7"),
-        abi::load_u64("x6", "x7", 0),
-        abi::compare_immediate("x6", "0"),
+        abi::shift_left_immediate("%v7", "%v4", 3),
+        abi::add_registers("%v7", "%v12", "%v7"),
+        abi::load_u64("%v6", "%v7", 0),
+        abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&place),
-        abi::add_immediate("x4", "x4", 1),
-        abi::compare_registers("x4", "x10"),
+        abi::add_immediate("%v4", "%v4", 1),
+        abi::compare_registers("%v4", "%v10"),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("x4", "Integer", "0"),
+        abi::move_immediate("%v4", "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&place),
-        abi::add_immediate("x6", "x1", 1),
-        abi::store_u64("x6", "x7", 0),
+        abi::add_immediate("%v6", "x1", 1),
+        abi::store_u64("%v6", "%v7", 0),
         abi::return_(),
     ];
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     CodeFunction {
         name: "runtime.mapBucketPut".to_string(),
         symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Nothing".to_string(),
-        frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        stack_slots: Vec::new(),
+        frame,
+        stack_slots,
         instructions,
         relocations: Vec::new(),
     }
@@ -2212,7 +2208,6 @@ fn lower_map_bucket_put_helper() -> CodeFunction {
 /// across the build call.
 fn lower_map_probe_helper() -> CodeFunction {
     let symbol = MAP_PROBE_SYMBOL;
-    const FRAME: usize = 16;
     let entry_size = COLLECTION_ENTRY_SIZE.to_string();
     let ready = format!("{symbol}_ready");
     let notfound = format!("{symbol}_notfound");
@@ -2224,89 +2219,85 @@ fn lower_map_probe_helper() -> CodeFunction {
     let cloop = format!("{symbol}_cloop");
     let cmatch = format!("{symbol}_cmatch");
     let done = format!("{symbol}_done");
-    let instructions = vec![
+    let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(FRAME),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
         // Lazy build if not ready (build preserves x0/x1/x2).
-        abi::load_u8("x9", "x0", COLLECTION_OFFSET_BUCKETS_READY),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u8("%v9", "x0", COLLECTION_OFFSET_BUCKETS_READY),
+        abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&ready),
         abi::branch_link(MAP_BUILD_BUCKETS_SYMBOL),
         abi::label(&ready),
-        abi::load_u64("x9", "x0", COLLECTION_OFFSET_COUNT),
-        abi::compare_immediate("x9", "0"),
+        abi::load_u64("%v9", "x0", COLLECTION_OFFSET_COUNT),
+        abi::compare_immediate("%v9", "0"),
         abi::branch_eq(&notfound),
-        abi::load_u64("x14", "x0", COLLECTION_OFFSET_CAPACITY),
-        abi::move_immediate("x16", "Integer", &entry_size),
-        abi::multiply_registers("x11", "x14", "x16"),
-        abi::add_registers("x11", "x11", "x0"),
-        abi::add_immediate("x11", "x11", COLLECTION_HEADER_SIZE), // dataBase
-        abi::load_u64("x15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
-        abi::add_registers("x12", "x11", "x15"), // bucketBase
-        abi::shift_left_immediate("x10", "x14", 1), // bucketCount
-        abi::move_immediate("x8", "Integer", FNV1A_PRIME),
+        abi::load_u64("%v14", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::move_immediate("%v16", "Integer", &entry_size),
+        abi::multiply_registers("%v11", "%v14", "%v16"),
+        abi::add_registers("%v11", "%v11", "x0"),
+        abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE), // dataBase
+        abi::load_u64("%v15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::add_registers("%v12", "%v11", "%v15"), // bucketBase
+        abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount
+        abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
         // Hash the query key (x1/x2).
-        abi::move_immediate("x16", "Integer", FNV1A_BASIS),
-        abi::move_register("x5", "x1"),
-        abi::move_register("x6", "x2"),
+        abi::move_immediate("%v16", "Integer", FNV1A_BASIS),
+        abi::move_register("%v5", "x1"),
+        abi::move_register("%v6", "x2"),
         abi::label(&hloop),
-        abi::compare_immediate("x6", "0"),
+        abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&hdone),
-        abi::load_u8("x3", "x5", 0),
-        abi::exclusive_or_registers("x16", "x16", "x3"),
-        abi::multiply_registers("x16", "x16", "x8"),
-        abi::add_immediate("x5", "x5", 1),
-        abi::subtract_immediate("x6", "x6", 1),
+        abi::load_u8("%v3", "%v5", 0),
+        abi::exclusive_or_registers("%v16", "%v16", "%v3"),
+        abi::multiply_registers("%v16", "%v16", "%v8"),
+        abi::add_immediate("%v5", "%v5", 1),
+        abi::subtract_immediate("%v6", "%v6", 1),
         abi::branch(&hloop),
         abi::label(&hdone),
-        abi::unsigned_divide_registers("x4", "x16", "x10"),
-        abi::multiply_subtract_registers("x4", "x4", "x10", "x16"), // slot
+        abi::unsigned_divide_registers("%v4", "%v16", "%v10"),
+        abi::multiply_subtract_registers("%v4", "%v4", "%v10", "%v16"), // slot
         abi::label(&ploop),
-        abi::shift_left_immediate("x7", "x4", 3),
-        abi::add_registers("x7", "x12", "x7"),
-        abi::load_u64("x6", "x7", 0),
-        abi::compare_immediate("x6", "0"),
+        abi::shift_left_immediate("%v7", "%v4", 3),
+        abi::add_registers("%v7", "%v12", "%v7"),
+        abi::load_u64("%v6", "%v7", 0),
+        abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&notfound),
-        abi::subtract_immediate("x13", "x6", 1), // candidate idx
-        abi::move_immediate("x16", "Integer", &entry_size),
-        abi::multiply_registers("x15", "x13", "x16"),
-        abi::add_registers("x15", "x15", "x0"),
-        abi::add_immediate("x15", "x15", COLLECTION_HEADER_SIZE), // entry addr
-        abi::load_u64("x17", "x15", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::compare_registers("x17", "x2"),
+        abi::subtract_immediate("%v13", "%v6", 1), // candidate idx
+        abi::move_immediate("%v16", "Integer", &entry_size),
+        abi::multiply_registers("%v15", "%v13", "%v16"),
+        abi::add_registers("%v15", "%v15", "x0"),
+        abi::add_immediate("%v15", "%v15", COLLECTION_HEADER_SIZE), // entry addr
+        abi::load_u64("%v17", "%v15", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
+        abi::compare_registers("%v17", "x2"),
         abi::branch_ne(&pnext),
-        abi::load_u64("x16", "x15", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
-        abi::add_registers("x16", "x11", "x16"), // storedPtr
-        abi::move_register("x5", "x1"),          // queryCursor
-        abi::move_register("x6", "x2"),          // remaining
+        abi::load_u64("%v16", "%v15", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
+        abi::add_registers("%v16", "%v11", "%v16"), // storedPtr
+        abi::move_register("%v5", "x1"),          // queryCursor
+        abi::move_register("%v6", "x2"),          // remaining
         abi::label(&cloop),
-        abi::compare_immediate("x6", "0"),
+        abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&cmatch),
-        abi::load_u8("x3", "x5", 0),
-        abi::load_u8("x17", "x16", 0),
-        abi::compare_registers("x3", "x17"),
+        abi::load_u8("%v3", "%v5", 0),
+        abi::load_u8("%v17", "%v16", 0),
+        abi::compare_registers("%v3", "%v17"),
         abi::branch_ne(&pnext),
-        abi::add_immediate("x5", "x5", 1),
-        abi::add_immediate("x16", "x16", 1),
-        abi::subtract_immediate("x6", "x6", 1),
+        abi::add_immediate("%v5", "%v5", 1),
+        abi::add_immediate("%v16", "%v16", 1),
+        abi::subtract_immediate("%v6", "%v6", 1),
         abi::branch(&cloop),
         abi::label(&cmatch),
-        abi::move_register("x0", "x13"),
+        abi::move_register("x0", "%v13"),
         abi::branch(&done),
         abi::label(&pnext),
-        abi::add_immediate("x4", "x4", 1),
-        abi::compare_registers("x4", "x10"),
+        abi::add_immediate("%v4", "%v4", 1),
+        abi::compare_registers("%v4", "%v10"),
         abi::branch_lo(&nowrap),
-        abi::move_immediate("x4", "Integer", "0"),
+        abi::move_immediate("%v4", "Integer", "0"),
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&notfound),
         abi::move_immediate("x0", "Integer", "0"),
         abi::subtract_immediate("x0", "x0", 1), // -1
         abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(FRAME),
         abi::return_(),
     ];
     let relocations = vec![CodeRelocation {
@@ -2316,16 +2307,14 @@ fn lower_map_probe_helper() -> CodeFunction {
         binding: "internal".to_string(),
         library: None,
     }];
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     CodeFunction {
         name: "runtime.mapProbe".to_string(),
         symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Integer".to_string(),
-        frame: CodeFrame {
-            stack_size: FRAME,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        stack_slots: Vec::new(),
+        frame,
+        stack_slots,
         instructions,
         relocations,
     }
