@@ -34,7 +34,15 @@ impl NativeBackend for Backend {
             native_plan: true,
             native_object_plan: true,
             native_code_plan: true,
-            runtime_calls: &[],
+            // Phase 1 wires the integer core + io OUTPUT (write/print via raw
+            // `write` syscalls). io input, fs, net, term, thread, tls remain
+            // Phase 2+ (their OS methods still return a Phase-1 error).
+            runtime_calls: &[
+                "io.print",
+                "io.write",
+                "io.printError",
+                "io.writeError",
+            ],
         }
     }
 
