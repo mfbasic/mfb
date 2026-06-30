@@ -44,9 +44,6 @@ impl code::CodegenPlatform for Platform {
         "aarch64"
     }
 
-    fn preserves_link_register_in_runtime_helpers(&self) -> bool {
-        true
-    }
 
     fn termios_size(&self) -> usize {
         72

@@ -75,10 +75,6 @@ pub(crate) fn string_data_register() -> &'static str {
     "x1"
 }
 
-pub(crate) fn newline_scratch_register() -> &'static str {
-    "x9"
-}
-
 pub(crate) fn is_callee_saved(register: &str) -> bool {
     matches!(
         register,

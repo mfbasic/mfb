@@ -1704,7 +1704,7 @@ fn lower_runtime_helper(
         | "thread.emitResource"
         | "thread.readResource"
         | "thread.isCancelled" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_thread_helper(symbol, spec.call, uses_rng, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1721,7 +1721,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })

@@ -101,7 +101,6 @@ pub(super) fn lower_io_flush_helper(
     stderr: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 16;
-    const LR_OFFSET: usize = 0;
     const ERRNO_EINVAL: &str = "22";
     const ERRNO_ENOTSUP_DARWIN: &str = "45";
     const ERRNO_EOPNOTSUPP_LINUX: &str = "95";
@@ -439,7 +438,6 @@ pub(super) fn lower_io_read_byte_helper(
     app_mode: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 208;
-    const LR_OFFSET: usize = 0;
     const BYTE_OFFSET: usize = 8;
     let terminal_slots = TerminalModeSlots {
         active: 16,
@@ -532,7 +530,6 @@ pub(super) fn lower_io_is_terminal_helper(
     fd: u8,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 16;
-    const LR_OFFSET: usize = 0;
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
 
@@ -572,7 +569,6 @@ pub(super) fn lower_io_read_char_helper(
     app_mode: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 224;
-    const LR_OFFSET: usize = 0;
     const BYTES_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
     const RESULT_OFFSET: usize = 24;
@@ -903,7 +899,6 @@ pub(super) fn lower_io_read_line_helper(
     with_prompt: bool,
 ) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 256;
-    const LR_OFFSET: usize = 0;
     const BUFFER_OFFSET: usize = 8;
     const CAPACITY_OFFSET: usize = 16;
     const LENGTH_OFFSET: usize = 24;

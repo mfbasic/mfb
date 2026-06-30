@@ -16,7 +16,6 @@ use crate::arch::aarch64::abi;
 
 // Frame layout (16-aligned). The saved link register sits at the top, clear of
 // the libc scratch buffers below it.
-const FRAME_SIZE: usize = 96;
 const TIMESPEC_OFFSET: usize = 0; // struct timespec { tv_sec; tv_nsec } (16 bytes)
 const TIME_T_OFFSET: usize = 0; // time_t input to localtime_r (reuses the low slot)
 const TM_OFFSET: usize = 16; // struct tm output (>= 56 bytes)

@@ -16,7 +16,6 @@ use crate::arch::aarch64::abi;
 // Frame layout. `sp+0` is reserved for the Darwin variadic `ioctl` spill that
 // `emit_terminal_size` performs (it stores `x2` to `sp+0`), so the saved link
 // register lives at the top of the frame, well clear of it.
-const FRAME_SIZE: usize = 80;
 const LR_OFFSET: usize = 64;
 const ARG0_OFFSET: usize = 8;
 const ARG1_OFFSET: usize = 16;

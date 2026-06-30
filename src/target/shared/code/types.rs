@@ -113,7 +113,6 @@ pub(crate) struct CodeDataObject {
 pub(crate) trait CodegenPlatform {
     fn target(&self) -> &'static str;
     fn arch(&self) -> &'static str;
-    fn preserves_link_register_in_runtime_helpers(&self) -> bool;
     fn termios_size(&self) -> usize;
     fn termios_lflag_offset(&self) -> usize;
     fn termios_lflag_width(&self) -> usize;
