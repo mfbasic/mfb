@@ -1,0 +1,79 @@
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+' A showcase file for eyeballing MFBASIC syntax highlighting.
+' Every construct the grammar colors appears at least once below.
+
+REM REM is a comment only at the start of a statement.
+
+DOC
+  A documentation block. Its body is captured verbatim and is not
+  tokenized as code — except inside an EXAMPLE region.
+
+  EXAMPLE
+    LET greeting AS String = "hi"
+    io::print(greeting)
+  END EXAMPLE
+END DOC
+
+TYPE Point
+  x AS Float
+  y AS Float
+END TYPE
+
+ENUM Color
+  Red
+  Green
+  Blue
+END ENUM
+
+' Builds the masked word: revealed letters, "_" for the rest.
+FUNC buildMasked(word AS String, guessed AS String) AS String
+  MUT masked AS String = ""
+  FOR i = 0 TO len(word) - 1
+    LET ch AS String = strings::mid(word, i, 1)
+    IF strings::contains(guessed, ch) THEN
+      masked = masked & ch & " "
+    ELSE
+      masked = masked & "_ "
+    END IF
+  NEXT
+  RETURN masked
+END FUNC
+
+FUNC classify(n AS Integer) AS String
+  ' Word operators, comparisons, and constants.
+  IF n < 0 OR n = 0 THEN
+    RETURN "non-positive"
+  ELSEIF n MOD 2 = 0 AND NOT (n > 100) THEN
+    RETURN "small even"
+  END IF
+  RETURN "other"
+END FUNC
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 42, 99]
+  LET scores AS Map OF String TO Float = {}
+
+  ' Numbers: integer and decimal. No hex/binary forms exist.
+  MUT total AS Float = 0.0
+  FOR EACH n IN nums
+    total = total + 1.5
+  NEXT
+
+  ' A long expression continued with a trailing underscore.
+  LET label AS String = classify(42) & ": " & _
+    buildMasked("codex", "cod")
+
+  ' Language constants.
+  LET ready AS Boolean = TRUE
+  LET done AS Boolean = FALSE
+  MUT cache AS String = NOTHING
+
+  ' Pipe and assignment-ish operators.
+  LET shouted AS String = label |> strings::upper
+
+  io::print(shouted)
+  RETURN 0
+END FUNC

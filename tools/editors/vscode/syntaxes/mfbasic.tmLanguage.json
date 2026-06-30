@@ -1,0 +1,177 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "MFBASIC",
+  "scopeName": "source.mfbasic",
+  "fileTypes": ["mfb"],
+  "patterns": [
+    { "include": "#doc-block" },
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#numbers" },
+    { "include": "#constants" },
+    { "include": "#end-block" },
+    { "include": "#keywords" },
+    { "include": "#builtin-types" },
+    { "include": "#qualified-call" },
+    { "include": "#function-call" },
+    { "include": "#user-types" },
+    { "include": "#operators" },
+    { "include": "#line-continuation" }
+  ],
+  "repository": {
+    "doc-block": {
+      "comment": "A `DOC ... END DOC` documentation block. The keyword line may carry only whitespace-separated attribute words (e.g. `DOC INTERNAL`); the body is captured verbatim by the lexer and is not tokenized as code.",
+      "begin": "(?i)^[ \\t]*(DOC)\\b[ \\t]*([A-Za-z][A-Za-z \\t]*)?$",
+      "beginCaptures": {
+        "1": { "name": "keyword.other.documentation.begin.mfbasic" },
+        "2": { "name": "storage.modifier.documentation.mfbasic" }
+      },
+      "end": "(?i)^[ \\t]*(END[ \\t]+DOC)\\b",
+      "endCaptures": {
+        "1": { "name": "keyword.other.documentation.end.mfbasic" }
+      },
+      "name": "comment.block.documentation.mfbasic",
+      "patterns": [
+        {
+          "comment": "An EXAMPLE region inside a DOC block holds real MFBASIC source; re-inject the grammar so it highlights.",
+          "begin": "(?i)^[ \\t]*(EXAMPLE)\\b.*$",
+          "beginCaptures": {
+            "1": { "name": "keyword.other.documentation.example.begin.mfbasic" }
+          },
+          "end": "(?i)^[ \\t]*(END[ \\t]+EXAMPLE)\\b",
+          "endCaptures": {
+            "1": { "name": "keyword.other.documentation.example.end.mfbasic" }
+          },
+          "patterns": [{ "include": "$self" }]
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "comment": "Apostrophe line comment.",
+          "match": "'.*$",
+          "name": "comment.line.apostrophe.mfbasic"
+        },
+        {
+          "comment": "REM comment — only at the start of a statement (line start or after a `:` separator). Case-insensitive. Group 1 covers REM through end of line so the whole remark is colored.",
+          "match": "(?i)(?:^|:)[ \\t]*(REM\\b.*)$",
+          "captures": {
+            "1": { "name": "comment.line.rem.mfbasic" }
+          }
+        }
+      ]
+    },
+    "strings": {
+      "comment": "Double-quoted string. Not multiline — ends at the closing quote or at end of line (recovery for an unterminated literal).",
+      "begin": "\"",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.string.begin.mfbasic" }
+      },
+      "end": "\"|$",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.string.end.mfbasic" }
+      },
+      "name": "string.quoted.double.mfbasic",
+      "patterns": [
+        {
+          "comment": "Recognized escapes: \\\" \\\\ \\n \\t. Any other backslash escape simply drops the backslash in the lexer.",
+          "match": "\\\\[\"\\\\nt]",
+          "name": "constant.character.escape.mfbasic"
+        },
+        {
+          "match": "\\\\.",
+          "name": "constant.character.escape.other.mfbasic"
+        }
+      ]
+    },
+    "numbers": {
+      "comment": "Integer or decimal literal. No hex/binary/exponent/underscore/suffix forms exist in the lexer. A leading minus is the unary operator, not part of the literal.",
+      "match": "\\b\\d+(?:\\.\\d+)?\\b",
+      "name": "constant.numeric.mfbasic"
+    },
+    "constants": {
+      "match": "(?i)\\b(TRUE|FALSE|NOTHING)\\b",
+      "name": "constant.language.mfbasic"
+    },
+    "end-block": {
+      "comment": "`END <modifier>` closes a block. Color the `END` with the SAME scope as its companion keyword so the pair renders as one unit. Declaration terminators (END FUNC/SUB/TYPE/ENUM/UNION) take keyword.declaration to match FUNC/TYPE/...; control terminators (END IF/MATCH/TRAP/WITH) take keyword.control to match IF/.... A bare `END`, or `END` with any other word (e.g. END LINK), falls through to the generic control-keyword rule.",
+      "patterns": [
+        {
+          "match": "(?i)\\b(END)[ \\t]+(FUNC|SUB|TYPE|ENUM|UNION)\\b",
+          "captures": {
+            "1": { "name": "keyword.declaration.mfbasic" },
+            "2": { "name": "keyword.declaration.mfbasic" }
+          }
+        },
+        {
+          "match": "(?i)\\b(END)[ \\t]+(IF|MATCH|TRAP|WITH)\\b",
+          "captures": {
+            "1": { "name": "keyword.control.mfbasic" },
+            "2": { "name": "keyword.control.mfbasic" }
+          }
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "comment": "Control flow.",
+          "match": "(?i)\\b(IF|THEN|ELSEIF|ELSE|END|FOR|EACH|IN|TO|STEP|NEXT|WHILE|WEND|DO|LOOP|UNTIL|CONTINUE|EXIT|RETURN|MATCH|CASE|WHEN|WITH|RECOVER|PROPAGATE|FAIL|TRAP)\\b",
+          "name": "keyword.control.mfbasic"
+        },
+        {
+          "comment": "Declarations and clause keywords. Their own keyword.declaration scope (NOT keyword.control) so a theme can tint them differently from control flow. They no longer carry storage.type, which themes paint with the TYPE color.",
+          "match": "(?i)\\b(FUNC|SUB|LAMBDA|LET|MUT|TYPE|ENUM|UNION|PACKAGE|PROGRAM|IMPORT|EXPORT|PRIVATE|ISOLATED|AS|OF|RES)\\b",
+          "name": "keyword.declaration.mfbasic"
+        },
+        {
+          "comment": "Word operators.",
+          "match": "(?i)\\b(AND|OR|NOT|XOR|DIV|MOD)\\b",
+          "name": "keyword.operator.word.mfbasic"
+        }
+      ]
+    },
+    "builtin-types": {
+      "comment": "Primitive, special, and template type names.",
+      "match": "\\b(Integer|Byte|Float|Fixed|Boolean|String|Nothing|Error|ErrorLoc|Unknown|List|Map|MapEntry|Pair|Partition|Result|Thread|ThreadWorker)\\b",
+      "name": "support.type.builtin.mfbasic"
+    },
+    "qualified-call": {
+      "comment": "A `package::name` reference. The package prefix is a namespace; `::` is a scope operator; a trailing name followed by `(` is a call.",
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)(::)([A-Za-z_][A-Za-z0-9_]*)\\b(?:[ \\t]*(?=\\())?",
+      "captures": {
+        "1": { "name": "entity.name.namespace.mfbasic" },
+        "2": { "name": "punctuation.separator.namespace.mfbasic" },
+        "3": { "name": "entity.name.function.mfbasic" }
+      }
+    },
+    "function-call": {
+      "comment": "An identifier immediately followed by `(` is a call.",
+      "match": "\\b([A-Za-z_][A-Za-z0-9_]*)[ \\t]*(?=\\()",
+      "captures": {
+        "1": { "name": "entity.name.function.mfbasic" }
+      }
+    },
+    "user-types": {
+      "comment": "Convention: types are CapitalCamelCase (a capital followed by at least one lowercase letter). Keywords are matched earlier, so this only reaches user/record type names.",
+      "match": "\\b[A-Z][A-Za-z0-9_]*[a-z][A-Za-z0-9_]*\\b",
+      "name": "entity.name.type.mfbasic"
+    },
+    "operators": {
+      "patterns": [
+        { "match": "\\|>", "name": "keyword.operator.pipe.mfbasic" },
+        { "match": "->", "name": "keyword.operator.arrow.mfbasic" },
+        { "match": ":=", "name": "keyword.operator.assignment.mfbasic" },
+        { "match": "<=|>=|<>|<|>|=", "name": "keyword.operator.comparison.mfbasic" },
+        { "match": "::", "name": "punctuation.separator.namespace.mfbasic" },
+        { "match": "[+\\-*/&^]", "name": "keyword.operator.arithmetic.mfbasic" }
+      ]
+    },
+    "line-continuation": {
+      "comment": "A trailing `_` (preceded by whitespace, followed only by whitespace to end of line) continues the statement on the next line.",
+      "match": "(?<=[ \\t])_(?=[ \\t]*$)",
+      "name": "keyword.operator.continuation.mfbasic"
+    }
+  }
+}

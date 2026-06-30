@@ -1,0 +1,34 @@
+{
+  "comments": {
+    "lineComment": "'"
+  },
+  "brackets": [
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"]
+  ],
+  "autoClosingPairs": [
+    { "open": "(", "close": ")" },
+    { "open": "[", "close": "]" },
+    { "open": "{", "close": "}" },
+    { "open": "\"", "close": "\"", "notIn": ["string", "comment"] }
+  ],
+  "surroundingPairs": [
+    ["(", ")"],
+    ["[", "]"],
+    ["{", "}"],
+    ["\"", "\""]
+  ],
+  "wordPattern": "[A-Za-z_][A-Za-z0-9_]*",
+  "indentationRules": {
+    "increaseIndentPattern": "(?i)^\\s*(FUNC|SUB|TYPE|ENUM|UNION|PACKAGE|PROGRAM|FOR|WHILE|DO|MATCH|TRAP|WITH)\\b|(?i)\\b(THEN|ELSE)\\s*$",
+    "decreaseIndentPattern": "(?i)^\\s*(END|ELSE|ELSEIF|NEXT|WEND|LOOP|UNTIL|RECOVER)\\b"
+  },
+  "onEnterRules": [
+    {
+      "comment": "Continue apostrophe comments on the next line.",
+      "beforeText": "^\\s*'.*$",
+      "action": { "indent": "none" }
+    }
+  ]
+}

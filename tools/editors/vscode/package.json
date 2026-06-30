@@ -1,0 +1,30 @@
+{
+  "name": "mfbasic",
+  "displayName": "MFBASIC",
+  "description": "Syntax highlighting for the MFBASIC language (.mfb).",
+  "version": "0.1.0",
+  "publisher": "mfbasic",
+  "license": "SEE LICENSE IN ../../../LICENSE",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "categories": ["Programming Languages"],
+  "keywords": ["mfbasic", "mfb", "basic"],
+  "contributes": {
+    "languages": [
+      {
+        "id": "mfbasic",
+        "aliases": ["MFBASIC", "mfbasic"],
+        "extensions": [".mfb"],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "mfbasic",
+        "scopeName": "source.mfbasic",
+        "path": "./syntaxes/mfbasic.tmLanguage.json"
+      }
+    ]
+  }
+}
