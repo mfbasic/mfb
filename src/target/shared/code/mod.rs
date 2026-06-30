@@ -1291,7 +1291,7 @@ fn lower_runtime_helper(
         }
         "fs.open" | "fs.openFile" | "fs.openFileNoFollow" => {
             let no_follow = spec.call == "fs.openFileNoFollow";
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_open_helper(symbol, platform_imports, platform, no_follow)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1308,7 +1308,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -1337,7 +1337,7 @@ fn lower_runtime_helper(
             })
         }
         "fs.close" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_close_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1354,13 +1354,13 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.writeAll" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_write_all_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1377,13 +1377,13 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.writeAllBytes" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_write_all_bytes_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1400,7 +1400,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -1528,7 +1528,7 @@ fn lower_runtime_helper(
             })
         }
         "fs.readAll" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_read_all_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1545,13 +1545,13 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.readAllBytes" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_read_all_bytes_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1568,13 +1568,13 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.readLine" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_read_line_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1591,13 +1591,13 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.eof" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_eof_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1614,7 +1614,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -1743,8 +1743,14 @@ fn lower_runtime_helper(
                     net::lower_net_write_helper(symbol, platform_imports, platform, true)?
                 }
                 // A socket/listener handle shares the `File` record layout, so the
-                // standard file close helper closes net handles too.
-                "net.close" => lower_fs_close_helper(symbol, platform_imports, platform)?,
+                // standard file close helper closes net handles too. The close helper
+                // is vreg-allocated (its frame already accounts for any spill); the
+                // net path tracks stack slots via the frame, so drop the slot list.
+                "net.close" => {
+                    let (frame, instructions, relocations, _stack_slots) =
+                        lower_fs_close_helper(symbol, platform_imports, platform)?;
+                    (frame, instructions, relocations)
+                }
                 "net.localAddress" => {
                     net::lower_net_address_helper(symbol, platform_imports, platform, false)?
                 }

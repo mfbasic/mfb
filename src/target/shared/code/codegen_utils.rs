@@ -536,7 +536,28 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
     if offset_delta == 0 {
         return;
     }
+    // `sp`-relative accesses are shifted to clear the callee-saved area the frame
+    // prologue adds. But a platform hook may bracket a call with its own
+    // `sub_sp N … str x, [sp, k] … add_sp N` to pass a variadic stack argument
+    // (e.g. the `open` mode on Darwin); those `[sp, k]` are relative to that local
+    // region, not the function frame, and must NOT be shifted. Track the local
+    // stack-adjustment depth and only shift accesses at depth 0.
+    let mut depth = 0usize;
     for instruction in instructions {
+        match instruction.op {
+            CodeOp::SubSp => {
+                depth += 1;
+                continue;
+            }
+            CodeOp::AddSp => {
+                depth = depth.saturating_sub(1);
+                continue;
+            }
+            _ => {}
+        }
+        if depth > 0 {
+            continue;
+        }
         let stack_relative = instruction
             .fields
             .iter()
