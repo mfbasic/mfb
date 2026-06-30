@@ -1314,7 +1314,7 @@ fn lower_runtime_helper(
             })
         }
         "fs.createTempFile" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_create_temp_file_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1331,7 +1331,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -1406,7 +1406,7 @@ fn lower_runtime_helper(
             })
         }
         "fs.readText" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_read_text_path_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1423,13 +1423,13 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.readBytes" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_read_bytes_path_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1446,14 +1446,14 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.writeText" | "fs.appendText" => {
             let append = spec.call == "fs.appendText";
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_write_text_path_helper(symbol, platform_imports, platform, append)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1470,14 +1470,14 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "fs.writeBytes" | "fs.appendBytes" => {
             let append = spec.call == "fs.appendBytes";
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_write_bytes_path_helper(symbol, platform_imports, platform, append)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1494,7 +1494,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -1505,7 +1505,7 @@ fn lower_runtime_helper(
             } else {
                 AtomicWriteValueKind::Bytes
             };
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_atomic_write_helper(symbol, platform_imports, platform, value_kind)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1522,7 +1522,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
