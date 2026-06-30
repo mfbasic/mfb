@@ -527,38 +527,40 @@ pub(crate) fn lower_module_for_platform(
                     )
                 })??;
             // The worker runs the standard program-entry logic under its own symbol.
-            code_functions.push(lower_program_entry(
-                MACAPP_PROGRAM_SYMBOL,
-                &language_entry_symbol,
-                &entry.returns,
-                entry.accepts_args,
-                global_initializer_symbol.as_deref(),
-                link_init_symbol,
-                entry_stack_size,
-                entry_global_slots,
+            code_functions.push(platform.emit_program_entry(
+                &ProgramEntrySpec {
+                    entry_symbol: MACAPP_PROGRAM_SYMBOL,
+                    language_entry_symbol: &language_entry_symbol,
+                    language_entry_returns: &entry.returns,
+                    language_entry_accepts_args: entry.accepts_args,
+                    global_initializer_symbol: global_initializer_symbol.as_deref(),
+                    link_init_symbol,
+                    entry_stack_size,
+                    global_slot_count: entry_global_slots,
+                    emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
+                    seed_rng: uses_rng,
+                    register_signal_handlers,
+                },
                 &platform_imports,
-                platform,
-                module_may_record_cleanup_failure(module),
-                uses_rng,
-                register_signal_handlers,
             )?);
             code_functions.extend(app_entry);
             data_objects.extend(platform.app_mode_data_objects());
         } else {
-            code_functions.push(lower_program_entry(
-                "_main",
-                &language_entry_symbol,
-                &entry.returns,
-                entry.accepts_args,
-                global_initializer_symbol.as_deref(),
-                link_init_symbol,
-                entry_stack_size,
-                entry_global_slots,
+            code_functions.push(platform.emit_program_entry(
+                &ProgramEntrySpec {
+                    entry_symbol: "_main",
+                    language_entry_symbol: &language_entry_symbol,
+                    language_entry_returns: &entry.returns,
+                    language_entry_accepts_args: entry.accepts_args,
+                    global_initializer_symbol: global_initializer_symbol.as_deref(),
+                    link_init_symbol,
+                    entry_stack_size,
+                    global_slot_count: entry_global_slots,
+                    emit_cleanup_failure_audit: module_may_record_cleanup_failure(module),
+                    seed_rng: uses_rng,
+                    register_signal_handlers,
+                },
                 &platform_imports,
-                platform,
-                module_may_record_cleanup_failure(module),
-                uses_rng,
-                register_signal_handlers,
             )?);
         }
     }
@@ -770,7 +772,7 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| symbol == "_mfb_rt_thread_thread_start")
     {
-        code_functions.push(lower_thread_trampoline(&platform_imports, platform)?);
+        code_functions.push(platform.emit_thread_trampoline(&platform_imports)?);
     }
 
     // Native `LINK` marshaling thunks + load-time initializer (plan-linker.md §12).
@@ -2329,6 +2331,8 @@ pub(crate) use types::*;
 mod validation;
 mod entry_and_arena;
 use entry_and_arena::*;
+pub(crate) use entry_and_arena::lower_program_entry;
+pub(crate) use runtime_helpers::lower_thread_trampoline;
 mod codegen_utils;
 use codegen_utils::*;
 mod code_impl;

@@ -554,7 +554,7 @@ fn lower_thread_start_helper(
     ))
 }
 
-pub(super) fn lower_thread_trampoline(
+pub(crate) fn lower_thread_trampoline(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {

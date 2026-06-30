@@ -359,6 +359,28 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
+    /// Emit the program entry point (`_main` / the app worker symbol). Each backend
+    /// emits its own ISA-specific bootstrap (plan-00-G): entry pins the arena-state
+    /// register, lays out the entry-stack arena, seeds the RNG, installs signal
+    /// handlers, runs initializers + the language entry, then tears down and exits.
+    /// It is not allocator-managed vreg MIR because it establishes the invariants
+    /// the allocator presumes. A required method, so a new backend cannot be added
+    /// without supplying its entry sequence.
+    fn emit_program_entry(
+        &self,
+        spec: &ProgramEntrySpec<'_>,
+        platform_imports: &HashMap<String, String>,
+    ) -> Result<CodeFunction, String>;
+
+    /// Emit the thread trampoline (`_mfb_rt_thread_trampoline`) the OS thread
+    /// primitive enters: it sets up the child's arena-state register and stack,
+    /// runs the worker, and exits the thread. Per-backend for the same reason as
+    /// [`Self::emit_program_entry`].
+    fn emit_thread_trampoline(
+        &self,
+        platform_imports: &HashMap<String, String>,
+    ) -> Result<CodeFunction, String>;
+
     /// Read-only data objects (Obj-C class/selector C strings, window title,
     /// env-var names) referenced by the app-mode bootstrap. Empty otherwise.
     fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
@@ -460,6 +482,25 @@ pub(crate) struct AppEntrySpec {
     /// Whether the program uses `term::` (so the app-mode finish path should
     /// auto-`term::off()` to restore the transcript, plan-01-term.md §6.5).
     pub(crate) uses_term: bool,
+}
+
+/// Everything the per-backend program-entry emitter needs (plan-00-G). Program
+/// entry is the runtime's machine floor — it *establishes* the `arena_base`/stack
+/// invariants every other helper presumes (it has no caller, sets up `sp`, and
+/// tail-exits), so it is emitted by each backend via [`CodegenPlatform::emit_program_entry`]
+/// rather than expressed as allocator-managed vreg MIR.
+pub(crate) struct ProgramEntrySpec<'a> {
+    pub(crate) entry_symbol: &'a str,
+    pub(crate) language_entry_symbol: &'a str,
+    pub(crate) language_entry_returns: &'a str,
+    pub(crate) language_entry_accepts_args: bool,
+    pub(crate) global_initializer_symbol: Option<&'a str>,
+    pub(crate) link_init_symbol: Option<&'a str>,
+    pub(crate) entry_stack_size: usize,
+    pub(crate) global_slot_count: usize,
+    pub(crate) emit_cleanup_failure_audit: bool,
+    pub(crate) seed_rng: bool,
+    pub(crate) register_signal_handlers: bool,
 }
 
 #[derive(Clone, Copy)]

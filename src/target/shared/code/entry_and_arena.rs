@@ -1,7 +1,7 @@
 use super::*;
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn lower_program_entry(
+pub(crate) fn lower_program_entry(
     entry_symbol: &str,
     language_entry_symbol: &str,
     language_entry_returns: &str,

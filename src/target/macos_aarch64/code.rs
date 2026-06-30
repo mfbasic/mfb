@@ -3,8 +3,8 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent, MirPlan,
-    NativeCodePlan,
+    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
+    NativeCodePlan, ProgramEntrySpec, RelocIntent,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
@@ -86,6 +86,35 @@ impl code::CodegenPlatform for Platform {
         _platform_imports: &HashMap<String, String>,
     ) -> Option<Result<Vec<CodeFunction>, String>> {
         Some(app::emit_app_program_entry(spec))
+    }
+
+    fn emit_program_entry(
+        &self,
+        spec: &ProgramEntrySpec<'_>,
+        platform_imports: &HashMap<String, String>,
+    ) -> Result<CodeFunction, String> {
+        code::lower_program_entry(
+            spec.entry_symbol,
+            spec.language_entry_symbol,
+            spec.language_entry_returns,
+            spec.language_entry_accepts_args,
+            spec.global_initializer_symbol,
+            spec.link_init_symbol,
+            spec.entry_stack_size,
+            spec.global_slot_count,
+            platform_imports,
+            self,
+            spec.emit_cleanup_failure_audit,
+            spec.seed_rng,
+            spec.register_signal_handlers,
+        )
+    }
+
+    fn emit_thread_trampoline(
+        &self,
+        platform_imports: &HashMap<String, String>,
+    ) -> Result<CodeFunction, String> {
+        code::lower_thread_trampoline(platform_imports, self)
     }
 
     fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
