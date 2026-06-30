@@ -63,7 +63,9 @@ and `extending` are quick references. The deeper-dive topics specify individual
 stages in reimplementable detail: `monomorphization` (template instantiation,
 symbol mangling, overload resolution, between `frontend` and `ir`), `native-ir`
 (the NIR representation and IR→NIR lowering), `aarch64-instruction-set` (the
-instruction repertoire the encoder emits), `math-kernels` (the in-tree `Float`/
+instruction repertoire the encoder emits), `mir-instruction-set` (the
+target-neutral machine IR the backend lowers to and selects from, under active
+construction), `math-kernels` (the in-tree `Float`/
 `Fixed` math kernels, their accuracy/determinism contract, and validation),
 `internal-naming` (the unforgeable sigil scheme for built-in package internals),
 and `ir-json-artifact` (the `<name>.ir` debug serialization).
