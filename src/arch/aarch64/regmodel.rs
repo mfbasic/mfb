@@ -113,7 +113,16 @@ impl RegisterModel for Aarch64RegisterModel {
                 return Some(RegClass::Int);
             }
         }
-        if let Some(rest) = reg.strip_prefix('d').or_else(|| reg.strip_prefix('v')) {
+        // The FP/SIMD class is one physical file viewed at three widths: the
+        // scalar `dN` (f64), the NEON `vN` (lane view), and the `qN` (the
+        // 128-bit `v128` view, plan-00-E). All three name the same register and
+        // belong to `RegClass::Fp`, so a `v128` value and a scalar float compete
+        // for the same homes.
+        if let Some(rest) = reg
+            .strip_prefix('d')
+            .or_else(|| reg.strip_prefix('v'))
+            .or_else(|| reg.strip_prefix('q'))
+        {
             if rest.parse::<u8>().is_ok() {
                 return Some(RegClass::Fp);
             }

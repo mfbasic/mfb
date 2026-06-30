@@ -67,6 +67,7 @@ macro_rules! mir_ops {
     (
         mirror { $($mv:ident),+ $(,)? }
         renamed { $($rc:ident => $rv:ident => $rm:literal),+ $(,)? }
+        simd { $($sv:ident => $sm:literal),+ $(,)? }
         fused { $($fv:ident => $fm:literal),+ $(,)? }
         expand { $($ev:ident => $em:literal),+ $(,)? }
     ) => {
@@ -75,29 +76,32 @@ macro_rules! mir_ops {
         pub(crate) enum MirOp {
             $($mv,)+
             $($rv,)+
+            $($sv,)+
             $($fv,)+
             $($ev,)+
         }
 
         impl MirOp {
             /// Map a selected AArch64 [`CodeOp`] up to its MIR op. Total over
-            /// `CodeOp` (every `CodeOp` is a mirror *or* a renamed variant; the
-            /// fused/expand ops are produced by fusion in [`lower_to_mir`], never
-            /// by `from_code`).
+            /// `CodeOp` (every `CodeOp` is a mirror, a renamed, or a `v128`
+            /// variant; the fused/expand ops are produced by fusion in
+            /// [`lower_to_mir`], never by `from_code`).
             fn from_code(op: CodeOp) -> Self {
                 match op {
                     $(CodeOp::$mv => MirOp::$mv,)+
                     $(CodeOp::$rc => MirOp::$rv,)+
+                    $(CodeOp::$sv => MirOp::$sv,)+
                 }
             }
 
-            /// The single AArch64 [`CodeOp`] a mirror/renamed op selects, or
-            /// `None` for a fused control-flow op or a structural expand op
+            /// The single AArch64 [`CodeOp`] a mirror/renamed/`v128` op selects,
+            /// or `None` for a fused control-flow op or a structural expand op
             /// (which expand to two instructions — see [`select_aarch64`]).
             fn to_code(self) -> Option<CodeOp> {
                 match self {
                     $(MirOp::$mv => Some(CodeOp::$mv),)+
                     $(MirOp::$rv => Some(CodeOp::$rc),)+
+                    $(MirOp::$sv => Some(CodeOp::$sv),)+
                     $(MirOp::$fv => None,)+
                     $(MirOp::$ev => None,)+
                 }
@@ -108,9 +112,17 @@ macro_rules! mir_ops {
                 match self {
                     $(MirOp::$mv => CodeOp::$mv.mnemonic(),)+
                     $(MirOp::$rv => $rm,)+
+                    $(MirOp::$sv => $sm,)+
                     $(MirOp::$fv => $fm,)+
                     $(MirOp::$ev => $em,)+
                 }
+            }
+
+            /// Whether this op is a `v128` SIMD op (the neutral NEON-tail
+            /// vocabulary, plan-00-E). Used by the `-mir` neutrality checks.
+            #[cfg(test)]
+            pub(crate) fn is_v128(self) -> bool {
+                matches!(self, $(MirOp::$sv)|+)
             }
         }
     };
@@ -123,12 +135,7 @@ mir_ops!(
         BranchEq, BranchNe, BranchGe, BranchLt, BranchGt, BranchLe, BranchVc, BranchVs, BranchHi,
         BranchLo, BranchMi, BranchLs, Branch, BranchLink, BranchLinkRegister, BranchSelf, Svc, Ret,
         LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU8, LdrD, StrD, Adrp, AddPageOff,
-        FMovDFromD, FAddD, FSubD, FMulD, FDivD, FNegD, FAbsD, FSqrtD, FCmpD, FCmpZeroD, LdrQ, StrQ,
-        FAddV, FSubV, FMulV, FDivV, FMlaV, FMlsV, FMinV, FMaxV, FCmGtV, FCmGeV, FCmEqV, FAbsV,
-        FNegV, FSqrtV, FRintpV, FRintmV, FRintaV, FRintnV, FRintzV, FCvtzsV, FCvtasV, ScvtfV,
-        FCmGtZeroV, FCmGeZeroV, FCmEqZeroV, FCmLtZeroV, FCmLeZeroV, AddV, SubV, CmGtV, CmGeV, CmEqV,
-        SshlV, UshlV, NegV, AbsV, AndV, OrrV, EorV, BslV, BitV, ShlV, SshrV, UshrV, DupVFromX,
-        UmovXFromV, FMaddD,
+        FMovDFromD, FAddD, FSubD, FMulD, FDivD, FNegD, FAbsD, FSqrtD, FCmpD, FCmpZeroD, FMaddD,
     }
     // Neutral semantic names for the AArch64-specific scalar shapes (plan-00-C
     // Phases 3 & 4). `CodeOp` (lhs) ⇒ `MirOp` (mid) ⇒ neutral mnemonic (rhs);
@@ -151,6 +158,78 @@ mir_ops!(
         SCvtfDFromX => I2f => "i2f",                 // scvtf:  signed int → f64
         FMovDFromX => FmovI2f => "fmov_i2f",         // fmov:   i64 bits → f64 (reinterpret)
         FMovXFromD => FmovF2i => "fmov_f2i",         // fmov:   f64 bits → i64 (reinterpret)
+    }
+    // The fixed-width `v128` SIMD vocabulary (plan-00-E, `mir.md §6`): the whole
+    // NEON tail of `CodeOp`, re-expressed as neutral lane ops. Each maps 1:1 to
+    // its NEON `CodeOp` (the MirOp variant keeps the name; only the *mnemonic*
+    // is neutralized — the `v128.` namespace), so selection is byte-identical
+    // and only the `-mir` dump changes (no `fadd_v`/`fmla_v`/`frintn_v`/`bsl_v`
+    // mnemonic survives). Lanes are `2×f64` / `2×i64` / `16×i8` as the op needs;
+    // the lane semantics (NaN of `fmin`/`fmax`, `bsl`/`bit` mask polarity,
+    // round-mode ties, lane-compare all-ones/zero masks) are the contract the
+    // x86_64 (SSE2+FMA3+SSE4.1) and rv64 (scalarized) backends realize against
+    // — pinned by the lane-semantics test matrix below (`mir.md §6`, §12.1).
+    simd {
+        // 128-bit vector load / store.
+        LdrQ => "v128.load",
+        StrQ => "v128.store",
+        // FP three-same `.2d` (two f64 lanes).
+        FAddV => "v128.fadd",
+        FSubV => "v128.fsub",
+        FMulV => "v128.fmul",
+        FDivV => "v128.fdiv",
+        FMlaV => "v128.fma",     // fused multiply-accumulate: dst += lhs*rhs
+        FMlsV => "v128.fms",     // fused multiply-subtract:   dst -= lhs*rhs
+        FMinV => "v128.fmin",    // NaN-propagating min (NEON `fmin`, not `fminnm`)
+        FMaxV => "v128.fmax",    // NaN-propagating max
+        // FP lane compares → per-lane all-ones (true) / all-zeros (false) mask.
+        FCmGtV => "v128.fcmp_gt",
+        FCmGeV => "v128.fcmp_ge",
+        FCmEqV => "v128.fcmp_eq",
+        // FP two-reg-misc `.2d`.
+        FAbsV => "v128.fabs",
+        FNegV => "v128.fneg",
+        FSqrtV => "v128.fsqrt",
+        // Round to integral f64, by mode (the `frint*` family).
+        FRintpV => "v128.fround_ceil",     // toward +inf
+        FRintmV => "v128.fround_floor",    // toward -inf
+        FRintaV => "v128.fround_nearest",  // nearest, ties away from zero
+        FRintnV => "v128.fround_even",     // nearest, ties to even
+        FRintzV => "v128.fround_trunc",    // toward zero
+        // Lane f64↔i64 conversions (mirror the scalar plan-00-C names).
+        FCvtzsV => "v128.f2i_trunc",       // f64→i64 toward zero
+        FCvtasV => "v128.f2i_nearest",     // f64→i64 nearest, ties away
+        ScvtfV => "v128.i2f",              // i64→f64 signed
+        // FP compare-against-zero `.2d` → lane mask.
+        FCmGtZeroV => "v128.fcmp_gt_zero",
+        FCmGeZeroV => "v128.fcmp_ge_zero",
+        FCmEqZeroV => "v128.fcmp_eq_zero",
+        FCmLtZeroV => "v128.fcmp_lt_zero",
+        FCmLeZeroV => "v128.fcmp_le_zero",
+        // Integer three-same `.2d` (two i64 lanes).
+        AddV => "v128.add",
+        SubV => "v128.sub",
+        CmGtV => "v128.icmp_gt",   // signed lane compare → lane mask
+        CmGeV => "v128.icmp_ge",
+        CmEqV => "v128.icmp_eq",
+        SshlV => "v128.sshl",      // signed variable lane shift (neg rhs = right)
+        UshlV => "v128.ushl",      // unsigned variable lane shift
+        // Integer two-reg-misc `.2d`.
+        NegV => "v128.neg",
+        AbsV => "v128.abs",
+        // Bitwise three-same `.16b`.
+        AndV => "v128.and",
+        OrrV => "v128.or",
+        EorV => "v128.xor",
+        BslV => "v128.bsl",        // bit-select: mask in dst picks lhs vs rhs bits
+        BitV => "v128.bit",        // bit-insert-if-true (mask in rhs)
+        // Shifted-immediate `.2d`.
+        ShlV => "v128.shl_imm",
+        SshrV => "v128.sshr_imm",
+        UshrV => "v128.ushr_imm",
+        // Lane broadcast / extract (scalar GPR ↔ lane).
+        DupVFromX => "v128.dup_from_gpr",
+        UmovXFromV => "v128.umov_to_gpr",
     }
     fused {
         // Flagless compare-and-branch (`mir.md §5`): one neutral op for the
@@ -767,9 +846,7 @@ mod tests {
             CodeOp::BranchMi,
             CodeOp::Ret,
             CodeOp::LdrD,
-            CodeOp::FMaddD,
-            CodeOp::DupVFromX,
-            CodeOp::UmovXFromV,
+            CodeOp::FMaddD, // scalar fused multiply-add — stays a mirror op
             CodeOp::Clz,  // already-neutral exotic int op — stays a mirror
             CodeOp::Rbit, // (clz/rbit/msub keep their semantic AArch64 name)
             CodeOp::MSub,
@@ -808,6 +885,161 @@ mod tests {
             // Neutral MIR mnemonic, and it no longer names the AArch64 op.
             assert_eq!(mir.mnemonic(), neutral);
             assert_ne!(mir.mnemonic(), code.mnemonic());
+        }
+    }
+
+    /// The whole `v128` SIMD vocabulary (plan-00-E): each NEON `CodeOp` maps 1:1
+    /// to its `MirOp` (so selection/encoding stay byte-identical) but carries a
+    /// neutral `v128.*` mnemonic — no `*_v` NEON mnemonic survives in the MIR
+    /// (`mir.md §6`, validation §5). Covers every renamed NEON op exhaustively.
+    #[test]
+    fn v128_ops_are_neutral_but_select_back_identically() {
+        let cases = [
+            (CodeOp::LdrQ, "v128.load"),
+            (CodeOp::StrQ, "v128.store"),
+            (CodeOp::FAddV, "v128.fadd"),
+            (CodeOp::FSubV, "v128.fsub"),
+            (CodeOp::FMulV, "v128.fmul"),
+            (CodeOp::FDivV, "v128.fdiv"),
+            (CodeOp::FMlaV, "v128.fma"),
+            (CodeOp::FMlsV, "v128.fms"),
+            (CodeOp::FMinV, "v128.fmin"),
+            (CodeOp::FMaxV, "v128.fmax"),
+            (CodeOp::FCmGtV, "v128.fcmp_gt"),
+            (CodeOp::FCmGeV, "v128.fcmp_ge"),
+            (CodeOp::FCmEqV, "v128.fcmp_eq"),
+            (CodeOp::FAbsV, "v128.fabs"),
+            (CodeOp::FNegV, "v128.fneg"),
+            (CodeOp::FSqrtV, "v128.fsqrt"),
+            (CodeOp::FRintpV, "v128.fround_ceil"),
+            (CodeOp::FRintmV, "v128.fround_floor"),
+            (CodeOp::FRintaV, "v128.fround_nearest"),
+            (CodeOp::FRintnV, "v128.fround_even"),
+            (CodeOp::FRintzV, "v128.fround_trunc"),
+            (CodeOp::FCvtzsV, "v128.f2i_trunc"),
+            (CodeOp::FCvtasV, "v128.f2i_nearest"),
+            (CodeOp::ScvtfV, "v128.i2f"),
+            (CodeOp::FCmGtZeroV, "v128.fcmp_gt_zero"),
+            (CodeOp::FCmGeZeroV, "v128.fcmp_ge_zero"),
+            (CodeOp::FCmEqZeroV, "v128.fcmp_eq_zero"),
+            (CodeOp::FCmLtZeroV, "v128.fcmp_lt_zero"),
+            (CodeOp::FCmLeZeroV, "v128.fcmp_le_zero"),
+            (CodeOp::AddV, "v128.add"),
+            (CodeOp::SubV, "v128.sub"),
+            (CodeOp::CmGtV, "v128.icmp_gt"),
+            (CodeOp::CmGeV, "v128.icmp_ge"),
+            (CodeOp::CmEqV, "v128.icmp_eq"),
+            (CodeOp::SshlV, "v128.sshl"),
+            (CodeOp::UshlV, "v128.ushl"),
+            (CodeOp::NegV, "v128.neg"),
+            (CodeOp::AbsV, "v128.abs"),
+            (CodeOp::AndV, "v128.and"),
+            (CodeOp::OrrV, "v128.or"),
+            (CodeOp::EorV, "v128.xor"),
+            (CodeOp::BslV, "v128.bsl"),
+            (CodeOp::BitV, "v128.bit"),
+            (CodeOp::ShlV, "v128.shl_imm"),
+            (CodeOp::SshrV, "v128.sshr_imm"),
+            (CodeOp::UshrV, "v128.ushr_imm"),
+            (CodeOp::DupVFromX, "v128.dup_from_gpr"),
+            (CodeOp::UmovXFromV, "v128.umov_to_gpr"),
+        ];
+        for (code, neutral) in cases {
+            let mir = MirOp::from_code(code);
+            assert_eq!(mir.to_code(), Some(code), "v128 op must select 1:1");
+            assert_eq!(mir.mnemonic(), neutral);
+            assert!(mir.is_v128(), "{neutral} should be classed as a v128 op");
+            // Neutral name: in the `v128.` namespace, never the AArch64 `*_v`.
+            assert!(mir.mnemonic().starts_with("v128."));
+            assert_ne!(mir.mnemonic(), code.mnemonic());
+            assert!(!mir.mnemonic().ends_with("_v"));
+        }
+    }
+
+    /// **The `v128` lane-semantics contract** (plan-00-E Phase 4, `mir.md §6`).
+    ///
+    /// This is the contract the x86_64 (SSE2+FMA3+SSE4.1) and rv64 (scalarized)
+    /// backends are judged against — the silent-bug surface where a wrong lane
+    /// op breaks the ≤1-ULP kernels without a crash. On AArch64 it is realized
+    /// by the (unchanged) NEON encoder; pinning it here makes it an executable
+    /// acceptance the new backends must reproduce. Each entry fixes the op's
+    /// **lane shape** and its **edge-case semantics** (the parts that genuinely
+    /// differ across ISAs); the executable golden vectors are the runtime ULP
+    /// harness (`tools/math-kernels/runtime_ulp.py`, the transcendental kernels)
+    /// and the `vector::` / `math::`-array acceptance fixtures, which exercise
+    /// these ops observably and stay byte-identical under `-codegen mir`.
+    #[test]
+    fn v128_lane_semantics_contract() {
+        // (op, lane shape, the cross-ISA-significant semantic to reproduce)
+        let contract = [
+            (CodeOp::LdrQ, "mem128", "load 16 bytes, no lane interpretation"),
+            (CodeOp::StrQ, "mem128", "store 16 bytes, no lane interpretation"),
+            (CodeOp::FAddV, "2xf64", "IEEE add per lane"),
+            (CodeOp::FSubV, "2xf64", "IEEE sub per lane"),
+            (CodeOp::FMulV, "2xf64", "IEEE mul per lane"),
+            (CodeOp::FDivV, "2xf64", "IEEE div per lane"),
+            (CodeOp::FMlaV, "2xf64", "fused dst += lhs*rhs, single rounding (needs x86 FMA3)"),
+            (CodeOp::FMlsV, "2xf64", "fused dst -= lhs*rhs, single rounding (needs x86 FMA3)"),
+            (CodeOp::FMinV, "2xf64", "NaN-PROPAGATING min (NEON fmin); x86 must match minpd+NaN fixup, NOT bare minpd"),
+            (CodeOp::FMaxV, "2xf64", "NaN-PROPAGATING max; x86 maxpd+NaN fixup"),
+            (CodeOp::FCmGtV, "2xf64", "lane mask: all-ones if a>b (ordered, NaN→0), else all-zeros"),
+            (CodeOp::FCmGeV, "2xf64", "lane mask: all-ones if a>=b (ordered)"),
+            (CodeOp::FCmEqV, "2xf64", "lane mask: all-ones if a==b (ordered)"),
+            (CodeOp::FAbsV, "2xf64", "clear sign bit per lane"),
+            (CodeOp::FNegV, "2xf64", "flip sign bit per lane"),
+            (CodeOp::FSqrtV, "2xf64", "IEEE sqrt per lane"),
+            (CodeOp::FRintpV, "2xf64", "round to integral, toward +inf"),
+            (CodeOp::FRintmV, "2xf64", "round to integral, toward -inf"),
+            (CodeOp::FRintaV, "2xf64", "round to integral, nearest, ties AWAY from zero"),
+            (CodeOp::FRintnV, "2xf64", "round to integral, nearest, ties to EVEN (x86 roundpd mode 0)"),
+            (CodeOp::FRintzV, "2xf64", "round to integral, toward zero (truncate)"),
+            (CodeOp::FCvtzsV, "f64->i64 x2", "convert toward zero, saturating to i64"),
+            (CodeOp::FCvtasV, "f64->i64 x2", "convert nearest ties-away, saturating to i64"),
+            (CodeOp::ScvtfV, "i64->f64 x2", "signed i64 → f64 per lane"),
+            (CodeOp::FCmGtZeroV, "2xf64", "lane mask vs +0.0: all-ones if a>0"),
+            (CodeOp::FCmGeZeroV, "2xf64", "lane mask vs +0.0: all-ones if a>=0"),
+            (CodeOp::FCmEqZeroV, "2xf64", "lane mask vs +0.0: all-ones if a==0 (±0 both match)"),
+            (CodeOp::FCmLtZeroV, "2xf64", "lane mask vs +0.0: all-ones if a<0"),
+            (CodeOp::FCmLeZeroV, "2xf64", "lane mask vs +0.0: all-ones if a<=0"),
+            (CodeOp::AddV, "2xi64", "wrapping add per lane"),
+            (CodeOp::SubV, "2xi64", "wrapping sub per lane"),
+            (CodeOp::CmGtV, "2xi64", "lane mask: all-ones if signed a>b"),
+            (CodeOp::CmGeV, "2xi64", "lane mask: all-ones if signed a>=b"),
+            (CodeOp::CmEqV, "2xi64", "lane mask: all-ones if a==b"),
+            (CodeOp::SshlV, "2xi64", "signed variable shift: rhs>=0 left, rhs<0 arithmetic right"),
+            (CodeOp::UshlV, "2xi64", "unsigned variable shift: rhs>=0 left, rhs<0 logical right"),
+            (CodeOp::NegV, "2xi64", "two's-complement negate per lane"),
+            (CodeOp::AbsV, "2xi64", "absolute value per lane"),
+            (CodeOp::AndV, "16xi8", "bitwise and over all 128 bits"),
+            (CodeOp::OrrV, "16xi8", "bitwise or over all 128 bits"),
+            (CodeOp::EorV, "16xi8", "bitwise xor over all 128 bits"),
+            (CodeOp::BslV, "16xi8", "bit-select: result = (dst & a) | (~dst & b); MASK lives in dst (≠ x86 blendv sign-bit)"),
+            (CodeOp::BitV, "16xi8", "bit-insert-if-true: dst = (dst & ~mask) | (lhs & mask), mask in rhs"),
+            (CodeOp::ShlV, "2xi64", "shift-left by immediate per lane"),
+            (CodeOp::SshrV, "2xi64", "arithmetic shift-right by immediate per lane"),
+            (CodeOp::UshrV, "2xi64", "logical shift-right by immediate per lane"),
+            (CodeOp::DupVFromX, "i64->2xi64", "broadcast a GPR into both lanes"),
+            (CodeOp::UmovXFromV, "lane->i64", "extract one lane into a GPR (zero-extend)"),
+        ];
+        // Completeness: exactly one contract row per `v128` op, and every row is
+        // a v128 op with a `2xf64`/`2xi64`/`16xi8`/conversion/mem lane shape. The
+        // count must match the neutrality test's 48-op coverage, so a newly added
+        // v128 op cannot slip in without a pinned lane-semantics contract.
+        assert_eq!(contract.len(), 48, "every v128 op needs a lane-semantics contract row");
+        let valid_shapes = [
+            "mem128", "2xf64", "2xi64", "16xi8", "f64->i64 x2", "i64->f64 x2", "i64->2xi64",
+            "lane->i64",
+        ];
+        for (op, shape, semantics) in contract {
+            let mir = MirOp::from_code(op);
+            assert!(mir.is_v128(), "{} must be a v128 op", mir.mnemonic());
+            assert!(valid_shapes.contains(&shape), "{}: unknown lane shape {shape}", mir.mnemonic());
+            assert!(!semantics.is_empty(), "{}: empty contract", mir.mnemonic());
+        }
+        // No two rows name the same op (the table is a function, total over v128).
+        let mut seen = std::collections::HashSet::new();
+        for (op, _, _) in contract {
+            assert!(seen.insert(op.mnemonic()), "duplicate contract row for {}", op.mnemonic());
         }
     }
 
@@ -1049,7 +1281,8 @@ mod tests {
             CodeInstruction::new("fcvtms_x_from_d").field("dst", "%v24").field("src", "%f3"),
             CodeInstruction::new("fmov_d_from_x").field("dst", "%f4").field("src", "%v0"),
             CodeInstruction::new("fmov_x_from_d").field("dst", "%v25").field("src", "%f4"),
-            // — NEON v128 op —
+            // — NEON `v128` op (plan-00-E): the `fmla_v` MAC neutralizes to
+            //   `v128.fma`; no `*_v` NEON mnemonic survives —
             CodeInstruction::new("fmla_v").field("dst", "%f5").field("lhs", "%f3").field("rhs", "%f4"),
             // — fused flagless control flow (Phases B/C neighbours) —
             CodeInstruction::new("cmp").field("lhs", "%v0").field("rhs", "%v1"),
@@ -1058,20 +1291,29 @@ mod tests {
         assert_round_trips(&fixtures);
 
         // And the resulting MIR names nothing AArch64-specific from the
-        // neutralized families (validation §5).
+        // neutralized families (validation §5): the exotic ints, the scalar
+        // float↔int conversions, the `adrp` page pair, and the NEON `*_v` tail.
         let mir = lower_to_mir(&fixtures);
         let banned = [
             "adrp", "add_pageoff", "smulh", "umulh", "adc", "rorv", "rorv_w", "rev_w", "rev_x",
             "fcvtzs_x_from_d", "fcvtms_x_from_d", "fcvtps_x_from_d", "fcvtas_x_from_d",
             "scvtf_d_from_x", "fmov_d_from_x", "fmov_x_from_d",
+            // NEON-tail mnemonics — none may appear (now `v128.*`, plan-00-E).
+            "ldr_q", "str_q", "fadd_v", "fmla_v", "fcmgt_v", "frintn_v", "fcvtzs_v", "scvtf_v",
+            "add_v", "sshl_v", "shl_v", "bsl_v", "bit_v", "dup_v_from_x", "umov_x_from_v",
         ];
+        let mut saw_v128 = false;
         for instruction in &mir {
             let mnemonic = instruction.op.mnemonic();
             assert!(
                 !banned.contains(&mnemonic),
                 "MIR still names an AArch64-specific op: {mnemonic}"
             );
+            if mnemonic.starts_with("v128.") {
+                saw_v128 = true;
+            }
         }
+        assert!(saw_v128, "the NEON fixture did not lower to a `v128.*` op");
 
         // The pinned arena register never appears in the MIR: the `str_u8`
         // fixture's `base` is the abstract `arena_base`, not `x19` (plan-00-D
