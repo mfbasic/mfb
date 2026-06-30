@@ -807,25 +807,19 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
 /// reloaded. After the call there are no further calls, so the header/entry
 /// writes use scratch GPRs freely.
 pub(super) fn lower_simd_alloc_list() -> CodeFunction {
-    const FRAME_SIZE: usize = 32;
-    const LR_SLOT: usize = 0;
-    const COUNT_SLOT: usize = 8;
-    const TYPE_SLOT: usize = 16;
-    let mut relocations = Vec::new();
-    let instructions = vec![
+    let mut vregs = Vregs::new();
+    // count/typeCode are live across the arena_alloc call (ALL_INT clobber), so
+    // they spill — the old hand frame's COUNT/TYPE slots, now allocator-managed.
+    let count = vregs.next();
+    let type_code = vregs.next();
+    let stride = vregs.next();
+    let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(FRAME_SIZE),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
-        abi::store_u64("x0", abi::stack_pointer(), COUNT_SLOT),
-        abi::store_u64("x1", abi::stack_pointer(), TYPE_SLOT),
-        // alloc size = 40 (header) + count*40 (lookup table) + count*8 (data)
-        //            = 40 + count*48.
-        abi::move_immediate(
-            "x9",
-            "Integer",
-            &(COLLECTION_ENTRY_SIZE + 8).to_string(),
-        ),
-        abi::multiply_registers("x0", "x0", "x9"),
+        abi::move_register(&count, "x0"),
+        abi::move_register(&type_code, "x1"),
+        // alloc size = COLLECTION_HEADER_SIZE + count*(ENTRY_SIZE + 8) (lookup + data).
+        abi::move_immediate(&stride, "Integer", &(COLLECTION_ENTRY_SIZE + 8).to_string()),
+        abi::multiply_registers("x0", &count, &stride),
         abi::add_immediate("x0", "x0", COLLECTION_HEADER_SIZE),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -837,62 +831,57 @@ pub(super) fn lower_simd_alloc_list() -> CodeFunction {
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::branch("simd_alloc_ret"),
         abi::label("simd_alloc_ok"),
-        // x11 = base, x12 = count, x13 = typeCode.
-        abi::move_register("x11", "x1"),
-        abi::load_u64("x12", abi::stack_pointer(), COUNT_SLOT),
-        abi::load_u64("x13", abi::stack_pointer(), TYPE_SLOT),
+    ];
+    let base = vregs.next();
+    let scratch = vregs.next();
+    let data_len = vregs.next();
+    let entry = vregs.next();
+    let index = vregs.next();
+    let value_off = vregs.next();
+    instructions.extend([
+        abi::move_register(&base, "x1"),
         // Header: kind=0 (list), keyType=0, valueType=typeCode, flagsVersion=1.
-        abi::move_immediate("x8", "Integer", "0"),
-        abi::store_u8("x8", "x11", COLLECTION_OFFSET_KIND),
-        abi::store_u8("x8", "x11", COLLECTION_OFFSET_KEY_TYPE),
-        abi::store_u8("x13", "x11", COLLECTION_OFFSET_VALUE_TYPE),
-        abi::move_immediate("x8", "Integer", "1"),
-        abi::store_u8("x8", "x11", COLLECTION_OFFSET_FLAGS_VERSION),
+        abi::move_immediate(&scratch, "Integer", "0"),
+        abi::store_u8(&scratch, &base, COLLECTION_OFFSET_KIND),
+        abi::store_u8(&scratch, &base, COLLECTION_OFFSET_KEY_TYPE),
+        abi::store_u8(&type_code, &base, COLLECTION_OFFSET_VALUE_TYPE),
+        abi::move_immediate(&scratch, "Integer", "1"),
+        abi::store_u8(&scratch, &base, COLLECTION_OFFSET_FLAGS_VERSION),
         // count, capacity = count; dataLength, dataCapacity = count*8.
-        abi::store_u64("x12", "x11", COLLECTION_OFFSET_COUNT),
-        abi::store_u64("x12", "x11", COLLECTION_OFFSET_CAPACITY),
-        abi::shift_left_immediate("x9", "x12", 3),
-        abi::store_u64("x9", "x11", COLLECTION_OFFSET_DATA_LENGTH),
-        abi::store_u64("x9", "x11", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::store_u64(&count, &base, COLLECTION_OFFSET_COUNT),
+        abi::store_u64(&count, &base, COLLECTION_OFFSET_CAPACITY),
+        abi::shift_left_immediate(&data_len, &count, 3),
+        abi::store_u64(&data_len, &base, COLLECTION_OFFSET_DATA_LENGTH),
+        abi::store_u64(&data_len, &base, COLLECTION_OFFSET_DATA_CAPACITY),
         // Fill the lookup entries: flags=USED, valueOffset=i*8, valueLength=8.
-        // x10 = entry ptr, x9 = index, x14 = running value offset.
-        abi::add_immediate("x10", "x11", COLLECTION_HEADER_SIZE),
-        abi::move_immediate("x9", "Integer", "0"),
-        abi::move_immediate("x14", "Integer", "0"),
+        abi::add_immediate(&entry, &base, COLLECTION_HEADER_SIZE),
+        abi::move_immediate(&index, "Integer", "0"),
+        abi::move_immediate(&value_off, "Integer", "0"),
         abi::label("simd_alloc_entry_loop"),
-        abi::compare_registers("x9", "x12"),
+        abi::compare_registers(&index, &count),
         abi::branch_ge("simd_alloc_entry_done"),
-        abi::move_immediate("x8", "Integer", &COLLECTION_ENTRY_FLAG_USED.to_string()),
-        abi::store_u8("x8", "x10", COLLECTION_ENTRY_OFFSET_FLAGS),
-        abi::store_u64("x14", "x10", COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
-        abi::move_immediate("x8", "Integer", "8"),
-        abi::store_u64("x8", "x10", COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
-        abi::add_immediate("x14", "x14", 8),
-        abi::add_immediate("x10", "x10", COLLECTION_ENTRY_SIZE),
-        abi::add_immediate("x9", "x9", 1),
+        abi::move_immediate(&scratch, "Integer", &COLLECTION_ENTRY_FLAG_USED.to_string()),
+        abi::store_u8(&scratch, &entry, COLLECTION_ENTRY_OFFSET_FLAGS),
+        abi::store_u64(&value_off, &entry, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
+        abi::move_immediate(&scratch, "Integer", "8"),
+        abi::store_u64(&scratch, &entry, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::add_immediate(&value_off, &value_off, 8),
+        abi::add_immediate(&entry, &entry, COLLECTION_ENTRY_SIZE),
+        abi::add_immediate(&index, &index, 1),
         abi::branch("simd_alloc_entry_loop"),
         abi::label("simd_alloc_entry_done"),
-        abi::move_register(abi::return_register(), "x11"),
+        abi::move_register(abi::return_register(), &base),
         abi::move_immediate("x1", "Integer", "0"),
         abi::label("simd_alloc_ret"),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
-        abi::add_stack(FRAME_SIZE),
         abi::return_(),
-    ];
-    relocations.push(internal_branch(SIMD_ALLOC_LIST_SYMBOL, ARENA_ALLOC_SYMBOL));
-    CodeFunction {
-        name: "runtime.simd_alloc_list".to_string(),
-        symbol: SIMD_ALLOC_LIST_SYMBOL.to_string(),
-        params: Vec::new(),
-        returns: "Pointer".to_string(),
-        frame: CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        stack_slots: Vec::new(),
+    ]);
+    finalize_vreg_helper(
+        "runtime.simd_alloc_list",
+        SIMD_ALLOC_LIST_SYMBOL,
+        "Pointer",
         instructions,
-        relocations,
-    }
+        vec![internal_branch(SIMD_ALLOC_LIST_SYMBOL, ARENA_ALLOC_SYMBOL)],
+    )
 }
 
 /// `_mfb_build_error_loc(x0 = filename String*, x1 = line, x2 = char)` — allocate
@@ -1029,95 +1018,97 @@ pub(super) fn lower_make_error_result() -> CodeFunction {
 /// `ptr` 16-aligned; both hold for every chunk the allocator hands out and for a
 /// fresh block's usable region. Leaf function; clobbers x9–x13.
 pub(super) fn lower_arena_insert_free() -> CodeFunction {
+    let mut vregs = Vregs::new();
+    // ptr (x0) / size (x1) are read-only args; this is a leaf, so they stay
+    // physical. Everything else is a vreg the allocator places.
+    let cur = vregs.next();
+    let prev = vregs.next();
+    let t1 = vregs.next();
+    let t2 = vregs.next();
+    let merged = vregs.next();
     let instructions = vec![
         abi::label("entry"),
-        // Walk to the insertion slot: prev (x10) = largest node < ptr (or 0),
-        // cur (x9) = smallest node > ptr (or 0).
-        abi::load_u64("x9", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
-        abi::move_immediate("x10", "Integer", "0"),
+        // Walk to the insertion slot: prev = largest node < ptr (or 0),
+        // cur = smallest node > ptr (or 0).
+        abi::load_u64(&cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::move_immediate(&prev, "Integer", "0"),
         abi::label("insert_find"),
-        abi::compare_immediate("x9", "0"),
+        abi::compare_immediate(&cur, "0"),
         abi::branch_eq("insert_slot"),
-        abi::compare_registers("x9", "x0"),
+        abi::compare_registers(&cur, "x0"),
         abi::branch_hi("insert_slot"), // cur > ptr
-        abi::move_register("x10", "x9"),
-        abi::load_u64("x9", "x9", 0),
+        abi::move_register(&prev, &cur),
+        abi::load_u64(&cur, &cur, 0),
         abi::branch("insert_find"),
         abi::label("insert_slot"),
-        // x13 = merged-into-prev flag.
-        abi::move_immediate("x13", "Integer", "0"),
-        abi::compare_immediate("x10", "0"),
+        // merged = merged-into-prev flag.
+        abi::move_immediate(&merged, "Integer", "0"),
+        abi::compare_immediate(&prev, "0"),
         abi::branch_eq("insert_check_next"),
-        abi::load_u64("x11", "x10", 8),          // prev.size
-        abi::add_registers("x12", "x10", "x11"), // prev_end
-        abi::compare_registers("x12", "x0"),
+        abi::load_u64(&t1, &prev, 8),         // prev.size
+        abi::add_registers(&t2, &prev, &t1),  // prev_end
+        abi::compare_registers(&t2, "x0"),
         abi::branch_ne("insert_check_next"),
         // prev is address-adjacent: absorb the chunk into prev.
-        abi::add_registers("x11", "x11", "x1"),
-        abi::store_u64("x11", "x10", 8),
-        abi::move_immediate("x13", "Integer", "1"),
+        abi::add_registers(&t1, &t1, "x1"),
+        abi::store_u64(&t1, &prev, 8),
+        abi::move_immediate(&merged, "Integer", "1"),
         abi::label("insert_check_next"),
-        abi::compare_immediate("x9", "0"),
+        abi::compare_immediate(&cur, "0"),
         abi::branch_eq("insert_finish_no_next"),
-        abi::compare_immediate("x13", "0"),
+        abi::compare_immediate(&merged, "0"),
         abi::branch_eq("insert_next_unmerged"),
         // Merged into prev already: does the (now larger) prev meet cur?
-        abi::load_u64("x11", "x10", 8),
-        abi::add_registers("x12", "x10", "x11"),
-        abi::compare_registers("x12", "x9"),
+        abi::load_u64(&t1, &prev, 8),
+        abi::add_registers(&t2, &prev, &t1),
+        abi::compare_registers(&t2, &cur),
         abi::branch_ne("insert_done"),
         // Absorb cur into prev too (three-way merge).
-        abi::load_u64("x11", "x9", 8),  // cur.size
-        abi::load_u64("x12", "x10", 8), // prev.size
-        abi::add_registers("x12", "x12", "x11"),
-        abi::store_u64("x12", "x10", 8),
-        abi::load_u64("x11", "x9", 0), // cur.next
-        abi::store_u64("x11", "x10", 0),
+        abi::load_u64(&t1, &cur, 8),  // cur.size
+        abi::load_u64(&t2, &prev, 8), // prev.size
+        abi::add_registers(&t2, &t2, &t1),
+        abi::store_u64(&t2, &prev, 8),
+        abi::load_u64(&t1, &cur, 0), // cur.next
+        abi::store_u64(&t1, &prev, 0),
         abi::branch("insert_done"),
         abi::label("insert_next_unmerged"),
-        abi::add_registers("x12", "x0", "x1"), // chunk_end
-        abi::compare_registers("x12", "x9"),
+        abi::add_registers(&t2, "x0", "x1"), // chunk_end
+        abi::compare_registers(&t2, &cur),
         abi::branch_ne("insert_standalone"),
         // chunk is address-adjacent to cur: new node at ptr absorbs cur.
-        abi::load_u64("x11", "x9", 8), // cur.size
-        abi::add_registers("x11", "x11", "x1"),
-        abi::store_u64("x11", "x0", 8),
-        abi::load_u64("x11", "x9", 0), // cur.next
-        abi::store_u64("x11", "x0", 0),
+        abi::load_u64(&t1, &cur, 8), // cur.size
+        abi::add_registers(&t1, &t1, "x1"),
+        abi::store_u64(&t1, "x0", 8),
+        abi::load_u64(&t1, &cur, 0), // cur.next
+        abi::store_u64(&t1, "x0", 0),
         abi::branch("insert_link_prev"),
         abi::label("insert_standalone"),
-        abi::store_u64("x9", "x0", 0), // ptr.next = cur
+        abi::store_u64(&cur, "x0", 0), // ptr.next = cur
         abi::store_u64("x1", "x0", 8), // ptr.size = size
         abi::branch("insert_link_prev"),
         abi::label("insert_finish_no_next"),
-        abi::compare_immediate("x13", "0"),
+        abi::compare_immediate(&merged, "0"),
         abi::branch_ne("insert_done"), // merged into prev, nothing to link
         abi::store_u64("x31", "x0", 0), // ptr.next = 0
         abi::store_u64("x1", "x0", 8), // ptr.size = size
         abi::branch("insert_link_prev"),
         abi::label("insert_link_prev"),
-        abi::compare_immediate("x10", "0"),
+        abi::compare_immediate(&prev, "0"),
         abi::branch_eq("insert_set_head"),
-        abi::store_u64("x0", "x10", 0), // prev.next = ptr
+        abi::store_u64("x0", &prev, 0), // prev.next = ptr
         abi::branch("insert_done"),
         abi::label("insert_set_head"),
         abi::store_u64("x0", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::label("insert_done"),
         abi::return_(),
     ];
-    CodeFunction {
-        name: "runtime.arena_insert_free".to_string(),
-        symbol: ARENA_INSERT_FREE_SYMBOL.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        stack_slots: Vec::new(),
+    finalize_vreg_helper(
+        "runtime.arena_insert_free",
+        ARENA_INSERT_FREE_SYMBOL,
+        "Nothing",
         instructions,
-        relocations: Vec::new(),
-    }
+        Vec::new(),
+    )
 }
 
 /// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
@@ -1126,51 +1117,44 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
 /// (plan-01 §6.2), then coalesces it in via `arena_insert_free`. Never unmaps.
 /// Clobbers x9–x16.
 pub(super) fn lower_arena_free() -> CodeFunction {
-    const FRAME_SIZE: usize = 32;
-    const LR_SLOT: usize = 0;
-    const PTR_SLOT: usize = 8;
-    const SIZE_SLOT: usize = 16;
+    let mut vregs = Vregs::new();
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
+    // ptr/size are live across both helper calls; each tramples every integer
+    // register (ALL_INT), so the allocator spills them and reloads before each
+    // call — exactly what the old hand frame did with its PTR/SIZE slots.
+    let ptr = vregs.next();
+    let size = vregs.next();
+    let mask = vregs.next();
     let instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(FRAME_SIZE),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
-        // normalize size = round_up(max(size, 1), 16)
+        abi::move_register(&ptr, "x0"),
+        // normalize size = round_up(max(size, 1), 16) — x1 is the size arg.
         abi::compare_immediate("x1", "0"),
         abi::branch_ne("arena_free_size_nonzero"),
         abi::move_immediate("x1", "Integer", "1"),
         abi::label("arena_free_size_nonzero"),
         abi::add_immediate("x1", "x1", (ARENA_MIN_CHUNK - 1) as usize),
-        abi::move_immediate("x9", "Integer", &not_15),
-        abi::and_registers("x1", "x1", "x9"),
-        // Scrub the chunk: fill_random clobbers x0/x1/x9–x16 and advances x0, so
-        // stash ptr/size and reload them for the coalescing insert.
-        abi::store_u64("x0", abi::stack_pointer(), PTR_SLOT),
-        abi::store_u64("x1", abi::stack_pointer(), SIZE_SLOT),
+        abi::move_immediate(&mask, "Integer", &not_15),
+        abi::and_registers(&size, "x1", &mask),
+        // Scrub the chunk, then coalesce it back in.
+        abi::move_register("x0", &ptr),
+        abi::move_register("x1", &size),
         abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
-        abi::load_u64("x0", abi::stack_pointer(), PTR_SLOT),
-        abi::load_u64("x1", abi::stack_pointer(), SIZE_SLOT),
+        abi::move_register("x0", &ptr),
+        abi::move_register("x1", &size),
         abi::branch_link(ARENA_INSERT_FREE_SYMBOL),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
-        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ];
-    CodeFunction {
-        name: "runtime.arena_free".to_string(),
-        symbol: ARENA_FREE_SYMBOL.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        stack_slots: Vec::new(),
+    finalize_vreg_helper(
+        "runtime.arena_free",
+        ARENA_FREE_SYMBOL,
+        "Nothing",
         instructions,
-        relocations: vec![
+        vec![
             internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL),
             internal_branch(ARENA_FREE_SYMBOL, ARENA_INSERT_FREE_SYMBOL),
         ],
-    }
+    )
 }
 
 pub(super) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
