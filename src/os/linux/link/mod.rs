@@ -19,6 +19,7 @@ use elf::*;
 pub(crate) fn write_executable(
     project_dir: &Path,
     project_name: &str,
+    arch: &str,
     flavor: LinuxFlavor,
     app_mode: bool,
     image: &EncodedImage,
@@ -47,14 +48,10 @@ pub(crate) fn write_executable(
         &import_locations,
     )?;
     let entry_offset = main_entry_offset;
-    // x86-64 (plan-00-H) emits RIP-relative relocation kinds and raw syscalls (no
-    // imports) → a static, writable-data ELF. Detected from the relocation kinds
-    // so `write_linked_executable`'s signature stays shared with AArch64.
-    let is_x86 = image
-        .relocations
-        .iter()
-        .any(|r| matches!(r.kind.as_str(), "call_pc32" | "data_pc32" | "got_pc32"));
-    let bytes = if is_x86 {
+    // The output shape is chosen by the target ISA: x86-64 (plan-00-H) uses raw
+    // syscalls (no imports) → a static, writable-data ELF; AArch64 links libc
+    // dynamically (a static ELF only when a build happens to import nothing).
+    let bytes = if arch == "x86_64" {
         encode_static_elf_x86(
             entry_offset,
             &text,

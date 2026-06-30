@@ -7,7 +7,8 @@
 
 use crate::arch::aarch64::regmodel::RegisterModel;
 use crate::arch::x86_64::regmodel::X86_64RegisterModel;
-use crate::target::shared::code::mir::{self, Backend, MirInstruction};
+use crate::arch::x86_64::select::select_x86;
+use crate::target::shared::code::mir::{Backend, MirInstruction};
 use crate::target::shared::code::CodeInstruction;
 
 static X86_64_MODEL: X86_64RegisterModel = X86_64RegisterModel;
@@ -21,7 +22,7 @@ pub(crate) static X86_64_BACKEND: X86_64Backend = X86_64Backend;
 
 impl Backend for X86_64Backend {
     fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction> {
-        mir::select_x86(neutral)
+        select_x86(neutral)
     }
 
     fn register_model(&self) -> &'static dyn RegisterModel {

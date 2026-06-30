@@ -146,6 +146,7 @@ fn write_executable(
     paths.push(os::linux::write_linked_executable(
         project_dir,
         &ir.name,
+        "x86_64",
         flavor,
         false,
         &image,

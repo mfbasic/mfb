@@ -6,7 +6,8 @@
 //! selection + allocation through it instead of naming AArch64 directly.
 
 use crate::arch::aarch64::regmodel::{Aarch64RegisterModel, RegisterModel};
-use crate::target::shared::code::mir::{self, Backend, MirInstruction};
+use crate::arch::aarch64::select::select_aarch64;
+use crate::target::shared::code::mir::{Backend, MirInstruction};
 use crate::target::shared::code::CodeInstruction;
 
 /// The AArch64 register model singleton handed to the shared allocator.
@@ -22,7 +23,7 @@ pub(crate) static AARCH64_BACKEND: Aarch64Backend = Aarch64Backend;
 
 impl Backend for Aarch64Backend {
     fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction> {
-        mir::select_aarch64(neutral)
+        select_aarch64(neutral)
     }
 
     fn register_model(&self) -> &'static dyn RegisterModel {

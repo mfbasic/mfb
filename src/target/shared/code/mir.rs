@@ -7,7 +7,7 @@
 //!
 //! [`MirOp`] reuses the [`CodeOp`] variant set 1:1 (`mir.md §10`); op families
 //! were neutralized one at a time (plans B–F) with the round trip
-//! [`lower_to_mir`] → [`select_aarch64`] kept the identity, so each step was
+//! [`lower_to_mir`] → [`select_aarch64`](crate::arch::aarch64::select::select_aarch64) kept the identity, so each step was
 //! proven byte-identical against the `direct` path before that path was
 //! retired. The round trip is still the identity for builder ops, which is why
 //! the AArch64 output was unperturbed by making MIR the sole path.
@@ -52,7 +52,7 @@ pub(crate) struct MirInstruction {
 //   flag-reading branch that consumed it. They have no single `CodeOp` (they
 //   expand to two), so they are excluded from `to_code` and carry an explicit
 //   mnemonic. [`lower_to_mir`] produces them by fusing adjacent pairs;
-//   [`select_aarch64`] expands them back to the exact `cmp; b.cc` / `adds; b.vc`
+//   [`select_aarch64`](crate::arch::aarch64::select::select_aarch64) expands them back to the exact `cmp; b.cc` / `adds; b.vc`
 //   the backend emits today.
 // - **expand** ops are the neutral *structural* ops (plan-00-C): a single MIR op
 //   that an ISA realizes with a short fixed instruction *sequence*. Today the
@@ -60,7 +60,7 @@ pub(crate) struct MirInstruction {
 //   selects as the `adrp; add :lo12:` page pair (x86 `lea` RIP-rel, rv64
 //   `auipc; addi` later). Like fused ops they have no single `CodeOp` (they
 //   expand to two); [`lower_to_mir`] produces them by fusing the adjacent
-//   `adrp; add_pageoff` pair and [`select_aarch64`] expands them back
+//   `adrp; add_pageoff` pair and [`select_aarch64`](crate::arch::aarch64::select::select_aarch64) expands them back
 //   byte-for-byte (`mir.md §4`).
 macro_rules! mir_ops {
     (
@@ -93,10 +93,12 @@ macro_rules! mir_ops {
                 }
             }
 
-            /// The single AArch64 [`CodeOp`] a mirror/renamed/`v128` op selects,
-            /// or `None` for a fused control-flow op or a structural expand op
-            /// (which expand to two instructions — see [`select_aarch64`]).
-            fn to_code(self) -> Option<CodeOp> {
+            /// The single [`CodeOp`] a mirror/renamed/`v128` op selects, or `None`
+            /// for a fused control-flow op or a structural expand op (which expand
+            /// to two instructions). Maps the neutral op back to its concrete
+            /// CodeOp — including the renames (`call`→`bl`, `mulhi_u`→`umulh`, …) —
+            /// so it is NOT a mnemonic round-trip; both backends' selection use it.
+            pub(crate) fn to_code(self) -> Option<CodeOp> {
                 match self {
                     $(MirOp::$mv => Some(CodeOp::$mv),)+
                     $(MirOp::$rv => Some(CodeOp::$rc),)+
@@ -262,14 +264,14 @@ mir_ops!(
         // the last flag-reading branch in the helper MIR (plan-00-B deferred it
         // here as "the syscall neutralization"). The `cond` field carries the
         // carry condition; a backend realizes the check its own way (macOS sets
-        // carry; Linux/rv64 return `-errno` and compare). [`select_aarch64`]
+        // carry; Linux/rv64 return `-errno` and compare). [`select_aarch64`](crate::arch::aarch64::select::select_aarch64)
         // expands it back to the exact `svc; b.<carry>` byte-for-byte.
         SyscallBr => "syscall_br",
     }
     expand {
         // PC-relative symbol address (`mir.md §4`): one neutral op for the
         // AArch64 `adrp; add :lo12:` page pair. Fused from the adjacent pair in
-        // [`lower_to_mir`] and expanded back byte-for-byte in [`select_aarch64`].
+        // [`lower_to_mir`] and expanded back byte-for-byte in [`select_aarch64`](crate::arch::aarch64::select::select_aarch64).
         AddrOf => "addr_of",
     }
 );
@@ -280,14 +282,14 @@ mir_ops!(
 /// the pinned `x19` (`Aarch64RegisterModel::arena_base`, reserved from
 /// allocation), x86_64 will realize it as a TLS/memory load (plan-00-H). The
 /// abstraction is the identity here: [`lower_to_mir`] renames the realization
-/// register to `arena_base`, [`select_aarch64`] renames it back, so the codegen
+/// register to `arena_base`, [`select_aarch64`](crate::arch::aarch64::select::select_aarch64) renames it back, so the codegen
 /// stream is byte-identical while the `-mir` dump shows `arena_base`, not `x19`.
 pub(crate) const ARENA_BASE: &str = "arena_base";
 
 /// The physical location AArch64 realizes [`ARENA_BASE`] as — pinned `x19`,
 /// asked of the [`RegisterModel`](crate::arch::aarch64::regmodel::RegisterModel)
 /// so the realization lives in the backend, not this neutral layer.
-fn arena_base_realization() -> &'static str {
+pub(crate) fn arena_base_realization() -> &'static str {
     // The arena base is a program-wide sentinel both ISAs' helpers emit
     // (`ARENA_STATE_REGISTER`); `lower_to_mir` renames it to the neutral
     // `arena_base`, and each backend's selection realizes it (AArch64 → the
@@ -300,7 +302,7 @@ fn arena_base_realization() -> &'static str {
 /// allocation), so a field value equal to it is unambiguously the arena base —
 /// never an immediate (numbers), symbol, or label — which is what makes the
 /// `x19`⇄`arena_base` rename total and reversible.
-fn rename_field_values(fields: &mut [(&'static str, String)], from: &str, to: &str) {
+pub(crate) fn rename_field_values(fields: &mut [(&'static str, String)], from: &str, to: &str) {
     for (_, value) in fields.iter_mut() {
         if value == from {
             *value = to.to_string();
@@ -328,7 +330,7 @@ fn fused_variant(op: CodeOp) -> Option<MirOp> {
 
 /// The AArch64 flag-setter [`CodeOp`] a fused MIR op expands back to (its first
 /// of two instructions), or `None` for a non-fused op.
-fn fused_setter_codeop(op: MirOp) -> Option<CodeOp> {
+pub(crate) fn fused_setter_codeop(op: MirOp) -> Option<CodeOp> {
     match op {
         MirOp::BrCc => Some(CodeOp::Cmp),
         MirOp::BrCcImm => Some(CodeOp::CmpImm),
@@ -369,8 +371,8 @@ fn is_flag_reading_branch(op: CodeOp) -> bool {
 /// Field key marking the boundary between a fused op's compare/arith operands
 /// and its branch: its value is the branch mnemonic (e.g. `"b.lt"`). No
 /// flag-setter or branch field is named `cond`, so the first such field is
-/// unambiguously the split point for [`select_aarch64`].
-const FUSED_COND_FIELD: &str = "cond";
+/// unambiguously the split point for [`select_aarch64`](crate::arch::aarch64::select::select_aarch64).
+pub(crate) const FUSED_COND_FIELD: &str = "cond";
 
 /// Field key marking a compare-and-branch that **reuses** the immediately
 /// preceding fused op's comparison instead of computing its own (a second/third
@@ -378,7 +380,7 @@ const FUSED_COND_FIELD: &str = "cond";
 /// ordering). The op still carries its operands (so it is self-contained and an
 /// ISA without flag reuse can re-emit the compare), but the AArch64 selector
 /// emits only the branch — reproducing the single shared `cmp` byte-for-byte.
-const FUSED_SHARE_FIELD: &str = "share";
+pub(crate) const FUSED_SHARE_FIELD: &str = "share";
 
 /// Raise an AArch64 instruction stream to the neutral MIR (`NIR → MIR`). Mirror
 /// ops carry over 1:1 (plan-00-A); a flag-setter immediately followed by the
@@ -488,299 +490,6 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
     out
 }
 
-/// AArch64 instruction selection (`MIR → machine ops`). Mirror ops map back to
-/// their one [`CodeOp`] over the identical field bag; a fused flagless op
-/// expands back to the exact two instructions it folded — the flag-setter
-/// (`cmp`/`fcmp`/`adds`/`subs`) and the flag-reading branch — reproducing the
-/// stream the backend emits today **byte-for-byte**. The result feeds the
-/// existing register allocator / peephole / encoder unchanged.
-pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
-    let mut out = Vec::with_capacity(instructions.len());
-    for instruction in instructions {
-        if instruction.op == MirOp::AddrOf {
-            // Structural expand (plan-00-C): `addr_of <dst>, <sym>` → the exact
-            // `adrp <dst>, <sym>; add_pageoff <dst>, <dst>, <sym>` pair the
-            // builders emit today (`abi::load_page_address` + `add_page_offset`).
-            let dst = instruction
-                .fields
-                .iter()
-                .find(|(key, _)| *key == "dst")
-                .map(|(_, value)| value.clone())
-                .expect("addr_of carries a dst field");
-            let symbol = instruction
-                .fields
-                .iter()
-                .find(|(key, _)| *key == "symbol")
-                .map(|(_, value)| value.clone())
-                .expect("addr_of carries a symbol field");
-            out.push(abi::load_page_address(&dst, &symbol));
-            out.push(abi::add_page_offset(&dst, &dst, &symbol));
-            continue;
-        }
-        if let Some(setter_op) = fused_setter_codeop(instruction.op) {
-            // Split the field bag at the `cond` marker: everything before it is
-            // the flag-setter's operands; its value is the branch mnemonic;
-            // everything after is the branch's operands (plus an optional
-            // `share` marker).
-            let split = instruction
-                .fields
-                .iter()
-                .position(|(key, _)| *key == FUSED_COND_FIELD)
-                .expect("fused MIR op carries a cond field");
-            let setter_fields = instruction.fields[..split].to_vec();
-            let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1)
-                .expect("fused MIR op carries a valid branch mnemonic");
-            let mut branch_fields = Vec::new();
-            let mut shared = false;
-            for (key, value) in &instruction.fields[split + 1..] {
-                if *key == FUSED_SHARE_FIELD {
-                    shared = true;
-                } else {
-                    branch_fields.push((*key, value.clone()));
-                }
-            }
-            // A shared branch reuses the comparison the previous fused op
-            // already emitted, so emit only its branch.
-            if !shared {
-                out.push(CodeInstruction {
-                    op: setter_op,
-                    fields: setter_fields,
-                });
-            }
-            out.push(CodeInstruction {
-                op: branch_op,
-                fields: branch_fields,
-            });
-        } else {
-            out.push(CodeInstruction {
-                op: instruction
-                    .op
-                    .to_code()
-                    .expect("non-fused MIR op maps to a single CodeOp"),
-                fields: instruction.fields.clone(),
-            });
-        }
-    }
-    // Realize `arena_base` back to its pinned AArch64 register (plan-00-D §2),
-    // the exact reverse of [`lower_to_mir`]'s rename — so the selected stream
-    // the allocator sees is byte-identical to the direct path.
-    let realization = arena_base_realization();
-    for instruction in &mut out {
-        rename_field_values(&mut instruction.fields, ARENA_BASE, realization);
-    }
-    out
-}
-
-// --- x86-64 selection (plan-00-H) --------------------------------------------
-
-/// A call/return boundary that fixes the SysV ABI role of an `x0`–`x8` operand.
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum AbiBoundary {
-    Call,
-    Syscall,
-    Ret,
-}
-
-fn abi_boundary_of(instruction: &CodeInstruction) -> Option<AbiBoundary> {
-    match instruction.op {
-        CodeOp::BranchLink | CodeOp::BranchLinkRegister => Some(AbiBoundary::Call),
-        CodeOp::Svc => Some(AbiBoundary::Syscall),
-        CodeOp::Ret => Some(AbiBoundary::Ret),
-        _ => None,
-    }
-}
-
-const X86_DEF_FIELDS: &[&str] = &["dst", "carry_out", "borrow_out"];
-
-/// Map an AArch64 ABI register `xN` to its SysV/x86-64 home given its role.
-/// `is_def` is true when the operand is being produced (so it flows into the
-/// *next* boundary as an argument / return value), false when consumed.
-/// Map residual AArch64 scratch `xN` (N ≥ 9) to an x86 GPR (encoding-only; see
-/// the call site). Avoids `r14` (zero), `r15` (arena_base), and `rsp`.
-fn map_scratch_register(n: usize) -> &'static str {
-    const POOL: &[&str] = &[
-        "rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11", "rbx", "r12", "r13", "rbp",
-    ];
-    POOL[(n - 9) % POOL.len()]
-}
-
-fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool) -> String {
-    // SysV: call args rdi,rsi,rdx,rcx,r8,r9; syscall args rdi,rsi,rdx,r10,r8,r9;
-    // returns rax,rdx; syscall nr + result rax.
-    const CALL_ARGS: &[&str] = &["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
-    const SYS_ARGS: &[&str] = &["rdi", "rsi", "rdx", "r10", "r8", "r9"];
-    const RETS: &[&str] = &["rax", "rdx"];
-    let reg = if is_result {
-        // The value came out of a preceding call/syscall.
-        RETS.get(n).copied().unwrap_or("rax")
-    } else {
-        match role {
-            Some(AbiBoundary::Call) => CALL_ARGS.get(n).copied().unwrap_or("rax"),
-            Some(AbiBoundary::Syscall) if n == 8 => "rax", // syscall number
-            Some(AbiBoundary::Syscall) => SYS_ARGS.get(n).copied().unwrap_or("rax"),
-            Some(AbiBoundary::Ret) => RETS.get(n).copied().unwrap_or("rax"),
-            // No following boundary: a leftover ABI register used as a plain
-            // value (rare). Fall back to the return register.
-            None => "rax",
-        }
-    };
-    reg.to_string()
-}
-
-/// Remap the residual AArch64 physical registers a selected stream still carries
-/// (the ABI registers `x0`–`x8`, `sp`, `xzr`/`x31`, and the link register `x30`)
-/// to their x86-64 / SysV homes. Virtual registers (`%vN`) and `arena_base`
-/// (already realized to `r15`) pass through. The hard case is `x0`–`x8`, whose
-/// role (call arg vs syscall arg vs return value vs call result) depends on the
-/// nearest call/`svc`/`ret` boundary; this scans for it.
-fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
-    // The link register has no x86 equivalent — `call` pushes / `ret` pops the
-    // return address — so drop the frame's x30 save/restore entirely.
-    instructions.retain(|inst| !inst.fields.iter().any(|(_, value)| value == "x30"));
-
-    let count = instructions.len();
-    // Nearest boundary strictly AFTER each index (the one an argument flows into).
-    let mut next_after: Vec<Option<AbiBoundary>> = vec![None; count];
-    let mut carry = None;
-    for i in (0..count).rev() {
-        next_after[i] = carry;
-        if let Some(b) = abi_boundary_of(&instructions[i]) {
-            carry = Some(b);
-        }
-    }
-
-    // Walk forward tracking, per ABI register, whether it has been (re)defined
-    // since the last boundary — an `x0`/`x1` USE not redefined since a preceding
-    // call/syscall is that call's result.
-    let mut defined_since_boundary: std::collections::HashSet<String> =
-        std::collections::HashSet::new();
-    let mut last_boundary: Option<AbiBoundary> = None;
-
-    for i in 0..count {
-        let role = next_after[i];
-        let mut new_defs: Vec<String> = Vec::new();
-        for (key, value) in instructions[i].fields.iter_mut() {
-            if value == "sp" {
-                *value = "rsp".to_string();
-                continue;
-            }
-            if value == "x31" {
-                *value = crate::arch::x86_64::regmodel::ZERO_REGISTER.to_string();
-                continue;
-            }
-            let Some(n) = value
-                .strip_prefix('x')
-                .and_then(|rest| rest.parse::<usize>().ok())
-                .filter(|n| *n <= 30)
-            else {
-                continue;
-            };
-            if n > 8 {
-                // Residual AArch64 caller/callee-saved scratch (`x9`–`x30`). The
-                // vreg-migrated helpers are mostly pure, but a few (arena_alloc's
-                // reserved-survivor save/restore around its nested fill call,
-                // errno bridges) still name physical scratch. Map it to an x86
-                // GPR so it ENCODES; such helpers may not be correct on x86 yet
-                // (Phase 1 runs integer programs that don't call them), tracked
-                // as the helper-purity follow-up.
-                *value = map_scratch_register(n).to_string();
-                continue;
-            }
-            let is_def = X86_DEF_FIELDS.contains(key);
-            let is_result = !is_def
-                && (n == 0 || n == 1)
-                && !defined_since_boundary.contains(value)
-                && matches!(last_boundary, Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall));
-            let mapped = map_abi_register(n, role, is_result);
-            if is_def {
-                new_defs.push(value.clone());
-            }
-            *value = mapped;
-        }
-        match abi_boundary_of(&instructions[i]) {
-            // Only a call/syscall produces an x0/x1 result and opens a new
-            // result context. A `ret` does NOT — and crucially the error-check
-            // path puts a `ret` between a call and the `call_ok` label where its
-            // result is consumed, so treating `ret` as the last boundary would
-            // misread the result as an argument to the *next* call.
-            Some(b @ (AbiBoundary::Call | AbiBoundary::Syscall)) => {
-                last_boundary = Some(b);
-                defined_since_boundary.clear();
-            }
-            Some(AbiBoundary::Ret) => {}
-            None => {
-                for def in new_defs {
-                    defined_since_boundary.insert(def);
-                }
-            }
-        }
-    }
-}
-
-/// Select neutral MIR into x86-64 machine ops (plan-00-H). Mirrors
-/// [`select_aarch64`]'s structural conversion — `addr_of` becomes a single
-/// RIP-relative load (`adrp{dst,symbol}`, which the x86 encoder emits as `lea`;
-/// the page-pair `add_pageoff` is unused), a fused flagless op splits into its
-/// `cmp`/`adds`/… setter + the flag-reading branch (x86 `cmp; jcc` works the
-/// same way), and `arena_base` realizes to the pinned `r15` — then remaps the
-/// residual AArch64 ABI registers to their SysV homes ([`remap_x86_abi`]).
-pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
-    let mut out = Vec::with_capacity(instructions.len());
-    for instruction in instructions {
-        if instruction.op == MirOp::AddrOf {
-            // Single RIP-relative reference (no aarch64 page pair): the x86
-            // encoder turns `adrp{dst,symbol}` into `lea dst,[rip+disp32]`.
-            out.push(CodeInstruction {
-                op: CodeOp::Adrp,
-                fields: instruction.fields.clone(),
-            });
-            continue;
-        }
-        if let Some(setter_op) = fused_setter_codeop(instruction.op) {
-            let split = instruction
-                .fields
-                .iter()
-                .position(|(key, _)| *key == FUSED_COND_FIELD)
-                .expect("fused MIR op carries a cond field");
-            let setter_fields = instruction.fields[..split].to_vec();
-            let branch_op = CodeOp::from_mnemonic(&instruction.fields[split].1)
-                .expect("fused MIR op carries a valid branch mnemonic");
-            let mut branch_fields = Vec::new();
-            let mut shared = false;
-            for (key, value) in &instruction.fields[split + 1..] {
-                if *key == FUSED_SHARE_FIELD {
-                    shared = true;
-                } else {
-                    branch_fields.push((*key, value.clone()));
-                }
-            }
-            if !shared {
-                out.push(CodeInstruction {
-                    op: setter_op,
-                    fields: setter_fields,
-                });
-            }
-            out.push(CodeInstruction {
-                op: branch_op,
-                fields: branch_fields,
-            });
-        } else {
-            out.push(CodeInstruction {
-                op: instruction
-                    .op
-                    .to_code()
-                    .expect("non-fused MIR op maps to a single CodeOp"),
-                fields: instruction.fields.clone(),
-            });
-        }
-    }
-    for instruction in &mut out {
-        rename_field_values(&mut instruction.fields, ARENA_BASE, "r15");
-    }
-    remap_x86_abi(&mut out);
-    out
-}
-
 /// Route a finished function's instruction stream through the neutral MIR and
 /// back (`select_aarch64 ∘ lower_to_mir`, the identity) — plan-00-F/G. This is
 /// where the **hand-written runtime helpers** enter the MIR
@@ -804,7 +513,7 @@ pub(crate) fn route_function_through_mir(function: &mut CodeFunction) {
 /// neutral MIR. The shared lowering produces [`MirInstruction`]s, then asks the
 /// **active** backend to (1) `select` them into that ISA's machine ops and (2)
 /// supply the [`RegisterModel`] the shared allocator colors vregs against.
-/// AArch64 implements it via [`select_aarch64`] + `Aarch64RegisterModel`; a new
+/// AArch64 implements it via [`select_aarch64`](crate::arch::aarch64::select::select_aarch64) + `Aarch64RegisterModel`; a new
 /// ISA adds its own `impl Backend` under `src/arch/<isa>/` plus a
 /// `CodegenPlatform` that returns it — with no shared-code edit at the
 /// selection / allocation sites, which is what makes a new backend additive
@@ -832,7 +541,7 @@ pub(crate) fn set_backend(backend: &'static dyn Backend) {
 
 /// The active backend. Panics if lowering ran without [`set_backend`] — every
 /// real entry point installs it; the unit tests that exercise the round trip
-/// call [`select_aarch64`] directly instead of going through dispatch.
+/// call [`select_aarch64`](crate::arch::aarch64::select::select_aarch64) directly instead of going through dispatch.
 pub(crate) fn active_backend() -> &'static dyn Backend {
     ACTIVE_BACKEND
         .with(|cell| cell.get())
@@ -1060,7 +769,8 @@ mod tests {
     use super::*;
 
     fn assert_round_trips(original: &[CodeInstruction]) {
-        let round_tripped = select_aarch64(&lower_to_mir(original));
+        let round_tripped =
+            crate::arch::aarch64::select::select_aarch64(&lower_to_mir(original));
         assert_eq!(
             round_tripped.len(),
             original.len(),

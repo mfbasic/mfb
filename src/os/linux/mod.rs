@@ -28,9 +28,10 @@ pub(crate) fn validate_native_object_plan(plan: &NativePlan) -> Result<(), Strin
 pub(crate) fn write_linked_executable(
     project_dir: &Path,
     project_name: &str,
+    arch: &str,
     flavor: LinuxFlavor,
     app_mode: bool,
     image: &EncodedImage,
 ) -> Result<PathBuf, String> {
-    link::write_executable(project_dir, project_name, flavor, app_mode, image)
+    link::write_executable(project_dir, project_name, arch, flavor, app_mode, image)
 }

@@ -242,6 +242,7 @@ fn write_executable(
         paths.push(os::linux::write_linked_executable(
             project_dir,
             &ir.name,
+            "aarch64",
             flavor,
             app_mode,
             &image,

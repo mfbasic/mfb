@@ -165,7 +165,7 @@ fn writes_glob_dat_glibc_elf() {
     let image = glob_dat_image("libc.so.6");
     let dir = std::path::PathBuf::from("tmp/globlx");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    write_executable(&dir, "glob", LinuxFlavor::Glibc, false, &image)
+    write_executable(&dir, "glob", "aarch64", LinuxFlavor::Glibc, false, &image)
         .expect("link glob_dat elf");
 }
 
@@ -174,7 +174,7 @@ fn writes_glob_dat_musl_elf() {
     let image = glob_dat_image("libc.musl-aarch64.so.1");
     let dir = std::path::PathBuf::from("tmp/globlx");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    write_executable(&dir, "globmusl", LinuxFlavor::Musl, false, &image)
+    write_executable(&dir, "globmusl", "aarch64", LinuxFlavor::Musl, false, &image)
         .expect("link musl glob_dat");
 }
 
@@ -195,7 +195,7 @@ fn writes_mfb_sign_section_to_static_elf() {
         signing_metadata: Some(br#"{"owner":"alice"}"#.to_vec()),
     };
     let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(dir.path(), "signed", LinuxFlavor::Glibc, false, &image)
+    let path = write_executable(dir.path(), "signed", "aarch64", LinuxFlavor::Glibc, false, &image)
         .expect("link signed elf");
     let bytes = std::fs::read(path).unwrap();
     assert!(bytes
@@ -222,7 +222,7 @@ fn writes_init_array_glibc_elf() {
     let image = init_array_image();
     let dir = std::path::PathBuf::from("tmp/initlx");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    write_executable(&dir, "init", LinuxFlavor::Glibc, false, &image)
+    write_executable(&dir, "init", "aarch64", LinuxFlavor::Glibc, false, &image)
         .expect("link init-array elf");
 }
 
@@ -236,7 +236,7 @@ fn writes_versioned_glibc_elf() {
     let image = versioned_exit_image();
     let dir = std::path::PathBuf::from("tmp/verlx");
     std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = write_executable(&dir, "ver", LinuxFlavor::Glibc, false, &image)
+    let path = write_executable(&dir, "ver", "aarch64", LinuxFlavor::Glibc, false, &image)
         .expect("link versioned elf");
     let bytes = std::fs::read(&path).expect("read elf");
     assert!(
