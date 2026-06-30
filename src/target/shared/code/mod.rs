@@ -746,13 +746,14 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_validate_utf8_helper());
     }
     // The macOS TLS backend bridges Network.framework's async callbacks to a
-    // semaphore via small emitted block-invoke functions.
-    if platform.target().contains("macos")
-        && runtime_symbols
-            .iter()
-            .any(|symbol| symbol.starts_with("_mfb_rt_tls_"))
+    // semaphore via small emitted block-invoke functions. Their register layout
+    // is the foreign-runtime callback ABI, so each backend emits its own
+    // (per-(OS, ISA) machine floor); non-macOS / OpenSSL TLS returns none.
+    if runtime_symbols
+        .iter()
+        .any(|symbol| symbol.starts_with("_mfb_rt_tls_"))
     {
-        code_functions.extend(tls::macos_tls_aux_functions());
+        code_functions.extend(platform.emit_tls_block_trampolines());
     }
     if runtime_symbols
         .iter()
@@ -2385,7 +2386,7 @@ mod net;
 mod simd_kernel_coeffs;
 mod private;
 mod term;
-mod tls;
+pub(crate) mod tls;
 mod type_utils;
 use type_utils::*;
 mod serialization_utils;

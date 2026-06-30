@@ -114,6 +114,10 @@ impl code::CodegenPlatform for Platform {
         code::lower_thread_trampoline(platform_imports, self)
     }
 
+    fn emit_tls_block_trampolines(&self) -> Vec<CodeFunction> {
+        super::tls::block_trampolines()
+    }
+
     fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
         app::app_mode_data_objects()
     }

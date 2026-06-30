@@ -7,12 +7,15 @@ const QLABEL_SYMBOL: &str = "_mfb_tls_qlabel";
 const DESC_SYMBOL: &str = "_mfb_tls_block_desc";
 // Descriptor for the larger SNI-config block (three captured pointers).
 const CFG_DESC_SYMBOL: &str = "_mfb_tls_cfg_block_desc";
-const STATE_INVOKE: &str = "_mfb_tls_nw_state_invoke";
-const SEND_INVOKE: &str = "_mfb_tls_nw_send_invoke";
-const RECV_INVOKE: &str = "_mfb_tls_nw_recv_invoke";
+// The block `invoke` symbols. The block-building setup (this module) references
+// them when filling each block's invoke field; the aarch64 backend defines their
+// bodies (`target/macos_aarch64/tls.rs`) — hence `pub(crate)`.
+pub(crate) const STATE_INVOKE: &str = "_mfb_tls_nw_state_invoke";
+pub(crate) const SEND_INVOKE: &str = "_mfb_tls_nw_send_invoke";
+pub(crate) const RECV_INVOKE: &str = "_mfb_tls_nw_recv_invoke";
 // Configure-TLS block invoke: overrides the SNI / certificate-validation
 // server name when `serverName` is supplied.
-const CFG_INVOKE: &str = "_mfb_tls_nw_cfg_invoke";
+pub(crate) const CFG_INVOKE: &str = "_mfb_tls_nw_cfg_invoke";
 
 // nw_connection_state_t
 const NW_STATE_READY: &str = "3";
@@ -26,12 +29,15 @@ const REC_SIZE: &str = "32";
 
 // The shared block context (arena): semaphore, the captured signal fn, and
 // the slots each block writes before signaling.
-const CTX_SEM: usize = 0;
-const CTX_SIGNAL: usize = 8;
-const CTX_STATE: usize = 16;
-const CTX_CONTENT: usize = 24;
-const CTX_ERROR: usize = 32;
-const CTX_RETAIN: usize = 40; // dispatch_retain, used by the receive block
+// The ctx-slot layout is the shared contract between the block-building setup
+// here and the trampoline bodies in the aarch64 backend — `pub(crate)` so both
+// sides read one definition.
+pub(crate) const CTX_SEM: usize = 0;
+pub(crate) const CTX_SIGNAL: usize = 8;
+pub(crate) const CTX_STATE: usize = 16;
+pub(crate) const CTX_CONTENT: usize = 24;
+pub(crate) const CTX_ERROR: usize = 32;
+pub(crate) const CTX_RETAIN: usize = 40; // dispatch_retain, used by the receive block
 const CTX_SIZE: &str = "48";
 
 // Block literal: isa, flags, invoke, descriptor, one captured ctx pointer.
@@ -39,14 +45,14 @@ const BLK_ISA: usize = 0;
 const BLK_FLAGS: usize = 8;
 const BLK_INVOKE: usize = 16;
 const BLK_DESC: usize = 24;
-const BLK_CAP: usize = 32;
+pub(crate) const BLK_CAP: usize = 32;
 
 // The SNI-config block captures three plain pointers after the 32-byte
 // header: the server-name C string and the two resolved framework functions
 // its invoke calls. Total size 56 (see CFG_DESC_SYMBOL).
-const CFG_CAP_SNAME: usize = 32;
-const CFG_CAP_COPYFN: usize = 40;
-const CFG_CAP_SETFN: usize = 48;
+pub(crate) const CFG_CAP_SNAME: usize = 32;
+pub(crate) const CFG_CAP_COPYFN: usize = 40;
+pub(crate) const CFG_CAP_SETFN: usize = 48;
 
 const SYMBOLS: &[&str] = &[
     "nw_endpoint_create_host",
@@ -115,130 +121,11 @@ pub(super) fn data_objects() -> Vec<CodeDataObject> {
     objects
 }
 
-/// A block invoke `void(block, ...)` that stores its argument registers into
-/// the captured ctx slots, then calls the captured signal fn on the
-/// semaphore. `stores` is a list of `(arg_register, ctx_offset)`.
-fn invoke_function(symbol: &str, stores: &[(&str, usize)]) -> CodeFunction {
-    let mut instructions = vec![
-        abi::label("entry"),
-        abi::subtract_stack(16),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::load_u64("x9", "x0", BLK_CAP), // ctx = block->captured pointer
-    ];
-    for (reg, off) in stores {
-        instructions.push(abi::store_u64(reg, "x9", *off));
-    }
-    instructions.extend([
-        abi::load_u64("x10", "x9", CTX_SIGNAL),
-        abi::load_u64("x0", "x9", CTX_SEM),
-        abi::branch_link_register("x10"),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(16),
-        abi::return_(),
-    ]);
-    CodeFunction {
-        name: format!("runtime.{symbol}"),
-        symbol: symbol.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: frame(16),
-        stack_slots: Vec::new(),
-        instructions,
-        relocations: Vec::new(),
-    }
-}
-
-/// The receive completion `(content @x1, context @x2, is_complete @x3,
-/// error @x4)`. The `content` dispatch_data is only valid for the block's
-/// duration, so it is retained before being stashed for the helper to map.
-fn recv_invoke_function() -> CodeFunction {
-    let sig = format!("{RECV_INVOKE}_sig");
-    let instructions = vec![
-        abi::label("entry"),
-        abi::subtract_stack(32),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::store_u64("x19", abi::stack_pointer(), 8),
-        abi::move_register("x19", "x0"), // x19 = block; reload ctx below
-        abi::load_u64("x19", "x19", BLK_CAP), // x19 = ctx (callee-saved across calls)
-        abi::store_u64("x4", "x19", CTX_ERROR),
-        abi::compare_immediate("x1", "0"),
-        abi::branch_eq(&sig),
-        abi::store_u64("x1", "x19", CTX_CONTENT),
-        // dispatch_retain(content) so it survives past this block.
-        abi::load_u64("x12", "x19", CTX_RETAIN),
-        abi::move_register("x0", "x1"),
-        abi::branch_link_register("x12"),
-        abi::label(&sig),
-        abi::load_u64("x10", "x19", CTX_SIGNAL),
-        abi::load_u64("x0", "x19", CTX_SEM),
-        abi::branch_link_register("x10"),
-        abi::load_u64("x19", abi::stack_pointer(), 8),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(32),
-        abi::return_(),
-    ];
-    CodeFunction {
-        name: format!("runtime.{RECV_INVOKE}"),
-        symbol: RECV_INVOKE.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: frame(32),
-        stack_slots: Vec::new(),
-        instructions,
-        relocations: Vec::new(),
-    }
-}
-
-/// The configure-TLS block `void(block @x0, nw_protocol_options_t tls @x1)`.
-/// It copies the TLS protocol's `sec_protocol_options`, then overrides the
-/// server name used for SNI and certificate validation. The server-name C
-/// string and the two framework functions are captured in the block (the
-/// invoke is a static aux function and cannot embed per-call `dlsym`
-/// results). Defaults still apply for everything it does not touch.
-fn cfg_invoke_function() -> CodeFunction {
-    let instructions = vec![
-        abi::label("entry"),
-        abi::subtract_stack(32),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::store_u64("x19", abi::stack_pointer(), 8),
-        abi::store_u64("x20", abi::stack_pointer(), 16),
-        // x0 = block, x1 = tls_options. Preserve server name + setter across
-        // the copy call (x0/x1 are clobbered by it).
-        abi::load_u64("x19", "x0", CFG_CAP_SNAME), // server name (cstr)
-        abi::load_u64("x20", "x0", CFG_CAP_SETFN), // sec_protocol_options_set_tls_server_name
-        abi::load_u64("x9", "x0", CFG_CAP_COPYFN), // nw_tls_copy_sec_protocol_options
-        abi::move_register("x0", "x1"),
-        abi::branch_link_register("x9"), // x0 = sec_options
-        abi::move_register("x1", "x19"),
-        abi::branch_link_register("x20"), // set_tls_server_name(sec_options, name)
-        abi::load_u64("x20", abi::stack_pointer(), 16),
-        abi::load_u64("x19", abi::stack_pointer(), 8),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(32),
-        abi::return_(),
-    ];
-    CodeFunction {
-        name: format!("runtime.{CFG_INVOKE}"),
-        symbol: CFG_INVOKE.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: frame(32),
-        stack_slots: Vec::new(),
-        instructions,
-        relocations: Vec::new(),
-    }
-}
-
-pub(super) fn aux_functions() -> Vec<CodeFunction> {
-    vec![
-        // state_changed(state @x1, error @x2)
-        invoke_function(STATE_INVOKE, &[("x1", CTX_STATE), ("x2", CTX_ERROR)]),
-        // send_completion(error @x1)
-        invoke_function(SEND_INVOKE, &[("x1", CTX_ERROR)]),
-        recv_invoke_function(),
-        cfg_invoke_function(),
-    ]
-}
+// The block-`invoke` trampoline bodies (STATE/SEND/RECV/CFG) are the
+// foreign-runtime callback ABI realized as aarch64 instructions, so they live in
+// the per-(OS, ISA) backend: `target/macos_aarch64/tls.rs`, reached via
+// `CodegenPlatform::emit_tls_block_trampolines`. They consume the `pub(crate)`
+// block/ctx layout above. A macOS-x86 backend supplies its own.
 
 /// Emit a `dlsym(handle, name)` into `fnptr_off` (delegates to the parent).
 #[allow(clippy::too_many_arguments)]

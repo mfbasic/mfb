@@ -103,13 +103,6 @@ pub(super) fn tls_cstring_data_objects() -> Vec<CodeDataObject> {
     objects
 }
 
-pub(super) fn frame(stack_size: usize) -> CodeFrame {
-    CodeFrame {
-        stack_size,
-        callee_saved: vec![abi::link_register().to_string()],
-    }
-}
-
 fn internal_reloc(symbol: &str, target: &str) -> CodeRelocation {
     CodeRelocation {
         from: symbol.to_string(),
@@ -358,7 +351,7 @@ pub(super) fn emit_set_sock_timeouts(
 // ---------------------------------------------------------------------------
 
 
-mod macos;
+pub(crate) mod macos;
 mod openssl;
 
 pub(super) use openssl::{
@@ -372,8 +365,4 @@ pub(super) use openssl::{
 
 pub(super) fn macos_tls_data_objects() -> Vec<CodeDataObject> {
     macos::data_objects()
-}
-
-pub(super) fn macos_tls_aux_functions() -> Vec<CodeFunction> {
-    macos::aux_functions()
 }

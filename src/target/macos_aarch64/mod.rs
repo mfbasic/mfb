@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 pub(crate) mod app;
 pub(crate) mod code;
 pub(crate) mod plan;
+pub(crate) mod tls;
 
 pub(crate) static BACKEND: Backend = Backend;
 

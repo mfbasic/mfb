@@ -380,6 +380,18 @@ pub(crate) trait CodegenPlatform {
         platform_imports: &HashMap<String, String>,
     ) -> Result<CodeFunction, String>;
 
+    /// The platform's TLS callback trampolines — fixed-ABI block/`invoke`
+    /// functions a foreign runtime calls back into (macOS Network.framework
+    /// dispatch/objc blocks: block ptr in `x0`, the rest per the block's C
+    /// signature). Per-(OS, ISA) machine floor like
+    /// [`Self::emit_thread_trampoline`] — their register layout is dictated by
+    /// the runtime, not the allocator. Default empty (platforms with no such
+    /// boundary, e.g. the OpenSSL/Linux TLS path). Only assembled when the
+    /// program actually uses TLS.
+    fn emit_tls_block_trampolines(&self) -> Vec<CodeFunction> {
+        Vec::new()
+    }
+
     /// Read-only data objects (Obj-C class/selector C strings, window title,
     /// env-var names) referenced by the app-mode bootstrap. Empty otherwise.
     fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
