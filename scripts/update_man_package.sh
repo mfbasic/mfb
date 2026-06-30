@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # For each built-in package, uses the claude CLI to review and update/create its
-# package.txt man page (the per-module overview, not the per-function pages).
+# package.md man page (the per-module overview, not the per-function pages).
 
 set -euo pipefail
 
@@ -9,47 +9,12 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 cd "$REPO_ROOT"
 
-# Full package-page template, modeled on the SYNOPSIS/DESCRIPTION layout of Linux
-# man(1) overview pages but describing a whole built-in package. Placeholders in
-# <angle brackets> are filled in per package; sections in [brackets] are
-# conditional and omitted when they do not apply.
-read -r -d '' TEMPLATE <<'TEMPLATE_EOF' || true
-Full package template (fill in every <...> placeholder; keep section names and order):
+# Markdown template for the per-package overview page (mfb man <package>),
+# describing a whole built-in package rather than a single function.
+# Loaded from .ai/man_package_template.md.
+TEMPLATE="$(cat "$REPO_ROOT/.ai/man_package_template.md")"
 
-NAME
-  <package> - <one-line description of what the package is for>
-
-SYNOPSIS
-  IMPORT <package>
-  <package>::<function>(<args>)
-  [a few representative calls only -- NOT the full function list]
-
-[IMPORTS]
-  <ONLY for always-available packages (general, filters): state that the
-  functions are in scope without any IMPORT. Omit this section entirely for
-  importable packages -- the IMPORT line in SYNOPSIS already covers them.>
-
-DESCRIPTION
-  <Package-level overview: the purpose of the package, the kinds of values and
-  built-in types it works with, the conventions shared across its functions
-  (indexing, units, ownership, mutation, ordering), and any cross-cutting
-  behavior. Define any built-in types the package introduces. Do not repeat
-  every per-function detail; describe what is common to the whole package.>
-
-ERRORS
-  <code> (<ErrName>)
-  <the package-wide condition under which the package's functions raise this error>
-
-  <code> (<ErrName>)
-  <the package-wide condition under which the package's functions raise this error>
-
-The page ends after ERRORS. Do NOT add EXAMPLES, SEE ALSO, or a list of the
-package's functions: the `mfb man <package>` command renders the package.txt and
-then automatically appends the full FUNCTIONS list and a "Run `mfb man <package>
-<function>`" footer, so any such content in package.txt would be duplicated.
-TEMPLATE_EOF
-
-# Collect the documented built-in packages (each has a package.txt overview).
+# Collect the documented built-in packages (each has a package.{txt,md} overview).
 PACKAGES=()
 while IFS= read -r dir; do
   PACKAGES+=("$(basename "$dir")")
@@ -86,60 +51,59 @@ for i in "${!PACKAGES[@]}"; do
   echo "=== [$count/$total] $pkg ==="
 
   claude -p --dangerously-skip-permissions "Update the mfb package man page for the built-in package '$pkg'.
-This is the package overview page at src/docs/man/builtins/${pkg}/package.txt, not a per-function page.
+This is the package overview page at src/docs/man/builtins/${pkg}/package.md, not a per-function page.
 
 Steps:
-1. Read several src/docs/man/builtins/*/package.txt files to understand the package-page
-   format and style conventions (how SYNOPSIS, DESCRIPTION, and SEE ALSO are written
-   for a whole package rather than a single function).
+1. Man pages are Markdown, rendered to the terminal by src/docs/render.rs. Read a
+   few existing overview pages (e.g. src/docs/man/unicode/package.md, plus any
+   src/docs/man/builtins/*/package.md) for tone and house style, and follow the
+   Markdown template below for structure.
 2. Read the package's compiler source (${src_list}) to understand which functions and
    constants it exports, the built-in types it defines, and its shared conventions.
-3. Read the per-function man pages in src/docs/man/builtins/${pkg}/*.txt (every .txt except
-   package.txt) so the DESCRIPTION reflects the conventions those pages share. Do NOT
-   list every function in package.txt -- the 'mfb man ${pkg}' command appends that list
+3. Read the per-function man pages in src/docs/man/builtins/${pkg}/* (every page except
+   the package overview) so the Description reflects the conventions those pages share.
+   Do NOT list every function -- the 'mfb man ${pkg}' command appends that list
    automatically (see the note below).
 4. Determine the errors the package's functions can raise. Read src/docs/man/errors/package.txt
    for the Error model and src/target/shared/code/mod.rs for the canonical error registry:
    each ERR_*_CODE constant maps a symbolic name (e.g. ErrInvalidArgument) to its numeric
    code (e.g. 77050002). Collect the codes that functions in this package raise.
-5. Write the updated package.txt at src/docs/man/builtins/${pkg}/package.txt.
+5. Write the page as Markdown to src/docs/man/builtins/${pkg}/package.md. If a legacy
+   plain-text package.txt exists, delete it (git rm) so there is no duplicate overview.
 
 Format rules:
-- NAME line: '  <package> - <one-line description>'
-- SYNOPSIS opens with the IMPORT line (or, for always-available packages such as
-  general and filters, note that no IMPORT is needed) followed by only a few
-  representative calls that illustrate typical usage, using :: for the module
-  separator. Do NOT list every function -- 'mfb man ${pkg}' appends the full list.
-- Standard sections in order: NAME, SYNOPSIS, [IMPORTS], DESCRIPTION, ERRORS
-- Include IMPORTS only for always-available packages (general, filters) to note
+- The page is Markdown. The '# ${pkg}' title is followed by the one-line summary.
+- Section headings (## ...) in order: Synopsis, [Imports], Description, Errors.
+- The Synopsis fenced block opens with the IMPORT line (or, for always-available
+  packages such as general and filters, a note that no IMPORT is needed) followed
+  by only a few representative calls that illustrate typical usage, using :: for
+  the module separator. Do NOT list every function -- 'mfb man ${pkg}' appends it.
+- Include Imports only for always-available packages (general, filters) to note
   that no IMPORT is needed; omit it for importable packages.
-- The page ends after ERRORS. Do not add EXAMPLES, SEE ALSO, or a FUNCTIONS list;
+- The page ends after Errors. Do not add Examples, See also, or a function list;
   'mfb man ${pkg}' appends the function list and footer automatically.
-- Follow the full template below exactly. Sections in [brackets] are conditional;
+- Follow the full template below exactly. Bracketed sections are conditional;
   omit them when they do not apply. All other sections are required.
-- Two-space indent for all content within sections
-- Blank line between sections
+- Use the renderer's supported Markdown subset only: ATX headings, paragraphs,
+  bullet/ordered lists, fenced code blocks, pipe tables, and inline
+  \`code\`/**bold**/*italic*/[links](url).
 
-ERRORS section (required, always present):
-- This is the package-wide summary of error behavior. List each distinct error that
-  functions in this package can raise. For each error write the numeric code, then
-  the symbolic name in parentheses, on one line; put the description on the following
-  line(s):
+Errors table (required, always present):
+- This is the package-wide summary of error behavior. List each distinct error
+  functions in this package can raise, one row per error, with the numeric code,
+  the symbolic name, and the condition:
 
-    ERRORS
-      77050002 (ErrInvalidArgument)
-      Raised by <functions> when <condition>.
+    ## Errors
 
-      77050010 (ErrOverflow)
-      Raised by <functions> when <condition>.
+    | Code | Name | Raised when |
+    | --- | --- | --- |
+    | \`77050002\` | \`ErrInvalidArgument\` | raised by <functions> when <condition> |
+    | \`77050010\` | \`ErrOverflow\` | raised by <functions> when <condition> |
 
 - Use the exact code<->name pairs from src/target/shared/code/mod.rs. Do not invent
   codes or names.
-- If no function in this package raises any error, the section must read exactly:
-
-    ERRORS
-      No errors.
-
+- If no function in this package raises any error, replace the table with a single
+  line that reads exactly: No errors.
   (Errors propagating from evaluating arguments before a call do not count; do not
   list them.)
 

@@ -41,11 +41,13 @@ Universal rules below. Before a given kind of work, also read the matching `.ai/
 - Compiler / built-ins / IR / native codegen / runtime helpers / diagnostics →
   `.ai/compiler.md` (runtime completion gate, validation & function tests, register
   lifetimes).
-- Creating or updating a man page (`src/docs/man/**`) → follow the templates exactly:
-  `.ai/man_template.md` for a per-function page, `.ai/man_type_template.md` for a
-  package's consolidated `types` page. Keep every section name and order; fill in
-  all `<...>` placeholders; omit `[bracketed]` sections only when they do not apply.
-  (`scripts/update_man.sh` drives this in bulk and loads the same templates.)
+- Creating or updating a man page (`src/docs/man/**`, Markdown) → follow the templates
+  exactly: `.ai/man_template.md` for a per-function page, `.ai/man_type_template.md`
+  for a package's consolidated `types` page, `.ai/man_package_template.md` for a
+  package overview. Keep every section name and order; fill in all `<...>`
+  placeholders; omit optional sections only when they do not apply. The templates are
+  bare skeletons — authoring rules live in the driver scripts (`scripts/update_man.sh`
+  for function/type pages, `scripts/update_man_package.sh` for package overviews).
 - The embedded spec (`mfb spec`, `src/docs/spec/**`) → `.ai/specifications.md` (keep it
   current with every compiler change).
 - Writing a feature plan → `.ai/planning.md` (template `.ai/plan_template.md`).
