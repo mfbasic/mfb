@@ -11,7 +11,7 @@ impl CodeBuilder<'_> {
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding,
             library,
         });
@@ -85,7 +85,7 @@ impl CodeBuilder<'_> {
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.clone(),
-            kind: "page21".to_string(),
+            kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         });
@@ -93,7 +93,7 @@ impl CodeBuilder<'_> {
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol,
-            kind: "pageoff12".to_string(),
+            kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         });
@@ -105,7 +105,7 @@ impl CodeBuilder<'_> {
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.to_string(),
-            kind: "page21".to_string(),
+            kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         });
@@ -113,7 +113,7 @@ impl CodeBuilder<'_> {
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: symbol.to_string(),
-            kind: "pageoff12".to_string(),
+            kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         });

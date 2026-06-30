@@ -5,7 +5,7 @@ use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::linux_aarch64::gtk;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
+    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent,
     MirPlan, NativeCodePlan,
 };
 use crate::target::shared::nir::NirModule;
@@ -110,7 +110,7 @@ impl code::CodegenPlatform for Platform {
             relocations.push(CodeRelocation {
                 from: from.to_string(),
                 to: gtk::FINISH_SYMBOL.to_string(),
-                kind: "branch26".to_string(),
+                kind: RelocIntent::Call,
                 binding: "internal".to_string(),
                 library: None,
             });
@@ -120,7 +120,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: "_exit".to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(self.libc().to_string()),
         });
@@ -664,7 +664,7 @@ fn emit_linux_c_call(
     relocations.push(CodeRelocation {
         from: from.to_string(),
         to: symbol.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "external".to_string(),
         library: Some(library),
     });

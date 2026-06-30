@@ -197,7 +197,7 @@ pub(super) fn lower_program_entry(
         relocations.push(CodeRelocation {
             from: entry_symbol.to_string(),
             to: symbol.to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
         });
@@ -211,7 +211,7 @@ pub(super) fn lower_program_entry(
         relocations.push(CodeRelocation {
             from: entry_symbol.to_string(),
             to: symbol.to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
         });
@@ -243,7 +243,7 @@ pub(super) fn lower_program_entry(
     relocations.push(CodeRelocation {
         from: entry_symbol.to_string(),
         to: language_entry_symbol.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });
@@ -426,7 +426,7 @@ fn emit_entry_args_list_materialization(
     relocations.push(CodeRelocation {
         from: "_main".to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });
@@ -1544,14 +1544,14 @@ fn emit_write_string_object(
         CodeRelocation {
             from: from.to_string(),
             to: symbol.to_string(),
-            kind: "page21".to_string(),
+            kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         },
         CodeRelocation {
             from: from.to_string(),
             to: symbol.to_string(),
-            kind: "pageoff12".to_string(),
+            kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         },

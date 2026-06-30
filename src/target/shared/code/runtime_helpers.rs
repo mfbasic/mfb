@@ -483,7 +483,7 @@ fn lower_thread_start_helper(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
-        kind: "page21".to_string(),
+        kind: RelocIntent::DataAddrHi,
         binding: "data".to_string(),
         library: None,
     });
@@ -491,7 +491,7 @@ fn lower_thread_start_helper(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: THREAD_TRAMPOLINE_SYMBOL.to_string(),
-        kind: "pageoff12".to_string(),
+        kind: RelocIntent::DataAddrLo,
         binding: "data".to_string(),
         library: None,
     });

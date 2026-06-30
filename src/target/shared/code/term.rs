@@ -103,11 +103,11 @@ pub(super) fn console_data_objects() -> Vec<CodeDataObject> {
         .collect()
 }
 
-fn data_reloc(from: &str, symbol: &str, kind: &str) -> CodeRelocation {
+fn data_reloc(from: &str, symbol: &str, kind: RelocIntent) -> CodeRelocation {
     CodeRelocation {
         from: from.to_string(),
         to: symbol.to_string(),
-        kind: kind.to_string(),
+        kind,
         binding: "data".to_string(),
         library: None,
     }
@@ -122,9 +122,9 @@ fn load_data_address(
     relocations: &mut Vec<CodeRelocation>,
 ) {
     instructions.push(abi::load_page_address(dst, symbol));
-    relocations.push(data_reloc(from, symbol, "page21"));
+    relocations.push(data_reloc(from, symbol, RelocIntent::DataAddrHi));
     instructions.push(abi::add_page_offset(dst, dst, symbol));
-    relocations.push(data_reloc(from, symbol, "pageoff12"));
+    relocations.push(data_reloc(from, symbol, RelocIntent::DataAddrLo));
 }
 
 /// Emit a write of a fixed escape-sequence byte string to stdout (fd 1). The

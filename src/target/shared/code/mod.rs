@@ -1963,7 +1963,7 @@ fn internal_branch(from: &str, to: &str) -> CodeRelocation {
     CodeRelocation {
         from: from.to_string(),
         to: to.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     }
@@ -1981,7 +1981,7 @@ fn external_branch(
     Ok(CodeRelocation {
         from: from.to_string(),
         to: to.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "external".to_string(),
         library: Some(library),
     })
@@ -2287,7 +2287,7 @@ fn lower_map_probe_helper() -> CodeFunction {
     let relocations = vec![CodeRelocation {
         from: symbol.to_string(),
         to: MAP_BUILD_BUCKETS_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     }];

@@ -44,7 +44,7 @@ impl CodeBuilder<'_> {
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: FS_PATH_JOIN_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
         });
@@ -304,7 +304,7 @@ impl CodeBuilder<'_> {
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: ARENA_ALLOC_SYMBOL.to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
         });

@@ -114,7 +114,7 @@ fn internal_reloc(symbol: &str, target: &str) -> CodeRelocation {
     CodeRelocation {
         from: symbol.to_string(),
         to: target.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     }
@@ -143,14 +143,14 @@ pub(super) fn emit_data_address(
         CodeRelocation {
             from: from.to_string(),
             to: data_symbol.to_string(),
-            kind: "page21".to_string(),
+            kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         },
         CodeRelocation {
             from: from.to_string(),
             to: data_symbol.to_string(),
-            kind: "pageoff12".to_string(),
+            kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         },

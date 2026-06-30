@@ -83,14 +83,14 @@ pub(super) fn lower_io_write_helper(
         CodeRelocation {
             from: symbol.to_string(),
             to: output_error_symbol.clone(),
-            kind: "page21".to_string(),
+            kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         },
         CodeRelocation {
             from: symbol.to_string(),
             to: output_error_symbol,
-            kind: "pageoff12".to_string(),
+            kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         },
@@ -291,14 +291,14 @@ pub(super) fn lower_io_poll_input_helper(
         CodeRelocation {
             from: symbol.to_string(),
             to: input_error_symbol.clone(),
-            kind: "page21".to_string(),
+            kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         },
         CodeRelocation {
             from: symbol.to_string(),
             to: input_error_symbol,
-            kind: "pageoff12".to_string(),
+            kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         },

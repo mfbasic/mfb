@@ -29,7 +29,7 @@ fn internal_reloc(symbol: &str, target: &str) -> CodeRelocation {
     CodeRelocation {
         from: symbol.to_string(),
         to: target.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     }

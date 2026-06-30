@@ -17,14 +17,14 @@ pub(super) fn push_symbol_address(
         CodeRelocation {
             from: from.to_string(),
             to: symbol.to_string(),
-            kind: "page21".to_string(),
+            kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         },
         CodeRelocation {
             from: from.to_string(),
             to: symbol.to_string(),
-            kind: "pageoff12".to_string(),
+            kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         },
@@ -53,14 +53,14 @@ pub(super) fn push_error_message_address(
         CodeRelocation {
             from: from.to_string(),
             to: symbol.to_string(),
-            kind: "page21".to_string(),
+            kind: RelocIntent::DataAddrHi,
             binding: "data".to_string(),
             library: None,
         },
         CodeRelocation {
             from: from.to_string(),
             to: symbol.to_string(),
-            kind: "pageoff12".to_string(),
+            kind: RelocIntent::DataAddrLo,
             binding: "data".to_string(),
             library: None,
         },

@@ -145,7 +145,7 @@ pub(super) fn emit_call_validate_utf8(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: VALIDATE_UTF8_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });

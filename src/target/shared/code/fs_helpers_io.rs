@@ -44,7 +44,7 @@ pub(super) fn lower_fs_open_helper(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });
@@ -138,7 +138,7 @@ pub(super) fn lower_fs_open_helper(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });
@@ -464,7 +464,7 @@ pub(super) fn lower_fs_read_all_helper(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });
@@ -765,7 +765,7 @@ pub(super) fn lower_fs_read_all_bytes_helper(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });
@@ -1100,7 +1100,7 @@ pub(super) fn lower_fs_read_line_helper(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });
@@ -1195,7 +1195,7 @@ pub(super) fn lower_fs_read_line_helper(
     relocations.push(CodeRelocation {
         from: symbol.to_string(),
         to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "internal".to_string(),
         library: None,
     });

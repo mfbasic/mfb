@@ -14,7 +14,7 @@
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
+    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent,
 };
 
 const MAIN_SYMBOL: &str = "_main";
@@ -428,7 +428,7 @@ impl Asm {
         self.rel.push(CodeRelocation {
             from: self.from.clone(),
             to: symbol.to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(library.to_string()),
         });
@@ -440,7 +440,7 @@ impl Asm {
         self.rel.push(CodeRelocation {
             from: self.from.clone(),
             to: symbol.to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
         });
@@ -460,11 +460,11 @@ impl Asm {
                 .field("src", dst)
                 .field("symbol", symbol),
         );
-        for kind in ["page21", "pageoff12"] {
+        for kind in [RelocIntent::DataAddrHi, RelocIntent::DataAddrLo] {
             self.rel.push(CodeRelocation {
                 from: self.from.clone(),
                 to: symbol.to_string(),
-                kind: kind.to_string(),
+                kind,
                 binding: "data".to_string(),
                 library: None,
             });
@@ -486,11 +486,11 @@ impl Asm {
                 .field("src", dst)
                 .field("symbol", symbol),
         );
-        for kind in ["page21", "pageoff12"] {
+        for kind in [RelocIntent::GotLoadHi, RelocIntent::GotLoadLo] {
             self.rel.push(CodeRelocation {
                 from: self.from.clone(),
                 to: symbol.to_string(),
-                kind: kind.to_string(),
+                kind,
                 binding: "external".to_string(),
                 library: Some(library.to_string()),
             });

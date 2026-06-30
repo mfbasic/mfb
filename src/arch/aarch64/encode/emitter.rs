@@ -1,5 +1,6 @@
 use super::*;
 use super::operand::{field, immediate, reg, scratch_excluding, shift, vreg};
+use crate::target::shared::code::RelocIntent;
 use super::sizing::{
     branch_imm19, branch_imm26, checked_imm12, encode_add_sub_imm, next_add_sub_chunk,
 };
@@ -952,11 +953,15 @@ impl Encoder {
     fn emit_bl(&mut self, target: String) -> Result<(), String> {
         let offset = self.text.len();
         self.emit_word(0x9400_0000)?;
+        // A `bl` is the neutral `Call` intent; the AArch64 table realizes it as
+        // `branch26` (plan-00-D). Binding still splits a direct internal call
+        // from an import-stub call.
+        let call_kind = crate::arch::aarch64::reloc::reloc_kind(RelocIntent::Call).to_string();
         if self.symbols.iter().any(|symbol| symbol.name == target) {
             self.relocations.push(EncodedRelocation {
                 offset,
                 target,
-                kind: "branch26".to_string(),
+                kind: call_kind,
                 binding: "internal".to_string(),
                 library: None,
             });
@@ -964,7 +969,7 @@ impl Encoder {
             self.relocations.push(EncodedRelocation {
                 offset,
                 target,
-                kind: "branch26".to_string(),
+                kind: call_kind,
                 binding: "external".to_string(),
                 library: Some(library.clone()),
             });
@@ -987,25 +992,34 @@ impl Encoder {
             "add_pageoff" => self.emit_word(0x9100_0000 | ((rd as u32) << 5) | rd as u32)?,
             _ => unreachable!(),
         }
-        let relocation_kind = if kind == "adrp" {
-            "page21"
-        } else {
-            "pageoff12"
-        }
-        .to_string();
+        // The `adrp; add :lo12:` page pair realizes a neutral hi/lo address
+        // intent (plan-00-D): a GOT load for an imported symbol, an internal
+        // data address otherwise. The AArch64 table maps both back to
+        // `page21`/`pageoff12`, so the encoded relocation is byte-identical.
+        let high_part = kind == "adrp";
         if let Some(library) = self.imports.get(&symbol) {
+            let intent = if high_part {
+                RelocIntent::GotLoadHi
+            } else {
+                RelocIntent::GotLoadLo
+            };
             self.relocations.push(EncodedRelocation {
                 offset,
                 target: symbol,
-                kind: relocation_kind,
+                kind: crate::arch::aarch64::reloc::reloc_kind(intent).to_string(),
                 binding: "external".to_string(),
                 library: Some(library.clone()),
             });
         } else {
+            let intent = if high_part {
+                RelocIntent::DataAddrHi
+            } else {
+                RelocIntent::DataAddrLo
+            };
             self.relocations.push(EncodedRelocation {
                 offset,
                 target: symbol,
-                kind: relocation_kind,
+                kind: crate::arch::aarch64::reloc::reloc_kind(intent).to_string(),
                 binding: "data".to_string(),
                 library: None,
             });

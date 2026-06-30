@@ -43,9 +43,57 @@ pub(crate) struct CodeInstruction {
 pub(crate) struct CodeRelocation {
     pub(crate) from: String,
     pub(crate) to: String,
-    pub(crate) kind: String,
+    /// Neutral relocation *intent* (`mir.md §8`, plan-00-D): what the reference
+    /// means semantically (a call, an internal-data address, a GOT load),
+    /// **not** the AArch64 reloc kind. The AArch64 backend maps it to the
+    /// concrete `branch26`/`page21`/`pageoff12` it emits today
+    /// (`crate::arch::aarch64::reloc::reloc_kind`); x86_64/rv64 map the same
+    /// intent to `R_X86_64_*`/`R_RISCV_*` (their plans).
+    pub(crate) kind: RelocIntent,
     pub(crate) binding: String,
     pub(crate) library: Option<String>,
+}
+
+/// A neutral relocation intent (`mir.md §8`, plan-00-D §1). Replaces the former
+/// AArch64 `kind` strings (`branch26`/`page21`/`pageoff12`) in the neutral
+/// layer: an emit site states *what the reference is* and each backend realizes
+/// it as that ISA's concrete reloc. Paired with [`CodeRelocation::binding`]
+/// (`internal`/`external`/`data`), which still distinguishes a direct call from
+/// an import-stub call.
+///
+/// AArch64 realization (`crate::arch::aarch64::reloc::reloc_kind`):
+/// `Call → branch26`, `DataAddrHi`/`GotLoadHi → page21`,
+/// `DataAddrLo`/`GotLoadLo → pageoff12`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RelocIntent {
+    /// PC-relative call to a function symbol (binding selects direct vs. an
+    /// import stub). AArch64 `bl` → `R_AARCH64_CALL26`.
+    Call,
+    /// High part of an **internal** data symbol's PC-relative address — the
+    /// `adrp` of the `adrp; add :lo12:` page pair. AArch64 page21.
+    DataAddrHi,
+    /// Low part of an internal data symbol's address — the `add :lo12:` of the
+    /// page pair. AArch64 pageoff12.
+    DataAddrLo,
+    /// High part of a **GOT** slot's address (an external data symbol loaded
+    /// through the Global Offset Table). AArch64 GOT-page page21.
+    GotLoadHi,
+    /// Low part of a GOT slot's address. AArch64 GOT-pageoff pageoff12.
+    GotLoadLo,
+}
+
+impl RelocIntent {
+    /// Neutral mnemonic for diagnostics / the `-mir` dump (`mir.md §12a`). Never
+    /// names an AArch64 reloc kind — that is the backend's concrete realization.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            RelocIntent::Call => "call",
+            RelocIntent::DataAddrHi => "data_addr_hi",
+            RelocIntent::DataAddrLo => "data_addr_lo",
+            RelocIntent::GotLoadHi => "got_load_hi",
+            RelocIntent::GotLoadLo => "got_load_lo",
+        }
+    }
 }
 
 pub(crate) struct CodeImport {

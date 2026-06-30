@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, MirPlan,
+    self, AppEntrySpec, CodeDataObject, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent, MirPlan,
     NativeCodePlan,
 };
 use crate::target::shared::nir::NirModule;
@@ -174,7 +174,7 @@ impl code::CodegenPlatform for Platform {
             relocations.push(CodeRelocation {
                 from: from.to_string(),
                 to: app::FINISH_SYMBOL.to_string(),
-                kind: "branch26".to_string(),
+                kind: RelocIntent::Call,
                 binding: "internal".to_string(),
                 library: None,
             });
@@ -188,7 +188,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: "_exit".to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some("libSystem".to_string()),
         });
@@ -210,7 +210,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: "_write".to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(library),
         });
@@ -232,7 +232,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: "_poll".to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(library),
         });
@@ -278,7 +278,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: "_access".to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(library),
         });
@@ -300,7 +300,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: "_stat".to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(library),
         });
@@ -328,7 +328,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: "_getcwd".to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(library),
         });
@@ -360,7 +360,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: symbol.to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(library),
         });
@@ -382,7 +382,7 @@ impl code::CodegenPlatform for Platform {
         relocations.push(CodeRelocation {
             from: from.to_string(),
             to: "___error".to_string(),
-            kind: "branch26".to_string(),
+            kind: RelocIntent::Call,
             binding: "external".to_string(),
             library: Some(library),
         });
@@ -719,7 +719,7 @@ fn emit_libsystem_call(
     relocations.push(CodeRelocation {
         from: from.to_string(),
         to: symbol.to_string(),
-        kind: "branch26".to_string(),
+        kind: RelocIntent::Call,
         binding: "external".to_string(),
         library: Some(library),
     });

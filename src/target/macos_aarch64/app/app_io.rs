@@ -401,11 +401,11 @@ pub(crate) fn emit_app_io_terminal_size_helper(
             .field("src", "x2")
             .field("symbol", ERR_UNSUPPORTED_SYMBOL),
     );
-    for kind in ["page21", "pageoff12"] {
+    for kind in [RelocIntent::DataAddrHi, RelocIntent::DataAddrLo] {
         asm.rel.push(CodeRelocation {
             from: symbol.to_string(),
             to: ERR_UNSUPPORTED_SYMBOL.to_string(),
-            kind: kind.to_string(),
+            kind,
             binding: "data".to_string(),
             library: None,
         });
@@ -1069,11 +1069,11 @@ fn emit_app_terminal_size(
             .field("src", "x2")
             .field("symbol", ERR_UNSUPPORTED_SYMBOL),
     );
-    for kind in ["page21", "pageoff12"] {
+    for kind in [RelocIntent::DataAddrHi, RelocIntent::DataAddrLo] {
         asm.rel.push(CodeRelocation {
             from: symbol.to_string(),
             to: ERR_UNSUPPORTED_SYMBOL.to_string(),
-            kind: kind.to_string(),
+            kind,
             binding: "data".to_string(),
             library: None,
         });

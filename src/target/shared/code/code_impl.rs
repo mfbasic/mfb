@@ -246,12 +246,16 @@ impl ToCodeJson for CodeRelocation {
             .as_ref()
             .map(|library| json_string(library))
             .unwrap_or_else(|| "null".to_string());
+        // `-ncode` is the concrete AArch64 backend dump, so the neutral intent is
+        // serialized through the AArch64 intent→kind table (plan-00-D): the dump
+        // still reads `branch26`/`page21`/`pageoff12`, byte-identical to before.
+        // (The neutral intent name appears in the `-mir` dump instead.)
         format!(
             "\n{}{{ \"from\": {}, \"to\": {}, \"kind\": {}, \"binding\": {}, \"library\": {} }}",
             pad,
             json_string(&self.from),
             json_string(&self.to),
-            json_string(&self.kind),
+            json_string(crate::arch::aarch64::reloc::reloc_kind(self.kind)),
             json_string(&self.binding),
             library
         )

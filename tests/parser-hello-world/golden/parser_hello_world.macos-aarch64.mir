@@ -13,14 +13,14 @@
     "instructions": [
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "112" },
-    { "op": "add_imm", "dst": "x19", "src": "sp", "imm": "0" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "0" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "8" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "16" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "24" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "48" },
+    { "op": "add_imm", "dst": "arena_base", "src": "sp", "imm": "0" },
+    { "op": "str_u64", "src": "x31", "base": "arena_base", "offset": "0" },
+    { "op": "str_u64", "src": "x31", "base": "arena_base", "offset": "8" },
+    { "op": "str_u64", "src": "x31", "base": "arena_base", "offset": "16" },
+    { "op": "str_u64", "src": "x31", "base": "arena_base", "offset": "24" },
+    { "op": "str_u64", "src": "x31", "base": "arena_base", "offset": "48" },
     { "op": "addr_of", "dst": "x9", "symbol": "_mfb_rt_main_arena" },
-    { "op": "str_u64", "src": "x19", "base": "x9", "offset": "0" },
+    { "op": "str_u64", "src": "arena_base", "base": "x9", "offset": "0" },
     { "op": "sub_sp", "imm": "16" },
     { "op": "str_u64", "src": "x0", "base": "sp", "offset": "0" },
     { "op": "str_u64", "src": "x1", "base": "sp", "offset": "8" },
@@ -44,17 +44,17 @@
     { "op": "mov_imm", "dst": "x11", "type": "Integer", "value": "1000000000" },
     { "op": "mul", "dst": "x9", "lhs": "x9", "rhs": "x11" },
     { "op": "add", "dst": "x9", "lhs": "x9", "rhs": "x10" },
-    { "op": "str_u64", "src": "x9", "base": "x19", "offset": "40" },
-    { "op": "str_u64", "src": "x19", "base": "sp", "offset": "0" },
+    { "op": "str_u64", "src": "x9", "base": "arena_base", "offset": "40" },
+    { "op": "str_u64", "src": "arena_base", "base": "sp", "offset": "0" },
     { "op": "add_imm", "dst": "x0", "src": "sp", "imm": "0" },
     { "op": "mov_imm", "dst": "x1", "type": "Integer", "value": "8" },
     { "op": "bl", "target": "_getentropy" },
     { "op": "ldr_u64", "dst": "x1", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "16" },
-    { "op": "ldr_u64", "dst": "x9", "base": "x19", "offset": "40" },
+    { "op": "ldr_u64", "dst": "x9", "base": "arena_base", "offset": "40" },
     { "op": "eor", "dst": "x1", "lhs": "x1", "rhs": "x9" },
-    { "op": "eor", "dst": "x1", "lhs": "x1", "rhs": "x19" },
-    { "op": "mov", "dst": "x0", "src": "x19" },
+    { "op": "eor", "dst": "x1", "lhs": "x1", "rhs": "arena_base" },
+    { "op": "mov", "dst": "x0", "src": "arena_base" },
     { "op": "bl", "target": "_mfb_arena_fill_seed" },
     { "op": "mov", "dst": "x0", "src": "x27" },
     { "op": "mov", "dst": "x1", "src": "x28" },
@@ -67,7 +67,7 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "b", "target": "entry_exit" },
     { "op": "label", "name": "entry_error" },
-    { "op": "str_u64", "src": "x1", "base": "x19", "offset": "32" },
+    { "op": "str_u64", "src": "x1", "base": "arena_base", "offset": "32" },
     { "op": "mov", "dst": "x20", "src": "x2" },
     { "op": "addr_of", "dst": "x21", "symbol": "_mfb_str_entry_error_prefix" },
     { "op": "ldr_u64", "dst": "x2", "base": "x21", "offset": "0" },
@@ -75,7 +75,7 @@
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "2" },
     { "op": "bl", "target": "_write" },
     { "op": "sub_sp", "imm": "64" },
-    { "op": "ldr_u64", "dst": "x21", "base": "x19", "offset": "32" },
+    { "op": "ldr_u64", "dst": "x21", "base": "arena_base", "offset": "32" },
     { "op": "br_cc_imm", "lhs": "x21", "rhs": "0", "cond": "b.ge", "target": "entry_error_code_absolute_ready" },
     { "op": "mov_imm", "dst": "x22", "type": "Integer", "value": "0" },
     { "op": "sub", "dst": "x21", "lhs": "x22", "rhs": "x21" },
@@ -96,7 +96,7 @@
     { "op": "mov", "dst": "x21", "src": "x25" },
     { "op": "br_cc_imm", "lhs": "x21", "rhs": "0", "cond": "b.ne", "target": "entry_error_code_digit_loop" },
     { "op": "label", "name": "entry_error_code_digits_done" },
-    { "op": "br_cc_imm", "lhs": "x19", "rhs": "0", "cond": "b.ge", "target": "entry_error_code_write" },
+    { "op": "br_cc_imm", "lhs": "arena_base", "rhs": "0", "cond": "b.ge", "target": "entry_error_code_write" },
     { "op": "sub_imm", "dst": "x23", "src": "x23", "imm": "1" },
     { "op": "mov_imm", "dst": "x22", "type": "Integer", "value": "45" },
     { "op": "str_u8", "src": "x22", "base": "x23", "offset": "0" },
@@ -123,12 +123,39 @@
     { "op": "bl", "target": "_write" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "255" },
     { "op": "label", "name": "entry_exit" },
-    { "op": "str_u64", "src": "x0", "base": "x19", "offset": "32" },
+    { "op": "str_u64", "src": "x0", "base": "arena_base", "offset": "32" },
     { "op": "bl", "target": "_mfb_shutdown" },
-    { "op": "ldr_u64", "dst": "x0", "base": "x19", "offset": "32" },
+    { "op": "ldr_u64", "dst": "x0", "base": "arena_base", "offset": "32" },
     { "op": "bl", "target": "_exit" },
     { "op": "branch_self" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_main", "to": "_mfb_rt_main_arena", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_rt_main_arena", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_rt_signal_handler", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_rt_signal_handler", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_main", "to": "_signal", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_mfb_rt_signal_handler", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_rt_signal_handler", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_main", "to": "_signal", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_clock_gettime", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_getentropy", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_mfb_arena_fill_seed", "intent": "call", "binding": "internal", "library": null },
+    { "from": "_main", "to": "_mfb_fn_main", "intent": "call", "binding": "internal", "library": null },
+    { "from": "_main", "to": "_mfb_str_entry_error_prefix", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_str_entry_error_prefix", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_main", "to": "_write", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_write", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_mfb_str_entry_error_separator", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_str_entry_error_separator", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_main", "to": "_write", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_write", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_mfb_str_entry_error_newline", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_main", "to": "_mfb_str_entry_error_newline", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_main", "to": "_write", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_main", "to": "_mfb_shutdown", "intent": "call", "binding": "internal", "library": null },
+    { "from": "_main", "to": "_exit", "intent": "call", "binding": "external", "library": "libSystem" }
     ]
   },
   {
@@ -160,6 +187,14 @@
     { "op": "label", "name": "runtime_call_ok_0" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_fn_main", "to": "_mfb_str_0", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_str_0", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_rt_io_io_print", "intent": "call", "binding": "internal", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_str_1", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_str_1", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_mfb_fn_main", "to": "_mfb_build_error_loc", "intent": "call", "binding": "internal", "library": null }
     ]
   },
   {
@@ -190,7 +225,7 @@
     { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "18446744073709551600" },
     { "op": "and", "dst": "x20", "lhs": "x20", "rhs": "x9" },
     { "op": "label", "name": "arena_alloc_walk" },
-    { "op": "ldr_u64", "dst": "x22", "base": "x19", "offset": "48" },
+    { "op": "ldr_u64", "dst": "x22", "base": "arena_base", "offset": "48" },
     { "op": "mov_imm", "dst": "x23", "type": "Integer", "value": "0" },
     { "op": "label", "name": "arena_alloc_walk_loop" },
     { "op": "br_cc_imm", "lhs": "x22", "rhs": "0", "cond": "b.eq", "target": "arena_alloc_grow" },
@@ -239,7 +274,7 @@
     { "op": "str_u64", "src": "x10", "base": "x23", "offset": "0" },
     { "op": "b", "target": "arena_alloc_done" },
     { "op": "label", "name": "arena_alloc_set_head" },
-    { "op": "str_u64", "src": "x10", "base": "x19", "offset": "48" },
+    { "op": "str_u64", "src": "x10", "base": "arena_base", "offset": "48" },
     { "op": "label", "name": "arena_alloc_done" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "0" },
     { "op": "mov", "dst": "x1", "src": "x25" },
@@ -273,13 +308,13 @@
     { "op": "br_cc_imm", "lhs": "x0", "rhs": "0", "cond": "b.ge", "target": "arena_alloc_mapped" },
     { "op": "b", "target": "arena_alloc_oom" },
     { "op": "label", "name": "arena_alloc_mapped" },
-    { "op": "ldr_u64", "dst": "x24", "base": "x19", "offset": "0" },
+    { "op": "ldr_u64", "dst": "x24", "base": "arena_base", "offset": "0" },
     { "op": "str_u64", "src": "x24", "base": "x0", "offset": "0" },
     { "op": "str_u64", "src": "x23", "base": "x0", "offset": "8" },
     { "op": "sub_imm", "dst": "x24", "src": "x23", "imm": "32" },
     { "op": "str_u64", "src": "x24", "base": "x0", "offset": "16" },
     { "op": "str_u64", "src": "x31", "base": "x0", "offset": "24" },
-    { "op": "str_u64", "src": "x0", "base": "x19", "offset": "0" },
+    { "op": "str_u64", "src": "x0", "base": "arena_base", "offset": "0" },
     { "op": "add_imm", "dst": "x9", "src": "x0", "imm": "32" },
     { "op": "str_u64", "src": "x9", "base": "sp", "offset": "8" },
     { "op": "str_u64", "src": "x24", "base": "sp", "offset": "16" },
@@ -294,7 +329,7 @@
     { "op": "ldr_u64", "dst": "x11", "base": "sp", "offset": "24" },
     { "op": "ldr_u64", "dst": "x12", "base": "sp", "offset": "32" },
     { "op": "ldr_u64", "dst": "x13", "base": "sp", "offset": "40" },
-    { "op": "ldr_u64", "dst": "x14", "base": "x19", "offset": "48" },
+    { "op": "ldr_u64", "dst": "x14", "base": "arena_base", "offset": "48" },
     { "op": "mov_imm", "dst": "x15", "type": "Integer", "value": "0" },
     { "op": "label", "name": "arena_alloc_ins_loop" },
     { "op": "br_cc_imm", "lhs": "x14", "rhs": "0", "cond": "b.eq", "target": "arena_alloc_ins_do" },
@@ -309,7 +344,7 @@
     { "op": "str_u64", "src": "x9", "base": "x15", "offset": "0" },
     { "op": "b", "target": "arena_alloc_walk" },
     { "op": "label", "name": "arena_alloc_ins_head" },
-    { "op": "str_u64", "src": "x9", "base": "x19", "offset": "48" },
+    { "op": "str_u64", "src": "x9", "base": "arena_base", "offset": "48" },
     { "op": "b", "target": "arena_alloc_walk" },
     { "op": "label", "name": "arena_alloc_invalid" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "77050002" },
@@ -322,6 +357,9 @@
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "64" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_arena_alloc", "to": "_mfb_arena_fill_random", "intent": "call", "binding": "internal", "library": null }
     ]
   },
   {
@@ -379,6 +417,9 @@
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "64" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_build_error_loc", "to": "_mfb_arena_alloc", "intent": "call", "binding": "internal", "library": null }
     ]
   },
   {
@@ -401,6 +442,9 @@
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "32" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_make_error_result", "to": "_mfb_build_error_loc", "intent": "call", "binding": "internal", "library": null }
     ]
   },
   {
@@ -460,6 +504,9 @@
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "32" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_simd_alloc_list", "to": "_mfb_arena_alloc", "intent": "call", "binding": "internal", "library": null }
     ]
   },
   {
@@ -470,7 +517,7 @@
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
-    { "op": "ldr_u64", "dst": "x9", "base": "x19", "offset": "48" },
+    { "op": "ldr_u64", "dst": "x9", "base": "arena_base", "offset": "48" },
     { "op": "mov_imm", "dst": "x10", "type": "Integer", "value": "0" },
     { "op": "label", "name": "insert_find" },
     { "op": "br_cc_imm", "lhs": "x9", "rhs": "0", "cond": "b.eq", "target": "insert_slot" },
@@ -523,9 +570,11 @@
     { "op": "str_u64", "src": "x0", "base": "x10", "offset": "0" },
     { "op": "b", "target": "insert_done" },
     { "op": "label", "name": "insert_set_head" },
-    { "op": "str_u64", "src": "x0", "base": "x19", "offset": "48" },
+    { "op": "str_u64", "src": "x0", "base": "arena_base", "offset": "48" },
     { "op": "label", "name": "insert_done" },
     { "op": "ret" }
+    ],
+    "relocations": [
     ]
   },
   {
@@ -553,6 +602,10 @@
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "32" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_arena_free", "to": "_mfb_arena_fill_random", "intent": "call", "binding": "internal", "library": null },
+    { "from": "_mfb_arena_free", "to": "_mfb_arena_insert_free", "intent": "call", "binding": "internal", "library": null }
     ]
   },
   {
@@ -566,8 +619,8 @@
     { "op": "add_imm", "dst": "x1", "src": "x1", "imm": "7" },
     { "op": "lsr_imm", "dst": "x1", "src": "x1", "shift": "3" },
     { "op": "br_cc_imm", "lhs": "x1", "rhs": "0", "cond": "b.eq", "target": "arena_fill_done" },
-    { "op": "ldr_u64", "dst": "x9", "base": "x19", "offset": "16" },
-    { "op": "ldr_u64", "dst": "x10", "base": "x19", "offset": "24" },
+    { "op": "ldr_u64", "dst": "x9", "base": "arena_base", "offset": "16" },
+    { "op": "ldr_u64", "dst": "x10", "base": "arena_base", "offset": "24" },
     { "op": "label", "name": "arena_fill_loop" },
     { "op": "mov_imm", "dst": "x11", "type": "Integer", "value": "4865540595714422341" },
     { "op": "mul", "dst": "x13", "lhs": "x11", "rhs": "x9" },
@@ -588,10 +641,12 @@
     { "op": "add_imm", "dst": "x0", "src": "x0", "imm": "8" },
     { "op": "sub_imm", "dst": "x1", "src": "x1", "imm": "1" },
     { "op": "br_cc_imm", "lhs": "x1", "rhs": "0", "cond": "b.ne", "target": "arena_fill_loop" },
-    { "op": "str_u64", "src": "x9", "base": "x19", "offset": "16" },
-    { "op": "str_u64", "src": "x10", "base": "x19", "offset": "24" },
+    { "op": "str_u64", "src": "x9", "base": "arena_base", "offset": "16" },
+    { "op": "str_u64", "src": "x10", "base": "arena_base", "offset": "24" },
     { "op": "label", "name": "arena_fill_done" },
     { "op": "ret" }
+    ],
+    "relocations": [
     ]
   },
   {
@@ -633,6 +688,8 @@
     { "op": "str_u64", "src": "x9", "base": "x0", "offset": "16" },
     { "op": "str_u64", "src": "x10", "base": "x0", "offset": "24" },
     { "op": "ret" }
+    ],
+    "relocations": [
     ]
   },
   {
@@ -643,8 +700,8 @@
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
-    { "op": "ldr_u64", "dst": "x9", "base": "x19", "offset": "16" },
-    { "op": "ldr_u64", "dst": "x10", "base": "x19", "offset": "24" },
+    { "op": "ldr_u64", "dst": "x9", "base": "arena_base", "offset": "16" },
+    { "op": "ldr_u64", "dst": "x10", "base": "arena_base", "offset": "24" },
     { "op": "mov_imm", "dst": "x11", "type": "Integer", "value": "4865540595714422341" },
     { "op": "mul", "dst": "x13", "lhs": "x11", "rhs": "x9" },
     { "op": "mulhi_u", "dst": "x14", "lhs": "x11", "rhs": "x9" },
@@ -657,12 +714,14 @@
     { "op": "mov_imm", "dst": "x12", "type": "Integer", "value": "6364136223846793005" },
     { "op": "adds", "dst": "x9", "lhs": "x13", "rhs": "x11" },
     { "op": "addc", "dst": "x10", "lhs": "x14", "rhs": "x12" },
-    { "op": "str_u64", "src": "x9", "base": "x19", "offset": "16" },
-    { "op": "str_u64", "src": "x10", "base": "x19", "offset": "24" },
+    { "op": "str_u64", "src": "x9", "base": "arena_base", "offset": "16" },
+    { "op": "str_u64", "src": "x10", "base": "arena_base", "offset": "24" },
     { "op": "lsr_imm", "dst": "x11", "src": "x10", "shift": "58" },
     { "op": "eor", "dst": "x12", "lhs": "x10", "rhs": "x9" },
     { "op": "rotr", "dst": "x0", "lhs": "x12", "rhs": "x11" },
     { "op": "ret" }
+    ],
+    "relocations": [
     ]
   },
   {
@@ -673,7 +732,7 @@
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
-    { "op": "ldr_u64", "dst": "x20", "base": "x19", "offset": "0" },
+    { "op": "ldr_u64", "dst": "x20", "base": "arena_base", "offset": "0" },
     { "op": "label", "name": "arena_destroy_loop" },
     { "op": "br_cc_imm", "lhs": "x20", "rhs": "0", "cond": "b.eq", "target": "arena_destroy_done" },
     { "op": "ldr_u64", "dst": "x21", "base": "x20", "offset": "0" },
@@ -684,8 +743,10 @@
     { "op": "mov", "dst": "x20", "src": "x21" },
     { "op": "b", "target": "arena_destroy_loop" },
     { "op": "label", "name": "arena_destroy_done" },
-    { "op": "str_u64", "src": "x31", "base": "x19", "offset": "0" },
+    { "op": "str_u64", "src": "x31", "base": "arena_base", "offset": "0" },
     { "op": "ret" }
+    ],
+    "relocations": [
     ]
   },
   {
@@ -698,18 +759,23 @@
     { "op": "label", "name": "entry" },
     { "op": "sub_sp", "imm": "16" },
     { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
-    { "op": "str_u64", "src": "x19", "base": "sp", "offset": "8" },
+    { "op": "str_u64", "src": "arena_base", "base": "sp", "offset": "8" },
     { "op": "addr_of", "dst": "x9", "symbol": "_mfb_rt_main_arena" },
     { "op": "ldr_u64", "dst": "x10", "base": "x9", "offset": "0" },
     { "op": "str_u64", "src": "x31", "base": "x9", "offset": "0" },
     { "op": "br_cc_imm", "lhs": "x10", "rhs": "0", "cond": "b.eq", "target": "shutdown_done" },
-    { "op": "mov", "dst": "x19", "src": "x10" },
+    { "op": "mov", "dst": "arena_base", "src": "x10" },
     { "op": "bl", "target": "_mfb_arena_destroy" },
     { "op": "label", "name": "shutdown_done" },
-    { "op": "ldr_u64", "dst": "x19", "base": "sp", "offset": "8" },
+    { "op": "ldr_u64", "dst": "arena_base", "base": "sp", "offset": "8" },
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_shutdown", "to": "_mfb_rt_main_arena", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_mfb_shutdown", "to": "_mfb_rt_main_arena", "intent": "data_addr_lo", "binding": "data", "library": null },
+    { "from": "_mfb_shutdown", "to": "_mfb_arena_destroy", "intent": "call", "binding": "internal", "library": null }
     ]
   },
   {
@@ -729,6 +795,10 @@
     { "op": "bl", "target": "_exit" },
     { "op": "branch_self" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_rt_signal_handler", "to": "_mfb_shutdown", "intent": "call", "binding": "internal", "library": null },
+    { "from": "_mfb_rt_signal_handler", "to": "_exit", "intent": "call", "binding": "external", "library": "libSystem" }
     ]
   },
   {
@@ -764,6 +834,12 @@
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
     { "op": "add_sp", "imm": "16" },
     { "op": "ret" }
+    ],
+    "relocations": [
+    { "from": "_mfb_rt_io_io_print", "to": "_write", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_mfb_rt_io_io_print", "to": "_write", "intent": "call", "binding": "external", "library": "libSystem" },
+    { "from": "_mfb_rt_io_io_print", "to": "_mfb_str_error_output", "intent": "data_addr_hi", "binding": "data", "library": null },
+    { "from": "_mfb_rt_io_io_print", "to": "_mfb_str_error_output", "intent": "data_addr_lo", "binding": "data", "library": null }
     ]
   }
   ]

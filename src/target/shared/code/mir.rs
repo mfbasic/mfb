@@ -175,6 +175,37 @@ mir_ops!(
     }
 );
 
+/// The neutral MIR operand that names the arena-state base pointer (`mir.md
+/// §7`, plan-00-D). MIR code that reaches the arena references `arena_base`
+/// instead of a pinned physical register; the AArch64 backend *realizes* it as
+/// the pinned `x19` (`Aarch64RegisterModel::arena_base`, reserved from
+/// allocation), x86_64 will realize it as a TLS/memory load (plan-00-H). The
+/// abstraction is the identity here: [`lower_to_mir`] renames the realization
+/// register to `arena_base`, [`select_aarch64`] renames it back, so the codegen
+/// stream is byte-identical while the `-mir` dump shows `arena_base`, not `x19`.
+pub(crate) const ARENA_BASE: &str = "arena_base";
+
+/// The physical location AArch64 realizes [`ARENA_BASE`] as — pinned `x19`,
+/// asked of the [`RegisterModel`](crate::arch::aarch64::regmodel::RegisterModel)
+/// so the realization lives in the backend, not this neutral layer.
+fn arena_base_realization() -> &'static str {
+    use crate::arch::aarch64::regmodel::{Aarch64RegisterModel, RegisterModel};
+    Aarch64RegisterModel.arena_base()
+}
+
+/// Rewrite every field value equal to `from` to `to` across an instruction's
+/// field bag. The arena base register is pinned program-wide (reserved from
+/// allocation), so a field value equal to it is unambiguously the arena base —
+/// never an immediate (numbers), symbol, or label — which is what makes the
+/// `x19`⇄`arena_base` rename total and reversible.
+fn rename_field_values(fields: &mut [(&'static str, String)], from: &str, to: &str) {
+    for (_, value) in fields.iter_mut() {
+        if value == from {
+            *value = to.to_string();
+        }
+    }
+}
+
 /// The fused (flagless) MIR op a given AArch64 flag-setter folds *into* when it
 /// is immediately followed by a flag-reading branch, or `None` if the op never
 /// fuses. The setter's flags are otherwise invisible in the MIR.
@@ -341,6 +372,12 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
         });
         i += 1;
     }
+    // `arena_base` abstraction (plan-00-D §2): the pinned arena register is an
+    // AArch64 realization detail, so the neutral MIR names `arena_base` instead.
+    let realization = arena_base_realization();
+    for instruction in &mut out {
+        rename_field_values(&mut instruction.fields, realization, ARENA_BASE);
+    }
     out
 }
 
@@ -416,6 +453,13 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
                 fields: instruction.fields.clone(),
             });
         }
+    }
+    // Realize `arena_base` back to its pinned AArch64 register (plan-00-D §2),
+    // the exact reverse of [`lower_to_mir`]'s rename — so the selected stream
+    // the allocator sees is byte-identical to the direct path.
+    let realization = arena_base_realization();
+    for instruction in &mut out {
+        rename_field_values(&mut instruction.fields, ARENA_BASE, realization);
     }
     out
 }
@@ -512,15 +556,30 @@ pub(crate) fn take_capture() -> Vec<(String, Vec<MirInstruction>)> {
 
 // --- The `-mir` plan (neutral counterpart to `NativeCodePlan`) ----------------
 
-/// One MIR function: the program/runtime metadata plus the neutral op stream.
-/// Carries no frame/relocation data — those are post-selection backend concerns
-/// (the `-mir` dump is *before* selection and allocation).
+/// One neutral relocation in the `-mir` dump (plan-00-D §1). Mirrors a
+/// [`CodeRelocation`] but serializes the **neutral intent name** (`call`,
+/// `data_addr_hi`, `got_load_lo`) rather than the AArch64 reloc kind — diffing a
+/// `-mir` dump across targets is identical, where the `-ncode` reloc kind is not.
+pub(crate) struct MirRelocation {
+    pub(crate) from: String,
+    pub(crate) to: String,
+    pub(crate) intent: RelocIntent,
+    pub(crate) binding: String,
+    pub(crate) library: Option<String>,
+}
+
+/// One MIR function: the program/runtime metadata, the neutral op stream, and
+/// the neutral relocations (intents, not AArch64 kinds). Frame data stays a
+/// post-selection backend concern (the `-mir` dump is *before* selection and
+/// allocation), but relocations carry their neutral *intent* and so belong in
+/// the neutral view (`mir.md §8`).
 pub(crate) struct MirFunction {
     pub(crate) name: String,
     pub(crate) symbol: String,
     pub(crate) returns: String,
     pub(crate) params: Vec<CodeParam>,
     pub(crate) instructions: Vec<MirInstruction>,
+    pub(crate) relocations: Vec<MirRelocation>,
 }
 
 /// The whole-module MIR — the `-mir` output. Deliberately ISA-independent:
@@ -587,6 +646,17 @@ pub(crate) fn build_mir_plan(
                     })
                     .collect(),
                 instructions,
+                relocations: function
+                    .relocations
+                    .iter()
+                    .map(|relocation| MirRelocation {
+                        from: relocation.from.clone(),
+                        to: relocation.to.clone(),
+                        intent: relocation.kind,
+                        binding: relocation.binding.clone(),
+                        library: relocation.library.clone(),
+                    })
+                    .collect(),
             }
         })
         .collect();
@@ -620,7 +690,8 @@ impl ToCodeJson for MirFunction {
                 "{}  \"symbol\": {},\n",
                 "{}  \"returns\": {},\n",
                 "{}  \"params\": [{}\n{}  ],\n",
-                "{}  \"instructions\": [{}\n{}  ]\n",
+                "{}  \"instructions\": [{}\n{}  ],\n",
+                "{}  \"relocations\": [{}\n{}  ]\n",
                 "{}}}"
             ),
             pad,
@@ -636,7 +707,31 @@ impl ToCodeJson for MirFunction {
             pad,
             join_json(&self.instructions, indent + 2),
             pad,
+            pad,
+            join_json(&self.relocations, indent + 2),
+            pad,
             pad
+        )
+    }
+}
+
+impl ToCodeJson for MirRelocation {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        let library = self
+            .library
+            .as_ref()
+            .map(|library| json_string(library))
+            .unwrap_or_else(|| "null".to_string());
+        // Neutral intent name — never an AArch64 reloc kind (validation §5).
+        format!(
+            "\n{}{{ \"from\": {}, \"to\": {}, \"intent\": {}, \"binding\": {}, \"library\": {} }}",
+            pad,
+            json_string(&self.from),
+            json_string(&self.to),
+            json_string(self.intent.name()),
+            json_string(&self.binding),
+            library
         )
     }
 }
@@ -894,11 +989,12 @@ mod tests {
     /// The byte-identical gate, in miniature: a 36-fixture sweep with at least
     /// one instruction from **every** builder op family — moves & immediates,
     /// the universal ALU, the neutral-renamed exotic integer ops, the structural
-    /// `addr_of` pair, every load/store width, scalar float arith + the renamed
-    /// float↔int conversions & bit-reinterprets, the NEON `v128` ops, and the
-    /// fused flagless control-flow ops. `select_aarch64 ∘ lower_to_mir` must be
-    /// the identity on the whole stream (the property the `.ncode`/binary
-    /// self-diff oracle, `scripts/codegen-selfdiff.sh`, proves end-to-end).
+    /// `addr_of` pair, every load/store width (one against the abstract
+    /// `arena_base`, plan-00-D), scalar float arith + the renamed float↔int
+    /// conversions & bit-reinterprets, the NEON `v128` ops, and the fused
+    /// flagless control-flow ops. `select_aarch64 ∘ lower_to_mir` must be the
+    /// identity on the whole stream (the property the `.ncode`/binary self-diff
+    /// oracle, `scripts/codegen-selfdiff.sh`, proves end-to-end).
     #[test]
     fn round_trip_sweep_over_every_op_family() {
         let fixtures: [CodeInstruction; 36] = [
@@ -936,9 +1032,10 @@ mod tests {
                 .field("dst", "%v21")
                 .field("src", "%v21")
                 .field("symbol", "pool"),
-            // — loads/stores, every width —
+            // — loads/stores, every width; the u8 store addresses the abstract
+            //   arena base (the pinned x19), exercising the plan-00-D rename —
             CodeInstruction::new("ldr_u64").field("dst", "%v22").field("base", "%v21").field("offset", "0"),
-            CodeInstruction::new("str_u8").field("src", "%v22").field("base", "%v21").field("offset", "16"),
+            CodeInstruction::new("str_u8").field("src", "%v22").field("base", "x19").field("offset", "16"),
             CodeInstruction::new("ldr_d").field("dst", "%f0").field("base", "%v21").field("offset", "24"),
             // — scalar float arith + renamed conversions / bit-reinterprets (Phase 4) —
             CodeInstruction::new("fadd_d").field("dst", "%f1").field("lhs", "%f0").field("rhs", "%f0"),
@@ -974,6 +1071,72 @@ mod tests {
                 !banned.contains(&mnemonic),
                 "MIR still names an AArch64-specific op: {mnemonic}"
             );
+        }
+
+        // The pinned arena register never appears in the MIR: the `str_u8`
+        // fixture's `base` is the abstract `arena_base`, not `x19` (plan-00-D
+        // §2). Selection realizes it back to `x19` byte-for-byte (proved by the
+        // `assert_round_trips` above).
+        let realization = arena_base_realization();
+        let mut saw_arena_base = false;
+        for instruction in &mir {
+            for (_, value) in &instruction.fields {
+                assert_ne!(
+                    value, realization,
+                    "MIR still names the pinned arena register {realization}"
+                );
+                if value == ARENA_BASE {
+                    saw_arena_base = true;
+                }
+            }
+        }
+        assert!(saw_arena_base, "the arena-base fixture did not lower to `arena_base`");
+    }
+
+    /// `arena_base` is the identity through the MIR: an arena load/store names
+    /// `arena_base` in the neutral stream and selects back to the pinned `x19`
+    /// byte-for-byte (plan-00-D §2). Non-arena register operands are untouched.
+    #[test]
+    fn arena_base_renames_and_realizes_identically() {
+        let realization = arena_base_realization();
+        let original = [
+            // load the free-list head from the arena, store it back via a vreg.
+            CodeInstruction::new("ldr_u64")
+                .field("dst", "%v0")
+                .field("base", realization)
+                .field("offset", "48"),
+            CodeInstruction::new("str_u64")
+                .field("src", "%v0")
+                .field("base", realization)
+                .field("offset", "48"),
+        ];
+        let mir = lower_to_mir(&original);
+        // Both base fields are renamed to the neutral `arena_base`; the vreg is not.
+        let base = |i: usize| mir[i].fields.iter().find(|(k, _)| *k == "base").map(|(_, v)| v.as_str());
+        assert_eq!(base(0), Some(ARENA_BASE));
+        assert_eq!(base(1), Some(ARENA_BASE));
+        assert!(!mir.iter().any(|m| m.fields.iter().any(|(_, v)| v == realization)));
+        // …and selection restores the pinned register exactly.
+        assert_round_trips(&original);
+    }
+
+    /// Relocation intents are neutral: a `CodeRelocation` carries a
+    /// [`RelocIntent`], its `-mir` name never an AArch64 reloc kind, and the
+    /// AArch64 table realizes it back to today's `branch26`/`page21`/`pageoff12`
+    /// (plan-00-D §1).
+    #[test]
+    fn reloc_intents_are_neutral_and_realize_to_aarch64_kinds() {
+        use crate::arch::aarch64::reloc::reloc_kind;
+        for (intent, neutral, concrete) in [
+            (RelocIntent::Call, "call", "branch26"),
+            (RelocIntent::DataAddrHi, "data_addr_hi", "page21"),
+            (RelocIntent::DataAddrLo, "data_addr_lo", "pageoff12"),
+            (RelocIntent::GotLoadHi, "got_load_hi", "page21"),
+            (RelocIntent::GotLoadLo, "got_load_lo", "pageoff12"),
+        ] {
+            assert_eq!(intent.name(), neutral);
+            assert_ne!(intent.name(), concrete, "the -mir name must not be an AArch64 kind");
+            assert_eq!(reloc_kind(intent), concrete);
         }
     }
 }

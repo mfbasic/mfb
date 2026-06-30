@@ -15,7 +15,7 @@
 #![allow(dead_code)]
 
 use super::abi;
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{CodeInstruction, ARENA_STATE_REGISTER};
 
 /// The two register classes the allocator distinguishes. On AArch64 the
 /// floating-point/SIMD class is one physical file (`d_n` ⊂ `v_n`).
@@ -51,6 +51,15 @@ pub(crate) trait RegisterModel {
 
     /// Emit a register-to-register move within a class.
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction;
+
+    /// The location this ISA realizes the abstract `arena_base` MIR source as
+    /// (`mir.md §7`, plan-00-D §1). The neutral MIR references `arena_base`
+    /// wherever it reaches the arena; the backend decides whether that is a
+    /// pinned register or a TLS/memory load. AArch64 pins `x19` program-wide
+    /// (reserved from allocation — it is absent from [`Self::allocatable`] — and
+    /// initialized by the entry sequence); x86_64, with only 16 GPRs, will
+    /// realize it as a TLS slot load instead (plan-00-H).
+    fn arena_base(&self) -> &'static str;
 }
 
 /// The integer registers the bump allocator hands out as temporaries, in the
@@ -139,6 +148,12 @@ impl RegisterModel for Aarch64RegisterModel {
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
         abi::move_register(dst, src)
+    }
+
+    fn arena_base(&self) -> &'static str {
+        // AArch64 pins the arena-state pointer in `x19` program-wide
+        // (`error_constants::ARENA_STATE_REGISTER`).
+        ARENA_STATE_REGISTER
     }
 }
 
