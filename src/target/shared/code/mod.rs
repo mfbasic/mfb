@@ -818,6 +818,20 @@ pub(crate) fn lower_module_for_platform(
         });
     }
 
+    // MIR seam for the hand-written runtime helpers (plan-00-F). Builder-emitted
+    // functions already round-trip through the neutral MIR at their
+    // pre-allocation seam (`run_register_allocation`); the helpers do not pass
+    // through the builder, so under `-codegen mir` they enter the MIR pipeline
+    // here. The round trip is the identity (AArch64 byte-identical), so this only
+    // brings the helpers under the byte-identical gate — proving every helper
+    // stream is fully MIR-representable (no `svc`/`bl`/`blr`/`x19` outside the
+    // neutral vocabulary).
+    if mir::active_codegen() == mir::CodegenKind::Mir {
+        for function in &mut code_functions {
+            mir::route_function_through_mir(function);
+        }
+    }
+
     let plan = NativeCodePlan {
         target: module.target.clone(),
         build_mode: module.build_mode,

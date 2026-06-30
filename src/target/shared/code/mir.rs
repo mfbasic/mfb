@@ -133,7 +133,7 @@ mir_ops!(
         Label, Mov, MovImm, Add, Adds, Sub, Subs, And, Orr, Eor, Mvn, Mul, Lslv, Lsrv, Asrv, Clz,
         Rbit, SDiv, UDiv, MSub, LslImm, LsrImm, AsrImm, AddImm, SubImm, SubSp, AddSp, CmpImm, Cmp,
         BranchEq, BranchNe, BranchGe, BranchLt, BranchGt, BranchLe, BranchVc, BranchVs, BranchHi,
-        BranchLo, BranchMi, BranchLs, Branch, BranchLink, BranchLinkRegister, BranchSelf, Svc, Ret,
+        BranchLo, BranchMi, BranchLs, Branch, BranchSelf, Ret,
         LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU8, LdrD, StrD, Adrp, AddPageOff,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FNegD, FAbsD, FSqrtD, FCmpD, FCmpZeroD, FMaddD,
     }
@@ -158,6 +158,13 @@ mir_ops!(
         SCvtfDFromX => I2f => "i2f",                 // scvtf:  signed int → f64
         FMovDFromX => FmovI2f => "fmov_i2f",         // fmov:   i64 bits → f64 (reinterpret)
         FMovXFromD => FmovF2i => "fmov_f2i",         // fmov:   f64 bits → i64 (reinterpret)
+        // §7 machine-y ops (plan-00-F): the call/syscall vocabulary the runtime
+        // helpers use, named semantically so the helper MIR is ISA-independent.
+        // The ABI register placement (which GPRs carry args/nr/result) is a
+        // per-ISA backend detail, not named here.
+        BranchLink => Call => "call",            // bl:  direct call to a symbol
+        BranchLinkRegister => CallIndirect => "call_indirect", // blr: call via a register
+        Svc => Syscall => "syscall",             // svc: trap into the OS (x86 syscall, rv64 ecall)
     }
     // The fixed-width `v128` SIMD vocabulary (plan-00-E, `mir.md §6`): the whole
     // NEON tail of `CodeOp`, re-expressed as neutral lane ops. Each maps 1:1 to
@@ -245,6 +252,15 @@ mir_ops!(
         // overflow-trap branch that read the V flag, fused into one op.
         AddOvf => "add_ovf",
         SubOvf => "sub_ovf",
+        // Syscall-and-check (`mir.md §7`, plan-00-F): the macOS syscall error
+        // idiom `svc; b.<carry>` — the trap plus the branch that reads the carry
+        // flag the syscall sets on error — fused into one flagless op. This is
+        // the last flag-reading branch in the helper MIR (plan-00-B deferred it
+        // here as "the syscall neutralization"). The `cond` field carries the
+        // carry condition; a backend realizes the check its own way (macOS sets
+        // carry; Linux/rv64 return `-errno` and compare). [`select_aarch64`]
+        // expands it back to the exact `svc; b.<carry>` byte-for-byte.
+        SyscallBr => "syscall_br",
     }
     expand {
         // PC-relative symbol address (`mir.md §4`): one neutral op for the
@@ -296,6 +312,9 @@ fn fused_variant(op: CodeOp) -> Option<MirOp> {
         CodeOp::FCmpZeroD => Some(MirOp::FBrCcZero),
         CodeOp::Adds => Some(MirOp::AddOvf),
         CodeOp::Subs => Some(MirOp::SubOvf),
+        // The syscall sets the carry flag (macOS error idiom); a following
+        // carry-reading branch folds into the flagless `syscall_br` (plan-00-F).
+        CodeOp::Svc => Some(MirOp::SyscallBr),
         _ => None,
     }
 }
@@ -310,16 +329,18 @@ fn fused_setter_codeop(op: MirOp) -> Option<CodeOp> {
         MirOp::FBrCcZero => Some(CodeOp::FCmpZeroD),
         MirOp::AddOvf => Some(CodeOp::Adds),
         MirOp::SubOvf => Some(CodeOp::Subs),
+        MirOp::SyscallBr => Some(CodeOp::Svc),
         _ => None,
     }
 }
 
 /// Whether a branch reads condition flags (so it pairs with a preceding
-/// flag-setter). The unconditional `b`, `bl`, `blr`, `branch_self`, `svc`, and
-/// `ret` do not. A `svc; b.lo` carry check (a hand-written syscall helper, not
-/// builder-emitted) is therefore left un-fused — its flag source is the
-/// syscall, not a compare; that is the separate `syscall` neutralization
-/// (`mir.md §7`).
+/// flag-setter). The unconditional `b`/`branch_self`/`ret` and the `call`/
+/// `call_indirect` ops do not. A `svc; b.<carry>` syscall error check fuses
+/// into the flagless `syscall_br` (plan-00-F): the syscall sets the carry flag
+/// and is a fusable setter (see [`fused_variant`]), so the carry-reading branch
+/// folds into it rather than surviving as a standalone flag branch — leaving the
+/// helper MIR fully flagless (`mir.md §5`/§7).
 fn is_flag_reading_branch(op: CodeOp) -> bool {
     matches!(
         op,
@@ -541,6 +562,25 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
         rename_field_values(&mut instruction.fields, ARENA_BASE, realization);
     }
     out
+}
+
+/// Route a finished function's instruction stream through the neutral MIR and
+/// back (`select_aarch64 ∘ lower_to_mir`, the identity) under `-codegen mir`
+/// (plan-00-F). This is where the **hand-written runtime helpers** enter the MIR
+/// pipeline: unlike the builder-emitted functions they never pass through the
+/// pre-allocation seam in `run_register_allocation`, so without this their
+/// streams would skip the MIR entirely. Routing them here makes the
+/// byte-identical gate (`scripts/codegen-selfdiff.sh`) actually exercise the
+/// helpers — the entry sequence, the arena allocator, the error path, the PCG64
+/// RNG, the math kernels, the thread trampoline — proving every helper stream is
+/// fully MIR-representable (no op outside the neutral vocabulary, no `svc`/`bl`/
+/// `blr`/`x19` leak). The round trip is the identity, so the AArch64 output is
+/// unchanged. Builder functions already round-tripped pre-allocation; routing
+/// their final (post-allocation, post-frame) stream again is a second identity
+/// pass — harmless, and it extends the gate to the frame/peephole output too.
+pub(crate) fn route_function_through_mir(function: &mut CodeFunction) {
+    let neutral = lower_to_mir(&function.instructions);
+    function.instructions = select_aarch64(&neutral);
 }
 
 // --- `-codegen <direct|mir>` selection (the plan-03 `-regalloc` pattern) ------
@@ -878,6 +918,11 @@ mod tests {
             (CodeOp::SCvtfDFromX, "i2f"),
             (CodeOp::FMovDFromX, "fmov_i2f"),
             (CodeOp::FMovXFromD, "fmov_f2i"),
+            // §7 machine-y call/syscall vocabulary (plan-00-F): the helpers'
+            // `bl`/`blr`/`svc` neutralize so the helper MIR has no AArch64 op.
+            (CodeOp::BranchLink, "call"),
+            (CodeOp::BranchLinkRegister, "call_indirect"),
+            (CodeOp::Svc, "syscall"),
         ] {
             let mir = MirOp::from_code(code);
             // 1:1 selection back to the same CodeOp — byte-identical encoding.
@@ -1114,6 +1159,41 @@ mod tests {
         assert_eq!(get("target"), Some("range_err"));
     }
 
+    /// The macOS syscall error idiom `svc; b.<carry>` fuses into the flagless
+    /// `syscall_br` and expands back byte-for-byte (plan-00-F) — the last
+    /// flag-reading branch in the helper MIR. A `svc` *not* followed by a flag
+    /// branch (e.g. the exit syscall before `branch_self`) stays the neutral
+    /// `syscall` op.
+    #[test]
+    fn syscall_carry_check_fuses_and_expands_identically() {
+        // svc; b.lo (carry-clear → error path) fuses to one flagless op.
+        let checked = [
+            CodeInstruction::new("svc"),
+            CodeInstruction::new("b.lo").field("target", "encoding_error"),
+        ];
+        let mir = lower_to_mir(&checked);
+        assert_eq!(mir.len(), 1);
+        assert_eq!(mir[0].op, MirOp::SyscallBr);
+        assert_eq!(mir[0].op.mnemonic(), "syscall_br");
+        let get = |k: &str| mir[0].fields.iter().find(|(f, _)| *f == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("cond"), Some("b.lo"));
+        assert_eq!(get("target"), Some("encoding_error"));
+        // No `svc`/`b.lo` mnemonic survives — the MIR is flagless.
+        assert!(!mir.iter().any(|m| matches!(m.op, MirOp::Syscall | MirOp::BranchLo)));
+        assert_round_trips(&checked);
+
+        // A bare syscall (no following flag branch) stays the neutral `syscall`.
+        let bare = [
+            CodeInstruction::new("svc"),
+            CodeInstruction::new("branch_self"),
+        ];
+        let mir = lower_to_mir(&bare);
+        assert_eq!(mir.len(), 2);
+        assert_eq!(mir[0].op, MirOp::Syscall);
+        assert_eq!(mir[0].op.mnemonic(), "syscall");
+        assert_round_trips(&bare);
+    }
+
     /// A flag-setter NOT followed by a flag-reading branch stays a mirror op —
     /// the `adds; adc` 128-bit carry chain must not be mistaken for overflow.
     #[test]
@@ -1218,18 +1298,19 @@ mod tests {
         assert_round_trips(&mismatch);
     }
 
-    /// The byte-identical gate, in miniature: a 36-fixture sweep with at least
+    /// The byte-identical gate, in miniature: a 39-fixture sweep with at least
     /// one instruction from **every** builder op family — moves & immediates,
     /// the universal ALU, the neutral-renamed exotic integer ops, the structural
     /// `addr_of` pair, every load/store width (one against the abstract
     /// `arena_base`, plan-00-D), scalar float arith + the renamed float↔int
-    /// conversions & bit-reinterprets, the NEON `v128` ops, and the fused
-    /// flagless control-flow ops. `select_aarch64 ∘ lower_to_mir` must be the
-    /// identity on the whole stream (the property the `.ncode`/binary self-diff
-    /// oracle, `scripts/codegen-selfdiff.sh`, proves end-to-end).
+    /// conversions & bit-reinterprets, the NEON `v128` ops, the machine-y
+    /// call/syscall vocabulary (plan-00-F), and the fused flagless control-flow
+    /// ops. `select_aarch64 ∘ lower_to_mir` must be the identity on the whole
+    /// stream (the property the `.ncode`/binary self-diff oracle,
+    /// `scripts/codegen-selfdiff.sh`, proves end-to-end).
     #[test]
     fn round_trip_sweep_over_every_op_family() {
-        let fixtures: [CodeInstruction; 36] = [
+        let fixtures: [CodeInstruction; 39] = [
             // — moves & immediates —
             CodeInstruction::new("mov").field("dst", "%v0").field("src", "x1"),
             CodeInstruction::new("mov_imm").field("dst", "%v1").field("value", "4294967296"),
@@ -1284,6 +1365,11 @@ mod tests {
             // — NEON `v128` op (plan-00-E): the `fmla_v` MAC neutralizes to
             //   `v128.fma`; no `*_v` NEON mnemonic survives —
             CodeInstruction::new("fmla_v").field("dst", "%f5").field("lhs", "%f3").field("rhs", "%f4"),
+            // — machine-y call/syscall vocabulary (plan-00-F): the helpers'
+            //   `bl`/`blr`/`svc` neutralize to `call`/`call_indirect`/`syscall` —
+            CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
+            CodeInstruction::new("blr").field("register", "x16"),
+            CodeInstruction::new("svc"),
             // — fused flagless control flow (Phases B/C neighbours) —
             CodeInstruction::new("cmp").field("lhs", "%v0").field("rhs", "%v1"),
             CodeInstruction::new("b.lt").field("target", "Lbody"),
@@ -1301,8 +1387,12 @@ mod tests {
             // NEON-tail mnemonics — none may appear (now `v128.*`, plan-00-E).
             "ldr_q", "str_q", "fadd_v", "fmla_v", "fcmgt_v", "frintn_v", "fcvtzs_v", "scvtf_v",
             "add_v", "sshl_v", "shl_v", "bsl_v", "bit_v", "dup_v_from_x", "umov_x_from_v",
+            // Machine-y mnemonics — now `call`/`call_indirect`/`syscall` (plan-00-F).
+            "bl", "blr", "svc",
         ];
         let mut saw_v128 = false;
+        let mut saw_call = false;
+        let mut saw_syscall = false;
         for instruction in &mir {
             let mnemonic = instruction.op.mnemonic();
             assert!(
@@ -1312,8 +1402,12 @@ mod tests {
             if mnemonic.starts_with("v128.") {
                 saw_v128 = true;
             }
+            saw_call |= mnemonic == "call" || mnemonic == "call_indirect";
+            saw_syscall |= mnemonic == "syscall";
         }
         assert!(saw_v128, "the NEON fixture did not lower to a `v128.*` op");
+        assert!(saw_call, "the bl/blr fixtures did not lower to `call`/`call_indirect`");
+        assert!(saw_syscall, "the svc fixture did not lower to `syscall`");
 
         // The pinned arena register never appears in the MIR: the `str_u8`
         // fixture's `base` is the abstract `arena_base`, not `x19` (plan-00-D
