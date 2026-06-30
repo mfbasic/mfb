@@ -25,10 +25,17 @@ const GPRS: &[&str] = &[
 /// Excludes: the SysV argument/return + implicit registers (`rax`/`rdx` —
 /// mul/div and return; `rcx` — variable shift/rotate count; `rsi`/`rdi`/`r8`/`r9`
 /// — argument registers placed physically by selection at ABI boundaries),
-/// `rsp` (stack), `rbp` (reserved frame register), and `r15` (pinned
-/// `arena_base`). Tight (6) versus AArch64's 19 — the linear-scan allocator
-/// spills under pressure.
-const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "rbx", "r12", "r13", "r14"];
+/// `rsp` (stack), `rbp` (reserved frame register), `r15` (pinned `arena_base`),
+/// and `r14` (pinned **zero register** — AArch64 has `xzr`, x86 does not, so
+/// `select_x86` realizes `xzr`/`x31` as `r14`, which the entry zeroes once and
+/// every function preserves because it is callee-saved and never allocated).
+/// Tight (5) versus AArch64's 19 — the linear-scan allocator spills under
+/// pressure; correctness-first for bring-up (plan-00-H §7 frees a register by
+/// moving arena_base to TLS).
+const INT_ALLOCATABLE: &[&str] = &["r10", "r11", "rbx", "r12", "r13"];
+
+/// The pinned zero register `xzr`/`x31` realizes as (see [`INT_ALLOCATABLE`]).
+pub(crate) const ZERO_REGISTER: &str = "r14";
 
 /// Caller-saved (volatile) integer registers — clobbered across a `call`.
 const INT_CALLER_SAVED: &[&str] = &["rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11"];

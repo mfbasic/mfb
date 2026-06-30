@@ -284,8 +284,10 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let value = immediate(field(instruction, "value")?)?;
             Ok(Encoded::plain(enc_mov_imm64(dst, value)))
         }
-        "add" => alu3(instruction, 0x01),
-        "sub" => alu3(instruction, 0x29),
+        // x86 add/sub always set EFLAGS, so the flag-setting `adds`/`subs`
+        // variants are the same encoding (the following flag-branch reads them).
+        "add" | "adds" => alu3(instruction, 0x01),
+        "sub" | "subs" => alu3(instruction, 0x29),
         "and" => alu3(instruction, 0x21),
         "orr" => alu3(instruction, 0x09),
         "eor" => alu3(instruction, 0x31),
@@ -309,16 +311,21 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             bytes.extend_from_slice(&enc_imul_rr(dst, rhs));
             Ok(Encoded::plain(bytes))
         }
-        "umulh" => {
+        "umulh" | "smulh" => {
             // rdx:rax = lhs * rhs ; dst = rdx.  Clobbers rax/rdx (non-allocatable).
+            // F7 /4 = MUL (unsigned high), F7 /5 = IMUL (signed high).
             let dst = reg(field(instruction, "dst")?)?;
             let lhs = reg(field(instruction, "lhs")?)?;
             let rhs = reg(field(instruction, "rhs")?)?;
+            let ext = if instruction.op == crate::arch::aarch64::ops::CodeOp::SMulH {
+                5
+            } else {
+                4
+            };
             let mut bytes = enc_mov(0, lhs); // mov rax, lhs
-            // F7 /4 = MUL r/m64  (unsigned)
             bytes.push(rex(true, false, false, rhs >= 8));
             bytes.push(0xF7);
-            bytes.push(modrm(0b11, 4, rhs));
+            bytes.push(modrm(0b11, ext, rhs));
             bytes.extend_from_slice(&enc_mov(dst, 2)); // mov dst, rdx
             Ok(Encoded::plain(bytes))
         }
@@ -399,6 +406,12 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "b.le" => jmp_label(instruction, JccKind::Jle),
         "b.hi" => jmp_label(instruction, JccKind::Ja),
         "b.lo" => jmp_label(instruction, JccKind::Jb),
+        // Overflow / sign / unsigned-LE — the *_ovf checks and the IEEE float
+        // flag-branches (plan-00-B/16/17). V→OF, N→SF, "C clear or Z" → BE.
+        "b.vs" => jmp_label(instruction, JccKind::Jo),
+        "b.vc" => jmp_label(instruction, JccKind::Jno),
+        "b.mi" => jmp_label(instruction, JccKind::Js),
+        "b.ls" => jmp_label(instruction, JccKind::Jbe),
         "bl" => {
             let target = field(instruction, "target")?;
             // E8 rel32 ; relocation against the call target at disp offset 1.
@@ -596,6 +609,10 @@ enum JccKind {
     Jle,
     Ja,
     Jb,
+    Jo,
+    Jno,
+    Js,
+    Jbe,
 }
 
 fn jmp_label(instruction: &CodeInstruction, kind: JccKind) -> Result<Encoded, String> {
@@ -614,6 +631,10 @@ fn jmp_label(instruction: &CodeInstruction, kind: JccKind) -> Result<Encoded, St
                 JccKind::Jle => 0x8E,
                 JccKind::Ja => 0x87,
                 JccKind::Jb => 0x82,
+                JccKind::Jo => 0x80,
+                JccKind::Jno => 0x81,
+                JccKind::Js => 0x88,
+                JccKind::Jbe => 0x86,
                 JccKind::Jmp => unreachable!(),
             };
             (vec![0x0F, cc, 0, 0, 0, 0], 2)

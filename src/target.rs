@@ -5,6 +5,7 @@ use crate::binary_repr::BinaryReprMetadata;
 use crate::ir::IrProject;
 
 pub mod linux_aarch64;
+pub mod linux_x86_64;
 pub mod macos_aarch64;
 pub mod package_mfp;
 pub(crate) mod shared;
@@ -142,7 +143,11 @@ pub(crate) trait NativeBackend: Sync {
     }
 }
 
-static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[&macos_aarch64::BACKEND, &linux_aarch64::BACKEND];
+static NATIVE_BACKENDS: &[&dyn NativeBackend] = &[
+    &macos_aarch64::BACKEND,
+    &linux_aarch64::BACKEND,
+    &linux_x86_64::BACKEND,
+];
 
 fn backend_for(target: &BuildTarget) -> Result<&'static dyn NativeBackend, String> {
     NATIVE_BACKENDS

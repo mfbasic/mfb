@@ -47,7 +47,21 @@ pub(crate) fn write_executable(
         &import_locations,
     )?;
     let entry_offset = main_entry_offset;
-    let bytes = if image.imports.is_empty() {
+    // x86-64 (plan-00-H) emits RIP-relative relocation kinds and raw syscalls (no
+    // imports) → a static, writable-data ELF. Detected from the relocation kinds
+    // so `write_linked_executable`'s signature stays shared with AArch64.
+    let is_x86 = image
+        .relocations
+        .iter()
+        .any(|r| matches!(r.kind.as_str(), "call_pc32" | "data_pc32" | "got_pc32"));
+    let bytes = if is_x86 {
+        encode_static_elf_x86(
+            entry_offset,
+            &text,
+            &image.data,
+            image.signing_metadata.as_deref(),
+        )
+    } else if image.imports.is_empty() {
         encode_static_elf(
             entry_offset,
             &text,
@@ -168,9 +182,26 @@ fn patch_relocations(
                     0x9100_0000 | (imm12 << 10) | (rn << 5) | rd,
                 );
             }
+            // --- x86-64 (plan-00-H): RIP-relative rel32 patches ----------------
+            // A `call rel32` (internal call) or `lea reg,[rip+disp32]` (internal
+            // data address). In both the encoder records `offset` at the disp32
+            // field, which is the last 4 bytes of the instruction, so rip (the
+            // next instruction) is `offset + 4`. rel32 = target − (site + 4).
+            "internal" if relocation.kind == "call_pc32" => {
+                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let site = text_vmaddr + relocation.offset as u64;
+                let rel = (target as i64 - (site as i64 + 4)) as i32;
+                write_u32(text, relocation.offset, rel as u32);
+            }
+            "data" if relocation.kind == "data_pc32" => {
+                let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
+                let site = text_vmaddr + relocation.offset as u64;
+                let rel = (target as i64 - (site as i64 + 4)) as i32;
+                write_u32(text, relocation.offset, rel as u32);
+            }
             _ => {
                 return Err(format!(
-                    "linux-aarch64 linker does not support relocation {} {}",
+                    "linux linker does not support relocation {} {}",
                     relocation.binding, relocation.kind
                 ));
             }

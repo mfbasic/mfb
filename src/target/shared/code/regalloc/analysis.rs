@@ -111,22 +111,41 @@ pub(super) fn call_clobber_mask(instruction: &CodeInstruction, is_fp: bool) -> P
     }
 }
 
-/// The integer physical-register index `0..=30` (`x0`–`x30`), or `None`.
-/// Excludes `x31`/`xzr`, `sp`, and FP registers.
+/// The integer physical-register index, or `None`. AArch64 `x0`–`x30` map to
+/// `0..=30`; x86-64 GPRs (plan-00-H) map to their encoding numbers `0..=15`. A
+/// function is single-ISA, so the two name spaces never collide. Excludes
+/// `x31`/`xzr`, `sp`/`rsp`, and FP registers.
 pub(super) fn int_physical_index(name: &str) -> Option<u32> {
-    let rest = name.strip_prefix('x')?;
-    let n: u32 = rest.parse().ok()?;
-    (n <= 30).then_some(n)
+    if let Some(rest) = name.strip_prefix('x') {
+        if let Ok(n) = rest.parse::<u32>() {
+            return (n <= 30).then_some(n);
+        }
+    }
+    // x86-64 GPRs, in encoding order (rax=0 … r15=15). `rsp` is the stack
+    // pointer (excluded), like AArch64 `sp`.
+    const X86_GPRS: &[&str] = &[
+        "rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12",
+        "r13", "r14", "r15",
+    ];
+    X86_GPRS
+        .iter()
+        .position(|&reg| reg == name)
+        .filter(|&i| i != 4) // rsp
+        .map(|i| i as u32)
 }
 
-/// The FP/SIMD physical-register index `0..=31`, or `None`. Matches BOTH the
-/// scalar `d0`–`d31` spelling and the vector `v0`–`v31` spelling, because they
-/// alias the same physical file (`d_n` ⊂ `v_n`): a NEON kernel's hardcoded `v5`
-/// must mark `d5` busy so the allocator never colors an FP value onto it (§4.6).
+/// The FP/SIMD physical-register index, or `None`. AArch64 scalar `d0`–`d31` /
+/// vector `v0`–`v31` (aliased) map to `0..=31`; x86-64 `xmm0`–`xmm15`
+/// (plan-00-H) to `0..=15`.
 pub(super) fn fp_physical_index(name: &str) -> Option<u32> {
-    let rest = name.strip_prefix('d').or_else(|| name.strip_prefix('v'))?;
-    let n: u32 = rest.parse().ok()?;
-    (n <= 31).then_some(n)
+    if let Some(rest) = name.strip_prefix('d').or_else(|| name.strip_prefix('v')) {
+        if let Ok(n) = rest.parse::<u32>() {
+            return (n <= 31).then_some(n);
+        }
+    }
+    name.strip_prefix("xmm")
+        .and_then(|rest| rest.parse::<u32>().ok())
+        .filter(|n| *n <= 15)
 }
 
 impl ClassModel {

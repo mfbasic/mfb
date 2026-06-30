@@ -46,6 +46,74 @@ pub(super) fn encode_static_elf(
     bytes
 }
 
+/// A static x86-64 ELF executable (plan-00-H). Unlike the AArch64 console path
+/// (which dynamically links libc), the x86 backend uses raw syscalls, so there
+/// are no imports and a static, interpreter-less ELF suffices. Two PT_LOAD
+/// segments — text R+X and a separate **writable** R+W data segment, page-
+/// aligned so a data symbol's vmaddr matches `write_executable`'s
+/// `data_vmaddr = IMAGE_BASE + align(TEXT_FILE_OFFSET + text.len(), PAGE_SIZE)`
+/// (the entry writes `_mfb_rt_main_arena`, so data must be writable).
+pub(super) fn encode_static_elf_x86(
+    entry_offset: usize,
+    text: &[u8],
+    data: &[u8],
+    signing_metadata: Option<&[u8]>,
+) -> Vec<u8> {
+    let text_offset = TEXT_FILE_OFFSET;
+    let text_vmaddr = IMAGE_BASE + text_offset as u64;
+    let data_offset = align(text_offset + text.len(), PAGE_SIZE);
+    let data_vmaddr = IMAGE_BASE + data_offset as u64;
+    let text_seg_filesz = (text_offset + text.len()) as u64; // ELF header + phdrs + text
+
+    let mut bytes = Vec::new();
+    // e_ident
+    bytes.extend_from_slice(&[0x7f, b'E', b'L', b'F']);
+    bytes.extend_from_slice(&[2, 1, 1, 0]); // ELFCLASS64, LE, version, SysV ABI
+    bytes.resize(16, 0);
+    put_u16(&mut bytes, 2); // e_type = ET_EXEC
+    put_u16(&mut bytes, 62); // e_machine = EM_X86_64
+    put_u32(&mut bytes, 1); // e_version
+    put_u64(&mut bytes, text_vmaddr + entry_offset as u64); // e_entry
+    put_u64(&mut bytes, 64); // e_phoff
+    put_u64(&mut bytes, 0); // e_shoff
+    put_u32(&mut bytes, 0); // e_flags
+    put_u16(&mut bytes, 64); // e_ehsize
+    put_u16(&mut bytes, 56); // e_phentsize
+    put_u16(&mut bytes, 2); // e_phnum (text + data)
+    put_u16(&mut bytes, 0); // e_shentsize
+    put_u16(&mut bytes, 0); // e_shnum
+    put_u16(&mut bytes, 0); // e_shstrndx
+
+    // PT_LOAD text (R+X)
+    put_u32(&mut bytes, 1); // p_type = PT_LOAD
+    put_u32(&mut bytes, 5); // p_flags = R+X
+    put_u64(&mut bytes, 0); // p_offset
+    put_u64(&mut bytes, IMAGE_BASE); // p_vaddr
+    put_u64(&mut bytes, IMAGE_BASE); // p_paddr
+    put_u64(&mut bytes, text_seg_filesz); // p_filesz
+    put_u64(&mut bytes, text_seg_filesz); // p_memsz
+    put_u64(&mut bytes, 0x1000); // p_align
+
+    // PT_LOAD data (R+W)
+    put_u32(&mut bytes, 1); // p_type = PT_LOAD
+    put_u32(&mut bytes, 6); // p_flags = R+W
+    put_u64(&mut bytes, data_offset as u64); // p_offset
+    put_u64(&mut bytes, data_vmaddr); // p_vaddr
+    put_u64(&mut bytes, data_vmaddr); // p_paddr
+    put_u64(&mut bytes, data.len() as u64); // p_filesz
+    put_u64(&mut bytes, data.len() as u64); // p_memsz
+    put_u64(&mut bytes, 0x1000); // p_align
+
+    bytes.resize(text_offset, 0);
+    bytes.extend_from_slice(text);
+    bytes.resize(data_offset, 0);
+    bytes.extend_from_slice(data);
+    if let Some(metadata) = signing_metadata {
+        append_elf_signing_section(&mut bytes, metadata);
+    }
+    bytes
+}
+
 pub(super) fn encode_dynamic_elf(
     flavor: LinuxFlavor,
     entry_offset: usize,
