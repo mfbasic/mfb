@@ -87,6 +87,13 @@ Format rules:
 - Use the renderer's supported Markdown subset only: ATX headings, paragraphs,
   bullet/ordered lists, fenced code blocks, pipe tables, and inline
   \`code\`/**bold**/*italic*/[links](url).
+- Provenance: back a non-obvious implementation claim (error code, shared
+  convention, magic number, offset, enum variant) with an invisible
+  \`[[src/file.rs:Symbol]]\` citation at claim-cluster granularity — symbol-preferred,
+  \`[[src/file.rs:line]]\` only where no symbol fits. Grep-confirm the symbol exists
+  before citing. The renderer strips \`[[ ]]\` everywhere (including headings), so
+  they never display in 'mfb man' output but keep claims traceable for reviewers.
+  Do not add non-verifiable claims.
 
 Errors table (required, always present):
 - This is the package-wide summary of error behavior. List each distinct error
