@@ -269,6 +269,17 @@ struct TypeModel {
     union_variant_fields: HashMap<String, Vec<(String, String)>>,
 }
 
+/// Adapt a not-yet-vreg-migrated helper body (3-tuple) to the 4-tuple shape with
+/// an empty spill-slot list. Used to migrate the `net.*`/`tls.*` match arms to
+/// the `stack_slots`-carrying shape incrementally (plan-00-G Phase 2): a migrated
+/// helper returns the 4-tuple directly and drops the wrapper.
+#[allow(clippy::type_complexity)]
+fn pad_no_slots(
+    body: (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>),
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>) {
+    (body.0, body.1, body.2, Vec::new())
+}
+
 pub(crate) fn lower_module_for_platform(
     module: &NirModule,
     native_plan: &NativePlan,
@@ -1717,7 +1728,7 @@ fn lower_runtime_helper(
             })
         }
         call if call.starts_with("net.") => {
-            let (frame, instructions, relocations) = match call {
+            let (frame, instructions, relocations, stack_slots) = match call {
                 "net.lookup" => net::lower_net_lookup_helper(symbol, platform_imports, platform)?,
                 "net.connectTcp" => {
                     net::lower_net_connect_tcp_helper(symbol, platform_imports, platform)?
@@ -1743,14 +1754,8 @@ fn lower_runtime_helper(
                     net::lower_net_write_helper(symbol, platform_imports, platform, true)?
                 }
                 // A socket/listener handle shares the `File` record layout, so the
-                // standard file close helper closes net handles too. The close helper
-                // is vreg-allocated (its frame already accounts for any spill); the
-                // net path tracks stack slots via the frame, so drop the slot list.
-                "net.close" => {
-                    let (frame, instructions, relocations, _stack_slots) =
-                        lower_fs_close_helper(symbol, platform_imports, platform)?;
-                    (frame, instructions, relocations)
-                }
+                // standard (vreg-allocated) file close helper closes net handles too.
+                "net.close" => lower_fs_close_helper(symbol, platform_imports, platform)?,
                 "net.localAddress" => {
                     net::lower_net_address_helper(symbol, platform_imports, platform, false)?
                 }
@@ -1799,7 +1804,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
