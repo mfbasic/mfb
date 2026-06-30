@@ -292,6 +292,10 @@ pub(crate) fn lower_module_for_platform(
             module.target
         ));
     }
+    // Install this platform's backend so the builders, helper routing, and helper
+    // finalization dispatch selection + register allocation through it instead of
+    // naming AArch64 directly (plan-00-H/I additivity).
+    mir::set_backend(platform.backend());
     // Imported packages are now decoded and merged into the project IR upstream
     // (see `lower::lower_project`) and lowered as ordinary functions through this
     // same codegen. The legacy flat binary_repr -> native package bridge is no
@@ -2395,7 +2399,7 @@ mod function_lowering;
 use function_lowering::*;
 mod peephole;
 pub(crate) mod regalloc;
-mod mir;
+pub(crate) mod mir;
 pub(crate) use mir::MirPlan;
 
 fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {

@@ -113,6 +113,13 @@ pub(crate) struct CodeDataObject {
 pub(crate) trait CodegenPlatform {
     fn target(&self) -> &'static str;
     fn arch(&self) -> &'static str;
+    /// The code-generation backend (MIR selection + register model) for this
+    /// platform's ISA. The shared lowering installs it as the active backend and
+    /// dispatches all selection / register allocation through it, so adding an
+    /// ISA needs only a new `impl mir::Backend` plus a platform that returns it —
+    /// no shared-code edit at the selection sites (plan-00-H/I additivity). A
+    /// required method, so a new backend cannot be added without supplying one.
+    fn backend(&self) -> &'static dyn super::mir::Backend;
     fn termios_size(&self) -> usize;
     fn termios_lflag_offset(&self) -> usize;
     fn termios_lflag_width(&self) -> usize;

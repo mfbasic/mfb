@@ -16,7 +16,9 @@
 //! serializes the MIR stream (neutral ops, virtual registers, *no* `target`/
 //! `arch`) captured **before** register allocation and instruction selection.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
+
+use crate::arch::aarch64::regmodel::RegisterModel;
 
 use super::*;
 
@@ -286,8 +288,11 @@ pub(crate) const ARENA_BASE: &str = "arena_base";
 /// asked of the [`RegisterModel`](crate::arch::aarch64::regmodel::RegisterModel)
 /// so the realization lives in the backend, not this neutral layer.
 fn arena_base_realization() -> &'static str {
-    use crate::arch::aarch64::regmodel::{Aarch64RegisterModel, RegisterModel};
-    Aarch64RegisterModel.arena_base()
+    // The arena base is a program-wide sentinel both ISAs' helpers emit
+    // (`ARENA_STATE_REGISTER`); `lower_to_mir` renames it to the neutral
+    // `arena_base`, and each backend's selection realizes it (AArch64 → the
+    // pinned register, x86_64 → a TLS/memory load).
+    ARENA_STATE_REGISTER
 }
 
 /// Rewrite every field value equal to `from` to `to` across an instruction's
@@ -580,7 +585,48 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
 /// output.
 pub(crate) fn route_function_through_mir(function: &mut CodeFunction) {
     let neutral = lower_to_mir(&function.instructions);
-    function.instructions = select_aarch64(&neutral);
+    function.instructions = active_backend().select(&neutral);
+}
+
+// --- Backend dispatch ---------------------------------------------------------
+
+/// A code-generation backend: the per-ISA tail of the pipeline that consumes
+/// neutral MIR. The shared lowering produces [`MirInstruction`]s, then asks the
+/// **active** backend to (1) `select` them into that ISA's machine ops and (2)
+/// supply the [`RegisterModel`] the shared allocator colors vregs against.
+/// AArch64 implements it via [`select_aarch64`] + `Aarch64RegisterModel`; a new
+/// ISA adds its own `impl Backend` under `src/arch/<isa>/` plus a
+/// `CodegenPlatform` that returns it — with no shared-code edit at the
+/// selection / allocation sites, which is what makes a new backend additive
+/// (plan-00-H/I).
+pub(crate) trait Backend: Sync {
+    /// Select neutral MIR into this ISA's machine instructions.
+    fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction>;
+    /// The register model the shared allocator colors vregs against.
+    fn register_model(&self) -> &'static dyn RegisterModel;
+}
+
+thread_local! {
+    /// The backend the current lowering thread dispatches selection + register
+    /// allocation through. Installed by [`set_backend`] at each lowering entry
+    /// point from `platform.backend()`; `&'static` because every backend is a
+    /// zero-sized singleton.
+    static ACTIVE_BACKEND: Cell<Option<&'static dyn Backend>> = const { Cell::new(None) };
+}
+
+/// Install the active backend for this lowering thread. Called from
+/// `lower_module_for_platform` / `lower_module_mir_for_platform`.
+pub(crate) fn set_backend(backend: &'static dyn Backend) {
+    ACTIVE_BACKEND.with(|cell| cell.set(Some(backend)));
+}
+
+/// The active backend. Panics if lowering ran without [`set_backend`] — every
+/// real entry point installs it; the unit tests that exercise the round trip
+/// call [`select_aarch64`] directly instead of going through dispatch.
+pub(crate) fn active_backend() -> &'static dyn Backend {
+    ACTIVE_BACKEND
+        .with(|cell| cell.get())
+        .expect("active backend not set; call mir::set_backend at the lowering entry point")
 }
 
 // --- MIR capture for the `-mir` dump ------------------------------------------

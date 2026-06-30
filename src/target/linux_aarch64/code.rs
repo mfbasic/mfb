@@ -56,6 +56,10 @@ impl code::CodegenPlatform for Platform {
         "aarch64"
     }
 
+    fn backend(&self) -> &'static dyn code::mir::Backend {
+        &crate::arch::aarch64::backend::AARCH64_BACKEND
+    }
+
     fn termios_size(&self) -> usize {
         60
     }

@@ -83,16 +83,16 @@ impl CodeBuilder<'_> {
         if mir::capture_enabled() {
             mir::capture_function(&self.current_symbol, mir::lower_to_mir(&self.instructions));
         }
+        let backend = mir::active_backend();
         let neutral = mir::lower_to_mir(&self.instructions);
-        self.instructions = mir::select_aarch64(&neutral);
-        let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
+        self.instructions = backend.select(&neutral);
         let spill_base = self.stack_size;
         let outcome = regalloc::allocate(
             self.regalloc_kind,
             &mut self.instructions,
             &self.vreg_eager,
             &self.fp_vreg_eager,
-            &model,
+            backend.register_model(),
             spill_base,
             &[],
         );

@@ -475,13 +475,12 @@ pub(super) fn finalize_vreg_body_with_locals(
     local_size: usize,
 ) -> (CodeFrame, Vec<CodeStackSlot>) {
     let local_size = align(local_size, 16);
-    let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
     let outcome = regalloc::allocate(
         regalloc::active_kind(),
         instructions,
         &[],
         &[],
-        &model,
+        super::mir::active_backend().register_model(),
         local_size,
         reserved,
     );
