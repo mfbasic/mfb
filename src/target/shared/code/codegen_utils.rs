@@ -438,10 +438,32 @@ pub(super) fn finalize_vreg_helper_reserved(
     relocations: Vec<CodeRelocation>,
     reserved: &[&str],
 ) -> CodeFunction {
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, reserved);
+    CodeFunction {
+        name: name.to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: returns.to_string(),
+        frame,
+        instructions,
+        relocations,
+        stack_slots,
+    }
+}
+
+/// Run the shared allocator (`regalloc::allocate`) + frame builder
+/// ([`finalize_frame`]) over a vreg-built helper body in place, returning the
+/// resulting frame and spill stack slots. The building block of
+/// [`finalize_vreg_helper`]; used directly by helpers that produce their
+/// `CodeFunction` fields (params, name) at the call site rather than here.
+pub(super) fn finalize_vreg_body(
+    instructions: &mut Vec<CodeInstruction>,
+    reserved: &[&str],
+) -> (CodeFrame, Vec<CodeStackSlot>) {
     let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
     let outcome = regalloc::allocate(
         regalloc::active_kind(),
-        &mut instructions,
+        instructions,
         &[],
         &[],
         &model,
@@ -460,21 +482,12 @@ pub(super) fn finalize_vreg_helper_reserved(
         .collect();
     let stack_size = outcome.spill_slots.len() * 8;
     let frame = finalize_frame(
-        &mut instructions,
+        instructions,
         &mut stack_slots,
         stack_size,
         outcome.extra_callee_saved,
     );
-    CodeFunction {
-        name: name.to_string(),
-        symbol: symbol.to_string(),
-        params: Vec::new(),
-        returns: returns.to_string(),
-        frame,
-        instructions,
-        relocations,
-        stack_slots,
-    }
+    (frame, stack_slots)
 }
 
 /// Whether `register` is a 64-bit FP scalar (`d0`–`d31`), which must be spilled
