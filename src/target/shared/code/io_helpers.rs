@@ -6,16 +6,9 @@ pub(super) fn lower_io_write_helper(
     platform: &dyn CodegenPlatform,
     stderr: bool,
     append_newline: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(16)];
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            0,
-        ));
-    }
     instructions.extend([
         abi::load_u64(abi::string_length_register(), abi::return_register(), 0),
         abi::add_immediate(abi::string_data_register(), abi::return_register(), 8),
@@ -39,8 +32,8 @@ pub(super) fn lower_io_write_helper(
     ]);
     if append_newline {
         instructions.extend([
-            abi::move_immediate(abi::newline_scratch_register(), "Integer", "10"),
-            abi::store_u64(abi::newline_scratch_register(), abi::stack_pointer(), 8),
+            abi::move_immediate("%v9", "Integer", "10"),
+            abi::store_u64("%v9", abi::stack_pointer(), 8),
             abi::move_immediate(
                 abi::return_register(),
                 "Integer",
@@ -96,31 +89,9 @@ pub(super) fn lower_io_write_helper(
         },
     ]);
     instructions.push(abi::label(&done));
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.extend([
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-            abi::add_stack(16),
-            abi::return_(),
-        ]);
-        Ok((
-            CodeFrame {
-                stack_size: 16,
-                callee_saved: vec![abi::link_register().to_string()],
-            },
-            instructions,
-            relocations,
-        ))
-    } else {
-        instructions.extend([abi::add_stack(16), abi::return_()]);
-        Ok((
-            CodeFrame {
-                stack_size: 16,
-                callee_saved: Vec::new(),
-            },
-            instructions,
-            relocations,
-        ))
-    }
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], 16);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_io_flush_helper(
@@ -128,7 +99,7 @@ pub(super) fn lower_io_flush_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     stderr: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 16;
     const LR_OFFSET: usize = 0;
     const ERRNO_EINVAL: &str = "22";
@@ -140,15 +111,8 @@ pub(super) fn lower_io_flush_helper(
     let output_error = format!("{symbol}_output_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            LR_OFFSET,
-        ));
-    }
     instructions.push(abi::move_immediate(
         abi::return_register(),
         "Integer",
@@ -174,12 +138,13 @@ pub(super) fn lower_io_flush_helper(
         &mut instructions,
         &mut relocations,
     )?;
+    instructions.push(abi::move_register("%v9", "x9"));
     instructions.extend([
-        abi::compare_immediate("x9", ERRNO_EINVAL),
+        abi::compare_immediate("%v9", ERRNO_EINVAL),
         abi::branch_eq(&ok),
-        abi::compare_immediate("x9", ERRNO_ENOTSUP_DARWIN),
+        abi::compare_immediate("%v9", ERRNO_ENOTSUP_DARWIN),
         abi::branch_eq(&ok),
-        abi::compare_immediate("x9", ERRNO_EOPNOTSUPP_LINUX),
+        abi::compare_immediate("%v9", ERRNO_EOPNOTSUPP_LINUX),
         abi::branch_eq(&ok),
         abi::label(&output_error),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
@@ -192,56 +157,27 @@ pub(super) fn lower_io_flush_helper(
         &mut relocations,
     );
     instructions.push(abi::label(&done));
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.extend([
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-            abi::add_stack(FRAME_SIZE),
-            abi::return_(),
-        ]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: vec![abi::link_register().to_string()],
-            },
-            instructions,
-            relocations,
-        ))
-    } else {
-        instructions.extend([abi::add_stack(FRAME_SIZE), abi::return_()]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: Vec::new(),
-            },
-            instructions,
-            relocations,
-        ))
-    }
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_io_poll_input_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const POLLIN_PACKED_FD0: &str = "4294967296";
     const FRAME_SIZE: usize = 48;
     const POLLFD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 32;
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            0,
-        ));
-    }
     instructions.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), TIMEOUT_OFFSET),
-        abi::move_immediate("x9", "Integer", POLLIN_PACKED_FD0),
-        abi::store_u64("x9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("%v9", "Integer", POLLIN_PACKED_FD0),
+        abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
     ]);
 
     instructions.push(abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET));
@@ -304,31 +240,9 @@ pub(super) fn lower_io_poll_input_helper(
         },
     ]);
     instructions.push(abi::label(&done));
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.extend([
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-            abi::add_stack(FRAME_SIZE),
-            abi::return_(),
-        ]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: vec![abi::link_register().to_string()],
-            },
-            instructions,
-            relocations,
-        ))
-    } else {
-        instructions.extend([abi::add_stack(FRAME_SIZE), abi::return_()]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: Vec::new(),
-            },
-            instructions,
-            relocations,
-        ))
-    }
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 fn termios_storage_size(platform: &dyn CodegenPlatform) -> usize {
@@ -383,14 +297,14 @@ fn emit_configure_stdin_terminal(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(error_label),
-        abi::move_immediate("x9", "Integer", "1"),
-        abi::store_u64("x9", abi::stack_pointer(), slots.active),
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), slots.active),
     ]);
 
     for offset in (0..termios_storage_size(platform)).step_by(8) {
         instructions.extend([
-            abi::load_u64("x9", abi::stack_pointer(), slots.original + offset),
-            abi::store_u64("x9", abi::stack_pointer(), slots.modified + offset),
+            abi::load_u64("%v9", abi::stack_pointer(), slots.original + offset),
+            abi::store_u64("%v9", abi::stack_pointer(), slots.modified + offset),
         ]);
     }
 
@@ -404,28 +318,28 @@ fn emit_configure_stdin_terminal(
     if clear_flags != 0 {
         let lflag_offset = slots.modified + platform.termios_lflag_offset();
         if platform.termios_lflag_width() == 4 {
-            instructions.push(abi::load_u32("x9", abi::stack_pointer(), lflag_offset));
+            instructions.push(abi::load_u32("%v9", abi::stack_pointer(), lflag_offset));
         } else {
-            instructions.push(abi::load_u64("x9", abi::stack_pointer(), lflag_offset));
+            instructions.push(abi::load_u64("%v9", abi::stack_pointer(), lflag_offset));
         }
         instructions.extend([
-            abi::move_immediate("x10", "Integer", &clear_flags.to_string()),
-            abi::bitwise_not("x10", "x10"),
-            abi::and_registers("x9", "x9", "x10"),
+            abi::move_immediate("%v10", "Integer", &clear_flags.to_string()),
+            abi::bitwise_not("%v10", "%v10"),
+            abi::and_registers("%v9", "%v9", "%v10"),
         ]);
         if platform.termios_lflag_width() == 4 {
-            instructions.push(abi::store_u32("x9", abi::stack_pointer(), lflag_offset));
+            instructions.push(abi::store_u32("%v9", abi::stack_pointer(), lflag_offset));
         } else {
-            instructions.push(abi::store_u64("x9", abi::stack_pointer(), lflag_offset));
+            instructions.push(abi::store_u64("%v9", abi::stack_pointer(), lflag_offset));
         }
     }
 
     if disable_canonical {
         let cc_offset = slots.modified + platform.termios_cc_offset();
         instructions.extend([
-            abi::move_immediate("x9", "Integer", "1"),
+            abi::move_immediate("%v9", "Integer", "1"),
             abi::store_u8(
-                "x9",
+                "%v9",
                 abi::stack_pointer(),
                 cc_offset + platform.termios_vmin_index(),
             ),
@@ -479,8 +393,8 @@ fn emit_restore_stdin_terminal(
             abi::stack_pointer(),
             slots.saved_message,
         ),
-        abi::load_u64("x9", abi::stack_pointer(), slots.active),
-        abi::compare_immediate("x9", "1"),
+        abi::load_u64("%v9", abi::stack_pointer(), slots.active),
+        abi::compare_immediate("%v9", "1"),
         abi::branch_ne(&restored),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate("x1", "Integer", "0"),
@@ -523,7 +437,7 @@ pub(super) fn lower_io_read_byte_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     app_mode: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 208;
     const LR_OFFSET: usize = 0;
     const BYTE_OFFSET: usize = 8;
@@ -539,15 +453,8 @@ pub(super) fn lower_io_read_byte_helper(
     let input_error = format!("{symbol}_input_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            LR_OFFSET,
-        ));
-    }
     if app_mode {
         platform
             .emit_app_raw_input_mode(symbol, &mut instructions, &mut relocations)
@@ -613,31 +520,9 @@ pub(super) fn lower_io_read_byte_helper(
         &mut relocations,
         &terminal_slots,
     )?;
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.extend([
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-            abi::add_stack(FRAME_SIZE),
-            abi::return_(),
-        ]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: vec![abi::link_register().to_string()],
-            },
-            instructions,
-            relocations,
-        ))
-    } else {
-        instructions.extend([abi::add_stack(FRAME_SIZE), abi::return_()]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: Vec::new(),
-            },
-            instructions,
-            relocations,
-        ))
-    }
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_io_is_terminal_helper(
@@ -645,21 +530,14 @@ pub(super) fn lower_io_is_terminal_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     fd: u8,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 16;
     const LR_OFFSET: usize = 0;
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            LR_OFFSET,
-        ));
-    }
     instructions.push(abi::move_immediate(
         abi::return_register(),
         "Integer",
@@ -682,31 +560,9 @@ pub(super) fn lower_io_is_terminal_helper(
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::label(&done),
     ]);
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.extend([
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-            abi::add_stack(FRAME_SIZE),
-            abi::return_(),
-        ]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: vec![abi::link_register().to_string()],
-            },
-            instructions,
-            relocations,
-        ))
-    } else {
-        instructions.extend([abi::add_stack(FRAME_SIZE), abi::return_()]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: Vec::new(),
-            },
-            instructions,
-            relocations,
-        ))
-    }
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_io_read_char_helper(
@@ -714,7 +570,7 @@ pub(super) fn lower_io_read_char_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     app_mode: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 224;
     const LR_OFFSET: usize = 0;
     const BYTES_OFFSET: usize = 8;
@@ -741,15 +597,8 @@ pub(super) fn lower_io_read_char_helper(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            LR_OFFSET,
-        ));
-    }
     if app_mode {
         platform
             .emit_app_raw_input_mode(symbol, &mut instructions, &mut relocations)
@@ -786,16 +635,16 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&eof),
-        abi::load_u8("x10", abi::stack_pointer(), BYTES_OFFSET),
-        abi::compare_immediate("x10", "127"),
+        abi::load_u8("%v10", abi::stack_pointer(), BYTES_OFFSET),
+        abi::compare_immediate("%v10", "127"),
         abi::branch_hi(&read_second),
-        abi::move_immediate("x11", "Integer", "1"),
-        abi::store_u64("x11", abi::stack_pointer(), LEN_OFFSET),
+        abi::move_immediate("%v11", "Integer", "1"),
+        abi::store_u64("%v11", abi::stack_pointer(), LEN_OFFSET),
         abi::branch(&got_len),
         abi::label(&read_second),
-        abi::compare_immediate("x10", "194"),
+        abi::compare_immediate("%v10", "194"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x10", "223"),
+        abi::compare_immediate("%v10", "223"),
         abi::branch_hi(&read_third),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET + 1),
@@ -811,16 +660,16 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("x11", "128"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate("x11", "Integer", "2"),
-        abi::store_u64("x11", abi::stack_pointer(), LEN_OFFSET),
+        abi::move_immediate("%v11", "Integer", "2"),
+        abi::store_u64("%v11", abi::stack_pointer(), LEN_OFFSET),
         abi::branch(&got_len),
         abi::label(&read_third),
-        abi::compare_immediate("x10", "239"),
+        abi::compare_immediate("%v10", "239"),
         abi::branch_hi(&read_fourth),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET + 1),
@@ -836,26 +685,26 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("x10", "224"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
+        abi::compare_immediate("%v10", "224"),
         abi::branch_ne(&format!("{symbol}_three_not_e0")),
-        abi::compare_immediate("x11", "160"),
+        abi::compare_immediate("%v11", "160"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::branch(&format!("{symbol}_three_second_ok")),
         abi::label(&format!("{symbol}_three_not_e0")),
-        abi::compare_immediate("x10", "237"),
+        abi::compare_immediate("%v10", "237"),
         abi::branch_ne(&format!("{symbol}_three_general")),
-        abi::compare_immediate("x11", "128"),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "159"),
+        abi::compare_immediate("%v11", "159"),
         abi::branch_hi(&encoding_error),
         abi::branch(&format!("{symbol}_three_second_ok")),
         abi::label(&format!("{symbol}_three_general")),
-        abi::compare_immediate("x11", "128"),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::label(&format!("{symbol}_three_second_ok")),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -872,18 +721,18 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::compare_immediate("x11", "128"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate("x11", "Integer", "3"),
-        abi::store_u64("x11", abi::stack_pointer(), LEN_OFFSET),
+        abi::move_immediate("%v11", "Integer", "3"),
+        abi::store_u64("%v11", abi::stack_pointer(), LEN_OFFSET),
         abi::branch(&got_len),
         abi::label(&read_fourth),
-        abi::compare_immediate("x10", "240"),
+        abi::compare_immediate("%v10", "240"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x10", "244"),
+        abi::compare_immediate("%v10", "244"),
         abi::branch_hi(&encoding_error),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET + 1),
@@ -899,26 +748,26 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("x10", "240"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
+        abi::compare_immediate("%v10", "240"),
         abi::branch_ne(&format!("{symbol}_four_not_f0")),
-        abi::compare_immediate("x11", "144"),
+        abi::compare_immediate("%v11", "144"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::branch(&format!("{symbol}_four_second_ok")),
         abi::label(&format!("{symbol}_four_not_f0")),
-        abi::compare_immediate("x10", "244"),
+        abi::compare_immediate("%v10", "244"),
         abi::branch_ne(&format!("{symbol}_four_general")),
-        abi::compare_immediate("x11", "128"),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "143"),
+        abi::compare_immediate("%v11", "143"),
         abi::branch_hi(&encoding_error),
         abi::branch(&format!("{symbol}_four_second_ok")),
         abi::label(&format!("{symbol}_four_general")),
-        abi::compare_immediate("x11", "128"),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::label(&format!("{symbol}_four_second_ok")),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -935,10 +784,10 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::compare_immediate("x11", "128"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET + 3),
@@ -954,16 +803,16 @@ pub(super) fn lower_io_read_char_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 3),
-        abi::compare_immediate("x11", "128"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 3),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate("x11", "Integer", "4"),
-        abi::store_u64("x11", abi::stack_pointer(), LEN_OFFSET),
+        abi::move_immediate("%v11", "Integer", "4"),
+        abi::store_u64("%v11", abi::stack_pointer(), LEN_OFFSET),
         abi::label(&got_len),
-        abi::load_u64("x10", abi::stack_pointer(), LEN_OFFSET),
-        abi::add_immediate(abi::return_register(), "x10", 9),
+        abi::load_u64("%v10", abi::stack_pointer(), LEN_OFFSET),
+        abi::add_immediate(abi::return_register(), "%v10", 9),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -974,21 +823,21 @@ pub(super) fn lower_io_read_char_helper(
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
         abi::store_u64("x1", abi::stack_pointer(), RESULT_OFFSET),
-        abi::load_u64("x10", abi::stack_pointer(), LEN_OFFSET),
-        abi::store_u64("x10", "x1", 0),
-        abi::add_immediate("x11", "x1", 8),
-        abi::add_immediate("x12", abi::stack_pointer(), BYTES_OFFSET),
+        abi::load_u64("%v10", abi::stack_pointer(), LEN_OFFSET),
+        abi::store_u64("%v10", "x1", 0),
+        abi::add_immediate("%v11", "x1", 8),
+        abi::add_immediate("%v12", abi::stack_pointer(), BYTES_OFFSET),
         abi::label(&copy_loop),
-        abi::compare_immediate("x10", "0"),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&copy_done),
-        abi::load_u8("x13", "x12", 0),
-        abi::store_u8("x13", "x11", 0),
-        abi::add_immediate("x11", "x11", 1),
-        abi::add_immediate("x12", "x12", 1),
-        abi::subtract_immediate("x10", "x10", 1),
+        abi::load_u8("%v13", "%v12", 0),
+        abi::store_u8("%v13", "%v11", 0),
+        abi::add_immediate("%v11", "%v11", 1),
+        abi::add_immediate("%v12", "%v12", 1),
+        abi::subtract_immediate("%v10", "%v10", 1),
         abi::branch(&copy_loop),
         abi::label(&copy_done),
-        abi::store_u8("x31", "x11", 0),
+        abi::store_u8("x31", "%v11", 0),
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1042,31 +891,9 @@ pub(super) fn lower_io_read_char_helper(
         &mut relocations,
         &terminal_slots,
     )?;
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.extend([
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-            abi::add_stack(FRAME_SIZE),
-            abi::return_(),
-        ]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: vec![abi::link_register().to_string()],
-            },
-            instructions,
-            relocations,
-        ))
-    } else {
-        instructions.extend([abi::add_stack(FRAME_SIZE), abi::return_()]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: Vec::new(),
-            },
-            instructions,
-            relocations,
-        ))
-    }
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 pub(super) fn lower_io_read_line_helper(
@@ -1074,7 +901,7 @@ pub(super) fn lower_io_read_line_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     with_prompt: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
     const FRAME_SIZE: usize = 256;
     const LR_OFFSET: usize = 0;
     const BUFFER_OFFSET: usize = 8;
@@ -1119,15 +946,8 @@ pub(super) fn lower_io_read_line_helper(
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            LR_OFFSET,
-        ));
-    }
     if with_prompt {
         instructions.extend([
             abi::load_u64(abi::string_length_register(), abi::return_register(), 0),
@@ -1185,8 +1005,8 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
         abi::store_u64("x1", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::move_immediate("x10", "Integer", "32"),
-        abi::store_u64("x10", abi::stack_pointer(), CAPACITY_OFFSET),
+        abi::move_immediate("%v10", "Integer", "32"),
+        abi::store_u64("%v10", abi::stack_pointer(), CAPACITY_OFFSET),
         abi::store_u64("x31", abi::stack_pointer(), LENGTH_OFFSET),
         abi::label(&read_loop),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -1203,18 +1023,18 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&format!("{symbol}_read_eof")),
-        abi::load_u8("x10", abi::stack_pointer(), BYTES_OFFSET),
-        abi::compare_immediate("x10", "10"),
+        abi::load_u8("%v10", abi::stack_pointer(), BYTES_OFFSET),
+        abi::compare_immediate("%v10", "10"),
         abi::branch_eq(&trim_cr),
-        abi::compare_immediate("x10", "127"),
+        abi::compare_immediate("%v10", "127"),
         abi::branch_hi(&format!("{symbol}_multi_start")),
-        abi::move_immediate("x11", "Integer", "1"),
-        abi::store_u64("x11", abi::stack_pointer(), SEQ_LEN_OFFSET),
+        abi::move_immediate("%v11", "Integer", "1"),
+        abi::store_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
         abi::branch(&have_sequence),
         abi::label(&format!("{symbol}_multi_start")),
-        abi::compare_immediate("x10", "194"),
+        abi::compare_immediate("%v10", "194"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x10", "223"),
+        abi::compare_immediate("%v10", "223"),
         abi::branch_hi(&format!("{symbol}_line_read_third")),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET + 1),
@@ -1230,16 +1050,16 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("x11", "128"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate("x11", "Integer", "2"),
-        abi::store_u64("x11", abi::stack_pointer(), SEQ_LEN_OFFSET),
+        abi::move_immediate("%v11", "Integer", "2"),
+        abi::store_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
         abi::branch(&have_sequence),
         abi::label(&format!("{symbol}_line_read_third")),
-        abi::compare_immediate("x10", "239"),
+        abi::compare_immediate("%v10", "239"),
         abi::branch_hi(&format!("{symbol}_line_read_fourth")),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET + 1),
@@ -1255,26 +1075,26 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("x10", "224"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
+        abi::compare_immediate("%v10", "224"),
         abi::branch_ne(&format!("{symbol}_line_three_not_e0")),
-        abi::compare_immediate("x11", "160"),
+        abi::compare_immediate("%v11", "160"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::branch(&format!("{symbol}_line_three_second_ok")),
         abi::label(&format!("{symbol}_line_three_not_e0")),
-        abi::compare_immediate("x10", "237"),
+        abi::compare_immediate("%v10", "237"),
         abi::branch_ne(&format!("{symbol}_line_three_general")),
-        abi::compare_immediate("x11", "128"),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "159"),
+        abi::compare_immediate("%v11", "159"),
         abi::branch_hi(&encoding_error),
         abi::branch(&format!("{symbol}_line_three_second_ok")),
         abi::label(&format!("{symbol}_line_three_general")),
-        abi::compare_immediate("x11", "128"),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::label(&format!("{symbol}_line_three_second_ok")),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -1291,18 +1111,18 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::compare_immediate("x11", "128"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate("x11", "Integer", "3"),
-        abi::store_u64("x11", abi::stack_pointer(), SEQ_LEN_OFFSET),
+        abi::move_immediate("%v11", "Integer", "3"),
+        abi::store_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
         abi::branch(&have_sequence),
         abi::label(&format!("{symbol}_line_read_fourth")),
-        abi::compare_immediate("x10", "240"),
+        abi::compare_immediate("%v10", "240"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x10", "244"),
+        abi::compare_immediate("%v10", "244"),
         abi::branch_hi(&encoding_error),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET + 1),
@@ -1318,26 +1138,26 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 1),
-        abi::compare_immediate("x10", "240"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 1),
+        abi::compare_immediate("%v10", "240"),
         abi::branch_ne(&format!("{symbol}_line_four_not_f0")),
-        abi::compare_immediate("x11", "144"),
+        abi::compare_immediate("%v11", "144"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::branch(&format!("{symbol}_line_four_second_ok")),
         abi::label(&format!("{symbol}_line_four_not_f0")),
-        abi::compare_immediate("x10", "244"),
+        abi::compare_immediate("%v10", "244"),
         abi::branch_ne(&format!("{symbol}_line_four_general")),
-        abi::compare_immediate("x11", "128"),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "143"),
+        abi::compare_immediate("%v11", "143"),
         abi::branch_hi(&encoding_error),
         abi::branch(&format!("{symbol}_line_four_second_ok")),
         abi::label(&format!("{symbol}_line_four_general")),
-        abi::compare_immediate("x11", "128"),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::label(&format!("{symbol}_line_four_second_ok")),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
@@ -1354,10 +1174,10 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 2),
-        abi::compare_immediate("x11", "128"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 2),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), BYTES_OFFSET + 3),
@@ -1373,34 +1193,34 @@ pub(super) fn lower_io_read_line_helper(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&input_error),
         abi::branch_eq(&encoding_error),
-        abi::load_u8("x11", abi::stack_pointer(), BYTES_OFFSET + 3),
-        abi::compare_immediate("x11", "128"),
+        abi::load_u8("%v11", abi::stack_pointer(), BYTES_OFFSET + 3),
+        abi::compare_immediate("%v11", "128"),
         abi::branch_lo(&encoding_error),
-        abi::compare_immediate("x11", "191"),
+        abi::compare_immediate("%v11", "191"),
         abi::branch_hi(&encoding_error),
-        abi::move_immediate("x11", "Integer", "4"),
-        abi::store_u64("x11", abi::stack_pointer(), SEQ_LEN_OFFSET),
+        abi::move_immediate("%v11", "Integer", "4"),
+        abi::store_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
         abi::label(&have_sequence),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::load_u64("x11", abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::add_registers("x12", "x10", "x11"),
-        abi::load_u64("x13", abi::stack_pointer(), CAPACITY_OFFSET),
-        abi::compare_registers("x12", "x13"),
+        abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::load_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
+        abi::add_registers("%v12", "%v10", "%v11"),
+        abi::load_u64("%v13", abi::stack_pointer(), CAPACITY_OFFSET),
+        abi::compare_registers("%v12", "%v13"),
         abi::branch_gt(&grow),
         abi::branch(&grow_ok),
         abi::label(&grow),
         // Stash the soon-to-be-dead buffer (ptr + its size = old capacity) before
         // the new capacity overwrites CAPACITY_OFFSET, so it can be freed below.
-        abi::store_u64("x13", abi::stack_pointer(), OLD_CAPACITY_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::store_u64("x9", abi::stack_pointer(), OLD_BUFFER_OFFSET),
-        abi::add_registers("x14", "x13", "x13"),
-        abi::compare_registers("x14", "x12"),
+        abi::store_u64("%v13", abi::stack_pointer(), OLD_CAPACITY_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), BUFFER_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), OLD_BUFFER_OFFSET),
+        abi::add_registers("%v14", "%v13", "%v13"),
+        abi::compare_registers("%v14", "%v12"),
         abi::branch_ge(&format!("{symbol}_grow_size_ok")),
-        abi::move_register("x14", "x12"),
+        abi::move_register("%v14", "%v12"),
         abi::label(&format!("{symbol}_grow_size_ok")),
-        abi::store_u64("x14", abi::stack_pointer(), CAPACITY_OFFSET),
-        abi::move_register(abi::return_register(), "x14"),
+        abi::store_u64("%v14", abi::stack_pointer(), CAPACITY_OFFSET),
+        abi::move_register(abi::return_register(), "%v14"),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -1416,18 +1236,18 @@ pub(super) fn lower_io_read_line_helper(
         // `bl _mfb_arena_alloc` clobbers x10 (the live byte count to copy), so
         // reload the length from the stack rather than trusting the register
         // across the call — otherwise the copy loop runs off the new buffer.
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::load_u64("x12", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::move_register("x14", "x1"),
-        abi::move_immediate("x15", "Integer", "0"),
+        abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::load_u64("%v12", abi::stack_pointer(), BUFFER_OFFSET),
+        abi::move_register("%v14", "x1"),
+        abi::move_immediate("%v15", "Integer", "0"),
         abi::label(&grow_copy_loop),
-        abi::compare_registers("x15", "x10"),
+        abi::compare_registers("%v15", "%v10"),
         abi::branch_eq(&grow_copy_done),
-        abi::load_u8("x16", "x12", 0),
-        abi::store_u8("x16", "x14", 0),
-        abi::add_immediate("x12", "x12", 1),
-        abi::add_immediate("x14", "x14", 1),
-        abi::add_immediate("x15", "x15", 1),
+        abi::load_u8("%v16", "%v12", 0),
+        abi::store_u8("%v16", "%v14", 0),
+        abi::add_immediate("%v12", "%v12", 1),
+        abi::add_immediate("%v14", "%v14", 1),
+        abi::add_immediate("%v15", "%v15", 1),
         abi::branch(&grow_copy_loop),
         abi::label(&grow_copy_done),
         abi::store_u64("x1", abi::stack_pointer(), BUFFER_OFFSET),
@@ -1438,46 +1258,46 @@ pub(super) fn lower_io_read_line_helper(
         abi::load_u64("x1", abi::stack_pointer(), OLD_CAPACITY_OFFSET),
         abi::branch_link(ARENA_FREE_SYMBOL),
         abi::label(&grow_ok),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::load_u64("x12", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::add_registers("x12", "x12", "x10"),
-        abi::add_immediate("x13", abi::stack_pointer(), BYTES_OFFSET),
-        abi::load_u64("x11", abi::stack_pointer(), SEQ_LEN_OFFSET),
+        abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::load_u64("%v12", abi::stack_pointer(), BUFFER_OFFSET),
+        abi::add_registers("%v12", "%v12", "%v10"),
+        abi::add_immediate("%v13", abi::stack_pointer(), BYTES_OFFSET),
+        abi::load_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
         abi::label(&append_loop),
-        abi::compare_immediate("x11", "0"),
+        abi::compare_immediate("%v11", "0"),
         abi::branch_eq(&append_done),
-        abi::load_u8("x14", "x13", 0),
-        abi::store_u8("x14", "x12", 0),
-        abi::add_immediate("x12", "x12", 1),
-        abi::add_immediate("x13", "x13", 1),
-        abi::subtract_immediate("x11", "x11", 1),
+        abi::load_u8("%v14", "%v13", 0),
+        abi::store_u8("%v14", "%v12", 0),
+        abi::add_immediate("%v12", "%v12", 1),
+        abi::add_immediate("%v13", "%v13", 1),
+        abi::subtract_immediate("%v11", "%v11", 1),
         abi::branch(&append_loop),
         abi::label(&append_done),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::load_u64("x11", abi::stack_pointer(), SEQ_LEN_OFFSET),
-        abi::add_registers("x10", "x10", "x11"),
-        abi::store_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::load_u64("%v11", abi::stack_pointer(), SEQ_LEN_OFFSET),
+        abi::add_registers("%v10", "%v10", "%v11"),
+        abi::store_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
         abi::branch(&read_loop),
         abi::label(&format!("{symbol}_read_eof")),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::compare_immediate("x10", "0"),
+        abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&eof_error),
         abi::branch(&trim_cr),
         abi::label(&trim_cr),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::compare_immediate("x10", "0"),
+        abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&format!("{symbol}_result_alloc")),
-        abi::load_u64("x12", abi::stack_pointer(), BUFFER_OFFSET),
-        abi::subtract_immediate("x13", "x10", 1),
-        abi::add_registers("x12", "x12", "x13"),
-        abi::load_u8("x14", "x12", 0),
-        abi::compare_immediate("x14", "13"),
+        abi::load_u64("%v12", abi::stack_pointer(), BUFFER_OFFSET),
+        abi::subtract_immediate("%v13", "%v10", 1),
+        abi::add_registers("%v12", "%v12", "%v13"),
+        abi::load_u8("%v14", "%v12", 0),
+        abi::compare_immediate("%v14", "13"),
         abi::branch_ne(&format!("{symbol}_result_alloc")),
-        abi::subtract_immediate("x10", "x10", 1),
-        abi::store_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::subtract_immediate("%v10", "%v10", 1),
+        abi::store_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
         abi::label(&format!("{symbol}_result_alloc")),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::add_immediate(abi::return_register(), "x10", 9),
+        abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::add_immediate(abi::return_register(), "%v10", 9),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
@@ -1488,21 +1308,21 @@ pub(super) fn lower_io_read_line_helper(
         abi::branch(&alloc_error),
         abi::label(&result_alloc_ok),
         abi::store_u64("x1", abi::stack_pointer(), RESULT_OFFSET),
-        abi::load_u64("x10", abi::stack_pointer(), LENGTH_OFFSET),
-        abi::store_u64("x10", "x1", 0),
-        abi::add_immediate("x11", "x1", 8),
-        abi::load_u64("x12", abi::stack_pointer(), BUFFER_OFFSET),
+        abi::load_u64("%v10", abi::stack_pointer(), LENGTH_OFFSET),
+        abi::store_u64("%v10", "x1", 0),
+        abi::add_immediate("%v11", "x1", 8),
+        abi::load_u64("%v12", abi::stack_pointer(), BUFFER_OFFSET),
         abi::label(&result_copy_loop),
-        abi::compare_immediate("x10", "0"),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&result_copy_done),
-        abi::load_u8("x13", "x12", 0),
-        abi::store_u8("x13", "x11", 0),
-        abi::add_immediate("x11", "x11", 1),
-        abi::add_immediate("x12", "x12", 1),
-        abi::subtract_immediate("x10", "x10", 1),
+        abi::load_u8("%v13", "%v12", 0),
+        abi::store_u8("%v13", "%v11", 0),
+        abi::add_immediate("%v11", "%v11", 1),
+        abi::add_immediate("%v12", "%v12", 1),
+        abi::subtract_immediate("%v10", "%v10", 1),
         abi::branch(&result_copy_loop),
         abi::label(&result_copy_done),
-        abi::store_u8("x31", "x11", 0),
+        abi::store_u8("x31", "%v11", 0),
         abi::load_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), RESULT_OFFSET),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1525,12 +1345,13 @@ pub(super) fn lower_io_read_line_helper(
             &mut instructions,
             &mut relocations,
         )?;
+    instructions.push(abi::move_register("%v9", "x9"));
         instructions.extend([
-            abi::compare_immediate("x9", "22"),
+            abi::compare_immediate("%v9", "22"),
             abi::branch_eq(&prompt_ok),
-            abi::compare_immediate("x9", "45"),
+            abi::compare_immediate("%v9", "45"),
             abi::branch_eq(&prompt_ok),
-            abi::compare_immediate("x9", "95"),
+            abi::compare_immediate("%v9", "95"),
             abi::branch_eq(&prompt_ok),
             abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
@@ -1596,29 +1417,7 @@ pub(super) fn lower_io_read_line_helper(
             &terminal_slots,
         )?;
     }
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.extend([
-            abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFFSET),
-            abi::add_stack(FRAME_SIZE),
-            abi::return_(),
-        ]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: vec![abi::link_register().to_string()],
-            },
-            instructions,
-            relocations,
-        ))
-    } else {
-        instructions.extend([abi::add_stack(FRAME_SIZE), abi::return_()]);
-        Ok((
-            CodeFrame {
-                stack_size: FRAME_SIZE,
-                callee_saved: Vec::new(),
-            },
-            instructions,
-            relocations,
-        ))
-    }
+    instructions.push(abi::return_());
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    Ok((frame, instructions, relocations, stack_slots))
 }

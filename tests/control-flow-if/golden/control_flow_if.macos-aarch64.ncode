@@ -1701,7 +1701,7 @@
     "name": "runtime.io.print",
     "symbol": "_mfb_rt_io_io_print",
     "returns": "Nothing",
-    "frame": { "stackSize": 16, "calleeSaved": ["x30"] },
+    "frame": { "stackSize": 32, "calleeSaved": ["x30"] },
     "params": [
     { "name": "value", "type": "String", "location": "x0" }
     ],
@@ -1709,7 +1709,7 @@
     ],
     "instructions": [
     { "op": "label", "name": "entry" },
-    { "op": "sub_sp", "imm": "16" },
+    { "op": "sub_sp", "imm": "32" },
     { "op": "str_u64", "src": "x30", "base": "sp", "offset": "0" },
     { "op": "ldr_u64", "dst": "x2", "base": "x0", "offset": "0" },
     { "op": "add_imm", "dst": "x1", "src": "x0", "imm": "8" },
@@ -1717,10 +1717,10 @@
     { "op": "bl", "target": "_write" },
     { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
     { "op": "b.lt", "target": "_mfb_rt_io_io_print_write_error" },
-    { "op": "mov_imm", "dst": "x9", "type": "Integer", "value": "10" },
-    { "op": "str_u64", "src": "x9", "base": "sp", "offset": "8" },
+    { "op": "mov_imm", "dst": "x8", "type": "Integer", "value": "10" },
+    { "op": "str_u64", "src": "x8", "base": "sp", "offset": "16" },
     { "op": "mov_imm", "dst": "x0", "type": "Integer", "value": "1" },
-    { "op": "add_imm", "dst": "x1", "src": "sp", "imm": "8" },
+    { "op": "add_imm", "dst": "x1", "src": "sp", "imm": "16" },
     { "op": "mov_imm", "dst": "x2", "type": "Integer", "value": "1" },
     { "op": "bl", "target": "_write" },
     { "op": "cmp_imm", "lhs": "x0", "rhs": "0" },
@@ -1734,7 +1734,7 @@
     { "op": "add_pageoff", "dst": "x2", "src": "x2", "symbol": "_mfb_str_error_output" },
     { "op": "label", "name": "_mfb_rt_io_io_print_done" },
     { "op": "ldr_u64", "dst": "x30", "base": "sp", "offset": "0" },
-    { "op": "add_sp", "imm": "16" },
+    { "op": "add_sp", "imm": "32" },
     { "op": "ret" }
     ],
     "relocations": [

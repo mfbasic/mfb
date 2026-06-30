@@ -168,21 +168,21 @@ fn emit_write_decimal(
 ) -> Result<(), String> {
     let loop_label = format!("{from}_dec_{tag}");
     instructions.extend([
-        abi::move_register("x10", value_reg),
-        abi::move_immediate("x11", "Integer", "10"),
-        abi::add_immediate("x12", abi::stack_pointer(), SCRATCH_END),
+        abi::move_register("%v10", value_reg),
+        abi::move_immediate("%v11", "Integer", "10"),
+        abi::add_immediate("%v12", abi::stack_pointer(), SCRATCH_END),
         abi::label(&loop_label),
-        abi::unsigned_divide_registers("x13", "x10", "x11"),
-        abi::multiply_subtract_registers("x14", "x13", "x11", "x10"),
-        abi::add_immediate("x14", "x14", 48),
-        abi::subtract_immediate("x12", "x12", 1),
-        abi::store_u8("x14", "x12", 0),
-        abi::move_register("x10", "x13"),
-        abi::compare_immediate("x10", "0"),
+        abi::unsigned_divide_registers("%v13", "%v10", "%v11"),
+        abi::multiply_subtract_registers("%v14", "%v13", "%v11", "%v10"),
+        abi::add_immediate("%v14", "%v14", 48),
+        abi::subtract_immediate("%v12", "%v12", 1),
+        abi::store_u8("%v14", "%v12", 0),
+        abi::move_register("%v10", "%v13"),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_ne(&loop_label),
-        abi::add_immediate("x9", abi::stack_pointer(), SCRATCH_END),
-        abi::subtract_registers(abi::string_length_register(), "x9", "x12"),
-        abi::move_register(abi::string_data_register(), "x12"),
+        abi::add_immediate("%v9", abi::stack_pointer(), SCRATCH_END),
+        abi::subtract_registers(abi::string_length_register(), "%v9", "%v12"),
+        abi::move_register(abi::string_data_register(), "%v12"),
         abi::move_immediate(abi::return_register(), "Integer", "1"),
     ]);
     platform.emit_write(from, platform_imports, instructions, relocations)
@@ -195,11 +195,11 @@ fn emit_gate_inactive(
     instructions: &mut Vec<CodeInstruction>,
 ) {
     instructions.push(abi::load_u64(
-        "x9",
+        "%v9",
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
     ));
-    instructions.push(abi::compare_immediate("x9", "0"));
+    instructions.push(abi::compare_immediate("%v9", "0"));
     instructions.push(abi::branch_eq(target));
 }
 
@@ -228,17 +228,12 @@ pub(super) fn lower_term_helper(
     term_state_offset: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    // Vreg-allocated (plan-00-G Phase 2): the decimal/record-build scratch buffers
+    // are an explicit sp-relative local region; x9-x15 scratch becomes vregs.
     let done = format!("{symbol}_done");
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::store_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            LR_OFFSET,
-        ));
-    }
 
     match call {
         "term.on" => emit_on(
@@ -395,28 +390,11 @@ pub(super) fn lower_term_helper(
     }
 
     instructions.push(abi::label(&done));
-    if platform.preserves_link_register_in_runtime_helpers() {
-        instructions.push(abi::load_u64(
-            abi::link_register(),
-            abi::stack_pointer(),
-            LR_OFFSET,
-        ));
-    }
-    instructions.push(abi::add_stack(FRAME_SIZE));
     instructions.push(abi::return_());
 
-    Ok((
-        CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: if platform.preserves_link_register_in_runtime_helpers() {
-                vec![abi::link_register().to_string()]
-            } else {
-                Vec::new()
-            },
-        },
-        instructions,
-        relocations,
-    ))
+    let (frame, stack_slots) =
+        finalize_vreg_body_with_locals(&mut instructions, &[], LR_OFFSET);
+    Ok((frame, instructions, relocations, stack_slots))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -439,9 +417,9 @@ fn emit_on(
         (TERM_STATE_CURSOR_VISIBLE_OFFSET, "1"),
     ];
     for (offset, value) in writes {
-        instructions.push(abi::move_immediate("x9", "Integer", value));
+        instructions.push(abi::move_immediate("%v9", "Integer", value));
         instructions.push(abi::store_u64(
-            "x9",
+            "%v9",
             ARENA_STATE_REGISTER,
             term_state_offset + offset,
         ));
@@ -484,9 +462,9 @@ fn emit_off(
         instructions,
         relocations,
     )?;
-    instructions.push(abi::move_immediate("x9", "Integer", "0"));
+    instructions.push(abi::move_immediate("%v9", "Integer", "0"));
     instructions.push(abi::store_u64(
-        "x9",
+        "%v9",
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
     ));
@@ -533,14 +511,14 @@ fn emit_set_color(
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     // Pack r | g<<8 | b<<16 and store to the state attribute.
     instructions.extend([
-        abi::load_u64("x9", abi::stack_pointer(), ARG0_OFFSET),
-        abi::load_u64("x10", abi::stack_pointer(), ARG1_OFFSET),
-        abi::load_u64("x11", abi::stack_pointer(), ARG2_OFFSET),
-        abi::shift_left_immediate("x10", "x10", 8),
-        abi::shift_left_immediate("x11", "x11", 16),
-        abi::or_registers("x9", "x9", "x10"),
-        abi::or_registers("x9", "x9", "x11"),
-        abi::store_u64("x9", ARENA_STATE_REGISTER, state_offset),
+        abi::load_u64("%v9", abi::stack_pointer(), ARG0_OFFSET),
+        abi::load_u64("%v10", abi::stack_pointer(), ARG1_OFFSET),
+        abi::load_u64("%v11", abi::stack_pointer(), ARG2_OFFSET),
+        abi::shift_left_immediate("%v10", "%v10", 8),
+        abi::shift_left_immediate("%v11", "%v11", 16),
+        abi::or_registers("%v9", "%v9", "%v10"),
+        abi::or_registers("%v9", "%v9", "%v11"),
+        abi::store_u64("%v9", ARENA_STATE_REGISTER, state_offset),
     ]);
     emit_write_const(
         symbol,
@@ -551,10 +529,10 @@ fn emit_set_color(
         instructions,
         relocations,
     )?;
-    instructions.push(abi::load_u64("x15", abi::stack_pointer(), ARG0_OFFSET));
+    instructions.push(abi::load_u64("%v15", abi::stack_pointer(), ARG0_OFFSET));
     emit_write_decimal(
         symbol,
-        "x15",
+        "%v15",
         "r",
         platform,
         platform_imports,
@@ -570,10 +548,10 @@ fn emit_set_color(
         instructions,
         relocations,
     )?;
-    instructions.push(abi::load_u64("x15", abi::stack_pointer(), ARG1_OFFSET));
+    instructions.push(abi::load_u64("%v15", abi::stack_pointer(), ARG1_OFFSET));
     emit_write_decimal(
         symbol,
-        "x15",
+        "%v15",
         "g",
         platform,
         platform_imports,
@@ -589,10 +567,10 @@ fn emit_set_color(
         instructions,
         relocations,
     )?;
-    instructions.push(abi::load_u64("x15", abi::stack_pointer(), ARG2_OFFSET));
+    instructions.push(abi::load_u64("%v15", abi::stack_pointer(), ARG2_OFFSET));
     emit_write_decimal(
         symbol,
-        "x15",
+        "%v15",
         "b",
         platform,
         platform_imports,
@@ -636,10 +614,10 @@ fn emit_set_attr(
     let written = format!("{symbol}_attr_written");
     instructions.push(abi::store_u64("x0", abi::stack_pointer(), ARG0_OFFSET));
     emit_gate_inactive(term_state_offset, &inactive, instructions);
-    instructions.push(abi::load_u64("x9", abi::stack_pointer(), ARG0_OFFSET));
-    instructions.push(abi::store_u64("x9", ARENA_STATE_REGISTER, state_offset));
-    instructions.push(abi::load_u64("x9", abi::stack_pointer(), ARG0_OFFSET));
-    instructions.push(abi::compare_immediate("x9", "0"));
+    instructions.push(abi::load_u64("%v9", abi::stack_pointer(), ARG0_OFFSET));
+    instructions.push(abi::store_u64("%v9", ARENA_STATE_REGISTER, state_offset));
+    instructions.push(abi::load_u64("%v9", abi::stack_pointer(), ARG0_OFFSET));
+    instructions.push(abi::compare_immediate("%v9", "0"));
     instructions.push(abi::branch_eq(&off_label));
     emit_write_const(
         symbol,
@@ -687,8 +665,8 @@ fn emit_surface(
     let inactive = format!("{symbol}_inactive");
     emit_gate_inactive(term_state_offset, &inactive, instructions);
     if let Some((offset, value)) = cursor_update {
-        instructions.push(abi::move_immediate("x9", "Integer", &value.to_string()));
-        instructions.push(abi::store_u64("x9", ARENA_STATE_REGISTER, offset));
+        instructions.push(abi::move_immediate("%v9", "Integer", &value.to_string()));
+        instructions.push(abi::store_u64("%v9", ARENA_STATE_REGISTER, offset));
     }
     emit_write_const(
         symbol,
@@ -736,16 +714,16 @@ fn emit_move_to(
     )?;
     // row (0-based) clamped to >= 0, then +1 for 1-based ANSI.
     instructions.extend([
-        abi::load_u64("x15", abi::stack_pointer(), ARG0_OFFSET),
-        abi::compare_immediate("x15", "0"),
+        abi::load_u64("%v15", abi::stack_pointer(), ARG0_OFFSET),
+        abi::compare_immediate("%v15", "0"),
         abi::branch_ge(&row_clamp),
-        abi::move_immediate("x15", "Integer", "0"),
+        abi::move_immediate("%v15", "Integer", "0"),
         abi::label(&row_clamp),
-        abi::add_immediate("x15", "x15", 1),
+        abi::add_immediate("%v15", "%v15", 1),
     ]);
     emit_write_decimal(
         symbol,
-        "x15",
+        "%v15",
         "row",
         platform,
         platform_imports,
@@ -762,16 +740,16 @@ fn emit_move_to(
         relocations,
     )?;
     instructions.extend([
-        abi::load_u64("x15", abi::stack_pointer(), ARG1_OFFSET),
-        abi::compare_immediate("x15", "0"),
+        abi::load_u64("%v15", abi::stack_pointer(), ARG1_OFFSET),
+        abi::compare_immediate("%v15", "0"),
         abi::branch_ge(&col_clamp),
-        abi::move_immediate("x15", "Integer", "0"),
+        abi::move_immediate("%v15", "Integer", "0"),
         abi::label(&col_clamp),
-        abi::add_immediate("x15", "x15", 1),
+        abi::add_immediate("%v15", "%v15", 1),
     ]);
     emit_write_decimal(
         symbol,
-        "x15",
+        "%v15",
         "col",
         platform,
         platform_imports,
@@ -813,12 +791,12 @@ fn emit_get_color(
     // Determine the source packed value: state when active, the inert default
     // otherwise (§4.2.1). Park it in the scratch arg slot.
     emit_gate_inactive(term_state_offset, &inert, instructions);
-    instructions.push(abi::load_u64("x10", ARENA_STATE_REGISTER, state_offset));
+    instructions.push(abi::load_u64("%v10", ARENA_STATE_REGISTER, state_offset));
     instructions.push(abi::branch(&have_src));
     instructions.push(abi::label(&inert));
-    instructions.push(abi::move_immediate("x10", "Integer", inert_packed));
+    instructions.push(abi::move_immediate("%v10", "Integer", inert_packed));
     instructions.push(abi::label(&have_src));
-    instructions.push(abi::store_u64("x10", abi::stack_pointer(), ARG0_OFFSET));
+    instructions.push(abi::store_u64("%v10", abi::stack_pointer(), ARG0_OFFSET));
     // Allocate the 3-field TermColor record.
     instructions.extend([
         abi::move_immediate(
@@ -835,18 +813,18 @@ fn emit_get_color(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::move_register("x9", RESULT_VALUE_REGISTER),
-        abi::load_u64("x10", abi::stack_pointer(), ARG0_OFFSET),
-        abi::move_immediate("x12", "Integer", "255"),
-        abi::and_registers("x13", "x10", "x12"),
-        abi::store_u64("x13", "x9", 0),
-        abi::shift_right_immediate("x14", "x10", 8),
-        abi::and_registers("x13", "x14", "x12"),
-        abi::store_u64("x13", "x9", 8),
-        abi::shift_right_immediate("x14", "x10", 16),
-        abi::and_registers("x13", "x14", "x12"),
-        abi::store_u64("x13", "x9", 16),
-        abi::move_register(RESULT_VALUE_REGISTER, "x9"),
+        abi::move_register("%v9", RESULT_VALUE_REGISTER),
+        abi::load_u64("%v10", abi::stack_pointer(), ARG0_OFFSET),
+        abi::move_immediate("%v12", "Integer", "255"),
+        abi::and_registers("%v13", "%v10", "%v12"),
+        abi::store_u64("%v13", "%v9", 0),
+        abi::shift_right_immediate("%v14", "%v10", 8),
+        abi::and_registers("%v13", "%v14", "%v12"),
+        abi::store_u64("%v13", "%v9", 8),
+        abi::shift_right_immediate("%v14", "%v10", 16),
+        abi::and_registers("%v13", "%v14", "%v12"),
+        abi::store_u64("%v13", "%v9", 16),
+        abi::move_register(RESULT_VALUE_REGISTER, "%v9"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),
         abi::label(&alloc_error),
@@ -906,11 +884,11 @@ fn emit_terminal_size(
     // Gate: terminalSize is the one read with no inert value; while inactive it
     // returns ERR_UNSUPPORTED_OPERATION (§4.7).
     instructions.push(abi::load_u64(
-        "x9",
+        "%v9",
         ARENA_STATE_REGISTER,
         term_state_offset + TERM_STATE_ACTIVE_OFFSET,
     ));
-    instructions.push(abi::compare_immediate("x9", "0"));
+    instructions.push(abi::compare_immediate("%v9", "0"));
     instructions.push(abi::branch_ne(&active));
     emit_unsupported(symbol, instructions, relocations);
     instructions.push(abi::branch(done));
@@ -924,14 +902,14 @@ fn emit_terminal_size(
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&unsupported),
-        abi::load_u16("x10", abi::stack_pointer(), SCRATCH_OFFSET),
-        abi::load_u16("x11", abi::stack_pointer(), SCRATCH_OFFSET + 2),
-        abi::compare_immediate("x10", "0"),
+        abi::load_u16("%v10", abi::stack_pointer(), SCRATCH_OFFSET),
+        abi::load_u16("%v11", abi::stack_pointer(), SCRATCH_OFFSET + 2),
+        abi::compare_immediate("%v10", "0"),
         abi::branch_eq(&unsupported),
-        abi::compare_immediate("x11", "0"),
+        abi::compare_immediate("%v11", "0"),
         abi::branch_eq(&unsupported),
-        abi::store_u64("x10", abi::stack_pointer(), ARG0_OFFSET),
-        abi::store_u64("x11", abi::stack_pointer(), ARG1_OFFSET),
+        abi::store_u64("%v10", abi::stack_pointer(), ARG0_OFFSET),
+        abi::store_u64("%v11", abi::stack_pointer(), ARG1_OFFSET),
         abi::move_immediate(
             abi::return_register(),
             "Integer",
@@ -946,10 +924,10 @@ fn emit_terminal_size(
         abi::branch_eq(&alloc_ok),
         abi::branch(&alloc_error),
         abi::label(&alloc_ok),
-        abi::load_u64("x10", abi::stack_pointer(), ARG0_OFFSET),
-        abi::load_u64("x11", abi::stack_pointer(), ARG1_OFFSET),
-        abi::store_u64("x11", "x1", 0),
-        abi::store_u64("x10", "x1", 8),
+        abi::load_u64("%v10", abi::stack_pointer(), ARG0_OFFSET),
+        abi::load_u64("%v11", abi::stack_pointer(), ARG1_OFFSET),
+        abi::store_u64("%v11", "x1", 0),
+        abi::store_u64("%v10", "x1", 8),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(done),

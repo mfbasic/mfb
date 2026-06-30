@@ -269,6 +269,16 @@ struct TypeModel {
     union_variant_fields: HashMap<String, Vec<(String, String)>>,
 }
 
+/// Adapt a not-yet-vreg shaped helper body (3-tuple, e.g. an app-mode platform
+/// hook that manages its own frame) to the 4-tuple shape with an empty
+/// spill-slot list, so it can share a `match`/`if` with vreg-migrated helpers.
+#[allow(clippy::type_complexity)]
+fn pad_no_slots(
+    body: (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>),
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>) {
+    (body.0, body.1, body.2, Vec::new())
+}
+
 pub(crate) fn lower_module_for_platform(
     module: &NirModule,
     native_plan: &NativePlan,
@@ -889,8 +899,8 @@ fn lower_runtime_helper(
         } else {
             None
         };
-        let (frame, instructions, relocations) = match app_term_helper {
-            Some(result) => result?,
+        let (frame, instructions, relocations, stack_slots) = match app_term_helper {
+            Some(result) => pad_no_slots(result?),
             None => term::lower_term_helper(
                 spec.call,
                 symbol,
@@ -914,14 +924,14 @@ fn lower_runtime_helper(
                 .collect(),
             returns: spec.abi.returns.to_string(),
             frame,
-            stack_slots: Vec::new(),
+            stack_slots,
             instructions,
             relocations,
         });
     }
     match spec.call {
         "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -938,7 +948,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -948,8 +958,8 @@ fn lower_runtime_helper(
             let newline = matches!(spec.call, "io.print" | "io.printError");
             // App mode routes io output to the AppKit transcript window
             // (plan-04-macos-app.md §5.4) instead of a file descriptor.
-            let (frame, instructions, relocations) = if app_mode {
-                platform
+            let (frame, instructions, relocations, stack_slots) = if app_mode {
+                pad_no_slots(platform
                     .emit_app_io_write_helper(
                         symbol,
                         stderr,
@@ -962,7 +972,7 @@ fn lower_runtime_helper(
                             "native target '{}' does not support app-mode io helpers",
                             platform.target()
                         )
-                    })??
+                    })??)
             } else {
                 lower_io_write_helper(symbol, platform_imports, platform, stderr, newline)?
             };
@@ -981,7 +991,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -990,13 +1000,13 @@ fn lower_runtime_helper(
             // App-mode transcript writes are synchronous (each io write blocks on
             // the main thread via performSelectorOnMainThread), so output is
             // already visible; flush succeeds immediately (plan §5.4).
-            let (frame, instructions, relocations) = if app_mode {
-                platform.emit_app_io_flush_helper(symbol).ok_or_else(|| {
+            let (frame, instructions, relocations, stack_slots) = if app_mode {
+                pad_no_slots(platform.emit_app_io_flush_helper(symbol).ok_or_else(|| {
                     format!(
                         "native target '{}' does not support app-mode io helpers",
                         platform.target()
                     )
-                })??
+                })??)
             } else {
                 lower_io_flush_helper(
                     symbol,
@@ -1011,13 +1021,13 @@ fn lower_runtime_helper(
                 params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "io.pollInput" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_io_poll_input_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1034,7 +1044,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -1045,13 +1055,13 @@ fn lower_runtime_helper(
             // unchanged console helper, which reads fd 0 — the window input pipe
             // in app mode (plan §5.4). All other read helpers are likewise
             // unchanged and read the pipe.
-            let (frame, instructions, relocations) = if app_mode && spec.call == "io.input" {
-                platform.emit_app_io_input_helper(symbol).ok_or_else(|| {
+            let (frame, instructions, relocations, stack_slots) = if app_mode && spec.call == "io.input" {
+                pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(|| {
                     format!(
                         "native target '{}' does not support app-mode io helpers",
                         platform.target()
                     )
-                })??
+                })??)
             } else {
                 lower_io_read_line_helper(
                     symbol,
@@ -1075,13 +1085,13 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "io.readChar" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_io_read_char_helper(symbol, platform_imports, platform, app_mode)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1089,13 +1099,13 @@ fn lower_runtime_helper(
                 params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
         }
         "io.readByte" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_io_read_byte_helper(symbol, platform_imports, platform, app_mode)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1103,7 +1113,7 @@ fn lower_runtime_helper(
                 params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
@@ -1117,15 +1127,15 @@ fn lower_runtime_helper(
             };
             // App mode: the window is the interactive console, so these return
             // TRUE rather than probing a file descriptor (plan §5.4).
-            let (frame, instructions, relocations) = if app_mode {
-                platform
+            let (frame, instructions, relocations, stack_slots) = if app_mode {
+                pad_no_slots(platform
                     .emit_app_io_is_terminal_helper(symbol)
                     .ok_or_else(|| {
                         format!(
                             "native target '{}' does not support app-mode io helpers",
                             platform.target()
                         )
-                    })??
+                    })??)
             } else {
                 lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
             };
@@ -1135,7 +1145,7 @@ fn lower_runtime_helper(
                 params: Vec::new(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })

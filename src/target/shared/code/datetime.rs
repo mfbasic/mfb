@@ -37,14 +37,11 @@ pub(super) fn lower_datetime_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String> {
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME_SIZE)];
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    // Vreg-allocated (plan-00-G Phase 2): the timespec/tm buffer is an explicit
+    // sp-relative local region; the x9-x11 scratch becomes vregs.
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    instructions.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        LR_OFFSET,
-    ));
 
     match call {
         "datetime.nowNanos" | "datetime.monotonicNanos" => {
@@ -71,11 +68,11 @@ pub(super) fn lower_datetime_helper(
             )?;
             // nanos = tv_sec * 1_000_000_000 + tv_nsec.
             instructions.extend([
-                abi::load_u64("x9", abi::stack_pointer(), TIMESPEC_OFFSET),
-                abi::load_u64("x10", abi::stack_pointer(), TIMESPEC_OFFSET + 8),
-                abi::move_immediate("x11", "Integer", "1000000000"),
-                abi::multiply_registers("x9", "x9", "x11"),
-                abi::add_registers(RESULT_VALUE_REGISTER, "x9", "x10"),
+                abi::load_u64("%v9", abi::stack_pointer(), TIMESPEC_OFFSET),
+                abi::load_u64("%v10", abi::stack_pointer(), TIMESPEC_OFFSET + 8),
+                abi::move_immediate("%v11", "Integer", "1000000000"),
+                abi::multiply_registers("%v9", "%v9", "%v11"),
+                abi::add_registers(RESULT_VALUE_REGISTER, "%v9", "%v10"),
             ]);
         }
         "datetime.localOffset" => {
@@ -111,20 +108,9 @@ pub(super) fn lower_datetime_helper(
         "Integer",
         RESULT_OK_TAG,
     ));
-    instructions.push(abi::load_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        LR_OFFSET,
-    ));
-    instructions.push(abi::add_stack(FRAME_SIZE));
     instructions.push(abi::return_());
 
-    Ok((
-        CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        instructions,
-        relocations,
-    ))
+    let (frame, stack_slots) =
+        finalize_vreg_body_with_locals(&mut instructions, &[], LR_OFFSET);
+    Ok((frame, instructions, relocations, stack_slots))
 }
