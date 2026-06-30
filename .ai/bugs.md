@@ -19,9 +19,28 @@ can land in this session without re-deriving a design.
 
 Don't fold an unrelated bug fix into an unrelated commit — keep it itemized.
 
-## Not small-ish → write a plan
+## Not small-ish → auto-create a bug file
 
 If the fix is large, risky, or touches semantics/layout/ABI/codegen broadly,
-don't attempt it inline. Create a plan under `planning/plan-NN-shortname.md`
-(next free `NN`) per `.ai/planning.md`, describing the bug, a failing reproduction,
-the root cause if known, and the phased fix. Land the test + fix through that plan.
+don't attempt it inline. Capture it instead as a **bug file** under
+`planning/bug-NN-shortname.md` — the dedicated bug namespace, parallel to
+`plan-NN` (use the next free `NN` in the `bug-` series; the two series number
+independently). Author it from the plan template (`.ai/plan_template.md`,
+adapted: a determinism/correctness fix has no new language surface), per
+`.ai/planning.md`.
+
+Always create the file as soon as the bug is found and triaged as not-small-ish
+— do not wait until you start the fix. It must describe:
+
+- the single correct behavior a fix produces (the goal),
+- a failing reproduction (the exact command/output, e.g. a `tests/*` fixture or
+  a `scripts/codegen-selfdiff.sh` failure),
+- the root cause cited to `file.rs:line` if known,
+- the non-goals (what must NOT change — layout/ABI/semantics), and
+- the phased fix (test-first), with a golden-regeneration/audit step when
+  codegen output shifts.
+
+Then land the test + fix through that bug file. If a memory note tracks the bug,
+cross-link it. Example: `planning/bug-01-resource-union-drop.md` (resource-union
+drop dispatch order is non-deterministic — `variants_for_union` iterates a
+`HashMap`).
