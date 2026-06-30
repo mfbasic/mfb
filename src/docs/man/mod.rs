@@ -120,7 +120,7 @@ fn build_package(
     };
     let functions = generated_pages(name)
         .iter()
-        .map(|(_, page)| parse_rendered_function_page(page))
+        .map(|(page_name, page)| parse_rendered_function_page(page_name, page))
         .collect::<Vec<_>>()
         .into_boxed_slice();
 
@@ -152,13 +152,26 @@ fn generated_pages(package_name: &str) -> &'static [(&'static str, &'static str)
         .unwrap_or(&[])
 }
 
-fn parse_rendered_function_page(page: &'static str) -> FunctionDoc {
-    let (name, summary) = parse_name_line(page).expect("function NAME line");
-    FunctionDoc {
-        name,
-        signature: first_synopsis_line(page).unwrap_or(""),
-        summary,
-        example: "",
+fn parse_rendered_function_page(page_name: &'static str, page: &'static str) -> FunctionDoc {
+    // A Markdown page takes its display name from the file stem (so the command
+    // `mfb man <pkg> <stem>` resolves regardless of the `# title` casing), its
+    // summary from the first prose line, and its signature from the first line of
+    // `## Synopsis`. Plain-text pages use the classic `NAME`/`SYNOPSIS` sections.
+    if is_markdown_page(page) {
+        FunctionDoc {
+            name: page_name,
+            signature: markdown_synopsis(page).unwrap_or(""),
+            summary: markdown_summary(page),
+            example: "",
+        }
+    } else {
+        let (name, summary) = parse_name_line(page).expect("function NAME line");
+        FunctionDoc {
+            name,
+            signature: first_synopsis_line(page).unwrap_or(""),
+            summary,
+            example: "",
+        }
     }
 }
 
@@ -180,6 +193,36 @@ fn markdown_summary(page: &'static str) -> &'static str {
         .map(str::trim)
         .find(|line| !line.is_empty() && !line.starts_with('#'))
         .unwrap_or("")
+}
+
+/// The first content line of a Markdown page's `## Synopsis` section — the
+/// signature, read past the heading and any code-fence markers. Stops at the
+/// next heading so an empty section yields `None`.
+fn markdown_synopsis(page: &'static str) -> Option<&'static str> {
+    let mut lines = page.lines();
+    lines.by_ref().find(|line| is_heading_named(line, "Synopsis"))?;
+    for line in lines {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with("```") {
+            continue;
+        }
+        if trimmed.starts_with('#') {
+            return None;
+        }
+        return Some(trimmed);
+    }
+    None
+}
+
+/// Whether `line` is an ATX heading whose text equals `name` (case-insensitive),
+/// e.g. `## Synopsis`.
+fn is_heading_named(line: &str, name: &str) -> bool {
+    let trimmed = line.trim();
+    trimmed.starts_with('#')
+        && trimmed
+            .trim_start_matches('#')
+            .trim()
+            .eq_ignore_ascii_case(name)
 }
 
 fn parse_name_line(source: &'static str) -> Option<(&'static str, &'static str)> {
@@ -239,5 +282,26 @@ mod tests {
             math.summary,
             "numeric constants and deterministic math helper functions",
         );
+    }
+
+    #[test]
+    fn markdown_function_page_takes_name_from_stem_with_summary_and_signature() {
+        // The `# title` casing is cosmetic; the display name is the file stem.
+        let page = "# Clamp\n\nclamp a value to a range\n\n\
+                    ## Synopsis\n\n```\nmath::clamp(value AS Float, low AS Float, high AS Float) AS Float\n```\n\n\
+                    ## Description\n\nDetail.\n";
+        let function = parse_rendered_function_page("clamp", page);
+        assert_eq!(function.name, "clamp");
+        assert_eq!(function.summary, "clamp a value to a range");
+        assert_eq!(
+            function.signature,
+            "math::clamp(value AS Float, low AS Float, high AS Float) AS Float",
+        );
+    }
+
+    #[test]
+    fn markdown_synopsis_stops_at_an_empty_section() {
+        // A `## Synopsis` immediately followed by the next heading has no line.
+        assert_eq!(markdown_synopsis("# x\n\n## Synopsis\n\n## Description\n"), None);
     }
 }

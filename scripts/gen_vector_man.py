@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
 """Generate the per-function man pages under src/docs/man/builtins/vector/.
 
-package.txt and types.txt are hand-written; this emits the 19 function pages,
-each following .ai/man_template.txt (NAME / SYNOPSIS / PACKAGE / IMPORTS /
-DESCRIPTION / PARAMETERS / RETURN VALUE / ERRORS / EXAMPLES / SEE ALSO).
+package.txt and types.txt are hand-written; this emits the 19 function pages.
+These pages use the legacy plain-text man layout (NAME / SYNOPSIS / PACKAGE /
+IMPORTS / DESCRIPTION / PARAMETERS / RETURN VALUE / ERRORS / EXAMPLES / SEE
+ALSO), which the renderer still prints verbatim. New/updated pages should follow
+the Markdown template in .ai/man_template.md instead; this generator has not yet
+been ported to it.
 """
 
 import pathlib

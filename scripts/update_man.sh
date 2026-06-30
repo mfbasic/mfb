@@ -15,13 +15,13 @@ FILTER="${1:-}"
 # Full man-page template, modeled on Linux man(1) pages but detailing each
 # built-in function. Placeholders in <angle brackets> are filled in per function;
 # sections in [brackets] are conditional and omitted when they do not apply.
-# Loaded from .ai/man_template.txt.
-TEMPLATE="$(cat "$REPO_ROOT/.ai/man_template.txt")"
+# Loaded from .ai/man_template.md.
+TEMPLATE="$(cat "$REPO_ROOT/.ai/man_template.md")"
 
 # Template for the per-package consolidated TYPE page (mfb man <pkg> types).
 # It documents every built-in record type a package exports, on one page.
-# Loaded from .ai/man_type_template.txt.
-TYPE_TEMPLATE="$(cat "$REPO_ROOT/.ai/man_type_template.txt")"
+# Loaded from .ai/man_type_template.md.
+TYPE_TEMPLATE="$(cat "$REPO_ROOT/.ai/man_type_template.md")"
 
 module_of() {
   if [[ "$1" == *::* ]]; then printf '%s' "${1%%::*}"; else printf 'general'; fi
@@ -85,52 +85,58 @@ for i in "${!FUNCTIONS[@]}"; do
   claude -p --dangerously-skip-permissions "Update the mfb man page for the built-in function '$func'.
 
 Steps:
-1. Read src/docs/man/builtins/**/*.txt to understand the man page format and style conventions.
+1. Man pages are Markdown, rendered to the terminal by src/docs/render.rs. Read a
+   few existing pages (e.g. src/docs/man/unicode/package.md, plus any
+   src/docs/man/builtins/**/*.md) for tone and house style, and follow the
+   Markdown template below for structure.
 2. Read src/builtins/${module}.rs to understand the function's signature, overloads,
    parameter types, return type, and error behavior.
 3. Determine every error the function can itself raise. Read
    src/target/shared/code/mod.rs for the canonical error registry: each ERR_*_CODE
    constant maps a symbolic name (e.g. ErrInvalidArgument) to its numeric code
    (e.g. 77050002). Match each failure path in the function to its code and name.
-4. Find the existing man page for '${fname}' by looking in src/docs/man/builtins/*/${fname}.txt,
-   or determine the correct path to create a new one following the existing directory layout.
+4. Find the existing man page for '${fname}' by looking in
+   src/docs/man/builtins/*/${fname}.{md,txt}, or determine the correct path to
+   create a new one following the existing directory layout.
    (Collection helpers are namespaced under collections/; the String overloads of
    find/mid/replace live under strings/; only the universal core — len, error,
    conversions, typeName, numeric/empty predicates — lives under general/ or filters/.
    Check which subdirectory best matches existing peers.)
-5. Write the updated or new .txt file at that path, creating the directory if needed.
+5. Write the page as Markdown to '<dir>/${fname}.md', creating the directory if
+   needed. If a legacy plain-text '<dir>/${fname}.txt' exists, delete it (git rm)
+   so the package does not end up with a duplicate page.
 
 Format rules:
-- NAME line: '  <localName> - <one-line description>'
-- SYNOPSIS uses :: for the module separator (e.g. fs::readText, math::abs)
-  Unnamespaced general functions have no module prefix in SYNOPSIS
-- Standard sections in order: NAME, SYNOPSIS, [PACKAGE], [IMPORTS], DESCRIPTION,
-  [OVERLOADS if multiple signatures], PARAMETERS, RETURN VALUE, ERRORS,
-  [TYPE CHECKING if generic], EXAMPLES, [SEE ALSO]
-- Follow the full template below exactly. Sections in [brackets] are conditional;
+- The page is Markdown. The '# <localName>' title is the local name (no module
+  prefix); the line right after it is the one-line summary.
+- SYNOPSIS goes in a fenced code block and uses :: for the module separator
+  (e.g. fs::readText, math::abs), one signature line per overload. Unnamespaced
+  general functions have no module prefix in the synopsis.
+- Section headings (## ...) in order: Synopsis, [Package], [Imports], Description,
+  [Overloads if multiple signatures], Parameters, Return value, Errors,
+  [Type checking if generic], Examples, [See also].
+- Parameters, Return value, and Errors are GFM pipe tables (see the template).
+- Follow the full template below exactly. Bracketed sections are conditional;
   omit them when they do not apply. All other sections are required.
-- Two-space indent for all content within sections
-- Blank line between sections
+- Use the renderer's supported Markdown subset only: ATX headings, paragraphs,
+  bullet/ordered lists, fenced code blocks, pipe tables, and inline
+  \`code\`/**bold**/*italic*/[links](url). Wrap identifiers and types in \`code\`.
 
-ERRORS section (required, always present):
-- List every error the function can itself raise. For each error write the
-  numeric code, then the symbolic name in parentheses, on one line; put the
-  description on the following line(s):
+Errors table (required, always present):
+- List every error the function can itself raise, one row per error, with the
+  numeric code, the symbolic name, and the condition:
 
-    ERRORS
-      77050002 (ErrInvalidArgument)
-      Raised when <condition>.
+    ## Errors
 
-      77050001 (ErrIndexOutOfRange)
-      Raised when <condition>.
+    | Code | Name | Raised when |
+    | --- | --- | --- |
+    | \`77050002\` | \`ErrInvalidArgument\` | <condition> |
+    | \`77050001\` | \`ErrIndexOutOfRange\` | <condition> |
 
 - Use the exact code<->name pairs from src/target/shared/code/mod.rs. Do not
   invent codes or names.
-- If the function cannot itself raise any error, the section must read exactly:
-
-    ERRORS
-      No errors.
-
+- If the function cannot itself raise any error, replace the table with a single
+  line that reads exactly: No errors.
   (Errors propagating from evaluating arguments before the call do not count as
   errors this function raises; do not list them.)
 
@@ -150,25 +156,35 @@ for j in "${!TYPE_PKGS[@]:-}"; do
   claude -p --dangerously-skip-permissions "Update the mfb man page that documents the built-in record types of the '$module' package, as a single consolidated page reached via 'mfb man $module types'.
 
 Steps:
-1. Read src/docs/man/builtins/**/*.txt (function pages) and src/docs/man/types/*.txt (type
-   topic pages) to understand the man page format and style conventions.
+1. Man pages are Markdown, rendered to the terminal by src/docs/render.rs. Read a
+   few existing pages (e.g. src/docs/man/unicode/package.md, plus any
+   src/docs/man/builtins/**/*.md and src/docs/man/types/*) for tone and house
+   style, and follow the Markdown template below for structure.
 2. Read the package source src/builtins/${module}_package.mfb. Find every
    'EXPORT TYPE <Name> ... END TYPE' block. For each one, capture its fields:
    the 'field AS Type' lines and the trailing ' comment that explains each field.
-3. Write the page to src/docs/man/builtins/${module}/types.txt (create the directory
-   if needed). The file stem MUST be exactly 'types' so 'mfb man $module types'
-   resolves it; do NOT create one file per type.
+3. Write the page as Markdown to src/docs/man/builtins/${module}/types.md (create
+   the directory if needed). The file stem MUST be exactly 'types' so
+   'mfb man $module types' resolves it; do NOT create one file per type. If a
+   legacy 'types.txt' exists, delete it (git rm) so there is no duplicate page.
 
 Format rules:
-- Document EVERY exported type of the package on this one page, under a single
-  TYPES section, in the order they appear in the source.
-- Qualify each type and field example with the module: '${module}::<TypeName>'.
-- For each field, give its name, AS Type, and a clear description derived from
-  the source comment (units, ranges, defaults, what each value selects).
-- Two-space indent for content within sections; blank line between sections;
-  nest fields under their type with deeper indentation.
-- Follow the full template below exactly. Sections in [brackets] are conditional;
-  omit them when they do not apply. All other sections are required.
+- The page is Markdown. The '# types' title is followed by the one-line summary.
+- Section headings (## ...) in order: Synopsis, Package, [Imports], Description,
+  Types, [See also]. Imports and See also are optional; omit them when they do
+  not apply. All other sections are required.
+- The Synopsis fenced block lists each exported type, one '${module}::<TypeName>'
+  per line.
+- Document EVERY exported type on this one page, under the single '## Types'
+  section, in source order. Give each type its own '### ${module}::<TypeName>'
+  subheading, a one-line description, then a GFM pipe table of its fields
+  (Field, Type, Description).
+- Derive each field's description from the source comment (units, ranges,
+  defaults, what each value selects).
+- Follow the full template below exactly.
+- Use the renderer's supported Markdown subset only: ATX headings, paragraphs,
+  bullet/ordered lists, fenced code blocks, pipe tables, and inline
+  \`code\`/**bold**/*italic*/[links](url).
 
 $TYPE_TEMPLATE"
 

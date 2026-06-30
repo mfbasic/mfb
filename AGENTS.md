@@ -42,7 +42,7 @@ Universal rules below. Before a given kind of work, also read the matching `.ai/
   `.ai/compiler.md` (runtime completion gate, validation & function tests, register
   lifetimes).
 - Creating or updating a man page (`src/docs/man/**`) → follow the templates exactly:
-  `.ai/man_template.txt` for a per-function page, `.ai/man_type_template.txt` for a
+  `.ai/man_template.md` for a per-function page, `.ai/man_type_template.md` for a
   package's consolidated `types` page. Keep every section name and order; fill in
   all `<...>` placeholders; omit `[bracketed]` sections only when they do not apply.
   (`scripts/update_man.sh` drives this in bulk and loads the same templates.)
