@@ -1195,38 +1195,40 @@ pub(super) fn lower_arena_free() -> CodeFunction {
 }
 
 pub(super) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
-    let mut instructions = Vec::new();
-    instructions.extend([
+    // Vreg-allocated (plan-00-G Phase 2): walk the block list and `munmap` each
+    // block. `head` (the loop cursor) and `next` are loop-carried across the
+    // `munmap` syscall, so the allocator keeps them in callee-saved registers (or
+    // spills them); the syscall's own ABI registers (x0/x1 + the syscall-number
+    // register) stay physical. The block address/size are passed to the syscall in
+    // x0/x1, exactly where `emit_arena_unmap` expects them.
+    let mut vregs = Vregs::new();
+    let head = vregs.next();
+    let next = vregs.next();
+    let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("x20", ARENA_STATE_REGISTER, 0),
+        abi::load_u64(&head, ARENA_STATE_REGISTER, 0),
         abi::label("arena_destroy_loop"),
-        abi::compare_immediate("x20", "0"),
+        abi::compare_immediate(&head, "0"),
         abi::branch_eq("arena_destroy_done"),
-        abi::load_u64("x21", "x20", 0),
-        abi::load_u64("x1", "x20", 8),
-        abi::move_register(abi::return_register(), "x20"),
-    ]);
+        abi::load_u64(&next, &head, 0),
+        abi::load_u64("x1", &head, 8),
+        abi::move_register(abi::return_register(), &head),
+    ];
     platform.emit_arena_unmap(&mut instructions)?;
     instructions.extend([
-        abi::move_register("x20", "x21"),
+        abi::move_register(&head, &next),
         abi::branch("arena_destroy_loop"),
         abi::label("arena_destroy_done"),
         abi::store_u64("x31", ARENA_STATE_REGISTER, 0),
         abi::return_(),
     ]);
-    Ok(CodeFunction {
-        name: "runtime.arena_destroy".to_string(),
-        symbol: ARENA_DESTROY_SYMBOL.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        stack_slots: Vec::new(),
+    Ok(finalize_vreg_helper(
+        "runtime.arena_destroy",
+        ARENA_DESTROY_SYMBOL,
+        "Nothing",
         instructions,
-        relocations: Vec::new(),
-    })
+        Vec::new(),
+    ))
 }
 
 /// Shared process teardown. Reads the main arena-state address from the writable
@@ -1237,27 +1239,35 @@ pub(super) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<Code
 /// block-list head), so the guard is belt-and-suspenders. Preserves `x19`/`x30`
 /// for its callers (the entry exit path relies on `x19` afterwards).
 pub(super) fn lower_shutdown(auto_term_off: bool, skip_arena_destroy: bool) -> CodeFunction {
+    // Vreg-allocated (plan-00-G Phase 2). The allocator builds the frame and saves
+    // the link register (there are `bl`s). `x19` (arena_base) is reserved from
+    // allocation, but this function deliberately *repoints* it at the main arena to
+    // run the teardown helpers, so it saves the caller's `x19` into a vreg (spilled
+    // across the calls) and restores it before returning — the entry exit path
+    // relies on `x19` afterwards.
     let done = "shutdown_done";
+    let mut vregs = Vregs::new();
+    let saved_arena = vregs.next();
+    let global = vregs.next();
+    let arena = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(16),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::store_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
+        abi::move_register(&saved_arena, ARENA_STATE_REGISTER),
     ];
     let mut relocations = Vec::new();
     push_symbol_address(
         SHUTDOWN_SYMBOL,
         MAIN_ARENA_GLOBAL_SYMBOL,
-        "x9",
+        &global,
         &mut instructions,
         &mut relocations,
     );
     instructions.extend([
-        abi::load_u64("x10", "x9", 0),
-        abi::store_u64("x31", "x9", 0),
-        abi::compare_immediate("x10", "0"),
+        abi::load_u64(&arena, &global, 0),
+        abi::store_u64("x31", &global, 0),
+        abi::compare_immediate(&arena, "0"),
         abi::branch_eq(done),
-        abi::move_register(ARENA_STATE_REGISTER, "x10"),
+        abi::move_register(ARENA_STATE_REGISTER, &arena),
     ]);
     if auto_term_off {
         instructions.push(abi::branch_link("_mfb_rt_term_term_off"));
@@ -1269,24 +1279,16 @@ pub(super) fn lower_shutdown(auto_term_off: bool, skip_arena_destroy: bool) -> C
     }
     instructions.extend([
         abi::label(done),
-        abi::load_u64(ARENA_STATE_REGISTER, abi::stack_pointer(), 8),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), 0),
-        abi::add_stack(16),
+        abi::move_register(ARENA_STATE_REGISTER, &saved_arena),
         abi::return_(),
     ]);
-    CodeFunction {
-        name: "runtime.shutdown".to_string(),
-        symbol: SHUTDOWN_SYMBOL.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        stack_slots: Vec::new(),
+    finalize_vreg_helper(
+        "runtime.shutdown",
+        SHUTDOWN_SYMBOL,
+        "Nothing",
         instructions,
         relocations,
-    }
+    )
 }
 
 /// `void handler(int signo)` for SIGINT/SIGTERM: run the shared teardown, then
@@ -1295,32 +1297,27 @@ pub(super) fn lower_shutdown(auto_term_off: bool, skip_arena_destroy: bool) -> C
 /// read rather than the interrupted `x19`. The 16-byte frame keeps `sp` aligned
 /// across the `bl`s (Darwin requires this) and parks `signo` across the call.
 pub(super) fn lower_signal_handler(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
+    // Vreg-allocated (plan-00-G Phase 2). `signo` (x0) is parked across the
+    // `bl _mfb_shutdown` in a vreg the allocator spills; the allocator + frame
+    // builder provide the aligned frame and link-register save. The function never
+    // returns (it tail-exits), so nothing needs preserving across it.
+    let mut vregs = Vregs::new();
+    let signo = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(16),
-        abi::store_u64(abi::return_register(), abi::stack_pointer(), 0),
+        abi::move_register(&signo, abi::return_register()),
         abi::branch_link(SHUTDOWN_SYMBOL),
     ];
     let mut relocations = vec![internal_branch(SIGNAL_HANDLER_SYMBOL, SHUTDOWN_SYMBOL)];
-    instructions.extend([
-        abi::load_u64(abi::return_register(), abi::stack_pointer(), 0),
-        abi::add_immediate(abi::return_register(), abi::return_register(), 128),
-        abi::add_stack(16),
-    ]);
+    instructions.push(abi::add_immediate(abi::return_register(), &signo, 128));
     platform.emit_program_exit(SIGNAL_HANDLER_SYMBOL, &mut instructions, &mut relocations)?;
-    Ok(CodeFunction {
-        name: "runtime.signal_handler".to_string(),
-        symbol: SIGNAL_HANDLER_SYMBOL.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        stack_slots: Vec::new(),
+    Ok(finalize_vreg_helper(
+        "runtime.signal_handler",
+        SIGNAL_HANDLER_SYMBOL,
+        "Nothing",
         instructions,
         relocations,
-    })
+    ))
 }
 
 /// Append the PCG64 LCG step `state = state * MULT + INC` operating on the
