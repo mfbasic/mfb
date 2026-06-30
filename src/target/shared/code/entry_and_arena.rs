@@ -1328,14 +1328,14 @@ pub(super) fn lower_signal_handler(platform: &dyn CodegenPlatform) -> Result<Cod
 /// (plan-00-G Phase 2): each call yields a fresh `%vN` the shared allocator
 /// colors. Lets the PCG64 / arena helpers be written in target-neutral MIR (no
 /// fixed `x9`/`x13`…) so register placement is a per-ISA backend job.
-struct Vregs(usize);
+pub(super) struct Vregs(usize);
 
 impl Vregs {
-    fn new() -> Self {
+    pub(super) fn new() -> Self {
         Vregs(0)
     }
 
-    fn next(&mut self) -> String {
+    pub(super) fn next(&mut self) -> String {
         let name = format!("%v{}", self.0);
         self.0 += 1;
         name

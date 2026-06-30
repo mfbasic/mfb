@@ -208,20 +208,20 @@ fn lower_link_initializer(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
-    const FRAME: usize = 32;
-    const LR_OFF: usize = 0;
-    const HANDLE_OFF: usize = 8;
+    // Vreg-allocated (plan-00-G Phase 2). The only value held across the
+    // `dlopen`/`dlsym` libc calls is the library `handle`; as a vreg the allocator
+    // keeps it in a callee-saved register across the calls (the calls are libc =
+    // PCS, so callee-saved survives) instead of the old manual stack slot. `x19`
+    // (arena_base, where the resolved slots land) and the libc ABI registers
+    // (x0/x1) stay physical.
     let symbol = nir::LINK_INIT_SYMBOL;
     let fail = format!("{symbol}_fail");
     let done = format!("{symbol}_done");
 
-    let mut instructions = vec![abi::label("entry"), abi::subtract_stack(FRAME)];
+    let mut vregs = Vregs::new();
+    let handle = vregs.next();
+    let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    instructions.push(abi::store_u64(
-        abi::link_register(),
-        abi::stack_pointer(),
-        LR_OFF,
-    ));
 
     for (lib_idx, library) in library_index.iter().enumerate() {
         // handle = dlopen(filename, RTLD_NOW)
@@ -243,18 +243,14 @@ fn lower_link_initializer(
         instructions.extend([
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_eq(&fail),
-            abi::store_u64(abi::return_register(), abi::stack_pointer(), HANDLE_OFF),
+            abi::move_register(&handle, abi::return_register()),
         ]);
         for (fn_idx, function) in link_functions.iter().enumerate() {
             if &function.library != library {
                 continue;
             }
             // slot = dlsym(handle, symbolName)
-            instructions.push(abi::load_u64(
-                abi::return_register(),
-                abi::stack_pointer(),
-                HANDLE_OFF,
-            ));
+            instructions.push(abi::move_register(abi::return_register(), &handle));
             emit_data_address(
                 symbol,
                 "x1",
@@ -281,11 +277,7 @@ fn lower_link_initializer(
             // A FREE deallocator lives in the same library; resolve it into its
             // own slot (reserved past the per-function slots).
             if let Some(k) = free_index_of[fn_idx] {
-                instructions.push(abi::load_u64(
-                    abi::return_register(),
-                    abi::stack_pointer(),
-                    HANDLE_OFF,
-                ));
+                instructions.push(abi::move_register(abi::return_register(), &handle));
                 emit_data_address(
                     symbol,
                     "x1",
@@ -327,26 +319,15 @@ fn lower_link_initializer(
         &mut instructions,
         &mut relocations,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_OFF),
-        abi::add_stack(FRAME),
-        abi::return_(),
-    ]);
+    instructions.extend([abi::label(&done), abi::return_()]);
 
-    Ok(CodeFunction {
-        name: "linker.init".to_string(),
-        symbol: symbol.to_string(),
-        params: Vec::new(),
-        returns: "Nothing".to_string(),
-        frame: CodeFrame {
-            stack_size: FRAME,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        stack_slots: Vec::new(),
+    Ok(finalize_vreg_helper(
+        "linker.init",
+        symbol,
+        "Nothing",
         instructions,
         relocations,
-    })
+    ))
 }
 
 /// Emit one marshaling thunk for a `LINK` function (plan-linker.md §12.2/§12.3).
