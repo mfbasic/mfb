@@ -14,7 +14,20 @@ pub(crate) enum CodeOp {
     Mul,
     SMulH,
     UMulH,
-    Adc,
+    /// Explicit-carry add (plan-00-G §4): `add_carry dst, carry_out, lhs, rhs,
+    /// carry_in` — `dst = lhs + rhs + carry_in` (mod 2^64), `carry_out` = the
+    /// unsigned carry (0/1) as a **value**, not the flags register. Unlike `adc`
+    /// the carry is an explicit operand, so a 128-bit add survives register
+    /// allocation (a spill/move between limbs can no longer clobber the carry).
+    /// `carry_in`/`carry_out` may be `xzr` (no carry-in / carry-out discarded).
+    /// Atomic: the AArch64 backend expands it to `adds; cset` (no carry-in) or
+    /// `cmp; adcs; cset` (carry-in register) so the flag never escapes the op
+    /// (x86 `adc`, rv64 add+`sltu`).
+    AddCarry,
+    /// Explicit-borrow subtract (plan-00-G §4): `sub_borrow dst, borrow_out,
+    /// lhs, rhs, borrow_in` — `dst = lhs - rhs - borrow_in`, `borrow_out` the
+    /// borrow (0/1) as a value. The subtractive counterpart to [`Self::AddCarry`].
+    SubBorrow,
     Rorv,
     RorvW,
     Lslv,
@@ -178,7 +191,8 @@ impl CodeOp {
             CodeOp::Mul => "mul",
             CodeOp::SMulH => "smulh",
             CodeOp::UMulH => "umulh",
-            CodeOp::Adc => "adc",
+            CodeOp::AddCarry => "add_carry",
+            CodeOp::SubBorrow => "sub_borrow",
             CodeOp::Rorv => "rorv",
             CodeOp::RorvW => "rorv_w",
             CodeOp::Lslv => "lslv",
@@ -314,7 +328,8 @@ impl CodeOp {
             "mul" => Ok(CodeOp::Mul),
             "smulh" => Ok(CodeOp::SMulH),
             "umulh" => Ok(CodeOp::UMulH),
-            "adc" => Ok(CodeOp::Adc),
+            "add_carry" => Ok(CodeOp::AddCarry),
+            "sub_borrow" => Ok(CodeOp::SubBorrow),
             "rorv" => Ok(CodeOp::Rorv),
             "rorv_w" => Ok(CodeOp::RorvW),
             "lslv" => Ok(CodeOp::Lslv),

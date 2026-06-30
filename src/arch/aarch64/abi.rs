@@ -197,14 +197,43 @@ pub(crate) fn unsigned_multiply_high_registers(dst: &str, lhs: &str, rhs: &str) 
         .field("rhs", rhs)
 }
 
-/// `adc dst, lhs, rhs` — add with carry, reading the carry flag left by a prior
-/// flag-setting add (`adds`). Used to chain a 128-bit addition across two
-/// 64-bit limbs.
-pub(crate) fn add_with_carry_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
-    CodeInstruction::new("adc")
+/// `add_carry dst, carry_out, lhs, rhs, carry_in` (plan-00-G §4) — explicit-carry
+/// add: `dst = lhs + rhs + carry_in`, `carry_out` the unsigned carry as a value.
+/// The carry is a register, not the flags, so a multi-limb add survives register
+/// allocation. Pass `xzr` for `carry_in` on the first limb and for `carry_out`
+/// on the last limb.
+pub(crate) fn add_carry(
+    dst: &str,
+    carry_out: &str,
+    lhs: &str,
+    rhs: &str,
+    carry_in: &str,
+) -> CodeInstruction {
+    CodeInstruction::new("add_carry")
         .field("dst", dst)
+        .field("carry_out", carry_out)
         .field("lhs", lhs)
         .field("rhs", rhs)
+        .field("carry_in", carry_in)
+}
+
+/// `sub_borrow dst, borrow_out, lhs, rhs, borrow_in` (plan-00-G §4) — explicit-
+/// borrow subtract: `dst = lhs - rhs - borrow_in`, `borrow_out` the borrow as a
+/// value. Subtractive counterpart to [`add_carry`].
+#[allow(dead_code)]
+pub(crate) fn sub_borrow(
+    dst: &str,
+    borrow_out: &str,
+    lhs: &str,
+    rhs: &str,
+    borrow_in: &str,
+) -> CodeInstruction {
+    CodeInstruction::new("sub_borrow")
+        .field("dst", dst)
+        .field("borrow_out", borrow_out)
+        .field("lhs", lhs)
+        .field("rhs", rhs)
+        .field("borrow_in", borrow_in)
 }
 
 /// `rorv dst, src, amount` — rotate `src` right by the low 6 bits of `amount`.

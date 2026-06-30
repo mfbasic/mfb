@@ -44,6 +44,18 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
                 1,
             ));
         }
+        // Explicit-carry add (plan-00-G §4): `adds; cset` (no carry-in) or
+        // `cmp; adcs; cset` (carry-in register) — the no-carry-in form avoids
+        // `cmp xzr,#1` (x31 = SP in the immediate form). Explicit-borrow sub is
+        // always `subs; sbcs; cset` (register form, no SP hazard).
+        CodeOp::AddCarry => {
+            return Ok(if field(instruction, "carry_in")? == "xzr" {
+                8
+            } else {
+                12
+            });
+        }
+        CodeOp::SubBorrow => return Ok(12),
         _ => {}
     }
     Ok(4)

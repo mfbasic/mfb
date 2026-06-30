@@ -37,7 +37,6 @@ impl CodeInstruction {
             | CodeOp::Mul
             | CodeOp::SMulH
             | CodeOp::UMulH
-            | CodeOp::Adc
             | CodeOp::Rorv
             | CodeOp::RorvW
             | CodeOp::Lslv
@@ -53,6 +52,10 @@ impl CodeInstruction {
                 &["dst", "src"]
             }
             CodeOp::MSub => &["dst", "lhs", "rhs", "minuend"],
+            // Explicit-carry add/sub (plan-00-G §4): two writes (`dst`,
+            // `carry_out`/`borrow_out`) plus the carry-in/borrow-in value.
+            CodeOp::AddCarry => &["dst", "carry_out", "lhs", "rhs", "carry_in"],
+            CodeOp::SubBorrow => &["dst", "borrow_out", "lhs", "rhs", "borrow_in"],
             CodeOp::LslImm | CodeOp::LsrImm | CodeOp::AsrImm => &["dst", "src", "shift"],
             CodeOp::AddImm | CodeOp::SubImm => &["dst", "src", "imm"],
             CodeOp::SubSp | CodeOp::AddSp => &["imm"],

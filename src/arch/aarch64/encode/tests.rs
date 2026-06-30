@@ -49,7 +49,7 @@ fn encoder_accepts_large_immediates_with_fallback_sequences() {
 }
 
 #[test]
-fn encodes_umulh_adc_and_rorv() {
+fn encodes_umulh_add_carry_and_rorv() {
     let mut encoder = Encoder {
         text: Vec::new(),
         data: Vec::new(),
@@ -68,12 +68,28 @@ fn encodes_umulh_adc_and_rorv() {
                 .field("rhs", "x9"),
         )
         .unwrap();
+    // Explicit-carry add, no carry-in (plan-00-G §4) → `adds; cset` (2 words).
+    // It must NOT use `cmp xzr,#1` (x31 = SP in the immediate form, a real bug
+    // this guards: it would compute SP-1 and wrongly add 1).
     encoder
         .emit_instruction(
-            &CodeInstruction::new("adc")
+            &CodeInstruction::new("add_carry")
                 .field("dst", "x10")
+                .field("carry_out", "x11")
                 .field("lhs", "x14")
-                .field("rhs", "x12"),
+                .field("rhs", "x12")
+                .field("carry_in", "xzr"),
+        )
+        .unwrap();
+    // Explicit-carry add with a carry-in register → `cmp; adcs; cset` (3 words).
+    encoder
+        .emit_instruction(
+            &CodeInstruction::new("add_carry")
+                .field("dst", "x13")
+                .field("carry_out", "xzr")
+                .field("lhs", "x15")
+                .field("rhs", "x16")
+                .field("carry_in", "x11"),
         )
         .unwrap();
     encoder
@@ -86,9 +102,13 @@ fn encodes_umulh_adc_and_rorv() {
         .unwrap();
 
     let mut expected = Vec::new();
-    expected.extend_from_slice(&0x9bc9_7d6e_u32.to_le_bytes());
-    expected.extend_from_slice(&0x9a0c_01ca_u32.to_le_bytes());
-    expected.extend_from_slice(&0x9acb_2d80_u32.to_le_bytes());
+    expected.extend_from_slice(&0x9bc9_7d6e_u32.to_le_bytes()); // umulh x14, x11, x9
+    expected.extend_from_slice(&0xab0c_01ca_u32.to_le_bytes()); // adds  x10, x14, x12
+    expected.extend_from_slice(&0x9a9f_37eb_u32.to_le_bytes()); // cset  x11, cs
+    expected.extend_from_slice(&0xf100_057f_u32.to_le_bytes()); // cmp   x11, #1
+    expected.extend_from_slice(&0xba10_01ed_u32.to_le_bytes()); // adcs  x13, x15, x16
+    expected.extend_from_slice(&0x9a9f_37ff_u32.to_le_bytes()); // cset  xzr, cs
+    expected.extend_from_slice(&0x9acb_2d80_u32.to_le_bytes()); // rorv  x0, x12, x11
     assert_eq!(encoder.text, expected);
 }
 

@@ -83,7 +83,6 @@ fn classify(instruction: &CodeInstruction) -> Effect<'_> {
         | CodeOp::Mul
         | CodeOp::SMulH
         | CodeOp::UMulH
-        | CodeOp::Adc
         | CodeOp::Rorv
         | CodeOp::RorvW
         | CodeOp::Lslv

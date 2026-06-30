@@ -1334,11 +1334,13 @@ fn emit_pcg_step(instructions: &mut Vec<CodeInstruction>, lo: &str, hi: &str) {
         abi::multiply_registers("x16", "x12", lo), // MULT_HI * state_lo
         abi::add_registers("x14", "x14", "x15"),
         abi::add_registers("x14", "x14", "x16"), // result high limb
-        // Add the 128-bit increment with carry between limbs.
+        // Add the 128-bit increment, carrying between limbs as an explicit value
+        // (plan-00-G §4): x15 (dead here) holds the carry, so the chain no longer
+        // depends on the flags register surviving between the two limb adds.
         abi::move_immediate("x11", "Integer", &PCG_INC_LO.to_string()),
         abi::move_immediate("x12", "Integer", &PCG_INC_HI.to_string()),
-        abi::add_registers_set_flags(lo, "x13", "x11"),
-        abi::add_with_carry_registers(hi, "x14", "x12"),
+        abi::add_carry(lo, "x15", "x13", "x11", "xzr"),
+        abi::add_carry(hi, "xzr", "x14", "x12", "x15"),
     ]);
 }
 
@@ -1386,8 +1388,10 @@ pub(super) fn lower_rng_seed_at() -> CodeFunction {
     ]);
     emit_pcg_step(&mut instructions, "x9", "x10");
     instructions.extend([
-        abi::add_registers_set_flags("x9", "x9", "x1"),
-        abi::add_with_carry_registers("x10", "x10", "xzr"),
+        // state += seed (128-bit), carry as an explicit value (plan-00-G §4);
+        // x11 is dead after `emit_pcg_step`, so it carries between the two limbs.
+        abi::add_carry("x9", "x11", "x9", "x1", "xzr"),
+        abi::add_carry("x10", "xzr", "x10", "xzr", "x11"),
     ]);
     emit_pcg_step(&mut instructions, "x9", "x10");
     instructions.extend([
@@ -1421,8 +1425,10 @@ pub(super) fn lower_arena_fill_seed() -> CodeFunction {
     ]);
     emit_pcg_step(&mut instructions, "x9", "x10");
     instructions.extend([
-        abi::add_registers_set_flags("x9", "x9", "x1"),
-        abi::add_with_carry_registers("x10", "x10", "xzr"),
+        // state += seed (128-bit), carry as an explicit value (plan-00-G §4);
+        // x11 is dead after `emit_pcg_step`, so it carries between the two limbs.
+        abi::add_carry("x9", "x11", "x9", "x1", "xzr"),
+        abi::add_carry("x10", "xzr", "x10", "xzr", "x11"),
     ]);
     emit_pcg_step(&mut instructions, "x9", "x10");
     instructions.extend([

@@ -87,10 +87,19 @@ impl Encoder {
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
             ),
-            "adc" => self.emit_adc(
+            "add_carry" => self.emit_add_carry(
                 reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "carry_out")?)?,
                 reg(field(instruction, "lhs")?)?,
                 reg(field(instruction, "rhs")?)?,
+                reg(field(instruction, "carry_in")?)?,
+            ),
+            "sub_borrow" => self.emit_sub_borrow(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "borrow_out")?)?,
+                reg(field(instruction, "lhs")?)?,
+                reg(field(instruction, "rhs")?)?,
+                reg(field(instruction, "borrow_in")?)?,
             ),
             "rorv" => self.emit_rorv(
                 reg(field(instruction, "dst")?)?,
@@ -581,8 +590,57 @@ impl Encoder {
         self.emit_word(0x9bc0_7c00 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
     }
 
-    fn emit_adc(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {
-        self.emit_word(0x9a00_0000 | ((rm as u32) << 16) | ((rn as u32) << 5) | rd as u32)
+    /// Explicit-carry add (plan-00-G §4): `dst = lhs + rhs + carry_in`,
+    /// `carry_out` = unsigned carry as a value. Expanded atomically so the carry
+    /// flag never escapes the op (it cannot be clobbered by register allocation):
+    ///   no carry-in (`carry_in == xzr`): `adds dst, lhs, rhs`  (2 instructions)
+    ///   carry-in register:  `cmp carry_in, #1; adcs dst, lhs, rhs`  (3)
+    ///   then `cset carry_out, cs` — materialize the carry-out (0/1).
+    /// The no-carry-in case must NOT use `cmp xzr, #1`: in the ADD/SUB *immediate*
+    /// form register 31 in the `Rn` field is **SP**, not XZR, so `subs xzr, xzr,
+    /// #1` would compute `SP - 1` (carry set) and wrongly add 1. The register-form
+    /// `adds dst, lhs, rhs` reads its carry-in as 0 with no SP hazard.
+    fn emit_add_carry(
+        &mut self,
+        dst: u8,
+        carry_out: u8,
+        lhs: u8,
+        rhs: u8,
+        carry_in: u8,
+    ) -> Result<(), String> {
+        if carry_in == 31 {
+            // No carry-in: adds dst, lhs, rhs (register form; sets C = carry-out).
+            self.emit_word(0xab00_0000 | ((rhs as u32) << 16) | ((lhs as u32) << 5) | dst as u32)?;
+        } else {
+            // cmp carry_in, #1 (carry_in is a real register, never x31/SP):
+            // C = carry_in for {0,1}.
+            self.emit_word(0xf100_0400 | ((carry_in as u32) << 5) | 31)?;
+            // adcs dst, lhs, rhs: dst = lhs + rhs + C, C = carry-out.
+            self.emit_word(0xba00_0000 | ((rhs as u32) << 16) | ((lhs as u32) << 5) | dst as u32)?;
+        }
+        // cset carry_out, cs  (csinc carry_out, xzr, xzr, cc): carry_out = C.
+        self.emit_word(0x9a80_0400 | (31 << 16) | (0x3 << 12) | (31 << 5) | carry_out as u32)
+    }
+
+    /// Explicit-borrow subtract (plan-00-G §4): `dst = lhs - rhs - borrow_in`,
+    /// `borrow_out` = borrow as a value. Mirror of [`Self::emit_add_carry`]:
+    ///   `subs xzr, xzr, borrow_in` — `C = !borrow_in` (`sbc` subtracts `1 - C`)
+    ///   `sbcs dst, lhs, rhs`       — `dst = lhs - rhs - (1 - C) = … - borrow_in`
+    ///   `cset borrow_out, cc`      — `C` clear after a subtract means a borrow
+    fn emit_sub_borrow(
+        &mut self,
+        dst: u8,
+        borrow_out: u8,
+        lhs: u8,
+        rhs: u8,
+        borrow_in: u8,
+    ) -> Result<(), String> {
+        // subs xzr, xzr, borrow_in: C = !borrow_in for {0,1}.
+        self.emit_word(0xeb00_0000 | ((borrow_in as u32) << 16) | (31 << 5) | 31)?;
+        // sbcs dst, lhs, rhs: dst = lhs - rhs - (1 - C), C = !borrow-out.
+        self.emit_word(0xfa00_0000 | ((rhs as u32) << 16) | ((lhs as u32) << 5) | dst as u32)?;
+        // cset borrow_out, cc  (csinc borrow_out, xzr, xzr, cs): borrow_out = !C.
+        self.emit_word(0x9a80_0400 | (31 << 16) | (0x2 << 12) | (31 << 5) | borrow_out as u32)
     }
 
     fn emit_rorv(&mut self, rd: u8, rn: u8, rm: u8) -> Result<(), String> {

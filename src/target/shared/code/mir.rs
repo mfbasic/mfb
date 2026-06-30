@@ -145,7 +145,12 @@ mir_ops!(
         // so the backends can select natively or expand.
         SMulH => MulhiS => "mulhi_s",     // smulh: signed 64×64→high 64
         UMulH => MulhiU => "mulhi_u",     // umulh: unsigned 64×64→high 64
-        Adc => AddC => "addc",            // adc:   add with carry-in/out
+        // Explicit-carry add/sub (plan-00-G §4): carry-in/out are *values*, so a
+        // 128-bit chain is allocation-safe (no implicit flag between limbs). The
+        // AArch64 backend expands add to `adds; cset` (no carry-in) or `cmp;
+        // adcs; cset`, and sub to `subs; sbcs; cset`.
+        AddCarry => AddC => "addc",       // add_carry:  a + b + carry_in, → carry_out
+        SubBorrow => SubB => "subc",      // sub_borrow: a - b - borrow_in, → borrow_out
         Rorv => Rotr => "rotr",           // rorv:  rotate-right (64-bit, variable)
         RorvW => RotrW => "rotr_w",       // rorv:  rotate-right (32-bit, variable)
         RevW => BswapW => "bswap_w",      // rev:   byte reverse (32-bit)
@@ -906,7 +911,8 @@ mod tests {
         for (code, neutral) in [
             (CodeOp::SMulH, "mulhi_s"),
             (CodeOp::UMulH, "mulhi_u"),
-            (CodeOp::Adc, "addc"),
+            (CodeOp::AddCarry, "addc"),
+            (CodeOp::SubBorrow, "subc"),
             (CodeOp::Rorv, "rotr"),
             (CodeOp::RorvW, "rotr_w"),
             (CodeOp::RevW, "bswap_w"),
@@ -1194,26 +1200,43 @@ mod tests {
         assert_round_trips(&bare);
     }
 
-    /// A flag-setter NOT followed by a flag-reading branch stays a mirror op —
-    /// the `adds; adc` 128-bit carry chain must not be mistaken for overflow.
+    /// The explicit-carry 128-bit add chain (plan-00-G §4): each limb is a single
+    /// `add_carry` op whose carry-in/out are *values*, so nothing fuses and the
+    /// carry survives register allocation. The op neutral-renames to `addc` and
+    /// round-trips 1:1. A plain `adds` not followed by a flag-branch stays a
+    /// mirror op (it is not mistaken for an overflow fusion).
     #[test]
-    fn carry_chain_is_not_fused() {
+    fn explicit_carry_chain_round_trips() {
         let original = [
-            CodeInstruction::new("adds")
+            // lo = a_lo + b_lo, carry → x15
+            CodeInstruction::new("add_carry")
                 .field("dst", "x9")
-                .field("lhs", "x9")
-                .field("rhs", "x1"),
-            CodeInstruction::new("adc")
+                .field("carry_out", "x15")
+                .field("lhs", "x13")
+                .field("rhs", "x11")
+                .field("carry_in", "xzr"),
+            // hi = a_hi + b_hi + x15, carry-out discarded
+            CodeInstruction::new("add_carry")
                 .field("dst", "x10")
-                .field("lhs", "x10")
-                .field("rhs", "xzr"),
+                .field("carry_out", "xzr")
+                .field("lhs", "x14")
+                .field("rhs", "x12")
+                .field("carry_in", "x15"),
         ];
         let mir = lower_to_mir(&original);
         assert_eq!(mir.len(), 2);
-        assert_eq!(mir[0].op, MirOp::Adds);
-        assert_eq!(mir[1].op, MirOp::AddC); // neutral-renamed `adc` → `addc`
-        assert_eq!(mir[1].op.mnemonic(), "addc");
+        assert_eq!(mir[0].op, MirOp::AddC);
+        assert_eq!(mir[0].op.mnemonic(), "addc");
         assert_round_trips(&original);
+
+        // A lone `adds` (no following flag-branch) stays a mirror op.
+        let lone_adds = [
+            CodeInstruction::new("adds").field("dst", "x9").field("lhs", "x9").field("rhs", "x1"),
+            CodeInstruction::new("mov").field("dst", "x10").field("src", "x9"),
+        ];
+        let mir = lower_to_mir(&lone_adds);
+        assert_eq!(mir[0].op, MirOp::Adds);
+        assert_round_trips(&lone_adds);
     }
 
     /// A 3-way `cmp; b.lo; b.hi` (the string-ordering pattern) becomes two
@@ -1330,7 +1353,12 @@ mod tests {
             // — neutral-renamed "exotic" integer ops (Phase 3) —
             CodeInstruction::new("smulh").field("dst", "%v14").field("lhs", "%v0").field("rhs", "%v1"),
             CodeInstruction::new("umulh").field("dst", "%v15").field("lhs", "%v0").field("rhs", "%v1"),
-            CodeInstruction::new("adc").field("dst", "%v16").field("lhs", "%v14").field("rhs", "%v15"),
+            CodeInstruction::new("add_carry")
+                .field("dst", "%v16")
+                .field("carry_out", "%v26")
+                .field("lhs", "%v14")
+                .field("rhs", "%v15")
+                .field("carry_in", "xzr"),
             CodeInstruction::new("rorv").field("dst", "%v17").field("lhs", "%v16").field("rhs", "%v0"),
             CodeInstruction::new("rev_x").field("dst", "%v18").field("src", "%v17"),
             CodeInstruction::new("clz").field("dst", "%v19").field("src", "%v18"),
@@ -1381,7 +1409,7 @@ mod tests {
         // float↔int conversions, the `adrp` page pair, and the NEON `*_v` tail.
         let mir = lower_to_mir(&fixtures);
         let banned = [
-            "adrp", "add_pageoff", "smulh", "umulh", "adc", "rorv", "rorv_w", "rev_w", "rev_x",
+            "adrp", "add_pageoff", "smulh", "umulh", "add_carry", "sub_borrow", "rorv", "rorv_w", "rev_w", "rev_x",
             "fcvtzs_x_from_d", "fcvtms_x_from_d", "fcvtps_x_from_d", "fcvtas_x_from_d",
             "scvtf_d_from_x", "fmov_d_from_x", "fmov_x_from_d",
             // NEON-tail mnemonics — none may appear (now `v128.*`, plan-00-E).
