@@ -10,7 +10,7 @@ behavioral outcome a correct implementation produces.>
 
 It complements:
 
-- `./mfb spec <package> <topic>` (<what this plan touches there>; the canonical specs live under `src/spec/**`)
+- `./mfb spec <package> <topic>` (<what this plan touches there>; the canonical specs live under `src/docs/spec/**`)
 
 ## 1. Goal
 
@@ -24,7 +24,7 @@ layout/ABI, thread-transfer rules. Be specific — these are the guardrails.>
 ## 2. Current State
 
 <How it works today, cited to files/specs (`file.rs:line`,
-`src/spec/<package>/<topic>.md` / `mfb spec <package> <topic>`).
+`src/docs/spec/<package>/<topic>.md` / `mfb spec <package> <topic>`).
 Name existing precedents the design will mirror.>
 
 ## 3. Design Overview
@@ -39,7 +39,7 @@ where the correctness risk concentrates.>
 ## Layout / ABI Impact
 
 <Exactly what changes in `mfb spec memory` / `mfb spec package` (the topics
-under `src/spec/**`), and — just as important — what stays unchanged so
+under `src/docs/spec/**`), and — just as important — what stays unchanged so
 copy/transfer/golden output is unaffected. Omit if the plan touches no layout.>
 
 ## Phases
@@ -53,7 +53,7 @@ N. <Highest-risk codegen last, behind tests.>
 - Function tests: `tests/func_<pkg>_<func>_valid/**` and `_invalid/**`,
   every overload.
 - Runtime proof: <the program + observable result that proves real behavior>.
-- Doc sync: <updates to the relevant `src/spec/**` topics, e.g. `mfb spec diagnostics` / `language` / `package`>.
+- Doc sync: <updates to the relevant `src/docs/spec/**` topics, e.g. `mfb spec diagnostics` / `language` / `package`>.
 - Acceptance: `scripts/test-accept.sh target/debug/mfb target/accept-actual`.
 
 ## Open Decisions

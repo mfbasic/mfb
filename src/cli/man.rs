@@ -1,4 +1,8 @@
-use crate::man;
+use std::io::IsTerminal;
+
+use crate::cli::spec::detect_terminal_width;
+use crate::docs::man;
+use crate::docs::render;
 use crate::USAGE;
 
 pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
@@ -132,8 +136,18 @@ fn man_entry_name(package: &man::PackageDoc) -> &'static str {
     }
 }
 
+/// Print a stored man page. Markdown pages go through the same width-aware
+/// renderer as `mfb spec`; legacy plain-text pages are printed verbatim.
 fn print_man_page(page: &str) {
-    println!("{}", page.trim_end_matches('\n'));
+    if man::is_markdown_page(page) {
+        let style = render::Style {
+            width: detect_terminal_width(),
+            color: std::io::stdout().is_terminal(),
+        };
+        println!("{}", render::render(page, &style));
+    } else {
+        println!("{}", page.trim_end_matches('\n'));
+    }
 }
 
 fn print_function_man(package: &man::PackageDoc, function: &man::FunctionDoc) {

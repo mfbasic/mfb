@@ -1,6 +1,6 @@
 //! macOS app-mode (`mfb build -app`) runtime bootstrap codegen.
 //!
-//! Implements the macOS app-mode runtime (see src/spec/app/01_macos-runtime.md): emit the app-mode `_main`
+//! Implements the macOS app-mode runtime (see src/docs/spec/app/01_macos-runtime.md): emit the app-mode `_main`
 //! AppKit bootstrap and the pthread worker shim. `_main` runs on the process
 //! main thread (AppKit's required home), creates the `NSApplication` and a
 //! window via the Objective-C runtime, spawns a worker thread that runs the

@@ -129,7 +129,7 @@ run_issues_review() {
     local job_key="$1"
     local response_file="$TMP_DIR/response.$job_key"
     local exit_file="$TMP_DIR/exit.$job_key"
-    local prompt="Read the embedded specification under src/spec/** (also viewable via 'mfb spec')
+    local prompt="Read the embedded specification under src/docs/spec/** (also viewable via 'mfb spec')
 Review all src/**
 
 REPORT:

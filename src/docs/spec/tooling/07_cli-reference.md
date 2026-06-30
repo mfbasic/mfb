@@ -239,7 +239,7 @@ Width resolution (`detect_terminal_width`): explicit `--width` (clamped 20..=100
 classic **80** fallback (also used when stdout is piped).[[src/cli/spec.rs:detect_terminal_width]]
 `parse_spec_width` clamps `--width` to `[20, 1000]` and rejects non-numeric
 values.[[src/cli/spec.rs:parse_spec_width]] Color defaults to whether stdout is a
-TTY. The render `Style` carries `{ width, color }`.[[src/spec/render.rs:Style]]
+TTY. The render `Style` carries `{ width, color }`.[[src/docs/render.rs:Style]]
 
 Index and subtopic listings are emitted as a two-column GFM table
 (`| Topic | Summary |`) fed through the same Markdown renderer so the summary

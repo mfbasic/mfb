@@ -53,8 +53,8 @@ A map of the compiler's source modules and their responsibilities.
 | `src/os/linux/flavor.rs` | Linux flavor enumeration (glibc/musl) and suffix/interpreter selection. |
 | `src/os/linux/link.rs` | ELF object planning and executable writing. |
 | `src/os/linux/object.rs` | ELF container layout planning. |
-| `src/man/*` | Built-in package/function help text. |
-| `src/spec/*` | Embedded language/architecture specification (`mfb spec`). |
+| `src/docs/man/*` | Built-in package/function help text. |
+| `src/docs/spec/*` | Embedded language/architecture specification (`mfb spec`). |
 | `src/rules.rs` | Diagnostic display support. |
 | `src/numeric.rs` | Numeric parsing and representation helpers. |
 

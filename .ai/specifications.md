@@ -1,13 +1,13 @@
 # Specifications (`mfb spec`)
 
-The compiler's specification lives in `src/spec/**` and is embedded in the binary
+The compiler's specification lives in `src/docs/spec/**` and is embedded in the binary
 (`mfb spec`), version-locked to the code: the spec you read always matches the
 binary you have. It is the **single source of truth** for every externally
 observable compiler/language/format/ABI contract, and it must stay accurate to the
 compiler **as-is** at all times.
 
 **The rule: any compiler change that adds, removes, or changes an observable
-contract updates the owning `src/spec` topic in the same change.** This is part of
+contract updates the owning `src/docs/spec` topic in the same change.** This is part of
 the Hard Completion Gate, not optional cleanup — a change that leaves the spec
 stale is not done. Prefer an accurate stub over a missing or wrong topic. Contracts
 that require a spec update include: language surface and type rules; IR/NIR op or
@@ -40,11 +40,11 @@ Conventions when editing the spec:
 - **Adding a topic / package.** A new topic is `NN_slug.md` beside the package's
   `spec.md` (auto-discovered, ordered by the `NN` prefix). A new package is a
   directory with a `spec.md` overview plus its `## See Also`; add its name to
-  `PACKAGE_ORDER` in `src/spec/mod.rs`. Update the package overview's reading-order
+  `PACKAGE_ORDER` in `src/docs/spec/mod.rs`. Update the package overview's reading-order
   prose when adding a topic.
 - **The error-code registry is build input.** `build.rs` generates the
   `errorCode::` constants directly from the **Constant Registry** table in
-  `src/spec/diagnostics/02_error-codes.md` (`mfb spec diagnostics error-codes`),
+  `src/docs/spec/diagnostics/02_error-codes.md` (`mfb spec diagnostics error-codes`),
   asserting that hyphen-stripping each code equals its integer column; a
   `#[cfg(test)]` drift guard (`table_matches_registry`) enforces the match. Edit
   that table for any runtime error-code change. The legacy external specs

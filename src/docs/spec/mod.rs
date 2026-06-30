@@ -1,7 +1,7 @@
 //! `mfb spec` — the MFBASIC language specification, embedded in the compiler and
 //! version-locked to it (the spec you read always matches the binary you have).
 //!
-//! This mirrors `src/man`: build.rs walks `src/spec`, and any directory holding
+//! This mirrors `src/docs/man`: build.rs walks `src/docs/spec`, and any directory holding
 //! a `spec.md` overview is a spec package named after the directory. Topic pages
 //! sit beside it as `*.md`. The whole tree is embedded via `include_str!` (zero
 //! runtime I/O); the only thing the filesystem cannot express — display order —
@@ -13,7 +13,7 @@
 
 use std::sync::LazyLock;
 
-pub(crate) mod render;
+use super::render;
 
 // The generated `SPEC_PACKAGES` table is a nested tuple slice by nature.
 #[allow(clippy::type_complexity)]

@@ -1,6 +1,7 @@
-//! A deliberately small Markdown -> terminal renderer for `mfb spec`.
+//! A deliberately small Markdown -> terminal renderer for `mfb spec` and the
+//! Markdown `mfb man` pages.
 //!
-//! Specs are authored in Markdown so they keep rendering in GitHub and editors
+//! Docs are authored in Markdown so they keep rendering in GitHub and editors
 //! during review; this module turns that Markdown into width-aware plain text
 //! (optionally ANSI-styled) for the terminal. The whole point is that tables
 //! reflow to the actual terminal width instead of being frozen as hand-aligned
@@ -908,7 +909,7 @@ mod tests {
         // Also stripped from one-line summaries.
         assert_eq!(plain("Flat values [[src/foo.rs:bar]] only"), "Flat values only");
         // A trailing citation leaves no dangling marker.
-        assert_eq!(plain("see the memory spec [[src/spec/memory/spec.md:1]]").trim(), "see the memory spec");
+        assert_eq!(plain("see the memory spec [[src/docs/spec/memory/spec.md:1]]").trim(), "see the memory spec");
     }
 
     #[test]

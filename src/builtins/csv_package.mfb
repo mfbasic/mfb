@@ -11,7 +11,7 @@ END FUNC
 
 ' csv::parse — scan CSV text into a grid of rows of String cells.
 '
-' The dialect is RFC-4180-aligned (see src/spec/stdlib/03_csv.md):
+' The dialect is RFC-4180-aligned (see src/docs/spec/stdlib/03_csv.md):
 '   * comma is the only field delimiter;
 '   * a record separator is LF ("\n") or CRLF ("\r\n"); a bare CR is data;
 '   * a field may be wrapped in double quotes, inside which "" is a literal

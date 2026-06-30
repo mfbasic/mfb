@@ -22,10 +22,10 @@ pub(crate) struct FunctionDoc {
 }
 
 /// Display order and usage synopsis for `mfb man`, in the order packages are
-/// listed. The page content is generated from the `src/man` directory tree by
+/// listed. The page content is generated from the `src/docs/man` directory tree by
 /// build.rs (`generated::MAN_PACKAGES`); this table carries only the editorial
-/// bits the filesystem can't express. Dropping a `.txt` file adds a topic with
-/// no edit here; a brand-new package needs one row.
+/// bits the filesystem can't express. Dropping a `.txt`/`.md` file adds a topic
+/// with no edit here; a brand-new package needs one row.
 const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("types", "mfb man types [topic]"),
     ("flow", "mfb man flow [topic]"),
@@ -105,11 +105,19 @@ fn build_package(
     usage: &'static str,
     page: &'static str,
 ) -> PackageDoc {
-    let (parsed_name, summary) = parse_name_line(page).expect("package NAME line");
-    debug_assert_eq!(
-        parsed_name, name,
-        "man package directory name disagrees with its NAME line",
-    );
+    // A Markdown overview (rendered through the spec renderer) has no `NAME`
+    // section; take its one-line summary the way the spec listings do. A
+    // classic plain-text page still carries `NAME <pkg> - <summary>`.
+    let summary = if is_markdown_page(page) {
+        markdown_summary(page)
+    } else {
+        let (parsed_name, summary) = parse_name_line(page).expect("package NAME line");
+        debug_assert_eq!(
+            parsed_name, name,
+            "man package directory name disagrees with its NAME line",
+        );
+        summary
+    };
     let functions = generated_pages(name)
         .iter()
         .map(|(_, page)| parse_rendered_function_page(page))
@@ -125,8 +133,8 @@ fn build_package(
     }
 }
 
-/// The `package.txt` overview for `package_name`, or `None` if no such package
-/// was generated from the `src/man` tree.
+/// The `package.{txt,md}` overview for `package_name`, or `None` if no such
+/// package was generated from the `src/docs/man` tree.
 fn package_page(package_name: &str) -> Option<&'static str> {
     generated::MAN_PACKAGES
         .iter()
@@ -154,6 +162,26 @@ fn parse_rendered_function_page(page: &'static str) -> FunctionDoc {
     }
 }
 
+/// A man page is treated as Markdown — and rendered through the spec renderer
+/// rather than printed verbatim — when its first non-blank line is an ATX
+/// heading. Classic plain-text pages open with the bare `NAME` section header,
+/// so the two formats never collide.
+pub(crate) fn is_markdown_page(page: &str) -> bool {
+    page.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .is_some_and(|line| line.starts_with('#'))
+}
+
+/// The first non-blank, non-heading line of a Markdown overview, used as its
+/// one-line summary in the `mfb man` index — mirroring `mfb spec`.
+fn markdown_summary(page: &'static str) -> &'static str {
+    page.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty() && !line.starts_with('#'))
+        .unwrap_or("")
+}
+
 fn parse_name_line(source: &'static str) -> Option<(&'static str, &'static str)> {
     let mut lines = source.lines();
     while !lines.next()?.trim().eq("NAME") {}
@@ -170,4 +198,46 @@ fn first_synopsis_line(source: &'static str) -> Option<&'static str> {
         .find(|line| !line.trim().is_empty())
         .map(str::trim)
         .filter(|line| !line.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn markdown_pages_open_with_a_heading() {
+        assert!(is_markdown_page("# unicode\n\nA summary.\n"));
+        assert!(is_markdown_page("\n\n## Section\n"));
+        assert!(!is_markdown_page("NAME\n  math - helpers\n"));
+        assert!(!is_markdown_page(""));
+    }
+
+    #[test]
+    fn markdown_summary_skips_the_title_heading() {
+        assert_eq!(
+            markdown_summary("# unicode\n\nUnicode behavior and licensing\n"),
+            "Unicode behavior and licensing",
+        );
+        assert_eq!(markdown_summary("# only a heading\n"), "");
+    }
+
+    #[test]
+    fn unicode_package_summary_comes_from_markdown() {
+        let unicode = package("unicode").expect("unicode man package present");
+        assert!(is_markdown_page(unicode.page.expect("unicode overview page")));
+        assert_eq!(
+            unicode.summary,
+            "Unicode behavior, indexes, normalization, and licensing",
+        );
+    }
+
+    #[test]
+    fn plain_text_package_summary_comes_from_name_line() {
+        let math = package("math").expect("math man package present");
+        assert!(!is_markdown_page(math.page.expect("math overview page")));
+        assert_eq!(
+            math.summary,
+            "numeric constants and deterministic math helper functions",
+        );
+    }
 }

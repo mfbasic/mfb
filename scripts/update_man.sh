@@ -85,14 +85,14 @@ for i in "${!FUNCTIONS[@]}"; do
   claude -p --dangerously-skip-permissions "Update the mfb man page for the built-in function '$func'.
 
 Steps:
-1. Read src/man/builtins/**/*.txt to understand the man page format and style conventions.
+1. Read src/docs/man/builtins/**/*.txt to understand the man page format and style conventions.
 2. Read src/builtins/${module}.rs to understand the function's signature, overloads,
    parameter types, return type, and error behavior.
 3. Determine every error the function can itself raise. Read
    src/target/shared/code/mod.rs for the canonical error registry: each ERR_*_CODE
    constant maps a symbolic name (e.g. ErrInvalidArgument) to its numeric code
    (e.g. 77050002). Match each failure path in the function to its code and name.
-4. Find the existing man page for '${fname}' by looking in src/man/builtins/*/${fname}.txt,
+4. Find the existing man page for '${fname}' by looking in src/docs/man/builtins/*/${fname}.txt,
    or determine the correct path to create a new one following the existing directory layout.
    (Collection helpers are namespaced under collections/; the String overloads of
    find/mid/replace live under strings/; only the universal core — len, error,
@@ -150,12 +150,12 @@ for j in "${!TYPE_PKGS[@]:-}"; do
   claude -p --dangerously-skip-permissions "Update the mfb man page that documents the built-in record types of the '$module' package, as a single consolidated page reached via 'mfb man $module types'.
 
 Steps:
-1. Read src/man/builtins/**/*.txt (function pages) and src/man/types/*.txt (type
+1. Read src/docs/man/builtins/**/*.txt (function pages) and src/docs/man/types/*.txt (type
    topic pages) to understand the man page format and style conventions.
 2. Read the package source src/builtins/${module}_package.mfb. Find every
    'EXPORT TYPE <Name> ... END TYPE' block. For each one, capture its fields:
    the 'field AS Type' lines and the trailing ' comment that explains each field.
-3. Write the page to src/man/builtins/${module}/types.txt (create the directory
+3. Write the page to src/docs/man/builtins/${module}/types.txt (create the directory
    if needed). The file stem MUST be exactly 'types' so 'mfb man $module types'
    resolves it; do NOT create one file per type.
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the per-function man pages under src/man/builtins/vector/.
+"""Generate the per-function man pages under src/docs/man/builtins/vector/.
 
 package.txt and types.txt are hand-written; this emits the 19 function pages,
 each following .ai/man_template.txt (NAME / SYNOPSIS / PACKAGE / IMPORTS /
@@ -8,7 +8,7 @@ DESCRIPTION / PARAMETERS / RETURN VALUE / ERRORS / EXAMPLES / SEE ALSO).
 
 import pathlib
 
-OUT = pathlib.Path(__file__).resolve().parent.parent / "src/man/builtins/vector"
+OUT = pathlib.Path(__file__).resolve().parent.parent / "src/docs/man/builtins/vector"
 
 VEC = "a vector (Float2/3/4, Fixed2/3/4, or Integer2/3/4)"
 ERR_INVALID = "  77050002 (ErrInvalidArgument)\n"

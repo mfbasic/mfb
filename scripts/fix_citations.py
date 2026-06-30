@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Repoint stale ``[[src/path.rs:symbol]]`` source citations in src/spec/**.
+"""Repoint stale ``[[src/path.rs:symbol]]`` source citations in src/docs/spec/**.
 
 The embedded spec (``mfb spec``) annotates prose with maintainer breadcrumbs of
 the form ``[[src/some/file.rs:symbol]]`` pointing at the code that implements the
@@ -9,7 +9,7 @@ stale. This script fixes those paths after a refactor.
 
 Algorithm (conservative — only touches citations that are actually broken):
 
-  For each unique ``[[oldpath:symbol]]`` cited in src/spec/**:
+  For each unique ``[[oldpath:symbol]]`` cited in src/docs/spec/**:
     * If ``oldpath`` still exists AND still defines ``symbol`` -> leave it.
     * Otherwise resolve ``symbol`` to the file(s) under src/ that define it
       (struct/enum/trait/union/fn/const/static/type/macro_rules):

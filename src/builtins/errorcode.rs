@@ -1,6 +1,6 @@
 //! Built-in `errorCode` package (plan-06-errorcodes.md): a flat set of `Integer`
 //! constants, one per runtime registry row in the embedded spec topic
-//! `src/spec/diagnostics/02_error-codes.md` (`mfb spec diagnostics error-codes`).
+//! `src/docs/spec/diagnostics/02_error-codes.md` (`mfb spec diagnostics error-codes`).
 //!
 //! This mirrors the `math` constant mechanism (`math::pi` and friends): a
 //! reference such as `errorCode::ErrNotFound` types as `Integer` and folds to an
@@ -47,7 +47,7 @@ mod tests {
     fn table_matches_registry() {
         let doc = include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/src/spec/diagnostics/02_error-codes.md"
+            "/src/docs/spec/diagnostics/02_error-codes.md"
         ));
 
         let mut in_section = false;

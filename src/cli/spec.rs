@@ -1,7 +1,7 @@
 use std::env;
 use std::io::IsTerminal;
 
-use crate::spec;
+use crate::docs::{render, spec};
 use crate::USAGE;
 
 /// `mfb spec [topic] [subtopic] [--width N] [--color|--no-color]`. Renders the
@@ -35,7 +35,7 @@ pub(crate) fn show_spec(args: &[String]) -> Result<(), String> {
         }
     }
 
-    let style = spec::render::Style {
+    let style = render::Style {
         width: width.unwrap_or_else(detect_terminal_width),
         color: color.unwrap_or_else(|| std::io::stdout().is_terminal()),
     };
@@ -71,7 +71,7 @@ pub(crate) fn show_spec(args: &[String]) -> Result<(), String> {
                     "unknown topic `{topic_name}` in spec `{package_name}`\n\nRun `mfb spec {package_name}` to list available topics."
                 )
             })?;
-            println!("{}", spec::render::render(topic.page, &style));
+            println!("{}", render::render(topic.page, &style));
             Ok(())
         }
         _ => Err(format!("mfb spec accepts at most two arguments\n\n{USAGE}")),
@@ -88,7 +88,10 @@ fn parse_spec_width(value: &str) -> Result<usize, String> {
 /// Terminal width for spec rendering. Prefer an explicit `COLUMNS` override,
 /// then ask the terminal itself via `TIOCGWINSZ`, then fall back to the classic
 /// 80 (also used when stdout is piped/redirected and has no window size).
-fn detect_terminal_width() -> usize {
+///
+/// Shared with `mfb man`, which renders Markdown man pages through the same
+/// renderer and wants identical width behaviour.
+pub(crate) fn detect_terminal_width() -> usize {
     if let Some(width) = env::var("COLUMNS")
         .ok()
         .and_then(|value| value.trim().parse::<usize>().ok())
@@ -140,7 +143,7 @@ fn terminal_width_from_ioctl() -> Option<usize> {
     None
 }
 
-fn print_spec_index(style: &spec::render::Style) {
+fn print_spec_index(style: &render::Style) {
     println!("Usage: mfb spec [topic] [subtopic] [--all]");
     println!();
     println!("Show the MFBASIC language specification.");
@@ -160,8 +163,8 @@ fn print_spec_index(style: &spec::render::Style) {
     print_spec_listing("Topic", &entries, style);
 }
 
-fn print_spec_package(package: &spec::SpecPackage, style: &spec::render::Style) {
-    println!("{}", spec::render::render(package.overview, style));
+fn print_spec_package(package: &spec::SpecPackage, style: &render::Style) {
+    println!("{}", render::render(package.overview, style));
     if !package.topics.is_empty() {
         println!();
         let entries: Vec<(&str, &str)> = package
@@ -177,19 +180,19 @@ fn print_spec_package(package: &spec::SpecPackage, style: &spec::render::Style) 
 
 /// `mfb spec <topic> --all`: print the overview followed by every subtopic page,
 /// each separated by a full-width rule, as one continuous document.
-fn print_spec_all(package: &spec::SpecPackage, style: &spec::render::Style) {
-    println!("{}", spec::render::render(package.overview, style));
+fn print_spec_all(package: &spec::SpecPackage, style: &render::Style) {
+    println!("{}", render::render(package.overview, style));
     for topic in &package.topics {
         println!();
         println!("{}", "─".repeat(style.width));
         println!();
-        println!("{}", spec::render::render(topic.page, style));
+        println!("{}", render::render(topic.page, style));
     }
 }
 
 /// Render a `(name, summary)` listing as a width-aware table through the spec
 /// renderer, so the summary column wraps instead of running off the terminal.
-fn print_spec_listing(heading: &str, entries: &[(&str, &str)], style: &spec::render::Style) {
+fn print_spec_listing(heading: &str, entries: &[(&str, &str)], style: &render::Style) {
     if entries.is_empty() {
         return;
     }
@@ -201,7 +204,7 @@ fn print_spec_listing(heading: &str, entries: &[(&str, &str)], style: &spec::ren
             escape_spec_cell(summary),
         ));
     }
-    println!("{}", spec::render::render(&markdown, style));
+    println!("{}", render::render(&markdown, style));
 }
 
 /// Escape a literal `|` so it stays inside its table cell rather than starting a

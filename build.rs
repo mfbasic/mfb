@@ -6,29 +6,31 @@ use std::path::{Path, PathBuf};
 fn main() {
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR"));
     let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR"));
-    let error_codes_doc = manifest_dir.join("src/spec/diagnostics/02_error-codes.md");
+    let error_codes_doc = manifest_dir.join("src/docs/spec/diagnostics/02_error-codes.md");
     println!("cargo:rerun-if-changed={}", error_codes_doc.display());
 
     // Man pages and spec pages share one discovery model: walk a tree, and any
-    // directory holding an index file (`package.txt` / `spec.md`) is a package
-    // named after the directory. Adding a topic is "drop a file"; adding a
-    // package is "create a directory" — no edits here. Display order (and, for
+    // directory holding an index file (`package.{txt,md}` / `spec.md`) is a
+    // package named after the directory. Adding a topic is "drop a file"; adding
+    // a package is "create a directory" — no edits here. Display order (and, for
     // man, the usage synopsis) lives in the runtime module, the only editorial
     // bits the filesystem can't express.
     //
-    // Man pages are plain text; spec pages are Markdown rendered to the terminal
-    // by `src/spec/render.rs`. Both embed via `include_str!` (zero runtime I/O).
+    // Man pages may be plain text (`.txt`) or Markdown (`.md`); spec pages are
+    // always Markdown. A Markdown page renders to the terminal through
+    // `src/docs/render.rs` (the runtime picks the renderer by sniffing a leading
+    // ATX heading). All pages embed via `include_str!` (zero runtime I/O).
     generate_doc_table(
-        &manifest_dir.join("src/man"),
-        "package.txt",
-        "txt",
+        &manifest_dir.join("src/docs/man"),
+        &["package.txt", "package.md"],
+        &["txt", "md"],
         "MAN_PACKAGES",
         &out_dir.join("man_generated.rs"),
     );
     generate_doc_table(
-        &manifest_dir.join("src/spec"),
-        "spec.md",
-        "md",
+        &manifest_dir.join("src/docs/spec"),
+        &["spec.md"],
+        &["md"],
         "SPEC_PACKAGES",
         &out_dir.join("spec_generated.rs"),
     );
@@ -41,12 +43,12 @@ fn main() {
 /// table to `out_path` as `const_name`.
 fn generate_doc_table(
     root: &Path,
-    index_name: &str,
-    page_ext: &str,
+    index_names: &[&str],
+    page_exts: &[&str],
     const_name: &str,
     out_path: &Path,
 ) {
-    let packages = doc_packages(root, index_name, page_ext);
+    let packages = doc_packages(root, index_names, page_exts);
     println!("cargo:rerun-if-changed={}", root.display());
     for package in &packages {
         println!("cargo:rerun-if-changed={}", package.dir.display());
@@ -60,7 +62,7 @@ fn generate_doc_table(
 }
 
 /// Parse the "Constant Registry" table in the embedded spec topic
-/// `src/spec/diagnostics/02_error-codes.md` and emit a generated `(name, integer)`
+/// `src/docs/spec/diagnostics/02_error-codes.md` and emit a generated `(name, integer)`
 /// table for the built-in `errorCode` package. The spec topic is the single
 /// source of truth (`mfb spec diagnostics error-codes`); this keeps the package
 /// from drifting from the canonical registry. Only the runtime `Err*` rows are
@@ -68,7 +70,7 @@ fn generate_doc_table(
 /// `errorCode::Err*` usage.
 fn generate_errorcode_table(doc_path: &PathBuf, out_dir: &PathBuf) {
     let doc =
-        fs::read_to_string(doc_path).expect("read src/spec/diagnostics/02_error-codes.md");
+        fs::read_to_string(doc_path).expect("read src/docs/spec/diagnostics/02_error-codes.md");
 
     let mut in_section = false;
     let mut rows: Vec<(String, String)> = Vec::new();
@@ -119,7 +121,7 @@ fn generate_errorcode_table(doc_path: &PathBuf, out_dir: &PathBuf) {
     writeln!(
         output,
         "/// `(name, integer-literal)` for every runtime registry row, generated\n\
-         /// from src/spec/diagnostics/02_error-codes.md by build.rs. Do not edit by hand.\n\
+         /// from src/docs/spec/diagnostics/02_error-codes.md by build.rs. Do not edit by hand.\n\
          pub(crate) const ERRORCODE_CONSTANTS: &[(&str, &str)] = &["
     )
     .expect("write generated errorcode source");
@@ -130,8 +132,8 @@ fn generate_errorcode_table(doc_path: &PathBuf, out_dir: &PathBuf) {
 }
 
 /// A documented package discovered on disk: the directory, its index page
-/// (`package.txt` for man / `spec.md` for spec), and the topic/function pages
-/// beside it (sorted, index excluded).
+/// (`package.{txt,md}` for man / `spec.md` for spec), and the topic/function
+/// pages beside it (sorted, index excluded).
 struct DocPackage {
     name: String,
     dir: PathBuf,
@@ -141,16 +143,26 @@ struct DocPackage {
 
 /// Walk `root` and collect every package, sorted by name so the generated table
 /// is deterministic. The runtime imposes its own display order on top.
-fn doc_packages(root: &Path, index_name: &str, page_ext: &str) -> Vec<DocPackage> {
+fn doc_packages(root: &Path, index_names: &[&str], page_exts: &[&str]) -> Vec<DocPackage> {
     let mut packages = Vec::new();
-    collect_doc_packages(root, index_name, page_ext, &mut packages);
+    collect_doc_packages(root, index_names, page_exts, &mut packages);
     packages.sort_by(|a, b| a.name.cmp(&b.name));
     packages
 }
 
-fn collect_doc_packages(dir: &Path, index_name: &str, page_ext: &str, out: &mut Vec<DocPackage>) {
-    let index = dir.join(index_name);
-    if index.is_file() {
+fn collect_doc_packages(
+    dir: &Path,
+    index_names: &[&str],
+    page_exts: &[&str],
+    out: &mut Vec<DocPackage>,
+) {
+    // The first index candidate that exists names the package; a directory holds
+    // at most one (`package.txt` or `package.md`, never both).
+    if let Some(index) = index_names
+        .iter()
+        .map(|name| dir.join(name))
+        .find(|path| path.is_file())
+    {
         let name = dir
             .file_name()
             .and_then(|name| name.to_str())
@@ -159,8 +171,16 @@ fn collect_doc_packages(dir: &Path, index_name: &str, page_ext: &str, out: &mut 
         let mut pages = fs::read_dir(dir)
             .unwrap_or_else(|_| panic!("read {name} doc directory"))
             .map(|entry| entry.expect("read doc entry").path())
-            .filter(|path| path.extension().is_some_and(|extension| extension == page_ext))
-            .filter(|path| path.file_name().is_some_and(|name| name != index_name))
+            .filter(|path| {
+                path.extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| page_exts.contains(&extension))
+            })
+            .filter(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(|name| !index_names.contains(&name))
+            })
             .collect::<Vec<_>>();
         pages.sort();
         out.push(DocPackage {
@@ -178,7 +198,7 @@ fn collect_doc_packages(dir: &Path, index_name: &str, page_ext: &str, out: &mut 
         .collect::<Vec<_>>();
     subdirs.sort();
     for subdir in subdirs {
-        collect_doc_packages(&subdir, index_name, page_ext, out);
+        collect_doc_packages(&subdir, index_names, page_exts, out);
     }
 }
 

@@ -53,7 +53,7 @@ TEMPLATE_EOF
 PACKAGES=()
 while IFS= read -r dir; do
   PACKAGES+=("$(basename "$dir")")
-done < <(find src/man/builtins -mindepth 1 -maxdepth 1 -type d | sort)
+done < <(find src/docs/man/builtins -mindepth 1 -maxdepth 1 -type d | sort)
 
 total=${#PACKAGES[@]}
 echo "Updating package man pages for $total packages..."
@@ -86,23 +86,23 @@ for i in "${!PACKAGES[@]}"; do
   echo "=== [$count/$total] $pkg ==="
 
   claude -p --dangerously-skip-permissions "Update the mfb package man page for the built-in package '$pkg'.
-This is the package overview page at src/man/builtins/${pkg}/package.txt, not a per-function page.
+This is the package overview page at src/docs/man/builtins/${pkg}/package.txt, not a per-function page.
 
 Steps:
-1. Read several src/man/builtins/*/package.txt files to understand the package-page
+1. Read several src/docs/man/builtins/*/package.txt files to understand the package-page
    format and style conventions (how SYNOPSIS, DESCRIPTION, and SEE ALSO are written
    for a whole package rather than a single function).
 2. Read the package's compiler source (${src_list}) to understand which functions and
    constants it exports, the built-in types it defines, and its shared conventions.
-3. Read the per-function man pages in src/man/builtins/${pkg}/*.txt (every .txt except
+3. Read the per-function man pages in src/docs/man/builtins/${pkg}/*.txt (every .txt except
    package.txt) so the DESCRIPTION reflects the conventions those pages share. Do NOT
    list every function in package.txt -- the 'mfb man ${pkg}' command appends that list
    automatically (see the note below).
-4. Determine the errors the package's functions can raise. Read src/man/errors/package.txt
+4. Determine the errors the package's functions can raise. Read src/docs/man/errors/package.txt
    for the Error model and src/target/shared/code/mod.rs for the canonical error registry:
    each ERR_*_CODE constant maps a symbolic name (e.g. ErrInvalidArgument) to its numeric
    code (e.g. 77050002). Collect the codes that functions in this package raise.
-5. Write the updated package.txt at src/man/builtins/${pkg}/package.txt.
+5. Write the updated package.txt at src/docs/man/builtins/${pkg}/package.txt.
 
 Format rules:
 - NAME line: '  <package> - <one-line description>'

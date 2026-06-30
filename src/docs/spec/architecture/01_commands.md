@@ -68,8 +68,8 @@ topic); `mfb repo register|auth` (repository-owner key registration and
 authentication); `mfb doc [--out file] [location]` and `mfb pkg doc` (HTML
 documentation rendering via `src/doc.rs`); `mfb audit [--format text|json]
 [--locked] [path]` (project audit reporting via `src/audit`); `mfb man [package]
-[function]` (built-in help, `src/man`); and `mfb spec` (this embedded
-specification, `src/spec`). These are not part of the build pipeline.
+[function]` (built-in help, `src/docs/man`); and `mfb spec` (this embedded
+specification, `src/docs/spec`). These are not part of the build pipeline.
 
 ## See Also
 
