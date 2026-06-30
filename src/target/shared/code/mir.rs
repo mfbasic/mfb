@@ -31,13 +31,22 @@ pub(crate) struct MirInstruction {
     pub(crate) fields: Vec<(&'static str, String)>,
 }
 
-// The MIR op set is two groups (`mir.md §10`):
+// The MIR op set is four groups (`mir.md §4`/§10):
 //
-// - **mirror** ops carry over a single AArch64 [`CodeOp`] 1:1 (the plan-00-A
-//   layer). The macro derives the `CodeOp` <-> `MirOp` conversions from this
+// - **mirror** ops carry over a single AArch64 [`CodeOp`] 1:1 *with its mnemonic
+//   unchanged* (the plan-00-A layer, plus the ops whose AArch64 mnemonic is
+//   already ISA-neutral — `clz`/`rbit`/`msub`/the universal ALU/move/load
+//   shapes). The macro derives the `CodeOp` <-> `MirOp` conversions from this
 //   list, so the mapping is *total and exhaustive by construction* — a missing
 //   variant is a compile error, which is what keeps the byte-identical round
 //   trip honest. Their display mnemonic delegates to `CodeOp`.
+// - **renamed** ops also carry a single AArch64 [`CodeOp`] 1:1 (plan-00-C), but
+//   the MIR mnemonic is the **ISA-neutral semantic name** (`smulh`→`mulhi_s`,
+//   `rorv`→`rotr`, `fcvtzs_x_from_d`→`f2i_trunc`, …) rather than the AArch64
+//   instruction. The conversion stays 1:1 — selection maps the neutral MIR op
+//   straight back to its one `CodeOp` and the encoder is untouched — so the
+//   `.ncode`/binary remain byte-identical; only the `-mir` dump shows the
+//   neutral name (`mir.md §4`, validation §5: no `smulh`/`rorv`/`adrp`).
 // - **fused** ops are the neutral, *flagless* control-flow ops (plan-00-B): a
 //   compare-and-branch (`br_cc`/`fbr_cc`) or an explicit-overflow arithmetic
 //   (`add_ovf`/`sub_ovf`) that each stand in for an AArch64 flag-setter + the
@@ -46,34 +55,51 @@ pub(crate) struct MirInstruction {
 //   mnemonic. [`lower_to_mir`] produces them by fusing adjacent pairs;
 //   [`select_aarch64`] expands them back to the exact `cmp; b.cc` / `adds; b.vc`
 //   the backend emits today.
+// - **expand** ops are the neutral *structural* ops (plan-00-C): a single MIR op
+//   that an ISA realizes with a short fixed instruction *sequence*. Today the
+//   only one is `addr_of <sym>` — one PC-relative symbol-address op that AArch64
+//   selects as the `adrp; add :lo12:` page pair (x86 `lea` RIP-rel, rv64
+//   `auipc; addi` later). Like fused ops they have no single `CodeOp` (they
+//   expand to two); [`lower_to_mir`] produces them by fusing the adjacent
+//   `adrp; add_pageoff` pair and [`select_aarch64`] expands them back
+//   byte-for-byte (`mir.md §4`).
 macro_rules! mir_ops {
     (
         mirror { $($mv:ident),+ $(,)? }
+        renamed { $($rc:ident => $rv:ident => $rm:literal),+ $(,)? }
         fused { $($fv:ident => $fm:literal),+ $(,)? }
+        expand { $($ev:ident => $em:literal),+ $(,)? }
     ) => {
-        /// Neutral machine-IR opcode (`mir.md §10`).
+        /// Neutral machine-IR opcode (`mir.md §4`/§10).
         #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         pub(crate) enum MirOp {
             $($mv,)+
+            $($rv,)+
             $($fv,)+
+            $($ev,)+
         }
 
         impl MirOp {
-            /// Map a selected AArch64 [`CodeOp`] up to its mirror MIR op. Total
-            /// over `CodeOp` (every `CodeOp` is a mirror variant).
+            /// Map a selected AArch64 [`CodeOp`] up to its MIR op. Total over
+            /// `CodeOp` (every `CodeOp` is a mirror *or* a renamed variant; the
+            /// fused/expand ops are produced by fusion in [`lower_to_mir`], never
+            /// by `from_code`).
             fn from_code(op: CodeOp) -> Self {
                 match op {
-                    $(CodeOp::$mv => MirOp::$mv),+
+                    $(CodeOp::$mv => MirOp::$mv,)+
+                    $(CodeOp::$rc => MirOp::$rv,)+
                 }
             }
 
-            /// The single AArch64 [`CodeOp`] a mirror op selects, or `None` for
-            /// a fused control-flow op (which expands to two instructions — see
-            /// [`select_aarch64`]).
+            /// The single AArch64 [`CodeOp`] a mirror/renamed op selects, or
+            /// `None` for a fused control-flow op or a structural expand op
+            /// (which expand to two instructions — see [`select_aarch64`]).
             fn to_code(self) -> Option<CodeOp> {
                 match self {
                     $(MirOp::$mv => Some(CodeOp::$mv),)+
+                    $(MirOp::$rv => Some(CodeOp::$rc),)+
                     $(MirOp::$fv => None,)+
+                    $(MirOp::$ev => None,)+
                 }
             }
 
@@ -81,7 +107,9 @@ macro_rules! mir_ops {
             pub(crate) fn mnemonic(self) -> &'static str {
                 match self {
                     $(MirOp::$mv => CodeOp::$mv.mnemonic(),)+
+                    $(MirOp::$rv => $rm,)+
                     $(MirOp::$fv => $fm,)+
+                    $(MirOp::$ev => $em,)+
                 }
             }
         }
@@ -90,18 +118,39 @@ macro_rules! mir_ops {
 
 mir_ops!(
     mirror {
-        Label, Mov, MovImm, Add, Adds, Sub, Subs, And, Orr, Eor, Mvn, Mul, SMulH, UMulH, Adc, Rorv,
-        RorvW, Lslv, Lsrv, Asrv, Clz, Rbit, RevW, RevX, SDiv, UDiv, MSub, LslImm, LsrImm, AsrImm,
-        AddImm, SubImm, SubSp, AddSp, CmpImm, Cmp, BranchEq, BranchNe, BranchGe, BranchLt, BranchGt,
-        BranchLe, BranchVc, BranchVs, BranchHi, BranchLo, BranchMi, BranchLs, Branch, BranchLink,
-        BranchLinkRegister, BranchSelf, Svc, Ret, LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32,
-        StrU8, LdrD, StrD, Adrp, AddPageOff, FMovXFromD, FMovDFromX, FMovDFromD, FAddD, FSubD,
-        FMulD, FDivD, FNegD, FAbsD, FSqrtD, FCmpD, FCmpZeroD, SCvtfDFromX, FCvtzsXFromD,
-        FCvtmsXFromD, FCvtpsXFromD, FCvtasXFromD, LdrQ, StrQ, FAddV, FSubV, FMulV, FDivV, FMlaV,
-        FMlsV, FMinV, FMaxV, FCmGtV, FCmGeV, FCmEqV, FAbsV, FNegV, FSqrtV, FRintpV, FRintmV,
-        FRintaV, FRintnV, FRintzV, FCvtzsV, FCvtasV, ScvtfV, FCmGtZeroV, FCmGeZeroV, FCmEqZeroV,
-        FCmLtZeroV, FCmLeZeroV, AddV, SubV, CmGtV, CmGeV, CmEqV, SshlV, UshlV, NegV, AbsV, AndV,
-        OrrV, EorV, BslV, BitV, ShlV, SshrV, UshrV, DupVFromX, UmovXFromV, FMaddD,
+        Label, Mov, MovImm, Add, Adds, Sub, Subs, And, Orr, Eor, Mvn, Mul, Lslv, Lsrv, Asrv, Clz,
+        Rbit, SDiv, UDiv, MSub, LslImm, LsrImm, AsrImm, AddImm, SubImm, SubSp, AddSp, CmpImm, Cmp,
+        BranchEq, BranchNe, BranchGe, BranchLt, BranchGt, BranchLe, BranchVc, BranchVs, BranchHi,
+        BranchLo, BranchMi, BranchLs, Branch, BranchLink, BranchLinkRegister, BranchSelf, Svc, Ret,
+        LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU8, LdrD, StrD, Adrp, AddPageOff,
+        FMovDFromD, FAddD, FSubD, FMulD, FDivD, FNegD, FAbsD, FSqrtD, FCmpD, FCmpZeroD, LdrQ, StrQ,
+        FAddV, FSubV, FMulV, FDivV, FMlaV, FMlsV, FMinV, FMaxV, FCmGtV, FCmGeV, FCmEqV, FAbsV,
+        FNegV, FSqrtV, FRintpV, FRintmV, FRintaV, FRintnV, FRintzV, FCvtzsV, FCvtasV, ScvtfV,
+        FCmGtZeroV, FCmGeZeroV, FCmEqZeroV, FCmLtZeroV, FCmLeZeroV, AddV, SubV, CmGtV, CmGeV, CmEqV,
+        SshlV, UshlV, NegV, AbsV, AndV, OrrV, EorV, BslV, BitV, ShlV, SshrV, UshrV, DupVFromX,
+        UmovXFromV, FMaddD,
+    }
+    // Neutral semantic names for the AArch64-specific scalar shapes (plan-00-C
+    // Phases 3 & 4). `CodeOp` (lhs) ⇒ `MirOp` (mid) ⇒ neutral mnemonic (rhs);
+    // the conversion is still 1:1, so selection is byte-identical.
+    renamed {
+        // §3 "exotic" integer ops — not 1:1 across ISAs, named semantically here
+        // so the backends can select natively or expand.
+        SMulH => MulhiS => "mulhi_s",     // smulh: signed 64×64→high 64
+        UMulH => MulhiU => "mulhi_u",     // umulh: unsigned 64×64→high 64
+        Adc => AddC => "addc",            // adc:   add with carry-in/out
+        Rorv => Rotr => "rotr",           // rorv:  rotate-right (64-bit, variable)
+        RorvW => RotrW => "rotr_w",       // rorv:  rotate-right (32-bit, variable)
+        RevW => BswapW => "bswap_w",      // rev:   byte reverse (32-bit)
+        RevX => Bswap => "bswap",         // rev:   byte reverse (64-bit)
+        // §4 float↔int conversions (rounding-mode family) + bit reinterpret.
+        FCvtzsXFromD => F2iTrunc => "f2i_trunc",     // fcvtzs: toward zero
+        FCvtmsXFromD => F2iFloor => "f2i_floor",     // fcvtms: toward −inf
+        FCvtpsXFromD => F2iCeil => "f2i_ceil",       // fcvtps: toward +inf
+        FCvtasXFromD => F2iNearest => "f2i_nearest", // fcvtas: nearest, ties away
+        SCvtfDFromX => I2f => "i2f",                 // scvtf:  signed int → f64
+        FMovDFromX => FmovI2f => "fmov_i2f",         // fmov:   i64 bits → f64 (reinterpret)
+        FMovXFromD => FmovF2i => "fmov_f2i",         // fmov:   f64 bits → i64 (reinterpret)
     }
     fused {
         // Flagless compare-and-branch (`mir.md §5`): one neutral op for the
@@ -117,6 +166,12 @@ mir_ops!(
         // overflow-trap branch that read the V flag, fused into one op.
         AddOvf => "add_ovf",
         SubOvf => "sub_ovf",
+    }
+    expand {
+        // PC-relative symbol address (`mir.md §4`): one neutral op for the
+        // AArch64 `adrp; add :lo12:` page pair. Fused from the adjacent pair in
+        // [`lower_to_mir`] and expanded back byte-for-byte in [`select_aarch64`].
+        AddrOf => "addr_of",
     }
 );
 
@@ -219,10 +274,46 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
         MirInstruction { op, fields }
     }
 
+    // Fuse an `adrp; add_pageoff` page pair into one `addr_of`, or `None` if the
+    // two do not form a single same-register symbol-address sequence.
+    fn fuse_addr_of(adrp: &CodeInstruction, add: &CodeInstruction) -> Option<MirInstruction> {
+        if add.op != CodeOp::AddPageOff {
+            return None;
+        }
+        let dst = adrp.get("dst")?;
+        let symbol = adrp.get("symbol")?;
+        if add.get("dst") == Some(dst) && add.get("src") == Some(dst) && add.get("symbol") == Some(symbol)
+        {
+            // Carry the `adrp` field bag (`[dst, symbol]`); the expansion
+            // reconstructs `add_pageoff`'s `src == dst` from it.
+            Some(MirInstruction {
+                op: MirOp::AddrOf,
+                fields: adrp.fields.clone(),
+            })
+        } else {
+            None
+        }
+    }
+
     let mut out = Vec::with_capacity(instructions.len());
     let mut i = 0;
     while i < instructions.len() {
         let setter = &instructions[i];
+        // `addr_of` fusion (plan-00-C): a symbol-address `adrp <dst>, <sym>;
+        // add_pageoff <dst>, <dst>, <sym>` page pair is one neutral PC-relative
+        // address op. The two are always emitted adjacently with `src == dst`
+        // (every builder/helper site goes through `abi::load_page_address` +
+        // `abi::add_page_offset` on the same register), so the fused op carries
+        // just `[dst, symbol]` and `select_aarch64` rebuilds the pair exactly.
+        if setter.op == CodeOp::Adrp {
+            if let Some(add) = instructions.get(i + 1) {
+                if let Some(addr_of) = fuse_addr_of(setter, add) {
+                    out.push(addr_of);
+                    i += 2;
+                    continue;
+                }
+            }
+        }
         if let Some(fused_op) = fused_variant(setter.op) {
             if instructions
                 .get(i + 1)
@@ -262,6 +353,26 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
 pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruction> {
     let mut out = Vec::with_capacity(instructions.len());
     for instruction in instructions {
+        if instruction.op == MirOp::AddrOf {
+            // Structural expand (plan-00-C): `addr_of <dst>, <sym>` → the exact
+            // `adrp <dst>, <sym>; add_pageoff <dst>, <dst>, <sym>` pair the
+            // builders emit today (`abi::load_page_address` + `add_page_offset`).
+            let dst = instruction
+                .fields
+                .iter()
+                .find(|(key, _)| *key == "dst")
+                .map(|(_, value)| value.clone())
+                .expect("addr_of carries a dst field");
+            let symbol = instruction
+                .fields
+                .iter()
+                .find(|(key, _)| *key == "symbol")
+                .map(|(_, value)| value.clone())
+                .expect("addr_of carries a symbol field");
+            out.push(abi::load_page_address(&dst, &symbol));
+            out.push(abi::add_page_offset(&dst, &dst, &symbol));
+            continue;
+        }
         if let Some(setter_op) = fused_setter_codeop(instruction.op) {
             // Split the field bag at the `cond` marker: everything before it is
             // the flag-setter's operands; its value is the branch mnemonic;
@@ -547,13 +658,12 @@ mod tests {
         }
     }
 
-    /// Every mirror `CodeOp` round-trips through `MirOp` unchanged — the
-    /// property the byte-identical gate rests on.
+    /// Every `CodeOp` round-trips through `MirOp` unchanged — the property the
+    /// byte-identical gate rests on. `from_code`/`to_code` are exhaustive
+    /// matches, so a coverage gap is a compile error rather than a test miss.
     #[test]
     fn code_op_round_trips_through_mir() {
-        // A representative spread across the op families; `from_code`/`to_code`
-        // are exhaustive matches, so a coverage gap is a compile error rather
-        // than a test miss.
+        // Mirror ops: the MIR op carries the same mnemonic as its `CodeOp`.
         for op in [
             CodeOp::Label,
             CodeOp::Mov,
@@ -565,9 +675,44 @@ mod tests {
             CodeOp::FMaddD,
             CodeOp::DupVFromX,
             CodeOp::UmovXFromV,
+            CodeOp::Clz,  // already-neutral exotic int op — stays a mirror
+            CodeOp::Rbit, // (clz/rbit/msub keep their semantic AArch64 name)
+            CodeOp::MSub,
         ] {
             assert_eq!(MirOp::from_code(op).to_code(), Some(op));
             assert_eq!(MirOp::from_code(op).mnemonic(), op.mnemonic());
+        }
+    }
+
+    /// Renamed ops (plan-00-C Phases 3 & 4) still convert 1:1 to their `CodeOp`
+    /// — so selection/encoding stay byte-identical — but the MIR mnemonic is the
+    /// ISA-neutral semantic name, *not* the AArch64 instruction. This is the
+    /// `mir.md §4` / validation §5 requirement: no `smulh`/`umulh`/`rorv`/`adc`/
+    /// `rev`/`fcvt*`/`scvtf` mnemonics in the MIR.
+    #[test]
+    fn renamed_ops_are_neutral_but_select_back_identically() {
+        for (code, neutral) in [
+            (CodeOp::SMulH, "mulhi_s"),
+            (CodeOp::UMulH, "mulhi_u"),
+            (CodeOp::Adc, "addc"),
+            (CodeOp::Rorv, "rotr"),
+            (CodeOp::RorvW, "rotr_w"),
+            (CodeOp::RevW, "bswap_w"),
+            (CodeOp::RevX, "bswap"),
+            (CodeOp::FCvtzsXFromD, "f2i_trunc"),
+            (CodeOp::FCvtmsXFromD, "f2i_floor"),
+            (CodeOp::FCvtpsXFromD, "f2i_ceil"),
+            (CodeOp::FCvtasXFromD, "f2i_nearest"),
+            (CodeOp::SCvtfDFromX, "i2f"),
+            (CodeOp::FMovDFromX, "fmov_i2f"),
+            (CodeOp::FMovXFromD, "fmov_f2i"),
+        ] {
+            let mir = MirOp::from_code(code);
+            // 1:1 selection back to the same CodeOp — byte-identical encoding.
+            assert_eq!(mir.to_code(), Some(code));
+            // Neutral MIR mnemonic, and it no longer names the AArch64 op.
+            assert_eq!(mir.mnemonic(), neutral);
+            assert_ne!(mir.mnemonic(), code.mnemonic());
         }
     }
 
@@ -659,7 +804,8 @@ mod tests {
         let mir = lower_to_mir(&original);
         assert_eq!(mir.len(), 2);
         assert_eq!(mir[0].op, MirOp::Adds);
-        assert_eq!(mir[1].op, MirOp::Adc);
+        assert_eq!(mir[1].op, MirOp::AddC); // neutral-renamed `adc` → `addc`
+        assert_eq!(mir[1].op.mnemonic(), "addc");
         assert_round_trips(&original);
     }
 
@@ -689,5 +835,145 @@ mod tests {
         assert_eq!(get(&mir[1], "rhs"), Some("x11"));
         assert_eq!(get(&mir[1], "cond"), Some("b.hi"));
         assert_round_trips(&original);
+    }
+
+    /// An `adrp; add_pageoff` page pair fuses into one neutral `addr_of` and
+    /// expands back to the exact same two instructions (plan-00-C Phase 1). The
+    /// fused op carries only `[dst, symbol]`; the expansion reconstructs
+    /// `add_pageoff`'s `src == dst`.
+    #[test]
+    fn addr_of_fuses_and_expands_identically() {
+        let original = [
+            CodeInstruction::new("adrp").field("dst", "x9").field("symbol", "str.0"),
+            CodeInstruction::new("add_pageoff")
+                .field("dst", "x9")
+                .field("src", "x9")
+                .field("symbol", "str.0"),
+        ];
+        let mir = lower_to_mir(&original);
+        assert_eq!(mir.len(), 1);
+        assert_eq!(mir[0].op, MirOp::AddrOf);
+        assert_eq!(mir[0].op.mnemonic(), "addr_of");
+        let get = |k: &str| mir[0].fields.iter().find(|(f, _)| *f == k).map(|(_, v)| v.as_str());
+        assert_eq!(get("dst"), Some("x9"));
+        assert_eq!(get("symbol"), Some("str.0"));
+        // No `adrp`/`add_pageoff` mnemonic survives in the MIR (validation §5).
+        assert!(!mir.iter().any(|m| matches!(m.op, MirOp::Adrp | MirOp::AddPageOff)));
+        assert_round_trips(&original);
+    }
+
+    /// A lone `adrp` (no following `add_pageoff`), or a pair whose registers do
+    /// not line up, is *not* fused — it stays a mirror op so the stream still
+    /// round-trips. Guards against an over-eager fusion mistaking an unrelated
+    /// page load for the address-of sequence.
+    #[test]
+    fn unpaired_or_mismatched_adrp_is_not_fused() {
+        // Lone adrp followed by an unrelated op.
+        let lone = [
+            CodeInstruction::new("adrp").field("dst", "x9").field("symbol", "g"),
+            CodeInstruction::new("ret"),
+        ];
+        let mir = lower_to_mir(&lone);
+        assert_eq!(mir[0].op, MirOp::Adrp);
+        assert_round_trips(&lone);
+        // add_pageoff on a *different* register than the adrp — not an addr_of.
+        let mismatch = [
+            CodeInstruction::new("adrp").field("dst", "x9").field("symbol", "g"),
+            CodeInstruction::new("add_pageoff")
+                .field("dst", "x10")
+                .field("src", "x10")
+                .field("symbol", "g"),
+        ];
+        let mir = lower_to_mir(&mismatch);
+        assert_eq!(mir.len(), 2);
+        assert_eq!(mir[0].op, MirOp::Adrp);
+        assert_eq!(mir[1].op, MirOp::AddPageOff);
+        assert_round_trips(&mismatch);
+    }
+
+    /// The byte-identical gate, in miniature: a 36-fixture sweep with at least
+    /// one instruction from **every** builder op family — moves & immediates,
+    /// the universal ALU, the neutral-renamed exotic integer ops, the structural
+    /// `addr_of` pair, every load/store width, scalar float arith + the renamed
+    /// float↔int conversions & bit-reinterprets, the NEON `v128` ops, and the
+    /// fused flagless control-flow ops. `select_aarch64 ∘ lower_to_mir` must be
+    /// the identity on the whole stream (the property the `.ncode`/binary
+    /// self-diff oracle, `scripts/codegen-selfdiff.sh`, proves end-to-end).
+    #[test]
+    fn round_trip_sweep_over_every_op_family() {
+        let fixtures: [CodeInstruction; 36] = [
+            // — moves & immediates —
+            CodeInstruction::new("mov").field("dst", "%v0").field("src", "x1"),
+            CodeInstruction::new("mov_imm").field("dst", "%v1").field("value", "4294967296"),
+            // — universal ALU (incl. the immediate forms that keep small imms) —
+            CodeInstruction::new("add").field("dst", "%v2").field("lhs", "%v0").field("rhs", "%v1"),
+            CodeInstruction::new("sub").field("dst", "%v3").field("lhs", "%v2").field("rhs", "%v0"),
+            CodeInstruction::new("mul").field("dst", "%v4").field("lhs", "%v2").field("rhs", "%v3"),
+            CodeInstruction::new("and").field("dst", "%v5").field("lhs", "%v4").field("rhs", "%v0"),
+            CodeInstruction::new("orr").field("dst", "%v6").field("lhs", "%v5").field("rhs", "%v1"),
+            CodeInstruction::new("eor").field("dst", "%v7").field("lhs", "%v6").field("rhs", "%v2"),
+            CodeInstruction::new("mvn").field("dst", "%v8").field("src", "%v7"),
+            CodeInstruction::new("sdiv").field("dst", "%v9").field("lhs", "%v8").field("rhs", "%v0"),
+            CodeInstruction::new("udiv").field("dst", "%v10").field("lhs", "%v9").field("rhs", "%v1"),
+            CodeInstruction::new("lslv").field("dst", "%v11").field("lhs", "%v10").field("rhs", "%v0"),
+            CodeInstruction::new("add_imm").field("dst", "%v12").field("src", "%v11").field("imm", "8"),
+            CodeInstruction::new("lsl_imm").field("dst", "%v13").field("src", "%v12").field("shift", "3"),
+            // — neutral-renamed "exotic" integer ops (Phase 3) —
+            CodeInstruction::new("smulh").field("dst", "%v14").field("lhs", "%v0").field("rhs", "%v1"),
+            CodeInstruction::new("umulh").field("dst", "%v15").field("lhs", "%v0").field("rhs", "%v1"),
+            CodeInstruction::new("adc").field("dst", "%v16").field("lhs", "%v14").field("rhs", "%v15"),
+            CodeInstruction::new("rorv").field("dst", "%v17").field("lhs", "%v16").field("rhs", "%v0"),
+            CodeInstruction::new("rev_x").field("dst", "%v18").field("src", "%v17"),
+            CodeInstruction::new("clz").field("dst", "%v19").field("src", "%v18"),
+            CodeInstruction::new("msub")
+                .field("dst", "%v20")
+                .field("lhs", "%v0")
+                .field("rhs", "%v1")
+                .field("minuend", "%v2"),
+            // — structural addr_of page pair (Phase 1): fuses to one op —
+            CodeInstruction::new("adrp").field("dst", "%v21").field("symbol", "pool"),
+            CodeInstruction::new("add_pageoff")
+                .field("dst", "%v21")
+                .field("src", "%v21")
+                .field("symbol", "pool"),
+            // — loads/stores, every width —
+            CodeInstruction::new("ldr_u64").field("dst", "%v22").field("base", "%v21").field("offset", "0"),
+            CodeInstruction::new("str_u8").field("src", "%v22").field("base", "%v21").field("offset", "16"),
+            CodeInstruction::new("ldr_d").field("dst", "%f0").field("base", "%v21").field("offset", "24"),
+            // — scalar float arith + renamed conversions / bit-reinterprets (Phase 4) —
+            CodeInstruction::new("fadd_d").field("dst", "%f1").field("lhs", "%f0").field("rhs", "%f0"),
+            CodeInstruction::new("fmadd_d")
+                .field("dst", "%f2")
+                .field("lhs", "%f1")
+                .field("rhs", "%f0")
+                .field("acc", "%f1"),
+            CodeInstruction::new("scvtf_d_from_x").field("dst", "%f3").field("src", "%v0"),
+            CodeInstruction::new("fcvtzs_x_from_d").field("dst", "%v23").field("src", "%f3"),
+            CodeInstruction::new("fcvtms_x_from_d").field("dst", "%v24").field("src", "%f3"),
+            CodeInstruction::new("fmov_d_from_x").field("dst", "%f4").field("src", "%v0"),
+            CodeInstruction::new("fmov_x_from_d").field("dst", "%v25").field("src", "%f4"),
+            // — NEON v128 op —
+            CodeInstruction::new("fmla_v").field("dst", "%f5").field("lhs", "%f3").field("rhs", "%f4"),
+            // — fused flagless control flow (Phases B/C neighbours) —
+            CodeInstruction::new("cmp").field("lhs", "%v0").field("rhs", "%v1"),
+            CodeInstruction::new("b.lt").field("target", "Lbody"),
+        ];
+        assert_round_trips(&fixtures);
+
+        // And the resulting MIR names nothing AArch64-specific from the
+        // neutralized families (validation §5).
+        let mir = lower_to_mir(&fixtures);
+        let banned = [
+            "adrp", "add_pageoff", "smulh", "umulh", "adc", "rorv", "rorv_w", "rev_w", "rev_x",
+            "fcvtzs_x_from_d", "fcvtms_x_from_d", "fcvtps_x_from_d", "fcvtas_x_from_d",
+            "scvtf_d_from_x", "fmov_d_from_x", "fmov_x_from_d",
+        ];
+        for instruction in &mir {
+            let mnemonic = instruction.op.mnemonic();
+            assert!(
+                !banned.contains(&mnemonic),
+                "MIR still names an AArch64-specific op: {mnemonic}"
+            );
+        }
     }
 }
