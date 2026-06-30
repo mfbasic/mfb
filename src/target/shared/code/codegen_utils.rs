@@ -403,6 +403,62 @@ pub(super) fn finalize_frame(
     }
 }
 
+/// Allocate registers for a hand-written runtime helper whose body is built with
+/// **virtual registers** (`%vN`/`%fN`) and finalize its frame — the same pipeline
+/// the builder functions use (`regalloc::allocate` + [`finalize_frame`]). This
+/// lets a helper be written in target-neutral vreg MIR (no fixed `x9`/`v22`…) so
+/// the shared allocator places its registers per-ISA, which is what makes the
+/// helpers portable (plan-00-G Phase 2). Physical operands the body still names —
+/// `arena_base` (the reserved arena register), the ABI `x0`–`x7` it loads call
+/// args into and reads results from — stay physical (the allocator never colors
+/// them, and the call clobber model spills any vreg live across a `bl`/`svc`).
+/// The helper makes no use of eager hints; it has no declared params (it uses the
+/// ABI registers directly).
+pub(super) fn finalize_vreg_helper(
+    name: &str,
+    symbol: &str,
+    returns: &str,
+    mut instructions: Vec<CodeInstruction>,
+    relocations: Vec<CodeRelocation>,
+) -> CodeFunction {
+    let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
+    let outcome = regalloc::allocate(
+        regalloc::active_kind(),
+        &mut instructions,
+        &[],
+        &[],
+        &model,
+        0,
+    );
+    let mut stack_slots: Vec<CodeStackSlot> = outcome
+        .spill_slots
+        .iter()
+        .enumerate()
+        .map(|(index, offset)| CodeStackSlot {
+            name: format!("spill_{index}"),
+            type_: "spill".to_string(),
+            offset: *offset as i32,
+        })
+        .collect();
+    let stack_size = outcome.spill_slots.len() * 8;
+    let frame = finalize_frame(
+        &mut instructions,
+        &mut stack_slots,
+        stack_size,
+        outcome.extra_callee_saved,
+    );
+    CodeFunction {
+        name: name.to_string(),
+        symbol: symbol.to_string(),
+        params: Vec::new(),
+        returns: returns.to_string(),
+        frame,
+        instructions,
+        relocations,
+        stack_slots,
+    }
+}
+
 /// Whether `register` is a 64-bit FP scalar (`d0`–`d31`), which must be spilled
 /// with `str d`/`ldr d` in the callee-save area rather than the GPR `str`/`ldr`
 /// (plan-03 Stage D callee-saved FP).

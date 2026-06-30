@@ -17,11 +17,15 @@ use super::super::types::CodeInstruction;
 
 /// Fields that name a register the instruction *writes*. AArch64 is
 /// three-address with no tied operands, so a `dst` field is always a pure
-/// definition.
-const DEF_FIELDS: &[&str] = &["dst"];
+/// definition. `carry_out`/`borrow_out` are the second result of the
+/// explicit-carry `add_carry`/`sub_borrow` ops (plan-00-G §4).
+const DEF_FIELDS: &[&str] = &["dst", "carry_out", "borrow_out"];
 
-/// Fields that name a register the instruction *reads*.
-const USE_FIELDS: &[&str] = &["src", "lhs", "rhs", "minuend", "base", "register", "addend"];
+/// Fields that name a register the instruction *reads*. `carry_in`/`borrow_in`
+/// are the explicit-carry input of `add_carry`/`sub_borrow`.
+const USE_FIELDS: &[&str] = &[
+    "src", "lhs", "rhs", "minuend", "base", "register", "addend", "carry_in", "borrow_in",
+];
 
 /// Per-register-class hooks the allocator core queries: which operand strings are
 /// this class's virtual registers, and which are its physical registers. The Int
