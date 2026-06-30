@@ -187,6 +187,7 @@ pub(crate) fn allocate(
     fp_eager: &[String],
     model: &dyn RegisterModel,
     spill_base_offset: usize,
+    reserved: &[&str],
 ) -> AllocOutcome {
     match kind {
         RegallocKind::BumpAndReset => {
@@ -223,10 +224,18 @@ pub(crate) fn allocate(
                 RegClass::Int,
                 &int_model,
                 spill_base_offset,
+                reserved,
             );
             *instructions = int.instructions;
             let fp_base = spill_base_offset + int.spill_slot_count * 8;
-            let fp = linear_scan::run(instructions, model, RegClass::Fp, &fp_model, fp_base);
+            let fp = linear_scan::run(
+                instructions,
+                model,
+                RegClass::Fp,
+                &fp_model,
+                fp_base,
+                reserved,
+            );
             *instructions = fp.instructions;
 
             let total_spills = int.spill_slot_count + fp.spill_slot_count;

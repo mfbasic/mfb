@@ -38,6 +38,7 @@ fn bump_rewrite_substitutes_eager_physicals() {
         &[],
         &Aarch64RegisterModel,
         0,
+        &[],
     );
     assert_eq!(instructions[0].get("dst"), Some("x8"));
     assert_eq!(instructions[0].get("lhs"), Some("x10"));
@@ -76,6 +77,7 @@ fn linear_scan_keeps_value_across_call_in_callee_saved() {
         &[],
         &Aarch64RegisterModel,
         64,
+        &[],
     );
     // No spill, and the chosen register is callee-saved (the call preserves it).
     assert!(outcome.spill_slots.is_empty());
@@ -120,6 +122,7 @@ fn linear_scan_spills_integer_across_arena_alloc() {
         &[],
         &Aarch64RegisterModel,
         64,
+        &[],
     );
     assert_eq!(outcome.spill_slots, vec![64]);
     // No sentinel survives anywhere in the rewritten stream.
@@ -156,6 +159,7 @@ fn linear_scan_colors_short_range_in_register() {
         &[],
         &Aarch64RegisterModel,
         0,
+        &[],
     );
     assert!(outcome.spill_slots.is_empty());
     // v0 colored to some allocatable physical; both operands match.

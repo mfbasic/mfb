@@ -41,6 +41,7 @@ pub(super) fn run(
     class: RegClass,
     class_model: &ClassModel,
     spill_base_offset: usize,
+    reserved: &[&str],
 ) -> RunResult {
     let live = analysis::analyze(instructions, class_model);
     let n = instructions.len();
@@ -80,10 +81,16 @@ pub(super) fn run(
         mask
     };
 
-    // Allocatable physicals as (name, index), in preference order.
+    // Allocatable physicals as (name, index), in preference order. `reserved`
+    // registers are held out of allocation entirely (used neither as a value's
+    // home nor as spill scratch / eviction victim), so a helper can guarantee it
+    // never clobbers a physical its hand-written callers rely on surviving the
+    // call (e.g. `_mfb_arena_alloc`'s `x8/x11/x12/x13/x17` survivor contract,
+    // `.ai/compiler.md`).
     let allocatable: Vec<(&str, u32)> = model
         .allocatable(class)
         .iter()
+        .filter(|&&name| !reserved.contains(&name))
         .map(|&name| {
             (
                 name,

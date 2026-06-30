@@ -573,144 +573,192 @@ fn emit_cleanup_failure_audit_report(
 }
 
 pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
-    // Grow-path frame: the fast (first-fit) path makes no call, but the rare
-    // block-grow path calls `arena_fill_random` to poison the new block, so the
-    // function carries a frame and saves the link register. The fast path never
-    // touches x11–x13/x17, and the grow path saves/restores x11–x13 around the
-    // fill call, so the historical clobber contract (x9, x10, x14, x15, x20–x28)
-    // is preserved for callers.
-    const FRAME_SIZE: usize = 64;
-    const LR_SLOT: usize = 0;
-    const UBASE_SLOT: usize = 8;
-    const USIZE_SLOT: usize = 16;
-    const X11_SLOT: usize = 24;
-    const X12_SLOT: usize = 32;
-    const X13_SLOT: usize = 40;
+    // Vreg-allocated (plan-00-G Phase 2): the body names virtual registers and the
+    // shared allocator places them per-ISA; `finalize_vreg_helper_reserved` runs
+    // the allocator + `finalize_frame` (which builds the frame, saves the link
+    // register because the grow path calls `arena_fill_random`, and saves any
+    // callee-saved registers the allocator used).
+    //
+    // The hand-written callers of `_mfb_arena_alloc` — the builder collection /
+    // string lowerings, emitted with fixed physical registers in `_mfb_fn_main` —
+    // rely on the registers the hand-written original preserved across the call.
+    // The original's first-fit fast path (the common case) used only `x9`/`x10`/
+    // `x14`/`x15` (and the saved `x20`–`x27`) as scratch, so it left `x8`/`x11`/
+    // `x12`/`x13`/`x16`/`x17` intact; callers depend on that. Reserving those six
+    // from allocation keeps the migrated fast-path clobber set identical to the
+    // original (`x16` is still clobbered by the grow path's `mmap` syscall, exactly
+    // as before — `.ai/compiler.md`).
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
-    let mut relocations = Vec::new();
-    let mut instructions = Vec::new();
+    let mut vregs = Vregs::new();
+    // Values that live across blocks: the normalized request, the walk cursor, and
+    // the split geometry. `size`/`eff_align` are loop-carried (the grow path loops
+    // back to the walk), so the allocator spills them across the grow call.
+    let eff_align = vregs.next();
+    let size = vregs.next();
+    let cur = vregs.next();
+    let prev = vregs.next();
+    let cur_size = vregs.next();
+    let aligned = vregs.next();
+    let end_needed = vregs.next();
+    let cur_end = vregs.next();
     // --- Validate alignment and normalize the request --------------------------
-    // x20 = normalized size (rounded up to the 16-byte granule), x21 = effective
-    // alignment (raised to ≥16 so every chunk start stays 16-aligned).
-    instructions.extend([
+    let align_low = vregs.next();
+    let align_pow2 = vregs.next();
+    let not15 = vregs.next();
+    let mut instructions = vec![
         abi::label("entry"),
-        abi::subtract_stack(FRAME_SIZE),
-        abi::store_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
         abi::compare_immediate("x1", "0"),
         abi::branch_eq("arena_alloc_invalid"),
-        abi::subtract_immediate("x9", "x1", 1),
-        abi::and_registers("x10", "x1", "x9"),
-        abi::compare_immediate("x10", "0"),
+        abi::subtract_immediate(&align_low, "x1", 1),
+        abi::and_registers(&align_pow2, "x1", &align_low),
+        abi::compare_immediate(&align_pow2, "0"),
         abi::branch_ne("arena_alloc_invalid"),
         // eff align = max(align, 16)
-        abi::move_register("x21", "x1"),
-        abi::compare_immediate("x21", &ARENA_MIN_CHUNK.to_string()),
+        abi::move_register(&eff_align, "x1"),
+        abi::compare_immediate(&eff_align, &ARENA_MIN_CHUNK.to_string()),
         abi::branch_lo("arena_alloc_align_min"),
         abi::branch("arena_alloc_align_ready"),
         abi::label("arena_alloc_align_min"),
-        abi::move_immediate("x21", "Integer", &ARENA_MIN_CHUNK.to_string()),
+        abi::move_immediate(&eff_align, "Integer", &ARENA_MIN_CHUNK.to_string()),
         abi::label("arena_alloc_align_ready"),
         // normalized size = round_up(max(size, 1), 16)
-        abi::move_register("x20", "x0"),
-        abi::compare_immediate("x20", "0"),
+        abi::move_register(&size, "x0"),
+        abi::compare_immediate(&size, "0"),
         abi::branch_ne("arena_alloc_size_nonzero"),
-        abi::move_immediate("x20", "Integer", "1"),
+        abi::move_immediate(&size, "Integer", "1"),
         abi::label("arena_alloc_size_nonzero"),
-        abi::add_immediate("x20", "x20", (ARENA_MIN_CHUNK - 1) as usize),
-        abi::move_immediate("x9", "Integer", &not_15),
-        abi::and_registers("x20", "x20", "x9"),
+        abi::add_immediate(&size, &size, (ARENA_MIN_CHUNK - 1) as usize),
+        abi::move_immediate(&not15, "Integer", &not_15),
+        abi::and_registers(&size, &size, &not15),
         // --- First-fit walk over the address-ordered free-list -----------------
         abi::label("arena_alloc_walk"),
-        abi::load_u64("x22", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
-        abi::move_immediate("x23", "Integer", "0"),
+        abi::load_u64(&cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::move_immediate(&prev, "Integer", "0"),
         abi::label("arena_alloc_walk_loop"),
-        abi::compare_immediate("x22", "0"),
+        abi::compare_immediate(&cur, "0"),
         abi::branch_eq("arena_alloc_grow"),
-        abi::load_u64("x24", "x22", 8),          // cur_size
-        abi::subtract_immediate("x9", "x21", 1), // align mask
-        abi::add_registers("x25", "x22", "x9"),
-        abi::compare_registers("x25", "x22"),
+        abi::load_u64(&cur_size, &cur, 8), // cur_size
+    ];
+    let align_mask = vregs.next();
+    let align_notmask = vregs.next();
+    instructions.extend([
+        abi::subtract_immediate(&align_mask, &eff_align, 1), // align mask
+        abi::add_registers(&aligned, &cur, &align_mask),
+        abi::compare_registers(&aligned, &cur),
         abi::branch_lo("arena_alloc_walk_next"), // align overflow → skip
-        abi::bitwise_not("x10", "x9"),
-        abi::and_registers("x25", "x25", "x10"), // aligned
-        abi::add_registers("x26", "x25", "x20"), // end_needed
-        abi::compare_registers("x26", "x25"),
+        abi::bitwise_not(&align_notmask, &align_mask),
+        abi::and_registers(&aligned, &aligned, &align_notmask), // aligned
+        abi::add_registers(&end_needed, &aligned, &size), // end_needed
+        abi::compare_registers(&end_needed, &aligned),
         abi::branch_lo("arena_alloc_walk_next"), // size overflow → skip
-        abi::add_registers("x27", "x22", "x24"), // cur_end
-        abi::compare_registers("x26", "x27"),
+        abi::add_registers(&cur_end, &cur, &cur_size), // cur_end
+        abi::compare_registers(&end_needed, &cur_end),
         abi::branch_hi("arena_alloc_walk_next"), // doesn't fit → next
         abi::branch("arena_alloc_found"),
         abi::label("arena_alloc_walk_next"),
-        abi::move_register("x23", "x22"),
-        abi::load_u64("x22", "x22", 0),
+        abi::move_register(&prev, &cur),
+        abi::load_u64(&cur, &cur, 0),
         abi::branch("arena_alloc_walk_loop"),
-        // --- Found: split the chosen chunk -------------------------------------
-        // cur=x22, prev=x23, cur_size=x24, aligned=x25, end_needed=x26,
-        // cur_end=x27, next=x9, front_pad=x14, tail_size=x15, link target=x10.
+    ]);
+    // --- Found: split the chosen chunk -------------------------------------
+    let next_node = vregs.next();
+    let front_pad = vregs.next();
+    let tail_size = vregs.next();
+    let link = vregs.next();
+    instructions.extend([
         abi::label("arena_alloc_found"),
-        abi::load_u64("x9", "x22", 0),                // next
-        abi::subtract_registers("x14", "x25", "x22"), // front_pad
-        abi::subtract_registers("x15", "x27", "x26"), // tail_size
-        abi::compare_immediate("x14", "0"),
+        abi::load_u64(&next_node, &cur, 0), // next
+        abi::subtract_registers(&front_pad, &aligned, &cur), // front_pad
+        abi::subtract_registers(&tail_size, &cur_end, &end_needed), // tail_size
+        abi::compare_immediate(&front_pad, "0"),
         abi::branch_ne("arena_alloc_have_front"),
-        abi::compare_immediate("x15", "0"),
+        abi::compare_immediate(&tail_size, "0"),
         abi::branch_ne("arena_alloc_front0_tail1"),
         // case: chunk consumed exactly → link target is `next`
-        abi::move_register("x10", "x9"),
+        abi::move_register(&link, &next_node),
         abi::branch("arena_alloc_set_prev_link"),
         abi::label("arena_alloc_front0_tail1"),
         // case: tail remainder only → new free node at end_needed
-        abi::store_u64("x9", "x26", 0),
-        abi::store_u64("x15", "x26", 8),
-        abi::move_register("x10", "x26"),
+        abi::store_u64(&next_node, &end_needed, 0),
+        abi::store_u64(&tail_size, &end_needed, 8),
+        abi::move_register(&link, &end_needed),
         abi::branch("arena_alloc_set_prev_link"),
         abi::label("arena_alloc_have_front"),
-        abi::compare_immediate("x15", "0"),
+        abi::compare_immediate(&tail_size, "0"),
         abi::branch_ne("arena_alloc_front1_tail1"),
         // case: front padding only → shrink node in place at cur
-        abi::store_u64("x9", "x22", 0),
-        abi::store_u64("x14", "x22", 8),
-        abi::move_register("x10", "x22"),
+        abi::store_u64(&next_node, &cur, 0),
+        abi::store_u64(&front_pad, &cur, 8),
+        abi::move_register(&link, &cur),
         abi::branch("arena_alloc_set_prev_link"),
         abi::label("arena_alloc_front1_tail1"),
         // case: both front and tail remainders → two free nodes
-        abi::store_u64("x26", "x22", 0), // cur.next → tail node
-        abi::store_u64("x14", "x22", 8), // cur.size = front_pad
-        abi::store_u64("x9", "x26", 0),  // tail.next = next
-        abi::store_u64("x15", "x26", 8), // tail.size = tail_size
-        abi::move_register("x10", "x22"),
+        abi::store_u64(&end_needed, &cur, 0), // cur.next → tail node
+        abi::store_u64(&front_pad, &cur, 8),  // cur.size = front_pad
+        abi::store_u64(&next_node, &end_needed, 0), // tail.next = next
+        abi::store_u64(&tail_size, &end_needed, 8), // tail.size = tail_size
+        abi::move_register(&link, &cur),
         abi::label("arena_alloc_set_prev_link"),
-        abi::compare_immediate("x23", "0"),
+        abi::compare_immediate(&prev, "0"),
         abi::branch_eq("arena_alloc_set_head"),
-        abi::store_u64("x10", "x23", 0),
+        abi::store_u64(&link, &prev, 0),
         abi::branch("arena_alloc_done"),
         abi::label("arena_alloc_set_head"),
-        abi::store_u64("x10", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::store_u64(&link, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::label("arena_alloc_done"),
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
-        abi::move_register("x1", "x25"),
+        abi::move_register("x1", &aligned),
         abi::branch("arena_alloc_ret"),
-        // --- Grow: map a new block and add its usable region as a free chunk ---
+    ]);
+    // --- Grow: map a new block and add its usable region as a free chunk ---
+    let map_size = vregs.next();
+    let default_block = vregs.next();
+    let saved_size = vregs.next();
+    let page_mask = vregs.next();
+    instructions.extend([
         abi::label("arena_alloc_grow"),
-        abi::add_registers("x23", "x20", "x21"),
-        abi::compare_registers("x23", "x20"),
+        abi::add_registers(&map_size, &size, &eff_align),
+        abi::compare_registers(&map_size, &size),
         abi::branch_lo("arena_alloc_oom"),
-        abi::add_immediate("x23", "x23", ARENA_BLOCK_HEADER_SIZE),
-        abi::move_immediate("x14", "Integer", &ARENA_DEFAULT_BLOCK_SIZE.to_string()),
-        abi::compare_registers("x23", "x14"),
+        abi::add_immediate(&map_size, &map_size, ARENA_BLOCK_HEADER_SIZE),
+        abi::move_immediate(
+            &default_block,
+            "Integer",
+            &ARENA_DEFAULT_BLOCK_SIZE.to_string(),
+        ),
+        abi::compare_registers(&map_size, &default_block),
         abi::branch_hi("arena_alloc_normal_block"),
-        abi::move_immediate("x23", "Integer", &ARENA_DEFAULT_BLOCK_SIZE.to_string()),
+        abi::move_immediate(&map_size, "Integer", &ARENA_DEFAULT_BLOCK_SIZE.to_string()),
         abi::branch("arena_alloc_map_size_ready"),
         abi::label("arena_alloc_normal_block"),
-        abi::move_register("x15", "x23"),
-        abi::add_immediate("x23", "x23", 4095),
-        abi::compare_registers("x23", "x15"),
+        abi::move_register(&saved_size, &map_size),
+        abi::add_immediate(&map_size, &map_size, 4095),
+        abi::compare_registers(&map_size, &saved_size),
         abi::branch_lo("arena_alloc_oom"),
-        abi::move_immediate("x24", "Integer", &(!4095_u64).to_string()),
-        abi::and_registers("x23", "x23", "x24"),
+        abi::move_immediate(&page_mask, "Integer", &(!4095_u64).to_string()),
+        abi::and_registers(&map_size, &map_size, &page_mask),
         abi::label("arena_alloc_map_size_ready"),
     ]);
-    platform.emit_arena_map(&mut instructions)?;
+    // mmap `map_size` bytes; the result is left in the return register. `map_size`
+    // is live across the syscall (read again below for the block header), so the
+    // allocator keeps it in a callee-saved register or spills it.
+    platform.emit_arena_map(&map_size, &mut instructions)?;
+    let prev_block = vregs.next();
+    let usable = vregs.next();
+    let ubase = vregs.next();
+    let ins_cur = vregs.next();
+    let ins_prev = vregs.next();
+    // The reserved survivor registers (`x8`/`x11`/`x12`/`x13`/`x17`) are held out of
+    // allocation so the first-fit fast path leaves them intact for callers, but the
+    // grow path's nested `arena_fill_random` call clobbers `x8`/`x11`/`x12`/`x13`
+    // (it uses them as scratch). Save and restore those four around the call — the
+    // same preservation the hand-written original did — via vregs the allocator
+    // spills across the call. (`x17` survives the fill untouched; `x16` is not a
+    // reliable survivor — the `mmap` syscall clobbers it on either platform.)
+    let save_x8 = vregs.next();
+    let save_x11 = vregs.next();
+    let save_x12 = vregs.next();
+    let save_x13 = vregs.next();
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge("arena_alloc_mapped"),
@@ -719,52 +767,51 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         // Write the block header (prevBlock, blockSize, usableCapacity, bumpOffset)
         // and chain it. bumpOffset is vestigial under the free-list but kept zero
         // so the documented block layout is unchanged.
-        abi::load_u64("x24", ARENA_STATE_REGISTER, 0),
-        abi::store_u64("x24", abi::return_register(), 0),
-        abi::store_u64("x23", abi::return_register(), 8),
-        abi::subtract_immediate("x24", "x23", ARENA_BLOCK_HEADER_SIZE),
-        abi::store_u64("x24", abi::return_register(), 16),
+        abi::load_u64(&prev_block, ARENA_STATE_REGISTER, 0),
+        abi::store_u64(&prev_block, abi::return_register(), 0),
+        abi::store_u64(&map_size, abi::return_register(), 8),
+        abi::subtract_immediate(&usable, &map_size, ARENA_BLOCK_HEADER_SIZE),
+        abi::store_u64(&usable, abi::return_register(), 16),
         abi::store_u64("x31", abi::return_register(), 24),
         abi::store_u64(abi::return_register(), ARENA_STATE_REGISTER, 0),
         // Poison the new block's usable region before first use (plan-01 §6.3).
-        // fill_random clobbers x0/x1/x9–x16 and advances x0, so stash ubase/usize
-        // and the caller-survivor registers x11–x13 across the call.
-        abi::add_immediate("x9", abi::return_register(), ARENA_BLOCK_HEADER_SIZE), // ubase
-        abi::store_u64("x9", abi::stack_pointer(), UBASE_SLOT),
-        abi::store_u64("x24", abi::stack_pointer(), USIZE_SLOT),
-        abi::store_u64("x11", abi::stack_pointer(), X11_SLOT),
-        abi::store_u64("x12", abi::stack_pointer(), X12_SLOT),
-        abi::store_u64("x13", abi::stack_pointer(), X13_SLOT),
-        abi::move_register("x0", "x9"),
-        abi::move_register("x1", "x24"),
+        // `ubase`/`usable` are live across the fill call, so the allocator spills
+        // them (the call's clobber mask is every integer register).
+        abi::add_immediate(&ubase, abi::return_register(), ARENA_BLOCK_HEADER_SIZE), // ubase
+        // Preserve the survivor registers the fill call would otherwise trample.
+        abi::move_register(&save_x8, "x8"),
+        abi::move_register(&save_x11, "x11"),
+        abi::move_register(&save_x12, "x12"),
+        abi::move_register(&save_x13, "x13"),
+        abi::move_register("x0", &ubase),
+        abi::move_register("x1", &usable),
         abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
-        abi::load_u64("x9", abi::stack_pointer(), UBASE_SLOT),
-        abi::load_u64("x10", abi::stack_pointer(), USIZE_SLOT),
-        abi::load_u64("x11", abi::stack_pointer(), X11_SLOT),
-        abi::load_u64("x12", abi::stack_pointer(), X12_SLOT),
-        abi::load_u64("x13", abi::stack_pointer(), X13_SLOT),
+        abi::move_register("x8", &save_x8),
+        abi::move_register("x11", &save_x11),
+        abi::move_register("x12", &save_x12),
+        abi::move_register("x13", &save_x13),
         // Insert [base+32, base+32+usableCapacity) as one free chunk, in address
         // order. A fresh block is never adjacent to an existing chunk (the 32-byte
         // header always separates blocks), so no coalescing is required here.
-        abi::load_u64("x14", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET), // cur
-        abi::move_immediate("x15", "Integer", "0"),                              // prev
+        abi::load_u64(&ins_cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET), // cur
+        abi::move_immediate(&ins_prev, "Integer", "0"),                            // prev
         abi::label("arena_alloc_ins_loop"),
-        abi::compare_immediate("x14", "0"),
+        abi::compare_immediate(&ins_cur, "0"),
         abi::branch_eq("arena_alloc_ins_do"),
-        abi::compare_registers("x14", "x9"),
+        abi::compare_registers(&ins_cur, &ubase),
         abi::branch_hi("arena_alloc_ins_do"),
-        abi::move_register("x15", "x14"),
-        abi::load_u64("x14", "x14", 0),
+        abi::move_register(&ins_prev, &ins_cur),
+        abi::load_u64(&ins_cur, &ins_cur, 0),
         abi::branch("arena_alloc_ins_loop"),
         abi::label("arena_alloc_ins_do"),
-        abi::store_u64("x14", "x9", 0),
-        abi::store_u64("x10", "x9", 8),
-        abi::compare_immediate("x15", "0"),
+        abi::store_u64(&ins_cur, &ubase, 0),
+        abi::store_u64(&usable, &ubase, 8),
+        abi::compare_immediate(&ins_prev, "0"),
         abi::branch_eq("arena_alloc_ins_head"),
-        abi::store_u64("x9", "x15", 0),
+        abi::store_u64(&ubase, &ins_prev, 0),
         abi::branch("arena_alloc_walk"),
         abi::label("arena_alloc_ins_head"),
-        abi::store_u64("x9", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::store_u64(&ubase, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::branch("arena_alloc_walk"),
         abi::label("arena_alloc_invalid"),
         abi::move_immediate(abi::return_register(), "Integer", ERR_INVALID_ARGUMENT_CODE),
@@ -774,27 +821,17 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_immediate(abi::return_register(), "Integer", ERR_OUT_OF_MEMORY_CODE),
         abi::move_immediate("x1", "Integer", "0"),
         abi::label("arena_alloc_ret"),
-        abi::load_u64(abi::link_register(), abi::stack_pointer(), LR_SLOT),
-        abi::add_stack(FRAME_SIZE),
         abi::return_(),
     ]);
-    relocations.push(internal_branch(
+    let relocations = vec![internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FILL_RANDOM_SYMBOL)];
+    Ok(finalize_vreg_helper_reserved(
+        "runtime.arena_alloc",
         ARENA_ALLOC_SYMBOL,
-        ARENA_FILL_RANDOM_SYMBOL,
-    ));
-    Ok(CodeFunction {
-        name: "runtime.arena_alloc".to_string(),
-        symbol: ARENA_ALLOC_SYMBOL.to_string(),
-        params: Vec::new(),
-        returns: "Pointer".to_string(),
-        frame: CodeFrame {
-            stack_size: FRAME_SIZE,
-            callee_saved: vec![abi::link_register().to_string()],
-        },
-        stack_slots: Vec::new(),
+        "Pointer",
         instructions,
         relocations,
-    })
+        &["x8", "x11", "x12", "x13", "x16", "x17"],
+    ))
 }
 
 /// `_mfb_simd_alloc_list(x0 = count, x1 = valueTypeCode) -> x0 = base` —

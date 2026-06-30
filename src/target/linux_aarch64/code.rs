@@ -584,10 +584,14 @@ impl code::CodegenPlatform for Platform {
         Ok(())
     }
 
-    fn emit_arena_map(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String> {
+    fn emit_arena_map(
+        &self,
+        size_reg: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) -> Result<(), String> {
         instructions.extend([
             abi::move_immediate(abi::return_register(), "Integer", "0"),
-            abi::move_register("x1", "x23"),
+            abi::move_register("x1", size_reg),
             abi::move_immediate("x2", "Integer", LINUX_PROT_READ_WRITE),
             abi::move_immediate("x3", "Integer", LINUX_MAP_PRIVATE_ANON),
             abi::move_immediate("x4", "Integer", &u64::MAX.to_string()),

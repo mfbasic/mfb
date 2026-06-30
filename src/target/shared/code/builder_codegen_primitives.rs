@@ -94,6 +94,7 @@ impl CodeBuilder<'_> {
             &self.fp_vreg_eager,
             &model,
             spill_base,
+            &[],
         );
         for offset in &outcome.spill_slots {
             self.stack_slots.push(CodeStackSlot {

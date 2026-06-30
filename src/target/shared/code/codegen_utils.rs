@@ -418,8 +418,25 @@ pub(super) fn finalize_vreg_helper(
     name: &str,
     symbol: &str,
     returns: &str,
+    instructions: Vec<CodeInstruction>,
+    relocations: Vec<CodeRelocation>,
+) -> CodeFunction {
+    finalize_vreg_helper_reserved(name, symbol, returns, instructions, relocations, &[])
+}
+
+/// Like [`finalize_vreg_helper`], but holds `reserved` physical registers out of
+/// allocation entirely. A helper whose hand-written callers rely on it preserving
+/// a specific register across the call (the `_mfb_arena_alloc` `x8/x11/x12/x13/x17`
+/// survivor contract, `.ai/compiler.md`) reserves that register so the allocator
+/// never colors a value or spill scratch onto it — keeping the migrated helper's
+/// clobber set identical to the hand-written original it replaces.
+pub(super) fn finalize_vreg_helper_reserved(
+    name: &str,
+    symbol: &str,
+    returns: &str,
     mut instructions: Vec<CodeInstruction>,
     relocations: Vec<CodeRelocation>,
+    reserved: &[&str],
 ) -> CodeFunction {
     let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
     let outcome = regalloc::allocate(
@@ -429,6 +446,7 @@ pub(super) fn finalize_vreg_helper(
         &[],
         &model,
         0,
+        reserved,
     );
     let mut stack_slots: Vec<CodeStackSlot> = outcome
         .spill_slots

@@ -299,7 +299,16 @@ pub(crate) trait CodegenPlatform {
         instructions: &mut Vec<CodeInstruction>,
         relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String>;
-    fn emit_arena_map(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
+    /// Emit the platform `mmap` of `size_reg` bytes for a new arena block. `size_reg`
+    /// names the register holding the byte count (a virtual register in the
+    /// vreg-allocated `_mfb_arena_alloc`); the syscall result is left in the return
+    /// register. The syscall's own ABI registers (`x0`–`x5`, the syscall-number
+    /// register) are hardcoded physicals, as a syscall requires.
+    fn emit_arena_map(
+        &self,
+        size_reg: &str,
+        instructions: &mut Vec<CodeInstruction>,
+    ) -> Result<(), String>;
     fn emit_arena_unmap(&self, instructions: &mut Vec<CodeInstruction>) -> Result<(), String>;
     /// Byte offset of `ai_addr` within `struct addrinfo`. macOS orders
     /// `ai_canonname` before `ai_addr` (offset 32); Linux orders `ai_addr` first
