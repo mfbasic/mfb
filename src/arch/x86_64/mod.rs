@@ -12,3 +12,4 @@
 //! then `v128` (SSE2/FMA3/SSE4.1).
 
 pub(crate) mod regmodel;
+pub(crate) mod reloc;
