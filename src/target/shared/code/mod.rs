@@ -1244,7 +1244,7 @@ fn lower_runtime_helper(
             })
         }
         "fs.createDirectories" => {
-            let (frame, instructions, relocations) =
+            let (frame, instructions, relocations, stack_slots) =
                 lower_fs_create_directories_helper(symbol, platform_imports, platform)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
@@ -1261,7 +1261,7 @@ fn lower_runtime_helper(
                     .collect(),
                 returns: spec.abi.returns.to_string(),
                 frame,
-                stack_slots: Vec::new(),
+                stack_slots,
                 instructions,
                 relocations,
             })
