@@ -1,20 +1,36 @@
 # MFBASIC for Visual Studio Code
 
-Syntax highlighting (a TextMate grammar) for the MFBASIC language. Colors `.mfb`
-source files: keywords, types, strings, numbers, comments, `DOC` blocks,
-`package::name` calls, and operators.
+Editor support for the MFBASIC language (`.mfb`):
 
-This is highlighting only — no completions, diagnostics, or formatting. Those
-would come from a language server (see "Roadmap" below).
+- **Syntax highlighting** (a TextMate grammar): keywords, types, strings,
+  numbers, comments, `DOC` blocks, `package::name` calls, and operators.
+- **Outline / breadcrumbs / Go to Symbol** (`Cmd+Shift+O`) for `FUNC`, `SUB`,
+  `TYPE` (+ fields), `ENUM` (+ variants), `UNION`, `LINK` blocks (+ nested
+  functions), and `PACKAGE`/`PROGRAM` headers.
+- **Folding** for every block (`FUNC…END FUNC`, `IF…END IF`, `MATCH`, `TRAP`,
+  `WITH`, `FOR…NEXT`, `WHILE…WEND`, `DO…LOOP`, `LINK`), `DOC` blocks,
+  `' #region`/`' #endregion` markers, and multi-line comment runs.
+
+No language server: the outline and folding are computed by a small, fast,
+line-based parser (`mfbasic-parse.js`) that runs in the extension host. There are
+no completions, diagnostics, or formatting yet — those would need an LSP (see
+"Roadmap").
 
 ## Layout
 
 ```
-package.json                     extension manifest (language + grammar contributions)
+package.json                     extension manifest (contributions + entry point)
+extension.js                     activate(): registers the symbol + folding providers
+mfbasic-parse.js                 pure, vscode-free parser (symbols + folding ranges)
 language-configuration.json      comments, brackets, auto-close, indentation
 syntaxes/mfbasic.tmLanguage.json the TextMate grammar (scope: source.mfbasic)
 examples/sample.mfb              a showcase file for eyeballing the grammar
 ```
+
+`mfbasic-parse.js` imports nothing from `vscode`, so its logic is unit-testable
+with plain Node; `extension.js` only maps its plain-data results onto the VS Code
+provider APIs. The extension has no third-party dependencies (no `npm install`
+needed to run it).
 
 ## Try it without installing
 

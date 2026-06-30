@@ -1,8 +1,8 @@
 {
   "name": "mfbasic",
   "displayName": "MFBASIC",
-  "description": "Syntax highlighting for the MFBASIC language (.mfb).",
-  "version": "0.1.0",
+  "description": "Syntax highlighting, outline, and folding for the MFBASIC language (.mfb).",
+  "version": "0.2.0",
   "publisher": "mfbasic",
   "license": "SEE LICENSE IN ../../../LICENSE",
   "engines": {
@@ -10,6 +10,8 @@
   },
   "categories": ["Programming Languages"],
   "keywords": ["mfbasic", "mfb", "basic"],
+  "main": "./extension.js",
+  "activationEvents": ["onLanguage:mfbasic"],
   "contributes": {
     "languages": [
       {
