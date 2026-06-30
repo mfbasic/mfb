@@ -23,17 +23,14 @@ emitted byte. The raise/lower round trip `select ∘ lower_to_mir` is the
 sequence the builders emit today. [[src/target/shared/code/mir.rs:lower_to_mir]]
 [[src/target/shared/code/mir.rs:select_aarch64]]
 
-This is the de-risking gate for the whole effort: routing the backend through
-the MIR (`-codegen mir`) must produce byte-identical `.ncode`/`.nobj`/binaries
-to the direct path (`-codegen direct`, the shipping default), proven by
-`scripts/codegen-selfdiff.sh`. A coverage gap is a *compile* error, not a test
-miss — `from_code`/`to_code` are exhaustive matches over the backend op set, so
-a missing variant fails the build. [[src/target/shared/code/mir.rs:from_code]]
-[[src/target/shared/code/mir.rs:to_code]]
-
-`-codegen` selects the path process-wide and defaults to `direct` until the MIR
-path is flipped on (plan-00-G). [[src/target/shared/code/mir.rs:CodegenKind]]
-[[src/target/shared/code/mir.rs:parse_codegen]]
+The MIR is now the **sole** code path: plan-00-G flipped it on by default and
+deleted the legacy `direct` (no-MIR) AArch64 backend. During plans A–F the round
+trip was kept the identity and proven byte-identical against the `direct` path
+(a differential self-diff) before each op family was neutralized; that gate has
+been retired with the `direct` path. A coverage gap is still a *compile* error,
+not a test miss — `from_code`/`to_code` are exhaustive matches over the backend
+op set, so a missing variant fails the build.
+[[src/target/shared/code/mir.rs:from_code]] [[src/target/shared/code/mir.rs:to_code]]
 
 ## Instruction model
 

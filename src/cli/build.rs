@@ -26,9 +26,6 @@ pub(crate) struct BuildOptions {
     /// Register-allocation strategy selected by `-regalloc <name>` (plan-03
     /// §4.2). Defaults to the backend default.
     pub(crate) regalloc: target::shared::code::regalloc::RegallocKind,
-    /// Code-generation path selected by `-codegen <direct|mir>` (plan-00-A).
-    /// Defaults to `direct` (today's no-MIR AArch64 backend).
-    pub(crate) codegen: target::shared::code::CodegenKind,
 }
 
 pub(crate) enum BuildOutput {
@@ -52,7 +49,6 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut sign_owner = None;
     let mut app_mode = false;
     let mut regalloc = target::shared::code::regalloc::active_kind();
-    let mut codegen = target::shared::code::active_codegen();
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
@@ -126,13 +122,6 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
             regalloc = target::shared::code::regalloc::parse_kind(&value)?;
         } else if let Some(value) = arg.strip_prefix("-regalloc=") {
             regalloc = target::shared::code::regalloc::parse_kind(value)?;
-        } else if arg == "-codegen" {
-            let Some(value) = iter.next() else {
-                return Err("mfb build -codegen requires a path name".to_string());
-            };
-            codegen = target::shared::code::parse_codegen(&value)?;
-        } else if let Some(value) = arg.strip_prefix("-codegen=") {
-            codegen = target::shared::code::parse_codegen(value)?;
         } else if arg.starts_with('-') {
             return Err(format!("unknown build option `{arg}`"));
         } else if location.replace(PathBuf::from(&arg)).is_some() {
@@ -147,7 +136,6 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         sign_owner,
         app_mode,
         regalloc,
-        codegen,
     })
 }
 
@@ -155,9 +143,6 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // Record the register-allocation strategy for the native backend to read
     // during lowering (plan-03 §4.2).
     target::shared::code::regalloc::set_strategy(options.regalloc);
-    // Record the code-generation path (`-codegen`, plan-00-A): under `mir` the
-    // backend routes the lowered stream through the neutral MIR layer.
-    target::shared::code::set_codegen(options.codegen);
     let target = options.target.clone();
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;

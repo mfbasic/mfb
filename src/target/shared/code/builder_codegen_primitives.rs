@@ -76,16 +76,15 @@ impl CodeBuilder<'_> {
         // MIR seam (plan-00-A): the fully-lowered, pre-allocation stream is the
         // point where the neutral MIR layer sits (`NIR → MIR → select → alloc`,
         // `mir.md §2`/§3). A `-mir` dump captures this function's MIR here (with
-        // virtual registers intact), and `-codegen mir` routes the stream
-        // through MIR and back — the identity in Phase A, so the allocator sees
-        // a byte-identical input and the whole backend stays byte-identical.
+        // virtual registers intact); the stream is then raised to the neutral
+        // MIR and selected straight back to AArch64 before allocation. This is
+        // the sole code path since plan-00-G flipped the default to MIR and
+        // deleted the `direct` (no-MIR) backend.
         if mir::capture_enabled() {
             mir::capture_function(&self.current_symbol, mir::lower_to_mir(&self.instructions));
         }
-        if mir::active_codegen() == mir::CodegenKind::Mir {
-            let neutral = mir::lower_to_mir(&self.instructions);
-            self.instructions = mir::select_aarch64(&neutral);
-        }
+        let neutral = mir::lower_to_mir(&self.instructions);
+        self.instructions = mir::select_aarch64(&neutral);
         let model = crate::arch::aarch64::regmodel::Aarch64RegisterModel;
         let spill_base = self.stack_size;
         let outcome = regalloc::allocate(

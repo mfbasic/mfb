@@ -1,25 +1,22 @@
 //! Target-neutral machine IR (MIR) scaffold — plan-00-A.
 //!
-//! This is the foundational *layer* of the MIR effort (`planning/mir.md`): a
-//! seam between the NIR→builder lowering and the AArch64 backend, plus the
-//! tooling (`-codegen mir`, `-mir`) that lets every later neutralization plan
-//! be proven byte-identical against the path it replaces.
+//! This is the foundational *layer* of the MIR effort (`planning/mir.md`): the
+//! seam between the NIR→builder lowering and the AArch64 backend through which
+//! all code now flows (plan-00-G flipped MIR to the sole path and deleted the
+//! `direct` backend), plus the `-mir` dump tooling.
 //!
-//! In Phase A the MIR is a near-1:1 mirror of today's AArch64 instruction
-//! stream: [`MirOp`] reuses the [`CodeOp`] variant set 1:1 (renamed later, as
-//! the backend is neutralized one op-family at a time), and the MIR keeps the
-//! same `op + string-field bag` shape as [`CodeInstruction`] (`mir.md §10`).
-//! Because the round trip [`lower_to_mir`] → [`select_aarch64`] is the identity
-//! in this phase, routing the backend through the MIR (`-codegen mir`) produces
-//! byte-identical `.ncode`/`.nobj`/binaries to the direct path (`mir.md §12.7`),
-//! which is the de-risking gate for plans B–G.
+//! [`MirOp`] reuses the [`CodeOp`] variant set 1:1 (`mir.md §10`); op families
+//! were neutralized one at a time (plans B–F) with the round trip
+//! [`lower_to_mir`] → [`select_aarch64`] kept the identity, so each step was
+//! proven byte-identical against the `direct` path before that path was
+//! retired. The round trip is still the identity for builder ops, which is why
+//! the AArch64 output was unperturbed by making MIR the sole path.
 //!
 //! The `-mir` dump (`mir.md §12a`) is the neutral counterpart to `-ncode`: it
 //! serializes the MIR stream (neutral ops, virtual registers, *no* `target`/
 //! `arch`) captured **before** register allocation and instruction selection.
 
 use std::cell::RefCell;
-use std::sync::OnceLock;
 
 use super::*;
 
@@ -570,78 +567,20 @@ pub(crate) fn select_aarch64(instructions: &[MirInstruction]) -> Vec<CodeInstruc
 }
 
 /// Route a finished function's instruction stream through the neutral MIR and
-/// back (`select_aarch64 ∘ lower_to_mir`, the identity) under `-codegen mir`
-/// (plan-00-F). This is where the **hand-written runtime helpers** enter the MIR
+/// back (`select_aarch64 ∘ lower_to_mir`, the identity) — plan-00-F/G. This is
+/// where the **hand-written runtime helpers** enter the MIR
 /// pipeline: unlike the builder-emitted functions they never pass through the
 /// pre-allocation seam in `run_register_allocation`, so without this their
-/// streams would skip the MIR entirely. Routing them here makes the
-/// byte-identical gate (`scripts/codegen-selfdiff.sh`) actually exercise the
-/// helpers — the entry sequence, the arena allocator, the error path, the PCG64
-/// RNG, the math kernels, the thread trampoline — proving every helper stream is
-/// fully MIR-representable (no op outside the neutral vocabulary, no `svc`/`bl`/
-/// `blr`/`x19` leak). The round trip is the identity, so the AArch64 output is
-/// unchanged. Builder functions already round-tripped pre-allocation; routing
-/// their final (post-allocation, post-frame) stream again is a second identity
-/// pass — harmless, and it extends the gate to the frame/peephole output too.
+/// streams would skip the MIR entirely. Routing them here brings the entry
+/// sequence, the arena allocator, the error path, the PCG64 RNG, the math
+/// kernels, and the thread trampoline through the neutral MIR like every builder
+/// function (plan-00-G: MIR is now the sole code path). Builder functions
+/// already round-tripped pre-allocation; routing their final (post-allocation,
+/// post-frame) stream again is a second identity pass over the frame/peephole
+/// output.
 pub(crate) fn route_function_through_mir(function: &mut CodeFunction) {
     let neutral = lower_to_mir(&function.instructions);
     function.instructions = select_aarch64(&neutral);
-}
-
-// --- `-codegen <direct|mir>` selection (the plan-03 `-regalloc` pattern) ------
-
-/// Which code-generation path the backend runs. Selected by `-codegen <name>`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum CodegenKind {
-    /// Today's path: builders emit the AArch64 stream directly, no MIR layer.
-    /// The shipping default until plan-00-G flips it.
-    Direct,
-    /// Route the lowered stream through the neutral MIR and back
-    /// ([`lower_to_mir`] → [`select_aarch64`]) before register allocation.
-    /// Byte-identical to [`Direct`] in Phase A — the self-diff oracle.
-    Mir,
-}
-
-impl CodegenKind {
-    #[allow(dead_code)]
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            CodegenKind::Direct => "direct",
-            CodegenKind::Mir => "mir",
-        }
-    }
-}
-
-/// Names accepted by `-codegen`, for the error message on an unknown value.
-pub(crate) fn available_codegens() -> &'static [&'static str] {
-    &["direct", "mir"]
-}
-
-/// Parse a `-codegen` value, listing the available paths on an unknown name.
-pub(crate) fn parse_codegen(value: &str) -> Result<CodegenKind, String> {
-    match value {
-        "direct" => Ok(CodegenKind::Direct),
-        "mir" => Ok(CodegenKind::Mir),
-        other => Err(format!(
-            "unknown -codegen path `{other}` (available: {})",
-            available_codegens().join(", ")
-        )),
-    }
-}
-
-static SELECTED_CODEGEN: OnceLock<CodegenKind> = OnceLock::new();
-
-/// Record the process-wide code-generation path chosen on the command line. May
-/// be called at most once per process; ignored if already set.
-pub(crate) fn set_codegen(kind: CodegenKind) {
-    let _ = SELECTED_CODEGEN.set(kind);
-}
-
-/// The active code-generation path, defaulting to [`CodegenKind::Direct`] —
-/// today's no-MIR AArch64 backend, which stays the shipping default until the
-/// MIR path is proven and flipped (plan-00-G).
-pub(crate) fn active_codegen() -> CodegenKind {
-    *SELECTED_CODEGEN.get().unwrap_or(&CodegenKind::Direct)
 }
 
 // --- MIR capture for the `-mir` dump ------------------------------------------
@@ -1018,7 +957,7 @@ mod tests {
     /// differ across ISAs); the executable golden vectors are the runtime ULP
     /// harness (`tools/math-kernels/runtime_ulp.py`, the transcendental kernels)
     /// and the `vector::` / `math::`-array acceptance fixtures, which exercise
-    /// these ops observably and stay byte-identical under `-codegen mir`.
+    /// these ops observably and round-trip unchanged through the MIR.
     #[test]
     fn v128_lane_semantics_contract() {
         // (op, lane shape, the cross-ISA-significant semantic to reproduce)
@@ -1321,7 +1260,7 @@ mod tests {
         assert_round_trips(&mismatch);
     }
 
-    /// The byte-identical gate, in miniature: a 39-fixture sweep with at least
+    /// The round-trip identity, in miniature: a 39-fixture sweep with at least
     /// one instruction from **every** builder op family — moves & immediates,
     /// the universal ALU, the neutral-renamed exotic integer ops, the structural
     /// `addr_of` pair, every load/store width (one against the abstract
@@ -1329,8 +1268,8 @@ mod tests {
     /// conversions & bit-reinterprets, the NEON `v128` ops, the machine-y
     /// call/syscall vocabulary (plan-00-F), and the fused flagless control-flow
     /// ops. `select_aarch64 ∘ lower_to_mir` must be the identity on the whole
-    /// stream (the property the `.ncode`/binary self-diff oracle,
-    /// `scripts/codegen-selfdiff.sh`, proves end-to-end).
+    /// stream — the property that lets the MIR be the sole code path (plan-00-G)
+    /// without perturbing the AArch64 output.
     #[test]
     fn round_trip_sweep_over_every_op_family() {
         let fixtures: [CodeInstruction; 39] = [
