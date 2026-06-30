@@ -11,5 +11,6 @@
 //! Brought up in phases (plan-00-H §4): scalar integer core first, then float,
 //! then `v128` (SSE2/FMA3/SSE4.1).
 
+pub(crate) mod encode;
 pub(crate) mod regmodel;
 pub(crate) mod reloc;
