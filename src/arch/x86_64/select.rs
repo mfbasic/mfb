@@ -198,15 +198,20 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
         changed = false;
         for i in 0..count {
             // Merge the boundary out of every control-flow predecessor. `merged`
-            // is `None` until a predecessor is seen; a conflict (a boundary path
-            // meeting a no-boundary path) collapses to `None`.
+            // is `None` until a predecessor is seen. A call/syscall boundary wins
+            // over a no-boundary path: the error-Result staging block
+            // (`raw_conversion_done_0`) is entered both from `make_error_result`
+            // calls (which deliver x0–x3 in RETS) AND by fall-through from the
+            // success path (which sets x0/x1 manually with no call). Both paths
+            // MUST read x0–x3 from RETS to match the callee, so the block's
+            // in-effect boundary is the call.
             let mut merged: Option<Option<AbiBoundary>> = None;
             let mut absorb = |val: Option<AbiBoundary>| match merged {
                 None => merged = Some(val),
                 Some(cur) => {
                     merged = Some(match (cur, val) {
-                        (Some(_), Some(_)) => cur, // two boundaries: result-equivalent
-                        _ => None,
+                        (Some(a), _) => Some(a), // a boundary wins over anything
+                        (None, other) => other,
                     })
                 }
             };
@@ -225,9 +230,16 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             }
         }
     }
-    // A block-entry index is reached only through branches (no fall-through) — its
-    // linear def state belongs to a different path, so the walk resets there.
-    let block_entry: Vec<bool> = (0..count).map(|i| !falls_into(i)).collect();
+    // A block-entry index resets the linear def state: either it is reached ONLY
+    // through branches (no fall-through), or it is a MERGE — reachable by a branch
+    // from another block as well as by fall-through. In the merge case the
+    // fall-through path's defs did not happen on the branch-in paths, so a use
+    // here must not be treated as "still defined since the boundary" based on the
+    // fall-through predecessor alone (that is what let the error-Result staging
+    // stores read CALL_ARGS instead of the call's RETS).
+    let block_entry: Vec<bool> = (0..count)
+        .map(|i| !falls_into(i) || branch_preds.contains_key(&i))
+        .collect();
 
     // A def of `xK` (K < RETS.len()) is a *staged result* — part of the
     // 4-register error-Result convention — when the first thing that consumes it
@@ -244,13 +256,22 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     let def_is_staged_result = |def_idx: usize, n: usize| -> bool {
         let target = format!("x{n}");
         let mut j = def_idx + 1;
-        let mut crossed_branch = false;
+        let mut entered_reset = false;
         let mut seen = vec![false; count];
         loop {
             if j >= count || seen[j] {
                 return false;
             }
             seen[j] = true;
+            // Passing into a reset block (a branch-only target or a merge) means
+            // the consuming use there is colored `is_result` (its
+            // `defined_since_boundary` is cleared) — so the def must be RETS to
+            // match. A use in the SAME straight-line block (e.g. the exit-code
+            // path's `mov x0,x1; cmp x0,255`, whose value then flows on to the
+            // `exit` syscall as SYS_ARGS[0]) is NOT staged.
+            if block_entry[j] {
+                entered_reset = true;
+            }
             if abi_boundary_of(&instructions[j]).is_some() {
                 return false; // reaches a call/syscall boundary before any use
             }
@@ -266,13 +287,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 }
             }
             if reads {
-                // Only a use reached ACROSS a branch is a staged result: such a
-                // block is a `block_entry`, so its `defined_since_boundary` is
-                // cleared and the use is colored `is_result` (RETS) — the def
-                // must match. A use in the SAME fall-through block (e.g. the
-                // exit-code path's `mov x0,x1; cmp x0,255`, whose value then
-                // flows on to the `exit` syscall as SYS_ARGS[0]) is NOT staged.
-                return crossed_branch
+                return entered_reset
                     && matches!(
                         boundary_before[j],
                         Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
@@ -283,10 +298,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             }
             if instructions[j].op == CodeOp::Branch {
                 match branch_target(j) {
-                    Some(t) => {
-                        j = t;
-                        crossed_branch = true;
-                    }
+                    Some(t) => j = t,
                     None => return false,
                 }
             } else {
