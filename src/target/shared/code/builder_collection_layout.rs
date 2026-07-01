@@ -1386,8 +1386,12 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_collection_data_pointer(&mut self, dst: &str, collection: &str) {
-        let capacity = "x6";
-        let entry_size = "x7";
+        // Scratch as vregs (was out-of-pool x6/x7, which collide with x86 ABI
+        // argument registers and produced garbage element addresses).
+        let capacity_v = self.temporary_vreg();
+        let entry_size_v = self.temporary_vreg();
+        let capacity = capacity_v.as_str();
+        let entry_size = entry_size_v.as_str();
         self.emit(abi::move_register(capacity, collection));
         self.emit(abi::add_immediate(dst, collection, COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(
@@ -1411,9 +1415,13 @@ impl CodeBuilder<'_> {
         offset: &str,
         length: &str,
     ) -> Result<String, String> {
-        let collection_input = "x3";
-        let offset_input = "x4";
-        let length_input = "x5";
+        // Inputs held in vregs (was out-of-pool x3/x4/x5 — x86 ABI arg registers).
+        let collection_input_v = self.temporary_vreg();
+        let offset_input_v = self.temporary_vreg();
+        let length_input_v = self.temporary_vreg();
+        let collection_input = collection_input_v.as_str();
+        let offset_input = offset_input_v.as_str();
+        let length_input = length_input_v.as_str();
         self.emit(abi::move_register(collection_input, collection));
         self.emit(abi::move_register(offset_input, offset));
         self.emit(abi::move_register(length_input, length));
