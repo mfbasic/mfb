@@ -960,7 +960,7 @@ pub(super) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    if platform.target() == "linux-aarch64" {
+    if platform.target().starts_with("linux") {
         let name_len_loop = format!("{symbol}_count_name_len_loop");
         let name_len_done = format!("{symbol}_count_name_len_done");
         instructions.extend([
@@ -1070,7 +1070,7 @@ pub(super) fn lower_fs_list_directory_helper(
         &mut instructions,
         &mut relocations,
     )?;
-    if platform.target() == "linux-aarch64" {
+    if platform.target().starts_with("linux") {
         let name_len_loop = format!("{symbol}_fill_name_len_loop");
         let name_len_done = format!("{symbol}_fill_name_len_done");
         instructions.extend([

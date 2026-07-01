@@ -453,7 +453,7 @@ pub(crate) fn lower_module_for_platform(
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
     let mut code_functions = Vec::new();
     let mut runtime_symbols = native_plan.runtime_symbols.clone();
-    let skip_entry_arena_destroy = platform.target() == "linux-aarch64"
+    let skip_entry_arena_destroy = platform.target().starts_with("linux")
         && runtime_symbols.iter().any(|symbol| {
             runtime::spec_for_symbol(symbol)
                 .map(|spec| spec.call.starts_with("thread."))

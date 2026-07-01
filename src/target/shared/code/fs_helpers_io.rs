@@ -1179,26 +1179,31 @@ pub(super) struct OpenFlagSet {
 }
 
 pub(super) fn open_flag_set(target: &str, no_follow: bool) -> OpenFlagSet {
-    match (target, no_follow) {
-        ("linux-aarch64", false) => OpenFlagSet {
+    // Linux (any arch) shares one set of O_* bit values; macOS differs. Keying only
+    // on "linux-aarch64" gave linux-x86_64 the macOS bits — on Linux those decode
+    // WITHOUT O_CREAT (write 1537 = O_WRONLY|O_APPEND|O_TRUNC → ENOENT "path not
+    // found"; append 521 → EINVAL "invalid argument"), breaking openFile "w" /
+    // appendText / createTempFile. Match the OS, not the arch.
+    match (target.starts_with("linux"), no_follow) {
+        (true, false) => OpenFlagSet {
             read: "0",
             write: "577",
             read_write: "66",
             append: "1089",
         },
-        ("linux-aarch64", true) => OpenFlagSet {
+        (true, true) => OpenFlagSet {
             read: "32768",
             write: "33345",
             read_write: "32834",
             append: "33857",
         },
-        (_, false) => OpenFlagSet {
+        (false, false) => OpenFlagSet {
             read: "0",
             write: "1537",
             read_write: "514",
             append: "521",
         },
-        (_, true) => OpenFlagSet {
+        (false, true) => OpenFlagSet {
             read: "256",
             write: "1793",
             read_write: "770",

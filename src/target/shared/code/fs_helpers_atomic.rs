@@ -183,9 +183,13 @@ pub(super) fn lower_fs_create_temp_file_helper(
 }
 
 fn temp_file_open_flags(target: &str) -> &'static str {
-    match target {
-        "linux-aarch64" => "524482",
-        _ => "2562",
+    // Linux (any arch) vs macOS — the O_* bit values differ (Linux O_CREAT=0x40,
+    // O_EXCL=0x80, O_CLOEXEC=0x80000; macOS O_CREAT=0x200, O_EXCL=0x800). Matching
+    // only "linux-aarch64" gave linux-x86_64 the macOS bits → a wrong open.
+    if target.starts_with("linux") {
+        "524482"
+    } else {
+        "2562"
     }
 }
 

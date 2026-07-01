@@ -61,7 +61,7 @@ pub(super) fn emit_fs_path_errno_error_mapping(
     relocations: &mut Vec<CodeRelocation>,
     done: &str,
 ) {
-    let linux = target == "linux-aarch64";
+    let linux = target.starts_with("linux"); // errno values are per-OS, not per-arch
     let eloop = if linux { "40" } else { "62" };
     let enametoolong = if linux { "36" } else { "63" };
     let eilseq = if linux { "84" } else { "92" };
