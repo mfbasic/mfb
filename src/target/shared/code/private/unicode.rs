@@ -70,6 +70,14 @@ impl CodeBuilder<'_> {
         let check_three = self.label("utf8_decode_check_three");
         let four = self.label("utf8_decode_four");
         let done = self.label("utf8_decode_done");
+        // Vreg scratch (was physical `x6`/`x7`): on x86 the ABI-argument names
+        // `x4`-`x7` collapse together (both fall to `rax` via selection's None
+        // fallback), so `and %byte,%byte,%mask` became `and rax,rax,rax` — the
+        // continuation-byte mask was dropped and the codepoint decoded wrong.
+        let byte = self.temporary_vreg();
+        let mask = self.temporary_vreg();
+        let byte = byte.as_str();
+        let mask = mask.as_str();
 
         self.emit(abi::load_u8(codepoint, cursor, 0));
         self.emit(abi::compare_immediate(codepoint, "128"));
@@ -81,49 +89,49 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(codepoint, "224"));
         self.emit(abi::branch_ge(&check_three));
         self.emit(abi::move_immediate(width, "Integer", "2"));
-        self.emit(abi::move_immediate("x6", "Integer", "31"));
-        self.emit(abi::and_registers(codepoint, codepoint, "x6"));
+        self.emit(abi::move_immediate(byte, "Integer", "31"));
+        self.emit(abi::and_registers(codepoint, codepoint, byte));
         self.emit(abi::shift_left_immediate(codepoint, codepoint, 6));
-        self.emit(abi::load_u8("x6", cursor, 1));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::or_registers(codepoint, codepoint, "x6"));
+        self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&check_three));
         self.emit(abi::compare_immediate(codepoint, "240"));
         self.emit(abi::branch_ge(&four));
         self.emit(abi::move_immediate(width, "Integer", "3"));
-        self.emit(abi::move_immediate("x6", "Integer", "15"));
-        self.emit(abi::and_registers(codepoint, codepoint, "x6"));
+        self.emit(abi::move_immediate(byte, "Integer", "15"));
+        self.emit(abi::and_registers(codepoint, codepoint, byte));
         self.emit(abi::shift_left_immediate(codepoint, codepoint, 12));
-        self.emit(abi::load_u8("x6", cursor, 1));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::shift_left_immediate("x6", "x6", 6));
-        self.emit(abi::or_registers(codepoint, codepoint, "x6"));
-        self.emit(abi::load_u8("x6", cursor, 2));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::or_registers(codepoint, codepoint, "x6"));
+        self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::shift_left_immediate(byte, byte, 6));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
+        self.emit(abi::load_u8(byte, cursor, 2));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&four));
         self.emit(abi::move_immediate(width, "Integer", "4"));
-        self.emit(abi::move_immediate("x6", "Integer", "7"));
-        self.emit(abi::and_registers(codepoint, codepoint, "x6"));
+        self.emit(abi::move_immediate(byte, "Integer", "7"));
+        self.emit(abi::and_registers(codepoint, codepoint, byte));
         self.emit(abi::shift_left_immediate(codepoint, codepoint, 18));
-        self.emit(abi::load_u8("x6", cursor, 1));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::shift_left_immediate("x6", "x6", 12));
-        self.emit(abi::or_registers(codepoint, codepoint, "x6"));
-        self.emit(abi::load_u8("x6", cursor, 2));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::shift_left_immediate("x6", "x6", 6));
-        self.emit(abi::or_registers(codepoint, codepoint, "x6"));
-        self.emit(abi::load_u8("x6", cursor, 3));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::or_registers(codepoint, codepoint, "x6"));
+        self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::move_immediate(mask, "Integer", "63"));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::shift_left_immediate(byte, byte, 12));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
+        self.emit(abi::load_u8(byte, cursor, 2));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::shift_left_immediate(byte, byte, 6));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
+        self.emit(abi::load_u8(byte, cursor, 3));
+        self.emit(abi::and_registers(byte, byte, mask));
+        self.emit(abi::or_registers(codepoint, codepoint, byte));
         self.emit(abi::label(&done));
     }
 
@@ -132,26 +140,30 @@ impl CodeBuilder<'_> {
         codepoint: &str,
         property: &str,
     ) {
-        self.emit(abi::shift_right_immediate("x6", codepoint, 8));
-        self.emit(abi::shift_left_immediate("x6", "x6", 1));
-        self.emit_load_data_address("x7", UNICODE_STAGE1_SYMBOL);
-        self.emit(abi::add_registers("x7", "x7", "x6"));
-        self.emit(abi::load_u16("x6", "x7", 0));
-        self.emit(abi::move_immediate("x7", "Integer", "255"));
-        self.emit(abi::and_registers("x7", codepoint, "x7"));
-        self.emit(abi::add_registers("x6", "x6", "x7"));
-        self.emit(abi::shift_left_immediate("x6", "x6", 1));
-        self.emit_load_data_address("x7", UNICODE_STAGE2_SYMBOL);
-        self.emit(abi::add_registers("x7", "x7", "x6"));
-        self.emit(abi::load_u16("x6", "x7", 0));
+        let x6 = self.temporary_vreg();
+        let x7 = self.temporary_vreg();
+        let x6 = x6.as_str();
+        let x7 = x7.as_str();
+        self.emit(abi::shift_right_immediate(x6, codepoint, 8));
+        self.emit(abi::shift_left_immediate(x6, x6, 1));
+        self.emit_load_data_address(x7, UNICODE_STAGE1_SYMBOL);
+        self.emit(abi::add_registers(x7, x7, x6));
+        self.emit(abi::load_u16(x6, x7, 0));
+        self.emit(abi::move_immediate(x7, "Integer", "255"));
+        self.emit(abi::and_registers(x7, codepoint, x7));
+        self.emit(abi::add_registers(x6, x6, x7));
+        self.emit(abi::shift_left_immediate(x6, x6, 1));
+        self.emit_load_data_address(x7, UNICODE_STAGE2_SYMBOL);
+        self.emit(abi::add_registers(x7, x7, x6));
+        self.emit(abi::load_u16(x6, x7, 0));
         self.emit(abi::move_immediate(
-            "x7",
+            x7,
             "Integer",
             &UNICODE_PROPERTY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers("x6", "x6", "x7"));
+        self.emit(abi::multiply_registers(x6, x6, x7));
         self.emit_load_data_address(property, UNICODE_PROPERTIES_SYMBOL);
-        self.emit(abi::add_registers(property, property, "x6"));
+        self.emit(abi::add_registers(property, property, x6));
     }
 
     pub(in crate::target::shared::code) fn emit_unicode_property_boundclass(
@@ -260,6 +272,8 @@ impl CodeBuilder<'_> {
         let three = self.label("utf8_width_three");
         let four = self.label("utf8_width_four");
         let done = self.label("utf8_width_done");
+        let x6 = self.temporary_vreg();
+        let x6 = x6.as_str();
 
         self.emit(abi::compare_immediate(codepoint, "128"));
         self.emit(abi::branch_ge(&two));
@@ -271,8 +285,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(width, "Integer", "2"));
         self.emit(abi::branch(&done));
         self.emit(abi::label(&three));
-        self.emit(abi::move_immediate("x6", "Integer", "65536"));
-        self.emit(abi::compare_registers(codepoint, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "65536"));
+        self.emit(abi::compare_registers(codepoint, x6));
         self.emit(abi::branch_ge(&four));
         self.emit(abi::move_immediate(width, "Integer", "3"));
         self.emit(abi::branch(&done));
@@ -290,6 +304,10 @@ impl CodeBuilder<'_> {
         let three = self.label("utf8_encode_three");
         let four = self.label("utf8_encode_four");
         let done = self.label("utf8_encode_done");
+        let x6 = self.temporary_vreg();
+        let x7 = self.temporary_vreg();
+        let x6 = x6.as_str();
+        let x7 = x7.as_str();
 
         self.emit(abi::compare_immediate(codepoint, "128"));
         self.emit(abi::branch_ge(&two));
@@ -300,62 +318,62 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&two));
         self.emit(abi::compare_immediate(codepoint, "2048"));
         self.emit(abi::branch_ge(&three));
-        self.emit(abi::shift_right_immediate("x6", codepoint, 6));
-        self.emit(abi::move_immediate("x7", "Integer", "192"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 0));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", codepoint, "x7"));
-        self.emit(abi::move_immediate("x7", "Integer", "128"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 1));
+        self.emit(abi::shift_right_immediate(x6, codepoint, 6));
+        self.emit(abi::move_immediate(x7, "Integer", "192"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 0));
+        self.emit(abi::move_immediate(x7, "Integer", "63"));
+        self.emit(abi::and_registers(x6, codepoint, x7));
+        self.emit(abi::move_immediate(x7, "Integer", "128"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 1));
         self.emit(abi::add_immediate(cursor, cursor, 2));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&three));
-        self.emit(abi::move_immediate("x6", "Integer", "65536"));
-        self.emit(abi::compare_registers(codepoint, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "65536"));
+        self.emit(abi::compare_registers(codepoint, x6));
         self.emit(abi::branch_ge(&four));
-        self.emit(abi::shift_right_immediate("x6", codepoint, 12));
-        self.emit(abi::move_immediate("x7", "Integer", "224"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 0));
-        self.emit(abi::shift_right_immediate("x6", codepoint, 6));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::move_immediate("x7", "Integer", "128"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 1));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", codepoint, "x7"));
-        self.emit(abi::move_immediate("x7", "Integer", "128"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 2));
+        self.emit(abi::shift_right_immediate(x6, codepoint, 12));
+        self.emit(abi::move_immediate(x7, "Integer", "224"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 0));
+        self.emit(abi::shift_right_immediate(x6, codepoint, 6));
+        self.emit(abi::move_immediate(x7, "Integer", "63"));
+        self.emit(abi::and_registers(x6, x6, x7));
+        self.emit(abi::move_immediate(x7, "Integer", "128"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 1));
+        self.emit(abi::move_immediate(x7, "Integer", "63"));
+        self.emit(abi::and_registers(x6, codepoint, x7));
+        self.emit(abi::move_immediate(x7, "Integer", "128"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 2));
         self.emit(abi::add_immediate(cursor, cursor, 3));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&four));
-        self.emit(abi::shift_right_immediate("x6", codepoint, 18));
-        self.emit(abi::move_immediate("x7", "Integer", "240"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 0));
-        self.emit(abi::shift_right_immediate("x6", codepoint, 12));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::move_immediate("x7", "Integer", "128"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 1));
-        self.emit(abi::shift_right_immediate("x6", codepoint, 6));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::move_immediate("x7", "Integer", "128"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 2));
-        self.emit(abi::move_immediate("x7", "Integer", "63"));
-        self.emit(abi::and_registers("x6", codepoint, "x7"));
-        self.emit(abi::move_immediate("x7", "Integer", "128"));
-        self.emit(abi::or_registers("x6", "x6", "x7"));
-        self.emit(abi::store_u8("x6", cursor, 3));
+        self.emit(abi::shift_right_immediate(x6, codepoint, 18));
+        self.emit(abi::move_immediate(x7, "Integer", "240"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 0));
+        self.emit(abi::shift_right_immediate(x6, codepoint, 12));
+        self.emit(abi::move_immediate(x7, "Integer", "63"));
+        self.emit(abi::and_registers(x6, x6, x7));
+        self.emit(abi::move_immediate(x7, "Integer", "128"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 1));
+        self.emit(abi::shift_right_immediate(x6, codepoint, 6));
+        self.emit(abi::move_immediate(x7, "Integer", "63"));
+        self.emit(abi::and_registers(x6, x6, x7));
+        self.emit(abi::move_immediate(x7, "Integer", "128"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 2));
+        self.emit(abi::move_immediate(x7, "Integer", "63"));
+        self.emit(abi::and_registers(x6, codepoint, x7));
+        self.emit(abi::move_immediate(x7, "Integer", "128"));
+        self.emit(abi::or_registers(x6, x6, x7));
+        self.emit(abi::store_u8(x6, cursor, 3));
         self.emit(abi::add_immediate(cursor, cursor, 4));
         self.emit(abi::label(&done));
     }
@@ -366,11 +384,15 @@ impl CodeBuilder<'_> {
         entry_ptr: &str,
         remaining: &str,
     ) {
-        self.emit(abi::move_immediate("x6", "Integer", "16383"));
-        self.emit(abi::and_registers("x6", seqindex, "x6"));
-        self.emit(abi::shift_left_immediate("x6", "x6", 1));
+        let x6 = self.temporary_vreg();
+        let x7 = self.temporary_vreg();
+        let x6 = x6.as_str();
+        let x7 = x7.as_str();
+        self.emit(abi::move_immediate(x6, "Integer", "16383"));
+        self.emit(abi::and_registers(x6, seqindex, x6));
+        self.emit(abi::shift_left_immediate(x6, x6, 1));
         self.emit_load_data_address(entry_ptr, UNICODE_SEQUENCES_SYMBOL);
-        self.emit(abi::add_registers(entry_ptr, entry_ptr, "x6"));
+        self.emit(abi::add_registers(entry_ptr, entry_ptr, x6));
         self.emit(abi::shift_right_immediate(remaining, seqindex, 14));
         let short = self.label("utf8proc_sequence_short");
         self.emit(abi::compare_immediate(remaining, "3"));
@@ -386,24 +408,28 @@ impl CodeBuilder<'_> {
         codepoint: &str,
     ) {
         let done = self.label("utf8proc_sequence_decode_done");
+        let x6 = self.temporary_vreg();
+        let x7 = self.temporary_vreg();
+        let x6 = x6.as_str();
+        let x7 = x7.as_str();
         self.emit(abi::load_u16(codepoint, entry_ptr, 0));
         self.emit(abi::add_immediate(entry_ptr, entry_ptr, 2));
-        self.emit(abi::move_immediate("x6", "Integer", "55296"));
-        self.emit(abi::compare_registers(codepoint, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "55296"));
+        self.emit(abi::compare_registers(codepoint, x6));
         self.emit(abi::branch_lt(&done));
-        self.emit(abi::move_immediate("x6", "Integer", "56320"));
-        self.emit(abi::compare_registers(codepoint, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "56320"));
+        self.emit(abi::compare_registers(codepoint, x6));
         self.emit(abi::branch_ge(&done));
-        self.emit(abi::move_immediate("x6", "Integer", "1023"));
-        self.emit(abi::and_registers(codepoint, codepoint, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "1023"));
+        self.emit(abi::and_registers(codepoint, codepoint, x6));
         self.emit(abi::shift_left_immediate(codepoint, codepoint, 10));
-        self.emit(abi::load_u16("x6", entry_ptr, 0));
+        self.emit(abi::load_u16(x6, entry_ptr, 0));
         self.emit(abi::add_immediate(entry_ptr, entry_ptr, 2));
-        self.emit(abi::move_immediate("x7", "Integer", "1023"));
-        self.emit(abi::and_registers("x6", "x6", "x7"));
-        self.emit(abi::or_registers(codepoint, codepoint, "x6"));
-        self.emit(abi::move_immediate("x6", "Integer", "65536"));
-        self.emit(abi::add_registers(codepoint, codepoint, "x6"));
+        self.emit(abi::move_immediate(x7, "Integer", "1023"));
+        self.emit(abi::and_registers(x6, x6, x7));
+        self.emit(abi::or_registers(codepoint, codepoint, x6));
+        self.emit(abi::move_immediate(x6, "Integer", "65536"));
+        self.emit(abi::add_registers(codepoint, codepoint, x6));
         self.emit(abi::label(&done));
     }
 
@@ -421,17 +447,21 @@ impl CodeBuilder<'_> {
         let found = self.label("unicode_mapping_lookup_found");
         let not_found = self.label("unicode_mapping_lookup_not_found");
         let done = self.label("unicode_mapping_lookup_done");
+        let x6 = self.temporary_vreg();
+        let x7 = self.temporary_vreg();
+        let x6 = x6.as_str();
+        let x7 = x7.as_str();
 
-        self.emit(abi::move_immediate("x6", "Integer", "0"));
+        self.emit(abi::move_immediate(x6, "Integer", "0"));
         self.emit(abi::move_immediate(
-            "x7",
+            x7,
             "Integer",
             &entry_count.to_string(),
         ));
         self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_registers("x6", "x7"));
+        self.emit(abi::compare_registers(x6, x7));
         self.emit(abi::branch_ge(&not_found));
-        self.emit(abi::add_registers("x8", "x6", "x7"));
+        self.emit(abi::add_registers("x8", x6, x7));
         self.emit(abi::shift_right_immediate("x8", "x8", 1));
         self.emit(abi::shift_left_immediate("x9", "x8", 4));
         self.emit_load_data_address("x13", entries_symbol);
@@ -444,10 +474,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers("x14", codepoint));
         self.emit(abi::branch_eq(&found));
         self.emit(abi::branch_lo(&move_left));
-        self.emit(abi::move_register("x7", "x8"));
+        self.emit(abi::move_register(x7, "x8"));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&move_left));
-        self.emit(abi::add_immediate("x6", "x8", 1));
+        self.emit(abi::add_immediate(x6, "x8", 1));
         self.emit(abi::branch(&loop_label));
 
         self.emit(abi::label(&found));
@@ -480,46 +510,50 @@ impl CodeBuilder<'_> {
         fallback_label: &str,
     ) {
         let check_lv_t = self.label("hangul_compose_check_lv_t");
+        let x6 = self.temporary_vreg();
+        let x7 = self.temporary_vreg();
+        let x6 = x6.as_str();
+        let x7 = x7.as_str();
 
-        self.emit(abi::move_immediate("x6", "Integer", "4352"));
-        self.emit(abi::compare_registers(starter, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "4352"));
+        self.emit(abi::compare_registers(starter, x6));
         self.emit(abi::branch_lo(&check_lv_t));
-        self.emit(abi::subtract_registers("x7", starter, "x6"));
-        self.emit(abi::compare_immediate("x7", "19"));
+        self.emit(abi::subtract_registers(x7, starter, x6));
+        self.emit(abi::compare_immediate(x7, "19"));
         self.emit(abi::branch_ge(&check_lv_t));
 
-        self.emit(abi::move_immediate("x6", "Integer", "4449"));
-        self.emit(abi::compare_registers(current, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "4449"));
+        self.emit(abi::compare_registers(current, x6));
         self.emit(abi::branch_lo(&check_lv_t));
-        self.emit(abi::subtract_registers("x8", current, "x6"));
+        self.emit(abi::subtract_registers("x8", current, x6));
         self.emit(abi::compare_immediate("x8", "21"));
         self.emit(abi::branch_ge(&check_lv_t));
-        self.emit(abi::move_immediate("x6", "Integer", "21"));
-        self.emit(abi::multiply_registers(output, "x7", "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "21"));
+        self.emit(abi::multiply_registers(output, x7, x6));
         self.emit(abi::add_registers(output, output, "x8"));
-        self.emit(abi::move_immediate("x6", "Integer", "28"));
-        self.emit(abi::multiply_registers(output, output, "x6"));
-        self.emit(abi::move_immediate("x6", "Integer", "44032"));
-        self.emit(abi::add_registers(output, output, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "28"));
+        self.emit(abi::multiply_registers(output, output, x6));
+        self.emit(abi::move_immediate(x6, "Integer", "44032"));
+        self.emit(abi::add_registers(output, output, x6));
         self.emit(abi::branch(found_label));
 
         self.emit(abi::label(&check_lv_t));
-        self.emit(abi::move_immediate("x6", "Integer", "44032"));
-        self.emit(abi::compare_registers(starter, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "44032"));
+        self.emit(abi::compare_registers(starter, x6));
         self.emit(abi::branch_lo(fallback_label));
-        self.emit(abi::subtract_registers("x7", starter, "x6"));
-        self.emit(abi::move_immediate("x6", "Integer", "11172"));
-        self.emit(abi::compare_registers("x7", "x6"));
+        self.emit(abi::subtract_registers(x7, starter, x6));
+        self.emit(abi::move_immediate(x6, "Integer", "11172"));
+        self.emit(abi::compare_registers(x7, x6));
         self.emit(abi::branch_ge(fallback_label));
-        self.emit(abi::move_immediate("x6", "Integer", "28"));
-        self.emit(abi::unsigned_divide_registers("x8", "x7", "x6"));
-        self.emit(abi::multiply_subtract_registers("x8", "x8", "x6", "x7"));
+        self.emit(abi::move_immediate(x6, "Integer", "28"));
+        self.emit(abi::unsigned_divide_registers("x8", x7, x6));
+        self.emit(abi::multiply_subtract_registers("x8", "x8", x6, x7));
         self.emit(abi::compare_immediate("x8", "0"));
         self.emit(abi::branch_ne(fallback_label));
-        self.emit(abi::move_immediate("x6", "Integer", "4519"));
-        self.emit(abi::compare_registers(current, "x6"));
+        self.emit(abi::move_immediate(x6, "Integer", "4519"));
+        self.emit(abi::compare_registers(current, x6));
         self.emit(abi::branch_lo(fallback_label));
-        self.emit(abi::subtract_registers("x8", current, "x6"));
+        self.emit(abi::subtract_registers("x8", current, x6));
         self.emit(abi::compare_immediate("x8", "0"));
         self.emit(abi::branch_eq(fallback_label));
         self.emit(abi::compare_immediate("x8", "28"));
@@ -784,19 +818,27 @@ impl CodeBuilder<'_> {
         not_equal_label: &str,
     ) {
         let loop_label = self.label("string_bytes_equal_loop");
-        self.emit(abi::move_register("x4", left_data));
-        self.emit(abi::move_register("x5", right_data));
-        self.emit(abi::move_register("x6", length));
+        let x4 = self.temporary_vreg();
+        let x5 = self.temporary_vreg();
+        let x6 = self.temporary_vreg();
+        let x7 = self.temporary_vreg();
+        let x4 = x4.as_str();
+        let x5 = x5.as_str();
+        let x6 = x6.as_str();
+        let x7 = x7.as_str();
+        self.emit(abi::move_register(x4, left_data));
+        self.emit(abi::move_register(x5, right_data));
+        self.emit(abi::move_register(x6, length));
         self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate("x6", "0"));
+        self.emit(abi::compare_immediate(x6, "0"));
         self.emit(abi::branch_eq(equal_label));
-        self.emit(abi::load_u8("x7", "x4", 0));
-        self.emit(abi::load_u8("x8", "x5", 0));
-        self.emit(abi::compare_registers("x7", "x8"));
+        self.emit(abi::load_u8(x7, x4, 0));
+        self.emit(abi::load_u8("x8", x5, 0));
+        self.emit(abi::compare_registers(x7, "x8"));
         self.emit(abi::branch_ne(not_equal_label));
-        self.emit(abi::add_immediate("x4", "x4", 1));
-        self.emit(abi::add_immediate("x5", "x5", 1));
-        self.emit(abi::subtract_immediate("x6", "x6", 1));
+        self.emit(abi::add_immediate(x4, x4, 1));
+        self.emit(abi::add_immediate(x5, x5, 1));
+        self.emit(abi::subtract_immediate(x6, x6, 1));
         self.emit(abi::branch(&loop_label));
     }
 
@@ -808,6 +850,8 @@ impl CodeBuilder<'_> {
         whitespace_label: &str,
         not_whitespace_label: &str,
     ) {
+        let x7 = self.temporary_vreg();
+        let x7 = x7.as_str();
         let check_c2 = self.label("unicode_ws_check_c2");
         let check_e1 = self.label("unicode_ws_check_e1");
         let check_e2 = self.label("unicode_ws_check_e2");
@@ -824,16 +868,16 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::compare_immediate(remaining, "0"));
         self.emit(abi::branch_eq(not_whitespace_label));
-        self.emit(abi::load_u8("x7", cursor, 0));
-        self.emit(abi::compare_immediate("x7", "9"));
+        self.emit(abi::load_u8(x7, cursor, 0));
+        self.emit(abi::compare_immediate(x7, "9"));
         self.emit(abi::branch_lo(&check_c2));
-        self.emit(abi::compare_immediate("x7", "13"));
+        self.emit(abi::compare_immediate(x7, "13"));
         self.emit(abi::branch_le(&one));
-        self.emit(abi::compare_immediate("x7", "32"));
+        self.emit(abi::compare_immediate(x7, "32"));
         self.emit(abi::branch_eq(&one));
 
         self.emit(abi::label(&check_c2));
-        self.emit(abi::compare_immediate("x7", "194"));
+        self.emit(abi::compare_immediate(x7, "194"));
         self.emit(abi::branch_ne(&check_e1));
         self.emit(abi::compare_immediate(remaining, "2"));
         self.emit(abi::branch_lo(not_whitespace_label));
@@ -845,7 +889,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(not_whitespace_label));
 
         self.emit(abi::label(&check_e1));
-        self.emit(abi::compare_immediate("x7", "225"));
+        self.emit(abi::compare_immediate(x7, "225"));
         self.emit(abi::branch_ne(&check_e2));
         self.emit(abi::compare_immediate(remaining, "3"));
         self.emit(abi::branch_lo(not_whitespace_label));
@@ -858,7 +902,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(not_whitespace_label));
 
         self.emit(abi::label(&check_e2));
-        self.emit(abi::compare_immediate("x7", "226"));
+        self.emit(abi::compare_immediate(x7, "226"));
         self.emit(abi::branch_ne(&check_e3));
         self.emit(abi::compare_immediate(remaining, "3"));
         self.emit(abi::branch_lo(not_whitespace_label));
@@ -896,7 +940,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(not_whitespace_label));
 
         self.emit(abi::label(&check_e3));
-        self.emit(abi::compare_immediate("x7", "227"));
+        self.emit(abi::compare_immediate(x7, "227"));
         self.emit(abi::branch_ne(not_whitespace_label));
         self.emit(abi::compare_immediate(remaining, "3"));
         self.emit(abi::branch_lo(not_whitespace_label));

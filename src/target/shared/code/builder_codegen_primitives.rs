@@ -176,6 +176,15 @@ impl CodeBuilder<'_> {
         }
     }
 
+    /// Mint a scratch virtual register for a builder that would otherwise name a
+    /// physical register directly. Infallible under linear-scan (the active
+    /// strategy); a convenience over `allocate_register` for the many builder
+    /// call sites that used fixed `xN` scratch and cannot bubble a `Result`.
+    pub(super) fn temporary_vreg(&mut self) -> String {
+        self.allocate_register()
+            .expect("linear-scan mints vregs without exhausting a pool")
+    }
+
     pub(super) fn mark_register_used(&mut self, register: &str) {
         if abi::is_callee_saved(register)
             && !self.used_callee_saved.iter().any(|saved| saved == register)
