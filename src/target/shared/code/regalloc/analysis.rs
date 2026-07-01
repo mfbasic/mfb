@@ -175,6 +175,25 @@ pub(super) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effec
             uses.push(value.clone());
         }
     }
+    // Read-modify-write ops accumulate into / select through `dst`, so `dst` is
+    // also a SOURCE, not a pure definition. Without this, a spilled accumulator
+    // is spilled *after* the op but never reloaded *before* it, so the
+    // multiply-add lands on whatever stale value the scratch register held. This
+    // only bites under the x86 file's FP pressure — AArch64's 32 vector registers
+    // never spill these accumulators, so the same neutral MIR is correct there.
+    // (Symptom: log/log10's `k*ln2` double-double lost its low word — cancelling
+    // the high word to 0.0 — whenever a prior kernel like `exp` raised FP pressure
+    // in the same function.)
+    if matches!(
+        instruction.op,
+        CodeOp::FMlaV | CodeOp::FMlsV | CodeOp::BslV | CodeOp::BitV
+    ) {
+        if let Some((_, dst)) = instruction.fields.iter().find(|(name, _)| *name == "dst") {
+            if model.is_tracked(dst) {
+                uses.push(dst.clone());
+            }
+        }
+    }
     let is_call = matches!(
         instruction.op,
         CodeOp::BranchLink | CodeOp::BranchLinkRegister | CodeOp::Svc
