@@ -4,6 +4,16 @@
 # MFBASIC <Feature> Plan
 
 Last updated: YYYY-MM-DD
+Effort: <small (<1h) | medium (1h–2h) | large (3h–1d) | x-large (1d–3d) | huge (>3d)>
+
+<!-- Effort drives the split rule (.ai/planning.md): small/medium stays one file;
+     large/x-large/huge splits by effort into small/medium sub-plans
+     plan-NN-A/B/… For a split sub-plan, use this header instead:
+       # plan-NN-A: <Sub-plan name>
+       Last updated: YYYY-MM-DD
+       Overall Effort: <size of the whole plan-NN feature>   (section A only)
+       Effort: <size of this sub-plan — small or medium>
+     Sub-plans B, C, … carry only their own `Effort:`. -->
 
 <One or two paragraphs: what this builds and why. State the single
 behavioral outcome a correct implementation produces.>
