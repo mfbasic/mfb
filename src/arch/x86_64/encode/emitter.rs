@@ -971,27 +971,33 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         // them lane-serial through rax/rdx (both free — excluded from the pool)
         // and xmm15. Lane 1 is brought to lane 0 with `pshufd imm=0xEE`.
         "fcvtzs_v" => {
-            // dst[i] = trunc(src[i])  (cvttsd2si per lane)
+            // dst[i] = trunc(src[i])  (cvttsd2si per lane). rax/rdx are the GPR
+            // shuttle; preserve them (push/pop) — the kernels keep live pointers
+            // there (they are only out of the *scratch pool*, not truly dead).
             let dst = fp_reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
-            let mut b = enc_sse_cvt(0xf2, 0x2c, false, 0, src); // cvttsd2si rax, src.lo
+            let mut b = vec![0x50, 0x52]; // push rax ; push rdx
+            b.extend(enc_sse_cvt(0xf2, 0x2c, false, 0, src)); // cvttsd2si rax, src.lo
             b.extend(enc_pshufd(15, src, 0xEE)); // xmm15.lo = src.hi
             b.extend(enc_sse_cvt(0xf2, 0x2c, false, 2, 15)); // cvttsd2si rdx, src.hi
             b.extend(enc_movq_xmm_r64(dst, 0)); // dst.lo = rax
             b.extend(enc_movq_xmm_r64(15, 2)); // xmm15.lo = rdx
             b.extend(enc_sse_rr(Some(0x66), 0x6C, dst, 15)); // punpcklqdq dst,xmm15 → [rax,rdx]
+            b.extend_from_slice(&[0x5A, 0x58]); // pop rdx ; pop rax
             Ok(Encoded::plain(b))
         }
         "scvtf_v" => {
-            // dst[i] = (f64) src[i]  (cvtsi2sd per lane)
+            // dst[i] = (f64) src[i]  (cvtsi2sd per lane); preserve rax/rdx.
             let dst = fp_reg(field(instruction, "dst")?)?;
             let src = fp_reg(field(instruction, "src")?)?;
-            let mut b = enc_movq_r64_xmm(0, src); // rax = src.lo
+            let mut b = vec![0x50, 0x52]; // push rax ; push rdx
+            b.extend(enc_movq_r64_xmm(0, src)); // rax = src.lo
             b.extend(enc_pshufd(15, src, 0xEE)); // xmm15.lo = src.hi
             b.extend(enc_movq_r64_xmm(2, 15)); // rdx = src.hi
             b.extend(enc_sse_cvt(0xf2, 0x2a, true, dst, 0)); // cvtsi2sd dst, rax
             b.extend(enc_sse_cvt(0xf2, 0x2a, true, 15, 2)); // cvtsi2sd xmm15, rdx
             b.extend(enc_sse_rr(Some(0x66), 0x14, dst, 15)); // unpcklpd dst,xmm15 → [lo,hi]
+            b.extend_from_slice(&[0x5A, 0x58]); // pop rdx ; pop rax
             Ok(Encoded::plain(b))
         }
         // Arithmetic i64 lane shift-right by imm. SSE2 has no `psraq` (only 32-bit
