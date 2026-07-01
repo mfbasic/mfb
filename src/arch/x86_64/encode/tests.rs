@@ -87,6 +87,30 @@ fn add_with_move() {
 }
 
 #[test]
+fn sub_with_zero_lhs_negates() {
+    // sub rax, xzr, rax : dst==rhs → neg rax (48 F7 D8), NOT `sub rax,rax`=0.
+    assert_eq!(
+        bytes("sub", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rax")]),
+        [0x48, 0xF7, 0xD8]
+    );
+    // sub rdx, xzr, rax : dst!=rhs → mov rdx,rax (48 89 C2) ; neg rdx (48 F7 DA).
+    assert_eq!(
+        bytes("sub", &[("dst", "rdx"), ("lhs", "xzr"), ("rhs", "rax")]),
+        [0x48, 0x89, 0xC2, 0x48, 0xF7, 0xDA]
+    );
+    // sub r8, xzr, r8 : neg r8 needs REX.B (49 F7 D8).
+    assert_eq!(
+        bytes("sub", &[("dst", "r8"), ("lhs", "xzr"), ("rhs", "r8")]),
+        [0x49, 0xF7, 0xD8]
+    );
+    // add rax, xzr, rcx : 0 + rcx = rcx → mov rax,rcx (48 89 C8).
+    assert_eq!(
+        bytes("add", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rcx")]),
+        [0x48, 0x89, 0xC8]
+    );
+}
+
+#[test]
 fn mvn() {
     // mvn rax, rbx : mov rax,rbx (48 89 D8) ; not rax (48 F7 D0)
     assert_eq!(

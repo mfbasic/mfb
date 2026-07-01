@@ -472,9 +472,54 @@ fn alu3(instruction: &CodeInstruction, opcode: u8) -> Result<Encoded, String> {
     let dst = reg(field(instruction, "dst")?)?;
     let lhs = reg(field(instruction, "lhs")?)?;
     let rhs = reg(field(instruction, "rhs")?)?;
+    if is_zero_token(lhs) {
+        // `dst = 0 OP rhs`. AArch64 freely sources `xzr` — most importantly
+        // `sub d, xzr, r` to negate — but x86 has no zero register, so the two-
+        // operand form `mov dst,<zero>; OP dst,rhs` would compute `rhs OP rhs`
+        // whenever `dst == rhs` (the in-place negate). Synthesize the result
+        // directly, guarding that aliasing.
+        let bytes = match opcode {
+            0x29 => {
+                // sub: dst = 0 - rhs = -rhs (neg is in-place, so seed dst=rhs).
+                let mut b = if dst == rhs { Vec::new() } else { enc_mov(dst, rhs) };
+                b.extend_from_slice(&enc_neg(dst));
+                b
+            }
+            // add / or / xor with zero: dst = rhs.
+            0x01 | 0x09 | 0x31 => {
+                if dst == rhs {
+                    Vec::new()
+                } else {
+                    enc_mov(dst, rhs)
+                }
+            }
+            // and with zero: dst = 0.
+            0x21 => alu_rr(0x31, dst, dst),
+            other => {
+                return Err(format!(
+                    "x86-64 alu3 with a zero lhs and opcode {other:#x} is unsupported"
+                ))
+            }
+        };
+        return Ok(Encoded::plain(bytes));
+    }
+    if is_zero_token(rhs) {
+        return Err("x86-64 alu3 with a zero-token rhs is not yet handled".to_string());
+    }
     let mut bytes = if dst == lhs { Vec::new() } else { enc_mov(dst, lhs) };
     bytes.extend_from_slice(&alu_rr(opcode, dst, rhs));
     Ok(Encoded::plain(bytes))
+}
+
+/// `neg r/m64` — REX.W + 0xF7 /3, two's-complement negate in place. `/3` names
+/// the NEG operation in the F7 group, so the ModRM reg field is the constant 3
+/// (not a register) and only REX.B can extend the `rm` target.
+fn enc_neg(target: u8) -> Vec<u8> {
+    vec![
+        rex(true, false, false, target >= 8),
+        0xF7,
+        modrm(0b11, 3, target),
+    ]
 }
 
 /// `mov dst, src` — REX.W 0x89 /r (MR form: rm := reg).
