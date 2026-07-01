@@ -946,14 +946,17 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             Ok(Encoded::plain(b))
         }
         // Bit-insert-if-true (BIT): dst = (dst & ~rhs) | (lhs & rhs), mask in rhs.
+        // Computed via the XOR identity dst = dst ^ ((dst ^ lhs) & rhs) so it needs
+        // only ONE scratch — the reserved xmm15. The earlier form also clobbered
+        // xmm14, which is ALLOCATABLE (only xmm15 is held out), destroying whatever
+        // live FP value the allocator had colored there (allocation-dependent
+        // corruption in the atan-based acos/asin kernels, which use BIT heavily).
         "bit_v" => {
             let (dst, lhs, rhs) = three_fp(instruction)?;
-            let mut b = enc_movaps(15, lhs); // xmm15 = lhs
-            b.extend(enc_sse_rr(Some(0x66), 0xDB, 15, rhs)); // xmm15 = lhs & rhs
-            b.extend(enc_movaps(14, rhs)); // xmm14 = rhs
-            b.extend(enc_sse_rr(Some(0x66), 0xDF, 14, dst)); // xmm14 = ~rhs & dst
-            b.extend(enc_movaps(dst, 14));
-            b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // dst |= lhs&rhs
+            let mut b = enc_movaps(15, dst); // xmm15 = dst
+            b.extend(enc_sse_rr(Some(0x66), 0xEF, 15, lhs)); // xmm15 = dst ^ lhs (pxor)
+            b.extend(enc_sse_rr(Some(0x66), 0xDB, 15, rhs)); // xmm15 = (dst^lhs) & rhs
+            b.extend(enc_sse_rr(Some(0x66), 0xEF, dst, 15)); // dst ^= xmm15 (pxor)
             Ok(Encoded::plain(b))
         }
         // Fused multiply-add/-subtract (single rounding, matches AArch64 fmla/fmls)
