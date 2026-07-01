@@ -143,17 +143,32 @@ impl CodeBuilder<'_> {
         &mut self,
         source_register: &str,
     ) -> Result<ValueResult, String> {
-        let string = "x8";
-        let length = "x9";
-        let index = "x10";
-        let cursor = "x11";
-        let byte = "x12";
-        let acc = "x13";
-        let negative = "x14";
-        let digit = "x15";
-        let cutoff = "x16";
-        let cutlim = "x17";
-        let ten = "x6";
+        // Pure integer parse with no call ABI: every working register is scratch,
+        // minted as a vreg so the allocator colors it per-ISA (was hand-pinned
+        // x8-x17 + an out-of-pool x6 the vregify pass could not reach). `xzr`
+        // below stays — it is the architectural zero register, not scratch.
+        let string_v = self.temporary_vreg();
+        let length_v = self.temporary_vreg();
+        let index_v = self.temporary_vreg();
+        let cursor_v = self.temporary_vreg();
+        let byte_v = self.temporary_vreg();
+        let acc_v = self.temporary_vreg();
+        let negative_v = self.temporary_vreg();
+        let digit_v = self.temporary_vreg();
+        let cutoff_v = self.temporary_vreg();
+        let cutlim_v = self.temporary_vreg();
+        let ten_v = self.temporary_vreg();
+        let string = string_v.as_str();
+        let length = length_v.as_str();
+        let index = index_v.as_str();
+        let cursor = cursor_v.as_str();
+        let byte = byte_v.as_str();
+        let acc = acc_v.as_str();
+        let negative = negative_v.as_str();
+        let digit = digit_v.as_str();
+        let cutoff = cutoff_v.as_str();
+        let cutlim = cutlim_v.as_str();
+        let ten = ten_v.as_str();
         let invalid = self.label("string_to_int_invalid");
         let overflow = self.label("string_to_int_overflow");
         let first_not_minus = self.label("string_to_int_first_not_minus");
