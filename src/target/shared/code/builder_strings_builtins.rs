@@ -1648,16 +1648,40 @@ impl CodeBuilder<'_> {
         let inner_done = self.label("strings_repeat_inner_done");
         let outer_done = self.label("strings_repeat_outer_done");
 
-        self.emit(abi::load_u64("x16", abi::stack_pointer(), value_slot));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), times_slot));
-        self.emit(abi::compare_immediate("x10", "0"));
+        // Scratch as vregs (was hand-pinned x9/x10/x11/x13/x14/x16 + out-of-pool
+        // x2/x3/x4). x1 stays physical only as the arena_alloc ABI arg/result;
+        // the allocation pointer is then carried in a neutral vreg across the
+        // copy loops, since a held physical result register is fragile on ISAs
+        // whose result/argument registers differ (x86-64).
+        let val_ptr_v = self.temporary_vreg();
+        let times_rem_v = self.temporary_vreg();
+        let len_v = self.temporary_vreg();
+        let total_v = self.temporary_vreg();
+        let dst_v = self.temporary_vreg();
+        let src_base_v = self.temporary_vreg();
+        let inner_src_v = self.temporary_vreg();
+        let inner_cnt_v = self.temporary_vreg();
+        let byte_v = self.temporary_vreg();
+        let val_ptr = val_ptr_v.as_str();
+        let times_rem = times_rem_v.as_str();
+        let len = len_v.as_str();
+        let total = total_v.as_str();
+        let dst = dst_v.as_str();
+        let src_base = src_base_v.as_str();
+        let inner_src = inner_src_v.as_str();
+        let inner_cnt = inner_cnt_v.as_str();
+        let byte = byte_v.as_str();
+
+        self.emit(abi::load_u64(val_ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(times_rem, abi::stack_pointer(), times_slot));
+        self.emit(abi::compare_immediate(times_rem, "0"));
         self.emit(abi::branch_lt(&invalid));
-        self.emit(abi::load_u64("x9", "x16", 0));
+        self.emit(abi::load_u64(len, val_ptr, 0));
         // total = len * times.
-        self.emit(abi::multiply_registers("x11", "x9", "x10"));
-        self.emit(abi::store_u64("x11", abi::stack_pointer(), total_slot));
+        self.emit(abi::multiply_registers(total, len, times_rem));
+        self.emit(abi::store_u64(total, abi::stack_pointer(), total_slot));
         // allocate total + 9.
-        self.emit(abi::add_immediate(abi::return_register(), "x11", 9));
+        self.emit(abi::add_immediate(abi::return_register(), total, 9));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1674,38 +1698,40 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x11", abi::stack_pointer(), total_slot));
-        self.emit(abi::store_u64("x11", "x1", 0));
+        // Capture the allocation result while x1 is unambiguously the call result.
+        let result_ptr = self.allocate_register()?;
+        self.emit(abi::move_register(&result_ptr, "x1"));
+        self.emit(abi::store_u64(&result_ptr, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(total, abi::stack_pointer(), total_slot));
+        self.emit(abi::store_u64(total, &result_ptr, 0));
 
-        // Copy loop: x10 = times remaining, x13 = dst cursor, x14 = src base, x9 = len.
-        self.emit(abi::load_u64("x16", abi::stack_pointer(), value_slot));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), times_slot));
-        self.emit(abi::load_u64("x9", "x16", 0));
-        self.emit(abi::add_immediate("x14", "x16", 8));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x13", "x1", 8));
+        // Copy loop: times_rem outer counter, dst cursor, src_base, len.
+        self.emit(abi::load_u64(val_ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(times_rem, abi::stack_pointer(), times_slot));
+        self.emit(abi::load_u64(len, val_ptr, 0));
+        self.emit(abi::add_immediate(src_base, val_ptr, 8));
+        self.emit(abi::add_immediate(dst, &result_ptr, 8));
         self.emit(abi::label(&outer));
-        self.emit(abi::compare_immediate("x10", "0"));
+        self.emit(abi::compare_immediate(times_rem, "0"));
         self.emit(abi::branch_eq(&outer_done));
-        // inner: copy x9 bytes from x14 to x13.
-        self.emit(abi::move_register("x2", "x14"));
-        self.emit(abi::move_register("x3", "x9"));
+        // inner: copy len bytes from src_base to dst.
+        self.emit(abi::move_register(inner_src, src_base));
+        self.emit(abi::move_register(inner_cnt, len));
         self.emit(abi::label(&inner));
-        self.emit(abi::compare_immediate("x3", "0"));
+        self.emit(abi::compare_immediate(inner_cnt, "0"));
         self.emit(abi::branch_eq(&inner_done));
-        self.emit(abi::load_u8("x4", "x2", 0));
-        self.emit(abi::store_u8("x4", "x13", 0));
-        self.emit(abi::add_immediate("x2", "x2", 1));
-        self.emit(abi::add_immediate("x13", "x13", 1));
-        self.emit(abi::subtract_immediate("x3", "x3", 1));
+        self.emit(abi::load_u8(byte, inner_src, 0));
+        self.emit(abi::store_u8(byte, dst, 0));
+        self.emit(abi::add_immediate(inner_src, inner_src, 1));
+        self.emit(abi::add_immediate(dst, dst, 1));
+        self.emit(abi::subtract_immediate(inner_cnt, inner_cnt, 1));
         self.emit(abi::branch(&inner));
         self.emit(abi::label(&inner_done));
-        self.emit(abi::subtract_immediate("x10", "x10", 1));
+        self.emit(abi::subtract_immediate(times_rem, times_rem, 1));
         self.emit(abi::branch(&outer));
         self.emit(abi::label(&outer_done));
-        self.emit(abi::move_immediate("x4", "Integer", "0"));
-        self.emit(abi::store_u8("x4", "x13", 0));
+        self.emit(abi::move_immediate(byte, "Integer", "0"));
+        self.emit(abi::store_u8(byte, dst, 0));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         let after = self.label("strings_repeat_after");
