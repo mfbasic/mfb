@@ -343,16 +343,25 @@ pub(super) fn finalize_frame(
     local_stack_size: usize,
     mut callee_saved: Vec<String>,
 ) -> CodeFrame {
-    if instructions.iter().any(|instruction| {
+    let has_calls = instructions.iter().any(|instruction| {
         instruction.op == CodeOp::BranchLink || instruction.op == CodeOp::BranchLinkRegister
-    }) && !callee_saved
-        .iter()
-        .any(|register| register == abi::link_register())
+    });
+    if has_calls
+        && !callee_saved
+            .iter()
+            .any(|register| register == abi::link_register())
     {
         callee_saved.push(abi::link_register().to_string());
     }
     let save_size = callee_saved.len() * 8;
-    let total_stack_size = align(save_size + local_stack_size, 16);
+    // A called function on x86-64 must offset its 16-aligned frame by the pushed
+    // return address so rsp is 16-aligned at its own call sites (0 on AArch64).
+    let call_padding = if has_calls {
+        super::mir::active_backend().frame_call_padding()
+    } else {
+        0
+    };
+    let total_stack_size = align(save_size + local_stack_size, 16) + call_padding;
     if total_stack_size == 0 {
         return CodeFrame {
             stack_size: 0,

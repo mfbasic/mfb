@@ -788,9 +788,13 @@ impl CodeBuilder<'_> {
         let seen_digit = "x15";
         let ten_bits = "x16";
         let dot_seen = "x17";
-        let exponent = "x4";
-        let exponent_negative = "x3";
-        let exponent_ten = "x2";
+        // These were x4/x3/x2 — ABI/argument registers on x86 (rcx/rdx/rsi) that
+        // the scratch vregify pass does NOT cover (it only frees x8-x17/x20-x28),
+        // so long-lived use here clobbered the SysV ABI. Homed in the vregify
+        // range instead (x20-x28), where both backends allocate them safely.
+        let exponent = "x22";
+        let exponent_negative = "x23";
+        let exponent_ten = "x24";
         let loop_start = self.label("parse_decimal_loop");
         let after_sign = self.label("parse_decimal_after_sign");
         let not_minus = self.label("parse_decimal_not_minus");
@@ -820,10 +824,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(seen_digit, "Integer", "0"));
         self.emit(abi::move_immediate(dot_seen, "Integer", "0"));
         self.emit(abi::move_immediate(exponent_ten, "Integer", "10"));
-        self.emit(abi::move_immediate("x0", "Integer", "0"));
-        self.emit(abi::signed_convert_to_float_d("d0", "x0"));
+        self.emit(abi::move_immediate("x20", "Integer", "0"));
+        self.emit(abi::signed_convert_to_float_d("d0", "x20"));
         self.emit_f64_const("d1", ten_bits, 10.0);
-        self.emit_f64_const("d3", "x7", 1.0);
+        self.emit_f64_const("d3", "x21", 1.0);
         self.emit(abi::load_u8(byte, cursor, 0));
         self.emit(abi::compare_immediate(byte, "45"));
         self.emit(abi::branch_ne(&not_minus));
@@ -961,11 +965,13 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_double_overflow_check(&mut self, source: &str, overflow_label: &str) {
-        self.emit(abi::float_move_x_from_d("x6", source));
-        self.emit(abi::shift_right_immediate("x7", "x6", 52));
-        self.emit(abi::move_immediate("x5", "Integer", "2047"));
-        self.emit(abi::and_registers("x7", "x7", "x5"));
-        self.emit(abi::compare_immediate("x7", "2047"));
+        // x6/x7/x5 were ABI/argument registers on x86; home them in the vregify
+        // range (x20-x28) like the decimal parser above.
+        self.emit(abi::float_move_x_from_d("x20", source));
+        self.emit(abi::shift_right_immediate("x21", "x20", 52));
+        self.emit(abi::move_immediate("x22", "Integer", "2047"));
+        self.emit(abi::and_registers("x21", "x21", "x22"));
+        self.emit(abi::compare_immediate("x21", "2047"));
         self.emit(abi::branch_eq(overflow_label));
     }
 }

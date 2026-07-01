@@ -40,8 +40,21 @@ impl NativePlanPlatform for Platform {
         "linux-x86_64"
     }
 
-    fn entry_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {
-        Vec::new()
+    fn entry_imports(&self, module: &NirModule) -> Vec<PlatformImport> {
+        if module.entry.is_none() {
+            return Vec::new();
+        }
+        // The shared program entry (`lower_program_entry`) always mixes the wall
+        // clock into the memory-fill RNG seed via `clock_gettime` (the entropy
+        // bytes themselves come from the `getrandom` syscall, so no `getentropy`
+        // import). `_exit`/`write` are raw syscalls on x86, so only these libc
+        // calls need importing. `signal` installs the console SIGINT/SIGTERM
+        // handlers; app mode has no console handlers (mirrors AArch64).
+        let mut imports = vec![self.libc_import("clock_gettime", "_main")];
+        if !module.build_mode.is_app() {
+            imports.push(self.libc_import("signal", "_main"));
+        }
+        imports
     }
 
     fn entry_error_imports(&self, _module: &NirModule) -> Vec<PlatformImport> {

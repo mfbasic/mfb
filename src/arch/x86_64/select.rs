@@ -35,8 +35,22 @@ const X86_DEF_FIELDS: &[&str] = &["dst", "carry_out", "borrow_out"];
 /// Map residual AArch64 scratch `xN` (N ≥ 9) to an x86 GPR (encoding-only; see
 /// the call site). Avoids `r14` (zero), `r15` (arena_base), and `rsp`.
 fn map_scratch_register(n: usize) -> &'static str {
+    // rax and rdx are excluded: `mul`/`imul`/`div`/`idiv`/`cqo` use them
+    // *implicitly* (dividend/quotient in rax, high-half/remainder in rdx), so a
+    // long-lived scratch value mapped there would be silently destroyed across a
+    // division or wide multiply — e.g. the digit-loop divisor `10` in
+    // `emit_write_integer_to_stderr` lived across the `div` that clobbers rdx.
+    //
+    // Ordering matters: the hand-written helpers inherit the AArch64 convention
+    // that x19–x28 are *callee-saved* — values parked there survive an
+    // intervening `call`/`syscall` (e.g. the entry's error message in x20 across
+    // the code-printing `write` syscall, which clobbers rcx; argc/argv in x27/x28
+    // across `clock_gettime`). So the pool is arranged so those high registers
+    // land on x86's callee-saved bank (rbx/rbp/r12/r13): with the `(n-9) % 11`
+    // index, x20→rbx, x27→r12, x28→r13, x19→rbp. The low scratch (x8–x18, not
+    // parked across calls) takes the caller-saved remainder (rcx/rsi/rdi/r8–r11).
     const POOL: &[&str] = &[
-        "rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11", "rbx", "r12", "r13", "rbp",
+        "rbx", "rsi", "rdi", "r8", "r9", "r10", "r11", "r12", "r13", "rcx", "rbp",
     ];
     POOL[(n - 9) % POOL.len()]
 }
@@ -248,6 +262,17 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 *value = ZERO_REGISTER.to_string();
                 continue;
             }
+            // Physical FP registers `dN` (the AArch64 double bank, used by the
+            // float builders/kernels) map 1:1 to `xmmN`. FP virtual registers
+            // (`%fN`) are colored to xmm by the allocator and pass through here.
+            if let Some(fp) = value
+                .strip_prefix('d')
+                .and_then(|rest| rest.parse::<usize>().ok())
+                .filter(|n| *n < 16)
+            {
+                *value = format!("xmm{fp}");
+                continue;
+            }
             let Some(n) = value
                 .strip_prefix('x')
                 .and_then(|rest| rest.parse::<usize>().ok())
@@ -344,6 +369,55 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     }
 }
 
+/// Rewrite the flag-reading branch of a fused *float* compare into the x86
+/// branch(es) that read `ucomisd`'s CF/ZF/PF with IEEE-754 unordered semantics.
+///
+/// After `ucomisd lhs, rhs` (`lhs` vs `rhs`): `CF=1` iff `lhs<rhs` or unordered;
+/// `ZF=1` iff `lhs=rhs` or unordered; `PF=1` iff unordered (either is NaN). The
+/// AArch64 `b.cc` mnemonics were chosen for `fcmp`'s NZCV, which differs, so the
+/// integer `b.cc → jcc` mapping mishandles every NaN case. The mapping below
+/// reproduces each AArch64 float relation's *exact* truth set on x86:
+///
+/// - `>`/`>=` (`b.gt`/`b.ge`) → `ja`/`jae`: `CF=0` already excludes unordered.
+/// - `<`/`<=`/`=` (`b.mi`/`b.ls`/`b.eq`) → `jp skip; jb|jbe|je target; skip:`:
+///   `jb`/`jbe`/`je` alone would also fire on unordered (CF/ZF set), so a leading
+///   `jp` skips the branch when unordered (PF=1), yielding the ordered-only set.
+/// - `<>` (`b.ne`) → `jp target; jne target`: true on unordered *or* ordered-≠.
+/// - `b.lt`/`b.le` (integer-style `<`/`<=`, unordered ⇒ true) → `jb`/`jbe`.
+/// - `b.vs`/`b.vc` (NaN / not-NaN finiteness checks) → `jp`/`jnp`.
+fn x86_float_branch(cond: &str, target: &str) -> Vec<CodeInstruction> {
+    // Emit ONLY `x86.*`-namespaced branches: this function's output is re-lowered
+    // (`route_function_through_mir`) after selection, and a real AArch64 `b.cc`
+    // sitting right after the `fcmp` would re-fuse and be remapped a second time.
+    // The `x86.*` ops are not flag-reading branches for `lower_to_mir`, so the
+    // stream is a fixed point on the second pass.
+    let br = |mnemonic: &str, tgt: &str| CodeInstruction::new(mnemonic).field("target", tgt);
+    // `jp skip; <cc> target; skip:` — take <cc> only when ordered (PF clear).
+    let ordered_only = |cc: &str| {
+        let skip = format!("{target}__x86ford");
+        vec![
+            br("x86.jp", &skip),
+            br(cc, target),
+            CodeInstruction::new("label").field("name", &skip),
+        ]
+    };
+    match cond {
+        "b.gt" => vec![br("x86.ja", target)], // ja  (CF=0 && ZF=0)          {GT}
+        "b.ge" => vec![br("x86.jae", target)], // jae (CF=0)                 {EQ,GT}
+        "b.mi" => ordered_only("x86.jb"),     // jb  (CF=1), NaN-excluded     {LT}
+        "b.lo" => ordered_only("x86.jb"),     // b.lo(C=0)==LT after fcmp     {LT}
+        "b.ls" => ordered_only("x86.jbe"),    // jbe (CF=1 || ZF=1), NaN-excl {LT,EQ}
+        "b.eq" => ordered_only("x86.je"),     // je  (ZF=1), NaN-excluded     {EQ}
+        "b.ne" => vec![br("x86.jp", target), br("x86.jne", target)], // jp||jne {LT,GT,uno}
+        "b.hi" => vec![br("x86.jp", target), br("x86.ja", target)], // jp||ja  {GT,uno}
+        "b.lt" => vec![br("x86.jb", target)], // jb  (CF=1) — LT or unordered {LT,uno}
+        "b.le" => vec![br("x86.jbe", target)], // jbe (CF=1 || ZF=1)          {LT,EQ,uno}
+        "b.vs" => vec![br("x86.jp", target)], // jp  (PF=1 → unordered/NaN)   {uno}
+        "b.vc" => vec![br("x86.jnp", target)], // jnp (PF=0 → ordered)        {LT,EQ,GT}
+        other => panic!("unmapped x86 float-compare branch condition '{other}'"),
+    }
+}
+
 /// Select neutral MIR into x86-64 machine ops (plan-00-H). Mirrors the AArch64
 /// selection's structural conversion — `addr_of` becomes a single RIP-relative
 /// load (`adrp{dst,symbol}`, which the x86 encoder emits as `lea`; the page-pair
@@ -387,10 +461,26 @@ pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction
                     fields: setter_fields,
                 });
             }
-            out.push(CodeInstruction {
-                op: branch_op,
-                fields: branch_fields,
-            });
+            // A branch reading a float compare's flags needs the x86 IEEE remap:
+            // `ucomisd` sets CF/ZF/PF (not the AArch64 NZCV the `b.cc` mnemonics
+            // read), and an unordered (NaN) result sets CF=ZF=PF=1, so the naive
+            // integer `b.cc → jcc` mapping mishandles every NaN case. Rewrite the
+            // branch here where the setter kind is known.
+            if matches!(setter_op, CodeOp::FCmpD | CodeOp::FCmpZeroD) {
+                let target = branch_fields
+                    .iter()
+                    .find(|(k, _)| *k == "target")
+                    .map(|(_, v)| v.clone())
+                    .expect("float compare branch carries a target");
+                for inst in x86_float_branch(&instruction.fields[split].1, &target) {
+                    out.push(inst);
+                }
+            } else {
+                out.push(CodeInstruction {
+                    op: branch_op,
+                    fields: branch_fields,
+                });
+            }
         } else {
             // Non-fused MIR ops map 1:1 to a CodeOp via `to_code` (which applies
             // the neutral→concrete renames, e.g. `call`→`bl`); the x86 encoder

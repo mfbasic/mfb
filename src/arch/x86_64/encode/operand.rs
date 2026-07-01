@@ -52,6 +52,15 @@ pub(super) fn is_zero_token(r: u8) -> bool {
     r == 16
 }
 
+/// Parse an SSE register name `xmm0`..`xmm15` to its 0–15 index (select_x86 maps
+/// the AArch64 `dN` bank to `xmmN`, and the FP allocator colors `%fN` here too).
+pub(super) fn fp_reg(name: String) -> Result<u8, String> {
+    name.strip_prefix("xmm")
+        .and_then(|rest| rest.parse::<u8>().ok())
+        .filter(|n| *n < 16)
+        .ok_or_else(|| format!("not an xmm register: '{name}'"))
+}
+
 pub(super) fn immediate(value: String) -> Result<u64, String> {
     match value.as_str() {
         "true" => Ok(1),

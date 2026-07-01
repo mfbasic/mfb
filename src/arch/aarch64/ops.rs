@@ -70,6 +70,20 @@ pub(crate) enum CodeOp {
     /// (C=0) or equal (Z=1) takes it while greater and unordered (C=1, Z=0) do
     /// not, so this is the IEEE float `<=` (unordered ⇒ false; plan-17).
     BranchLs,
+    /// x86-only float-compare branch helpers (plan-00-H). `ucomisd` sets CF/ZF/PF
+    /// (not the AArch64 NZCV the `b.cc` mnemonics read), so `select_x86` rewrites
+    /// a branch following a float compare into these: `X86Jae` (jae, CF=0 — the
+    /// clean unordered-excluding `>=`), `X86Jp`/`X86Jnp` (jp/jnp — the parity
+    /// = unordered test for `<>`/NaN and its complement). Never emitted for
+    /// AArch64.
+    X86Jae,
+    X86Jp,
+    X86Jnp,
+    X86Ja,
+    X86Jb,
+    X86Jbe,
+    X86Je,
+    X86Jne,
     Branch,
     BranchLink,
     BranchLinkRegister,
@@ -226,6 +240,14 @@ impl CodeOp {
             CodeOp::BranchLo => "b.lo",
             CodeOp::BranchMi => "b.mi",
             CodeOp::BranchLs => "b.ls",
+            CodeOp::X86Jae => "x86.jae",
+            CodeOp::X86Jp => "x86.jp",
+            CodeOp::X86Jnp => "x86.jnp",
+            CodeOp::X86Ja => "x86.ja",
+            CodeOp::X86Jb => "x86.jb",
+            CodeOp::X86Jbe => "x86.jbe",
+            CodeOp::X86Je => "x86.je",
+            CodeOp::X86Jne => "x86.jne",
             CodeOp::Branch => "b",
             CodeOp::BranchLink => "bl",
             CodeOp::BranchLinkRegister => "blr",
@@ -363,6 +385,14 @@ impl CodeOp {
             "b.lo" => Ok(CodeOp::BranchLo),
             "b.mi" => Ok(CodeOp::BranchMi),
             "b.ls" => Ok(CodeOp::BranchLs),
+            "x86.jae" => Ok(CodeOp::X86Jae),
+            "x86.jp" => Ok(CodeOp::X86Jp),
+            "x86.jnp" => Ok(CodeOp::X86Jnp),
+            "x86.ja" => Ok(CodeOp::X86Ja),
+            "x86.jb" => Ok(CodeOp::X86Jb),
+            "x86.jbe" => Ok(CodeOp::X86Jbe),
+            "x86.je" => Ok(CodeOp::X86Je),
+            "x86.jne" => Ok(CodeOp::X86Jne),
             "b" => Ok(CodeOp::Branch),
             "bl" => Ok(CodeOp::BranchLink),
             "blr" => Ok(CodeOp::BranchLinkRegister),

@@ -28,4 +28,10 @@ impl Backend for X86_64Backend {
     fn register_model(&self) -> &'static dyn RegisterModel {
         &X86_64_MODEL
     }
+
+    fn frame_call_padding(&self) -> usize {
+        // `call` pushes the 8-byte return address; the frame absorbs it so rsp is
+        // 16-byte aligned at this function's own calls (SysV — libc `movaps`).
+        8
+    }
 }

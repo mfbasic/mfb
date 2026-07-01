@@ -13,7 +13,7 @@
 //! Every encoding here is fixed-size and distance-independent (rel32, imm32/imm64,
 //! disp32), so a size never depends on a label that hasn't been placed yet.
 
-use super::operand::{field, immediate, is_zero_token, reg, shift};
+use super::operand::{field, fp_reg, immediate, is_zero_token, reg, shift};
 use super::*;
 use crate::target::shared::code::RelocIntent;
 
@@ -423,14 +423,30 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "b.vc" => jmp_label(instruction, JccKind::Jno),
         "b.mi" => jmp_label(instruction, JccKind::Js),
         "b.ls" => jmp_label(instruction, JccKind::Jbe),
+        // x86-only float-compare branches (plan-00-H): `select_x86` rewrites the
+        // branch after a float `ucomisd` into these (CF/ZF/PF semantics).
+        "x86.jae" => jmp_label(instruction, JccKind::Jae),
+        "x86.jp" => jmp_label(instruction, JccKind::Jp),
+        "x86.jnp" => jmp_label(instruction, JccKind::Jnp),
+        "x86.ja" => jmp_label(instruction, JccKind::Ja),
+        "x86.jb" => jmp_label(instruction, JccKind::Jb),
+        "x86.jbe" => jmp_label(instruction, JccKind::Jbe),
+        "x86.je" => jmp_label(instruction, JccKind::Je),
+        "x86.jne" => jmp_label(instruction, JccKind::Jne),
         "bl" => {
             let target = field(instruction, "target")?;
-            // E8 rel32 ; relocation against the call target at disp offset 1.
-            let bytes = vec![0xE8, 0, 0, 0, 0];
+            // `mov eax, 8` (al = 8) then `E8 rel32` (call). The SysV variadic ABI
+            // requires al = number of vector registers used for the variadic args
+            // before calling a variadic function (snprintf with a `%f`); 8 is a
+            // safe superset (the callee saves xmm0-7). Harmless for non-variadic
+            // and internal calls: al is never an argument register and the return
+            // value overwrites rax. rel32 disp field is at offset 6 (after the
+            // 5-byte mov + the E8 opcode).
+            let bytes = vec![0xB8, 8, 0, 0, 0, 0xE8, 0, 0, 0, 0];
             Ok(Encoded {
                 bytes,
                 side_effect: SideEffect::Reloc {
-                    disp_field_offset: 1,
+                    disp_field_offset: 6,
                     target,
                     intent: RelocIntent::Call,
                 },
@@ -472,7 +488,146 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         // The low half of the AArch64 page pair: x86 already loaded the full
         // address into `dst` via the `adrp`-spelled lea, so this emits nothing.
         "add_pageoff" => Ok(Encoded::plain(Vec::new())),
-        // Float / v128 are Phase 2/3.
+
+        // --- Scalar double (SSE2) — the AArch64 `dN` bank maps to `xmm` --------
+        // movq xmm, r64 — reinterpret i64 bits as f64 (66 REX.W 0F 6E /r).
+        "fmov_i2f" | "fmov_d_from_x" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_movq_xmm_r64(dst, src)))
+        }
+        // movq r64, xmm — reinterpret f64 bits as i64 (66 REX.W 0F 7E /r, MR).
+        "fmov_f2i" | "fmov_x_from_d" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_movq_r64_xmm(dst, src)))
+        }
+        // movaps xmm, xmm — register copy (0F 28 /r).
+        "fmov_d_from_d" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_sse_rr(None, 0x28, dst, src)))
+        }
+        // addsd / subsd / mulsd / divsd — dst = lhs OP rhs (2-operand SSE).
+        "fadd_d" => sse_arith(instruction, 0x58, true),
+        "fmul_d" => sse_arith(instruction, 0x59, true),
+        "fsub_d" => sse_arith(instruction, 0x5c, false),
+        "fdiv_d" => sse_arith(instruction, 0x5e, false),
+        // sqrtsd dst, src (F2 0F 51 /r).
+        "fsqrt_d" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_sse_rr(Some(0xf2), 0x51, dst, src)))
+        }
+        // ucomisd lhs, rhs — ordered compare into EFLAGS (66 0F 2E /r).
+        "fcmp_d" => {
+            let lhs = fp_reg(field(instruction, "lhs")?)?;
+            let rhs = fp_reg(field(instruction, "rhs")?)?;
+            Ok(Encoded::plain(enc_sse_rr(Some(0x66), 0x2e, lhs, rhs)))
+        }
+        // fcmp against 0.0: zero the scratch xmm15 then ucomisd src, xmm15.
+        "fcmp_zero_d" => {
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = enc_sse_rr(None, 0x57, 15, 15); // xorps xmm15, xmm15
+            b.extend(enc_sse_rr(Some(0x66), 0x2e, src, 15)); // ucomisd src, xmm15
+            Ok(Encoded::plain(b))
+        }
+        // -x: flip the sign bit. Build the 0x8000…0000 mask in xmm15 (all-ones
+        // via pcmpeqd, then psllq 63) and xorpd it in — no memory mask.
+        "fneg_d" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = Vec::new();
+            if dst != src {
+                b.extend(enc_sse_rr(Some(0xf2), 0x10, dst, src)); // movsd dst, src
+            }
+            b.extend(enc_sse_rr(Some(0x66), 0x76, 15, 15)); // pcmpeqd xmm15, xmm15
+            b.extend(enc_psxlq(0x06, 15, 63)); // psllq xmm15, 63 -> sign mask
+            b.extend(enc_sse_rr(Some(0x66), 0x57, dst, 15)); // xorpd dst, xmm15
+            Ok(Encoded::plain(b))
+        }
+        // |x|: clear the sign bit by shifting the 64-bit lane left 1 then right 1
+        // (psllq/psrlq imm), avoiding a memory-resident mask constant.
+        "fabs_d" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = Vec::new();
+            if dst != src {
+                b.extend(enc_sse_rr(Some(0xf2), 0x10, dst, src)); // movsd dst, src
+            }
+            b.extend(enc_psxlq(0x06, dst, 1)); // psllq dst, 1
+            b.extend(enc_psxlq(0x02, dst, 1)); // psrlq dst, 1
+            Ok(Encoded::plain(b))
+        }
+        // cvtsi2sd xmm, r64 — signed i64 → f64 (F2 REX.W 0F 2A /r).
+        "i2f" | "scvtf_d_from_x" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_sse_cvt(0xf2, 0x2a, true, dst, src)))
+        }
+        // cvttsd2si r64, xmm — f64 → i64 toward zero (F2 REX.W 0F 2C /r).
+        "f2i_trunc" | "fcvtzs_x_from_d" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_sse_cvt(0xf2, 0x2c, false, dst, src)))
+        }
+        // f64 → i64 with a directed rounding mode: `roundsd xmm15, src, mode`
+        // (SSE4.1, mode 1=−∞ floor / 2=+∞ ceil) then truncating `cvttsd2si`.
+        "f2i_floor" | "fcvtms_x_from_d" | "f2i_ceil" | "fcvtps_x_from_d" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mode = if m.starts_with("f2i_floor") || m.starts_with("fcvtms") {
+                1
+            } else {
+                2
+            };
+            let mut b = enc_roundsd(15, src, mode); // roundsd xmm15, src, mode
+            b.extend(enc_sse_cvt(0xf2, 0x2c, false, dst, 15)); // cvttsd2si dst, xmm15
+            Ok(Encoded::plain(b))
+        }
+        // f64 → i64 round-to-nearest, ties AWAY from zero (AArch64 `fcvtas`).
+        // SSE `roundsd`/`cvtsd2si` round ties to EVEN, so realize the ties-away
+        // rule directly: result = trunc(src + copysign(0.5, src)). The sign of src
+        // is OR-ed into 0.5's bit pattern in the (scratch) dst GPR — rax is free
+        // (never allocated: excluded from the scratch pool) so it stages the 0.5
+        // constant; xmm15 is the FP scratch.
+        "f2i_nearest" | "fcvtas_x_from_d" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = enc_movq_r64_xmm(dst, src); // dst = raw bits of src
+            b.extend(enc_shift_imm_reg(5, dst, 63)); // shr dst, 63  → sign bit
+            b.extend(enc_shift_imm_reg(4, dst, 63)); // shl dst, 63  → sign << 63
+            b.extend(enc_mov_imm64(0, 0x3FE0_0000_0000_0000)); // movabs rax, bits(0.5)
+            // or dst, rax : REX.W 09 /r (rm = dst, reg = rax)
+            b.push(rex(true, false, false, dst >= 8));
+            b.push(0x09);
+            b.push(modrm(0b11, 0, dst));
+            b.extend(enc_movq_xmm_r64(15, dst)); // xmm15 = copysign(0.5, src)
+            b.extend(enc_sse_rr(Some(0xf2), 0x58, 15, src)); // addsd xmm15, src
+            b.extend(enc_sse_cvt(0xf2, 0x2c, false, dst, 15)); // cvttsd2si dst, xmm15
+            Ok(Encoded::plain(b))
+        }
+        // 32-bit variable rotate-right (`rorv_w`/`rotr_w`): ror r32, cl.
+        "rorv_w" | "rotr_w" => var_shift_w(instruction, 1),
+        // movsd xmm, [base+disp] / movsd [base+disp], xmm (F2 0F 10 / 11 /r).
+        "ldr_d" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let base = reg(field(instruction, "base")?)?;
+            let disp = field(instruction, "offset")?.parse::<i32>().map_err(|_| {
+                "x86 ldr_d: bad offset".to_string()
+            })?;
+            Ok(Encoded::plain(enc_movsd_mem(0x10, dst, base, disp)))
+        }
+        "str_d" => {
+            let src = fp_reg(field(instruction, "src")?)?;
+            let base = reg(field(instruction, "base")?)?;
+            let disp = field(instruction, "offset")?.parse::<i32>().map_err(|_| {
+                "x86 str_d: bad offset".to_string()
+            })?;
+            Ok(Encoded::plain(enc_movsd_mem(0x11, src, base, disp)))
+        }
+
+        // v128 are Phase 3.
         other => Err(format!("x86 encode: unsupported op {other}")),
     }
 }
@@ -548,6 +703,136 @@ fn enc_neg(target: u8) -> Vec<u8> {
         0xF7,
         modrm(0b11, 3, target),
     ]
+}
+
+/// SSE reg-reg: `[prefix] [REX] 0F opcode modrm(11,reg,rm)` on xmm indices.
+/// REX.R extends `reg_x`, REX.B extends `rm_x` (needed for xmm8-15); a REX byte
+/// is only emitted when one of them is high.
+fn enc_sse_rr(prefix: Option<u8>, opcode: u8, reg_x: u8, rm_x: u8) -> Vec<u8> {
+    let mut b = Vec::new();
+    if let Some(p) = prefix {
+        b.push(p);
+    }
+    if reg_x >= 8 || rm_x >= 8 {
+        b.push(rex(false, reg_x >= 8, false, rm_x >= 8));
+    }
+    b.push(0x0f);
+    b.push(opcode);
+    b.push(modrm(0b11, reg_x, rm_x));
+    b
+}
+
+/// `movq xmm, r64` — 66 REX.W 0F 6E /r (reg = xmm, rm = r64).
+fn enc_movq_xmm_r64(dst_x: u8, src_r: u8) -> Vec<u8> {
+    vec![
+        0x66,
+        rex(true, dst_x >= 8, false, src_r >= 8),
+        0x0f,
+        0x6e,
+        modrm(0b11, dst_x, src_r),
+    ]
+}
+
+/// `movq r64, xmm` — 66 REX.W 0F 7E /r, MR form (reg = xmm src, rm = r64 dst).
+fn enc_movq_r64_xmm(dst_r: u8, src_x: u8) -> Vec<u8> {
+    vec![
+        0x66,
+        rex(true, src_x >= 8, false, dst_r >= 8),
+        0x0f,
+        0x7e,
+        modrm(0b11, src_x, dst_r),
+    ]
+}
+
+/// `roundsd dst_x, src_x, mode` — SSE4.1 directed rounding: 66 [REX] 0F 3A 0B /r
+/// ib. `mode` low 2 bits select the rounding (0=nearest-even, 1=−∞, 2=+∞,
+/// 3=trunc); bit 2 clear means the immediate mode is used (not MXCSR).
+fn enc_roundsd(dst_x: u8, src_x: u8, mode: u8) -> Vec<u8> {
+    let mut b = vec![0x66];
+    if dst_x >= 8 || src_x >= 8 {
+        b.push(rex(false, dst_x >= 8, false, src_x >= 8));
+    }
+    b.extend_from_slice(&[0x0F, 0x3A, 0x0B, modrm(0b11, dst_x, src_x), mode]);
+    b
+}
+
+/// `shift r64, imm8` — REX.W C1 /digit ib (digit: 4=SHL, 5=SHR, 7=SAR).
+fn enc_shift_imm_reg(digit: u8, reg_n: u8, imm: u8) -> Vec<u8> {
+    vec![
+        rex(true, false, false, reg_n >= 8),
+        0xC1,
+        modrm(0b11, digit, reg_n),
+        imm,
+    ]
+}
+
+/// SSE convert with REX.W: cvtsi2sd (dst xmm, src r64) / cvttsd2si (dst r64, src
+/// xmm). Both are Intel RM form (reg = dst, rm = src), so REX.R extends dst and
+/// REX.B extends src regardless of which class each is.
+fn enc_sse_cvt(prefix: u8, opcode: u8, _dst_is_xmm: bool, dst: u8, src: u8) -> Vec<u8> {
+    vec![
+        prefix,
+        rex(true, dst >= 8, false, src >= 8),
+        0x0f,
+        opcode,
+        modrm(0b11, dst, src),
+    ]
+}
+
+/// `psllq/psrlq xmm, imm8` — 66 [REX.B] 0F 73 /`ext` ib (ext = 6 shifts left, 2
+/// shifts right the whole 64-bit lane). Used to build |x| without a mask.
+fn enc_psxlq(ext: u8, xmm: u8, imm: u8) -> Vec<u8> {
+    let mut b = vec![0x66];
+    if xmm >= 8 {
+        b.push(rex(false, false, false, true));
+    }
+    b.push(0x0f);
+    b.push(0x73);
+    b.push(modrm(0b11, ext, xmm));
+    b.push(imm);
+    b
+}
+
+/// `movsd xmm, [base+disp]` (opcode 0x10) or `movsd [base+disp], xmm` (0x11) —
+/// F2 [REX] 0F op with a `[base+disp32]` memory operand.
+fn enc_movsd_mem(opcode: u8, xmm: u8, base: u8, disp: i32) -> Vec<u8> {
+    let mut b = vec![0xf2];
+    if xmm >= 8 || base >= 8 {
+        b.push(rex(false, xmm >= 8, false, base >= 8));
+    }
+    b.push(0x0f);
+    b.push(opcode);
+    b.extend_from_slice(&mem_disp32(xmm, base, disp));
+    b
+}
+
+/// `dst = lhs OP rhs` for a scalar-double SSE arithmetic op (addsd/subsd/mulsd/
+/// divsd), which is 2-operand (`dst OP= src`). Handles the `dst == rhs` aliasing:
+/// commutative ops reorder; non-commutative ones stage in the reserved xmm15.
+fn sse_arith(
+    instruction: &CodeInstruction,
+    opcode: u8,
+    commutative: bool,
+) -> Result<Encoded, String> {
+    let dst = fp_reg(field(instruction, "dst")?)?;
+    let lhs = fp_reg(field(instruction, "lhs")?)?;
+    let rhs = fp_reg(field(instruction, "rhs")?)?;
+    if dst == lhs {
+        return Ok(Encoded::plain(enc_sse_rr(Some(0xf2), opcode, dst, rhs)));
+    }
+    if dst == rhs {
+        if commutative {
+            return Ok(Encoded::plain(enc_sse_rr(Some(0xf2), opcode, dst, lhs)));
+        }
+        // sub/div with dst aliasing rhs: xmm15 = lhs; xmm15 OP= rhs; dst = xmm15.
+        let mut b = enc_sse_rr(Some(0xf2), 0x10, 15, lhs);
+        b.extend(enc_sse_rr(Some(0xf2), opcode, 15, rhs));
+        b.extend(enc_sse_rr(Some(0xf2), 0x10, dst, 15));
+        return Ok(Encoded::plain(b));
+    }
+    let mut b = enc_sse_rr(Some(0xf2), 0x10, dst, lhs);
+    b.extend(enc_sse_rr(Some(0xf2), opcode, dst, rhs));
+    Ok(Encoded::plain(b))
 }
 
 /// `mov dst, src` — REX.W 0x89 /r (MR form: rm := reg).
@@ -686,6 +971,9 @@ enum JccKind {
     Jno,
     Js,
     Jbe,
+    Jae,
+    Jp,
+    Jnp,
 }
 
 fn jmp_label(instruction: &CodeInstruction, kind: JccKind) -> Result<Encoded, String> {
@@ -708,6 +996,9 @@ fn jmp_label(instruction: &CodeInstruction, kind: JccKind) -> Result<Encoded, St
                 JccKind::Jno => 0x81,
                 JccKind::Js => 0x88,
                 JccKind::Jbe => 0x86,
+                JccKind::Jae => 0x83,
+                JccKind::Jp => 0x8A,
+                JccKind::Jnp => 0x8B,
                 JccKind::Jmp => unreachable!(),
             };
             (vec![0x0F, cc, 0, 0, 0, 0], 2)
@@ -741,6 +1032,37 @@ fn var_shift(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String
     Ok(Encoded::plain(bytes))
 }
 
+/// 32-bit variable shift/rotate by CL: `mov ecx,amount ; mov edst,evalue ;
+/// shift edst,cl`. The 32-bit ops zero-extend into the full 64-bit register, so
+/// the result matches AArch64's `rorv_w` (upper 32 bits cleared). rcx is
+/// non-allocatable, so clobbering it is safe.
+fn var_shift_w(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String> {
+    let dst = reg(field(instruction, "dst")?)?;
+    let value = reg(field(instruction, "lhs")?)?;
+    let amount = reg(field(instruction, "rhs")?)?;
+    // mov r32, r32 : 89 /r (rm = dst, reg = src), REX only for r8–r15.
+    let mov32 = |d: u8, s: u8| -> Vec<u8> {
+        let mut b = Vec::new();
+        if d >= 8 || s >= 8 {
+            b.push(rex(false, s >= 8, false, d >= 8));
+        }
+        b.push(0x89);
+        b.push(modrm(0b11, s, d));
+        b
+    };
+    let mut bytes = mov32(1, amount); // mov ecx, amount
+    if dst != value {
+        bytes.extend_from_slice(&mov32(dst, value)); // mov edst, evalue
+    }
+    // D3 /digit : shift r/m32, CL — no REX.W; REX.B only for r8–r15.
+    if dst >= 8 {
+        bytes.push(rex(false, false, false, true));
+    }
+    bytes.push(0xD3);
+    bytes.push(modrm(0b11, digit, dst));
+    Ok(Encoded::plain(bytes))
+}
+
 /// Immediate shift: `mov dst,src (if needed) ; shift dst, imm8`. Field convention
 /// (abi.rs): `dst`, `src`, `shift`.
 fn shift_imm(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String> {
@@ -762,24 +1084,46 @@ fn div_seq(instruction: &CodeInstruction, signed: bool) -> Result<Encoded, Strin
     let dst = reg(field(instruction, "dst")?)?;
     let lhs = reg(field(instruction, "lhs")?)?;
     let rhs = reg(field(instruction, "rhs")?)?;
-    let mut bytes = enc_mov(0, lhs); // mov rax, lhs
+    let ext = if signed { 7 } else { 6 }; // idiv : F7 /7 ; div : F7 /6
+    // The instruction reserves rax (quotient / low dividend) and rdx (remainder /
+    // high dividend), so a divisor mapped onto either would be destroyed by the
+    // `mov rax,lhs` / `xor rdx,rdx` (or `cqo`) setup before `div` reads it. When
+    // that aliasing happens (`map_scratch_register` freely uses rax/rcx/rdx),
+    // stage the divisor in an 8-byte stack slot and divide from memory instead.
+    let rhs_aliases = rhs == 0 || rhs == 2; // rax / rdx
+    let mut bytes = Vec::new();
+    if rhs_aliases {
+        // sub rsp,8 ; mov [rsp],rhs   — save the divisor before rax/rdx are set.
+        bytes.extend_from_slice(&enc_alu_imm32(5, 4, 8)); // sub rsp, 8
+        // mov [rsp], rhs : REX.W 89 /r, modrm mod=00 rm=100 (SIB base=rsp).
+        bytes.push(rex(true, rhs >= 8, false, false));
+        bytes.push(0x89);
+        bytes.push(modrm(0b00, rhs, 4));
+        bytes.push(0x24); // SIB: base=rsp(100), index=none(100)
+    }
+    bytes.extend_from_slice(&enc_mov(0, lhs)); // mov rax, lhs
     if signed {
-        // cqo : REX.W 0x99 — sign-extend rax into rdx:rax.
         bytes.push(rex(true, false, false, false));
-        bytes.push(0x99);
-        // idiv r/m64 : F7 /7
-        bytes.push(rex(true, false, false, rhs >= 8));
-        bytes.push(0xF7);
-        bytes.push(modrm(0b11, 7, rhs));
+        bytes.push(0x99); // cqo : sign-extend rax into rdx:rax
     } else {
-        // xor rdx, rdx : 0x31 /r (rm=rdx, reg=rdx)
-        bytes.extend_from_slice(&alu_rr(0x31, 2, 2));
-        // div r/m64 : F7 /6
+        bytes.extend_from_slice(&alu_rr(0x31, 2, 2)); // xor rdx, rdx
+    }
+    if rhs_aliases {
+        // div/idiv qword [rsp] : F7 /ext with a [rsp] memory operand (SIB, base=rsp)
+        bytes.push(rex(true, false, false, false));
+        bytes.push(0xF7);
+        bytes.push(modrm(0b00, ext, 4)); // mod=00, rm=100 → SIB follows
+        bytes.push(0x24); // SIB: base=rsp(100), index=none(100)
+    } else {
+        // div/idiv r/m64 : F7 /ext
         bytes.push(rex(true, false, false, rhs >= 8));
         bytes.push(0xF7);
-        bytes.push(modrm(0b11, 6, rhs));
+        bytes.push(modrm(0b11, ext, rhs));
     }
     bytes.extend_from_slice(&enc_mov(dst, 0)); // mov dst, rax
+    if rhs_aliases {
+        bytes.extend_from_slice(&enc_alu_imm32(0, 4, 8)); // add rsp, 8
+    }
     Ok(Encoded::plain(bytes))
 }
 

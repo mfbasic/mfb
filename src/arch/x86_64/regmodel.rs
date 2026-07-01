@@ -45,9 +45,12 @@ const INT_CALLEE_SAVED: &[&str] = &["rbx", "rbp", "r12", "r13", "r14", "r15"];
 
 /// The xmm registers (the FP/SIMD class). SysV makes every xmm caller-saved, so
 /// a float live across a `call` must spill (there is no callee-saved bank).
+// xmm15 is reserved as a fixed FP scratch (the SSE encoder needs one to stage
+// the non-commutative `dst == rhs` subsd/divsd case, which has no in-place form),
+// so it is excluded from allocation — mirroring how r14/r15 are reserved for GPR.
 const FP_REGS: &[&str] = &[
     "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11",
-    "xmm12", "xmm13", "xmm14", "xmm15",
+    "xmm12", "xmm13", "xmm14",
 ];
 
 pub(crate) struct X86_64RegisterModel;

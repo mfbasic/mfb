@@ -73,6 +73,14 @@ impl CodeInstruction {
             | CodeOp::BranchLo
             | CodeOp::BranchMi
             | CodeOp::BranchLs
+            | CodeOp::X86Jae
+            | CodeOp::X86Jp
+            | CodeOp::X86Jnp
+            | CodeOp::X86Ja
+            | CodeOp::X86Jb
+            | CodeOp::X86Jbe
+            | CodeOp::X86Je
+            | CodeOp::X86Jne
             | CodeOp::Branch
             | CodeOp::BranchLink => &["target"],
             CodeOp::BranchLinkRegister => &["register"],

@@ -111,85 +111,42 @@ impl code::CodegenPlatform for Platform {
     fn emit_program_entry(
         &self,
         spec: &ProgramEntrySpec<'_>,
-        _platform_imports: &HashMap<String, String>,
+        platform_imports: &HashMap<String, String>,
     ) -> Result<CodeFunction, String> {
-        // Minimal raw-syscall entry (plan-00-H Phase 1). Establishes the arena
-        // base/state invariants the rest of the runtime presumes, calls the
-        // language entry, and exits via exit_group. The full Result-tag error
-        // reporting / PROGRAM_EXIT path is deferred to a later phase.
-        let entry = spec.entry_symbol;
-        let mut instructions: Vec<CodeInstruction> = Vec::new();
-        let mut relocations: Vec<CodeRelocation> = Vec::new();
-
-        // 1. entry label.
-        instructions.push(abi::label("entry"));
-        // 2. r14 = 0 (the zero register).
-        instructions.push(xor_self("r14"));
-        // 3. Reserve the entry-stack arena.
-        instructions.push(abi::subtract_stack(spec.entry_stack_size));
-        // 4. arena_base (r15) = rsp.
-        instructions.push(abi::add_immediate("r15", "rsp", 0));
-        // 5. Zero the arena-state header + the free-list head, mirroring the
-        //    unconditional stores at the top of `lower_program_entry`.
-        for off in [0usize, 8, 16, 24] {
-            instructions.push(abi::store_u64("r14", "r15", off));
-        }
-        instructions.push(abi::store_u64(
-            "r14",
-            "r15",
-            code::ARENA_FREE_LIST_HEAD_OFFSET,
-        ));
-
-        // 6. Call the language entry.
-        instructions.push(abi::branch_link(spec.language_entry_symbol));
-        relocations.push(CodeRelocation {
-            from: entry.to_string(),
-            to: spec.language_entry_symbol.to_string(),
-            kind: RelocIntent::Call,
-            binding: "internal".to_string(),
-            library: None,
-        });
-
-        // 7-8. Exit. `_mfb_fn_main` returns a Result: tag in rax (x0), value in
-        //      rdx (x1 = RESULT_VALUE_REGISTER → the SysV 2nd return register).
-        //      For an Integer entry, exit with the value masked to 8 bits;
-        //      otherwise exit 0. (Phase 1: the Result tag / error path is not yet
-        //      handled — OK programs only.)
-        if spec.language_entry_returns == "Integer" {
-            // rdx &= 0xff. The encoder has no immediate-form AND, so materialize
-            // 255 in rcx and use the register-form `and`.
-            instructions.push(abi::move_immediate("rcx", "Integer", "255"));
-            instructions.push(
-                CodeInstruction::new("and")
-                    .field("dst", "rdx")
-                    .field("lhs", "rdx")
-                    .field("rhs", "rcx"),
-            );
-            instructions.push(abi::move_register("rdi", "rdx"));
-        } else {
-            instructions.push(abi::move_immediate("rdi", "Integer", "0"));
-        }
-        instructions.push(abi::move_immediate("rax", "Integer", SYS_EXIT_GROUP));
-        instructions.push(abi::syscall());
-        instructions.push(abi::branch_self());
-        // Unreachable, but the native-code validator requires a return op.
-        instructions.push(abi::return_());
-
-        Ok(CodeFunction {
-            name: "program.entry".to_string(),
-            symbol: entry.to_string(),
-            params: Vec::new(),
-            returns: "Nothing".to_string(),
-            // The entry manages its own frame (the `sub_sp` above), so the
-            // generic frame is empty.
-            frame: CodeFrame {
-                stack_size: 0,
-                callee_saved: Vec::new(),
-            },
-            stack_slots: Vec::new(),
-            instructions,
-            relocations,
-        })
+        // Same shared entry as AArch64 (plan-00-H): now that x86 links libc and
+        // routes through the MIR seam, the full Result-tag error-reporting /
+        // signal / RNG-seed / global-init entry works unchanged — `select_x86`
+        // maps the neutral registers to their SysV homes (`x31`→r14 zero reg,
+        // `arena_base`→r15, the scratch pool → the caller/callee-saved GPRs).
+        let mut function = code::lower_program_entry(
+            spec.entry_symbol,
+            spec.language_entry_symbol,
+            spec.language_entry_returns,
+            spec.language_entry_accepts_args,
+            spec.global_initializer_symbol,
+            spec.link_init_symbol,
+            spec.entry_stack_size,
+            spec.global_slot_count,
+            platform_imports,
+            self,
+            spec.emit_cleanup_failure_audit,
+            spec.seed_rng,
+            spec.register_signal_handlers,
+        )?;
+        // The shared entry uses the neutral zero register `x31` for its arena/
+        // global zero-init stores, relying on it *being* zero — true for AArch64's
+        // hardware `xzr`, but on x86 `x31` realizes to `r14`, an ordinary GPR that
+        // holds garbage from `_start`. Zero it once, right after the entry label,
+        // before any `store x31` runs. `eor x31,x31,x31` selects to `xor r14,r14`.
+        let zero = abi::exclusive_or_registers("x31", "x31", "x31");
+        let at = usize::from(
+            function
+                .instructions
+                .first()
+                .is_some_and(|inst| inst.op == crate::arch::aarch64::ops::CodeOp::Label),
+        );
+        function.instructions.insert(at, zero);
+        Ok(function)
     }
 
     fn emit_program_exit(
@@ -198,10 +155,13 @@ impl code::CodegenPlatform for Platform {
         instructions: &mut Vec<CodeInstruction>,
         _relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        // exit_group(rdi = current return-register value). The shared callers
-        // leave the exit code in the return register; on x86-64 SysV that is rax.
-        instructions.push(abi::move_register("rdi", "rax"));
-        instructions.push(abi::move_immediate("rax", "Integer", SYS_EXIT_GROUP));
+        // exit_group(code). The shared callers place the exit code in the neutral
+        // return register `x0`; because this syscall immediately follows, select
+        // maps that `x0` to the syscall's first argument (rdi) at the caller's own
+        // instruction. So the code is already in rdi — only the syscall number is
+        // needed (`x8`→rax). A prior `mov rdi,rax` here wrongly overwrote the code
+        // with the leaked variadic `al`=8 (rax) left by the pre-shutdown call.
+        instructions.push(abi::move_immediate("x8", "Integer", SYS_EXIT_GROUP));
         instructions.push(abi::syscall());
         instructions.push(abi::branch_self());
         // Unreachable, but every function the validator sees needs a return op

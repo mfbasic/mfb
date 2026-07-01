@@ -135,6 +135,10 @@ mir_ops!(
         Rbit, SDiv, UDiv, MSub, LslImm, LsrImm, AsrImm, AddImm, SubImm, SubSp, AddSp, CmpImm, Cmp,
         BranchEq, BranchNe, BranchGe, BranchLt, BranchGt, BranchLe, BranchVc, BranchVs, BranchHi,
         BranchLo, BranchMi, BranchLs, Branch, BranchSelf, Ret,
+        // x86-only float-compare branches, synthesized by `select_x86` *after*
+        // MIR lowering (never produced by `from_code`); listed here only so the
+        // `CodeOp`→`MirOp` map stays total.
+        X86Jae, X86Jp, X86Jnp, X86Ja, X86Jb, X86Jbe, X86Je, X86Jne,
         LdrU64, LdrU32, LdrU16, LdrU8, StrU64, StrU32, StrU8, LdrD, StrD, Adrp, AddPageOff,
         FMovDFromD, FAddD, FSubD, FMulD, FDivD, FNegD, FAbsD, FSqrtD, FCmpD, FCmpZeroD, FMaddD,
     }
@@ -523,6 +527,15 @@ pub(crate) trait Backend: Sync {
     fn select(&self, neutral: &[MirInstruction]) -> Vec<CodeInstruction>;
     /// The register model the shared allocator colors vregs against.
     fn register_model(&self) -> &'static dyn RegisterModel;
+    /// Extra bytes a *called* function must add to its 16-byte-aligned frame so
+    /// the stack pointer is 16-byte aligned at its own call sites. On x86-64 the
+    /// `call` instruction pushes the 8-byte return address, so a frame that is a
+    /// multiple of 16 leaves rsp misaligned by 8 at the next call — libc's
+    /// variadic `movaps` register-save then faults. Returns 8 for x86-64, 0 for
+    /// AArch64 (the link register is a register, nothing is pushed).
+    fn frame_call_padding(&self) -> usize {
+        0
+    }
 }
 
 thread_local! {
