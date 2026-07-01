@@ -229,6 +229,89 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     // linear def state belongs to a different path, so the walk resets there.
     let block_entry: Vec<bool> = (0..count).map(|i| !falls_into(i)).collect();
 
+    // A def of `xK` (K < RETS.len()) is a *staged result* — part of the
+    // 4-register error-Result convention — when the first thing that consumes it
+    // along control flow is a result-read USE: a use in a block whose in-effect
+    // boundary is a call/syscall (e.g. `error_label`'s `store x1,[arena+32]` and
+    // `mov x20,x2`), reached BEFORE the value flows into any call/syscall
+    // boundary. Such a def must be colored `RETS[K]` to agree with that consumer.
+    // `next_after` alone would see the later code-printing `write` syscall and
+    // miscolor the def `SYS_ARGS[K]` (rdi/rsi/rdx) — so the exit-range error
+    // report would store the message pointer into the code slot and read the
+    // message back from the wrong register. A value consumed directly BY a
+    // boundary instead (the program-exit code handed to the `exit` syscall with
+    // no intervening use) is NOT staged and keeps its arg mapping.
+    let def_is_staged_result = |def_idx: usize, n: usize| -> bool {
+        let target = format!("x{n}");
+        let mut j = def_idx + 1;
+        let mut crossed_branch = false;
+        let mut seen = vec![false; count];
+        loop {
+            if j >= count || seen[j] {
+                return false;
+            }
+            seen[j] = true;
+            if abi_boundary_of(&instructions[j]).is_some() {
+                return false; // reaches a call/syscall boundary before any use
+            }
+            let mut reads = false;
+            let mut redefines = false;
+            for (k, v) in &instructions[j].fields {
+                if v == &target {
+                    if X86_DEF_FIELDS.contains(k) {
+                        redefines = true;
+                    } else {
+                        reads = true;
+                    }
+                }
+            }
+            if reads {
+                // Only a use reached ACROSS a branch is a staged result: such a
+                // block is a `block_entry`, so its `defined_since_boundary` is
+                // cleared and the use is colored `is_result` (RETS) — the def
+                // must match. A use in the SAME fall-through block (e.g. the
+                // exit-code path's `mov x0,x1; cmp x0,255`, whose value then
+                // flows on to the `exit` syscall as SYS_ARGS[0]) is NOT staged.
+                return crossed_branch
+                    && matches!(
+                        boundary_before[j],
+                        Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
+                    );
+            }
+            if redefines {
+                return false; // overwritten before any use
+            }
+            if instructions[j].op == CodeOp::Branch {
+                match branch_target(j) {
+                    Some(t) => {
+                        j = t;
+                        crossed_branch = true;
+                    }
+                    None => return false,
+                }
+            } else {
+                j += 1;
+            }
+        }
+    };
+    let staged_result_def: Vec<bool> = (0..count)
+        .map(|i| {
+            let def_n = instructions[i].fields.iter().find_map(|(k, v)| {
+                if X86_DEF_FIELDS.contains(k) {
+                    v.strip_prefix('x')
+                        .and_then(|rest| rest.parse::<usize>().ok())
+                        .filter(|n| *n < RETS.len())
+                } else {
+                    None
+                }
+            });
+            match def_n {
+                Some(n) => def_is_staged_result(i, n),
+                None => false,
+            }
+        })
+        .collect();
+
     // Walk forward tracking, per ABI register, whether it has been (re)defined
     // since the last boundary — an `x0`/`x1` USE not redefined since its CFG
     // boundary is that call's result. `defined_since_boundary` is reset at a
@@ -326,7 +409,9 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 && n <= 7
                 && !boundary_since_entry
                 && !defined_since_entry.contains(&n);
-            let mapped = if is_param_use {
+            let mapped = if is_def && n < RETS.len() && staged_result_def[i] {
+                RETS[n].to_string()
+            } else if is_param_use {
                 CALL_ARGS
                     .get(n)
                     .map(|reg| reg.to_string())
