@@ -466,12 +466,15 @@ pub(super) fn lower_function(
         };
         instructions.splice(insert_at..insert_at, zeroing);
     }
-    // In a trap function, an error can jump to the handler past a not-yet-run
-    // `LET`; zero every owned freeable-flat slot at entry so the handler's
-    // scope-drop skips any binding whose initializer never executed. The stores
-    // are sp-relative with pre-prologue offsets, so `finalize_frame` shifts them
-    // by the callee-save area like every other stack access.
-    if builder.trap.is_some() && !builder.owned_value_slots.is_empty() {
+    // Zero every owned freeable-flat slot at entry so a scope-drop skips any
+    // binding or temporary whose initializer never executed (its null guard sees
+    // 0 instead of stack garbage). A trap handler can jump past a not-yet-run
+    // `LET`, but the same hazard exists without a trap — a scope-drop over a
+    // temporary that a given path leaves unwritten frees whatever the stack held
+    // (benign on AArch64 where the slot happened to be zero, a wild free on x86).
+    // The stores are sp-relative with pre-prologue offsets, so `finalize_frame`
+    // shifts them by the callee-save area like every other stack access.
+    if !builder.owned_value_slots.is_empty() {
         let mut zeroing = Vec::new();
         zeroing.push(abi::move_immediate("x9", "Integer", "0"));
         let mut slots = builder.owned_value_slots.clone();
