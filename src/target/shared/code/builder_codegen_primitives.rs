@@ -72,7 +72,72 @@ impl CodeBuilder<'_> {
     /// callee-saved registers the coloring used so `finalize_frame` saves them.
     /// Must run after the body is fully emitted and before the peephole pass and
     /// `finalize_frame`, which both expect physical register names (plan-03).
+    /// Rewrite the hand-written scratch registers the builders name directly (the
+    /// `temporary_register` pool: `x8`–`x17`, `x20`–`x28`) into fresh virtual
+    /// registers, so the allocator places them per-ISA instead of leaving them
+    /// pinned to physical registers. On AArch64 there are enough scratch
+    /// registers that this is a near-identity; on x86-64 the pool is far larger
+    /// than the machine has free, so the pinned names collide and clobber (`x8`
+    /// and `x9` both map to `rax`, `div`/`mul` destroy the operand) — vregs let
+    /// linear-scan spill under pressure and keep each value in a safe, distinct
+    /// register. Runs before MIR lowering/selection so the ISA backend only ever
+    /// sees vregs and ABI registers, never the raw scratch pool. Each distinct
+    /// physical scratch register becomes ONE vreg (preserving its def/use chain);
+    /// a value the builder held across a runtime-helper call now spills across it
+    /// (the call's clobber mask is every integer register), which also retires
+    /// the fragile "survivor register" contracts the hand-written code relied on.
+    fn vregify_scratch_registers(&mut self) {
+        // Only linear-scan colors vregs by liveness; BumpAndReset (the
+        // byte-identical oracle) maps them eagerly back to the same physical pool,
+        // so renaming would gain nothing and could exhaust `temporary_register`.
+        if self.regalloc_kind != regalloc::RegallocKind::LinearScan {
+            return;
+        }
+        fn is_scratch(reg: &str) -> bool {
+            reg.strip_prefix('x')
+                .and_then(|rest| rest.parse::<u32>().ok())
+                .is_some_and(|n| (8..=17).contains(&n) || (20..=28).contains(&n))
+        }
+        // First-appearance order so the vreg numbering is deterministic.
+        let mut order: Vec<String> = Vec::new();
+        for instruction in &self.instructions {
+            for (_, value) in &instruction.fields {
+                if is_scratch(value) && !order.contains(value) {
+                    order.push(value.clone());
+                }
+            }
+        }
+        if order.is_empty() {
+            return;
+        }
+        let mut rename: HashMap<String, String> = HashMap::new();
+        for register in order {
+            let vreg = self
+                .allocate_register()
+                .expect("linear-scan mints vregs without exhausting a pool");
+            rename.insert(register, vreg);
+        }
+        for instruction in &mut self.instructions {
+            for (_, value) in instruction.fields.iter_mut() {
+                if let Some(vreg) = rename.get(value) {
+                    *value = vreg.clone();
+                }
+            }
+        }
+        // The scratch registers were recorded as used callee-saved by
+        // `mark_register_used` while the builder lowered them physically; now
+        // that they are vregs, that record is stale (double-counting the save
+        // area against the allocator's own spill slots and corrupting the frame
+        // offsets). Drop them — the allocator re-reports whichever callee-saved
+        // registers its coloring actually uses via `extra_callee_saved`.
+        self.used_callee_saved
+            .retain(|register| !rename.contains_key(register));
+    }
+
     pub(super) fn run_register_allocation(&mut self) {
+        // Free the builders' hand-named scratch pool (x8-x17/x20-x28) into vregs
+        // before the MIR seam, so selection + allocation handle it per-ISA.
+        self.vregify_scratch_registers();
         // MIR seam (plan-00-A): the fully-lowered, pre-allocation stream is the
         // point where the neutral MIR layer sits (`NIR → MIR → select → alloc`,
         // `mir.md §2`/§3). A `-mir` dump captures this function's MIR here (with

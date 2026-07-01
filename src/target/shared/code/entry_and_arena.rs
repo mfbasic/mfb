@@ -750,15 +750,17 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     let ins_prev = vregs.next();
     // The reserved survivor registers (`x8`/`x11`/`x12`/`x13`/`x17`) are held out of
     // allocation so the first-fit fast path leaves them intact for callers, but the
-    // grow path's nested `arena_fill_random` call clobbers `x8`/`x11`/`x12`/`x13`
-    // (it uses them as scratch). Save and restore those four around the call — the
-    // same preservation the hand-written original did — via vregs the allocator
-    // spills across the call. (`x17` survives the fill untouched; `x16` is not a
-    // reliable survivor — the `mmap` syscall clobbers it on either platform.)
+    // grow path's nested `arena_fill_random` call clobbers them as scratch — the
+    // migrated (vreg) fill helper colors its loop-carried ptr/count into the
+    // caller-saved scratch pool, which includes `x16`/`x17`. Save and restore all
+    // five around the call via vregs the allocator spills across it. (`x16` is not a
+    // reliable survivor regardless — the `mmap` syscall clobbers it on either
+    // platform — so callers must not keep a survivor there.)
     let save_x8 = vregs.next();
     let save_x11 = vregs.next();
     let save_x12 = vregs.next();
     let save_x13 = vregs.next();
+    let save_x17 = vregs.next();
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge("arena_alloc_mapped"),
@@ -783,6 +785,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_register(&save_x11, "x11"),
         abi::move_register(&save_x12, "x12"),
         abi::move_register(&save_x13, "x13"),
+        abi::move_register(&save_x17, "x17"),
         abi::move_register("x0", &ubase),
         abi::move_register("x1", &usable),
         abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
@@ -790,6 +793,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_register("x11", &save_x11),
         abi::move_register("x12", &save_x12),
         abi::move_register("x13", &save_x13),
+        abi::move_register("x17", &save_x17),
         // Insert [base+32, base+32+usableCapacity) as one free chunk, in address
         // order. A fresh block is never adjacent to an existing chunk (the 32-byte
         // header always separates blocks), so no coalescing is required here.
@@ -1432,24 +1436,32 @@ pub(super) fn lower_rng_seed_at() -> CodeFunction {
 /// not in the allocatable set, so the allocator never colors them).
 fn emit_seed_dance(name: &str, symbol: &str, lo_offset: usize, hi_offset: usize) -> CodeFunction {
     let mut vregs = Vregs::new();
+    // Copy the `x0` (arena ptr) and `x1` (seed) ABI args into vregs that survive
+    // the `emit_pcg_step` `mul`/`umulh` — on x86 those clobber the registers
+    // `x0`/`x1` map to (`rax`/`rdx`), which would otherwise destroy the seed and
+    // the store base mid-dance.
+    let ptr = vregs.next();
+    let seed = vregs.next();
     let lo = vregs.next();
     let hi = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
+        abi::move_register(&ptr, "x0"),
+        abi::move_register(&seed, "x1"),
         abi::move_immediate(&lo, "Integer", "0"),
         abi::move_immediate(&hi, "Integer", "0"),
     ];
     emit_pcg_step(&mut instructions, &mut vregs, &lo, &hi);
     let carry = vregs.next();
     instructions.extend([
-        // state += seed (x1), carry as an explicit value (plan-00-G §4).
-        abi::add_carry(&lo, &carry, &lo, "x1", "xzr"),
+        // state += seed, carry as an explicit value (plan-00-G §4).
+        abi::add_carry(&lo, &carry, &lo, &seed, "xzr"),
         abi::add_carry(&hi, "xzr", &hi, "xzr", &carry),
     ]);
     emit_pcg_step(&mut instructions, &mut vregs, &lo, &hi);
     instructions.extend([
-        abi::store_u64(&lo, "x0", lo_offset),
-        abi::store_u64(&hi, "x0", hi_offset),
+        abi::store_u64(&lo, &ptr, lo_offset),
+        abi::store_u64(&hi, &ptr, hi_offset),
         abi::return_(),
     ]);
     finalize_vreg_helper(name, symbol, "Nothing", instructions, Vec::new())
@@ -1487,17 +1499,24 @@ pub(super) fn lower_arena_fill_next() -> CodeFunction {
 pub(super) fn lower_arena_fill_random() -> CodeFunction {
     let mut vregs = Vregs::new();
     // The PCG64 state is loop-carried across the fill loop, so `lo`/`hi` are the
-    // same vregs the allocator keeps in registers across the back-edge. `x0`
-    // (ptr) and `x1` (word count) stay physical — ABI args used as loop counters;
-    // this is a leaf, so nothing clobbers them.
+    // same vregs the allocator keeps in registers across the back-edge. The `x0`
+    // (ptr) and `x1` (word count) ABI args become loop-carried vregs too: copy
+    // them in at entry so the allocator places them in callee-saved registers.
+    // On AArch64 they could stay physical (a leaf clobbers nothing), but x86's
+    // `mul`/`umulh` in the PCG step clobber the registers `x0`/`x1` map to
+    // (`rax`/`rdx`), so a physical counter would be destroyed mid-loop.
+    let ptr = vregs.next();
+    let count = vregs.next();
     let lo = vregs.next();
     let hi = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
+        abi::move_register(&ptr, "x0"),
+        abi::move_register(&count, "x1"),
         // word count = (len + 7) >> 3
-        abi::add_immediate("x1", "x1", 7),
-        abi::shift_right_immediate("x1", "x1", 3),
-        abi::compare_immediate("x1", "0"),
+        abi::add_immediate(&count, &count, 7),
+        abi::shift_right_immediate(&count, &count, 3),
+        abi::compare_immediate(&count, "0"),
         abi::branch_eq("arena_fill_done"),
         abi::load_u64(&lo, ARENA_STATE_REGISTER, ARENA_FILL_RNG_LO_OFFSET),
         abi::load_u64(&hi, ARENA_STATE_REGISTER, ARENA_FILL_RNG_HI_OFFSET),
@@ -1511,10 +1530,10 @@ pub(super) fn lower_arena_fill_random() -> CodeFunction {
         abi::shift_right_immediate(&shift, &hi, 58),
         abi::exclusive_or_registers(&xored, &hi, &lo),
         abi::rotate_right_registers(&word, &xored, &shift),
-        abi::store_u64(&word, "x0", 0),
-        abi::add_immediate("x0", "x0", 8),
-        abi::subtract_immediate("x1", "x1", 1),
-        abi::compare_immediate("x1", "0"),
+        abi::store_u64(&word, &ptr, 0),
+        abi::add_immediate(&ptr, &ptr, 8),
+        abi::subtract_immediate(&count, &count, 1),
+        abi::compare_immediate(&count, "0"),
         abi::branch_ne("arena_fill_loop"),
         abi::store_u64(&lo, ARENA_STATE_REGISTER, ARENA_FILL_RNG_LO_OFFSET),
         abi::store_u64(&hi, ARENA_STATE_REGISTER, ARENA_FILL_RNG_HI_OFFSET),

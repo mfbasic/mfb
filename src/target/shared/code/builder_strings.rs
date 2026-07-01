@@ -695,14 +695,27 @@ impl CodeBuilder<'_> {
         let start_slot = self.allocate_stack_object("to_string_integer_start", 8);
         let result_slot = self.allocate_stack_object("to_string_integer_result", 8);
 
-        let value = "x8";
-        let negative = "x9";
-        let length = "x10";
-        let cursor = "x11";
-        let divisor = "x12";
-        let quotient = "x13";
-        let digit = "x14";
-        let dst = "x15";
+        // Virtual registers (not physical `x8`–`x15`): the allocator places them
+        // in safe, distinct per-ISA registers. On x86 the physical names collided
+        // (`x8`/`x9` both → `rax`) and the `div`/`msub` pair needs the dividend to
+        // survive the `div` (which clobbers `rax`/`rdx`) — vregs, never colored to
+        // `rax`/`rdx`, satisfy both.
+        let value_s = self.allocate_register()?;
+        let negative_s = self.allocate_register()?;
+        let length_s = self.allocate_register()?;
+        let cursor_s = self.allocate_register()?;
+        let divisor_s = self.allocate_register()?;
+        let quotient_s = self.allocate_register()?;
+        let digit_s = self.allocate_register()?;
+        let dst_s = self.allocate_register()?;
+        let value = value_s.as_str();
+        let negative = negative_s.as_str();
+        let length = length_s.as_str();
+        let cursor = cursor_s.as_str();
+        let divisor = divisor_s.as_str();
+        let quotient = quotient_s.as_str();
+        let digit = digit_s.as_str();
+        let dst = dst_s.as_str();
         let done = self.label("int_string_done");
         let nonnegative = self.label("int_string_nonnegative");
         let zero = self.label("int_string_zero");

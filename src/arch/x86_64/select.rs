@@ -41,15 +41,16 @@ fn map_scratch_register(n: usize) -> &'static str {
     POOL[(n - 9) % POOL.len()]
 }
 
+// SysV: call args rdi,rsi,rdx,rcx,r8,r9; syscall args rdi,rsi,rdx,r10,r8,r9;
+// returns rax,rdx; syscall nr + result rax.
+const CALL_ARGS: &[&str] = &["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+const SYS_ARGS: &[&str] = &["rdi", "rsi", "rdx", "r10", "r8", "r9"];
+const RETS: &[&str] = &["rax", "rdx"];
+
 /// Map an AArch64 ABI register `xN` (N ≤ 8) to its SysV/x86-64 home given its
 /// role: an argument flowing into the next call/syscall, a return value, or a
 /// result coming out of a preceding call/syscall.
 fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool) -> String {
-    // SysV: call args rdi,rsi,rdx,rcx,r8,r9; syscall args rdi,rsi,rdx,r10,r8,r9;
-    // returns rax,rdx; syscall nr + result rax.
-    const CALL_ARGS: &[&str] = &["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
-    const SYS_ARGS: &[&str] = &["rdi", "rsi", "rdx", "r10", "r8", "r9"];
-    const RETS: &[&str] = &["rax", "rdx"];
     let reg = if is_result {
         RETS.get(n).copied().unwrap_or("rax")
     } else {
@@ -77,15 +78,66 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     instructions.retain(|inst| !inst.fields.iter().any(|(_, value)| value == "x30"));
 
     let count = instructions.len();
-    // Nearest boundary strictly AFTER each index (the one an argument flows into).
-    let mut next_after: Vec<Option<AbiBoundary>> = vec![None; count];
-    let mut carry = None;
-    for i in (0..count).rev() {
-        next_after[i] = carry;
-        if let Some(b) = abi_boundary_of(&instructions[i]) {
-            carry = Some(b);
+    // The boundary each register's value flows into, resolved along CONTROL FLOW
+    // (not just linear order). A value set right before `b <label>` flows to the
+    // branch target, so an unconditional branch must be followed — otherwise a
+    // return value set before `b <ret_label>` would be misread as an argument to
+    // whatever call happens to sit linearly after the branch (e.g. the grow
+    // block after `arena_alloc_done`), sending the status/pointer to `rdi`/`rsi`
+    // instead of `rax`/`rdx`.
+    let label_index: std::collections::HashMap<&str, usize> = instructions
+        .iter()
+        .enumerate()
+        .filter(|(_, inst)| inst.op == CodeOp::Label)
+        .filter_map(|(i, inst)| {
+            inst.fields
+                .iter()
+                .find(|(key, _)| *key == "name")
+                .map(|(_, name)| (name.as_str(), i))
+        })
+        .collect();
+    let branch_target = |i: usize| -> Option<usize> {
+        instructions[i]
+            .fields
+            .iter()
+            .find(|(key, _)| *key == "target")
+            .and_then(|(_, name)| label_index.get(name.as_str()).copied())
+    };
+    // First boundary reached when execution begins at index `start`, following
+    // fall-through and unconditional branches (a cycle with no boundary → None).
+    let first_boundary_from = |start: usize| -> Option<AbiBoundary> {
+        let mut j = start;
+        let mut seen = vec![false; count];
+        loop {
+            if j >= count || seen[j] {
+                return None;
+            }
+            seen[j] = true;
+            if let Some(b) = abi_boundary_of(&instructions[j]) {
+                return Some(b);
+            }
+            if instructions[j].op == CodeOp::Branch {
+                match branch_target(j) {
+                    Some(target) => j = target,
+                    None => return None,
+                }
+            } else {
+                j += 1;
+            }
         }
-    }
+    };
+    // Nearest boundary strictly AFTER each index (the one its value flows into),
+    // where "after" follows the control transfer that index performs.
+    let next_after: Vec<Option<AbiBoundary>> = (0..count)
+        .map(|i| {
+            let next = if instructions[i].op == CodeOp::Branch {
+                branch_target(i).unwrap_or(count)
+            } else {
+                i + 1
+            };
+            first_boundary_from(next)
+        })
+        .collect();
 
     // Walk forward tracking, per ABI register, whether it has been (re)defined
     // since the last boundary — an `x0`/`x1` USE not redefined since a preceding
@@ -94,9 +146,23 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
         std::collections::HashSet::new();
     let mut last_boundary: Option<AbiBoundary> = None;
 
+    // Incoming-parameter tracking, scoped to the whole function (not reset at
+    // boundaries). An incoming parameter is a *live-in* ABI register: `xK`
+    // (K ≤ 7) read before it is defined and before any call/syscall. SysV
+    // delivers it in `CALL_ARGS[K]` (rdi, rsi, …), but a vreg-pure helper copies
+    // it into a vreg at entry via `mov %vK, xK`, where the body maps that `xK`
+    // use by its role (e.g. `rax` in a call-free leaf). We bridge the two with a
+    // `mov <home>, CALL_ARGS[K]` prologue so the copy reads the real argument.
+    let mut defined_since_entry: std::collections::HashSet<usize> =
+        std::collections::HashSet::new();
+    let mut boundary_since_entry = false;
+    let mut param_home: std::collections::BTreeMap<usize, String> =
+        std::collections::BTreeMap::new();
+
     for i in 0..count {
         let role = next_after[i];
         let mut new_defs: Vec<String> = Vec::new();
+        let mut new_def_ns: Vec<usize> = Vec::new();
         for (key, value) in instructions[i].fields.iter_mut() {
             if value == "sp" {
                 *value = "rsp".to_string();
@@ -130,8 +196,12 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 && !defined_since_boundary.contains(value)
                 && matches!(last_boundary, Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall));
             let mapped = map_abi_register(n, role, is_result);
+            if !is_def && n <= 7 && !boundary_since_entry && !defined_since_entry.contains(&n) {
+                param_home.entry(n).or_insert_with(|| mapped.clone());
+            }
             if is_def {
                 new_defs.push(value.clone());
+                new_def_ns.push(n);
             }
             *value = mapped;
         }
@@ -143,6 +213,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             // result as an argument to the *next* call.
             Some(b @ (AbiBoundary::Call | AbiBoundary::Syscall)) => {
                 last_boundary = Some(b);
+                boundary_since_entry = true;
                 defined_since_boundary.clear();
             }
             Some(AbiBoundary::Ret) => {}
@@ -151,6 +222,42 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                     defined_since_boundary.insert(def);
                 }
             }
+        }
+        // A definition retires `xK` as an incoming-parameter candidate for the
+        // rest of the function, regardless of boundaries.
+        for n in new_def_ns {
+            defined_since_entry.insert(n);
+        }
+    }
+
+    // Bridge each incoming parameter from its SysV argument register into the
+    // register the body addresses it by. A parameter the body already reads from
+    // its arg register (`home == CALL_ARGS[k]`, the common case for helpers that
+    // pass it straight into a nested call) needs no copy.
+    let mut prologue: Vec<CodeInstruction> = Vec::new();
+    for (k, home) in &param_home {
+        let Some(arg) = CALL_ARGS.get(*k) else {
+            continue;
+        };
+        if home == arg {
+            continue;
+        }
+        prologue.push(CodeInstruction {
+            op: CodeOp::from_mnemonic("mov").expect("x86 has a register-move op"),
+            fields: vec![("dst", home.clone()), ("src", (*arg).to_string())],
+        });
+    }
+    if !prologue.is_empty() {
+        // Insert after the leading `entry` label; the frame `sub_sp` only touches
+        // rsp, so the copies may precede it. The arg registers are still live.
+        let at = usize::from(
+            instructions
+                .first()
+                .map(|inst| inst.op == CodeOp::Label)
+                .unwrap_or(false),
+        );
+        for (offset, inst) in prologue.into_iter().enumerate() {
+            instructions.insert(at + offset, inst);
         }
     }
 }
