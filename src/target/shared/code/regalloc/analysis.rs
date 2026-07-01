@@ -206,6 +206,20 @@ fn is_block_terminator(op: CodeOp) -> bool {
             | CodeOp::BranchLo
             | CodeOp::BranchMi
             | CodeOp::BranchLs
+            // x86-only conditional branches `select_x86` emits for IEEE float
+            // compares (`ucomisd` → jp/jnp/jae/…). The allocator runs AFTER
+            // selection, so a block ending in one MUST split here — otherwise its
+            // jump-target CFG edge is missing, liveness across the branch is wrong,
+            // and a value the branch keeps live gets its register reused → the
+            // transcendental (cos/sin/tan/exp) miscompiles under spill pressure.
+            | CodeOp::X86Ja
+            | CodeOp::X86Jb
+            | CodeOp::X86Jbe
+            | CodeOp::X86Je
+            | CodeOp::X86Jne
+            | CodeOp::X86Jae
+            | CodeOp::X86Jp
+            | CodeOp::X86Jnp
             | CodeOp::Ret
             | CodeOp::BranchSelf
     )
