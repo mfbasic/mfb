@@ -503,7 +503,8 @@ pub(super) fn finalize_vreg_body_with_locals(
             offset: *offset as i32,
         })
         .collect();
-    let stack_size = local_size + outcome.spill_slots.len() * 8;
+    let stack_size = local_size
+        + outcome.spill_slots.len() * super::mir::active_backend().register_model().spill_slot_bytes();
     let frame = finalize_frame(
         instructions,
         &mut stack_slots,

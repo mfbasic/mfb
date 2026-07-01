@@ -41,6 +41,7 @@ pub(super) fn run(
     class: RegClass,
     class_model: &ClassModel,
     spill_base_offset: usize,
+    slot_bytes: usize,
     reserved: &[&str],
 ) -> RunResult {
     let live = analysis::analyze(instructions, class_model);
@@ -149,7 +150,7 @@ pub(super) fn run(
     let mut spill_slot: HashMap<u32, usize> = HashMap::new();
     for &v in &spilled {
         let k = spill_slot.len();
-        spill_slot.insert(v, spill_base_offset + k * 8);
+        spill_slot.insert(v, spill_base_offset + k * slot_bytes);
     }
     let spill_slot_count = spill_slot.len();
 
@@ -173,7 +174,7 @@ pub(super) fn run(
     // Rewrite the stream. Evict-slot base sits just past the per-value spill
     // slots; the most evictions any single instruction needs sets how many of
     // those slots the frame must reserve.
-    let evict_base = spill_base_offset + spill_slot_count * 8;
+    let evict_base = spill_base_offset + spill_slot_count * slot_bytes;
     let mut max_evictions = 0usize;
     let spilled_set: std::collections::HashSet<u32> = spilled.iter().copied().collect();
     let mut out: Vec<CodeInstruction> = Vec::with_capacity(n);
@@ -244,7 +245,7 @@ pub(super) fn run(
         // Save evicted registers, reload used spills, run the instruction, store
         // defined spills, then restore the evicted registers.
         for (victim, slot) in &evictions {
-            out.push(model.emit_spill(class, victim, evict_base + slot * 8));
+            out.push(model.emit_spill(class, victim, evict_base + slot * slot_bytes));
         }
         for &v in &used_spilled {
             out.push(model.emit_reload(class, &scratch_for[&v], spill_slot[&v]));
@@ -254,7 +255,7 @@ pub(super) fn run(
             out.push(model.emit_spill(class, &scratch_for[&v], spill_slot[&v]));
         }
         for (victim, slot) in evictions.iter().rev() {
-            out.push(model.emit_reload(class, victim, evict_base + slot * 8));
+            out.push(model.emit_reload(class, victim, evict_base + slot * slot_bytes));
         }
     }
     let total_slot_count = spill_slot_count + max_evictions;

@@ -52,6 +52,14 @@ pub(crate) trait RegisterModel {
     /// Emit a register-to-register move within a class.
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction;
 
+    /// Bytes reserved per stack spill slot. AArch64 spills are 64-bit, so 8. x86
+    /// returns 16: its FP spills carry 128-bit SIMD vectors (vregified v16-v31)
+    /// that a 64-bit `movsd` would truncate — `movups` into a 16-byte slot keeps
+    /// both lanes. Every spill slot (int and fp) uses this stride uniformly.
+    fn spill_slot_bytes(&self) -> usize {
+        8
+    }
+
     /// The location this ISA realizes the abstract `arena_base` MIR source as
     /// (`mir.md §7`, plan-00-D §1). The neutral MIR references `arena_base`
     /// wherever it reaches the arena; the backend decides whether that is a

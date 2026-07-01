@@ -218,29 +218,34 @@ pub(crate) fn allocate(
                 physical_index: analysis::fp_physical_index,
                 is_fp: true,
             };
+            // Uniform per-slot stride so any class fits (x86 16 for a 128-bit FP
+            // spill; AArch64 8 — a no-op, byte-identical).
+            let slot_bytes = model.spill_slot_bytes();
             let int = linear_scan::run(
                 instructions,
                 model,
                 RegClass::Int,
                 &int_model,
                 spill_base_offset,
+                slot_bytes,
                 reserved,
             );
             *instructions = int.instructions;
-            let fp_base = spill_base_offset + int.spill_slot_count * 8;
+            let fp_base = spill_base_offset + int.spill_slot_count * slot_bytes;
             let fp = linear_scan::run(
                 instructions,
                 model,
                 RegClass::Fp,
                 &fp_model,
                 fp_base,
+                slot_bytes,
                 reserved,
             );
             *instructions = fp.instructions;
 
             let total_spills = int.spill_slot_count + fp.spill_slot_count;
             let spill_slots = (0..total_spills)
-                .map(|k| spill_base_offset + k * 8)
+                .map(|k| spill_base_offset + k * slot_bytes)
                 .collect();
             let mut extra_callee_saved = int.extra_callee_saved;
             for register in fp.extra_callee_saved {

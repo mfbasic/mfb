@@ -85,10 +85,18 @@ impl RegisterModel for X86_64RegisterModel {
         }
     }
 
+    fn spill_slot_bytes(&self) -> usize {
+        // FP spills carry 128-bit SIMD vectors (vregified v16-v31); 16-byte slots
+        // + `movups` keep both lanes. Int spills use the low 8 of their slot.
+        16
+    }
+
     fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         let mnemonic = match class {
             RegClass::Int => "str_u64",
-            RegClass::Fp => "str_d",
+            // 128-bit `movups` — 64-bit `movsd` would drop a spilled vector's high
+            // lane, corrupting the vector::/math-array kernels.
+            RegClass::Fp => "str_q",
         };
         CodeInstruction::new(mnemonic)
             .field("src", reg)
@@ -99,7 +107,7 @@ impl RegisterModel for X86_64RegisterModel {
     fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         let mnemonic = match class {
             RegClass::Int => "ldr_u64",
-            RegClass::Fp => "ldr_d",
+            RegClass::Fp => "ldr_q",
         };
         CodeInstruction::new(mnemonic)
             .field("dst", reg)
