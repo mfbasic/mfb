@@ -45,7 +45,13 @@ fn map_scratch_register(n: usize) -> &'static str {
 // returns rax,rdx; syscall nr + result rax.
 const CALL_ARGS: &[&str] = &["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
 const SYS_ARGS: &[&str] = &["rdi", "rsi", "rdx", "r10", "r8", "r9"];
-const RETS: &[&str] = &["rax", "rdx"];
+// x0/x1 are the SysV return registers (rax/rdx). x2/x3 extend the set only for
+// the runtime's 4-register error-Result convention (tag=x0, value=x1,
+// message=x2, source=x3), which `make_error_result` produces and the error/TRAP
+// path consumes immediately (no intervening call), so caller-saved rcx/rsi are
+// safe distinct homes. Without these, x2/x3 fell back to rax and aliased,
+// corrupting propagated errors.
+const RETS: &[&str] = &["rax", "rdx", "rcx", "rsi"];
 
 /// Map an AArch64 ABI register `xN` (N ≤ 8) to its SysV/x86-64 home given its
 /// role: an argument flowing into the next call/syscall, a return value, or a
@@ -261,8 +267,12 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 continue;
             }
             let is_def = X86_DEF_FIELDS.contains(key);
+            // x0/x1 are the standard results; x2/x3 are results only for the
+            // 4-register error-Result convention (a callee that returns them
+            // without the caller redefining them since the call — regular calls
+            // return x0/x1, so this only fires for a propagated error).
             let is_result = !is_def
-                && (n == 0 || n == 1)
+                && n < RETS.len()
                 && !defined_since_boundary.contains(value)
                 && matches!(
                     boundary_before[i],
