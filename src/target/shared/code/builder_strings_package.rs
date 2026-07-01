@@ -152,53 +152,70 @@ impl CodeBuilder<'_> {
         let cmp_label = self.label("strings_chars_set_cmp");
         let cmp_loop = self.label("strings_chars_set_cmp_loop");
         let next = self.label("strings_chars_set_next");
-        // x2 = chars data ptr, x3 = chars len, x4 = cursor index.
-        self.emit(abi::load_u64("x5", abi::stack_pointer(), chars_slot));
-        self.emit(abi::load_u64("x3", "x5", 0));
-        self.emit(abi::add_immediate("x2", "x5", 8));
-        self.emit(abi::move_immediate("x4", "Integer", "0"));
+        // Scratch as vregs (was out-of-pool x2-x7 plus x0/x1, which are x86 ABI
+        // argument/return registers). x8/x16 stay (vregify pool).
+        let chars_ptr_v = self.temporary_vreg();
+        let chars_len_v = self.temporary_vreg();
+        let cursor_v = self.temporary_vreg();
+        let cand_v = self.temporary_vreg();
+        let scalar_end_v = self.temporary_vreg();
+        let tmp_v = self.temporary_vreg();
+        let cbyte_v = self.temporary_vreg();
+        let rem_v = self.temporary_vreg();
+        let chars_ptr = chars_ptr_v.as_str();
+        let chars_len = chars_len_v.as_str();
+        let cursor = cursor_v.as_str();
+        let cand = cand_v.as_str();
+        let scalar_end = scalar_end_v.as_str();
+        let tmp = tmp_v.as_str();
+        let cbyte = cbyte_v.as_str();
+        let rem = rem_v.as_str();
+        // chars_ptr = chars data ptr, chars_len = chars len, cursor = index.
+        self.emit(abi::load_u64(cand, abi::stack_pointer(), chars_slot));
+        self.emit(abi::load_u64(chars_len, cand, 0));
+        self.emit(abi::add_immediate(chars_ptr, cand, 8));
+        self.emit(abi::move_immediate(cursor, "Integer", "0"));
         self.emit(abi::move_immediate("x8", "Integer", "192"));
         self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_registers("x4", "x3"));
+        self.emit(abi::compare_registers(cursor, chars_len));
         self.emit(abi::branch_ge(not_in_set));
-        // determine current scalar length in chars set: from x4 advance lead +
-        // continuation bytes -> x6 = scalarEnd.
-        self.emit(abi::add_immediate("x6", "x4", 1));
+        // scalar length: from cursor advance lead + continuation bytes -> scalar_end.
+        self.emit(abi::add_immediate(scalar_end, cursor, 1));
         let clen = self.label("strings_chars_set_clen");
         let clen_done = self.label("strings_chars_set_clen_done");
         self.emit(abi::label(&clen));
-        self.emit(abi::compare_registers("x6", "x3"));
+        self.emit(abi::compare_registers(scalar_end, chars_len));
         self.emit(abi::branch_ge(&clen_done));
-        self.emit(abi::add_registers("x7", "x2", "x6"));
-        self.emit(abi::load_u8("x7", "x7", 0));
-        self.emit(abi::and_registers("x7", "x7", "x8"));
-        self.emit(abi::compare_immediate("x7", "128"));
+        self.emit(abi::add_registers(tmp, chars_ptr, scalar_end));
+        self.emit(abi::load_u8(tmp, tmp, 0));
+        self.emit(abi::and_registers(tmp, tmp, "x8"));
+        self.emit(abi::compare_immediate(tmp, "128"));
         self.emit(abi::branch_ne(&clen_done));
-        self.emit(abi::add_immediate("x6", "x6", 1));
+        self.emit(abi::add_immediate(scalar_end, scalar_end, 1));
         self.emit(abi::branch(&clen));
         self.emit(abi::label(&clen_done));
-        // candidate scalar byte length = x6 - x4. Compare with scalar_len.
+        // candidate byte length = scalar_end - cursor. Compare with scalar_len.
         self.emit(abi::label(&cmp_label));
-        self.emit(abi::subtract_registers("x7", "x6", "x4"));
-        self.emit(abi::compare_registers("x7", scalar_len));
+        self.emit(abi::subtract_registers(tmp, scalar_end, cursor));
+        self.emit(abi::compare_registers(tmp, scalar_len));
         self.emit(abi::branch_ne(&next));
-        // byte-compare candidate [x2+x4, len x7) against scalar_ptr.
-        self.emit(abi::add_registers("x5", "x2", "x4")); // candidate ptr
-        self.emit(abi::move_register("x7", scalar_ptr)); // target ptr
-        self.emit(abi::subtract_registers("x1", "x6", "x4")); // remaining bytes
+        // byte-compare candidate [chars_ptr+cursor, len) against scalar_ptr.
+        self.emit(abi::add_registers(cand, chars_ptr, cursor)); // candidate ptr
+        self.emit(abi::move_register(tmp, scalar_ptr)); // target ptr
+        self.emit(abi::subtract_registers(rem, scalar_end, cursor)); // remaining bytes
         self.emit(abi::label(&cmp_loop));
-        self.emit(abi::compare_immediate("x1", "0"));
+        self.emit(abi::compare_immediate(rem, "0"));
         self.emit(abi::branch_eq(in_set));
-        self.emit(abi::load_u8("x0", "x5", 0));
-        self.emit(abi::load_u8("x16", "x7", 0));
-        self.emit(abi::compare_registers("x0", "x16"));
+        self.emit(abi::load_u8(cbyte, cand, 0));
+        self.emit(abi::load_u8("x16", tmp, 0));
+        self.emit(abi::compare_registers(cbyte, "x16"));
         self.emit(abi::branch_ne(&next));
-        self.emit(abi::add_immediate("x5", "x5", 1));
-        self.emit(abi::add_immediate("x7", "x7", 1));
-        self.emit(abi::subtract_immediate("x1", "x1", 1));
+        self.emit(abi::add_immediate(cand, cand, 1));
+        self.emit(abi::add_immediate(tmp, tmp, 1));
+        self.emit(abi::subtract_immediate(rem, rem, 1));
         self.emit(abi::branch(&cmp_loop));
         self.emit(abi::label(&next));
-        self.emit(abi::move_register("x4", "x6"));
+        self.emit(abi::move_register(cursor, scalar_end));
         self.emit(abi::branch(&loop_label));
     }
 

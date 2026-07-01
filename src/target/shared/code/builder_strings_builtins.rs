@@ -975,6 +975,16 @@ impl CodeBuilder<'_> {
         let value_done = self.label("strings_join_value_done");
         let copy_done = self.label("strings_join_copy_done");
 
+        // Copy-loop scratch as vregs (was out-of-pool x2/x3/x4, which fall back to
+        // rax via the Ret-role default on x86 and collide). x9-x17 stay (vregify
+        // pool). AArch64 unaffected.
+        let cursor_v = self.temporary_vreg();
+        let remaining_v = self.temporary_vreg();
+        let byte_v = self.temporary_vreg();
+        let cursor = cursor_v.as_str();
+        let remaining = remaining_v.as_str();
+        let byte = byte_v.as_str();
+
         self.emit(abi::load_u64("x16", abi::stack_pointer(), parts_slot));
         self.emit(abi::load_u64("x17", abi::stack_pointer(), delimiter_slot));
         self.emit(abi::load_u64("x9", "x16", COLLECTION_OFFSET_COUNT));
@@ -1027,8 +1037,12 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x9", "x16", COLLECTION_OFFSET_COUNT));
         self.emit(abi::load_u64("x10", "x17", 0));
         self.emit(abi::add_immediate("x11", "x17", 8));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x13", "x1", 8));
+        // Carry the result pointer in a vreg, not physical x1 (a reload with no
+        // call context maps unreliably on x86; the concat/split pattern).
+        let out_ptr_v = self.temporary_vreg();
+        let out_ptr = out_ptr_v.as_str();
+        self.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x13", out_ptr, 8));
         self.emit_collection_data_pointer("x14", "x16");
         self.emit(abi::add_immediate("x15", "x16", COLLECTION_HEADER_SIZE));
         self.emit(abi::move_immediate("x12", "Integer", "0"));
@@ -1037,46 +1051,46 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&copy_done));
         self.emit(abi::compare_immediate("x12", "0"));
         self.emit(abi::branch_eq(&copy_no_delim));
-        self.emit(abi::move_register("x2", "x11"));
-        self.emit(abi::move_register("x3", "x10"));
+        self.emit(abi::move_register(cursor, "x11"));
+        self.emit(abi::move_register(remaining, "x10"));
         self.emit(abi::label(&delim_loop));
-        self.emit(abi::compare_immediate("x3", "0"));
+        self.emit(abi::compare_immediate(remaining, "0"));
         self.emit(abi::branch_eq(&delim_done));
-        self.emit(abi::load_u8("x4", "x2", 0));
-        self.emit(abi::store_u8("x4", "x13", 0));
-        self.emit(abi::add_immediate("x2", "x2", 1));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::store_u8(byte, "x13", 0));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::add_immediate("x13", "x13", 1));
-        self.emit(abi::subtract_immediate("x3", "x3", 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
         self.emit(abi::branch(&delim_loop));
         self.emit(abi::label(&delim_done));
         self.emit(abi::label(&copy_no_delim));
         self.emit(abi::load_u64(
-            "x2",
+            cursor,
             "x15",
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
         self.emit(abi::load_u64(
-            "x3",
+            remaining,
             "x15",
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_registers("x2", "x14", "x2"));
+        self.emit(abi::add_registers(cursor, "x14", cursor));
         self.emit(abi::label(&value_loop));
-        self.emit(abi::compare_immediate("x3", "0"));
+        self.emit(abi::compare_immediate(remaining, "0"));
         self.emit(abi::branch_eq(&value_done));
-        self.emit(abi::load_u8("x4", "x2", 0));
-        self.emit(abi::store_u8("x4", "x13", 0));
-        self.emit(abi::add_immediate("x2", "x2", 1));
+        self.emit(abi::load_u8(byte, cursor, 0));
+        self.emit(abi::store_u8(byte, "x13", 0));
+        self.emit(abi::add_immediate(cursor, cursor, 1));
         self.emit(abi::add_immediate("x13", "x13", 1));
-        self.emit(abi::subtract_immediate("x3", "x3", 1));
+        self.emit(abi::subtract_immediate(remaining, remaining, 1));
         self.emit(abi::branch(&value_loop));
         self.emit(abi::label(&value_done));
         self.emit(abi::add_immediate("x15", "x15", COLLECTION_ENTRY_SIZE));
         self.emit(abi::add_immediate("x12", "x12", 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
-        self.emit(abi::move_immediate("x4", "Integer", "0"));
-        self.emit(abi::store_u8("x4", "x13", 0));
+        self.emit(abi::move_immediate(byte, "Integer", "0"));
+        self.emit(abi::store_u8(byte, "x13", 0));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {
@@ -1916,9 +1930,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x11", abi::stack_pointer(), total_slot));
         self.emit(abi::store_u64("x11", "x1", 0));
 
-        // Write the output. x13 = dst cursor.
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x13", "x1", 8));
+        // Write the output. x13 = dst cursor. Carry the result ptr in a vreg,
+        // not physical x1 (concat/split pattern). Copy-loop scratch as vregs too
+        // (was out-of-pool x2/x3/x4).
+        let out_ptr_v = self.temporary_vreg();
+        let out_ptr = out_ptr_v.as_str();
+        let pad_src_v = self.temporary_vreg();
+        let pad_cnt_v = self.temporary_vreg();
+        let byte_v = self.temporary_vreg();
+        let pad_src = pad_src_v.as_str();
+        let pad_cnt = pad_cnt_v.as_str();
+        let byte = byte_v.as_str();
+        self.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x13", out_ptr, 8));
 
         let copy_value = |b: &mut Self| {
             // copy value bytes (x14 base, x9 len) to x13.
@@ -1930,8 +1954,8 @@ impl CodeBuilder<'_> {
             b.emit(abi::label(&loop_label));
             b.emit(abi::compare_immediate("x9", "0"));
             b.emit(abi::branch_eq(&done));
-            b.emit(abi::load_u8("x4", "x14", 0));
-            b.emit(abi::store_u8("x4", "x13", 0));
+            b.emit(abi::load_u8(byte, "x14", 0));
+            b.emit(abi::store_u8(byte, "x13", 0));
             b.emit(abi::add_immediate("x14", "x14", 1));
             b.emit(abi::add_immediate("x13", "x13", 1));
             b.emit(abi::subtract_immediate("x9", "x9", 1));
@@ -1951,16 +1975,16 @@ impl CodeBuilder<'_> {
             b.emit(abi::label(&outer));
             b.emit(abi::compare_immediate("x10", "0"));
             b.emit(abi::branch_eq(&outer_done));
-            b.emit(abi::move_register("x2", "x14"));
-            b.emit(abi::move_register("x3", "x11"));
+            b.emit(abi::move_register(pad_src, "x14"));
+            b.emit(abi::move_register(pad_cnt, "x11"));
             b.emit(abi::label(&inner));
-            b.emit(abi::compare_immediate("x3", "0"));
+            b.emit(abi::compare_immediate(pad_cnt, "0"));
             b.emit(abi::branch_eq(&inner_done));
-            b.emit(abi::load_u8("x4", "x2", 0));
-            b.emit(abi::store_u8("x4", "x13", 0));
-            b.emit(abi::add_immediate("x2", "x2", 1));
+            b.emit(abi::load_u8(byte, pad_src, 0));
+            b.emit(abi::store_u8(byte, "x13", 0));
+            b.emit(abi::add_immediate(pad_src, pad_src, 1));
             b.emit(abi::add_immediate("x13", "x13", 1));
-            b.emit(abi::subtract_immediate("x3", "x3", 1));
+            b.emit(abi::subtract_immediate(pad_cnt, pad_cnt, 1));
             b.emit(abi::branch(&inner));
             b.emit(abi::label(&inner_done));
             b.emit(abi::subtract_immediate("x10", "x10", 1));
@@ -1975,8 +1999,8 @@ impl CodeBuilder<'_> {
             copy_pads(self, "left");
             copy_value(self);
         }
-        self.emit(abi::move_immediate("x4", "Integer", "0"));
-        self.emit(abi::store_u8("x4", "x13", 0));
+        self.emit(abi::move_immediate(byte, "Integer", "0"));
+        self.emit(abi::store_u8(byte, "x13", 0));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         let after = self.label("strings_pad_after");

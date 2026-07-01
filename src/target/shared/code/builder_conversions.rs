@@ -272,18 +272,33 @@ impl CodeBuilder<'_> {
         source_register: &str,
         base_slot: usize,
     ) -> Result<ValueResult, String> {
-        let string = "x8";
-        let length = "x9";
-        let index = "x10";
-        let cursor = "x11";
-        let byte = "x12";
-        let acc = "x13";
-        let negative = "x14";
-        let digit = "x15";
-        let cutoff = "x16";
-        let cutlim = "x17";
-        let base = "x6";
-        let scratch = "x7";
+        // All working registers are scratch (no call ABI); mint as vregs so the
+        // allocator colors them per-ISA (was x8-x17 + out-of-pool x6/x7). `xzr`
+        // below stays. AArch64 unaffected.
+        let string_v = self.temporary_vreg();
+        let length_v = self.temporary_vreg();
+        let index_v = self.temporary_vreg();
+        let cursor_v = self.temporary_vreg();
+        let byte_v = self.temporary_vreg();
+        let acc_v = self.temporary_vreg();
+        let negative_v = self.temporary_vreg();
+        let digit_v = self.temporary_vreg();
+        let cutoff_v = self.temporary_vreg();
+        let cutlim_v = self.temporary_vreg();
+        let base_v = self.temporary_vreg();
+        let scratch_v = self.temporary_vreg();
+        let string = string_v.as_str();
+        let length = length_v.as_str();
+        let index = index_v.as_str();
+        let cursor = cursor_v.as_str();
+        let byte = byte_v.as_str();
+        let acc = acc_v.as_str();
+        let negative = negative_v.as_str();
+        let digit = digit_v.as_str();
+        let cutoff = cutoff_v.as_str();
+        let cutlim = cutlim_v.as_str();
+        let base = base_v.as_str();
+        let scratch = scratch_v.as_str();
         let invalid = self.label("string_to_int_base_invalid");
         let overflow = self.label("string_to_int_base_overflow");
         let first_not_minus = self.label("string_to_int_base_first_not_minus");
