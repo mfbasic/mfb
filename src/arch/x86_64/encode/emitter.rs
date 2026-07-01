@@ -302,6 +302,94 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             bytes.push(modrm(0b11, 2, dst));
             Ok(Encoded::plain(bytes))
         }
+        // clz: count leading zeros. `lzcnt r64, r/m64` (F3 REX.W 0F BD /r) — ABM,
+        // present on every x86-64-v2 CPU (Alpine target). Matches AArch64 `clz`
+        // (64 for a zero input), unlike `bsr` which is undefined on zero.
+        "clz" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(vec![
+                0xF3,
+                rex(true, dst >= 8, false, src >= 8),
+                0x0F,
+                0xBD,
+                modrm(0b11, dst, src),
+            ]))
+        }
+        // rev_w / rev_x: byte-reverse a 32/64-bit value (`bswap`, 0F C8+rd; the
+        // 64-bit form takes REX.W). AArch64 `rev` has dst/src, x86 `bswap` is
+        // in-place, so copy first when they differ.
+        "rev_w" | "rev_x" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = reg(field(instruction, "src")?)?;
+            let wide = m == "rev_x";
+            let mut bytes = if dst == src {
+                Vec::new()
+            } else if wide {
+                enc_mov(dst, src)
+            } else {
+                // 32-bit mov (zero-extends): 89 /r, REX only for r8–r15.
+                let mut b = Vec::new();
+                if dst >= 8 || src >= 8 {
+                    b.push(rex(false, src >= 8, false, dst >= 8));
+                }
+                b.push(0x89);
+                b.push(modrm(0b11, src, dst));
+                b
+            };
+            if wide || dst >= 8 {
+                bytes.push(rex(wide, false, false, dst >= 8));
+            }
+            bytes.push(0x0F);
+            bytes.push(0xC8 + (dst & 7));
+            Ok(Encoded::plain(bytes))
+        }
+        // rbit: reverse all 64 bits. x86 has no single instruction, so use the
+        // classic swap-by-strides (1,2,4 bits) then a byte reverse (`bswap`). rax
+        // (mask) and rdx (temp) are free scratch — both excluded from the pool.
+        "rbit" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = reg(field(instruction, "src")?)?;
+            let mut b = if dst == src { Vec::new() } else { enc_mov(dst, src) };
+            // or dst, rdx : REX.W 09 /r (rm=dst, reg=rdx=2)
+            let or_dst_rdx = |b: &mut Vec<u8>| {
+                b.push(rex(true, false, false, dst >= 8));
+                b.push(0x09);
+                b.push(modrm(0b11, 2, dst));
+            };
+            // and reg, rax : REX.W 21 /r (rm=reg, reg=rax=0)
+            let and_with_rax = |b: &mut Vec<u8>, r: u8| {
+                b.push(rex(true, false, false, r >= 8));
+                b.push(0x21);
+                b.push(modrm(0b11, 0, r));
+            };
+            // mov rdx, dst : REX.W 89 /r (rm=rdx, reg=dst)
+            let mov_rdx_dst = |b: &mut Vec<u8>| {
+                b.push(rex(true, dst >= 8, false, false));
+                b.push(0x89);
+                b.push(modrm(0b11, dst, 2));
+            };
+            // Each step swaps adjacent bit-groups of width `shift`:
+            //   x = ((x >> s) & mask) | ((x & mask) << s)
+            for &(shift, mask) in &[
+                (1u8, 0x5555_5555_5555_5555u64),
+                (2, 0x3333_3333_3333_3333),
+                (4, 0x0F0F_0F0F_0F0F_0F0F),
+            ] {
+                mov_rdx_dst(&mut b); // rdx = x
+                b.extend(enc_mov_imm64(0, mask)); // rax = mask
+                and_with_rax(&mut b, 2); // rdx = x & mask
+                b.extend(enc_shift_imm_reg(4, 2, shift)); // rdx = (x & mask) << s
+                b.extend(enc_shift_imm_reg(5, dst, shift)); // dst = x >> s
+                and_with_rax(&mut b, dst); // dst = (x >> s) & mask
+                or_dst_rdx(&mut b); // dst = ((x>>s)&mask) | ((x&mask)<<s)
+            }
+            // Final byte reverse: bswap dst (64-bit).
+            b.push(rex(true, false, false, dst >= 8));
+            b.push(0x0F);
+            b.push(0xC8 + (dst & 7));
+            Ok(Encoded::plain(b))
+        }
         "mul" => {
             // dst = lhs * rhs (low 64). imul is commutative, so multiply into
             // whichever source already occupies dst. The naive `mov dst,lhs;
