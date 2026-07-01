@@ -895,6 +895,29 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             };
             Ok(Encoded::plain(enc_roundpd(dst, src, mode)))
         }
+        // Round to nearest, ties AWAY from zero (AArch64 frinta). x86 has no such
+        // roundpd mode, so emulate `trunc(x + copysign(0.5, x))`: at a tie the
+        // half nudges past the boundary, and truncation then lands away from zero.
+        // Materialize 0.5 and the sign mask through rax (preserved via push/pop —
+        // the kernels keep live values there); only xmm15 is reserved scratch. dst
+        // is fully overwritten, src is read-only.
+        "frinta_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = vec![0x50]; // push rax
+            b.extend(enc_mov_imm64(0, 0x3FE0_0000_0000_0000)); // movabs rax, bits(0.5)
+            b.extend(enc_movq_xmm_r64(dst, 0));
+            b.extend(enc_sse_rr(Some(0x66), 0x6C, dst, dst)); // punpcklqdq → [0.5, 0.5]
+            b.extend(enc_mov_imm64(0, 0x8000_0000_0000_0000)); // movabs rax, sign bit
+            b.extend(enc_movq_xmm_r64(15, 0));
+            b.extend(enc_sse_rr(Some(0x66), 0x6C, 15, 15)); // punpcklqdq → sign mask ×2
+            b.extend(enc_sse_rr(Some(0x66), 0xDB, 15, src)); // xmm15 = signmask & src
+            b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // dst = copysign(0.5, src)
+            b.extend(enc_sse_rr(Some(0x66), 0x58, dst, src)); // addpd dst, src
+            b.extend(enc_roundpd(dst, dst, 3)); // truncate toward zero
+            b.push(0x58); // pop rax
+            Ok(Encoded::plain(b))
+        }
         // Immediate lane shifts (i64): psllq /6, psrlq /2 (66 0F 73).
         "shl_v" | "ushr_v" => {
             let dst = fp_reg(field(instruction, "dst")?)?;
@@ -1027,7 +1050,7 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // por dst, sign fill
             Ok(Encoded::plain(b))
         }
-        // Still unsupported: fcvtas_v (nearest ties-away), frinta_v, sshl_v, ushl_v.
+        // Still unsupported: fcvtas_v (nearest ties-away), sshl_v, ushl_v.
         other => Err(format!("x86 encode: unsupported op {other}")),
     }
 }
