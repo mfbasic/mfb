@@ -449,6 +449,15 @@ impl CodeBuilder<'_> {
         let x7 = self.temporary_vreg();
         let x6 = x6.as_str();
         let x7 = x7.as_str();
+        // Binary-search scratch as vregs (was hand-pinned x8/x9/x13/x14).
+        let mid_v = self.temporary_vreg();
+        let offset_v = self.temporary_vreg();
+        let entry_ptr_v = self.temporary_vreg();
+        let field_v = self.temporary_vreg();
+        let mid = mid_v.as_str();
+        let offset = offset_v.as_str();
+        let entry_ptr = entry_ptr_v.as_str();
+        let field = field_v.as_str();
 
         self.emit(abi::move_immediate(x6, "Integer", "0"));
         self.emit(abi::move_immediate(
@@ -459,39 +468,39 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_registers(x6, x7));
         self.emit(abi::branch_ge(&not_found));
-        self.emit(abi::add_registers("x8", x6, x7));
-        self.emit(abi::shift_right_immediate("x8", "x8", 1));
-        self.emit(abi::shift_left_immediate("x9", "x8", 4));
-        self.emit_load_data_address("x13", entries_symbol);
-        self.emit(abi::add_registers("x13", "x13", "x9"));
+        self.emit(abi::add_registers(mid, x6, x7));
+        self.emit(abi::shift_right_immediate(mid, mid, 1));
+        self.emit(abi::shift_left_immediate(offset, mid, 4));
+        self.emit_load_data_address(entry_ptr, entries_symbol);
+        self.emit(abi::add_registers(entry_ptr, entry_ptr, offset));
         self.emit(abi::load_u32(
-            "x14",
-            "x13",
+            field,
+            entry_ptr,
             UNICODE_NFD_ENTRY_OFFSET_CODEPOINT,
         ));
-        self.emit(abi::compare_registers("x14", codepoint));
+        self.emit(abi::compare_registers(field, codepoint));
         self.emit(abi::branch_eq(&found));
         self.emit(abi::branch_lo(&move_left));
-        self.emit(abi::move_register(x7, "x8"));
+        self.emit(abi::move_register(x7, mid));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&move_left));
-        self.emit(abi::add_immediate(x6, "x8", 1));
+        self.emit(abi::add_immediate(x6, mid, 1));
         self.emit(abi::branch(&loop_label));
 
         self.emit(abi::label(&found));
         self.emit(abi::load_u32(
-            "x14",
-            "x13",
+            field,
+            entry_ptr,
             UNICODE_NFD_ENTRY_OFFSET_SEQUENCE_OFFSET,
         ));
         self.emit(abi::load_u32(
             sequence_length,
-            "x13",
+            entry_ptr,
             UNICODE_NFD_ENTRY_OFFSET_SEQUENCE_LENGTH,
         ));
-        self.emit(abi::shift_left_immediate("x14", "x14", 2));
+        self.emit(abi::shift_left_immediate(field, field, 2));
         self.emit_load_data_address(sequence_ptr, sequences_symbol);
-        self.emit(abi::add_registers(sequence_ptr, sequence_ptr, "x14"));
+        self.emit(abi::add_registers(sequence_ptr, sequence_ptr, field));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&not_found));
