@@ -79,9 +79,14 @@ fn map_abi_register(n: usize, role: Option<AbiBoundary>, is_result: bool) -> Str
             Some(AbiBoundary::Syscall) if n == 8 => "rax", // syscall number
             Some(AbiBoundary::Syscall) => SYS_ARGS.get(n).copied().unwrap_or("rax"),
             Some(AbiBoundary::Ret) => RETS.get(n).copied().unwrap_or("rax"),
-            // No following boundary: a leftover ABI register used as a plain
-            // value (rare). Fall back to the return register.
-            None => "rax",
+            // No following boundary: a leftover ABI register used as a plain value
+            // — most often a call RESULT whose boundary the dataflow lost (e.g. an
+            // arena pointer `x1` copied in a loop, where the loop back-edge poisons
+            // `boundary_before` so `is_result` is false at the copy). Fall back to
+            // that index's RESULT register (`x1`→rdx), NOT always rax — mapping a
+            // leftover `x1` to rax (the OK tag = 0) gave a null-dst copy → SIGSEGV
+            // in the datetime/json/regex/lambda/resource record builders.
+            None => RETS.get(n).copied().unwrap_or("rax"),
         }
     };
     reg.to_string()
