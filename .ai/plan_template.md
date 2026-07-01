@@ -44,9 +44,44 @@ copy/transfer/golden output is unaffected. Omit if the plan touches no layout.>
 
 ## Phases
 
-1. <Lowest-risk, independently-landable first.>
-2. ...
-N. <Highest-risk codegen last, behind tests.>
+<Ordered, independently-landable phases. Lowest-risk / separately-valuable
+work first (e.g. an audit or a runtime primitive with no callers); highest-risk
+codegen last, behind tests. Each phase lists the concrete tasks to do — a task
+is a single, checkable unit of work naming the file(s) it touches — and the
+acceptance criterion that must be met and verified before the phase is done.
+When a phase lands, fill in its `Commit:` line with the hash(es) that shipped
+it — the running ledger of what is actually done.>
+
+### Phase 1 — <short name>
+
+<One line: what this phase delivers and why it is safe to land alone.>
+
+- [ ] <Concrete task — what to do and the file(s) it touches (`file.rs:line`).>
+- [ ] <Concrete task.>
+- [ ] Tests: `tests/func_<pkg>_<func>_valid/**` and `_invalid/**` for anything added/changed here.
+
+Acceptance: <the specific, checkable outcome that proves this phase is done —
+tests/goldens/runtime proof, not "code compiles".>
+Commit: <hash(es) once landed, or `—` while pending.>
+
+### Phase 2 — <short name>
+
+<One line.>
+
+- [ ] <Concrete task.>
+- [ ] <Concrete task.>
+
+Acceptance: <checkable outcome.>
+Commit: <hash(es) once landed, or `—` while pending.>
+
+### Phase N — <short name> (highest-risk codegen last)
+
+<One line.>
+
+- [ ] <Concrete task.>
+
+Acceptance: <checkable outcome.>
+Commit: <hash(es) once landed, or `—` while pending.>
 
 ## Validation Plan
 
