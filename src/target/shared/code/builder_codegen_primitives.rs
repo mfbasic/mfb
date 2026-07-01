@@ -93,19 +93,21 @@ impl CodeBuilder<'_> {
         if self.regalloc_kind != regalloc::RegallocKind::LinearScan {
             return;
         }
-        fn is_scratch(reg: &str) -> bool {
-            // x28 is EXCLUDED: it is `CLOSURE_ENV_REGISTER`, a cross-function ABI
-            // convention register (the caller stages the closure env there before
-            // the indirect call; the lambda reads it live-in at entry). Vregifying
-            // it turns that live-in into an undefined vreg the allocator colors
-            // per-function, so the caller's physical x28 and the callee's colored
-            // reg disagree — on AArch64 register abundance hides it, but x86's
-            // tighter file colors the lambda's env to a different GPR than the
-            // caller wrote → a garbage env deref (SIGSEGV in closures/lambdas).
-            reg.strip_prefix('x')
+        // x28 (`CLOSURE_ENV_REGISTER`) is excluded from the vregify pool ONLY on
+        // backends that pin it (x86). On AArch64 keeping it in the pool is
+        // byte-identical and correct, so the exclusion is gated to avoid changing
+        // AArch64 codegen. See `Backend::pins_closure_env_register`.
+        let pin_closure_env = mir::active_backend().pins_closure_env_register();
+        let is_scratch = |reg: &str| -> bool {
+            let Some(n) = reg
+                .strip_prefix('x')
                 .and_then(|rest| rest.parse::<u32>().ok())
-                .is_some_and(|n| (8..=17).contains(&n) || (20..=27).contains(&n))
-        }
+            else {
+                return false;
+            };
+            let top = if pin_closure_env { 27 } else { 28 };
+            (8..=17).contains(&n) || (20..=top).contains(&n)
+        };
         // First-appearance order so the vreg numbering is deterministic.
         let mut order: Vec<String> = Vec::new();
         for instruction in &self.instructions {

@@ -34,4 +34,10 @@ impl Backend for X86_64Backend {
         // 16-byte aligned at this function's own calls (SysV — libc `movaps`).
         8
     }
+
+    fn pins_closure_env_register(&self) -> bool {
+        // x86's tighter register file mis-colors a vregified x28 closure-env
+        // live-in; keep x28 physical so the caller and the lambda agree.
+        true
+    }
 }
