@@ -385,9 +385,7 @@ impl CodeBuilder<'_> {
         remaining: &str,
     ) {
         let x6 = self.temporary_vreg();
-        let x7 = self.temporary_vreg();
         let x6 = x6.as_str();
-        let x7 = x7.as_str();
         self.emit(abi::move_immediate(x6, "Integer", "16383"));
         self.emit(abi::and_registers(x6, seqindex, x6));
         self.emit(abi::shift_left_immediate(x6, x6, 1));
