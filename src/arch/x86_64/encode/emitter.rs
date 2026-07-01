@@ -715,7 +715,249 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             Ok(Encoded::plain(enc_movsd_mem(0x11, src, base, disp)))
         }
 
-        // v128 are Phase 3.
+        // --- v128 SIMD (SSE2/SSE4.1) — plan-00-H Phase 3 --------------------
+        // 128-bit unaligned load/store (movups, 0F 10 / 11). `v`/`q` map to xmm.
+        "ldr_q" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let base = reg(field(instruction, "base")?)?;
+            let disp = field(instruction, "offset")?
+                .parse::<i32>()
+                .map_err(|_| "x86 ldr_q: bad offset".to_string())?;
+            Ok(Encoded::plain(enc_movups_mem(0x10, dst, base, disp)))
+        }
+        "str_q" => {
+            let src = fp_reg(field(instruction, "src")?)?;
+            let base = reg(field(instruction, "base")?)?;
+            let disp = field(instruction, "offset")?
+                .parse::<i32>()
+                .map_err(|_| "x86 str_q: bad offset".to_string())?;
+            Ok(Encoded::plain(enc_movups_mem(0x11, src, base, disp)))
+        }
+        // Packed f64×2 three-operand arithmetic (66 0F op); commutativity noted.
+        "fadd_v" => vec3_op(instruction, 0x58, true),
+        "fmul_v" => vec3_op(instruction, 0x59, true),
+        "fsub_v" => vec3_op(instruction, 0x5C, false),
+        "fdiv_v" => vec3_op(instruction, 0x5E, false),
+        "fmin_v" => vec3_op(instruction, 0x5D, false),
+        "fmax_v" => vec3_op(instruction, 0x5F, false),
+        // Packed integer i64×2 add/sub (paddq/psubq).
+        "add_v" => vec3_op(instruction, 0xD4, true),
+        "sub_v" => vec3_op(instruction, 0xFB, false),
+        // Bitwise 128-bit (pand/por/pxor) — all commutative.
+        "and_v" => vec3_op(instruction, 0xDB, true),
+        "orr_v" => vec3_op(instruction, 0xEB, true),
+        "eor_v" => vec3_op(instruction, 0xEF, true),
+        // Packed f64×2 unary sqrt (sqrtpd, 66 0F 51).
+        "fsqrt_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(enc_sse_rr(Some(0x66), 0x51, dst, src)))
+        }
+        // fneg/fabs: xor/and each lane with the sign mask, built in xmm15 from
+        // an all-ones vector shifted (psllq 63 = 0x8000…; psrlq 1 = 0x7FFF…).
+        "fneg_v" | "fabs_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let neg = m == "fneg_v";
+            let mut b = enc_sse_rr(Some(0x66), 0x76, 15, 15); // pcmpeqd xmm15,xmm15
+            b.extend(enc_psxlq(if neg { 0x06 } else { 0x02 }, 15, if neg { 63 } else { 1 }));
+            if dst != src {
+                b.extend(enc_movaps(dst, src));
+            }
+            // xorpd (66 0F 57) / andpd (66 0F 54) dst, xmm15
+            b.extend(enc_sse_rr(Some(0x66), if neg { 0x57 } else { 0x54 }, dst, 15));
+            Ok(Encoded::plain(b))
+        }
+        // Integer i64 negate: 0 - src (staged through xmm15 so dst may alias src).
+        "neg_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = enc_sse_rr(Some(0x66), 0xEF, 15, 15); // pxor xmm15,xmm15
+            b.extend(enc_sse_rr(Some(0x66), 0xFB, 15, src)); // psubq xmm15, src
+            b.extend(enc_movaps(dst, 15));
+            Ok(Encoded::plain(b))
+        }
+        // Integer i64 absolute: mask = (0 > x) ? -1 : 0; |x| = (x ^ mask) - mask.
+        "abs_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = enc_sse_rr(Some(0x66), 0xEF, 15, 15); // pxor xmm15,xmm15
+            b.extend(enc_sse38_rr(0x37, 15, src)); // pcmpgtq xmm15, src  (0 > src)
+            if dst != src {
+                b.extend(enc_movaps(dst, src));
+            }
+            b.extend(enc_sse_rr(Some(0x66), 0xEF, dst, 15)); // pxor dst, mask
+            b.extend(enc_sse_rr(Some(0x66), 0xFB, dst, 15)); // psubq dst, mask
+            Ok(Encoded::plain(b))
+        }
+        // Signed integer i64 lane compares → all-ones/all-zeros mask.
+        "cmgt_v" => {
+            // pcmpgtq dst(=lhs), rhs  (SSE4.2, 66 0F 38 37).
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            let b = if dst == rhs && dst != lhs {
+                let mut b = enc_movaps(15, rhs);
+                b.extend(enc_movaps(dst, lhs));
+                b.extend(enc_sse38_rr(0x37, dst, 15));
+                b
+            } else {
+                let mut b = if dst == lhs { Vec::new() } else { enc_movaps(dst, lhs) };
+                b.extend(enc_sse38_rr(0x37, dst, rhs));
+                b
+            };
+            Ok(Encoded::plain(b))
+        }
+        "cmeq_v" => {
+            // pcmpeqq (SSE4.1, 66 0F 38 29), commutative.
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            Ok(Encoded::plain(vec_sse38_commutative(0x29, dst, lhs, rhs)))
+        }
+        "cmge_v" => {
+            // a>=b = ~(b>a): pcmpgtq(rhs,lhs) then NOT via pxor all-ones.
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            let mut b = enc_movaps(15, lhs); // xmm15 = lhs (a)
+            if dst != rhs {
+                b.extend(enc_movaps(dst, rhs)); // dst = rhs (b)
+            }
+            b.extend(enc_sse38_rr(0x37, dst, 15)); // dst = b > a
+            b.extend(enc_sse_rr(Some(0x66), 0x76, 15, 15)); // xmm15 = all ones
+            b.extend(enc_sse_rr(Some(0x66), 0xEF, dst, 15)); // dst = ~(b>a) = a>=b
+            Ok(Encoded::plain(b))
+        }
+        // Packed f64×2 compares (cmppd) → NaN-correct lane masks. fcmgt(a,b)=b<a
+        // (LT, false on NaN); fcmge=b<=a (LE); fcmeq=a==b (EQ).
+        "fcmgt_v" => {
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            Ok(Encoded::plain(vec_cmppd_swapped(dst, lhs, rhs, 1)))
+        }
+        "fcmge_v" => {
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            Ok(Encoded::plain(vec_cmppd_swapped(dst, lhs, rhs, 2)))
+        }
+        "fcmeq_v" => {
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            let mut b = if dst == rhs { enc_movaps(15, rhs) } else { Vec::new() };
+            let r = if dst == rhs { 15 } else { rhs };
+            if dst != lhs {
+                b.extend(enc_movaps(dst, lhs));
+            }
+            b.extend(enc_cmppd(dst, r, 0));
+            Ok(Encoded::plain(b))
+        }
+        // Packed f64×2 compares against zero. xmm15 = 0.0×2.
+        "fcmgt_zero_v" | "fcmge_zero_v" | "fcmlt_zero_v" | "fcmle_zero_v" | "fcmeq_zero_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = enc_sse_rr(Some(0x66), 0xEF, 15, 15); // pxor xmm15,xmm15 (0.0)
+            match m {
+                "fcmgt_zero_v" => {
+                    // src>0 = 0<src : dst=0; cmpltpd dst,src
+                    b.extend(enc_movaps(dst, 15));
+                    b.extend(enc_cmppd(dst, src, 1));
+                }
+                "fcmge_zero_v" => {
+                    // src>=0 = 0<=src : dst=0; cmplepd dst,src
+                    b.extend(enc_movaps(dst, 15));
+                    b.extend(enc_cmppd(dst, src, 2));
+                }
+                "fcmlt_zero_v" => {
+                    // src<0 : dst=src; cmpltpd dst,0
+                    if dst != src {
+                        b.extend(enc_movaps(dst, src));
+                    }
+                    b.extend(enc_cmppd(dst, 15, 1));
+                }
+                "fcmle_zero_v" => {
+                    // src<=0 : dst=src; cmplepd dst,0
+                    if dst != src {
+                        b.extend(enc_movaps(dst, src));
+                    }
+                    b.extend(enc_cmppd(dst, 15, 2));
+                }
+                _ => {
+                    // src==0 : dst=src; cmpeqpd dst,0
+                    if dst != src {
+                        b.extend(enc_movaps(dst, src));
+                    }
+                    b.extend(enc_cmppd(dst, 15, 0));
+                }
+            }
+            Ok(Encoded::plain(b))
+        }
+        // Directed rounding (roundpd, SSE4.1 66 0F 3A 09 /r ib).
+        "frintp_v" | "frintm_v" | "frintz_v" | "frintn_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mode = match m {
+                "frintn_v" => 0, // nearest-even
+                "frintm_v" => 1, // floor
+                "frintp_v" => 2, // ceil
+                _ => 3,          // trunc
+            };
+            Ok(Encoded::plain(enc_roundpd(dst, src, mode)))
+        }
+        // Immediate lane shifts (i64): psllq /6, psrlq /2 (66 0F 73).
+        "shl_v" | "ushr_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let shift: u8 = field(instruction, "shift")?
+                .parse()
+                .map_err(|_| "x86 shl_v/ushr_v: bad shift".to_string())?;
+            let mut b = if dst == src { Vec::new() } else { enc_movaps(dst, src) };
+            b.extend(enc_psxlq(if m == "shl_v" { 0x06 } else { 0x02 }, dst, shift));
+            Ok(Encoded::plain(b))
+        }
+        // Broadcast a GPR into both i64 lanes: movq xmm,r64 ; punpcklqdq xmm,xmm.
+        "dup_v_from_x" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = reg(field(instruction, "src")?)?;
+            let mut b = enc_movq_xmm_r64(dst, src);
+            b.extend(enc_sse_rr(Some(0x66), 0x6C, dst, dst)); // punpcklqdq dst,dst
+            Ok(Encoded::plain(b))
+        }
+        // Extract a lane to a GPR. Lane 0 = movq; lane 1 = pextrq (SSE4.1).
+        "umov_x_from_v" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let index: u8 = field(instruction, "index")?
+                .parse()
+                .map_err(|_| "x86 umov_x_from_v: bad index".to_string())?;
+            if index == 0 {
+                Ok(Encoded::plain(enc_movq_r64_xmm(dst, src)))
+            } else {
+                // pextrq r64, xmm, imm : 66 REX.W 0F 3A 16 /r ib
+                Ok(Encoded::plain(vec![
+                    0x66,
+                    rex(true, src >= 8, false, dst >= 8),
+                    0x0F,
+                    0x3A,
+                    0x16,
+                    modrm(0b11, src, dst),
+                    index,
+                ]))
+            }
+        }
+        // Bit-select (BSL): dst = (dst & lhs) | (~dst & rhs), dst is the mask.
+        "bsl_v" => {
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            let mut b = enc_movaps(15, dst); // xmm15 = mask
+            b.extend(enc_sse_rr(Some(0x66), 0xDB, dst, lhs)); // dst = mask & lhs
+            b.extend(enc_sse_rr(Some(0x66), 0xDF, 15, rhs)); // xmm15 = ~mask & rhs (pandn)
+            b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // dst |= xmm15
+            Ok(Encoded::plain(b))
+        }
+        // Bit-insert-if-true (BIT): dst = (dst & ~rhs) | (lhs & rhs), mask in rhs.
+        "bit_v" => {
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            let mut b = enc_movaps(15, lhs); // xmm15 = lhs
+            b.extend(enc_sse_rr(Some(0x66), 0xDB, 15, rhs)); // xmm15 = lhs & rhs
+            b.extend(enc_movaps(14, rhs)); // xmm14 = rhs
+            b.extend(enc_sse_rr(Some(0x66), 0xDF, 14, dst)); // xmm14 = ~rhs & dst
+            b.extend(enc_movaps(dst, 14));
+            b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // dst |= lhs&rhs
+            Ok(Encoded::plain(b))
+        }
+        // Still unsupported (need FMA3 / AVX or lane-serial emulation): fmla_v,
+        // fmls_v, fcvtzs_v, fcvtas_v, scvtf_v, frinta_v, sshr_v, sshl_v, ushl_v.
         other => Err(format!("x86 encode: unsupported op {other}")),
     }
 }
@@ -892,6 +1134,122 @@ fn enc_movsd_mem(opcode: u8, xmm: u8, base: u8, disp: i32) -> Vec<u8> {
     b.push(opcode);
     b.extend_from_slice(&mem_disp32(xmm, base, disp));
     b
+}
+
+/// 128-bit unaligned load/store `movups` (0F 10 load / 11 store) — no prefix.
+fn enc_movups_mem(opcode: u8, xmm: u8, base: u8, disp: i32) -> Vec<u8> {
+    let mut b = Vec::new();
+    if xmm >= 8 || base >= 8 {
+        b.push(rex(false, xmm >= 8, false, base >= 8));
+    }
+    b.push(0x0f);
+    b.push(opcode);
+    b.extend_from_slice(&mem_disp32(xmm, base, disp));
+    b
+}
+
+/// `movaps dst, src` (0F 28 /r) — a 128-bit register copy.
+fn enc_movaps(dst: u8, src: u8) -> Vec<u8> {
+    let mut b = Vec::new();
+    if dst >= 8 || src >= 8 {
+        b.push(rex(false, dst >= 8, false, src >= 8));
+    }
+    b.extend_from_slice(&[0x0f, 0x28, modrm(0b11, dst, src)]);
+    b
+}
+
+/// Three-byte SSE (66 0F 38 opcode /r) — pcmpgtq (0x37), pcmpeqq (0x29).
+fn enc_sse38_rr(opcode: u8, reg_x: u8, rm_x: u8) -> Vec<u8> {
+    let mut b = vec![0x66];
+    if reg_x >= 8 || rm_x >= 8 {
+        b.push(rex(false, reg_x >= 8, false, rm_x >= 8));
+    }
+    b.extend_from_slice(&[0x0f, 0x38, opcode, modrm(0b11, reg_x, rm_x)]);
+    b
+}
+
+/// `cmppd dst, src, pred` (66 0F C2 /r ib) — packed f64 compare to a lane mask.
+fn enc_cmppd(dst: u8, src: u8, pred: u8) -> Vec<u8> {
+    let mut b = vec![0x66];
+    if dst >= 8 || src >= 8 {
+        b.push(rex(false, dst >= 8, false, src >= 8));
+    }
+    b.extend_from_slice(&[0x0f, 0xc2, modrm(0b11, dst, src), pred]);
+    b
+}
+
+/// `roundpd dst, src, mode` (SSE4.1 66 0F 3A 09 /r ib).
+fn enc_roundpd(dst: u8, src: u8, mode: u8) -> Vec<u8> {
+    let mut b = vec![0x66];
+    if dst >= 8 || src >= 8 {
+        b.push(rex(false, dst >= 8, false, src >= 8));
+    }
+    b.extend_from_slice(&[0x0f, 0x3a, 0x09, modrm(0b11, dst, src), mode]);
+    b
+}
+
+/// Parse the `dst`/`lhs`/`rhs` fields of a three-operand SIMD op as xmm indices.
+fn three_fp(instruction: &CodeInstruction) -> Result<(u8, u8, u8), String> {
+    Ok((
+        fp_reg(field(instruction, "dst")?)?,
+        fp_reg(field(instruction, "lhs")?)?,
+        fp_reg(field(instruction, "rhs")?)?,
+    ))
+}
+
+/// Packed 3-operand SSE op `dst = lhs OP rhs` (prefix 66). Handles the in-place
+/// forms: `dst==lhs` → op in place; `dst==rhs` commutative → swap; `dst==rhs`
+/// non-commutative → stage `rhs` in xmm15; else copy `lhs` first.
+fn vec3(prefix: u8, opcode: u8, commutative: bool, dst: u8, lhs: u8, rhs: u8) -> Vec<u8> {
+    if dst == lhs {
+        enc_sse_rr(Some(prefix), opcode, dst, rhs)
+    } else if dst == rhs && commutative {
+        enc_sse_rr(Some(prefix), opcode, dst, lhs)
+    } else if dst == rhs {
+        let mut b = enc_movaps(15, rhs);
+        b.extend(enc_movaps(dst, lhs));
+        b.extend(enc_sse_rr(Some(prefix), opcode, dst, 15));
+        b
+    } else {
+        let mut b = enc_movaps(dst, lhs);
+        b.extend(enc_sse_rr(Some(prefix), opcode, dst, rhs));
+        b
+    }
+}
+
+fn vec3_op(instruction: &CodeInstruction, opcode: u8, commutative: bool) -> Result<Encoded, String> {
+    let (dst, lhs, rhs) = three_fp(instruction)?;
+    Ok(Encoded::plain(vec3(0x66, opcode, commutative, dst, lhs, rhs)))
+}
+
+/// Commutative three-byte SSE op (pcmpeqq) with in-place dst handling.
+fn vec_sse38_commutative(opcode: u8, dst: u8, lhs: u8, rhs: u8) -> Vec<u8> {
+    if dst == lhs {
+        enc_sse38_rr(opcode, dst, rhs)
+    } else if dst == rhs {
+        enc_sse38_rr(opcode, dst, lhs)
+    } else {
+        let mut b = enc_movaps(dst, lhs);
+        b.extend(enc_sse38_rr(opcode, dst, rhs));
+        b
+    }
+}
+
+/// `dst = rhs CMP lhs` via cmppd — the swapped-operand form that realizes
+/// `fcmgt`/`fcmge` (`lhs>rhs` = `rhs<lhs`, false on NaN) from LT/LE predicates.
+fn vec_cmppd_swapped(dst: u8, lhs: u8, rhs: u8, pred: u8) -> Vec<u8> {
+    if dst == rhs {
+        enc_cmppd(dst, lhs, pred)
+    } else if dst == lhs {
+        let mut b = enc_movaps(15, lhs);
+        b.extend(enc_movaps(dst, rhs));
+        b.extend(enc_cmppd(dst, 15, pred));
+        b
+    } else {
+        let mut b = enc_movaps(dst, rhs);
+        b.extend(enc_cmppd(dst, lhs, pred));
+        b
+    }
 }
 
 /// `dst = lhs OP rhs` for a scalar-double SSE arithmetic op (addsd/subsd/mulsd/

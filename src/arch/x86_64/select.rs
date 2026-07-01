@@ -305,8 +305,31 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                     boundary_before[i],
                     Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
                 );
-            let mapped = map_abi_register(n, role, is_result);
-            if !is_def && n <= 7 && !boundary_since_entry && !defined_since_entry.contains(&n) {
+            // An incoming parameter USE reached before any def of `xK` and before
+            // any call/syscall boundary consumes the SysV-delivered value, which
+            // lives in `CALL_ARGS[k]` (rdi, rsi, …). The role-based `map_abi_register`
+            // resolves `xK`'s home by the NEXT boundary its value flows into, but a
+            // parameter that is spilled straight to a stack slot (e.g. the Fixed
+            // toString formatter's `str x0,[sp]; str x1,[sp+8]` prologue) has no such
+            // downstream boundary along its control-flow path, so the role collapses
+            // to `None` → the rax fallback. Two such params (x0 and x1) then both map
+            // to rax, and the incoming-param bridge emits `mov rax,rdi; mov rax,rsi`,
+            // clobbering the first before its store — corrupting both spilled values.
+            // Pin such a use to its argument register so the store reads the real
+            // parameter and `param_home == arg` suppresses a bogus bridge.
+            let is_param_use = !is_def
+                && n <= 7
+                && !boundary_since_entry
+                && !defined_since_entry.contains(&n);
+            let mapped = if is_param_use {
+                CALL_ARGS
+                    .get(n)
+                    .map(|reg| reg.to_string())
+                    .unwrap_or_else(|| map_abi_register(n, role, is_result))
+            } else {
+                map_abi_register(n, role, is_result)
+            };
+            if is_param_use {
                 param_home.entry(n).or_insert_with(|| mapped.clone());
             }
             if is_def {
