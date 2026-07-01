@@ -68,6 +68,27 @@ pub(crate) trait RegisterModel {
     /// initialized by the entry sequence); x86_64, with only 16 GPRs, will
     /// realize it as a TLS slot load instead (plan-00-H).
     fn arena_base(&self) -> &'static str;
+
+    /// The register the SIMD float-math kernels (`builder_simd_float_math`) use
+    /// as the constant-pool base: `adrp`/`add` to `_mfb_math_const_pool` once,
+    /// then every coefficient `ldr q [base, #offset]`. `Some(reg)` pins a
+    /// physical register for the kernel's lifetime; `None` means the base must be
+    /// an allocator-placed virtual register.
+    ///
+    /// AArch64 pins `x2`: caller-saved scratch below the allocatable file
+    /// (`x8`+), so the allocator never assigns it and it stably holds the base
+    /// across the quadrant branches (byte-identical to the pre-plan-00-H
+    /// backend). x86_64 returns `None`: all 16 GPRs are either SysV ABI-role,
+    /// reserved (`rsp`/`rbp`/`r14`/`r15`), or in the five-register allocatable
+    /// pool — there is no spare physical to pin, and `x2` itself is an ABI
+    /// register that `remap_x86_abi` would rewrite per control-flow context
+    /// (rdx as a call-arg, rcx as a result), splitting the base across the
+    /// quadrant branch. A vreg lets the allocator place it consistently (its
+    /// busy-physical check keeps it off the residual `map_scratch_register`
+    /// homes the kernels also use).
+    fn math_pool_base(&self) -> Option<&'static str> {
+        Some("x2")
+    }
 }
 
 /// The integer registers the bump allocator hands out as temporaries, in the

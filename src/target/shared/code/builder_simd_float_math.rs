@@ -92,11 +92,13 @@ const ATAN_AT: [f64; 11] = [
 /// the module assembler iff some function references it (mod.rs).
 pub(super) const MATH_CONST_POOL_SYMBOL: &str = "_mfb_math_const_pool";
 
-/// GPR pinned to the pool base for a kernel's lifetime. `x2` is caller-saved
-/// scratch the register allocator never assigns to a live value (`INT_ALLOCATABLE`
-/// is `x8`+), so it is free to hold the base across the whole body; the array
-/// paths load it *after* their one `bl`, and the bodies make no further call.
-const POOL_BASE: &str = "x2";
+/// GPR pinned to the pool base for a kernel's lifetime. The register is
+/// per-backend (`mir::Backend::math_pool_base`): AArch64 uses `x2` (caller-saved
+/// scratch the allocator never assigns, `INT_ALLOCATABLE` is `x8`+, so it holds
+/// the base across the whole body; the array paths load it *after* their one
+/// `bl`, and the bodies make no further call). x86 uses `r11` instead, because
+/// `x2` is a SysV ABI-role register there and would be remapped inconsistently
+/// across the quadrant branch. See `math_pool_base` for the full rationale.
 
 /// The deduplicated constant words (f64/i64 bit patterns) the SIMD kernels
 /// broadcast, in a fixed order. Each occupies a 16-byte slot (the value in both
@@ -978,10 +980,33 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// Load the constant pool's base address into `POOL_BASE` (once per kernel,
+    /// Load the constant pool base address into the kernel's pool-base register
     /// before any broadcast). adrp+add to the read-only pool data symbol.
+    /// The register the SIMD math kernels address the constant pool through. If
+    /// the backend pins a physical (AArch64 `x2`), return it; otherwise (x86) a
+    /// per-kernel virtual register the allocator colors, minted once per function
+    /// and reused for every coefficient load and the re-materialized base.
+    fn math_pool_base_reg(&mut self) -> String {
+        if let Some(phys) = mir::active_backend().register_model().math_pool_base() {
+            return phys.to_string();
+        }
+        if let Some((symbol, reg)) = &self.math_pool_base_vreg {
+            if *symbol == self.current_symbol {
+                return reg.clone();
+            }
+        }
+        // LinearScan's `allocate_register` is infallible (it never overflows a
+        // pool — it spills); the physical-pinning backends never reach here.
+        let reg = self
+            .allocate_register()
+            .expect("math pool-base virtual register allocation");
+        self.math_pool_base_vreg = Some((self.current_symbol.clone(), reg.clone()));
+        reg
+    }
+
     fn emit_load_math_pool_base(&mut self) {
-        self.emit(abi::load_page_address(POOL_BASE, MATH_CONST_POOL_SYMBOL));
+        let pool_base = self.math_pool_base_reg();
+        self.emit(abi::load_page_address(&pool_base, MATH_CONST_POOL_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: MATH_CONST_POOL_SYMBOL.to_string(),
@@ -989,7 +1014,11 @@ impl CodeBuilder<'_> {
             binding: "data".to_string(),
             library: None,
         });
-        self.emit(abi::add_page_offset(POOL_BASE, POOL_BASE, MATH_CONST_POOL_SYMBOL));
+        self.emit(abi::add_page_offset(
+            &pool_base,
+            &pool_base,
+            MATH_CONST_POOL_SYMBOL,
+        ));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
             to: MATH_CONST_POOL_SYMBOL.to_string(),
@@ -1000,12 +1029,13 @@ impl CodeBuilder<'_> {
     }
 
     /// Broadcast an `f64` constant's bit pattern into both `.2d` lanes of `vreg`.
-    /// Pooled constants load with one `ldr q` from `POOL_BASE`; anything else
+    /// Pooled constants load with one `ldr q` from the pool base; anything else
     /// falls back to building the immediate inline (so the pool's coverage never
     /// affects correctness).
     fn broadcast_f64(&mut self, vreg: &str, value: f64) {
         if let Some(offset) = math_const_pool_offset(value.to_bits()) {
-            self.emit(abi::vector_load(vreg, POOL_BASE, offset));
+            let pool_base = self.math_pool_base_reg();
+            self.emit(abi::vector_load(vreg, &pool_base, offset));
         } else {
             self.emit(abi::move_immediate("x0", "Integer", &value.to_bits().to_string()));
             self.emit(abi::vector_dup_from_x(vreg, "x0"));
@@ -1015,7 +1045,8 @@ impl CodeBuilder<'_> {
     /// Broadcast a signed `i64` constant into both `.2d` lanes of `vreg`.
     fn broadcast_i64(&mut self, vreg: &str, value: i64) {
         if let Some(offset) = math_const_pool_offset(value as u64) {
-            self.emit(abi::vector_load(vreg, POOL_BASE, offset));
+            let pool_base = self.math_pool_base_reg();
+            self.emit(abi::vector_load(vreg, &pool_base, offset));
         } else {
             self.emit(abi::move_immediate(
                 "x0",

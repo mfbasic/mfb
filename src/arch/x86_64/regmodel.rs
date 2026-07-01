@@ -122,6 +122,13 @@ impl RegisterModel for X86_64RegisterModel {
     fn arena_base(&self) -> &'static str {
         "r15"
     }
+
+    fn math_pool_base(&self) -> Option<&'static str> {
+        // No spare physical to pin (all 16 GPRs are ABI-role, reserved, or in the
+        // 5-register allocatable pool) and `x2` is an ABI register remap rewrites
+        // per control-flow context — so the base is an allocator-placed vreg.
+        None
+    }
 }
 
 #[cfg(test)]

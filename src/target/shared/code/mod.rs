@@ -125,6 +125,14 @@ struct CodeBuilder<'a> {
     /// form, so the spare is invisible outside the buffer. Reset to 0 on any
     /// non-self-append bind/assign of the local and zeroed at function entry.
     string_capacity_slots: HashMap<String, usize>,
+    /// For backends whose `RegisterModel::math_pool_base` is `None` (no free
+    /// physical to pin, e.g. x86), the per-kernel virtual register holding the
+    /// SIMD math constant-pool base, keyed by the function symbol it was minted
+    /// in (vreg indices are per-function). Lets `emit_load_math_pool_base` and
+    /// the `broadcast_*` coefficient loads share one allocator-placed base within
+    /// a kernel while re-minting it for the next kernel. Unused (stays `None`) on
+    /// backends that pin a physical base.
+    math_pool_base_vreg: Option<(String, String)>,
 }
 
 #[derive(Clone)]
@@ -1915,6 +1923,7 @@ fn lower_direct_builtin_runtime_helper(
         owned_value_slots: Vec::new(),
         for_each_iterable_locals: Vec::new(),
         string_capacity_slots: HashMap::new(),
+        math_pool_base_vreg: None,
     };
 
     let args = spec
