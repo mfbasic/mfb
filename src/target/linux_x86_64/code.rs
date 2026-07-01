@@ -247,52 +247,58 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_poll_input(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_poll_input not yet implemented".into())
+        self.emit_libc_call("poll", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_is_terminal(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_is_terminal not yet implemented".into())
+        self.emit_libc_call("isatty", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_terminal_size(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_terminal_size not yet implemented".into())
+        self.emit_libc_call("ioctl", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_path_exists(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_path_exists not yet implemented".into())
+        instructions.extend([abi::move_immediate("x1", "Integer", "0")]);
+        self.emit_libc_call("access", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_path_stat(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_path_stat not yet implemented".into())
+        self.emit_libc_call("stat", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn stat_mode_offset(&self) -> usize {
@@ -302,33 +308,52 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_current_directory(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_current_directory not yet implemented".into())
+        self.emit_libc_call("getcwd", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_fs_path_operation(
         &self,
-        _from: &str,
-        _operation: code::FsPathOperation,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        operation: code::FsPathOperation,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_fs_path_operation not yet implemented".into())
+        let symbol = match operation {
+            code::FsPathOperation::Chdir => "chdir",
+            code::FsPathOperation::Unlink => "unlink",
+            code::FsPathOperation::Mkdir => "mkdir",
+            code::FsPathOperation::Rmdir => "rmdir",
+        };
+        if matches!(operation, code::FsPathOperation::Mkdir) {
+            instructions.push(abi::move_immediate("x1", "Integer", "493"));
+        }
+        self.emit_libc_call(symbol, from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_errno(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_errno not yet implemented".into())
+        self.emit_libc_call(
+            "__errno_location",
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        instructions.push(abi::load_u32("x9", abi::return_register(), 0));
+        Ok(())
     }
 
     fn emit_libc_call(
@@ -359,112 +384,205 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_open_file(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_open_file not yet implemented".into())
+        self.emit_variadic_call("open", from, platform_imports, instructions, relocations)
     }
 
     fn emit_read_file(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_read_file not yet implemented".into())
+        self.emit_libc_call("read", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_close_file(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_close_file not yet implemented".into())
+        self.emit_libc_call("close", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_sync_file(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_sync_file not yet implemented".into())
+        self.emit_libc_call("fsync", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_seek_file(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_seek_file not yet implemented".into())
+        self.emit_libc_call("lseek", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_rename_path(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_rename_path not yet implemented".into())
+        self.emit_libc_call("rename", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_mkstemps(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_mkstemps not yet implemented".into())
+        self.emit_libc_call(
+            "mkstemps",
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        Ok(())
     }
 
     fn emit_temp_directory(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_temp_directory not yet implemented".into())
+        const BUFFER_SLOT: usize = 24;
+        const CAPACITY_SLOT: usize = 32;
+
+        let env_ok = format!("{from}_tmpdir_env_ok");
+        let env_len_loop = format!("{from}_tmpdir_env_len_loop");
+        let env_len_done = format!("{from}_tmpdir_env_len_done");
+        let copy_loop = format!("{from}_tmpdir_copy_loop");
+        let copy_done = format!("{from}_tmpdir_copy_done");
+        let fallback = format!("{from}_tmpdir_fallback");
+        let done = format!("{from}_tmpdir_done");
+
+        instructions.extend([
+            abi::store_u64(abi::return_register(), abi::stack_pointer(), BUFFER_SLOT),
+            abi::store_u64("x1", abi::stack_pointer(), CAPACITY_SLOT),
+            abi::move_register("x10", abi::return_register()),
+        ]);
+        for (offset, byte) in b"TMPDIR\0".iter().enumerate() {
+            instructions.extend([
+                abi::move_immediate("x9", "Byte", &byte.to_string()),
+                abi::store_u8("x9", "x10", offset),
+            ]);
+        }
+        self.emit_libc_call("getenv", from, platform_imports, instructions, relocations)?;
+        instructions.extend([
+            abi::compare_immediate(abi::return_register(), "0"),
+            abi::branch_ne(&env_ok),
+            abi::branch(&fallback),
+            abi::label(&env_ok),
+            abi::load_u64("x11", abi::stack_pointer(), BUFFER_SLOT),
+            abi::load_u64("x16", abi::stack_pointer(), CAPACITY_SLOT),
+            abi::move_register("x12", abi::return_register()),
+            abi::move_register("x13", "x12"),
+            abi::move_immediate("x14", "Integer", "0"),
+            abi::label(&env_len_loop),
+            abi::load_u8("x9", "x13", 0),
+            abi::compare_immediate("x9", "0"),
+            abi::branch_eq(&env_len_done),
+            abi::add_immediate("x13", "x13", 1),
+            abi::add_immediate("x14", "x14", 1),
+            abi::compare_registers("x14", "x16"),
+            abi::branch_ge(&fallback),
+            abi::branch(&env_len_loop),
+            abi::label(&env_len_done),
+            abi::compare_immediate("x14", "0"),
+            abi::branch_eq(&fallback),
+            abi::move_immediate("x15", "Integer", "0"),
+            abi::label(&copy_loop),
+            abi::compare_registers("x15", "x14"),
+            abi::branch_eq(&copy_done),
+            abi::load_u8("x9", "x12", 0),
+            abi::store_u8("x9", "x11", 0),
+            abi::add_immediate("x12", "x12", 1),
+            abi::add_immediate("x11", "x11", 1),
+            abi::add_immediate("x15", "x15", 1),
+            abi::branch(&copy_loop),
+            abi::label(&copy_done),
+            abi::store_u8("x31", "x11", 0),
+            abi::move_register(abi::return_register(), "x14"),
+            abi::branch(&done),
+            abi::label(&fallback),
+            abi::load_u64("x11", abi::stack_pointer(), BUFFER_SLOT),
+        ]);
+        for (offset, byte) in b"/tmp\0".iter().enumerate() {
+            instructions.extend([
+                abi::move_immediate("x9", "Byte", &byte.to_string()),
+                abi::store_u8("x9", "x11", offset),
+            ]);
+        }
+        instructions.extend([
+            abi::move_immediate(abi::return_register(), "Integer", "4"),
+            abi::label(&done),
+        ]);
+        Ok(())
     }
 
     fn emit_opendir(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_opendir not yet implemented".into())
+        self.emit_libc_call("opendir", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_readdir(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_readdir not yet implemented".into())
+        self.emit_libc_call("readdir", from, platform_imports, instructions, relocations)?;
+        Ok(())
     }
 
     fn emit_closedir(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_closedir not yet implemented".into())
+        self.emit_libc_call(
+            "closedir",
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        Ok(())
     }
 
     fn dirent_name_offset(&self) -> usize {
@@ -478,23 +596,32 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_realpath(
         &self,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_realpath not yet implemented".into())
+        self.emit_libc_call(
+            "realpath",
+            from,
+            platform_imports,
+            instructions,
+            relocations,
+        )?;
+        Ok(())
     }
 
     fn emit_variadic_call(
         &self,
-        _base: &str,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        base: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_variadic_call not yet implemented".into())
+        // The Linux AArch64 ABI passes variadic GP arguments in registers, so the
+        // trailing variadic argument in `x2` needs no special handling.
+        self.emit_libc_call(base, from, platform_imports, instructions, relocations)
     }
 
     // --- net constants (Linux values; mirror linux_aarch64) ----------------
