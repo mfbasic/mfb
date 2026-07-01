@@ -263,10 +263,12 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 continue;
             }
             // Physical FP registers `dN` (the AArch64 double bank, used by the
-            // float builders/kernels) map 1:1 to `xmmN`. FP virtual registers
+            // float builders/kernels) map 1:1 to `xmmN`. The `vN`/`qN` SIMD banks
+            // alias the same register file (NEON `v`/`q` = the `d` register's full
+            // 128 bits), so they map to the same `xmmN`. FP virtual registers
             // (`%fN`) are colored to xmm by the allocator and pass through here.
             if let Some(fp) = value
-                .strip_prefix('d')
+                .strip_prefix(['d', 'v', 'q'])
                 .and_then(|rest| rest.parse::<usize>().ok())
                 .filter(|n| *n < 16)
             {
