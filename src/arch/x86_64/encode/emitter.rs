@@ -431,17 +431,31 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "udiv" => div_seq(instruction, false),
         "sdiv" => div_seq(instruction, true),
         "msub" => {
-            // dst = minuend - lhs*rhs.  imul rax,lhs,rhs is awkward (two-operand
-            // needs rax=lhs); use: mov rax,lhs ; imul rax,rhs ; mov dst,minuend ;
-            // sub dst,rax.  rax non-allocatable.
+            // dst = minuend - lhs*rhs. The product goes through rax (two-operand
+            // imul needs its lhs in a register), which normally is fine because rax
+            // is non-allocatable. BUT the minuend can itself be rax — the rng draw
+            // in math::rand's `raw mod range` uses the return register (x0→rax) as
+            // the minuend. The old `mov rax,lhs; …; mov dst,minuend` order then read
+            // the *clobbered* rax as the minuend, so the remainder came out 0 and
+            // every rand returned its min. When the minuend is rax, capture it into
+            // dst first (dst is distinct from lhs/rhs there, so this is safe); keep
+            // the product-first order otherwise (safe when dst aliases lhs/rhs).
             let dst = reg(field(instruction, "dst")?)?;
             let lhs = reg(field(instruction, "lhs")?)?;
             let rhs = reg(field(instruction, "rhs")?)?;
             let minuend = reg(field(instruction, "minuend")?)?;
-            let mut bytes = enc_mov(0, lhs); // mov rax, lhs
-            bytes.extend_from_slice(&enc_imul_rr(0, rhs)); // imul rax, rhs
-            bytes.extend_from_slice(&enc_mov(dst, minuend)); // mov dst, minuend
-            bytes.extend_from_slice(&alu_rr(0x29, dst, 0)); // sub dst, rax
+            let mut bytes = Vec::new();
+            if minuend == 0 {
+                bytes.extend_from_slice(&enc_mov(dst, minuend)); // dst = minuend (rax)
+                bytes.extend_from_slice(&enc_mov(0, lhs)); // rax = lhs
+                bytes.extend_from_slice(&enc_imul_rr(0, rhs)); // rax = lhs*rhs
+                bytes.extend_from_slice(&alu_rr(0x29, dst, 0)); // dst -= rax
+            } else {
+                bytes.extend_from_slice(&enc_mov(0, lhs)); // rax = lhs
+                bytes.extend_from_slice(&enc_imul_rr(0, rhs)); // rax = lhs*rhs
+                bytes.extend_from_slice(&enc_mov(dst, minuend)); // dst = minuend
+                bytes.extend_from_slice(&alu_rr(0x29, dst, 0)); // dst -= rax
+            }
             Ok(Encoded::plain(bytes))
         }
         "add_carry" => enc_add_carry(instruction),
@@ -1655,7 +1669,21 @@ fn div_seq(instruction: &CodeInstruction, signed: bool) -> Result<Encoded, Strin
     // that aliasing happens (`map_scratch_register` freely uses rax/rcx/rdx),
     // stage the divisor in an 8-byte stack slot and divide from memory instead.
     let rhs_aliases = rhs == 0 || rhs == 2; // rax / rdx
+    // `div` overwrites rax with the quotient. When the dividend register IS rax
+    // (x0 — the raw draw in math::rand's `raw mod range`) and the quotient is asked
+    // for elsewhere, the caller's rax value would be destroyed even though it is
+    // still live (the following `msub` reads x0 as the minuend). Save rax across
+    // the div and restore it so x0 survives. (For a non-rax dividend, `mov rax,lhs`
+    // leaves the source register intact, so no preservation is needed.)
+    let preserve_dividend = lhs == 0 && dst != 0;
     let mut bytes = Vec::new();
+    if preserve_dividend {
+        bytes.extend_from_slice(&enc_alu_imm32(5, 4, 8)); // sub rsp, 8
+        bytes.push(rex(true, false, false, false)); // mov [rsp], rax
+        bytes.push(0x89);
+        bytes.push(modrm(0b00, 0, 4));
+        bytes.push(0x24);
+    }
     if rhs_aliases {
         // sub rsp,8 ; mov [rsp],rhs   — save the divisor before rax/rdx are set.
         bytes.extend_from_slice(&enc_alu_imm32(5, 4, 8)); // sub rsp, 8
@@ -1684,8 +1712,15 @@ fn div_seq(instruction: &CodeInstruction, signed: bool) -> Result<Encoded, Strin
         bytes.push(0xF7);
         bytes.push(modrm(0b11, ext, rhs));
     }
-    bytes.extend_from_slice(&enc_mov(dst, 0)); // mov dst, rax
+    bytes.extend_from_slice(&enc_mov(dst, 0)); // mov dst, rax (quotient)
     if rhs_aliases {
+        bytes.extend_from_slice(&enc_alu_imm32(0, 4, 8)); // add rsp, 8 (pop divisor)
+    }
+    if preserve_dividend {
+        bytes.push(rex(true, false, false, false)); // mov rax, [rsp]
+        bytes.push(0x8B);
+        bytes.push(modrm(0b00, 0, 4));
+        bytes.push(0x24);
         bytes.extend_from_slice(&enc_alu_imm32(0, 4, 8)); // add rsp, 8
     }
     Ok(Encoded::plain(bytes))
