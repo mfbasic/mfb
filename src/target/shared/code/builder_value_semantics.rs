@@ -362,6 +362,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
+        // Capture the allocation result into a register while x1 is
+        // unambiguously the call result at this boundary. The physical return
+        // register is fragile to hold across the copy loops below: on ISAs
+        // whose result/argument registers differ (x86-64), the loop back-edges
+        // break the result-vs-argument dataflow, so a later consumer would
+        // arg-map the value. A neutral register carries it safely.
+        let result_ptr = self.allocate_register()?;
+        self.emit(abi::move_register(&result_ptr, "x1"));
         self.emit(abi::load_u64("x11", abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64("x15", abi::stack_pointer(), right_slot));
         self.emit(abi::add_immediate("x15", "x15", 8));
@@ -370,8 +378,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x9", abi::stack_pointer(), right_slot));
         self.emit(abi::load_u64("x9", "x9", 0));
         self.emit(abi::load_u64("x10", abi::stack_pointer(), total_slot));
-        self.emit(abi::store_u64("x10", "x1", 0));
-        self.emit(abi::add_immediate("x12", "x1", 8));
+        self.emit(abi::store_u64("x10", &result_ptr, 0));
+        self.emit(abi::add_immediate("x12", &result_ptr, 8));
         self.emit(abi::move_register("x14", "x8"));
         self.emit(abi::label(&left_loop));
         self.emit(abi::compare_immediate("x14", "0"));
@@ -399,7 +407,7 @@ impl CodeBuilder<'_> {
 
         Ok(ValueResult {
             type_: "String".to_string(),
-            location: "x1".to_string(),
+            location: result_ptr,
             text: format!("({} & {})", left.text, right.text),
         })
     }
