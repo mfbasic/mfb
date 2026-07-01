@@ -94,9 +94,17 @@ impl CodeBuilder<'_> {
             return;
         }
         fn is_scratch(reg: &str) -> bool {
+            // x28 is EXCLUDED: it is `CLOSURE_ENV_REGISTER`, a cross-function ABI
+            // convention register (the caller stages the closure env there before
+            // the indirect call; the lambda reads it live-in at entry). Vregifying
+            // it turns that live-in into an undefined vreg the allocator colors
+            // per-function, so the caller's physical x28 and the callee's colored
+            // reg disagree — on AArch64 register abundance hides it, but x86's
+            // tighter file colors the lambda's env to a different GPR than the
+            // caller wrote → a garbage env deref (SIGSEGV in closures/lambdas).
             reg.strip_prefix('x')
                 .and_then(|rest| rest.parse::<u32>().ok())
-                .is_some_and(|n| (8..=17).contains(&n) || (20..=28).contains(&n))
+                .is_some_and(|n| (8..=17).contains(&n) || (20..=27).contains(&n))
         }
         // First-appearance order so the vreg numbering is deterministic.
         let mut order: Vec<String> = Vec::new();
