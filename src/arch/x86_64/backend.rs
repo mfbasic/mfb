@@ -40,4 +40,10 @@ impl Backend for X86_64Backend {
         // live-in; keep x28 physical so the caller and the lambda agree.
         true
     }
+
+    fn vregify_high_fp(&self) -> bool {
+        // x86 has 16 xmm, not 32 vector registers — the kernels' physical v16-v31
+        // must become FP vregs the allocator spills onto xmm.
+        true
+    }
 }

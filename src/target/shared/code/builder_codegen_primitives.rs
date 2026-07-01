@@ -108,16 +108,31 @@ impl CodeBuilder<'_> {
             let top = if pin_closure_env { 27 } else { 28 };
             (8..=17).contains(&n) || (20..=top).contains(&n)
         };
+        // The high physical FP/SIMD registers (`d`/`v`/`q` 16–31) are renamed to
+        // FP vregs on backends whose FP file is narrower than AArch64's 32 vector
+        // registers (x86: 16 xmm). Below 16 stays physical — those alias the FP
+        // ABI (`v0`–`v7`) and the scalar-float working bank the backend maps 1:1.
+        let vregify_high_fp = mir::active_backend().vregify_high_fp();
+        let is_high_fp = |reg: &str| -> bool {
+            vregify_high_fp
+                && reg
+                    .strip_prefix(['d', 'v', 'q'])
+                    .and_then(|rest| rest.parse::<u32>().ok())
+                    .is_some_and(|n| (16..=31).contains(&n))
+        };
         // First-appearance order so the vreg numbering is deterministic.
         let mut order: Vec<String> = Vec::new();
+        let mut fp_order: Vec<String> = Vec::new();
         for instruction in &self.instructions {
             for (_, value) in &instruction.fields {
                 if is_scratch(value) && !order.contains(value) {
                     order.push(value.clone());
+                } else if is_high_fp(value) && !fp_order.contains(value) {
+                    fp_order.push(value.clone());
                 }
             }
         }
-        if order.is_empty() {
+        if order.is_empty() && fp_order.is_empty() {
             return;
         }
         let mut rename: HashMap<String, String> = HashMap::new();
@@ -125,6 +140,12 @@ impl CodeBuilder<'_> {
             let vreg = self
                 .allocate_register()
                 .expect("linear-scan mints vregs without exhausting a pool");
+            rename.insert(register, vreg);
+        }
+        for register in fp_order {
+            let vreg = self
+                .allocate_fp_register()
+                .expect("linear-scan mints FP vregs without exhausting a pool");
             rename.insert(register, vreg);
         }
         for instruction in &mut self.instructions {

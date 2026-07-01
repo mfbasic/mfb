@@ -547,6 +547,16 @@ pub(crate) trait Backend: Sync {
     fn pins_closure_env_register(&self) -> bool {
         false
     }
+
+    /// Whether the vregify pass must rename the high physical FP/SIMD registers
+    /// (`d`/`v`/`q` 16–31) to FP vregs so the allocator colors them onto this
+    /// ISA's narrower FP file with spilling. AArch64 has 32 vector registers and
+    /// uses `v16`–`v31` directly (byte-identical), so it returns false; x86 has
+    /// only 16 xmm, so the `vector::`/math-array kernels' `v16`–`v31` would
+    /// otherwise leak to the encoder as un-encodable `vN`. Returns true for x86.
+    fn vregify_high_fp(&self) -> bool {
+        false
+    }
 }
 
 thread_local! {

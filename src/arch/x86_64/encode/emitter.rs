@@ -956,8 +956,69 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // dst |= lhs&rhs
             Ok(Encoded::plain(b))
         }
-        // Still unsupported (need FMA3 / AVX or lane-serial emulation): fmla_v,
-        // fmls_v, fcvtzs_v, fcvtas_v, scvtf_v, frinta_v, sshr_v, sshl_v, ushl_v.
+        // Fused multiply-add/-subtract (single rounding, matches AArch64 fmla/fmls)
+        // via FMA3 (x86-64-v3). fmla_v: dst += lhs*rhs → vfmadd231pd (B8); fmls_v:
+        // dst -= lhs*rhs → vfnmadd231pd (BC). 231 form: reg=dst, vvvv=lhs, rm=rhs.
+        "fmla_v" => {
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            Ok(Encoded::plain(enc_vfma231pd(0xB8, dst, lhs, rhs)))
+        }
+        "fmls_v" => {
+            let (dst, lhs, rhs) = three_fp(instruction)?;
+            Ok(Encoded::plain(enc_vfma231pd(0xBC, dst, lhs, rhs)))
+        }
+        // Packed f64↔i64×2 conversions have no SSE2 form (AVX-512 only), so do
+        // them lane-serial through rax/rdx (both free — excluded from the pool)
+        // and xmm15. Lane 1 is brought to lane 0 with `pshufd imm=0xEE`.
+        "fcvtzs_v" => {
+            // dst[i] = trunc(src[i])  (cvttsd2si per lane)
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = enc_sse_cvt(0xf2, 0x2c, false, 0, src); // cvttsd2si rax, src.lo
+            b.extend(enc_pshufd(15, src, 0xEE)); // xmm15.lo = src.hi
+            b.extend(enc_sse_cvt(0xf2, 0x2c, false, 2, 15)); // cvttsd2si rdx, src.hi
+            b.extend(enc_movq_xmm_r64(dst, 0)); // dst.lo = rax
+            b.extend(enc_movq_xmm_r64(15, 2)); // xmm15.lo = rdx
+            b.extend(enc_sse_rr(Some(0x66), 0x6C, dst, 15)); // punpcklqdq dst,xmm15 → [rax,rdx]
+            Ok(Encoded::plain(b))
+        }
+        "scvtf_v" => {
+            // dst[i] = (f64) src[i]  (cvtsi2sd per lane)
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let mut b = enc_movq_r64_xmm(0, src); // rax = src.lo
+            b.extend(enc_pshufd(15, src, 0xEE)); // xmm15.lo = src.hi
+            b.extend(enc_movq_r64_xmm(2, 15)); // rdx = src.hi
+            b.extend(enc_sse_cvt(0xf2, 0x2a, true, dst, 0)); // cvtsi2sd dst, rax
+            b.extend(enc_sse_cvt(0xf2, 0x2a, true, 15, 2)); // cvtsi2sd xmm15, rdx
+            b.extend(enc_sse_rr(Some(0x66), 0x14, dst, 15)); // unpcklpd dst,xmm15 → [lo,hi]
+            Ok(Encoded::plain(b))
+        }
+        // Arithmetic i64 lane shift-right by imm. SSE2 has no `psraq` (only 32-bit
+        // `psrad`), so emulate: logical `psrlq` then OR in the sign fill for the
+        // top `k` bits — sign_mask = (0 > src) per lane, shifted left by 64−k.
+        "sshr_v" => {
+            let dst = fp_reg(field(instruction, "dst")?)?;
+            let src = fp_reg(field(instruction, "src")?)?;
+            let k: u8 = field(instruction, "shift")?
+                .parse()
+                .map_err(|_| "x86 sshr_v: bad shift".to_string())?;
+            let mut b = enc_sse_rr(Some(0x66), 0xEF, 15, 15); // pxor xmm15,xmm15
+            b.extend(enc_sse38_rr(0x37, 15, src)); // pcmpgtq xmm15,src → src<0 ? -1 : 0
+            if k > 0 && k < 64 {
+                b.extend(enc_psxlq(0x06, 15, 64 - k)); // psllq xmm15, 64-k (top k bits)
+            } else {
+                // k==0 is a no-op shift; clear the sign fill.
+                b.extend(enc_sse_rr(Some(0x66), 0xEF, 15, 15));
+            }
+            if dst != src {
+                b.extend(enc_movaps(dst, src));
+            }
+            b.extend(enc_psxlq(0x02, dst, k)); // psrlq dst, k (logical)
+            b.extend(enc_sse_rr(Some(0x66), 0xEB, dst, 15)); // por dst, sign fill
+            Ok(Encoded::plain(b))
+        }
+        // Still unsupported: fcvtas_v (nearest ties-away), frinta_v, sshl_v, ushl_v.
         other => Err(format!("x86 encode: unsupported op {other}")),
     }
 }
@@ -1176,6 +1237,31 @@ fn enc_cmppd(dst: u8, src: u8, pred: u8) -> Vec<u8> {
     }
     b.extend_from_slice(&[0x0f, 0xc2, modrm(0b11, dst, src), pred]);
     b
+}
+
+/// `pshufd dst, src, imm` (66 0F 70 /r ib) — shuffle 32-bit lanes. `imm=0xEE`
+/// copies the high 64 bits (dwords 2,3) into the low 64 (a "high lane → lane 0").
+fn enc_pshufd(dst: u8, src: u8, imm: u8) -> Vec<u8> {
+    let mut b = vec![0x66];
+    if dst >= 8 || src >= 8 {
+        b.push(rex(false, dst >= 8, false, src >= 8));
+    }
+    b.extend_from_slice(&[0x0f, 0x70, modrm(0b11, dst, src), imm]);
+    b
+}
+
+/// FMA3 packed-double 231-form `dst = ±(lhs*rhs) + dst` via 3-byte VEX:
+/// `VEX.128.66.0F38.W1 opcode /r` with reg=dst, vvvv=lhs, rm=rhs. `opcode` is
+/// 0xB8 (vfmadd231pd) or 0xBC (vfnmadd231pd = dst − lhs*rhs). Requires FMA3.
+fn enc_vfma231pd(opcode: u8, dst: u8, lhs: u8, rhs: u8) -> Vec<u8> {
+    // P0: [~R][~X=1][~B][mmmmm=00010 (0F38)]; ~R extends reg(dst), ~B extends rm(rhs).
+    let r_bar = if dst >= 8 { 0 } else { 1 };
+    let b_bar = if rhs >= 8 { 0 } else { 1 };
+    let p0 = (r_bar << 7) | (1 << 6) | (b_bar << 5) | 0b00010;
+    // P1: [W=1][vvvv=~lhs][L=0][pp=01 (66)].
+    let vvvv = (!(lhs as u32)) & 0xF;
+    let p1 = (1u8 << 7) | ((vvvv as u8) << 3) | 0b01;
+    vec![0xC4, p0, p1, opcode, modrm(0b11, dst, rhs)]
 }
 
 /// `roundpd dst, src, mode` (SSE4.1 66 0F 3A 09 /r ib).
