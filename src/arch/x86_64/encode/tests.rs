@@ -111,6 +111,41 @@ fn sub_with_zero_lhs_negates() {
 }
 
 #[test]
+fn alu3_dst_equals_rhs_aliasing() {
+    // add rax, rcx, rax : dst==rhs → imul-free commute, add rax,rcx (48 01 C8),
+    // NOT `mov rax,rcx; add rax,rax`.
+    assert_eq!(
+        bytes("add", &[("dst", "rax"), ("lhs", "rcx"), ("rhs", "rax")]),
+        [0x48, 0x01, 0xC8]
+    );
+    // sub rax, rcx, rax : dst==rhs, non-commutative → neg rax (48 F7 D8) ;
+    // add rax,rcx (48 01 C8) = rcx - rax.
+    assert_eq!(
+        bytes("sub", &[("dst", "rax"), ("lhs", "rcx"), ("rhs", "rax")]),
+        [0x48, 0xF7, 0xD8, 0x48, 0x01, 0xC8]
+    );
+}
+
+#[test]
+fn mul_aliasing() {
+    // mul rax, rax, rcx : dst==lhs → imul rax,rcx (48 0F AF C1).
+    assert_eq!(
+        bytes("mul", &[("dst", "rax"), ("lhs", "rax"), ("rhs", "rcx")]),
+        [0x48, 0x0F, 0xAF, 0xC1]
+    );
+    // mul rax, rcx, rax : dst==rhs → imul rax,rcx (commutative), NOT rcx*rcx.
+    assert_eq!(
+        bytes("mul", &[("dst", "rax"), ("lhs", "rcx"), ("rhs", "rax")]),
+        [0x48, 0x0F, 0xAF, 0xC1]
+    );
+    // mul rdx, rax, rcx : disjoint → mov rdx,rax (48 89 C2) ; imul rdx,rcx (48 0F AF D1).
+    assert_eq!(
+        bytes("mul", &[("dst", "rdx"), ("lhs", "rax"), ("rhs", "rcx")]),
+        [0x48, 0x89, 0xC2, 0x48, 0x0F, 0xAF, 0xD1]
+    );
+}
+
+#[test]
 fn mvn() {
     // mvn rax, rbx : mov rax,rbx (48 89 D8) ; not rax (48 F7 D0)
     assert_eq!(
@@ -121,11 +156,11 @@ fn mvn() {
 
 #[test]
 fn mul_low() {
-    // mul rax, rax, rbx : dst==lhs → mov rax,rax (48 89 C0) ; imul rax,rbx
-    // imul rax,rbx = 48 0F AF C3
+    // mul rax, rax, rbx : dst==lhs → imul rax,rbx in place (48 0F AF C3), no
+    // redundant `mov rax,rax`.
     assert_eq!(
         bytes("mul", &[("dst", "rax"), ("lhs", "rax"), ("rhs", "rbx")]),
-        [0x48, 0x89, 0xC0, 0x48, 0x0F, 0xAF, 0xC3]
+        [0x48, 0x0F, 0xAF, 0xC3]
     );
 }
 

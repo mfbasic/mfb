@@ -303,12 +303,23 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             Ok(Encoded::plain(bytes))
         }
         "mul" => {
-            // dst = lhs * rhs (low 64): mov dst,lhs ; imul dst,rhs
+            // dst = lhs * rhs (low 64). imul is commutative, so multiply into
+            // whichever source already occupies dst. The naive `mov dst,lhs;
+            // imul dst,rhs` corrupts the result when `dst == rhs` (the mov
+            // clobbers rhs, giving lhs*lhs) — exactly what broke `index *
+            // entry_size` in collection element addressing.
             let dst = reg(field(instruction, "dst")?)?;
             let lhs = reg(field(instruction, "lhs")?)?;
             let rhs = reg(field(instruction, "rhs")?)?;
-            let mut bytes = enc_mov(dst, lhs);
-            bytes.extend_from_slice(&enc_imul_rr(dst, rhs));
+            let bytes = if dst == lhs {
+                enc_imul_rr(dst, rhs)
+            } else if dst == rhs {
+                enc_imul_rr(dst, lhs)
+            } else {
+                let mut b = enc_mov(dst, lhs);
+                b.extend_from_slice(&enc_imul_rr(dst, rhs));
+                b
+            };
             Ok(Encoded::plain(bytes))
         }
         "umulh" | "smulh" => {
@@ -506,7 +517,24 @@ fn alu3(instruction: &CodeInstruction, opcode: u8) -> Result<Encoded, String> {
     if is_zero_token(rhs) {
         return Err("x86-64 alu3 with a zero-token rhs is not yet handled".to_string());
     }
-    let mut bytes = if dst == lhs { Vec::new() } else { enc_mov(dst, lhs) };
+    if dst == lhs {
+        // dst already holds lhs: operate in place.
+        return Ok(Encoded::plain(alu_rr(opcode, dst, rhs)));
+    }
+    if dst == rhs {
+        // dst holds rhs; `mov dst,lhs` would clobber it (giving `lhs OP lhs`).
+        let bytes = if opcode == 0x29 {
+            // sub is not commutative: dst = lhs - rhs = -(rhs) + lhs.
+            let mut b = enc_neg(dst);
+            b.extend_from_slice(&alu_rr(0x01, dst, lhs));
+            b
+        } else {
+            // add/and/or/xor commute: `rhs OP lhs == lhs OP rhs`.
+            alu_rr(opcode, dst, lhs)
+        };
+        return Ok(Encoded::plain(bytes));
+    }
+    let mut bytes = enc_mov(dst, lhs);
     bytes.extend_from_slice(&alu_rr(opcode, dst, rhs));
     Ok(Encoded::plain(bytes))
 }
