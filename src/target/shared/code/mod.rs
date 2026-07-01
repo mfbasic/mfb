@@ -2039,14 +2039,19 @@ fn lower_map_build_buckets_helper() -> CodeFunction {
     let nowrap = format!("{symbol}_nowrap");
     let mut instructions = vec![
         abi::label("entry"),
-        // dataBase (x11) = x0 + HEADER + capacity*ENTRY ; bucketBase (x12) += dataCap.
-        abi::load_u64("%v9", "x0", COLLECTION_OFFSET_COUNT),
-        abi::load_u64("%v14", "x0", COLLECTION_OFFSET_CAPACITY),
+        // Capture the map pointer (x0) into a vreg immediately: on x86 an
+        // incoming param homes in rax/rdx by role, which the div/msub below
+        // clobber — destroying it before the final store. As a vreg the
+        // allocator keeps it in a safe (or spilled) location. AArch64 unaffected.
+        abi::move_register("%v18", "x0"),
+        // dataBase (v11) = map + HEADER + capacity*ENTRY ; bucketBase (v12) += dataCap.
+        abi::load_u64("%v9", "%v18", COLLECTION_OFFSET_COUNT),
+        abi::load_u64("%v14", "%v18", COLLECTION_OFFSET_CAPACITY),
         abi::move_immediate("%v16", "Integer", &entry_size),
         abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "x0"),
+        abi::add_registers("%v11", "%v11", "%v18"),
         abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE),
-        abi::load_u64("%v15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::load_u64("%v15", "%v18", COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers("%v12", "%v11", "%v15"),
         abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount = 2*capacity
         abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
@@ -2069,7 +2074,7 @@ fn lower_map_build_buckets_helper() -> CodeFunction {
         abi::branch_ge(&edone),
         abi::move_immediate("%v16", "Integer", &entry_size),
         abi::multiply_registers("%v14", "%v13", "%v16"),
-        abi::add_registers("%v14", "%v14", "x0"),
+        abi::add_registers("%v14", "%v14", "%v18"),
         abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE), // entry addr
         abi::load_u64("%v15", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::add_registers("%v15", "%v11", "%v15"), // keyPtr
@@ -2109,7 +2114,7 @@ fn lower_map_build_buckets_helper() -> CodeFunction {
         abi::branch(&eloop),
         abi::label(&edone),
         abi::move_immediate("%v6", "Integer", "1"),
-        abi::store_u8("%v6", "x0", COLLECTION_OFFSET_BUCKETS_READY),
+        abi::store_u8("%v6", "%v18", COLLECTION_OFFSET_BUCKETS_READY),
         abi::return_(),
     ];
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -2141,19 +2146,23 @@ fn lower_map_bucket_put_helper() -> CodeFunction {
     let nowrap = format!("{symbol}_nowrap");
     let mut instructions = vec![
         abi::label("entry"),
-        abi::load_u64("%v14", "x0", COLLECTION_OFFSET_CAPACITY),
+        // Capture map ptr (x0) and entry index (x1) into vregs before the div/msub
+        // below clobber their x86 arg-register homes (rax/rdx). AArch64 unaffected.
+        abi::move_register("%v20", "x0"),
+        abi::move_register("%v21", "x1"),
+        abi::load_u64("%v14", "%v20", COLLECTION_OFFSET_CAPACITY),
         abi::move_immediate("%v16", "Integer", &entry_size),
         abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "x0"),
+        abi::add_registers("%v11", "%v11", "%v20"),
         abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE), // dataBase
-        abi::load_u64("%v15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::load_u64("%v15", "%v20", COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers("%v12", "%v11", "%v15"), // bucketBase
         abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount
         abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
-        // entry addr = x0 + HEADER + x1*ENTRY.
+        // entry addr = map + HEADER + index*ENTRY.
         abi::move_immediate("%v16", "Integer", &entry_size),
-        abi::multiply_registers("%v14", "x1", "%v16"),
-        abi::add_registers("%v14", "%v14", "x0"),
+        abi::multiply_registers("%v14", "%v21", "%v16"),
+        abi::add_registers("%v14", "%v14", "%v20"),
         abi::add_immediate("%v14", "%v14", COLLECTION_HEADER_SIZE),
         abi::load_u64("%v15", "%v14", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::add_registers("%v15", "%v11", "%v15"),
@@ -2186,7 +2195,7 @@ fn lower_map_bucket_put_helper() -> CodeFunction {
         abi::label(&nowrap),
         abi::branch(&ploop),
         abi::label(&place),
-        abi::add_immediate("%v6", "x1", 1),
+        abi::add_immediate("%v6", "%v21", 1),
         abi::store_u64("%v6", "%v7", 0),
         abi::return_(),
     ];
@@ -2226,28 +2235,36 @@ fn lower_map_probe_helper() -> CodeFunction {
     let done = format!("{symbol}_done");
     let mut instructions = vec![
         abi::label("entry"),
-        // Lazy build if not ready (build preserves x0/x1/x2).
-        abi::load_u8("%v9", "x0", COLLECTION_OFFSET_BUCKETS_READY),
+        // Capture the params (map ptr / key ptr / key len) into vregs up front.
+        // The lazy `bl build_buckets` below clobbers the SysV argument registers
+        // on x86 (esp. rdx via its div), so x0/x1/x2 must not be read after it.
+        // The build call still receives the map implicitly in rdi (unclobbered
+        // until then). AArch64 unaffected.
+        abi::move_register("%v20", "x0"),
+        abi::move_register("%v21", "x1"),
+        abi::move_register("%v22", "x2"),
+        // Lazy build if not ready.
+        abi::load_u8("%v9", "%v20", COLLECTION_OFFSET_BUCKETS_READY),
         abi::compare_immediate("%v9", "0"),
         abi::branch_ne(&ready),
         abi::branch_link(MAP_BUILD_BUCKETS_SYMBOL),
         abi::label(&ready),
-        abi::load_u64("%v9", "x0", COLLECTION_OFFSET_COUNT),
+        abi::load_u64("%v9", "%v20", COLLECTION_OFFSET_COUNT),
         abi::compare_immediate("%v9", "0"),
         abi::branch_eq(&notfound),
-        abi::load_u64("%v14", "x0", COLLECTION_OFFSET_CAPACITY),
+        abi::load_u64("%v14", "%v20", COLLECTION_OFFSET_CAPACITY),
         abi::move_immediate("%v16", "Integer", &entry_size),
         abi::multiply_registers("%v11", "%v14", "%v16"),
-        abi::add_registers("%v11", "%v11", "x0"),
+        abi::add_registers("%v11", "%v11", "%v20"),
         abi::add_immediate("%v11", "%v11", COLLECTION_HEADER_SIZE), // dataBase
-        abi::load_u64("%v15", "x0", COLLECTION_OFFSET_DATA_CAPACITY),
+        abi::load_u64("%v15", "%v20", COLLECTION_OFFSET_DATA_CAPACITY),
         abi::add_registers("%v12", "%v11", "%v15"), // bucketBase
         abi::shift_left_immediate("%v10", "%v14", 1), // bucketCount
         abi::move_immediate("%v8", "Integer", FNV1A_PRIME),
         // Hash the query key (x1/x2).
         abi::move_immediate("%v16", "Integer", FNV1A_BASIS),
-        abi::move_register("%v5", "x1"),
-        abi::move_register("%v6", "x2"),
+        abi::move_register("%v5", "%v21"),
+        abi::move_register("%v6", "%v22"),
         abi::label(&hloop),
         abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&hdone),
@@ -2269,15 +2286,15 @@ fn lower_map_probe_helper() -> CodeFunction {
         abi::subtract_immediate("%v13", "%v6", 1), // candidate idx
         abi::move_immediate("%v16", "Integer", &entry_size),
         abi::multiply_registers("%v15", "%v13", "%v16"),
-        abi::add_registers("%v15", "%v15", "x0"),
+        abi::add_registers("%v15", "%v15", "%v20"),
         abi::add_immediate("%v15", "%v15", COLLECTION_HEADER_SIZE), // entry addr
         abi::load_u64("%v17", "%v15", COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
-        abi::compare_registers("%v17", "x2"),
+        abi::compare_registers("%v17", "%v22"),
         abi::branch_ne(&pnext),
         abi::load_u64("%v16", "%v15", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::add_registers("%v16", "%v11", "%v16"), // storedPtr
-        abi::move_register("%v5", "x1"),          // queryCursor
-        abi::move_register("%v6", "x2"),          // remaining
+        abi::move_register("%v5", "%v21"),        // queryCursor
+        abi::move_register("%v6", "%v22"),        // remaining
         abi::label(&cloop),
         abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&cmatch),
