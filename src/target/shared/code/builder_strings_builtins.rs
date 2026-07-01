@@ -1125,6 +1125,20 @@ impl CodeBuilder<'_> {
         let write_done = self.label("strings_split_write_done");
         let done = self.label("strings_split_done");
 
+        // Inner delimiter-scan scratch as vregs (was out-of-pool x2-x6, which
+        // collide with x86 ABI argument registers). x9-x17/x20-x28 remain (the
+        // vregify pass colors those under LinearScan).
+        let scan_i_v = self.temporary_vreg();
+        let scan_ptr_v = self.temporary_vreg();
+        let delim_ptr_v = self.temporary_vreg();
+        let sbyte_v = self.temporary_vreg();
+        let dbyte_v = self.temporary_vreg();
+        let scan_i = scan_i_v.as_str();
+        let scan_ptr = scan_ptr_v.as_str();
+        let delim_ptr = delim_ptr_v.as_str();
+        let sbyte = sbyte_v.as_str();
+        let dbyte = dbyte_v.as_str();
+
         self.emit(abi::load_u64("x16", abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64("x17", abi::stack_pointer(), delimiter_slot));
         self.emit(abi::load_u64("x9", "x16", 0));
@@ -1143,19 +1157,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&length_loop));
         self.emit(abi::compare_registers("x13", "x12"));
         self.emit(abi::branch_hi(&length_done));
-        self.emit(abi::move_immediate("x2", "Integer", "0"));
-        self.emit(abi::add_registers("x3", "x14", "x13"));
-        self.emit(abi::move_register("x4", "x15"));
+        self.emit(abi::move_immediate(scan_i, "Integer", "0"));
+        self.emit(abi::add_registers(scan_ptr, "x14", "x13"));
+        self.emit(abi::move_register(delim_ptr, "x15"));
         self.emit(abi::label(&length_compare));
-        self.emit(abi::compare_registers("x2", "x10"));
+        self.emit(abi::compare_registers(scan_i, "x10"));
         self.emit(abi::branch_eq(&length_match));
-        self.emit(abi::load_u8("x5", "x3", 0));
-        self.emit(abi::load_u8("x6", "x4", 0));
-        self.emit(abi::compare_registers("x5", "x6"));
+        self.emit(abi::load_u8(sbyte, scan_ptr, 0));
+        self.emit(abi::load_u8(dbyte, delim_ptr, 0));
+        self.emit(abi::compare_registers(sbyte, dbyte));
         self.emit(abi::branch_ne(&length_next));
-        self.emit(abi::add_immediate("x2", "x2", 1));
-        self.emit(abi::add_immediate("x3", "x3", 1));
-        self.emit(abi::add_immediate("x4", "x4", 1));
+        self.emit(abi::add_immediate(scan_i, scan_i, 1));
+        self.emit(abi::add_immediate(scan_ptr, scan_ptr, 1));
+        self.emit(abi::add_immediate(delim_ptr, delim_ptr, 1));
         self.emit(abi::branch(&length_compare));
         self.emit(abi::label(&length_match));
         self.emit(abi::load_u64("x11", abi::stack_pointer(), count_slot));
@@ -1216,9 +1230,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x10", "x17", 0));
         self.emit(abi::add_immediate("x14", "x16", 8));
         self.emit(abi::add_immediate("x15", "x17", 8));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x20", "x1", COLLECTION_HEADER_SIZE));
-        self.emit_collection_data_pointer("x21", "x1");
+        // Carry the list pointer in a vreg, not physical x1 (a reload with no
+        // call context maps unreliably on x86; the concat/repeat pattern).
+        let list_ptr_v = self.temporary_vreg();
+        let list_ptr = list_ptr_v.as_str();
+        self.emit(abi::load_u64(list_ptr, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate("x20", list_ptr, COLLECTION_HEADER_SIZE));
+        self.emit_collection_data_pointer("x21", list_ptr);
         self.emit(abi::move_immediate("x22", "Integer", "0"));
         self.emit(abi::move_immediate("x23", "Integer", "0"));
         self.emit(abi::move_immediate("x24", "Integer", "0"));
@@ -1228,19 +1246,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&write_loop));
         self.emit(abi::compare_registers("x23", "x12"));
         self.emit(abi::branch_hi(&write_final));
-        self.emit(abi::move_immediate("x2", "Integer", "0"));
-        self.emit(abi::add_registers("x3", "x14", "x23"));
-        self.emit(abi::move_register("x4", "x15"));
+        self.emit(abi::move_immediate(scan_i, "Integer", "0"));
+        self.emit(abi::add_registers(scan_ptr, "x14", "x23"));
+        self.emit(abi::move_register(delim_ptr, "x15"));
         self.emit(abi::label(&write_compare));
-        self.emit(abi::compare_registers("x2", "x10"));
+        self.emit(abi::compare_registers(scan_i, "x10"));
         self.emit(abi::branch_eq(&write_match));
-        self.emit(abi::load_u8("x5", "x3", 0));
-        self.emit(abi::load_u8("x6", "x4", 0));
-        self.emit(abi::compare_registers("x5", "x6"));
+        self.emit(abi::load_u8(sbyte, scan_ptr, 0));
+        self.emit(abi::load_u8(dbyte, delim_ptr, 0));
+        self.emit(abi::compare_registers(sbyte, dbyte));
         self.emit(abi::branch_ne(&write_next));
-        self.emit(abi::add_immediate("x2", "x2", 1));
-        self.emit(abi::add_immediate("x3", "x3", 1));
-        self.emit(abi::add_immediate("x4", "x4", 1));
+        self.emit(abi::add_immediate(scan_i, scan_i, 1));
+        self.emit(abi::add_immediate(scan_ptr, scan_ptr, 1));
+        self.emit(abi::add_immediate(delim_ptr, delim_ptr, 1));
         self.emit(abi::branch(&write_compare));
         self.emit(abi::label(&write_match));
         self.emit_string_split_write_entry("x20", "x21", "x22", "x24", "x23")?;
