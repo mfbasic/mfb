@@ -115,15 +115,16 @@ pub(super) fn encode_static_elf_x86(
 }
 
 pub(super) fn encode_dynamic_elf(
+    arch: &str,
     flavor: LinuxFlavor,
     entry_offset: usize,
     text: &[u8],
     data: &[u8],
     image: &EncodedImage,
 ) -> Result<Vec<u8>, String> {
-    let dynamic = DynamicPayload::build(flavor, image)?;
+    let dynamic = DynamicPayload::build(arch, flavor, image)?;
     let ph_count = 5_u16;
-    let interp = interpreter(flavor).as_bytes();
+    let interp = interpreter(arch, flavor).as_bytes();
     let interp_offset = 64 + ph_count as usize * 56;
     let text_offset = TEXT_FILE_OFFSET;
     let text_vmaddr = IMAGE_BASE + text_offset as u64;
@@ -140,7 +141,8 @@ pub(super) fn encode_dynamic_elf(
     bytes.extend_from_slice(&[2, 1, 1, 0]);
     bytes.resize(16, 0);
     put_u16(&mut bytes, 2);
-    put_u16(&mut bytes, 183);
+    // e_machine: EM_AARCH64 (183) or EM_X86_64 (62).
+    put_u16(&mut bytes, if arch == "x86_64" { 62 } else { 183 });
     put_u32(&mut bytes, 1);
     put_u64(&mut bytes, text_vmaddr + entry_offset as u64);
     put_u64(&mut bytes, 64);
@@ -316,10 +318,12 @@ fn program_header(
     put_u64(bytes, align);
 }
 
-fn interpreter(flavor: LinuxFlavor) -> &'static str {
-    match flavor {
-        LinuxFlavor::Glibc => "/lib/ld-linux-aarch64.so.1",
-        LinuxFlavor::Musl => "/lib/ld-musl-aarch64.so.1",
+fn interpreter(arch: &str, flavor: LinuxFlavor) -> &'static str {
+    match (arch, flavor) {
+        ("x86_64", LinuxFlavor::Glibc) => "/lib64/ld-linux-x86-64.so.2",
+        ("x86_64", LinuxFlavor::Musl) => "/lib/ld-musl-x86_64.so.1",
+        (_, LinuxFlavor::Glibc) => "/lib/ld-linux-aarch64.so.1",
+        (_, LinuxFlavor::Musl) => "/lib/ld-musl-aarch64.so.1",
     }
 }
 
@@ -330,7 +334,8 @@ struct DynamicPayload {
 }
 
 impl DynamicPayload {
-    fn build(flavor: LinuxFlavor, image: &EncodedImage) -> Result<Self, String> {
+    fn build(arch: &str, flavor: LinuxFlavor, image: &EncodedImage) -> Result<Self, String> {
+        let is_x86 = arch == "x86_64";
         let payload_start = image.data.len();
         let data_base_offset = align(image.data.len(), 8);
         let mut libraries = Vec::<String>::new();
@@ -481,9 +486,11 @@ impl DynamicPayload {
             // GLOB_DAT binds a data global's GOT slot to the symbol's address;
             // JUMP_SLOT binds a function's GOT slot for its call stub
             // (plan-linker.md §6.1).
-            let reloc_type = match import.kind {
-                ImportKind::Data => R_AARCH64_GLOB_DAT,
-                ImportKind::Function => R_AARCH64_JUMP_SLOT,
+            let reloc_type = match (is_x86, import.kind) {
+                (true, ImportKind::Data) => R_X86_64_GLOB_DAT,
+                (true, ImportKind::Function) => R_X86_64_JUMP_SLOT,
+                (false, ImportKind::Data) => R_AARCH64_GLOB_DAT,
+                (false, ImportKind::Function) => R_AARCH64_JUMP_SLOT,
             };
             put_u64(
                 &mut bytes,

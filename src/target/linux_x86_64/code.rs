@@ -373,13 +373,28 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_libc_call(
         &self,
-        _base: &str,
-        _from: &str,
-        _platform_imports: &HashMap<String, String>,
-        _instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        base: &str,
+        from: &str,
+        platform_imports: &HashMap<String, String>,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
-        Err("x86_64 Phase 1: emit_libc_call not yet implemented".into())
+        // Call an imported libc function through the PLT: `bl base` selects to a
+        // `call rel32` whose reloc the linker binds to `base`'s PLT stub (which
+        // jumps through the GOT slot the loader filled). Same shape as AArch64.
+        let library = platform_imports
+            .get(base)
+            .ok_or_else(|| format!("runtime helper requires {base} import"))?
+            .clone();
+        instructions.push(abi::branch_link(base));
+        relocations.push(CodeRelocation {
+            from: from.to_string(),
+            to: base.to_string(),
+            kind: RelocIntent::Call,
+            binding: "external".to_string(),
+            library: Some(library),
+        });
+        Ok(())
     }
 
     fn emit_open_file(

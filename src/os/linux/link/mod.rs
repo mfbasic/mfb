@@ -9,6 +9,8 @@ const TEXT_FILE_OFFSET: usize = 0x1000;
 const PAGE_SIZE: usize = 0x1000;
 const R_AARCH64_GLOB_DAT: u32 = 1025;
 const R_AARCH64_JUMP_SLOT: u32 = 1026;
+const R_X86_64_GLOB_DAT: u32 = 6;
+const R_X86_64_JUMP_SLOT: u32 = 7;
 
 mod elf;
 #[cfg(test)]
@@ -36,7 +38,7 @@ pub(crate) fn write_executable(
     let import_locations = if image.imports.is_empty() {
         ImportLocations::default()
     } else {
-        append_import_stubs(&mut text, image, text_vmaddr)?
+        append_import_stubs(arch, &mut text, image, text_vmaddr)?
     };
     let data_offset = align(TEXT_FILE_OFFSET + text.len(), PAGE_SIZE);
     let data_vmaddr = IMAGE_BASE + data_offset as u64;
@@ -51,22 +53,28 @@ pub(crate) fn write_executable(
     // The output shape is chosen by the target ISA: x86-64 (plan-00-H) uses raw
     // syscalls (no imports) → a static, writable-data ELF; AArch64 links libc
     // dynamically (a static ELF only when a build happens to import nothing).
-    let bytes = if arch == "x86_64" {
-        encode_static_elf_x86(
-            entry_offset,
-            &text,
-            &image.data,
-            image.signing_metadata.as_deref(),
-        )
-    } else if image.imports.is_empty() {
-        encode_static_elf(
-            entry_offset,
-            &text,
-            &image.data,
-            image.signing_metadata.as_deref(),
-        )
+    let bytes = if image.imports.is_empty() {
+        // No libc imports (a build using only raw syscalls) → a static,
+        // interpreter-less ELF; otherwise link libc dynamically (PLT/GOT +
+        // interpreter). x86 uses raw syscalls for the primitives but pulls in
+        // libc for what has no syscall (snprintf, signal, …).
+        if arch == "x86_64" {
+            encode_static_elf_x86(
+                entry_offset,
+                &text,
+                &image.data,
+                image.signing_metadata.as_deref(),
+            )
+        } else {
+            encode_static_elf(
+                entry_offset,
+                &text,
+                &image.data,
+                image.signing_metadata.as_deref(),
+            )
+        }
     } else {
-        encode_dynamic_elf(flavor, entry_offset, &text, &image.data, image)?
+        encode_dynamic_elf(arch, flavor, entry_offset, &text, &image.data, image)?
     };
     // App mode (plan-05-linux-app.md §5.2) emits a single glibc `<name>.out`; the
     // console build emits one flavored `<name>-{glibc,musl}.out` per libc world.
@@ -190,6 +198,35 @@ fn patch_relocations(
                 let rel = (target as i64 - (site as i64 + 4)) as i32;
                 write_u32(text, relocation.offset, rel as u32);
             }
+            // x86-64 `call sym@PLT` to an imported libc function: the rel32
+            // targets that symbol's PLT stub, which jumps through its GOT slot.
+            "external" if relocation.kind == "call_pc32" => {
+                let Some(&target) = import_locations.stubs.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-x86_64 linker cannot bind external symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let site = text_vmaddr + relocation.offset as u64;
+                let rel = (target as i64 - (site as i64 + 4)) as i32;
+                write_u32(text, relocation.offset, rel as u32);
+            }
+            // x86-64 imported data global via GOTPCREL: the rel32 targets the
+            // symbol's GOT slot (filled by a GLOB_DAT reloc); the instruction
+            // loads the symbol address from there.
+            "external" if relocation.kind == "data_pc32" => {
+                let Some(&target) = import_locations.got_entries.get(&relocation.target) else {
+                    return Err(format!(
+                        "linux-x86_64 linker cannot bind external data symbol '{}' from {}",
+                        relocation.target,
+                        relocation.library.as_deref().unwrap_or("<unknown library>")
+                    ));
+                };
+                let site = text_vmaddr + relocation.offset as u64;
+                let rel = (target as i64 - (site as i64 + 4)) as i32;
+                write_u32(text, relocation.offset, rel as u32);
+            }
             "data" if relocation.kind == "data_pc32" => {
                 let target = symbol_vmaddr(image, &relocation.target, text_vmaddr, data_vmaddr)?;
                 let site = text_vmaddr + relocation.offset as u64;
@@ -216,6 +253,7 @@ struct ImportLocations {
 }
 
 fn append_import_stubs(
+    arch: &str,
     text: &mut Vec<u8>,
     image: &EncodedImage,
     text_vmaddr: u64,
@@ -232,7 +270,7 @@ fn append_import_stubs(
         // Every import gets a GOT slot. Function imports also get a call stub
         // that branches through it; data globals are addressed via the GOT slot
         // directly (their stub is unused).
-        emit_import_stub(text, stub_vmaddr, entry_vmaddr);
+        emit_import_stub(arch, text, stub_vmaddr, entry_vmaddr);
         locations.stubs.insert(import.symbol.clone(), stub_vmaddr);
         locations
             .got_entries
@@ -241,7 +279,22 @@ fn append_import_stubs(
     Ok(locations)
 }
 
-fn emit_import_stub(text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) {
+fn emit_import_stub(arch: &str, text: &mut Vec<u8>, stub_vmaddr: u64, got_vmaddr: u64) {
+    if arch == "x86_64" {
+        // PLT stub `jmp *disp32(%rip)` (FF 25 disp32): jump through the GOT slot,
+        // which the loader fills via the JUMP_SLOT reloc (non-lazy — the same rela
+        // is also DT_RELA, resolved at load). disp32 is relative to the next
+        // instruction (stub + 6). Padded to the fixed 12-byte per-stub slot with
+        // int3 so the surrounding layout math (stub_count*12) is arch-independent.
+        text.push(0xff);
+        text.push(0x25);
+        let rip = stub_vmaddr + 6;
+        let disp = (got_vmaddr as i64 - rip as i64) as i32;
+        text.extend_from_slice(&disp.to_le_bytes());
+        text.extend_from_slice(&[0xcc; 6]);
+        return;
+    }
+    // aarch64: adrp x16, GOT_page; ldr x16, [x16, GOT_off]; br x16.
     let page_delta = ((got_vmaddr & !0xfff) as i64 - (stub_vmaddr & !0xfff) as i64) >> 12;
     let encoded = page_delta as u32;
     let immlo = encoded & 0b11;
