@@ -139,12 +139,77 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
         })
         .collect();
 
+    // The call/syscall boundary in effect when CONTROL FLOW reaches each index —
+    // the mirror of `next_after`, for the result direction. An `x0`/`x1` read at a
+    // point whose boundary is a call/syscall is that call's result. Computed as a
+    // forward dataflow over the CFG (not the linear predecessor): a label reached
+    // only through `b.eq call_ok` (its fall-through blocked by the error path's
+    // `ret`) inherits the boundary from the branch source — the original call —
+    // instead of whatever call the error path happened to make (e.g. `arena_free`
+    // in a scope-drop), which would make the result read the wrong register.
+    let mut branch_preds: std::collections::HashMap<usize, Vec<usize>> =
+        std::collections::HashMap::new();
+    for j in 0..count {
+        if let Some(target) = branch_target(j) {
+            branch_preds.entry(target).or_default().push(j);
+        }
+    }
+    let falls_into = |i: usize| -> bool {
+        // The instruction before index i transfers control to i by fall-through
+        // unless it ends the block (an unconditional branch or a return).
+        i > 0
+            && instructions[i - 1].op != CodeOp::Branch
+            && instructions[i - 1].op != CodeOp::Ret
+    };
+    let out_boundary = |i: usize, before: Option<AbiBoundary>| -> Option<AbiBoundary> {
+        match abi_boundary_of(&instructions[i]) {
+            Some(b @ (AbiBoundary::Call | AbiBoundary::Syscall)) => Some(b),
+            _ => before, // a `ret`/non-boundary passes the incoming context through
+        }
+    };
+    let mut boundary_before: Vec<Option<AbiBoundary>> = vec![None; count];
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for i in 0..count {
+            // Merge the boundary out of every control-flow predecessor. `merged`
+            // is `None` until a predecessor is seen; a conflict (a boundary path
+            // meeting a no-boundary path) collapses to `None`.
+            let mut merged: Option<Option<AbiBoundary>> = None;
+            let mut absorb = |val: Option<AbiBoundary>| match merged {
+                None => merged = Some(val),
+                Some(cur) => {
+                    merged = Some(match (cur, val) {
+                        (Some(_), Some(_)) => cur, // two boundaries: result-equivalent
+                        _ => None,
+                    })
+                }
+            };
+            if falls_into(i) {
+                absorb(out_boundary(i - 1, boundary_before[i - 1]));
+            }
+            if let Some(preds) = branch_preds.get(&i) {
+                for &j in preds {
+                    absorb(out_boundary(j, boundary_before[j]));
+                }
+            }
+            let new_val = merged.unwrap_or(None);
+            if new_val != boundary_before[i] {
+                boundary_before[i] = new_val;
+                changed = true;
+            }
+        }
+    }
+    // A block-entry index is reached only through branches (no fall-through) — its
+    // linear def state belongs to a different path, so the walk resets there.
+    let block_entry: Vec<bool> = (0..count).map(|i| !falls_into(i)).collect();
+
     // Walk forward tracking, per ABI register, whether it has been (re)defined
-    // since the last boundary — an `x0`/`x1` USE not redefined since a preceding
-    // call/syscall is that call's result.
+    // since the last boundary — an `x0`/`x1` USE not redefined since its CFG
+    // boundary is that call's result. `defined_since_boundary` is reset at a
+    // branch-entered block, since its defs come from a different linear path.
     let mut defined_since_boundary: std::collections::HashSet<String> =
         std::collections::HashSet::new();
-    let mut last_boundary: Option<AbiBoundary> = None;
 
     // Incoming-parameter tracking, scoped to the whole function (not reset at
     // boundaries). An incoming parameter is a *live-in* ABI register: `xK`
@@ -161,6 +226,11 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
 
     for i in 0..count {
         let role = next_after[i];
+        // A block reached only by branches starts its def tracking fresh (its
+        // linear predecessor is a different control-flow path).
+        if block_entry[i] {
+            defined_since_boundary.clear();
+        }
         let mut new_defs: Vec<String> = Vec::new();
         let mut new_def_ns: Vec<usize> = Vec::new();
         for (key, value) in instructions[i].fields.iter_mut() {
@@ -194,7 +264,10 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             let is_result = !is_def
                 && (n == 0 || n == 1)
                 && !defined_since_boundary.contains(value)
-                && matches!(last_boundary, Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall));
+                && matches!(
+                    boundary_before[i],
+                    Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
+                );
             let mapped = map_abi_register(n, role, is_result);
             if !is_def && n <= 7 && !boundary_since_entry && !defined_since_entry.contains(&n) {
                 param_home.entry(n).or_insert_with(|| mapped.clone());
@@ -211,8 +284,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             // a `ret` between a call and the `call_ok` label where its result is
             // consumed, so treating `ret` as the last boundary would misread the
             // result as an argument to the *next* call.
-            Some(b @ (AbiBoundary::Call | AbiBoundary::Syscall)) => {
-                last_boundary = Some(b);
+            Some(AbiBoundary::Call | AbiBoundary::Syscall) => {
                 boundary_since_entry = true;
                 defined_since_boundary.clear();
             }
