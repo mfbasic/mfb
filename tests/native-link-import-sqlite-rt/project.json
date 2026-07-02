@@ -3,8 +3,24 @@
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",
-  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
-  "packages": [{ "name": "sqlite", "version": "=0.1.0", "source": "file:packages/sqlite.mfp" }],
+  "sources": [
+    {
+      "root": "src",
+      "role": "main",
+      "include": [
+        "**/*.mfb"
+      ]
+    }
+  ],
+  "packages": [
+    {
+      "name": "sqlite3",
+      "version": "=0.1.0",
+      "source": "file:packages/sqlite3.mfp"
+    }
+  ],
   "entry": "main",
-  "targets": ["native"]
+  "targets": [
+    "native"
+  ]
 }

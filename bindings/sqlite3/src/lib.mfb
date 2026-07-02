@@ -63,7 +63,7 @@ DOC
   DESC The `INTEGER` member of `SqlValue`, wrapping a 64-bit integer cell.
   PROP value The integer value of the cell.
 END DOC
-TYPE SqlInt
+EXPORT TYPE SqlInt
   value AS Integer
 END TYPE
 
@@ -72,7 +72,7 @@ DOC
   DESC The `FLOAT` member of `SqlValue`, wrapping a floating-point cell.
   PROP value The floating-point value of the cell.
 END DOC
-TYPE SqlFloat
+EXPORT TYPE SqlFloat
   value AS Float
 END TYPE
 
@@ -82,7 +82,7 @@ DOC
   DESC also surfaces here as the empty string.
   PROP value The text value of the cell.
 END DOC
-TYPE SqlText
+EXPORT TYPE SqlText
   value AS String
 END TYPE
 
@@ -92,7 +92,7 @@ DOC
   DESC faithful binary BLOB reads and binds are not yet supported.
   PROP value The raw bytes of the cell.
 END DOC
-TYPE SqlBlob
+EXPORT TYPE SqlBlob
   value AS List OF Byte
 END TYPE
 
@@ -105,7 +105,7 @@ DOC
   DESC surface NULL as `SqlText[""]`; faithful NULL reads are a separate gap.)
   PROP value The absent value (`Nothing`).
 END DOC
-TYPE SqlNull
+EXPORT TYPE SqlNull
   value AS Nothing
 END TYPE
 

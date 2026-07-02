@@ -1,25 +1,36 @@
 IMPORT collections
-' Runtime test that IMPORTS the reusable bindings/sqlite package (plan-linker.md
+' Runtime test that IMPORTS the reusable bindings/sqlite3 package (plan-linker.md
 ' §12 + package serialization). It exercises the package's exported wrappers,
-' including the overloaded createTable/query (imported-overload resolution) and
-' query's nested List OF List OF String result.
-IMPORT sqlite
+' including the overloaded query (imported-overload resolution), the typed
+' SqlValue result cells, and query's nested List OF List OF SqlValue result.
+IMPORT sqlite3
 IMPORT io
 
+FUNC cellText(cell AS SqlValue) AS String
+  MATCH cell
+    CASE SqlInt(i)
+      RETURN toString(i.value)
+    CASE SqlText(t)
+      RETURN t.value
+    CASE ELSE
+      RETURN "?"
+  END MATCH
+END FUNC
+
 FUNC main AS Integer
-  RES db AS sqlite::Db = sqlite::create(":memory:")
-  sqlite::createTable(db, "users", "id INTEGER, name TEXT")
-  sqlite::query(db, "INSERT INTO users VALUES (1, ?)", ["alice"])
-  sqlite::query(db, "INSERT INTO users VALUES (2, ?)", ["bob"])
-  LET rows = sqlite::query(db, "SELECT id, name FROM users ORDER BY id", [])
+  RES db AS Db = sqlite3::create(":memory:")
+  sqlite3::createTable(db, "users", "id INTEGER, name TEXT")
+  sqlite3::query(db, "INSERT INTO users VALUES (1, ?)", ["alice"])
+  sqlite3::query(db, "INSERT INTO users VALUES (2, ?)", ["bob"])
+  LET rows = sqlite3::query(db, "SELECT id, name FROM users ORDER BY id", [])
   FOR EACH row IN rows
-    io::print(collections::get(row, 0) & "=" & collections::get(row, 1))
+    io::print(cellText(collections::get(row, 0)) & "=" & cellText(collections::get(row, 1)))
   NEXT
-  LET tables AS List OF String = sqlite::listTables(db)
+  LET tables AS List OF String = sqlite3::listTables(db)
   FOR EACH name IN tables
     io::print("table: " & name)
   NEXT
-  sqlite::close(db)
+  sqlite3::close(db)
   io::print("done")
   RETURN 0
 END FUNC

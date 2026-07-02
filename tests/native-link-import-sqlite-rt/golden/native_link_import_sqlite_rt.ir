@@ -11,6 +11,47 @@
   ],
   "functions": [
   {
+    "name": "cellText",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "cell", "type": "SqlValue", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "$match0", "type": "SqlValue", "value": { "kind": "local", "name": "cell" } },
+    {
+      "op": "match",
+      "value": { "kind": "local", "name": "$match0" },
+      "cases": [
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "SqlInt" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "i", "type": "SqlInt", "value": { "kind": "unionExtract", "type": "SqlInt", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "i" }, "member": "value" }] } }
+        ]
+      },
+      {
+        "pattern": { "kind": "value", "value": { "kind": "local", "name": "SqlText" } },
+        "guard": null,
+        "body": [
+        { "op": "bind", "mutable": false, "name": "t", "type": "SqlText", "value": { "kind": "unionExtract", "type": "SqlText", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "value" } }
+        ]
+      },
+      {
+        "pattern": { "kind": "else" },
+        "guard": null,
+        "body": [
+        { "op": "return", "value": { "kind": "const", "type": "String", "value": "?" } }
+        ]
+      }
+      ]
+    }
+    ]
+  },
+  {
     "name": "main",
     "visibility": "private",
     "kind": "func",
@@ -18,21 +59,21 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "db", "type": "sqlite.Db", "value": { "kind": "call", "target": "sqlite.create", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "sqlite.createTable$Db$String$String", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "users" }, { "kind": "const", "type": "String", "value": "id INTEGER, name TEXT" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "sqlite.query$Db$String$List$OF$String", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO users VALUES (1, ?)" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "alice" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "sqlite.query$Db$String$List$OF$String", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO users VALUES (2, ?)" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "bob" }] }] } },
-    { "op": "bind", "mutable": false, "name": "rows", "type": "List OF List OF String", "value": { "kind": "call", "target": "sqlite.query$Db$String$List$OF$String", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "SELECT id, name FROM users ORDER BY id" }, { "kind": "list", "type": "List OF String", "values": [] }] } },
+    { "op": "bind", "mutable": false, "name": "db", "type": "Db", "value": { "kind": "call", "target": "sqlite3.create", "args": [{ "kind": "const", "type": "String", "value": ":memory:" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "sqlite3.createTable$Db$String$String", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "users" }, { "kind": "const", "type": "String", "value": "id INTEGER, name TEXT" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "sqlite3.query$Db$String$List$OF$String", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO users VALUES (1, ?)" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "alice" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "sqlite3.query$Db$String$List$OF$String", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "INSERT INTO users VALUES (2, ?)" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "bob" }] }] } },
+    { "op": "bind", "mutable": false, "name": "rows", "type": "List OF List OF SqlValue", "value": { "kind": "call", "target": "sqlite3.query$Db$String$List$OF$String", "args": [{ "kind": "local", "name": "db" }, { "kind": "const", "type": "String", "value": "SELECT id, name FROM users ORDER BY id" }, { "kind": "list", "type": "List OF String", "values": [] }] } },
     {
       "op": "forEach",
       "name": "row",
-      "type": "List OF String",
+      "type": "List OF SqlValue",
       "iterable": { "kind": "local", "name": "rows" },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "row" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "row" }, { "kind": "const", "type": "Integer", "value": "1" }] } }] } }
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "cellText", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "row" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "cellText", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "row" }, { "kind": "const", "type": "Integer", "value": "1" }] }] } }] } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "tables", "type": "List OF String", "value": { "kind": "call", "target": "sqlite.listTables", "args": [{ "kind": "local", "name": "db" }] } },
+    { "op": "bind", "mutable": false, "name": "tables", "type": "List OF String", "value": { "kind": "call", "target": "sqlite3.listTables", "args": [{ "kind": "local", "name": "db" }] } },
     {
       "op": "forEach",
       "name": "name",
@@ -42,7 +83,7 @@
       { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "table: " }, "right": { "kind": "local", "name": "name" } }] } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "sqlite.close", "args": [{ "kind": "local", "name": "db" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "sqlite3.close", "args": [{ "kind": "local", "name": "db" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "done" }] } },
     { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
