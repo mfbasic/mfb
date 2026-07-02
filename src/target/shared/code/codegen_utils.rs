@@ -565,10 +565,20 @@ fn adjust_stack_instruction_offsets(instructions: &mut [CodeInstruction], offset
         if depth > 0 {
             continue;
         }
-        let stack_relative = instruction
-            .fields
-            .iter()
-            .any(|(name, value)| matches!(*name, "base" | "src") && abi::is_stack_pointer(value));
+        // "sp" is the neutral/AArch64 spelling; "rsp" is the x86-64 spelling the
+        // per-ISA selection rewrites it to. Both must shift: selection runs
+        // BEFORE frame finalization, so an x86 body arrives here rsp-flavored,
+        // while post-selection insertions (the prologue zero-init splices) are
+        // still sp-flavored. Shifting only "sp" left the x86 body (and the
+        // regalloc's rsp-based spill slots) UNSHIFTED while the splices and the
+        // stack-slot metadata shifted — so the callee-saved save area at
+        // [rsp+0..save_size) collided with body slots 0/8/16 (e.g.
+        // make_error_result's param spill to slot 0 destroyed the saved r12),
+        // and the owned-value zero-inits landed save_size bytes away from the
+        // slots the scope-drops actually read.
+        let stack_relative = instruction.fields.iter().any(|(name, value)| {
+            matches!(*name, "base" | "src") && (abi::is_stack_pointer(value) || value == "rsp")
+        });
         if !stack_relative {
             continue;
         }

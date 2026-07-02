@@ -1385,6 +1385,15 @@ impl CodeBuilder<'_> {
         // The slot is null when the binding's initializer trapped before it was
         // stored (the slot is zero-initialized at bind, see `lower_ops`), or for
         // a moved-out value; a null free would fault scrubbing address 0, so skip.
+        // The guard is only sound if the slot genuinely reads 0 on every path
+        // that reaches this drop without storing a value — so register the slot
+        // for the prologue zero-init (idempotent; the splice dedups). The
+        // bind-site registration in `lower_ops` covers `LET` bindings but not
+        // owned temporaries like a record's flat-copy: a trap route that jumps
+        // past the copy leaves the slot unwritten, and the drop then frees
+        // whatever the stack held (benignly 0 on AArch64 in practice; stack
+        // garbage — a wild free — on x86-64).
+        self.owned_value_slots.push(cleanup.stack_offset);
         let skip = self.label("owned_value_free_skip");
         self.emit(abi::load_u64(
             abi::return_register(),
