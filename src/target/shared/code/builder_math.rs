@@ -411,13 +411,14 @@ impl CodeBuilder<'_> {
         let value = self.lower_value(arg)?;
         let value = self.materialize_float(value)?;
         let dst = self.allocate_register()?;
+        let bound = self.temporary_vreg();
         match value.type_.as_str() {
             "Integer" | "Fixed" => {
                 let ok = self.label("math_abs_ok");
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 self.emit(abi::branch_ge(&ok));
-                self.emit(abi::move_immediate("x17", "Integer", "9223372036854775808"));
-                self.emit(abi::compare_registers(&value.location, "x17"));
+                self.emit(abi::move_immediate(&bound, "Integer", "9223372036854775808"));
+                self.emit(abi::compare_registers(&value.location, &bound));
                 self.emit(abi::branch_ne(&ok));
                 self.emit_overflow_return()?;
                 self.emit(abi::label(&ok));
@@ -436,8 +437,8 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&done));
             }
             "Float" => {
-                self.emit(abi::move_immediate("x17", "Integer", "9223372036854775807"));
-                self.emit(abi::and_registers(&dst, &value.location, "x17"));
+                self.emit(abi::move_immediate(&bound, "Integer", "9223372036854775807"));
+                self.emit(abi::and_registers(&dst, &value.location, &bound));
             }
             other => return Err(format!("math.abs does not accept {other}")),
         }
@@ -1008,12 +1009,13 @@ impl CodeBuilder<'_> {
         // it never hardcodes a result scratch register (see the negation note in
         // `lower_numeric_unary_negation`).
         let magnitude = self.allocate_register()?;
+        let inf_bits = self.temporary_vreg();
         let ok = self.label("float_result_finite");
         let nan = self.label("float_result_nan");
         self.emit(abi::shift_left_immediate(&magnitude, bits, 1));
         // 0xFFE0000000000000 == (+inf bits) << 1.
-        self.emit(abi::move_immediate("x17", "Integer", "18437736874454810624"));
-        self.emit(abi::compare_registers(&magnitude, "x17"));
+        self.emit(abi::move_immediate(&inf_bits, "Integer", "18437736874454810624"));
+        self.emit(abi::compare_registers(&magnitude, &inf_bits));
         self.emit(abi::branch_lo(&ok)); // unsigned < +inf<<1 => finite
         self.emit(abi::branch_hi(&nan)); // unsigned > +inf<<1 => NaN
         // Equal => the value is exactly ±inf.
@@ -1048,10 +1050,11 @@ impl CodeBuilder<'_> {
         let ok = self.label("float_result_finite");
         let magnitude = self.allocate_fp_register()?;
         let positive_inf = self.allocate_fp_register()?;
-        // +inf bits == 0x7FF0000000000000. Materialized through the dedicated
-        // `x17` scratch the error paths already reserve, never a pooled GPR.
-        self.emit(abi::move_immediate("x17", "Integer", "9218868437227405312"));
-        self.emit(abi::float_move_d_from_x(&positive_inf, "x17"));
+        let inf_bits = self.temporary_vreg();
+        // +inf bits == 0x7FF0000000000000. Materialized through a scratch vreg,
+        // never a pooled physical GPR.
+        self.emit(abi::move_immediate(&inf_bits, "Integer", "9218868437227405312"));
+        self.emit(abi::float_move_d_from_x(&positive_inf, &inf_bits));
         self.emit(abi::float_abs_d(&magnitude, value));
         self.emit(abi::float_compare_d(&magnitude, &positive_inf));
         self.emit(abi::branch_vs(&nan)); // unordered => NaN

@@ -349,6 +349,17 @@ impl CodeBuilder<'_> {
         let newcap_slot = self.allocate_stack_object("concat_self_newcap", 8);
         let newbuf_slot = self.allocate_stack_object("concat_self_newbuf", 8);
 
+        let ptr = self.temporary_vreg();
+        let len = self.temporary_vreg();
+        let right_ptr = self.temporary_vreg();
+        let rlen = self.temporary_vreg();
+        let newlen = self.temporary_vreg();
+        let spare = self.temporary_vreg();
+        let newcap = self.temporary_vreg();
+        let step_scratch = self.temporary_vreg();
+        let zero = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+
         let regrow = self.label("concat_self_regrow");
         let write = self.label("concat_self_write");
         let alloc_ok = self.label("concat_self_alloc_ok");
@@ -356,41 +367,41 @@ impl CodeBuilder<'_> {
         let done = self.label("concat_self_done");
 
         // newlen = len + rlen; decide in-place vs regrow on rlen vs spare.
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), name_slot));
-        self.emit(abi::load_u64("x9", "x8", 0)); // len
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64("x11", "x10", 0)); // rlen
-        self.emit(abi::add_registers("x12", "x9", "x11"));
-        self.emit(abi::store_u64("x12", abi::stack_pointer(), newlen_slot));
-        self.emit(abi::load_u64("x13", abi::stack_pointer(), shadow_slot)); // spare
-        self.emit(abi::compare_registers("x11", "x13"));
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(&len, &ptr, 0)); // len
+        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64(&rlen, &right_ptr, 0)); // rlen
+        self.emit(abi::add_registers(&newlen, &len, &rlen));
+        self.emit(abi::store_u64(&newlen, abi::stack_pointer(), newlen_slot));
+        self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot)); // spare
+        self.emit(abi::compare_registers(&rlen, &spare));
         self.emit(abi::branch_hi(&regrow)); // rlen > spare → regrow
         self.emit(abi::branch(&write));
 
         // --- Regrow: alloc newcap_payload + 9; copy old + operand; install. ---
         self.emit(abi::label(&regrow));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), name_slot));
-        self.emit(abi::load_u64("x9", "x8", 0)); // len
-        self.emit(abi::load_u64("x13", abi::stack_pointer(), shadow_slot)); // spare
-        self.emit(abi::add_registers("x10", "x9", "x13")); // current payload capacity
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(&len, &ptr, 0)); // len
+        self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot)); // spare
+        self.emit(abi::add_registers(&right_ptr, &len, &spare)); // current payload capacity
         self.emit_geometric_step(
-            "x10",
-            "x14",
-            "x15",
+            &right_ptr,
+            &newcap,
+            &step_scratch,
             COLLECTION_GROW_DATA_INIT,
             COLLECTION_GROW_DATA_TAPER,
             "concat_self_step",
         );
         // newcap_payload = max(step, newlen).
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), newlen_slot));
-        self.emit(abi::compare_registers("x14", "x12"));
+        self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
+        self.emit(abi::compare_registers(&newcap, &newlen));
         self.emit(abi::branch_hi(&cap_keep));
         self.emit(abi::branch_eq(&cap_keep));
-        self.emit(abi::move_register("x14", "x12"));
+        self.emit(abi::move_register(&newcap, &newlen));
         self.emit(abi::label(&cap_keep));
-        self.emit(abi::store_u64("x14", abi::stack_pointer(), newcap_slot));
+        self.emit(abi::store_u64(&newcap, abi::stack_pointer(), newcap_slot));
         // alloc size = 8 (len word) + newcap_payload + 1 (NUL).
-        self.emit(abi::add_immediate(abi::return_register(), "x14", 9));
+        self.emit(abi::add_immediate(abi::return_register(), &newcap, 9));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -409,52 +420,52 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), newbuf_slot));
         // newbuf[0] = newlen.
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), newlen_slot));
-        self.emit(abi::store_u64("x12", "x1", 0));
+        self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
+        self.emit(abi::store_u64(&newlen, "x1", 0));
         // Copy the current bytes (len) to newbuf+8.
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), name_slot));
-        self.emit(abi::load_u64("x9", "x8", 0)); // len
-        self.emit(abi::add_immediate("x8", "x8", 8)); // old data
-        self.emit(abi::add_immediate("x17", "x1", 8)); // new data
-        self.emit_copy_bytes("x17", "x8", "x9", "concat_self_old");
-        // Copy the operand bytes (rlen) to newbuf+8+len. x17 now points at +8+len.
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64("x11", "x10", 0)); // rlen
-        self.emit(abi::add_immediate("x10", "x10", 8)); // operand data
-        self.emit_copy_bytes("x17", "x10", "x11", "concat_self_new");
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(&len, &ptr, 0)); // len
+        self.emit(abi::add_immediate(&ptr, &ptr, 8)); // old data
+        self.emit(abi::add_immediate(&dst, "x1", 8)); // new data
+        self.emit_copy_bytes(&dst, &ptr, &len, "concat_self_old");
+        // Copy the operand bytes (rlen) to newbuf+8+len. dst now points at +8+len.
+        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64(&rlen, &right_ptr, 0)); // rlen
+        self.emit(abi::add_immediate(&right_ptr, &right_ptr, 8)); // operand data
+        self.emit_copy_bytes(&dst, &right_ptr, &rlen, "concat_self_new");
         // NUL terminator at newbuf+8+newlen.
-        self.emit(abi::move_immediate("x16", "Integer", "0"));
-        self.emit(abi::store_u8("x16", "x17", 0));
+        self.emit(abi::move_immediate(&zero, "Integer", "0"));
+        self.emit(abi::store_u8(&zero, &dst, 0));
         // Install new buffer; spare = newcap_payload - newlen.
         self.emit(abi::load_u64("x1", abi::stack_pointer(), newbuf_slot));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), name_slot));
-        self.emit(abi::load_u64("x14", abi::stack_pointer(), newcap_slot));
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), newlen_slot));
-        self.emit(abi::subtract_registers("x14", "x14", "x12"));
-        self.emit(abi::store_u64("x14", abi::stack_pointer(), shadow_slot));
+        self.emit(abi::load_u64(&newcap, abi::stack_pointer(), newcap_slot));
+        self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
+        self.emit(abi::subtract_registers(&newcap, &newcap, &newlen));
+        self.emit(abi::store_u64(&newcap, abi::stack_pointer(), shadow_slot));
         self.emit(abi::branch(&done));
 
         // --- In place: write operand bytes into the spare tail. ---
         self.emit(abi::label(&write));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), name_slot));
-        self.emit(abi::load_u64("x9", "x8", 0)); // len
-        self.emit(abi::add_immediate("x17", "x8", 8));
-        self.emit(abi::add_registers("x17", "x17", "x9")); // dst = ptr+8+len
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64("x11", "x10", 0)); // rlen
-        self.emit(abi::add_immediate("x10", "x10", 8)); // operand data
-        self.emit_copy_bytes("x17", "x10", "x11", "concat_self_inplace");
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(&len, &ptr, 0)); // len
+        self.emit(abi::add_immediate(&dst, &ptr, 8));
+        self.emit(abi::add_registers(&dst, &dst, &len)); // dst = ptr+8+len
+        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64(&rlen, &right_ptr, 0)); // rlen
+        self.emit(abi::add_immediate(&right_ptr, &right_ptr, 8)); // operand data
+        self.emit_copy_bytes(&dst, &right_ptr, &rlen, "concat_self_inplace");
         // NUL after the new end; ptr[0] = newlen; spare -= rlen.
-        self.emit(abi::move_immediate("x16", "Integer", "0"));
-        self.emit(abi::store_u8("x16", "x17", 0));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), name_slot));
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), newlen_slot));
-        self.emit(abi::store_u64("x12", "x8", 0));
-        self.emit(abi::load_u64("x13", abi::stack_pointer(), shadow_slot));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64("x11", "x10", 0)); // rlen
-        self.emit(abi::subtract_registers("x13", "x13", "x11"));
-        self.emit(abi::store_u64("x13", abi::stack_pointer(), shadow_slot));
+        self.emit(abi::move_immediate(&zero, "Integer", "0"));
+        self.emit(abi::store_u8(&zero, &dst, 0));
+        self.emit(abi::load_u64(&ptr, abi::stack_pointer(), name_slot));
+        self.emit(abi::load_u64(&newlen, abi::stack_pointer(), newlen_slot));
+        self.emit(abi::store_u64(&newlen, &ptr, 0));
+        self.emit(abi::load_u64(&spare, abi::stack_pointer(), shadow_slot));
+        self.emit(abi::load_u64(&right_ptr, abi::stack_pointer(), right_slot));
+        self.emit(abi::load_u64(&rlen, &right_ptr, 0)); // rlen
+        self.emit(abi::subtract_registers(&spare, &spare, &rlen));
+        self.emit(abi::store_u64(&spare, abi::stack_pointer(), shadow_slot));
         self.emit(abi::label(&done));
         Ok(())
     }

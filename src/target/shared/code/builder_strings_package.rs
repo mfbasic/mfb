@@ -170,12 +170,14 @@ impl CodeBuilder<'_> {
         let tmp = tmp_v.as_str();
         let cbyte = cbyte_v.as_str();
         let rem = rem_v.as_str();
+        let cont_mask = self.temporary_vreg();
+        let target_byte = self.temporary_vreg();
         // chars_ptr = chars data ptr, chars_len = chars len, cursor = index.
         self.emit(abi::load_u64(cand, abi::stack_pointer(), chars_slot));
         self.emit(abi::load_u64(chars_len, cand, 0));
         self.emit(abi::add_immediate(chars_ptr, cand, 8));
         self.emit(abi::move_immediate(cursor, "Integer", "0"));
-        self.emit(abi::move_immediate("x8", "Integer", "192"));
+        self.emit(abi::move_immediate(&cont_mask, "Integer", "192"));
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_registers(cursor, chars_len));
         self.emit(abi::branch_ge(not_in_set));
@@ -188,7 +190,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ge(&clen_done));
         self.emit(abi::add_registers(tmp, chars_ptr, scalar_end));
         self.emit(abi::load_u8(tmp, tmp, 0));
-        self.emit(abi::and_registers(tmp, tmp, "x8"));
+        self.emit(abi::and_registers(tmp, tmp, &cont_mask));
         self.emit(abi::compare_immediate(tmp, "128"));
         self.emit(abi::branch_ne(&clen_done));
         self.emit(abi::add_immediate(scalar_end, scalar_end, 1));
@@ -207,8 +209,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(rem, "0"));
         self.emit(abi::branch_eq(in_set));
         self.emit(abi::load_u8(cbyte, cand, 0));
-        self.emit(abi::load_u8("x16", tmp, 0));
-        self.emit(abi::compare_registers(cbyte, "x16"));
+        self.emit(abi::load_u8(&target_byte, tmp, 0));
+        self.emit(abi::compare_registers(cbyte, &target_byte));
         self.emit(abi::branch_ne(&next));
         self.emit(abi::add_immediate(cand, cand, 1));
         self.emit(abi::add_immediate(tmp, tmp, 1));
@@ -226,23 +228,28 @@ impl CodeBuilder<'_> {
         data_offset: &str,
         segment_start: &str,
         segment_end: &str,
+        source_data: &str,
     ) -> Result<(), String> {
+        let tmp = self.temporary_vreg();
+        let dst = self.temporary_vreg();
+        let src = self.temporary_vreg();
+        let byte = self.temporary_vreg();
         let copy_segment_loop = self.label("strings_split_copy_segment_loop");
         let copy_segment_done = self.label("strings_split_copy_segment_done");
         self.emit(abi::move_immediate(
-            "x25",
+            &tmp,
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8("x25", entry, COLLECTION_ENTRY_OFFSET_FLAGS));
-        self.emit(abi::move_immediate("x25", "Integer", "0"));
+        self.emit(abi::store_u8(&tmp, entry, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::move_immediate(&tmp, "Integer", "0"));
         self.emit(abi::store_u64(
-            "x25",
+            &tmp,
             entry,
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
         self.emit(abi::store_u64(
-            "x25",
+            &tmp,
             entry,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
@@ -251,26 +258,26 @@ impl CodeBuilder<'_> {
             entry,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::subtract_registers("x25", segment_end, segment_start));
+        self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
         self.emit(abi::store_u64(
-            "x25",
+            &tmp,
             entry,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_registers("x26", data, data_offset));
-        self.emit(abi::add_registers("x27", "x14", segment_start));
+        self.emit(abi::add_registers(&dst, data, data_offset));
+        self.emit(abi::add_registers(&src, source_data, segment_start));
         self.emit(abi::label(&copy_segment_loop));
-        self.emit(abi::compare_immediate("x25", "0"));
+        self.emit(abi::compare_immediate(&tmp, "0"));
         self.emit(abi::branch_eq(&copy_segment_done));
-        self.emit(abi::load_u8("x28", "x27", 0));
-        self.emit(abi::store_u8("x28", "x26", 0));
-        self.emit(abi::add_immediate("x27", "x27", 1));
-        self.emit(abi::add_immediate("x26", "x26", 1));
-        self.emit(abi::subtract_immediate("x25", "x25", 1));
+        self.emit(abi::load_u8(&byte, &src, 0));
+        self.emit(abi::store_u8(&byte, &dst, 0));
+        self.emit(abi::add_immediate(&src, &src, 1));
+        self.emit(abi::add_immediate(&dst, &dst, 1));
+        self.emit(abi::subtract_immediate(&tmp, &tmp, 1));
         self.emit(abi::branch(&copy_segment_loop));
         self.emit(abi::label(&copy_segment_done));
-        self.emit(abi::subtract_registers("x25", segment_end, segment_start));
-        self.emit(abi::add_registers(data_offset, data_offset, "x25"));
+        self.emit(abi::subtract_registers(&tmp, segment_end, segment_start));
+        self.emit(abi::add_registers(data_offset, data_offset, &tmp));
         self.emit(abi::add_immediate(entry, entry, COLLECTION_ENTRY_SIZE));
         Ok(())
     }
@@ -282,25 +289,32 @@ impl CodeBuilder<'_> {
         part_slot: usize,
         suffix: bool,
     ) -> Result<ValueResult, String> {
+        let value_ptr = self.temporary_vreg();
+        let part_ptr = self.temporary_vreg();
+        let value_len = self.temporary_vreg();
+        let part_len = self.temporary_vreg();
+        let value_data = self.temporary_vreg();
+        let part_data = self.temporary_vreg();
+        let delta = self.temporary_vreg();
         let result_slot = self.allocate_stack_object("strings_prefix_result", 8);
         let true_label = self.label("strings_prefix_true");
         let false_label = self.label("strings_prefix_false");
         let done_label = self.label("strings_prefix_done");
         let no_match_label = self.label("strings_prefix_no_match");
 
-        self.emit(abi::load_u64("x16", abi::stack_pointer(), value_slot));
-        self.emit(abi::load_u64("x17", abi::stack_pointer(), part_slot));
-        self.emit(abi::load_u64("x9", "x16", 0));
-        self.emit(abi::load_u64("x10", "x17", 0));
-        self.emit(abi::compare_registers("x10", "x9"));
+        self.emit(abi::load_u64(&value_ptr, abi::stack_pointer(), value_slot));
+        self.emit(abi::load_u64(&part_ptr, abi::stack_pointer(), part_slot));
+        self.emit(abi::load_u64(&value_len, &value_ptr, 0));
+        self.emit(abi::load_u64(&part_len, &part_ptr, 0));
+        self.emit(abi::compare_registers(&part_len, &value_len));
         self.emit(abi::branch_hi(&false_label));
-        self.emit(abi::add_immediate("x11", "x16", 8));
-        self.emit(abi::add_immediate("x12", "x17", 8));
+        self.emit(abi::add_immediate(&value_data, &value_ptr, 8));
+        self.emit(abi::add_immediate(&part_data, &part_ptr, 8));
         if suffix {
-            self.emit(abi::subtract_registers("x13", "x9", "x10"));
-            self.emit(abi::add_registers("x11", "x11", "x13"));
+            self.emit(abi::subtract_registers(&delta, &value_len, &part_len));
+            self.emit(abi::add_registers(&value_data, &value_data, &delta));
         }
-        self.emit_string_byte_range_equal_branch("x11", "x12", "x10", &true_label, &no_match_label);
+        self.emit_string_byte_range_equal_branch(&value_data, &part_data, &part_len, &true_label, &no_match_label);
         self.emit(abi::label(&no_match_label));
         self.emit(abi::branch(&false_label));
         self.emit_string_predicate_result(result_slot, &true_label, &false_label, &done_label);
@@ -314,13 +328,14 @@ impl CodeBuilder<'_> {
         false_label: &str,
         done_label: &str,
     ) {
+        let flag = self.temporary_vreg();
         self.emit(abi::label(true_label));
-        self.emit(abi::move_immediate("x8", "Boolean", "true"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), result_slot));
+        self.emit(abi::move_immediate(&flag, "Boolean", "true"));
+        self.emit(abi::store_u64(&flag, abi::stack_pointer(), result_slot));
         self.emit(abi::branch(done_label));
         self.emit(abi::label(false_label));
-        self.emit(abi::move_immediate("x8", "Boolean", "false"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), result_slot));
+        self.emit(abi::move_immediate(&flag, "Boolean", "false"));
+        self.emit(abi::store_u64(&flag, abi::stack_pointer(), result_slot));
         self.emit(abi::label(done_label));
     }
 

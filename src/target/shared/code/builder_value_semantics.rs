@@ -234,6 +234,10 @@ impl CodeBuilder<'_> {
             .get(type_)
             .cloned()
             .ok_or_else(|| format!("native code WITH target '{type_}' is not a record"))?;
+        let base_reg = self.temporary_vreg();
+        let field_reg = self.temporary_vreg();
+        let base = base_reg.as_str();
+        let field = field_reg.as_str();
         let target_value = self.lower_value(target)?;
         let target_slot = self.allocate_stack_object("with_target", 8);
         self.emit(abi::store_u64(
@@ -282,12 +286,12 @@ impl CodeBuilder<'_> {
                 continue;
             }
             let slot = self.allocate_stack_object("with_old_field", 8);
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), target_slot));
-            self.emit(abi::load_u64("x9", "x8", 8 * index));
+            self.emit(abi::load_u64(base, abi::stack_pointer(), target_slot));
+            self.emit(abi::load_u64(field, base, 8 * index));
             if self.record_field_is_inlined(type_, field_type) {
-                self.emit(abi::add_registers("x9", "x8", "x9"));
+                self.emit(abi::add_registers(field, base, field));
             }
-            self.emit(abi::store_u64("x9", abi::stack_pointer(), slot));
+            self.emit(abi::store_u64(field, abi::stack_pointer(), slot));
             field_slots.push(slot);
         }
         let register = self.emit_build_inlined_record(type_, &field_slots)?;

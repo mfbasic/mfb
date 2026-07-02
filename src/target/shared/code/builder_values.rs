@@ -99,6 +99,12 @@ impl CodeBuilder<'_> {
     }
 
     fn lower_value_inner(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+        let scratch9_reg = self.temporary_vreg();
+        let scratch10_reg = self.temporary_vreg();
+        let scratch11_reg = self.temporary_vreg();
+        let scratch9 = scratch9_reg.as_str();
+        let scratch10 = scratch10_reg.as_str();
+        let scratch11 = scratch11_reg.as_str();
         if let Some(string_value) = self.static_string_value(value) {
             let register = self.load_string_constant(&string_value)?;
             return Ok(ValueResult {
@@ -731,11 +737,11 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     source_slot,
                 ));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), tag_slot));
-                self.emit(abi::compare_immediate("x9", RESULT_OK_TAG));
+                self.emit(abi::load_u64(scratch9, abi::stack_pointer(), tag_slot));
+                self.emit(abi::compare_immediate(scratch9, RESULT_OK_TAG));
                 self.emit(abi::branch_ne(&wrap_error_label));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), value_slot));
-                self.emit(abi::store_u64("x9", abi::stack_pointer(), payload_slot));
+                self.emit(abi::load_u64(scratch9, abi::stack_pointer(), value_slot));
+                self.emit(abi::store_u64(scratch9, abi::stack_pointer(), payload_slot));
                 let ok_result =
                     self.emit_build_result_inline(tag_slot, &success_type, payload_slot)?;
                 self.emit(abi::store_u64(
@@ -893,8 +899,8 @@ impl CodeBuilder<'_> {
                 ));
                 self.emit(abi::store_u64(&tag_register, "x1", 0));
                 for (index, slot) in arg_slots.iter().enumerate() {
-                    self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-                    self.emit(abi::store_u64("x9", "x1", 8 * (index + 1)));
+                    self.emit(abi::load_u64(scratch9, abi::stack_pointer(), *slot));
+                    self.emit(abi::store_u64(scratch9, "x1", 8 * (index + 1)));
                 }
                 self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
                 Ok(ValueResult {
@@ -1015,15 +1021,15 @@ impl CodeBuilder<'_> {
                     // meaningless once detached from the record's data region);
                     // the record stays a standalone flat block (plan-02 §4.2,
                     // union reshape deferred to Phase 4).
-                    self.emit(abi::load_u64("x9", abi::stack_pointer(), wrapped_slot));
-                    self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-                    self.emit(abi::store_u64("x9", "x10", 8));
+                    self.emit(abi::load_u64(scratch9, abi::stack_pointer(), wrapped_slot));
+                    self.emit(abi::load_u64(scratch10, abi::stack_pointer(), result_slot));
+                    self.emit(abi::store_u64(scratch9, scratch10, 8));
                 } else {
                     for (index, _) in fields.iter().enumerate() {
-                        self.emit(abi::load_u64("x11", abi::stack_pointer(), wrapped_slot));
-                        self.emit(abi::load_u64("x9", "x11", 8 * index));
-                        self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-                        self.emit(abi::store_u64("x9", "x10", 8 * (index + 1)));
+                        self.emit(abi::load_u64(scratch11, abi::stack_pointer(), wrapped_slot));
+                        self.emit(abi::load_u64(scratch9, scratch11, 8 * index));
+                        self.emit(abi::load_u64(scratch10, abi::stack_pointer(), result_slot));
+                        self.emit(abi::store_u64(scratch9, scratch10, 8 * (index + 1)));
                     }
                 }
                 let register = self.allocate_register()?;
@@ -1064,8 +1070,8 @@ impl CodeBuilder<'_> {
                 let register = self.allocate_register()?;
                 let ok_label = self.label("result_is_ok_true");
                 let end_label = self.label("result_is_ok_end");
-                self.emit(abi::load_u64("x9", &result.location, 0));
-                self.emit(abi::compare_immediate("x9", RESULT_OK_TAG));
+                self.emit(abi::load_u64(scratch9, &result.location, 0));
+                self.emit(abi::compare_immediate(scratch9, RESULT_OK_TAG));
                 self.emit(abi::branch_eq(&ok_label));
                 self.emit(abi::move_immediate(&register, "Boolean", "0"));
                 self.emit(abi::branch(&end_label));

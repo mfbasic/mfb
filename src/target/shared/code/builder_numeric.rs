@@ -681,28 +681,34 @@ impl CodeBuilder<'_> {
             }
         }
 
+        let left_len = self.temporary_vreg();
+        let right_len = self.temporary_vreg();
+        let left_ptr = self.temporary_vreg();
+        let right_ptr = self.temporary_vreg();
+        let left_byte = self.temporary_vreg();
+        let right_byte = self.temporary_vreg();
         let result = self.allocate_register()?;
         let loop_label = self.label("cmp_string_loop");
         let equal_label = self.label("cmp_string_equal");
         let not_equal_label = self.label("cmp_string_not_equal");
         let done_label = self.label("cmp_string_done");
 
-        self.emit(abi::load_u64("x11", &left.location, 0));
-        self.emit(abi::load_u64("x12", &right.location, 0));
-        self.emit(abi::compare_registers("x11", "x12"));
+        self.emit(abi::load_u64(&left_len, &left.location, 0));
+        self.emit(abi::load_u64(&right_len, &right.location, 0));
+        self.emit(abi::compare_registers(&left_len, &right_len));
         self.emit(abi::branch_ne(&not_equal_label));
-        self.emit(abi::add_immediate("x13", &left.location, 8));
-        self.emit(abi::add_immediate("x14", &right.location, 8));
+        self.emit(abi::add_immediate(&left_ptr, &left.location, 8));
+        self.emit(abi::add_immediate(&right_ptr, &right.location, 8));
         self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate("x11", "0"));
+        self.emit(abi::compare_immediate(&left_len, "0"));
         self.emit(abi::branch_eq(&equal_label));
-        self.emit(abi::load_u8("x15", "x13", 0));
-        self.emit(abi::load_u8("x16", "x14", 0));
-        self.emit(abi::compare_registers("x15", "x16"));
+        self.emit(abi::load_u8(&left_byte, &left_ptr, 0));
+        self.emit(abi::load_u8(&right_byte, &right_ptr, 0));
+        self.emit(abi::compare_registers(&left_byte, &right_byte));
         self.emit(abi::branch_ne(&not_equal_label));
-        self.emit(abi::add_immediate("x13", "x13", 1));
-        self.emit(abi::add_immediate("x14", "x14", 1));
-        self.emit(abi::subtract_immediate("x11", "x11", 1));
+        self.emit(abi::add_immediate(&left_ptr, &left_ptr, 1));
+        self.emit(abi::add_immediate(&right_ptr, &right_ptr, 1));
+        self.emit(abi::subtract_immediate(&left_len, &left_len, 1));
         self.emit(abi::branch(&loop_label));
 
         self.emit(abi::label(&equal_label));
@@ -756,6 +762,12 @@ impl CodeBuilder<'_> {
             "false"
         };
 
+        let left_len = self.temporary_vreg();
+        let right_len = self.temporary_vreg();
+        let min_len = self.temporary_vreg();
+        let left_ptr = self.temporary_vreg();
+        let right_ptr = self.temporary_vreg();
+        let left_byte = self.temporary_vreg();
         let result = self.allocate_register()?;
         let min_done_label = self.label("cmp_string_ord_min");
         let loop_label = self.label("cmp_string_ord_loop");
@@ -764,38 +776,38 @@ impl CodeBuilder<'_> {
         let greater_label = self.label("cmp_string_ord_greater");
         let done_label = self.label("cmp_string_ord_done");
 
-        // x11 = len(left), x12 = len(right); x15 = min(len(left), len(right)).
-        self.emit(abi::load_u64("x11", &left.location, 0));
-        self.emit(abi::load_u64("x12", &right.location, 0));
-        self.emit(abi::move_register("x15", "x11"));
-        self.emit(abi::compare_registers("x11", "x12"));
+        // left_len = len(left), right_len = len(right); min_len = min of the two.
+        self.emit(abi::load_u64(&left_len, &left.location, 0));
+        self.emit(abi::load_u64(&right_len, &right.location, 0));
+        self.emit(abi::move_register(&min_len, &left_len));
+        self.emit(abi::compare_registers(&left_len, &right_len));
         self.emit(abi::branch_lo(&min_done_label));
-        self.emit(abi::move_register("x15", "x12"));
+        self.emit(abi::move_register(&min_len, &right_len));
         self.emit(abi::label(&min_done_label));
 
-        // x13/x14 point at the first data byte of each string.
-        self.emit(abi::add_immediate("x13", &left.location, 8));
-        self.emit(abi::add_immediate("x14", &right.location, 8));
+        // left_ptr/right_ptr point at the first data byte of each string.
+        self.emit(abi::add_immediate(&left_ptr, &left.location, 8));
+        self.emit(abi::add_immediate(&right_ptr, &right.location, 8));
 
-        // Compare the common prefix byte by byte (x11 is free to reuse as a temp).
+        // Compare the common prefix byte by byte (right_len is free to reuse as a temp).
         self.emit(abi::label(&loop_label));
-        self.emit(abi::compare_immediate("x15", "0"));
+        self.emit(abi::compare_immediate(&min_len, "0"));
         self.emit(abi::branch_eq(&prefix_label));
-        self.emit(abi::load_u8("x16", "x13", 0));
-        self.emit(abi::load_u8("x11", "x14", 0));
-        self.emit(abi::compare_registers("x16", "x11"));
+        self.emit(abi::load_u8(&left_byte, &left_ptr, 0));
+        self.emit(abi::load_u8(&right_len, &right_ptr, 0));
+        self.emit(abi::compare_registers(&left_byte, &right_len));
         self.emit(abi::branch_lo(&less_label));
         self.emit(abi::branch_hi(&greater_label));
-        self.emit(abi::add_immediate("x13", "x13", 1));
-        self.emit(abi::add_immediate("x14", "x14", 1));
-        self.emit(abi::subtract_immediate("x15", "x15", 1));
+        self.emit(abi::add_immediate(&left_ptr, &left_ptr, 1));
+        self.emit(abi::add_immediate(&right_ptr, &right_ptr, 1));
+        self.emit(abi::subtract_immediate(&min_len, &min_len, 1));
         self.emit(abi::branch(&loop_label));
 
         // Common prefix equal: the shorter string compares less.
         self.emit(abi::label(&prefix_label));
-        self.emit(abi::load_u64("x11", &left.location, 0));
-        self.emit(abi::load_u64("x12", &right.location, 0));
-        self.emit(abi::compare_registers("x11", "x12"));
+        self.emit(abi::load_u64(&left_len, &left.location, 0));
+        self.emit(abi::load_u64(&right_len, &right.location, 0));
+        self.emit(abi::compare_registers(&left_len, &right_len));
         self.emit(abi::branch_lo(&less_label));
         self.emit(abi::branch_hi(&greater_label));
         // Equal strings.
@@ -1423,6 +1435,7 @@ impl CodeBuilder<'_> {
         dst: &str,
         value: &ValueResult,
     ) -> Result<(), String> {
+        let fixed_scratch = self.temporary_vreg();
         match value.type_.as_str() {
             // A `d`-native float is already in an FP register: move it `d`-to-`d`
             // (no GPR round-trip). A GP-native float carries its bits in `value
@@ -1434,7 +1447,7 @@ impl CodeBuilder<'_> {
             "Byte" | "Integer" => self.emit(abi::signed_convert_to_float_d(dst, &value.location)),
             "Fixed" => {
                 self.emit(abi::signed_convert_to_float_d(dst, &value.location));
-                self.emit_f64_const("d7", "x17", 4_294_967_296.0);
+                self.emit_f64_const("d7", &fixed_scratch, 4_294_967_296.0);
                 self.emit(abi::float_divide_d(dst, dst, "d7"));
             }
             other => {

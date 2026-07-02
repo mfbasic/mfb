@@ -62,7 +62,8 @@ impl CodeBuilder<'_> {
         &mut self,
         source_register: &str,
     ) -> Result<ValueResult, String> {
-        let value = "x8";
+        let value_reg = self.temporary_vreg();
+        let value = value_reg.as_str();
         let result = self.allocate_register()?;
         let nonnegative = self.label("fixed_to_int_nonnegative");
         let done = self.label("fixed_to_int_done");
@@ -87,11 +88,16 @@ impl CodeBuilder<'_> {
         &mut self,
         source_register: &str,
     ) -> Result<ValueResult, String> {
-        let bits = "x8";
-        let exponent = "x9";
-        let mantissa = "x10";
-        let sign = "x11";
-        let mask = "x12";
+        let bits_reg = self.temporary_vreg();
+        let exponent_reg = self.temporary_vreg();
+        let mantissa_reg = self.temporary_vreg();
+        let sign_reg = self.temporary_vreg();
+        let mask_reg = self.temporary_vreg();
+        let bits = bits_reg.as_str();
+        let exponent = exponent_reg.as_str();
+        let mantissa = mantissa_reg.as_str();
+        let sign = sign_reg.as_str();
+        let mask = mask_reg.as_str();
         let ok = self.label("float_to_int_ok");
         let check_edge = self.label("float_to_int_check_edge");
         let edge_sign_ok = self.label("float_to_int_edge_sign_ok");
@@ -522,7 +528,8 @@ impl CodeBuilder<'_> {
                 let overflow = self.label("to_fixed_overflow");
                 self.emit_parse_decimal_string_to_double(&source, &invalid)?;
                 self.emit_double_overflow_check("d0", &overflow);
-                let parsed_bits = "x8";
+                let parsed_bits_reg = self.temporary_vreg();
+                let parsed_bits = parsed_bits_reg.as_str();
                 self.emit(abi::float_move_x_from_d(parsed_bits, "d0"));
                 self.emit_float_bits_to_fixed_value(parsed_bits, &result)?;
                 let done = self.label("to_fixed_done");
@@ -727,18 +734,26 @@ impl CodeBuilder<'_> {
         source: &str,
         result: &str,
     ) -> Result<(), String> {
-        let exponent = "x9";
-        let mask = "x10";
-        let sign = "x11";
-        let mantissa = "x12";
+        let bits_reg = self.temporary_vreg();
+        let exponent_reg = self.temporary_vreg();
+        let mask_reg = self.temporary_vreg();
+        let sign_reg = self.temporary_vreg();
+        let mantissa_reg = self.temporary_vreg();
+        let const_reg = self.temporary_vreg();
+        let bits = bits_reg.as_str();
+        let exponent = exponent_reg.as_str();
+        let mask = mask_reg.as_str();
+        let sign = sign_reg.as_str();
+        let mantissa = mantissa_reg.as_str();
+        let const_bits = const_reg.as_str();
         let invalid = self.label("float_to_fixed_invalid");
         let overflow = self.label("float_to_fixed_overflow");
         let ok = self.label("float_to_fixed_ok");
         let edge = self.label("float_to_fixed_edge");
         let edge_negative = self.label("float_to_fixed_edge_negative");
         let range_ok = self.label("float_to_fixed_range_ok");
-        self.emit(abi::move_register("x8", source));
-        self.emit(abi::shift_right_immediate(exponent, "x8", 52));
+        self.emit(abi::move_register(bits, source));
+        self.emit(abi::shift_right_immediate(exponent, bits, 52));
         self.emit(abi::move_immediate(mask, "Integer", "2047"));
         self.emit(abi::and_registers(exponent, exponent, mask));
         self.emit(abi::compare_immediate(exponent, "2047"));
@@ -748,18 +763,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&edge));
         self.emit(abi::branch(&overflow));
         self.emit(abi::label(&edge));
-        self.emit(abi::shift_right_immediate(sign, "x8", 63));
+        self.emit(abi::shift_right_immediate(sign, bits, 63));
         self.emit(abi::compare_immediate(sign, "1"));
         self.emit(abi::branch_eq(&edge_negative));
         self.emit(abi::branch(&overflow));
         self.emit(abi::label(&edge_negative));
         self.emit(abi::move_immediate(mask, "Integer", "4503599627370495"));
-        self.emit(abi::and_registers(mantissa, "x8", mask));
+        self.emit(abi::and_registers(mantissa, bits, mask));
         self.emit(abi::compare_immediate(mantissa, "0"));
         self.emit(abi::branch_ne(&overflow));
         self.emit(abi::label(&range_ok));
-        self.emit(abi::float_move_d_from_x("d0", "x8"));
-        self.emit_f64_const("d1", "x17", 4_294_967_296.0);
+        self.emit(abi::float_move_d_from_x("d0", bits));
+        self.emit_f64_const("d1", const_bits, 4_294_967_296.0);
         self.emit(abi::float_multiply_d("d0", "d0", "d1"));
         // Round to nearest representable Fixed (ties away from zero) rather than
         // truncating toward zero, as `toFixed(Float)`/`toFixed(String)` require.
@@ -778,23 +793,36 @@ impl CodeBuilder<'_> {
         source_register: &str,
         invalid_label: &str,
     ) -> Result<(), String> {
-        let string = "x8";
-        let length = "x9";
-        let index = "x10";
-        let cursor = "x11";
-        let byte = "x12";
-        let digit = "x13";
-        let negative = "x14";
-        let seen_digit = "x15";
-        let ten_bits = "x16";
-        let dot_seen = "x17";
-        // These were x4/x3/x2 — ABI/argument registers on x86 (rcx/rdx/rsi) that
-        // the scratch vregify pass does NOT cover (it only frees x8-x17/x20-x28),
-        // so long-lived use here clobbered the SysV ABI. Homed in the vregify
-        // range instead (x20-x28), where both backends allocate them safely.
-        let exponent = "x22";
-        let exponent_negative = "x23";
-        let exponent_ten = "x24";
+        let string_reg = self.temporary_vreg();
+        let length_reg = self.temporary_vreg();
+        let index_reg = self.temporary_vreg();
+        let cursor_reg = self.temporary_vreg();
+        let byte_reg = self.temporary_vreg();
+        let digit_reg = self.temporary_vreg();
+        let negative_reg = self.temporary_vreg();
+        let seen_digit_reg = self.temporary_vreg();
+        let ten_bits_reg = self.temporary_vreg();
+        let dot_seen_reg = self.temporary_vreg();
+        let zero_src_reg = self.temporary_vreg();
+        let one_bits_reg = self.temporary_vreg();
+        let exponent_reg = self.temporary_vreg();
+        let exponent_negative_reg = self.temporary_vreg();
+        let exponent_ten_reg = self.temporary_vreg();
+        let string = string_reg.as_str();
+        let length = length_reg.as_str();
+        let index = index_reg.as_str();
+        let cursor = cursor_reg.as_str();
+        let byte = byte_reg.as_str();
+        let digit = digit_reg.as_str();
+        let negative = negative_reg.as_str();
+        let seen_digit = seen_digit_reg.as_str();
+        let ten_bits = ten_bits_reg.as_str();
+        let dot_seen = dot_seen_reg.as_str();
+        let zero_src = zero_src_reg.as_str();
+        let one_bits = one_bits_reg.as_str();
+        let exponent = exponent_reg.as_str();
+        let exponent_negative = exponent_negative_reg.as_str();
+        let exponent_ten = exponent_ten_reg.as_str();
         let loop_start = self.label("parse_decimal_loop");
         let after_sign = self.label("parse_decimal_after_sign");
         let not_minus = self.label("parse_decimal_not_minus");
@@ -824,10 +852,10 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(seen_digit, "Integer", "0"));
         self.emit(abi::move_immediate(dot_seen, "Integer", "0"));
         self.emit(abi::move_immediate(exponent_ten, "Integer", "10"));
-        self.emit(abi::move_immediate("x20", "Integer", "0"));
-        self.emit(abi::signed_convert_to_float_d("d0", "x20"));
+        self.emit(abi::move_immediate(zero_src, "Integer", "0"));
+        self.emit(abi::signed_convert_to_float_d("d0", zero_src));
         self.emit_f64_const("d1", ten_bits, 10.0);
-        self.emit_f64_const("d3", "x21", 1.0);
+        self.emit_f64_const("d3", one_bits, 1.0);
         self.emit(abi::load_u8(byte, cursor, 0));
         self.emit(abi::compare_immediate(byte, "45"));
         self.emit(abi::branch_ne(&not_minus));
@@ -965,13 +993,14 @@ impl CodeBuilder<'_> {
     }
 
     pub(super) fn emit_double_overflow_check(&mut self, source: &str, overflow_label: &str) {
-        // x6/x7/x5 were ABI/argument registers on x86; home them in the vregify
-        // range (x20-x28) like the decimal parser above.
-        self.emit(abi::float_move_x_from_d("x20", source));
-        self.emit(abi::shift_right_immediate("x21", "x20", 52));
-        self.emit(abi::move_immediate("x22", "Integer", "2047"));
-        self.emit(abi::and_registers("x21", "x21", "x22"));
-        self.emit(abi::compare_immediate("x21", "2047"));
+        let bits = self.temporary_vreg();
+        let exponent = self.temporary_vreg();
+        let mask = self.temporary_vreg();
+        self.emit(abi::float_move_x_from_d(&bits, source));
+        self.emit(abi::shift_right_immediate(&exponent, &bits, 52));
+        self.emit(abi::move_immediate(&mask, "Integer", "2047"));
+        self.emit(abi::and_registers(&exponent, &exponent, &mask));
+        self.emit(abi::compare_immediate(&exponent, "2047"));
         self.emit(abi::branch_eq(overflow_label));
     }
 }

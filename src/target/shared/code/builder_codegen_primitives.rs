@@ -72,76 +72,53 @@ impl CodeBuilder<'_> {
     /// callee-saved registers the coloring used so `finalize_frame` saves them.
     /// Must run after the body is fully emitted and before the peephole pass and
     /// `finalize_frame`, which both expect physical register names (plan-03).
-    /// Rewrite the hand-written scratch registers the builders name directly (the
-    /// `temporary_register` pool: `x8`–`x17`, `x20`–`x28`) into fresh virtual
-    /// registers, so the allocator places them per-ISA instead of leaving them
-    /// pinned to physical registers. On AArch64 there are enough scratch
-    /// registers that this is a near-identity; on x86-64 the pool is far larger
-    /// than the machine has free, so the pinned names collide and clobber (`x8`
-    /// and `x9` both map to `rax`, `div`/`mul` destroy the operand) — vregs let
-    /// linear-scan spill under pressure and keep each value in a safe, distinct
-    /// register. Runs before MIR lowering/selection so the ISA backend only ever
-    /// sees vregs and ABI registers, never the raw scratch pool. Each distinct
-    /// physical scratch register becomes ONE vreg (preserving its def/use chain);
-    /// a value the builder held across a runtime-helper call now spills across it
-    /// (the call's clobber mask is every integer register), which also retires
-    /// the fragile "survivor register" contracts the hand-written code relied on.
-    fn vregify_scratch_registers(&mut self) {
-        // Only linear-scan colors vregs by liveness; BumpAndReset (the
-        // byte-identical oracle) maps them eagerly back to the same physical pool,
-        // so renaming would gain nothing and could exhaust `temporary_register`.
+    /// Rewrite the hand-written **high FP/SIMD** registers the transcendental and
+    /// SIMD kernels name directly (`d`/`v`/`q` 16–31) into fresh FP virtual
+    /// registers, so the allocator places them per-ISA. The GPR scratch pool
+    /// (`x8`–`x17`/`x20`–`x28`) that this pass historically also virtualized is
+    /// now minted as vregs at the builder emit sites themselves (`temporary_vreg`),
+    /// so no hardcoded GPR scratch reaches here — only this narrow FP normalization
+    /// remains, and it is gated to backends whose FP file is narrower than
+    /// AArch64's 32 vector registers (x86: 16 xmm).
+    ///
+    /// It stays a post-emit pass (rather than being inlined like the GPR scratch)
+    /// because those kernels use `v16`–`v31` as a *function-global* coefficient
+    /// register file shared across a setup method and many body/helper methods
+    /// (e.g. `emit_float_kernel_setup` → `emit_exp_body`/`emit_log_body`/…): the
+    /// value in `v20` set up once must reach every consumer. Unifying by physical
+    /// name across the whole emitted stream — as this pass does — is exactly that
+    /// contract; inlining it would mean threading a 16-register file through every
+    /// kernel method's signature. On AArch64 (`vregify_high_fp() == false`) the
+    /// kernels keep their physical `v16`–`v31` (32 registers, no pressure), so this
+    /// is a no-op there. Each distinct physical FP register becomes ONE FP vreg.
+    fn vregify_kernel_fp_registers(&mut self) {
+        // Only linear-scan colors vregs by liveness; BumpAndReset maps them eagerly
+        // back to the same physical pool, so renaming would gain nothing.
         if self.regalloc_kind != regalloc::RegallocKind::LinearScan {
             return;
         }
-        // x28 (`CLOSURE_ENV_REGISTER`) is excluded from the vregify pool ONLY on
-        // backends that pin it (x86). On AArch64 keeping it in the pool is
-        // byte-identical and correct, so the exclusion is gated to avoid changing
-        // AArch64 codegen. See `Backend::pins_closure_env_register`.
-        let pin_closure_env = mir::active_backend().pins_closure_env_register();
-        let is_scratch = |reg: &str| -> bool {
-            let Some(n) = reg
-                .strip_prefix('x')
-                .and_then(|rest| rest.parse::<u32>().ok())
-            else {
-                return false;
-            };
-            let top = if pin_closure_env { 27 } else { 28 };
-            (8..=17).contains(&n) || (20..=top).contains(&n)
-        };
-        // The high physical FP/SIMD registers (`d`/`v`/`q` 16–31) are renamed to
-        // FP vregs on backends whose FP file is narrower than AArch64's 32 vector
-        // registers (x86: 16 xmm). Below 16 stays physical — those alias the FP
-        // ABI (`v0`–`v7`) and the scalar-float working bank the backend maps 1:1.
         let vregify_high_fp = mir::active_backend().vregify_high_fp();
+        if !vregify_high_fp {
+            return;
+        }
         let is_high_fp = |reg: &str| -> bool {
-            vregify_high_fp
-                && reg
-                    .strip_prefix(['d', 'v', 'q'])
-                    .and_then(|rest| rest.parse::<u32>().ok())
-                    .is_some_and(|n| (16..=31).contains(&n))
+            reg.strip_prefix(['d', 'v', 'q'])
+                .and_then(|rest| rest.parse::<u32>().ok())
+                .is_some_and(|n| (16..=31).contains(&n))
         };
         // First-appearance order so the vreg numbering is deterministic.
-        let mut order: Vec<String> = Vec::new();
         let mut fp_order: Vec<String> = Vec::new();
         for instruction in &self.instructions {
             for (_, value) in &instruction.fields {
-                if is_scratch(value) && !order.contains(value) {
-                    order.push(value.clone());
-                } else if is_high_fp(value) && !fp_order.contains(value) {
+                if is_high_fp(value) && !fp_order.contains(value) {
                     fp_order.push(value.clone());
                 }
             }
         }
-        if order.is_empty() && fp_order.is_empty() {
+        if fp_order.is_empty() {
             return;
         }
         let mut rename: HashMap<String, String> = HashMap::new();
-        for register in order {
-            let vreg = self
-                .allocate_register()
-                .expect("linear-scan mints vregs without exhausting a pool");
-            rename.insert(register, vreg);
-        }
         for register in fp_order {
             let vreg = self
                 .allocate_fp_register()
@@ -155,20 +132,16 @@ impl CodeBuilder<'_> {
                 }
             }
         }
-        // The scratch registers were recorded as used callee-saved by
-        // `mark_register_used` while the builder lowered them physically; now
-        // that they are vregs, that record is stale (double-counting the save
-        // area against the allocator's own spill slots and corrupting the frame
-        // offsets). Drop them — the allocator re-reports whichever callee-saved
-        // registers its coloring actually uses via `extra_callee_saved`.
         self.used_callee_saved
             .retain(|register| !rename.contains_key(register));
     }
 
     pub(super) fn run_register_allocation(&mut self) {
-        // Free the builders' hand-named scratch pool (x8-x17/x20-x28) into vregs
-        // before the MIR seam, so selection + allocation handle it per-ISA.
-        self.vregify_scratch_registers();
+        // The GPR scratch pool (x8-x17/x20-x28) is now minted as vregs directly at
+        // the builder emit sites (`temporary_vreg`); only the SIMD/transcendental
+        // kernels' function-global high-FP register file still needs virtualizing
+        // (x86 only), before the MIR seam so selection + allocation handle it.
+        self.vregify_kernel_fp_registers();
         // MIR seam (plan-00-A): the fully-lowered, pre-allocation stream is the
         // point where the neutral MIR layer sits (`NIR → MIR → select → alloc`,
         // `mir.md §2`/§3). A `-mir` dump captures this function's MIR here (with
@@ -215,6 +188,15 @@ impl CodeBuilder<'_> {
     pub(super) fn temporary_vreg(&mut self) -> String {
         self.allocate_register()
             .expect("linear-scan mints vregs without exhausting a pool")
+    }
+
+    /// Mint a floating-point virtual register for a builder that would otherwise
+    /// name a physical high-FP register (`d`/`v`/`q` 16–31) directly. Infallible
+    /// under linear-scan; the FP sibling of [`Self::temporary_vreg`] for the SIMD
+    /// kernels that used fixed FP homes and cannot bubble a `Result`.
+    pub(super) fn temporary_fp_vreg(&mut self) -> String {
+        self.allocate_fp_register()
+            .expect("linear-scan mints FP vregs without exhausting a pool")
     }
 
     pub(super) fn mark_register_used(&mut self, register: &str) {
@@ -380,8 +362,9 @@ impl CodeBuilder<'_> {
             binding: "internal".to_string(),
             library: None,
         });
-        self.emit(abi::move_register("x9", abi::return_register()));
-        Ok("x9".to_string())
+        let result = self.temporary_vreg();
+        self.emit(abi::move_register(&result, abi::return_register()));
+        Ok(result)
     }
 
     /// Build a flat `Error` value `{code @0, message(String offset) @8,
@@ -408,48 +391,53 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("error_inline_alloc_ok");
         let src_null_fill = self.label("error_src_null_fill");
         let src_fill_done = self.label("error_src_fill_done");
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
 
         // message block size = len + 9 (message is never null).
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), message_slot));
-        self.emit(abi::load_u64("x9", "x8", 0));
-        self.emit(abi::add_immediate("x9", "x9", 9));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), message_slot));
+        self.emit(abi::load_u64(&scratch9, &scratch8, 0));
+        self.emit(abi::add_immediate(&scratch9, &scratch9, 9));
+        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), msg_block_slot));
         // source block size + offset: 0 (sentinel) when null, else its flat
         // ErrorLoc block size at the 8-aligned offset past the message block.
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
-        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
+        self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_eq(&src_null_size));
         self.emit_record_block_size_to_slot("ErrorLoc", source_slot, src_block_slot)?;
         // src_off = align8(24 + msg_block)
         self.emit(abi::move_immediate(
-            "x8",
+            &scratch8,
             "Integer",
             &ERROR_OBJECT_SIZE.to_string(),
         ));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), msg_block_slot));
-        self.emit(abi::add_registers("x8", "x8", "x9"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), src_off_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), src_off_slot));
         self.emit_align_offset_slot(src_off_slot, 8);
         // size = src_off + src_block
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), src_off_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), src_block_slot));
-        self.emit(abi::add_registers("x8", "x8", "x9"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), src_off_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_block_slot));
+        self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         self.emit(abi::branch(&src_size_done));
         self.emit(abi::label(&src_null_size));
         // No source: offset sentinel 0, size = 24 + msg_block.
-        self.emit(abi::move_immediate("x8", "Integer", "0"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), src_off_slot));
-        self.emit(abi::move_immediate("x8", "Integer", "0"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), src_block_slot));
+        self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), src_off_slot));
+        self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), src_block_slot));
         self.emit(abi::move_immediate(
-            "x8",
+            &scratch8,
             "Integer",
             &ERROR_OBJECT_SIZE.to_string(),
         ));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), msg_block_slot));
-        self.emit(abi::add_registers("x8", "x8", "x9"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         self.emit(abi::label(&src_size_done));
 
         // Allocate the Error block.
@@ -476,32 +464,32 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         // code @0.
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), code_slot));
-        self.emit(abi::store_u64("x9", "x1", 0));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), code_slot));
+        self.emit(abi::store_u64(&scratch9, "x1", 0));
         // message-offset @8 = 24; inline message block at +24.
         self.emit(abi::move_immediate(
-            "x9",
+            &scratch9,
             "Integer",
             &ERROR_OBJECT_SIZE.to_string(),
         ));
-        self.emit(abi::store_u64("x9", "x1", 8));
-        self.emit(abi::add_immediate("x10", "x1", ERROR_OBJECT_SIZE));
-        self.emit(abi::load_u64("x11", abi::stack_pointer(), message_slot));
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), msg_block_slot));
-        self.emit_copy_bytes("x10", "x11", "x12", "error_msg_copy");
+        self.emit(abi::store_u64(&scratch9, "x1", 8));
+        self.emit(abi::add_immediate(&scratch10, "x1", ERROR_OBJECT_SIZE));
+        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), message_slot));
+        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), msg_block_slot));
+        self.emit_copy_bytes(&scratch10, &scratch11, &scratch12, "error_msg_copy");
         // source-offset @16; inline source block when present.
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), src_off_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::store_u64("x9", "x1", 16));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
-        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::store_u64(&scratch9, "x1", 16));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
+        self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_eq(&src_null_fill));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), src_off_slot));
-        self.emit(abi::add_registers("x10", "x1", "x9"));
-        self.emit(abi::load_u64("x11", abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), src_block_slot));
-        self.emit_copy_bytes("x10", "x11", "x12", "error_src_copy");
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
+        self.emit(abi::add_registers(&scratch10, "x1", &scratch9));
+        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), src_block_slot));
+        self.emit_copy_bytes(&scratch10, &scratch11, &scratch12, "error_src_copy");
         self.emit(abi::branch(&src_fill_done));
         self.emit(abi::label(&src_null_fill));
         self.emit(abi::label(&src_fill_done));
@@ -524,6 +512,7 @@ impl CodeBuilder<'_> {
         let source_raw_slot = self.allocate_stack_object("worker_error_source_raw", 8);
         let message_slot = self.allocate_stack_object("worker_error_message", 8);
         let source_slot = self.allocate_stack_object("worker_error_source", 8);
+        let scratch9 = self.temporary_vreg();
         self.emit(abi::store_u64(
             RESULT_VALUE_REGISTER,
             abi::stack_pointer(),
@@ -540,8 +529,8 @@ impl CodeBuilder<'_> {
             source_raw_slot,
         ));
         // Deep-copy the message into the caller arena.
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), message_raw_slot));
-        let copied_message = self.copy_value_to_current_arena("String", "x9")?;
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), message_raw_slot));
+        let copied_message = self.copy_value_to_current_arena("String", &scratch9)?;
         self.emit(abi::store_u64(
             &copied_message,
             abi::stack_pointer(),
@@ -551,10 +540,10 @@ impl CodeBuilder<'_> {
         // error originated in `waitFor` itself (no worker origin).
         let own = self.label("worker_error_own_origin");
         let done = self.label("worker_error_source_done");
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_raw_slot));
-        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_raw_slot));
+        self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&own));
-        let copied_source = self.copy_value_to_current_arena("ErrorLoc", "x9")?;
+        let copied_source = self.copy_value_to_current_arena("ErrorLoc", &scratch9)?;
         self.emit(abi::store_u64(
             &copied_source,
             abi::stack_pointer(),
@@ -709,6 +698,7 @@ impl CodeBuilder<'_> {
         already_standalone: bool,
     ) -> Result<(), String> {
         let slots = self.ensure_pending_result_slots();
+        let scratch9 = self.temporary_vreg();
         let value_register = if let Some(value) = value {
             if value.type_ == "Nothing" {
                 let register = self.allocate_register()?;
@@ -736,16 +726,16 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             slots.value,
         ));
-        self.emit(abi::move_immediate("x9", "Integer", RESULT_OK_TAG));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), slots.tag));
+        self.emit(abi::move_immediate(&scratch9, "Integer", RESULT_OK_TAG));
+        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), slots.tag));
         self.emit(abi::store_u64(
             &message_register,
             abi::stack_pointer(),
             slots.message,
         ));
         // Success results carry no error source.
-        self.emit(abi::move_immediate("x9", "Integer", "0"));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), slots.source));
+        self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
+        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), slots.source));
         Ok(())
     }
 
@@ -756,13 +746,14 @@ impl CodeBuilder<'_> {
         source_register: &str,
     ) {
         let slots = self.ensure_pending_result_slots();
+        let scratch9 = self.temporary_vreg();
         self.emit(abi::store_u64(
             code_register,
             abi::stack_pointer(),
             slots.value,
         ));
-        self.emit(abi::move_immediate("x9", "Integer", RESULT_ERR_TAG));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), slots.tag));
+        self.emit(abi::move_immediate(&scratch9, "Integer", RESULT_ERR_TAG));
+        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), slots.tag));
         self.emit(abi::store_u64(
             message_register,
             abi::stack_pointer(),
@@ -1174,14 +1165,15 @@ impl CodeBuilder<'_> {
     }
 
     fn record_secondary_cleanup_failure(&mut self) {
+        let scratch9 = self.temporary_vreg();
         self.emit(abi::load_u64(
-            "x9",
+            &scratch9,
             ARENA_STATE_REGISTER,
             ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
         ));
-        self.emit(abi::add_immediate("x9", "x9", 1));
+        self.emit(abi::add_immediate(&scratch9, &scratch9, 1));
         self.emit(abi::store_u64(
-            "x9",
+            &scratch9,
             ARENA_STATE_REGISTER,
             ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
         ));
@@ -1235,8 +1227,9 @@ impl CodeBuilder<'_> {
     pub(super) fn setup_owned_list(&mut self, name: &str, type_: &str) -> Result<(), String> {
         let close_symbol = self.collection_resource_close_symbol(type_)?;
         let head_slot = self.allocate_stack_object(&format!("owned_list_{name}"), 8);
-        self.emit(abi::move_immediate("x9", "Integer", "0"));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), head_slot));
+        let scratch9 = self.temporary_vreg();
+        self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
+        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), head_slot));
         self.owned_list_heads.insert(name.to_string(), head_slot);
         self.active_cleanups
             .push(ActiveCleanup::OwnedList(OwnedListCleanup {
@@ -1287,6 +1280,8 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("resource floats to '{collection}', which has no owned-list"))?;
         // Allocate a 16-byte node (record ptr at 0, next at 8).
         let alloc_ok = self.label("owned_list_alloc_ok");
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
         self.emit(abi::move_immediate(abi::return_register(), "Integer", "16"));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
@@ -1305,10 +1300,10 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         // x1 = node pointer.
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), resource_slot));
-        self.emit(abi::store_u64("x9", "x1", 0));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), head_slot));
-        self.emit(abi::store_u64("x10", "x1", 8));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), resource_slot));
+        self.emit(abi::store_u64(&scratch9, "x1", 0));
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), head_slot));
+        self.emit(abi::store_u64(&scratch10, "x1", 8));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), head_slot));
         Ok(())
     }
@@ -1328,9 +1323,10 @@ impl CodeBuilder<'_> {
         self.initialize_collection_loop_slots(collection_slot, cursor_slot, remaining_slot);
         let loop_label = self.label("owned_list_seed_loop");
         let done_label = self.label("owned_list_seed_done");
+        let scratch9 = self.temporary_vreg();
         self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
-        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), remaining_slot));
+        self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done_label));
         let item = self.load_collection_loop_item(collection_slot, cursor_slot, element_type)?;
         self.emit(abi::store_u64(&item, abi::stack_pointer(), elem_slot));
@@ -1350,16 +1346,18 @@ impl CodeBuilder<'_> {
         let loop_label = self.label("owned_list_drain_loop");
         let done_label = self.label("owned_list_drain_done");
         let close_ok = self.label("owned_list_close_ok");
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
         self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), cleanup.head_slot));
-        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), cleanup.head_slot));
+        self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done_label));
         // Advance the head past this node before the call, which clobbers
         // caller-saved registers; the loop reloads the head from memory.
-        self.emit(abi::load_u64(abi::return_register(), "x9", 0));
-        self.emit(abi::load_u64("x10", "x9", 8));
+        self.emit(abi::load_u64(abi::return_register(), &scratch9, 0));
+        self.emit(abi::load_u64(&scratch10, &scratch9, 8));
         self.emit(abi::store_u64(
-            "x10",
+            &scratch10,
             abi::stack_pointer(),
             cleanup.head_slot,
         ));

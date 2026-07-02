@@ -10,6 +10,7 @@ impl CodeBuilder<'_> {
     }
 
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
+        let zero_slot = self.temporary_vreg();
         for op in ops {
             let result = (|| -> Result<(), String> {
                 match op {
@@ -67,8 +68,8 @@ impl CodeBuilder<'_> {
                         // stays null and the scope-drop free skips it instead of
                         // freeing an uninitialized pointer.
                         if owns_freeable_value {
-                            self.emit(abi::move_immediate("x9", "Integer", "0"));
-                            self.emit(abi::store_u64("x9", abi::stack_pointer(), stack_offset));
+                            self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
+                            self.emit(abi::store_u64(&zero_slot, abi::stack_pointer(), stack_offset));
                         }
                         if let Some(value) = value {
                             // Deep-copy aliasing sources so this binding owns an
@@ -728,9 +729,10 @@ impl CodeBuilder<'_> {
     /// non-self-append bind/assign installs a fresh tight buffer. Keeps the shadow
     /// from claiming spare that the new buffer does not have (plan-02 §4.1).
     pub(super) fn reset_string_capacity_shadow(&mut self, name: &str) {
+        let zero = self.temporary_vreg();
         if let Some(&slot) = self.string_capacity_slots.get(name) {
-            self.emit(abi::move_immediate("x9", "Integer", "0"));
-            self.emit(abi::store_u64("x9", abi::stack_pointer(), slot));
+            self.emit(abi::move_immediate(&zero, "Integer", "0"));
+            self.emit(abi::store_u64(&zero, abi::stack_pointer(), slot));
         }
     }
 
@@ -878,6 +880,11 @@ impl CodeBuilder<'_> {
         iterable: &NirValue,
         body: &[NirOp],
     ) -> Result<(), String> {
+        let collection = self.temporary_vreg();
+        let remaining = self.temporary_vreg();
+        let cursor = self.temporary_vreg();
+        let payload_off = self.temporary_vreg();
+        let payload_len = self.temporary_vreg();
         let iterable_value = self.lower_value(iterable)?;
         if !is_collection_type(&iterable_value.type_) {
             return Err(format!(
@@ -922,63 +929,63 @@ impl CodeBuilder<'_> {
         } else {
             false
         };
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
-        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::add_immediate("x10", "x8", COLLECTION_HEADER_SIZE));
-        self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64(&remaining, &collection, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate(&cursor, &collection, COLLECTION_HEADER_SIZE));
+        self.emit(abi::store_u64(&cursor, abi::stack_pointer(), cursor_slot));
+        self.emit(abi::store_u64(&remaining, abi::stack_pointer(), remaining_slot));
 
         let loop_label = self.label("for_each_loop");
         let end_label = self.label("for_each_end");
         self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
-        self.emit(abi::compare_immediate("x9", "0"));
+        self.emit(abi::load_u64(&remaining, abi::stack_pointer(), remaining_slot));
+        self.emit(abi::compare_immediate(&remaining, "0"));
         self.emit(abi::branch_eq(&end_label));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
         if let (Some(entry_payload_slot), Some((key_type, value_type))) =
             (entry_payload_slot, map_entry_types.as_ref())
         {
             self.emit(abi::load_u64(
-                "x11",
-                "x10",
+                &payload_off,
+                &cursor,
                 COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             ));
             self.emit(abi::load_u64(
-                "x12",
-                "x10",
+                &payload_len,
+                &cursor,
                 COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
             ));
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
-            let key_value = self.emit_load_collection_payload(key_type, "x8", "x11", "x12")?;
+            self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
+            let key_value = self.emit_load_collection_payload(key_type, &collection, &payload_off, &payload_len)?;
             self.emit(abi::store_u64(
                 &key_value,
                 abi::stack_pointer(),
                 entry_payload_slot,
             ));
-            self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
+            self.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
             self.emit(abi::load_u64(
-                "x11",
-                "x10",
+                &payload_off,
+                &cursor,
                 COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
             ));
             self.emit(abi::load_u64(
-                "x12",
-                "x10",
+                &payload_len,
+                &cursor,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
-            let item_value = self.emit_load_collection_payload(value_type, "x8", "x11", "x12")?;
+            self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
+            let item_value = self.emit_load_collection_payload(value_type, &collection, &payload_off, &payload_len)?;
             self.emit(abi::store_u64(
                 &item_value,
                 abi::stack_pointer(),
                 entry_payload_slot + 8,
             ));
             self.emit(abi::add_immediate(
-                "x11",
+                &payload_off,
                 abi::stack_pointer(),
                 entry_payload_slot,
             ));
-            self.emit(abi::store_u64("x11", abi::stack_pointer(), local_slot));
+            self.emit(abi::store_u64(&payload_off, abi::stack_pointer(), local_slot));
         } else {
             let item_value_type = item_value_type.ok_or_else(|| {
                 format!(
@@ -987,30 +994,30 @@ impl CodeBuilder<'_> {
                 )
             })?;
             self.emit(abi::load_u64(
-                "x11",
-                "x10",
+                &payload_off,
+                &cursor,
                 COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
             ));
             self.emit(abi::load_u64(
-                "x12",
-                "x10",
+                &payload_len,
+                &cursor,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
+            self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
             let item_value =
-                self.emit_load_collection_payload(item_value_type, "x8", "x11", "x12")?;
+                self.emit_load_collection_payload(item_value_type, &collection, &payload_off, &payload_len)?;
             self.emit(abi::store_u64(
                 &item_value,
                 abi::stack_pointer(),
                 local_slot,
             ));
         }
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), cursor_slot));
-        self.emit(abi::add_immediate("x10", "x10", COLLECTION_ENTRY_SIZE));
-        self.emit(abi::store_u64("x10", abi::stack_pointer(), cursor_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), remaining_slot));
-        self.emit(abi::subtract_immediate("x9", "x9", 1));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), remaining_slot));
+        self.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
+        self.emit(abi::add_immediate(&cursor, &cursor, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::store_u64(&cursor, abi::stack_pointer(), cursor_slot));
+        self.emit(abi::load_u64(&remaining, abi::stack_pointer(), remaining_slot));
+        self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
+        self.emit(abi::store_u64(&remaining, abi::stack_pointer(), remaining_slot));
 
         let previous = self.locals.insert(
             name.to_string(),

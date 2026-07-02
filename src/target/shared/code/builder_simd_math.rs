@@ -704,11 +704,14 @@ impl CodeBuilder<'_> {
         // = rdx) with a role-colored x2 (CALL_ARGS[2] = rdx) collides — the
         // low bound aliased the high bound and the tail lane clamped against
         // the wrong limit. x9-x11 map to three distinct GPRs on both ISAs.
-        self.emit(abi::load_u64("x9", &in_data, 0));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), low_slot));
-        self.emit(abi::load_u64("x11", abi::stack_pointer(), high_slot));
-        self.emit_simd_clamp_scalar(kernel);
-        self.emit(abi::store_u64("x9", &out_data, 0));
+        let lane = self.temporary_vreg();
+        let low_bound = self.temporary_vreg();
+        let high_bound = self.temporary_vreg();
+        self.emit(abi::load_u64(&lane, &in_data, 0));
+        self.emit(abi::load_u64(&low_bound, abi::stack_pointer(), low_slot));
+        self.emit(abi::load_u64(&high_bound, abi::stack_pointer(), high_slot));
+        self.emit_simd_clamp_scalar(kernel, &lane, &low_bound, &high_bound);
+        self.emit(abi::store_u64(&lane, &out_data, 0));
         self.emit(abi::label(&tail_done));
 
         Ok(ValueResult {
@@ -738,41 +741,41 @@ impl CodeBuilder<'_> {
         }
     }
 
-    /// Scalar tail clamp: `x9` = lane, `x10` = low, `x11` = high; result → `x9`.
-    fn emit_simd_clamp_scalar(&mut self, kernel: SimdClampKernel) {
+    /// Scalar tail clamp: `lane` = lane, `low` = low, `high` = high; result → `lane`.
+    fn emit_simd_clamp_scalar(&mut self, kernel: SimdClampKernel, lane: &str, low: &str, high: &str) {
         match kernel {
             SimdClampKernel::Signed => {
-                // x9 = min(x9, high)
+                // lane = min(lane, high)
                 let skip_hi = self.label("simd_clamp_tail_skip_hi");
-                self.emit(abi::compare_registers("x9", "x11"));
+                self.emit(abi::compare_registers(lane, high));
                 self.emit(abi::branch_le(&skip_hi));
-                self.emit(abi::move_register("x9", "x11"));
+                self.emit(abi::move_register(lane, high));
                 self.emit(abi::label(&skip_hi));
-                // x9 = max(x9, low)
+                // lane = max(lane, low)
                 let skip_lo = self.label("simd_clamp_tail_skip_lo");
-                self.emit(abi::compare_registers("x9", "x10"));
+                self.emit(abi::compare_registers(lane, low));
                 self.emit(abi::branch_ge(&skip_lo));
-                self.emit(abi::move_register("x9", "x10"));
+                self.emit(abi::move_register(lane, low));
                 self.emit(abi::label(&skip_lo));
             }
             SimdClampKernel::Float => {
-                // x9 = min(x9, high) via FP compare
-                self.emit(abi::float_move_d_from_x("d0", "x9"));
-                self.emit(abi::float_move_d_from_x("d1", "x11"));
+                // lane = min(lane, high) via FP compare
+                self.emit(abi::float_move_d_from_x("d0", lane));
+                self.emit(abi::float_move_d_from_x("d1", high));
                 self.emit(abi::float_subtract_d("d2", "d0", "d1"));
                 self.emit(abi::float_compare_zero_d("d2"));
                 let skip_hi = self.label("simd_clamp_tail_skip_hi");
                 self.emit(abi::branch_le(&skip_hi));
-                self.emit(abi::move_register("x9", "x11"));
+                self.emit(abi::move_register(lane, high));
                 self.emit(abi::label(&skip_hi));
-                // x9 = max(x9, low)
-                self.emit(abi::float_move_d_from_x("d0", "x9"));
-                self.emit(abi::float_move_d_from_x("d1", "x10"));
+                // lane = max(lane, low)
+                self.emit(abi::float_move_d_from_x("d0", lane));
+                self.emit(abi::float_move_d_from_x("d1", low));
                 self.emit(abi::float_subtract_d("d2", "d0", "d1"));
                 self.emit(abi::float_compare_zero_d("d2"));
                 let skip_lo = self.label("simd_clamp_tail_skip_lo");
                 self.emit(abi::branch_ge(&skip_lo));
-                self.emit(abi::move_register("x9", "x10"));
+                self.emit(abi::move_register(lane, low));
                 self.emit(abi::label(&skip_lo));
             }
         }

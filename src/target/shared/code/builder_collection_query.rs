@@ -93,11 +93,12 @@ impl CodeBuilder<'_> {
         key_type: &str,
         key_slot: usize,
     ) -> Result<(), String> {
+        let scratch9 = self.temporary_vreg();
         match key_type {
             "String" => {
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), key_slot));
-                self.emit(abi::load_u64("x2", "x9", 0));
-                self.emit(abi::add_immediate("x1", "x9", 8));
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_slot));
+                self.emit(abi::load_u64("x2", &scratch9, 0));
+                self.emit(abi::add_immediate("x1", &scratch9, 8));
             }
             "Boolean" | "Byte" => {
                 self.emit(abi::add_immediate("x1", abi::stack_pointer(), key_slot));
@@ -126,6 +127,9 @@ impl CodeBuilder<'_> {
         key_type: &str,
         not_found_label: &str,
     ) -> Result<usize, String> {
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch16 = self.temporary_vreg();
         self.emit_map_query_key(key_type, key_slot)?;
         self.emit(abi::load_u64("x0", abi::stack_pointer(), collection_slot));
         self.emit(abi::branch_link(MAP_PROBE_SYMBOL));
@@ -141,15 +145,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_lt(not_found_label));
         let entry_slot = self.allocate_stack_object("map_probe_entry", 8);
         self.emit(abi::move_immediate(
-            "x16",
+            &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers("x9", "x0", "x16"));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), collection_slot));
-        self.emit(abi::add_registers("x9", "x9", "x10"));
-        self.emit(abi::add_immediate("x9", "x9", COLLECTION_HEADER_SIZE));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), entry_slot));
+        self.emit(abi::multiply_registers(&scratch9, "x0", &scratch16));
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), collection_slot));
+        self.emit(abi::add_registers(&scratch9, &scratch9, &scratch10));
+        self.emit(abi::add_immediate(&scratch9, &scratch9, COLLECTION_HEADER_SIZE));
+        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), entry_slot));
         Ok(entry_slot)
     }
 

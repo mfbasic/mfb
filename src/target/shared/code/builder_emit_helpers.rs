@@ -22,6 +22,7 @@ impl CodeBuilder<'_> {
         args: &[NirValue],
         slot_name: &str,
     ) -> Result<Vec<ValueResult>, String> {
+        let scratch9 = self.temporary_vreg();
         let mut arg_values = Vec::new();
         let mut arg_slots = Vec::new();
         for arg in args {
@@ -42,8 +43,8 @@ impl CodeBuilder<'_> {
         }
         self.reset_temporary_registers();
         for (index, slot) in arg_slots.iter().enumerate() {
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
+            self.emit(abi::move_register(&abi::argument_register(index)?, &scratch9));
         }
         Ok(arg_values)
     }
@@ -343,6 +344,8 @@ impl CodeBuilder<'_> {
                 "native runtime call '{target}' expects a handle and message"
             ));
         }
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
         let mut arg_values = Vec::new();
         let mut arg_slots = Vec::new();
         self.reset_temporary_registers();
@@ -375,12 +378,12 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             saved_arena_slot,
         ));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), arg_slots[0]));
-        self.emit(abi::load_u64("x10", "x9", arena_offset));
-        self.emit(abi::move_register(ARENA_STATE_REGISTER, "x10"));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), arg_slots[0]));
+        self.emit(abi::load_u64(&scratch10, &scratch9, arena_offset));
+        self.emit(abi::move_register(ARENA_STATE_REGISTER, &scratch10));
         self.error_arena_restore_slot = Some(saved_arena_slot);
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), arg_slots[1]));
-        let copied = self.copy_value_to_current_arena(&arg_values[1].type_, "x9")?;
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), arg_slots[1]));
+        let copied = self.copy_value_to_current_arena(&arg_values[1].type_, &scratch9)?;
         self.error_arena_restore_slot = None;
         self.emit(abi::store_u64(
             &copied,
@@ -394,15 +397,15 @@ impl CodeBuilder<'_> {
             saved_arena_slot,
         ));
         self.emit(abi::load_u64(
-            "x9",
+            &scratch9,
             abi::stack_pointer(),
             copied_message_slot,
         ));
-        self.emit(abi::store_u64("x9", abi::stack_pointer(), arg_slots[1]));
+        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), arg_slots[1]));
 
         for (index, slot) in arg_slots.iter().enumerate() {
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(&abi::argument_register(index)?, "x9"));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
+            self.emit(abi::move_register(&abi::argument_register(index)?, &scratch9));
         }
         self.emit_symbol_call(symbol);
 

@@ -71,50 +71,58 @@ impl CodeBuilder<'_> {
         let scan_loop = self.label("fs_path_base_name_scan_loop");
         let found_slash = self.label("fs_path_base_name_found_slash");
         let range_ready = self.label("fs_path_base_name_range_ready");
+        let path_ptr = self.temporary_vreg();
+        let length = self.temporary_vreg();
+        let bytes = self.temporary_vreg();
+        let cursor = self.temporary_vreg();
+        let byte = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let start = self.temporary_vreg();
+        let span = self.temporary_vreg();
 
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), path_slot));
-        self.emit(abi::load_u64("x10", "x9", 0));
-        self.emit(abi::add_immediate("x11", "x9", 8));
-        self.emit(abi::compare_immediate("x10", "1"));
+        self.emit(abi::load_u64(&path_ptr, abi::stack_pointer(), path_slot));
+        self.emit(abi::load_u64(&length, &path_ptr, 0));
+        self.emit(abi::add_immediate(&bytes, &path_ptr, 8));
+        self.emit(abi::compare_immediate(&length, "1"));
         self.emit(abi::branch_ne(&trim_loop));
-        self.emit(abi::load_u8("x12", "x11", 0));
-        self.emit(abi::compare_immediate("x12", "47"));
+        self.emit(abi::load_u8(&cursor, &bytes, 0));
+        self.emit(abi::compare_immediate(&cursor, "47"));
         self.emit(abi::branch_eq(&whole_root));
 
         self.emit(abi::label(&trim_loop));
-        self.emit(abi::compare_immediate("x10", "1"));
+        self.emit(abi::compare_immediate(&length, "1"));
         self.emit(abi::branch_le(&trim_done));
-        self.emit(abi::add_registers("x12", "x11", "x10"));
-        self.emit(abi::subtract_immediate("x12", "x12", 1));
-        self.emit(abi::load_u8("x13", "x12", 0));
-        self.emit(abi::compare_immediate("x13", "47"));
+        self.emit(abi::add_registers(&cursor, &bytes, &length));
+        self.emit(abi::subtract_immediate(&cursor, &cursor, 1));
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::compare_immediate(&byte, "47"));
         self.emit(abi::branch_ne(&trim_done));
-        self.emit(abi::subtract_immediate("x10", "x10", 1));
+        self.emit(abi::subtract_immediate(&length, &length, 1));
         self.emit(abi::branch(&trim_loop));
 
         self.emit(abi::label(&trim_done));
-        self.emit(abi::move_register("x14", "x10"));
+        self.emit(abi::move_register(&index, &length));
         self.emit(abi::label(&scan_loop));
-        self.emit(abi::compare_immediate("x14", "0"));
+        self.emit(abi::compare_immediate(&index, "0"));
         self.emit(abi::branch_eq(&range_ready));
-        self.emit(abi::subtract_immediate("x14", "x14", 1));
-        self.emit(abi::add_registers("x12", "x11", "x14"));
-        self.emit(abi::load_u8("x13", "x12", 0));
-        self.emit(abi::compare_immediate("x13", "47"));
+        self.emit(abi::subtract_immediate(&index, &index, 1));
+        self.emit(abi::add_registers(&cursor, &bytes, &index));
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::compare_immediate(&byte, "47"));
         self.emit(abi::branch_eq(&found_slash));
         self.emit(abi::branch(&scan_loop));
 
         self.emit(abi::label(&found_slash));
-        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::add_immediate(&index, &index, 1));
         self.emit(abi::branch(&range_ready));
 
         self.emit(abi::label(&whole_root));
-        self.emit(abi::move_immediate("x14", "Integer", "0"));
-        self.emit(abi::move_immediate("x10", "Integer", "1"));
+        self.emit(abi::move_immediate(&index, "Integer", "0"));
+        self.emit(abi::move_immediate(&length, "Integer", "1"));
         self.emit(abi::label(&range_ready));
-        self.emit(abi::add_registers("x15", "x11", "x14"));
-        self.emit(abi::subtract_registers("x16", "x10", "x14"));
-        let result = self.emit_materialize_string_from_bytes("x15", "x16")?;
+        self.emit(abi::add_registers(&start, &bytes, &index));
+        self.emit(abi::subtract_registers(&span, &length, &index));
+        let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         Ok(ValueResult {
             type_: "String".to_string(),
             location: result,
@@ -133,67 +141,75 @@ impl CodeBuilder<'_> {
         let scan_loop = self.label("fs_path_dir_name_scan_loop");
         let found_slash = self.label("fs_path_dir_name_found_slash");
         let materialize = self.label("fs_path_dir_name_materialize");
+        let path_ptr = self.temporary_vreg();
+        let length = self.temporary_vreg();
+        let bytes = self.temporary_vreg();
+        let cursor = self.temporary_vreg();
+        let byte = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let start = self.temporary_vreg();
+        let constant_ptr = self.temporary_vreg();
 
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), path_slot));
-        self.emit(abi::load_u64("x10", "x9", 0));
-        self.emit(abi::add_immediate("x11", "x9", 8));
-        self.emit(abi::compare_immediate("x10", "0"));
+        self.emit(abi::load_u64(&path_ptr, abi::stack_pointer(), path_slot));
+        self.emit(abi::load_u64(&length, &path_ptr, 0));
+        self.emit(abi::add_immediate(&bytes, &path_ptr, 8));
+        self.emit(abi::compare_immediate(&length, "0"));
         self.emit(abi::branch_eq(&dot));
-        self.emit(abi::compare_immediate("x10", "1"));
+        self.emit(abi::compare_immediate(&length, "1"));
         self.emit(abi::branch_ne(&trim_loop));
-        self.emit(abi::load_u8("x12", "x11", 0));
-        self.emit(abi::compare_immediate("x12", "47"));
+        self.emit(abi::load_u8(&cursor, &bytes, 0));
+        self.emit(abi::compare_immediate(&cursor, "47"));
         self.emit(abi::branch_eq(&root));
 
         self.emit(abi::label(&trim_loop));
-        self.emit(abi::compare_immediate("x10", "1"));
+        self.emit(abi::compare_immediate(&length, "1"));
         self.emit(abi::branch_le(&trim_done));
-        self.emit(abi::add_registers("x12", "x11", "x10"));
-        self.emit(abi::subtract_immediate("x12", "x12", 1));
-        self.emit(abi::load_u8("x13", "x12", 0));
-        self.emit(abi::compare_immediate("x13", "47"));
+        self.emit(abi::add_registers(&cursor, &bytes, &length));
+        self.emit(abi::subtract_immediate(&cursor, &cursor, 1));
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::compare_immediate(&byte, "47"));
         self.emit(abi::branch_ne(&trim_done));
-        self.emit(abi::subtract_immediate("x10", "x10", 1));
+        self.emit(abi::subtract_immediate(&length, &length, 1));
         self.emit(abi::branch(&trim_loop));
 
         self.emit(abi::label(&trim_done));
-        self.emit(abi::move_register("x14", "x10"));
+        self.emit(abi::move_register(&index, &length));
         self.emit(abi::label(&scan_loop));
-        self.emit(abi::compare_immediate("x14", "0"));
+        self.emit(abi::compare_immediate(&index, "0"));
         self.emit(abi::branch_eq(&dot));
-        self.emit(abi::subtract_immediate("x14", "x14", 1));
-        self.emit(abi::add_registers("x12", "x11", "x14"));
-        self.emit(abi::load_u8("x13", "x12", 0));
-        self.emit(abi::compare_immediate("x13", "47"));
+        self.emit(abi::subtract_immediate(&index, &index, 1));
+        self.emit(abi::add_registers(&cursor, &bytes, &index));
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::compare_immediate(&byte, "47"));
         self.emit(abi::branch_eq(&found_slash));
         self.emit(abi::branch(&scan_loop));
 
         self.emit(abi::label(&found_slash));
-        self.emit(abi::compare_immediate("x14", "0"));
+        self.emit(abi::compare_immediate(&index, "0"));
         self.emit(abi::branch_eq(&root));
-        self.emit(abi::move_register("x10", "x14"));
+        self.emit(abi::move_register(&length, &index));
         self.emit(abi::branch(&materialize));
 
         self.emit(abi::label(&dot));
         let dot_register = self.load_string_constant(".")?;
-        self.emit(abi::move_register("x17", &dot_register));
+        self.emit(abi::move_register(&constant_ptr, &dot_register));
         let done_constant = self.label("fs_path_dir_name_done_constant");
         self.emit(abi::branch(&done_constant));
 
         self.emit(abi::label(&root));
         let slash_register = self.load_string_constant("/")?;
-        self.emit(abi::move_register("x17", &slash_register));
+        self.emit(abi::move_register(&constant_ptr, &slash_register));
         self.emit(abi::branch(&done_constant));
 
         self.emit(abi::label(&materialize));
-        self.emit(abi::move_register("x15", "x11"));
-        let result = self.emit_materialize_string_from_bytes("x15", "x10")?;
+        self.emit(abi::move_register(&start, &bytes));
+        let result = self.emit_materialize_string_from_bytes(&start, &length)?;
         let final_slot = self.allocate_stack_object("fs_path_dir_name_result", 8);
         self.emit(abi::store_u64(&result, abi::stack_pointer(), final_slot));
         let done = self.label("fs_path_dir_name_done");
         self.emit(abi::branch(&done));
         self.emit(abi::label(&done_constant));
-        self.emit(abi::store_u64("x17", abi::stack_pointer(), final_slot));
+        self.emit(abi::store_u64(&constant_ptr, abi::stack_pointer(), final_slot));
         self.emit(abi::label(&done));
         let out = self.allocate_register()?;
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
@@ -215,42 +231,50 @@ impl CodeBuilder<'_> {
         let found_dot = self.label("fs_path_extension_found_dot");
         let materialize = self.label("fs_path_extension_materialize");
         let done = self.label("fs_path_extension_done");
+        let path_ptr = self.temporary_vreg();
+        let length = self.temporary_vreg();
+        let bytes = self.temporary_vreg();
+        let cursor = self.temporary_vreg();
+        let byte = self.temporary_vreg();
+        let index = self.temporary_vreg();
+        let start = self.temporary_vreg();
+        let span = self.temporary_vreg();
 
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), path_slot));
-        self.emit(abi::load_u64("x10", "x9", 0));
-        self.emit(abi::add_immediate("x11", "x9", 8));
+        self.emit(abi::load_u64(&path_ptr, abi::stack_pointer(), path_slot));
+        self.emit(abi::load_u64(&length, &path_ptr, 0));
+        self.emit(abi::add_immediate(&bytes, &path_ptr, 8));
         self.emit(abi::label(&trim_loop));
-        self.emit(abi::compare_immediate("x10", "0"));
+        self.emit(abi::compare_immediate(&length, "0"));
         self.emit(abi::branch_eq(&empty));
-        self.emit(abi::add_registers("x12", "x11", "x10"));
-        self.emit(abi::subtract_immediate("x12", "x12", 1));
-        self.emit(abi::load_u8("x13", "x12", 0));
-        self.emit(abi::compare_immediate("x13", "47"));
+        self.emit(abi::add_registers(&cursor, &bytes, &length));
+        self.emit(abi::subtract_immediate(&cursor, &cursor, 1));
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::compare_immediate(&byte, "47"));
         self.emit(abi::branch_ne(&trim_done));
-        self.emit(abi::subtract_immediate("x10", "x10", 1));
+        self.emit(abi::subtract_immediate(&length, &length, 1));
         self.emit(abi::branch(&trim_loop));
         self.emit(abi::label(&trim_done));
-        self.emit(abi::move_register("x14", "x10"));
+        self.emit(abi::move_register(&index, &length));
         self.emit(abi::label(&scan_loop));
-        self.emit(abi::compare_immediate("x14", "0"));
+        self.emit(abi::compare_immediate(&index, "0"));
         self.emit(abi::branch_eq(&empty));
-        self.emit(abi::subtract_immediate("x14", "x14", 1));
-        self.emit(abi::add_registers("x12", "x11", "x14"));
-        self.emit(abi::load_u8("x13", "x12", 0));
-        self.emit(abi::compare_immediate("x13", "47"));
+        self.emit(abi::subtract_immediate(&index, &index, 1));
+        self.emit(abi::add_registers(&cursor, &bytes, &index));
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::compare_immediate(&byte, "47"));
         self.emit(abi::branch_eq(&empty));
-        self.emit(abi::compare_immediate("x13", "46"));
+        self.emit(abi::compare_immediate(&byte, "46"));
         self.emit(abi::branch_eq(&found_dot));
         self.emit(abi::branch(&scan_loop));
         self.emit(abi::label(&found_dot));
-        self.emit(abi::add_registers("x15", "x11", "x14"));
-        self.emit(abi::subtract_registers("x16", "x10", "x14"));
+        self.emit(abi::add_registers(&start, &bytes, &index));
+        self.emit(abi::subtract_registers(&span, &length, &index));
         self.emit(abi::branch(&materialize));
         self.emit(abi::label(&empty));
-        self.emit(abi::move_register("x15", "x11"));
-        self.emit(abi::move_immediate("x16", "Integer", "0"));
+        self.emit(abi::move_register(&start, &bytes));
+        self.emit(abi::move_immediate(&span, "Integer", "0"));
         self.emit(abi::label(&materialize));
-        let result = self.emit_materialize_string_from_bytes("x15", "x16")?;
+        let result = self.emit_materialize_string_from_bytes(&start, &span)?;
         self.emit(abi::branch(&done));
         self.emit(abi::label(&done));
         Ok(ValueResult {
@@ -294,11 +318,21 @@ impl CodeBuilder<'_> {
         let pop_scan = self.label("fs_path_normalize_pop_scan");
         let finish = self.label("fs_path_normalize_finish");
         let finish_nonempty = self.label("fs_path_normalize_finish_nonempty");
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
+        let scratch14 = self.temporary_vreg();
+        let scratch15 = self.temporary_vreg();
+        let scratch16 = self.temporary_vreg();
+        let scratch17 = self.temporary_vreg();
 
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), path_slot));
-        self.emit(abi::load_u64("x10", "x9", 0));
-        self.emit(abi::add_immediate("x11", "x9", 8));
-        self.emit(abi::add_immediate(abi::return_register(), "x10", 9));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
+        self.emit(abi::load_u64(&scratch10, &scratch9, 0));
+        self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
+        self.emit(abi::add_immediate(abi::return_register(), &scratch10, 9));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -315,9 +349,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), path_slot));
-        self.emit(abi::load_u64("x10", "x9", 0));
-        self.emit(abi::add_immediate("x11", "x9", 8));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), path_slot));
+        self.emit(abi::load_u64(&scratch10, &scratch9, 0));
+        self.emit(abi::add_immediate(&scratch11, &scratch9, 8));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::store_u64("x31", "x1", 0));
         self.emit(abi::store_u8("x31", "x1", 8));
@@ -327,32 +361,32 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             input_index_slot,
         ));
-        self.emit(abi::compare_immediate("x10", "0"));
+        self.emit(abi::compare_immediate(&scratch10, "0"));
         self.emit(abi::branch_eq(&empty_path));
-        self.emit(abi::load_u8("x12", "x11", 0));
-        self.emit(abi::compare_immediate("x12", "47"));
+        self.emit(abi::load_u8(&scratch12, &scratch11, 0));
+        self.emit(abi::compare_immediate(&scratch12, "47"));
         self.emit(abi::branch_ne(&initial_relative));
-        self.emit(abi::load_u64("x13", abi::stack_pointer(), result_slot));
-        self.emit(abi::move_immediate("x12", "Byte", "47"));
-        self.emit(abi::store_u8("x12", "x13", 8));
-        self.emit(abi::move_immediate("x12", "Integer", "1"));
-        self.emit(abi::store_u64("x12", abi::stack_pointer(), out_len_slot));
+        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), result_slot));
+        self.emit(abi::move_immediate(&scratch12, "Byte", "47"));
+        self.emit(abi::store_u8(&scratch12, &scratch13, 8));
+        self.emit(abi::move_immediate(&scratch12, "Integer", "1"));
+        self.emit(abi::store_u64(&scratch12, abi::stack_pointer(), out_len_slot));
         self.emit(abi::store_u64(
-            "x12",
+            &scratch12,
             abi::stack_pointer(),
             input_index_slot,
         ));
         self.emit(abi::label(&skip_initial_slashes));
-        self.emit(abi::load_u64("x14", abi::stack_pointer(), input_index_slot));
-        self.emit(abi::compare_registers("x14", "x10"));
+        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), input_index_slot));
+        self.emit(abi::compare_registers(&scratch14, &scratch10));
         self.emit(abi::branch_ge(&component_loop));
-        self.emit(abi::add_registers("x15", "x11", "x14"));
-        self.emit(abi::load_u8("x16", "x15", 0));
-        self.emit(abi::compare_immediate("x16", "47"));
+        self.emit(abi::add_registers(&scratch15, &scratch11, &scratch14));
+        self.emit(abi::load_u8(&scratch16, &scratch15, 0));
+        self.emit(abi::compare_immediate(&scratch16, "47"));
         self.emit(abi::branch_ne(&component_loop));
-        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
         self.emit(abi::store_u64(
-            "x14",
+            &scratch14,
             abi::stack_pointer(),
             input_index_slot,
         ));
@@ -367,16 +401,16 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&component_loop));
         self.emit(abi::label(&skip_slashes));
-        self.emit(abi::load_u64("x14", abi::stack_pointer(), input_index_slot));
-        self.emit(abi::compare_registers("x14", "x10"));
+        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), input_index_slot));
+        self.emit(abi::compare_registers(&scratch14, &scratch10));
         self.emit(abi::branch_ge(&finish));
-        self.emit(abi::add_registers("x15", "x11", "x14"));
-        self.emit(abi::load_u8("x16", "x15", 0));
-        self.emit(abi::compare_immediate("x16", "47"));
+        self.emit(abi::add_registers(&scratch15, &scratch11, &scratch14));
+        self.emit(abi::load_u8(&scratch16, &scratch15, 0));
+        self.emit(abi::compare_immediate(&scratch16, "47"));
         self.emit(abi::branch_ne(&scan_component));
-        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
         self.emit(abi::store_u64(
-            "x14",
+            &scratch14,
             abi::stack_pointer(),
             input_index_slot,
         ));
@@ -384,171 +418,171 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&scan_component));
         self.emit(abi::store_u64(
-            "x14",
+            &scratch14,
             abi::stack_pointer(),
             component_start_slot,
         ));
         self.emit(abi::label(&scan_component_loop));
-        self.emit(abi::compare_registers("x14", "x10"));
+        self.emit(abi::compare_registers(&scratch14, &scratch10));
         self.emit(abi::branch_ge(&component_ready));
-        self.emit(abi::add_registers("x15", "x11", "x14"));
-        self.emit(abi::load_u8("x16", "x15", 0));
-        self.emit(abi::compare_immediate("x16", "47"));
+        self.emit(abi::add_registers(&scratch15, &scratch11, &scratch14));
+        self.emit(abi::load_u8(&scratch16, &scratch15, 0));
+        self.emit(abi::compare_immediate(&scratch16, "47"));
         self.emit(abi::branch_eq(&component_ready));
-        self.emit(abi::add_immediate("x14", "x14", 1));
+        self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
         self.emit(abi::branch(&scan_component_loop));
 
         self.emit(abi::label(&component_ready));
         self.emit(abi::store_u64(
-            "x14",
+            &scratch14,
             abi::stack_pointer(),
             input_index_slot,
         ));
         self.emit(abi::load_u64(
-            "x15",
+            &scratch15,
             abi::stack_pointer(),
             component_start_slot,
         ));
-        self.emit(abi::subtract_registers("x16", "x14", "x15"));
+        self.emit(abi::subtract_registers(&scratch16, &scratch14, &scratch15));
         self.emit(abi::store_u64(
-            "x16",
+            &scratch16,
             abi::stack_pointer(),
             component_len_slot,
         ));
-        self.emit(abi::compare_immediate("x16", "1"));
+        self.emit(abi::compare_immediate(&scratch16, "1"));
         self.emit(abi::branch_ne(&check_dot_dot));
-        self.emit(abi::add_registers("x17", "x11", "x15"));
-        self.emit(abi::load_u8("x8", "x17", 0));
-        self.emit(abi::compare_immediate("x8", "46"));
+        self.emit(abi::add_registers(&scratch17, &scratch11, &scratch15));
+        self.emit(abi::load_u8(&scratch8, &scratch17, 0));
+        self.emit(abi::compare_immediate(&scratch8, "46"));
         self.emit(abi::branch_eq(&component_loop));
         self.emit(abi::branch(&append_component));
 
         self.emit(abi::label(&check_dot_dot));
-        self.emit(abi::compare_immediate("x16", "2"));
+        self.emit(abi::compare_immediate(&scratch16, "2"));
         self.emit(abi::branch_ne(&append_component));
-        self.emit(abi::add_registers("x17", "x11", "x15"));
-        self.emit(abi::load_u8("x8", "x17", 0));
-        self.emit(abi::compare_immediate("x8", "46"));
+        self.emit(abi::add_registers(&scratch17, &scratch11, &scratch15));
+        self.emit(abi::load_u8(&scratch8, &scratch17, 0));
+        self.emit(abi::compare_immediate(&scratch8, "46"));
         self.emit(abi::branch_ne(&append_component));
-        self.emit(abi::load_u8("x8", "x17", 1));
-        self.emit(abi::compare_immediate("x8", "46"));
+        self.emit(abi::load_u8(&scratch8, &scratch17, 1));
+        self.emit(abi::compare_immediate(&scratch8, "46"));
         self.emit(abi::branch_eq(&handle_dot_dot));
         self.emit(abi::branch(&append_component));
 
         self.emit(abi::label(&handle_dot_dot));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), out_len_slot));
-        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), out_len_slot));
+        self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_eq(&append_dot_dot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x12", "x9", 8));
-        self.emit(abi::compare_immediate("x8", "1"));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch12, &scratch9, 8));
+        self.emit(abi::compare_immediate(&scratch8, "1"));
         self.emit(abi::branch_ne(&maybe_dot_dot));
-        self.emit(abi::load_u8("x13", "x12", 0));
-        self.emit(abi::compare_immediate("x13", "47"));
+        self.emit(abi::load_u8(&scratch13, &scratch12, 0));
+        self.emit(abi::compare_immediate(&scratch13, "47"));
         self.emit(abi::branch_eq(&component_loop));
         self.emit(abi::label(&maybe_dot_dot));
-        self.emit(abi::move_register("x13", "x8"));
+        self.emit(abi::move_register(&scratch13, &scratch8));
         self.emit(abi::label(&previous_scan));
-        self.emit(abi::compare_immediate("x13", "0"));
+        self.emit(abi::compare_immediate(&scratch13, "0"));
         self.emit(abi::branch_eq(&previous_ready));
-        self.emit(abi::subtract_immediate("x13", "x13", 1));
-        self.emit(abi::add_registers("x14", "x12", "x13"));
-        self.emit(abi::load_u8("x15", "x14", 0));
-        self.emit(abi::compare_immediate("x15", "47"));
+        self.emit(abi::subtract_immediate(&scratch13, &scratch13, 1));
+        self.emit(abi::add_registers(&scratch14, &scratch12, &scratch13));
+        self.emit(abi::load_u8(&scratch15, &scratch14, 0));
+        self.emit(abi::compare_immediate(&scratch15, "47"));
         self.emit(abi::branch_eq(&previous_ready));
         self.emit(abi::branch(&previous_scan));
         self.emit(abi::label(&previous_ready));
-        self.emit(abi::move_register("x14", "x13"));
-        self.emit(abi::compare_immediate("x13", "0"));
+        self.emit(abi::move_register(&scratch14, &scratch13));
+        self.emit(abi::compare_immediate(&scratch13, "0"));
         self.emit(abi::branch_eq(&pop_previous));
-        self.emit(abi::add_immediate("x14", "x13", 1));
-        self.emit(abi::subtract_registers("x15", "x8", "x14"));
-        self.emit(abi::compare_immediate("x15", "2"));
+        self.emit(abi::add_immediate(&scratch14, &scratch13, 1));
+        self.emit(abi::subtract_registers(&scratch15, &scratch8, &scratch14));
+        self.emit(abi::compare_immediate(&scratch15, "2"));
         self.emit(abi::branch_ne(&pop_previous));
-        self.emit(abi::add_registers("x16", "x12", "x14"));
-        self.emit(abi::load_u8("x17", "x16", 0));
-        self.emit(abi::compare_immediate("x17", "46"));
+        self.emit(abi::add_registers(&scratch16, &scratch12, &scratch14));
+        self.emit(abi::load_u8(&scratch17, &scratch16, 0));
+        self.emit(abi::compare_immediate(&scratch17, "46"));
         self.emit(abi::branch_ne(&pop_previous));
-        self.emit(abi::load_u8("x17", "x16", 1));
-        self.emit(abi::compare_immediate("x17", "46"));
+        self.emit(abi::load_u8(&scratch17, &scratch16, 1));
+        self.emit(abi::compare_immediate(&scratch17, "46"));
         self.emit(abi::branch_eq(&append_dot_dot));
 
         self.emit(abi::label(&pop_previous));
-        self.emit(abi::move_register("x13", "x8"));
+        self.emit(abi::move_register(&scratch13, &scratch8));
         self.emit(abi::label(&pop_scan));
-        self.emit(abi::compare_immediate("x13", "0"));
+        self.emit(abi::compare_immediate(&scratch13, "0"));
         self.emit(abi::branch_eq(&component_loop));
-        self.emit(abi::subtract_immediate("x13", "x13", 1));
-        self.emit(abi::add_registers("x14", "x12", "x13"));
-        self.emit(abi::load_u8("x15", "x14", 0));
-        self.emit(abi::compare_immediate("x15", "47"));
+        self.emit(abi::subtract_immediate(&scratch13, &scratch13, 1));
+        self.emit(abi::add_registers(&scratch14, &scratch12, &scratch13));
+        self.emit(abi::load_u8(&scratch15, &scratch14, 0));
+        self.emit(abi::compare_immediate(&scratch15, "47"));
         self.emit(abi::branch_ne(&pop_scan));
-        self.emit(abi::compare_immediate("x13", "0"));
+        self.emit(abi::compare_immediate(&scratch13, "0"));
         self.emit(abi::branch_eq(&component_loop));
-        self.emit(abi::store_u64("x13", abi::stack_pointer(), out_len_slot));
+        self.emit(abi::store_u64(&scratch13, abi::stack_pointer(), out_len_slot));
         self.emit(abi::branch(&component_loop));
 
         self.emit(abi::label(&append_dot_dot));
-        self.emit(abi::move_immediate("x16", "Integer", "2"));
+        self.emit(abi::move_immediate(&scratch16, "Integer", "2"));
         self.emit(abi::store_u64(
-            "x16",
+            &scratch16,
             abi::stack_pointer(),
             component_len_slot,
         ));
 
         self.emit(abi::label(&append_component));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), out_len_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x12", "x9", 8));
-        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), out_len_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch12, &scratch9, 8));
+        self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_eq(&append_copy_loop));
-        self.emit(abi::add_registers("x13", "x12", "x8"));
-        self.emit(abi::subtract_immediate("x13", "x13", 1));
-        self.emit(abi::load_u8("x14", "x13", 0));
-        self.emit(abi::compare_immediate("x14", "47"));
+        self.emit(abi::add_registers(&scratch13, &scratch12, &scratch8));
+        self.emit(abi::subtract_immediate(&scratch13, &scratch13, 1));
+        self.emit(abi::load_u8(&scratch14, &scratch13, 0));
+        self.emit(abi::compare_immediate(&scratch14, "47"));
         self.emit(abi::branch_ne(&append_separator));
         self.emit(abi::branch(&append_copy_loop));
         self.emit(abi::label(&append_separator));
-        self.emit(abi::move_immediate("x14", "Byte", "47"));
-        self.emit(abi::add_registers("x13", "x12", "x8"));
-        self.emit(abi::store_u8("x14", "x13", 0));
-        self.emit(abi::add_immediate("x8", "x8", 1));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), out_len_slot));
+        self.emit(abi::move_immediate(&scratch14, "Byte", "47"));
+        self.emit(abi::add_registers(&scratch13, &scratch12, &scratch8));
+        self.emit(abi::store_u8(&scratch14, &scratch13, 0));
+        self.emit(abi::add_immediate(&scratch8, &scratch8, 1));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_len_slot));
 
         self.emit(abi::label(&append_copy_loop));
         self.emit(abi::load_u64(
-            "x16",
+            &scratch16,
             abi::stack_pointer(),
             component_len_slot,
         ));
-        self.emit(abi::compare_immediate("x16", "0"));
+        self.emit(abi::compare_immediate(&scratch16, "0"));
         self.emit(abi::branch_eq(&append_copy_done));
         self.emit(abi::load_u64(
-            "x15",
+            &scratch15,
             abi::stack_pointer(),
             component_start_slot,
         ));
-        self.emit(abi::add_registers("x17", "x11", "x15"));
-        self.emit(abi::load_u8("x14", "x17", 0));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), out_len_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x12", "x9", 8));
-        self.emit(abi::add_registers("x13", "x12", "x8"));
-        self.emit(abi::store_u8("x14", "x13", 0));
-        self.emit(abi::add_immediate("x15", "x15", 1));
+        self.emit(abi::add_registers(&scratch17, &scratch11, &scratch15));
+        self.emit(abi::load_u8(&scratch14, &scratch17, 0));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), out_len_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch12, &scratch9, 8));
+        self.emit(abi::add_registers(&scratch13, &scratch12, &scratch8));
+        self.emit(abi::store_u8(&scratch14, &scratch13, 0));
+        self.emit(abi::add_immediate(&scratch15, &scratch15, 1));
         self.emit(abi::store_u64(
-            "x15",
+            &scratch15,
             abi::stack_pointer(),
             component_start_slot,
         ));
-        self.emit(abi::subtract_immediate("x16", "x16", 1));
+        self.emit(abi::subtract_immediate(&scratch16, &scratch16, 1));
         self.emit(abi::store_u64(
-            "x16",
+            &scratch16,
             abi::stack_pointer(),
             component_len_slot,
         ));
-        self.emit(abi::add_immediate("x8", "x8", 1));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), out_len_slot));
+        self.emit(abi::add_immediate(&scratch8, &scratch8, 1));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_len_slot));
         self.emit(abi::branch(&append_copy_loop));
 
         self.emit(abi::label(&append_copy_done));
@@ -558,18 +592,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&finish));
 
         self.emit(abi::label(&finish));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), out_len_slot));
-        self.emit(abi::compare_immediate("x8", "0"));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), out_len_slot));
+        self.emit(abi::compare_immediate(&scratch8, "0"));
         self.emit(abi::branch_ne(&finish_nonempty));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
-        self.emit(abi::move_immediate("x12", "Byte", "46"));
-        self.emit(abi::store_u8("x12", "x9", 8));
-        self.emit(abi::move_immediate("x8", "Integer", "1"));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
+        self.emit(abi::move_immediate(&scratch12, "Byte", "46"));
+        self.emit(abi::store_u8(&scratch12, &scratch9, 8));
+        self.emit(abi::move_immediate(&scratch8, "Integer", "1"));
         self.emit(abi::label(&finish_nonempty));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), result_slot));
-        self.emit(abi::store_u64("x8", "x9", 0));
-        self.emit(abi::add_registers("x12", "x9", "x8"));
-        self.emit(abi::store_u8("x31", "x12", 8));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(&scratch8, &scratch9, 0));
+        self.emit(abi::add_registers(&scratch12, &scratch9, &scratch8));
+        self.emit(abi::store_u8("x31", &scratch12, 8));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(ValueResult {

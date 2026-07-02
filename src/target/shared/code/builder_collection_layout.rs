@@ -61,12 +61,14 @@ impl CodeBuilder<'_> {
         if alignment <= 1 {
             return;
         }
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
         let mask = !((alignment - 1) as u64);
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), slot));
-        self.emit(abi::add_immediate("x12", "x12", alignment - 1));
-        self.emit(abi::move_immediate("x13", "Integer", &mask.to_string()));
-        self.emit(abi::and_registers("x12", "x12", "x13"));
-        self.emit(abi::store_u64("x12", abi::stack_pointer(), slot));
+        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), slot));
+        self.emit(abi::add_immediate(&scratch12, &scratch12, alignment - 1));
+        self.emit(abi::move_immediate(&scratch13, "Integer", &mask.to_string()));
+        self.emit(abi::and_registers(&scratch12, &scratch12, &scratch13));
+        self.emit(abi::store_u64(&scratch12, abi::stack_pointer(), slot));
     }
 
     /// Rounds the unsigned offset held in `reg` up to `alignment`, using
@@ -94,9 +96,11 @@ impl CodeBuilder<'_> {
     /// clobbered. The destination region must not overlap the source ahead of
     /// it (it never does here — collection buffers are freshly allocated).
     pub(super) fn emit_copy_bytes(&mut self, dst: &str, src: &str, len: &str, prefix: &str) {
-        let remaining = "x13";
+        let scratch13 = self.temporary_vreg();
+        let scratch14 = self.temporary_vreg();
+        let remaining = scratch13.as_str();
         self.emit(abi::move_register(remaining, len));
-        self.emit_block_copy_advance(dst, src, remaining, "x14", prefix);
+        self.emit_block_copy_advance(dst, src, remaining, &scratch14, prefix);
     }
 
     /// Word-then-byte block copy that advances `dst`, `src`, and consumes
@@ -206,6 +210,8 @@ impl CodeBuilder<'_> {
     /// only for types `emit_flat_block_size` supports; returns the destination
     /// pointer in a fresh register.
     pub(super) fn copy_flat_block(&mut self, type_: &str, source: &str) -> Result<String, String> {
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
         // A collection value is copied **shrink-to-fit** (plan-01 §4.3): headroom
         // is a property of a mutable working buffer, never of a value, so a copy
         // drops any spare capacity. A whole-block `memcpy` would carry the
@@ -246,10 +252,10 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), size_slot));
-        self.emit_copy_bytes("x1", "x9", "x10", "flat_copy");
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), size_slot));
+        self.emit_copy_bytes("x1", &scratch9, &scratch10, "flat_copy");
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
@@ -267,44 +273,52 @@ impl CodeBuilder<'_> {
         type_: &str,
         source: &str,
     ) -> Result<String, String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
+        let scratch14 = self.temporary_vreg();
+        let scratch16 = self.temporary_vreg();
+        let scratch17 = self.temporary_vreg();
+        let scratch20 = self.temporary_vreg();
+        let scratch21 = self.temporary_vreg();
+        let scratch22 = self.temporary_vreg();
         let layout = CollectionTypeLayout::from_type(type_)
             .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
-        for register in ["x20", "x21", "x22", "x23", "x24", "x25"] {
-            self.mark_register_used(register);
-        }
         let source_slot = self.allocate_stack_object("tight_copy_source", 8);
         let result_slot = self.allocate_stack_object("tight_copy_result", 8);
         let alloc_ok = self.label("tight_copy_alloc_ok");
         self.emit(abi::store_u64(source, abi::stack_pointer(), source_slot));
 
         // alloc size = HEADER + count * ENTRY + dataLength.
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::move_immediate(
-            "x11",
+            &scratch11,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers("x12", "x9", "x11"));
+        self.emit(abi::multiply_registers(&scratch12, &scratch9, &scratch11));
         self.emit(abi::add_immediate(
             abi::return_register(),
-            "x12",
+            &scratch12,
             COLLECTION_HEADER_SIZE,
         ));
         self.emit(abi::add_registers(
             abi::return_register(),
             abi::return_register(),
-            "x10",
+            &scratch10,
         ));
         // A map's tight copy reserves its (count-sized) hash bucket region; x9
         // still holds count. The copy is marked not-ready so the buckets are
         // recomputed on first probe (no stale offsets across copy/transfer).
         self.emit_reserve_map_buckets(
             layout.kind == COLLECTION_KIND_MAP,
-            "x9",
+            &scratch9,
             abi::return_register(),
-            "x10",
+            &scratch10,
         );
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
@@ -325,35 +339,35 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
 
         // Tight header: capacity == count, dataCapacity == dataLength.
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64("x10", "x8", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit_write_list_header_from_registers(&layout, "x1", "x9", "x10");
+        self.emit_write_list_header_from_registers(&layout, "x1", &scratch9, &scratch10);
 
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x17", "x1", COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
-        self.emit(abi::add_immediate("x20", "x8", COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64("x9", "x8", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
+        self.emit(abi::add_immediate(&scratch20, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
-            "x16",
+            &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers("x21", "x9", "x16"));
-        self.emit_block_copy_advance("x17", "x20", "x21", "x22", "tight_copy_entries");
+        self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
+        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "tight_copy_entries");
 
         // Copy the data region verbatim (dataLength bytes). Source base is
         // capacity-based (it may have headroom); destination base is count-based
         // (tight) — both resolve through emit_collection_data_pointer.
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit_collection_data_pointer("x17", "x1");
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), source_slot));
-        self.emit_collection_data_pointer("x20", "x8");
-        self.emit(abi::load_u64("x14", "x8", COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance("x17", "x20", "x14", "x22", "tight_copy_data");
+        self.emit_collection_data_pointer(&scratch17, "x1");
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
+        self.emit_collection_data_pointer(&scratch20, &scratch8);
+        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch14, &scratch22, "tight_copy_data");
 
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
@@ -509,11 +523,14 @@ impl CodeBuilder<'_> {
         ptr_slot: usize,
         out_slot: usize,
     ) -> Result<(), String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
         if field_type == "String" {
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), ptr_slot));
-            self.emit(abi::load_u64("x9", "x8", 0));
-            self.emit(abi::add_immediate("x9", "x9", 9));
-            self.emit(abi::store_u64("x9", abi::stack_pointer(), out_slot));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), ptr_slot));
+            self.emit(abi::load_u64(&scratch9, &scratch8, 0));
+            self.emit(abi::add_immediate(&scratch9, &scratch9, 9));
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
             Ok(())
         } else if self.type_model.record_fields.contains_key(field_type) {
             self.emit_record_block_size_to_slot(field_type, ptr_slot, out_slot)
@@ -523,9 +540,9 @@ impl CodeBuilder<'_> {
             self.emit_data_union_size_to_slot(ptr_slot, out_slot);
             Ok(())
         } else if is_collection_type(field_type) {
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), ptr_slot));
-            self.emit_flat_block_size(field_type, "x8", "x9", "x10")?;
-            self.emit(abi::store_u64("x9", abi::stack_pointer(), out_slot));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), ptr_slot));
+            self.emit_flat_block_size(field_type, &scratch8, &scratch9, &scratch10)?;
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
             Ok(())
         } else {
             Err(format!(
@@ -555,9 +572,10 @@ impl CodeBuilder<'_> {
     /// Total byte size of a data union into `out_slot`: the `size` word at `+8`
     /// (plan-02 §4.3). `ptr_slot` holds the union pointer. Clobbers x8.
     pub(super) fn emit_data_union_size_to_slot(&mut self, ptr_slot: usize, out_slot: usize) {
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), ptr_slot));
-        self.emit(abi::load_u64("x8", "x8", 8));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), out_slot));
+        let scratch8 = self.temporary_vreg();
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), ptr_slot));
+        self.emit(abi::load_u64(&scratch8, &scratch8, 8));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_slot));
     }
 
     /// Wrap a built variant record (pointer in `record_ptr_slot`) into a data
@@ -570,12 +588,17 @@ impl CodeBuilder<'_> {
         tag: usize,
         record_ptr_slot: usize,
     ) -> Result<String, String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
         let inner_size_slot = self.allocate_stack_object("union_wrap_inner_size", 8);
         self.emit_record_block_size_to_slot(member_type, record_ptr_slot, inner_size_slot)?;
         let size_slot = self.allocate_stack_object("union_wrap_size", 8);
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), inner_size_slot));
-        self.emit(abi::add_immediate("x8", "x8", 16));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), inner_size_slot));
+        self.emit(abi::add_immediate(&scratch8, &scratch8, 16));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         let result_slot = self.allocate_stack_object("union_wrap_result", 8);
         let alloc_ok = self.label("union_wrap_alloc_ok");
         self.emit(abi::load_u64(
@@ -601,16 +624,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         // tag@0, size@8.
-        self.emit(abi::move_immediate("x9", "UnionTag", &tag.to_string()));
-        self.emit(abi::store_u64("x9", "x1", 0));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), size_slot));
-        self.emit(abi::store_u64("x9", "x1", 8));
+        self.emit(abi::move_immediate(&scratch9, "UnionTag", &tag.to_string()));
+        self.emit(abi::store_u64(&scratch9, "x1", 0));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), size_slot));
+        self.emit(abi::store_u64(&scratch9, "x1", 8));
         // Inline the variant record block at +16.
-        self.emit(abi::load_u64("x11", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate("x11", "x11", 16));
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), record_ptr_slot));
-        self.emit(abi::load_u64("x13", abi::stack_pointer(), inner_size_slot));
-        self.emit_copy_bytes("x11", "x12", "x13", "union_wrap_block");
+        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch11, &scratch11, 16));
+        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), record_ptr_slot));
+        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), inner_size_slot));
+        self.emit_copy_bytes(&scratch11, &scratch12, &scratch13, "union_wrap_block");
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
         Ok(register)
@@ -629,6 +652,8 @@ impl CodeBuilder<'_> {
         base_slot: usize,
         out_slot: usize,
     ) -> Result<(), String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
         let fields = self
             .type_model
             .record_fields
@@ -636,8 +661,8 @@ impl CodeBuilder<'_> {
             .cloned()
             .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
         let fixed = 8 * fields.len();
-        self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), out_slot));
+        self.emit(abi::move_immediate(&scratch8, "Integer", &fixed.to_string()));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_slot));
         for (_, field_type) in &fields {
             if !self.record_field_is_inlined(record_type, field_type) {
                 continue;
@@ -645,20 +670,20 @@ impl CodeBuilder<'_> {
             self.emit_align_offset_slot(out_slot, 8);
             // inner_base = base + current offset (where this sub-block begins).
             let inner_base_slot = self.allocate_stack_object("record_size_inner_base", 8);
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), base_slot));
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), out_slot));
-            self.emit(abi::add_registers("x8", "x8", "x9"));
-            self.emit(abi::store_u64("x8", abi::stack_pointer(), inner_base_slot));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), out_slot));
+            self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
+            self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), inner_base_slot));
             let inner_size_slot = self.allocate_stack_object("record_size_inner_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(
                 field_type,
                 inner_base_slot,
                 inner_size_slot,
             )?;
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), out_slot));
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), inner_size_slot));
-            self.emit(abi::add_registers("x9", "x9", "x8"));
-            self.emit(abi::store_u64("x9", abi::stack_pointer(), out_slot));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), out_slot));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), inner_size_slot));
+            self.emit(abi::add_registers(&scratch9, &scratch9, &scratch8));
+            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
         }
         Ok(())
     }
@@ -674,6 +699,12 @@ impl CodeBuilder<'_> {
         record_type: &str,
         field_slots: &[usize],
     ) -> Result<String, String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
         let fields = self
             .type_model
             .record_fields
@@ -694,8 +725,8 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("record_build_alloc_ok");
 
         // Pass 1: total size = fixed slots + each inlined sub-block.
-        self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+        self.emit(abi::move_immediate(&scratch8, "Integer", &fixed.to_string()));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
             if !self.record_field_is_inlined(record_type, field_type) {
                 continue;
@@ -707,10 +738,10 @@ impl CodeBuilder<'_> {
                 field_slots[index],
                 block_size_slot,
             )?;
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), block_size_slot));
-            self.emit(abi::load_u64("x8", abi::stack_pointer(), size_slot));
-            self.emit(abi::add_registers("x8", "x8", "x9"));
-            self.emit(abi::store_u64("x8", abi::stack_pointer(), size_slot));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), block_size_slot));
+            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), size_slot));
+            self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
+            self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         }
 
         self.emit(abi::load_u64(
@@ -737,15 +768,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
 
         // Pass 2: write slots; inline each flat sub-block into the data region.
-        self.emit(abi::move_immediate("x8", "Integer", &fixed.to_string()));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), cursor_slot));
+        self.emit(abi::move_immediate(&scratch8, "Integer", &fixed.to_string()));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), cursor_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
             if self.record_field_is_inlined(record_type, field_type) {
                 self.emit_align_offset_slot(cursor_slot, 8);
                 // Slot stores the block-relative offset of the inlined sub-block.
-                self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
-                self.emit(abi::store_u64("x9", "x10", 8 * index));
+                self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), cursor_slot));
+                self.emit(abi::store_u64(&scratch9, &scratch10, 8 * index));
                 // Compute the sub-block's byte size from the source pointer.
                 let block_size_slot = self.allocate_stack_object("record_fill_block_size", 8);
                 self.emit_inlined_block_size_from_ptr_slot(
@@ -754,29 +785,29 @@ impl CodeBuilder<'_> {
                     block_size_slot,
                 )?;
                 // dest = base + offset; copy `block_size` bytes from the source.
-                self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
-                self.emit(abi::add_registers("x11", "x10", "x9"));
+                self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), cursor_slot));
+                self.emit(abi::add_registers(&scratch11, &scratch10, &scratch9));
                 self.emit(abi::load_u64(
-                    "x12",
+                    &scratch12,
                     abi::stack_pointer(),
                     field_slots[index],
                 ));
-                self.emit(abi::load_u64("x13", abi::stack_pointer(), block_size_slot));
-                self.emit_copy_bytes("x11", "x12", "x13", "record_inline_block");
+                self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), block_size_slot));
+                self.emit_copy_bytes(&scratch11, &scratch12, &scratch13, "record_inline_block");
                 // Advance the cursor by the same block length.
-                self.emit(abi::load_u64("x13", abi::stack_pointer(), block_size_slot));
-                self.emit(abi::load_u64("x9", abi::stack_pointer(), cursor_slot));
-                self.emit(abi::add_registers("x9", "x9", "x13"));
-                self.emit(abi::store_u64("x9", abi::stack_pointer(), cursor_slot));
+                self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), block_size_slot));
+                self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), cursor_slot));
+                self.emit(abi::add_registers(&scratch9, &scratch9, &scratch13));
+                self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), cursor_slot));
             } else {
                 self.emit(abi::load_u64(
-                    "x9",
+                    &scratch9,
                     abi::stack_pointer(),
                     field_slots[index],
                 ));
-                self.emit(abi::load_u64("x10", abi::stack_pointer(), result_slot));
-                self.emit(abi::store_u64("x9", "x10", 8 * index));
+                self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
+                self.emit(abi::store_u64(&scratch9, &scratch10, 8 * index));
             }
         }
         let register = self.allocate_register()?;
@@ -789,6 +820,9 @@ impl CodeBuilder<'_> {
         type_: &str,
         source: &str,
     ) -> Result<String, String> {
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
         // A record with inlined fields or a data union is variable-length: size
         // its flat block at runtime, then block-copy it (plan-02 §4.2/§4.3). The
         // inlined data comes along; pointer fields keep the same shallow-share
@@ -828,10 +862,10 @@ impl CodeBuilder<'_> {
             self.emit_allocation_error_return()?;
             self.emit(abi::label(&alloc_ok));
             self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-            self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
+            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
             self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-            self.emit(abi::load_u64("x10", abi::stack_pointer(), size_slot));
-            self.emit_copy_bytes("x1", "x9", "x10", "inline_value_block_copy");
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), size_slot));
+            self.emit_copy_bytes("x1", &scratch9, &scratch10, "inline_value_block_copy");
             let result = self.allocate_register()?;
             self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
             return Ok(result);
@@ -865,9 +899,9 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), source_slot));
-        self.emit(abi::move_immediate("x13", "Integer", &size.to_string()));
-        self.emit_copy_bytes("x1", "x9", "x13", "inline_value_arena_copy");
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
+        self.emit(abi::move_immediate(&scratch13, "Integer", &size.to_string()));
+        self.emit_copy_bytes("x1", &scratch9, &scratch13, "inline_value_arena_copy");
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
@@ -1016,13 +1050,15 @@ impl CodeBuilder<'_> {
         slots: Vec<CollectionValueSlot>,
         label: &str,
     ) -> Result<ValueResult, String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
         self.reset_temporary_registers();
         let layout = CollectionTypeLayout::from_type(type_)
             .ok_or_else(|| format!("native code collection type '{type_}' is not supported"))?;
         let count = slots.len();
         let data_len_slot = self.allocate_stack_object("collection_data_len", 8);
-        self.emit(abi::move_immediate("x8", "Integer", "0"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), data_len_slot));
         for slot in &slots {
             if let Some(key) = &slot.key {
                 // Map entries pack a key then a value; round each payload's start
@@ -1041,7 +1077,7 @@ impl CodeBuilder<'_> {
 
         let collection_slot = self.allocate_stack_object("collection_literal", 8);
         let alloc_ok = self.label("collection_alloc_ok");
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), data_len_slot));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), data_len_slot));
         // A map reserves a `2*capacity` u64 bucket array past the data region;
         // capacity == count for a literal, so fold it into the constant.
         let bucket_bytes = if layout.kind == COLLECTION_KIND_MAP {
@@ -1050,11 +1086,11 @@ impl CodeBuilder<'_> {
             0
         };
         self.emit(abi::move_immediate(
-            "x9",
+            &scratch9,
             "Integer",
             &(COLLECTION_HEADER_SIZE + count * COLLECTION_ENTRY_SIZE + bucket_bytes).to_string(),
         ));
-        self.emit(abi::add_registers(abi::return_register(), "x8", "x9"));
+        self.emit(abi::add_registers(abi::return_register(), &scratch8, &scratch9));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1076,8 +1112,8 @@ impl CodeBuilder<'_> {
         self.emit_write_collection_header(&layout, count, data_len_slot);
 
         let data_offset_slot = self.allocate_stack_object("collection_data_offset", 8);
-        self.emit(abi::move_immediate("x8", "Integer", "0"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), data_offset_slot));
 
         for (index, slot) in slots.iter().enumerate() {
             self.emit_write_collection_entry(collection_slot, index, slot, data_offset_slot)?;
@@ -1101,31 +1137,32 @@ impl CodeBuilder<'_> {
         count: usize,
         data_len_slot: usize,
     ) {
-        self.emit(abi::move_immediate("x8", "Byte", &layout.kind.to_string()));
-        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_KIND));
+        let scratch8 = self.temporary_vreg();
+        self.emit(abi::move_immediate(&scratch8, "Byte", &layout.kind.to_string()));
+        self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_KIND));
         self.emit(abi::move_immediate(
-            "x8",
+            &scratch8,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_KEY_TYPE));
         self.emit(abi::move_immediate(
-            "x8",
+            &scratch8,
             "Byte",
             &layout.value_type_code.to_string(),
         ));
-        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_VALUE_TYPE));
-        self.emit(abi::move_immediate("x8", "Byte", "1"));
-        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_VALUE_TYPE));
+        self.emit(abi::move_immediate(&scratch8, "Byte", "1"));
+        self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_FLAGS_VERSION));
         // Map hash index built lazily on first probe (no-op field for lists).
-        self.emit(abi::move_immediate("x8", "Byte", "0"));
-        self.emit(abi::store_u8("x8", "x1", COLLECTION_OFFSET_BUCKETS_READY));
-        self.emit(abi::move_immediate("x8", "Integer", &count.to_string()));
-        self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_COUNT));
-        self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_CAPACITY));
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), data_len_slot));
-        self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::store_u64("x8", "x1", COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::move_immediate(&scratch8, "Byte", "0"));
+        self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_BUCKETS_READY));
+        self.emit(abi::move_immediate(&scratch8, "Integer", &count.to_string()));
+        self.emit(abi::store_u64(&scratch8, "x1", COLLECTION_OFFSET_COUNT));
+        self.emit(abi::store_u64(&scratch8, "x1", COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64(&scratch8, "x1", COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64(&scratch8, "x1", COLLECTION_OFFSET_DATA_CAPACITY));
     }
 
     pub(super) fn emit_write_collection_entry(
@@ -1135,6 +1172,10 @@ impl CodeBuilder<'_> {
         slot: &CollectionValueSlot,
         data_offset_slot: usize,
     ) -> Result<(), String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
         let entry_offset = COLLECTION_HEADER_SIZE + index * COLLECTION_ENTRY_SIZE;
         let key_len_slot = if let Some(key) = &slot.key {
             Some(self.emit_payload_length_to_stack(key, "collection_key_len")?)
@@ -1143,7 +1184,7 @@ impl CodeBuilder<'_> {
         };
         let value_len_slot =
             self.emit_payload_length_to_stack(&slot.value, "collection_value_len")?;
-        let collection_register = "x8";
+        let collection_register = scratch8.as_str();
         self.emit(abi::load_u64(
             collection_register,
             abi::stack_pointer(),
@@ -1151,12 +1192,12 @@ impl CodeBuilder<'_> {
         ));
 
         self.emit(abi::move_immediate(
-            "x9",
+            &scratch9,
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
         self.emit(abi::store_u8(
-            "x9",
+            &scratch9,
             collection_register,
             entry_offset + COLLECTION_ENTRY_OFFSET_FLAGS,
         ));
@@ -1172,15 +1213,15 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 collection_slot,
             ));
-            self.emit(abi::load_u64("x10", abi::stack_pointer(), data_offset_slot));
+            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), data_offset_slot));
             self.emit(abi::store_u64(
-                "x10",
+                &scratch10,
                 collection_register,
                 entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             ));
-            self.emit(abi::load_u64("x11", abi::stack_pointer(), key_len_slot));
+            self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), key_len_slot));
             self.emit(abi::store_u64(
-                "x11",
+                &scratch11,
                 collection_register,
                 entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
             ));
@@ -1191,14 +1232,14 @@ impl CodeBuilder<'_> {
                 data_offset_slot,
             )?;
         } else {
-            self.emit(abi::move_immediate("x10", "Integer", "0"));
+            self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
             self.emit(abi::store_u64(
-                "x10",
+                &scratch10,
                 collection_register,
                 entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             ));
             self.emit(abi::store_u64(
-                "x10",
+                &scratch10,
                 collection_register,
                 entry_offset + COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
             ));
@@ -1217,15 +1258,15 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             collection_slot,
         ));
-        self.emit(abi::load_u64("x10", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), data_offset_slot));
         self.emit(abi::store_u64(
-            "x10",
+            &scratch10,
             collection_register,
             entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::load_u64("x11", abi::stack_pointer(), value_len_slot));
+        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), value_len_slot));
         self.emit(abi::store_u64(
-            "x11",
+            &scratch11,
             collection_register,
             entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
@@ -1243,11 +1284,13 @@ impl CodeBuilder<'_> {
         total_slot: usize,
         payload: &PayloadSlot,
     ) -> Result<(), String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
         let len_slot = self.emit_payload_length_to_stack(payload, "collection_payload_len")?;
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), total_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), len_slot));
-        self.emit(abi::add_registers("x8", "x8", "x9"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), total_slot));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), total_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), len_slot));
+        self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), total_slot));
         Ok(())
     }
 
@@ -1256,20 +1299,23 @@ impl CodeBuilder<'_> {
         payload: &PayloadSlot,
         label: &str,
     ) -> Result<usize, String> {
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
         let len_slot = self.allocate_stack_object(label, 8);
         match payload.type_.as_str() {
             "Boolean" | "Byte" => {
-                self.emit(abi::move_immediate("x8", "Integer", "1"));
+                self.emit(abi::move_immediate(&scratch8, "Integer", "1"));
             }
             "Integer" | "Float" | "Fixed" => {
-                self.emit(abi::move_immediate("x8", "Integer", "8"));
+                self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
             }
             "String" => {
-                self.emit(abi::load_u64("x8", abi::stack_pointer(), payload.slot));
-                self.emit(abi::load_u64("x8", "x8", 0));
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64(&scratch8, &scratch8, 0));
             }
             other if self.is_pointer_collection_payload_type(other) => {
-                self.emit(abi::move_immediate("x8", "Integer", "8"));
+                self.emit(abi::move_immediate(&scratch8, "Integer", "8"));
             }
             other if self.record_has_inline_data(other) => {
                 // A record with inlined String fields is variable-length; size
@@ -1286,16 +1332,16 @@ impl CodeBuilder<'_> {
             other if is_collection_type(other) => {
                 // A flat nested collection is inlined as its own block; size it at
                 // runtime (plan-02 §4.4).
-                self.emit(abi::load_u64("x8", abi::stack_pointer(), payload.slot));
-                self.emit_flat_block_size(other, "x8", "x9", "x10")?;
-                self.emit(abi::store_u64("x9", abi::stack_pointer(), len_slot));
+                self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), payload.slot));
+                self.emit_flat_block_size(other, &scratch8, &scratch9, &scratch10)?;
+                self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), len_slot));
                 return Ok(len_slot);
             }
             other if self.inline_collection_payload_size(other).is_some() => {
                 let size = self
                     .inline_collection_payload_size(other)
                     .expect("guard ensures inline payload size exists");
-                self.emit(abi::move_immediate("x8", "Integer", &size.to_string()));
+                self.emit(abi::move_immediate(&scratch8, "Integer", &size.to_string()));
             }
             other => {
                 return Err(format!(
@@ -1303,7 +1349,7 @@ impl CodeBuilder<'_> {
                 ));
             }
         }
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), len_slot));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), len_slot));
         Ok(len_slot)
     }
 
@@ -1314,48 +1360,55 @@ impl CodeBuilder<'_> {
         payload: &PayloadSlot,
         data_offset_slot: usize,
     ) -> Result<(), String> {
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), collection_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), data_offset_slot));
-        self.emit(abi::add_immediate("x10", "x8", COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64("x11", "x8", COLLECTION_OFFSET_CAPACITY));
+        let scratch8 = self.temporary_vreg();
+        let scratch9 = self.temporary_vreg();
+        let scratch10 = self.temporary_vreg();
+        let scratch11 = self.temporary_vreg();
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
+        let scratch14 = self.temporary_vreg();
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::add_immediate(&scratch10, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_CAPACITY));
         self.emit(abi::move_immediate(
-            "x12",
+            &scratch12,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers("x11", "x11", "x12"));
-        self.emit(abi::add_registers("x10", "x10", "x11"));
-        self.emit(abi::add_registers("x10", "x10", "x9"));
+        self.emit(abi::multiply_registers(&scratch11, &scratch11, &scratch12));
+        self.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
+        self.emit(abi::add_registers(&scratch10, &scratch10, &scratch9));
 
         match payload.type_.as_str() {
             "Boolean" | "Byte" => {
-                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
-                self.emit(abi::store_u8("x12", "x10", 0));
+                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::store_u8(&scratch12, &scratch10, 0));
             }
             "Integer" | "Float" | "Fixed" => {
-                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
-                self.emit(abi::store_u64("x12", "x10", 0));
+                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::store_u64(&scratch12, &scratch10, 0));
             }
             "String" => {
                 let loop_label = self.label("collection_copy_string_loop");
                 let done_label = self.label("collection_copy_string_done");
-                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
-                self.emit(abi::add_immediate("x12", "x12", 8));
-                self.emit(abi::load_u64("x13", abi::stack_pointer(), len_slot));
+                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::add_immediate(&scratch12, &scratch12, 8));
+                self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), len_slot));
                 self.emit(abi::label(&loop_label));
-                self.emit(abi::compare_immediate("x13", "0"));
+                self.emit(abi::compare_immediate(&scratch13, "0"));
                 self.emit(abi::branch_eq(&done_label));
-                self.emit(abi::load_u8("x14", "x12", 0));
-                self.emit(abi::store_u8("x14", "x10", 0));
-                self.emit(abi::add_immediate("x12", "x12", 1));
-                self.emit(abi::add_immediate("x10", "x10", 1));
-                self.emit(abi::subtract_immediate("x13", "x13", 1));
+                self.emit(abi::load_u8(&scratch14, &scratch12, 0));
+                self.emit(abi::store_u8(&scratch14, &scratch10, 0));
+                self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
+                self.emit(abi::add_immediate(&scratch10, &scratch10, 1));
+                self.emit(abi::subtract_immediate(&scratch13, &scratch13, 1));
                 self.emit(abi::branch(&loop_label));
                 self.emit(abi::label(&done_label));
             }
             other if self.is_pointer_collection_payload_type(other) => {
-                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
-                self.emit(abi::store_u64("x12", "x10", 0));
+                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::store_u64(&scratch12, &scratch10, 0));
             }
             other
                 if self.inline_collection_payload_size(other).is_some()
@@ -1363,9 +1416,9 @@ impl CodeBuilder<'_> {
             {
                 // Inline record/union slot bytes, or a flat nested collection
                 // block — copy `len_slot` bytes verbatim (plan-02 §4.2–§4.4).
-                self.emit(abi::load_u64("x12", abi::stack_pointer(), payload.slot));
-                self.emit(abi::load_u64("x13", abi::stack_pointer(), len_slot));
-                self.emit_copy_bytes("x10", "x12", "x13", "collection_copy_inline");
+                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), len_slot));
+                self.emit_copy_bytes(&scratch10, &scratch12, &scratch13, "collection_copy_inline");
             }
             other => {
                 return Err(format!(
@@ -1374,10 +1427,10 @@ impl CodeBuilder<'_> {
             }
         }
 
-        self.emit(abi::load_u64("x8", abi::stack_pointer(), data_offset_slot));
-        self.emit(abi::load_u64("x9", abi::stack_pointer(), len_slot));
-        self.emit(abi::add_registers("x8", "x8", "x9"));
-        self.emit(abi::store_u64("x8", abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), len_slot));
+        self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
+        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), data_offset_slot));
         Ok(())
     }
 
@@ -1478,6 +1531,10 @@ impl CodeBuilder<'_> {
         source: &str,
         length: &str,
     ) -> Result<String, String> {
+        let scratch12 = self.temporary_vreg();
+        let scratch13 = self.temporary_vreg();
+        let scratch14 = self.temporary_vreg();
+        let scratch15 = self.temporary_vreg();
         let source_slot = self.allocate_stack_object("collection_string_source", 8);
         let length_slot = self.allocate_stack_object("collection_string_length", 8);
         let result_slot = self.allocate_stack_object("collection_string_result", 8);
@@ -1505,22 +1562,22 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64("x12", abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64("x12", "x1", 0));
-        self.emit(abi::add_immediate("x13", "x1", 8));
-        self.emit(abi::load_u64("x14", abi::stack_pointer(), source_slot));
+        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), length_slot));
+        self.emit(abi::store_u64(&scratch12, "x1", 0));
+        self.emit(abi::add_immediate(&scratch13, "x1", 8));
+        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), source_slot));
         self.emit(abi::label(&copy_loop));
-        self.emit(abi::compare_immediate("x12", "0"));
+        self.emit(abi::compare_immediate(&scratch12, "0"));
         self.emit(abi::branch_eq(&copy_done));
-        self.emit(abi::load_u8("x15", "x14", 0));
-        self.emit(abi::store_u8("x15", "x13", 0));
-        self.emit(abi::add_immediate("x14", "x14", 1));
-        self.emit(abi::add_immediate("x13", "x13", 1));
-        self.emit(abi::subtract_immediate("x12", "x12", 1));
+        self.emit(abi::load_u8(&scratch15, &scratch14, 0));
+        self.emit(abi::store_u8(&scratch15, &scratch13, 0));
+        self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
+        self.emit(abi::add_immediate(&scratch13, &scratch13, 1));
+        self.emit(abi::subtract_immediate(&scratch12, &scratch12, 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
-        self.emit(abi::move_immediate("x15", "Integer", "0"));
-        self.emit(abi::store_u8("x15", "x13", 0));
+        self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
+        self.emit(abi::store_u8(&scratch15, &scratch13, 0));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)
