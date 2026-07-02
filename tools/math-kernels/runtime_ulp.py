@@ -151,9 +151,12 @@ def _read_ref(path):
     return rows
 
 
-def _compile_run(fn, rows, mfb, decimals):
+def _compile_run(fn, rows, mfb, decimals, target=None, runner=None):
     """Compile+run a program over `rows`; return (out_path, exit, stdout) or
-    (None,..) on build failure."""
+    (None,..) on build failure. `target` adds `-target <t>` to the build (a
+    cross build, e.g. linux-x86_64); `runner` is a command that receives the
+    built executable path and runs it (e.g. a script that ships it to a test
+    box over ssh and relays stdout/exit) — without it the binary runs locally."""
     src = ["IMPORT io", "IMPORT math", "", "FUNC main AS Integer",
            f"  LET p AS Byte = {decimals}"]
     for i, (args, _) in enumerate(rows):
@@ -174,7 +177,11 @@ def _compile_run(fn, rows, mfb, decimals):
                  '"targets": ["native"] }')
     with open(os.path.join(tmp, "src", "main.mfb"), "w") as fh:
         fh.write("\n".join(src) + "\n")
-    build = subprocess.run([mfb, "build", tmp], capture_output=True, text=True)
+    cmd = [mfb, "build"]
+    if target:
+        cmd += ["-target", target]
+    cmd.append(tmp)
+    build = subprocess.run(cmd, capture_output=True, text=True)
     out_path = None
     for line in build.stdout.splitlines():
         if line.startswith("Wrote executable to "):
@@ -182,18 +189,19 @@ def _compile_run(fn, rows, mfb, decimals):
     if out_path is None:
         print(f"{fn}: build failed:\n{build.stdout}\n{build.stderr}", file=sys.stderr)
         return None, None, None
-    runp = subprocess.run([out_path], capture_output=True, text=True)
+    run_cmd = [runner, out_path] if runner else [out_path]
+    runp = subprocess.run(run_cmd, capture_output=True, text=True)
     return out_path, runp.returncode, runp.stdout
 
 
-def _build_and_run(fn, chosen, mfb, decimals):
+def _build_and_run(fn, chosen, mfb, decimals, target=None, runner=None):
     """Run all rows; a row whose kernel raises aborts the program at that point.
     Identify each raising row from the truncated output, exclude it, and re-run
     until the whole set completes. Returns (got_lines, errored_rows)."""
     errored = []
     remaining = list(chosen)
     while True:
-        _, code, stdout = _compile_run(fn, remaining, mfb, decimals)
+        _, code, stdout = _compile_run(fn, remaining, mfb, decimals, target, runner)
         if code is None:
             return None, None
         lines = stdout.splitlines()
@@ -209,7 +217,7 @@ def _build_and_run(fn, chosen, mfb, decimals):
         remaining = remaining[:bad_idx] + remaining[bad_idx + 1:]
 
 
-def run(fn, ref_dir, mfb, decimals, limit):
+def run(fn, ref_dir, mfb, decimals, limit, target=None, runner=None, dump=None):
     path = os.path.join(ref_dir, f"{fn}.ref")
     if not os.path.exists(path):
         print(f"{fn}: no ref file at {path}", file=sys.stderr)
@@ -230,13 +238,20 @@ def run(fn, ref_dir, mfb, decimals, limit):
         if limit and len(chosen) >= limit:
             break
 
-    got_lines, errored = _build_and_run(fn, chosen, mfb, decimals)
+    got_lines, errored = _build_and_run(fn, chosen, mfb, decimals, target, runner)
     if got_lines is None:
         return 1
     if errored:
         for args, expected in errored:
             print(f"  RAISED {fn}{tuple(args)} (exp {expected!r}) — excluded", file=sys.stderr)
         chosen = [c for c in chosen if c not in errored]
+    if dump:
+        # One line per surviving vector: `<args-tab-joined>\t<raw kernel output>`
+        # — the exact decimal expansion the runtime printed, for bit-exact
+        # cross-ISA comparison (diff an aarch64 dump against an x86 dump).
+        with open(dump, "w") as fh:
+            for (args, _), line in zip(chosen, got_lines):
+                fh.write("\t".join(repr(a) for a in args) + "\t" + line + "\n")
 
     truth_fn = _TRUTH.get(fn) if _TRUTH else None
     # buckets: count, ok_macos, max_macos, misses, ok_truth, max_truth, macos_bad_vs_truth
@@ -298,8 +313,19 @@ def main(argv):
                                                   "target", "debug", "mfb"))
     ap.add_argument("--decimals", type=int, default=80)
     ap.add_argument("--limit", type=int, default=0)
+    ap.add_argument("--target", default=None,
+                    help="cross-build target passed to `mfb build -target` "
+                         "(e.g. linux-x86_64)")
+    ap.add_argument("--runner", default=None,
+                    help="command invoked as `<runner> <executable>` to run the "
+                         "built program (e.g. a script that ships it to a test "
+                         "box over ssh); default runs it locally")
+    ap.add_argument("--dump", default=None,
+                    help="write `args<TAB>raw-output` per vector to this file "
+                         "for bit-exact cross-ISA diffing")
     args = ap.parse_args(argv[1:])
-    return run(args.fn, args.ref, args.mfb, args.decimals, args.limit)
+    return run(args.fn, args.ref, args.mfb, args.decimals, args.limit,
+               args.target, args.runner, args.dump)
 
 
 if __name__ == "__main__":
