@@ -476,13 +476,8 @@ impl plan::NativePlanPlatform for Platform {
     }
 
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
-        if target == "toString" {
-            return vec![PlatformImport {
-                library: "libSystem".to_string(),
-                symbol: "_snprintf".to_string(),
-                required_by: required_by.to_string(),
-            }];
-        }
+        // toString needs no import: every formatter (Integer, Fixed, and the
+        // Float `%.*f` renderer, `float_format.rs`) is in-tree.
         let symbol = match target {
             // Every Float `math::` transcendental, `pow`, `atan2`, `tan`, and the
             // `Float MOD` (`fmod`) now lower to in-tree NEON/GPR kernels

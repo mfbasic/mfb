@@ -279,7 +279,6 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     if module_uses_call(module, "toString") {
         push_string_value(&mut values, "TRUE".to_string());
         push_string_value(&mut values, "FALSE".to_string());
-        push_string_value(&mut values, FLOAT_TO_STRING_FORMAT.to_string());
         push_string_value(&mut values, ERR_ENCODING_MESSAGE.to_string());
     }
     for value in [

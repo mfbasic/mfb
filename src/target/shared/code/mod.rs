@@ -798,6 +798,18 @@ pub(crate) fn lower_module_for_platform(
         code_functions.push(lower_map_bucket_put_helper());
         code_functions.push(lower_map_probe_helper());
     }
+    // The in-tree Float decimal formatter (float_format.rs): an internal `bl`
+    // target emitted by `emit_float_to_string_value` call sites, so gate on the
+    // relocations like the map-hash helpers.
+    let uses_float_to_string = code_functions.iter().any(|function| {
+        function
+            .relocations
+            .iter()
+            .any(|relocation| relocation.to == FLOAT_TO_STRING_SYMBOL)
+    });
+    if uses_float_to_string {
+        code_functions.push(lower_float_to_string_helper());
+    }
     if module_uses_call(module, "fs.pathJoin") {
         code_functions.push(lower_fs_path_join_helper(platform));
     }
@@ -2385,6 +2397,8 @@ mod fs_helpers_io;
 use fs_helpers_io::*;
 mod fs_helpers_atomic;
 use fs_helpers_atomic::*;
+mod float_format;
+use float_format::*;
 mod io_helpers;
 use io_helpers::*;
 mod runtime_helpers;

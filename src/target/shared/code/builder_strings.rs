@@ -1330,100 +1330,23 @@ impl CodeBuilder<'_> {
         })
     }
 
+    /// Render a finite Float to text via the in-tree exact `%.*f` formatter
+    /// (`float_format.rs`, `_mfb_rt_float_to_string`) — no libc involvement.
+    /// The helper takes the f64 bit pattern in `x0` and the precision in `x1`,
+    /// and returns the arena-alloc Result convention (tag in `x0`, String
+    /// pointer in `x1`); the only possible failure is allocation.
     pub(super) fn emit_float_to_string_value(
         &mut self,
         source_register: &str,
         precision_register: &str,
     ) -> Result<ValueResult, String> {
-        let scratch20 = self.temporary_vreg();
-        let scratch22 = self.temporary_vreg();
-        let scratch23 = self.temporary_vreg();
-        let scratch24 = self.temporary_vreg();
-        let buffer_slot =
-            self.allocate_stack_object("to_string_float_buffer", FLOAT_TO_STRING_BUFFER_SIZE);
-        let length_slot = self.allocate_stack_object("to_string_float_length", 8);
-        let result_slot = self.allocate_stack_object("to_string_float_result", 8);
-
-        let snprintf_symbol = if self.platform_imports.contains_key("_snprintf") {
-            "_snprintf"
-        } else if self.platform_imports.contains_key("snprintf") {
-            "snprintf"
-        } else {
-            return Err("native toString(Float) requires snprintf import".to_string());
-        };
-        let format_symbol = self
-            .string_symbols
-            .get(FLOAT_TO_STRING_FORMAT)
-            .ok_or_else(|| "native toString(Float) requires float format string".to_string())?
-            .clone();
-
-        let format = "x2";
-        let precision = "x3";
-        let length = scratch20.as_str();
-        let src = scratch22.as_str();
-        let dst = scratch23.as_str();
-        let byte = scratch24.as_str();
-
-        let snprintf_ok = self.label("float_string_snprintf_ok");
-        let snprintf_invalid = self.label("float_string_snprintf_invalid");
         let alloc_ok = self.label("float_string_alloc_ok");
-        let copy_loop = self.label("float_string_copy_loop");
-        let copy_done = self.label("float_string_copy_done");
-
-        self.emit(abi::add_immediate("x0", abi::stack_pointer(), buffer_slot));
-        self.emit(abi::move_immediate(
-            "x1",
-            "Integer",
-            &FLOAT_TO_STRING_BUFFER_SIZE.to_string(),
-        ));
-        self.emit(abi::load_page_address(format, &format_symbol));
+        self.emit(abi::move_register("x0", source_register));
+        self.emit(abi::move_register("x1", precision_register));
+        self.emit(abi::branch_link(FLOAT_TO_STRING_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
-            to: format_symbol.clone(),
-            kind: RelocIntent::DataAddrHi,
-            binding: "data".to_string(),
-            library: None,
-        });
-        self.emit(abi::add_page_offset(format, format, &format_symbol));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: format_symbol,
-            kind: RelocIntent::DataAddrLo,
-            binding: "data".to_string(),
-            library: None,
-        });
-        self.emit(abi::add_immediate(format, format, 8));
-        self.emit(abi::move_register(precision, precision_register));
-        self.emit(abi::float_move_d_from_x("d0", source_register));
-        if snprintf_symbol == "_snprintf" {
-            self.emit(abi::subtract_stack(16));
-            self.emit(abi::store_u64(precision, abi::raw_stack_pointer(), 0));
-            self.emit(abi::float_move_x_from_d("x4", "d0"));
-            self.emit(abi::store_u64("x4", abi::raw_stack_pointer(), 8));
-        }
-        self.emit_symbol_call(snprintf_symbol);
-        if snprintf_symbol == "_snprintf" {
-            self.emit(abi::add_stack(16));
-        }
-        self.emit(abi::move_register(length, abi::return_register()));
-        self.emit(abi::compare_immediate(length, "0"));
-        self.emit(abi::branch_lt(&snprintf_invalid));
-        self.emit(abi::compare_immediate(
-            length,
-            &FLOAT_TO_STRING_BUFFER_SIZE.to_string(),
-        ));
-        self.emit(abi::branch_lt(&snprintf_ok));
-        self.emit(abi::label(&snprintf_invalid));
-        self.emit_invalid_argument_return()?;
-        self.emit(abi::label(&snprintf_ok));
-        self.emit(abi::store_u64(length, abi::stack_pointer(), length_slot));
-
-        self.emit(abi::add_immediate(abi::return_register(), length, 9));
-        self.emit(abi::move_immediate("x1", "Integer", "8"));
-        self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
-        self.relocations.push(CodeRelocation {
-            from: self.current_symbol.clone(),
-            to: ARENA_ALLOC_SYMBOL.to_string(),
+            to: FLOAT_TO_STRING_SYMBOL.to_string(),
             kind: RelocIntent::Call,
             binding: "internal".to_string(),
             library: None,
@@ -1435,26 +1358,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
-        self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64(length, abi::stack_pointer(), length_slot));
-        self.emit(abi::store_u64(length, "x1", 0));
-        self.emit(abi::add_immediate(dst, "x1", 8));
-        self.emit(abi::add_immediate(src, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::label(&copy_loop));
-        self.emit(abi::compare_immediate(length, "0"));
-        self.emit(abi::branch_eq(&copy_done));
-        self.emit(abi::load_u8(byte, src, 0));
-        self.emit(abi::store_u8(byte, dst, 0));
-        self.emit(abi::add_immediate(src, src, 1));
-        self.emit(abi::add_immediate(dst, dst, 1));
-        self.emit(abi::subtract_immediate(length, length, 1));
-        self.emit(abi::branch(&copy_loop));
-        self.emit(abi::label(&copy_done));
-        self.emit(abi::move_immediate(byte, "Integer", "0"));
-        self.emit(abi::store_u8(byte, dst, 0));
-
         let result = self.allocate_register()?;
-        self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
+        self.emit(abi::move_register(&result, "x1"));
         Ok(ValueResult {
             type_: "String".to_string(),
             location: result,

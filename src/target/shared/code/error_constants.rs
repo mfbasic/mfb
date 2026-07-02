@@ -356,5 +356,3 @@ pub(crate) const UNICODE_LOWERCASE_SEQUENCES_SYMBOL: &str = "_mfb_unicode_lowerc
 pub(crate) const UNICODE_CASEFOLD_ENTRIES_SYMBOL: &str = "_mfb_unicode_casefold_entries";
 pub(crate) const UNICODE_CASEFOLD_SEQUENCES_SYMBOL: &str = "_mfb_unicode_casefold_sequences";
 pub(crate) const THREAD_TRAMPOLINE_SYMBOL: &str = "_mfb_rt_thread_trampoline";
-pub(crate) const FLOAT_TO_STRING_FORMAT: &str = "%.*f";
-pub(crate) const FLOAT_TO_STRING_BUFFER_SIZE: usize = 640;

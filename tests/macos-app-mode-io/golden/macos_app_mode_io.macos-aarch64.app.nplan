@@ -40,7 +40,6 @@
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isInputTerminal" },
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isOutputTerminal" },
   { "library": "libSystem", "symbol": "_isatty", "requiredBy": "_mfb_rt_io_io_isErrorTerminal" },
-  { "library": "libSystem", "symbol": "_snprintf", "requiredBy": "_mfb_fn_main" },
   { "library": "libobjc", "symbol": "_objc_msgSend", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_sel_registerName", "requiredBy": "_main" },
   { "library": "libobjc", "symbol": "_objc_autoreleasePoolPush", "requiredBy": "_main" },

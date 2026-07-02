@@ -1,6 +1,6 @@
 //! x86-64 native-plan platform (plan-00-H). The x86 backend uses raw Linux
 //! syscalls for the primitives (write/read/exit/mmap/getrandom) and libc for
-//! everything with no practical syscall form (snprintf, pthread, dlopen, the
+//! everything with no practical syscall form (pthread, dlopen, the
 //! fs/net/term surface), emitted via `emit_libc_call`. The plan is
 //! flavor-parameterized: each import binds to `libc.so.6` (glibc) or
 //! `libc.musl-x86_64.so.1` (musl), and the console build emits one executable
@@ -250,11 +250,8 @@ impl NativePlanPlatform for Platform {
     }
 
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
-        // toString(Float) formats via libc snprintf (no reasonable syscall form).
-        // The Float math kernels are all in-tree, so nothing else imports here.
-        if target == "toString" {
-            return vec![self.libc_import("snprintf", required_by)];
-        }
+        // toString needs no import: every formatter (Integer, Fixed, and the
+        // Float `%.*f` renderer, `float_format.rs`) is in-tree.
         // The PCG64 RNG seeds itself from the OS entropy pool at program startup;
         // `getentropy` lives in libc, not libm.
         if matches!(target, "math.rand" | "math.seed") {

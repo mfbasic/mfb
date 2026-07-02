@@ -357,9 +357,8 @@ impl plan::NativePlanPlatform for Platform {
     }
 
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
-        if target == "toString" {
-            return vec![self.libc_import("snprintf", required_by)];
-        }
+        // toString needs no import: every formatter (Integer, Fixed, and the
+        // Float `%.*f` renderer, `float_format.rs`) is in-tree.
         // Every Float `math::` transcendental, `pow`, `atan2`, `tan`, and the
         // `Float MOD` (`fmod`) now lower to in-tree NEON/GPR kernels
         // (plan-01-libm-kernels), so no `math.*` row imports libm any more — a

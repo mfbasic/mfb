@@ -23,7 +23,6 @@
   { "library": "libSystem", "symbol": "_write" },
   { "library": "libSystem", "symbol": "_ioctl" },
   { "library": "libSystem", "symbol": "_write" },
-  { "library": "libSystem", "symbol": "_snprintf" },
   { "library": "libSystem", "symbol": "_write" },
   { "library": "libobjc", "symbol": "_objc_msgSend" },
   { "library": "libobjc", "symbol": "_sel_registerName" },
@@ -70,7 +69,6 @@
   "dataObjects": [
   { "symbol": "_mfb_str_0", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 16, "value": "term" },
   { "symbol": "_mfb_str_1", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 24, "value": "src/main.mfb" },
-  { "symbol": "_mfb_str_10", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 16, "value": "%.*f" },
   { "symbol": "_mfb_str_8", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 16, "value": "TRUE" },
   { "symbol": "_mfb_str_9", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 16, "value": "FALSE" },
   { "symbol": "_mfb_str_entry_error_newline", "kind": "constant", "layout": "mfb.string.v1 { u64 byteLength; u8 bytes[byteLength]; u8 nul }", "align": 8, "size": 16, "value": "\n" },
