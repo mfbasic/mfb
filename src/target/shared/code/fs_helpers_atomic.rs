@@ -890,6 +890,13 @@ pub(super) fn lower_fs_read_text_path_helper(
         abi::branch(&open_error),
         abi::label(&open_ok),
         abi::move_register(&fd, abi::return_register()),
+        // Restage the fd as the first argument explicitly. On AArch64 `x0`
+        // still holds open's return so this looks redundant, but on x86-64 the
+        // result register (rax) and the first argument register (rdi) differ —
+        // without this, lseek reads whatever the libc open wrapper left in rdi
+        // (glibc: AT_FDCWD → EBADF; musl happened to leave the fd there, which
+        // masked the bug). Every sibling seek/read/close site already does this.
+        abi::move_register(abi::return_register(), &fd),
         abi::move_immediate("x1", "Integer", "0"),
         abi::move_immediate("x2", "Integer", "2"),
     ]);

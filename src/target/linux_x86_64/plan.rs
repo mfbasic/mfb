@@ -1,9 +1,11 @@
 //! x86-64 native-plan platform (plan-00-H). The x86 backend uses raw Linux
-//! syscalls for the primitives (write/read/exit/mmap/getrandom), so it declares
-//! only the libc imports for things with no practical syscall form, emitted via
-//! `emit_libc_call` — currently `snprintf` for `toString(Float)`. A build needing
-//! none stays a static ELF; one that imports links libc dynamically (PLT/GOT +
-//! interpreter), exactly like AArch64.
+//! syscalls for the primitives (write/read/exit/mmap/getrandom) and libc for
+//! everything with no practical syscall form (snprintf, pthread, dlopen, the
+//! fs/net/term surface), emitted via `emit_libc_call`. The plan is
+//! flavor-parameterized: each import binds to `libc.so.6` (glibc) or
+//! `libc.musl-x86_64.so.1` (musl), and the console build emits one executable
+//! per flavor, exactly like AArch64. A build importing nothing stays a static
+//! ELF; one that imports links libc dynamically (PLT/GOT + interpreter).
 
 use crate::os::linux::flavor::LinuxFlavor;
 use crate::target::shared::nir::NirModule;

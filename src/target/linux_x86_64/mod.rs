@@ -228,25 +228,32 @@ fn write_executable(
     build_mode: NativeBuildMode,
 ) -> Result<Vec<PathBuf>, String> {
     let module = lower_validated_module(ir, target, packages, build_mode)?;
+    // The console build emits one executable per libc world — `<name>-glibc.out`
+    // (libc.so.6, /lib64/ld-linux-x86-64.so.2) and `<name>-musl.out`
+    // (libc.musl-x86_64.so.1, /lib/ld-musl-x86_64.so.1) — exactly like
+    // linux-aarch64. The whole lowering is flavor-parameterized (the plan's
+    // `Platform::libc()` names the library each import binds to); on x86-64 the
+    // two worlds share every kernel struct layout the codegen bakes in
+    // (stat/dirent/termios, pthread object sizes), so only the import library
+    // names and the interpreter differ.
     let mut paths = Vec::new();
-    // Phase 1: a single static musl-flavored executable. The Linux x86-64 OS
-    // methods use raw syscalls (no libc), so only the musl flavor is emitted.
-    let flavor = LinuxFlavor::Musl;
-    let native_plan = plan_lower(&module, flavor)?;
-    native_plan.validate()?;
-    os::linux::validate_native_object_plan(&native_plan)?;
-    let native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
-    native_code.validate()?;
-    let mut image = arch::x86_64::encode::encode(&native_code)?;
-    image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
-    paths.push(os::linux::write_linked_executable(
-        project_dir,
-        &ir.name,
-        "x86_64",
-        flavor,
-        false,
-        &image,
-    )?);
+    for &flavor in &LinuxFlavor::ALL {
+        let native_plan = plan_lower(&module, flavor)?;
+        native_plan.validate()?;
+        os::linux::validate_native_object_plan(&native_plan)?;
+        let native_code = code::lower_module(&module, &native_plan, packages, flavor)?;
+        native_code.validate()?;
+        let mut image = arch::x86_64::encode::encode(&native_code)?;
+        image.signing_metadata = signing_metadata.map(|metadata| metadata.to_vec());
+        paths.push(os::linux::write_linked_executable(
+            project_dir,
+            &ir.name,
+            "x86_64",
+            flavor,
+            false,
+            &image,
+        )?);
+    }
     Ok(paths)
 }
 
