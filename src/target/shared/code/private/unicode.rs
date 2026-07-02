@@ -60,6 +60,20 @@ impl CodeBuilder<'_> {
         });
     }
 
+    /// Decode the UTF-8 scalar at `cursor` into `codepoint`/`width`.
+    ///
+    /// Self-defending (audit-unicode #3): every `String` is valid UTF-8 by the
+    /// ingress invariant, but this decoder no longer trusts it. Continuation
+    /// bytes must be `0x80..=0xBF`, surrogates (`ED A0..`), overlongs
+    /// (`C0`/`C1`, `E0 80..9F`, `F0 80..8F`) and codepoints above U+10FFFF
+    /// (`F4 90..`, `F5..FF`) are rejected; any malformed sequence decodes as
+    /// U+FFFD with width 1 (byte-wise resync). Each continuation byte is
+    /// validated before the next is read, so a truncated tail stops at the
+    /// string's NUL terminator instead of reading past the allocation, and the
+    /// produced codepoint is always `<= 0x10FFFF` and never a surrogate — the
+    /// two-stage property-table walk downstream is in-bounds by construction.
+    /// On a valid `String` the substitution never fires, so valid strings
+    /// decode exactly as before.
     pub(in crate::target::shared::code) fn emit_utf8_decode_next(
         &mut self,
         cursor: &str,
@@ -69,14 +83,25 @@ impl CodeBuilder<'_> {
         let check_two = self.label("utf8_decode_check_two");
         let check_three = self.label("utf8_decode_check_three");
         let four = self.label("utf8_decode_four");
+        let three_not_e0 = self.label("utf8_decode_three_not_e0");
+        let three_not_ed = self.label("utf8_decode_three_not_ed");
+        let four_not_f0 = self.label("utf8_decode_four_not_f0");
+        let four_not_f4 = self.label("utf8_decode_four_not_f4");
+        let invalid = self.label("utf8_decode_invalid");
         let done = self.label("utf8_decode_done");
         // Vreg scratch (was physical `x6`/`x7`): on x86 the ABI-argument names
         // `x4`-`x7` collapse together (both fall to `rax` via selection's None
         // fallback), so `and %byte,%byte,%mask` became `and rax,rax,rax` — the
         // continuation-byte mask was dropped and the codepoint decoded wrong.
         let byte = self.temporary_vreg();
+        let byte2 = self.temporary_vreg();
+        let byte3 = self.temporary_vreg();
+        let masked = self.temporary_vreg();
         let mask = self.temporary_vreg();
         let byte = byte.as_str();
+        let byte2 = byte2.as_str();
+        let byte3 = byte3.as_str();
+        let masked = masked.as_str();
         let mask = mask.as_str();
 
         self.emit(abi::load_u8(codepoint, cursor, 0));
@@ -86,13 +111,20 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&check_two));
+        // 0x80..0xC1: stray continuation byte or overlong two-byte lead.
+        self.emit(abi::compare_immediate(codepoint, "194"));
+        self.emit(abi::branch_lt(&invalid));
         self.emit(abi::compare_immediate(codepoint, "224"));
         self.emit(abi::branch_ge(&check_three));
-        self.emit(abi::move_immediate(width, "Integer", "2"));
-        self.emit(abi::move_immediate(byte, "Integer", "31"));
-        self.emit(abi::and_registers(codepoint, codepoint, byte));
-        self.emit(abi::shift_left_immediate(codepoint, codepoint, 6));
         self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::move_immediate(mask, "Integer", "192"));
+        self.emit(abi::and_registers(masked, byte, mask));
+        self.emit(abi::compare_immediate(masked, "128"));
+        self.emit(abi::branch_ne(&invalid));
+        self.emit(abi::move_immediate(width, "Integer", "2"));
+        self.emit(abi::move_immediate(masked, "Integer", "31"));
+        self.emit(abi::and_registers(codepoint, codepoint, masked));
+        self.emit(abi::shift_left_immediate(codepoint, codepoint, 6));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::or_registers(codepoint, codepoint, byte));
@@ -101,37 +133,87 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&check_three));
         self.emit(abi::compare_immediate(codepoint, "240"));
         self.emit(abi::branch_ge(&four));
-        self.emit(abi::move_immediate(width, "Integer", "3"));
-        self.emit(abi::move_immediate(byte, "Integer", "15"));
-        self.emit(abi::and_registers(codepoint, codepoint, byte));
-        self.emit(abi::shift_left_immediate(codepoint, codepoint, 12));
         self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::move_immediate(mask, "Integer", "192"));
+        self.emit(abi::and_registers(masked, byte, mask));
+        self.emit(abi::compare_immediate(masked, "128"));
+        self.emit(abi::branch_ne(&invalid));
+        // E0: second byte must be 0xA0..0xBF (reject overlongs).
+        self.emit(abi::compare_immediate(codepoint, "224"));
+        self.emit(abi::branch_ne(&three_not_e0));
+        self.emit(abi::compare_immediate(byte, "160"));
+        self.emit(abi::branch_lt(&invalid));
+        self.emit(abi::label(&three_not_e0));
+        // ED: second byte must be 0x80..0x9F (reject surrogates D800..DFFF).
+        self.emit(abi::compare_immediate(codepoint, "237"));
+        self.emit(abi::branch_ne(&three_not_ed));
+        self.emit(abi::compare_immediate(byte, "160"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::label(&three_not_ed));
+        self.emit(abi::load_u8(byte2, cursor, 2));
+        self.emit(abi::and_registers(masked, byte2, mask));
+        self.emit(abi::compare_immediate(masked, "128"));
+        self.emit(abi::branch_ne(&invalid));
+        self.emit(abi::move_immediate(width, "Integer", "3"));
+        self.emit(abi::move_immediate(masked, "Integer", "15"));
+        self.emit(abi::and_registers(codepoint, codepoint, masked));
+        self.emit(abi::shift_left_immediate(codepoint, codepoint, 12));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::shift_left_immediate(byte, byte, 6));
         self.emit(abi::or_registers(codepoint, codepoint, byte));
-        self.emit(abi::load_u8(byte, cursor, 2));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::or_registers(codepoint, codepoint, byte));
+        self.emit(abi::and_registers(byte2, byte2, mask));
+        self.emit(abi::or_registers(codepoint, codepoint, byte2));
         self.emit(abi::branch(&done));
 
         self.emit(abi::label(&four));
-        self.emit(abi::move_immediate(width, "Integer", "4"));
-        self.emit(abi::move_immediate(byte, "Integer", "7"));
-        self.emit(abi::and_registers(codepoint, codepoint, byte));
-        self.emit(abi::shift_left_immediate(codepoint, codepoint, 18));
+        // 0xF5..0xFF: leads beyond U+10FFFF.
+        self.emit(abi::compare_immediate(codepoint, "245"));
+        self.emit(abi::branch_ge(&invalid));
         self.emit(abi::load_u8(byte, cursor, 1));
+        self.emit(abi::move_immediate(mask, "Integer", "192"));
+        self.emit(abi::and_registers(masked, byte, mask));
+        self.emit(abi::compare_immediate(masked, "128"));
+        self.emit(abi::branch_ne(&invalid));
+        // F0: second byte must be 0x90..0xBF (reject overlongs).
+        self.emit(abi::compare_immediate(codepoint, "240"));
+        self.emit(abi::branch_ne(&four_not_f0));
+        self.emit(abi::compare_immediate(byte, "144"));
+        self.emit(abi::branch_lt(&invalid));
+        self.emit(abi::label(&four_not_f0));
+        // F4: second byte must be 0x80..0x8F (reject > U+10FFFF).
+        self.emit(abi::compare_immediate(codepoint, "244"));
+        self.emit(abi::branch_ne(&four_not_f4));
+        self.emit(abi::compare_immediate(byte, "144"));
+        self.emit(abi::branch_ge(&invalid));
+        self.emit(abi::label(&four_not_f4));
+        self.emit(abi::load_u8(byte2, cursor, 2));
+        self.emit(abi::and_registers(masked, byte2, mask));
+        self.emit(abi::compare_immediate(masked, "128"));
+        self.emit(abi::branch_ne(&invalid));
+        self.emit(abi::load_u8(byte3, cursor, 3));
+        self.emit(abi::and_registers(masked, byte3, mask));
+        self.emit(abi::compare_immediate(masked, "128"));
+        self.emit(abi::branch_ne(&invalid));
+        self.emit(abi::move_immediate(width, "Integer", "4"));
+        self.emit(abi::move_immediate(masked, "Integer", "7"));
+        self.emit(abi::and_registers(codepoint, codepoint, masked));
+        self.emit(abi::shift_left_immediate(codepoint, codepoint, 18));
         self.emit(abi::move_immediate(mask, "Integer", "63"));
         self.emit(abi::and_registers(byte, byte, mask));
         self.emit(abi::shift_left_immediate(byte, byte, 12));
         self.emit(abi::or_registers(codepoint, codepoint, byte));
-        self.emit(abi::load_u8(byte, cursor, 2));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::shift_left_immediate(byte, byte, 6));
-        self.emit(abi::or_registers(codepoint, codepoint, byte));
-        self.emit(abi::load_u8(byte, cursor, 3));
-        self.emit(abi::and_registers(byte, byte, mask));
-        self.emit(abi::or_registers(codepoint, codepoint, byte));
+        self.emit(abi::and_registers(byte2, byte2, mask));
+        self.emit(abi::shift_left_immediate(byte2, byte2, 6));
+        self.emit(abi::or_registers(codepoint, codepoint, byte2));
+        self.emit(abi::and_registers(byte3, byte3, mask));
+        self.emit(abi::or_registers(codepoint, codepoint, byte3));
+        self.emit(abi::branch(&done));
+
+        self.emit(abi::label(&invalid));
+        // Substitute U+FFFD and resync one byte; unreachable on a valid String.
+        self.emit(abi::move_immediate(codepoint, "Integer", "65533"));
+        self.emit(abi::move_immediate(width, "Integer", "1"));
         self.emit(abi::label(&done));
     }
 

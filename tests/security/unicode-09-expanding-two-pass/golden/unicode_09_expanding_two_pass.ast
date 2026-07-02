@@ -1,0 +1,99 @@
+{
+  "project": "unicode_09_expanding_two_pass",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 13 },
+    { "module": "strings", "line": 14 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "upperOf",
+      "line": 16,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.upper", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "lowerOf",
+      "line": 20,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.lower", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 21 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "nfcOf",
+      "line": 24,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.normalizeNfc", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 25 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "byteLen",
+      "line": 28,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.toBytes", "arguments": [{ "kind": "identifier", "value": "s" }] }] }, "line": 29 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "graphemeCount",
+      "line": 32,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "call", "callee": "strings.graphemes", "arguments": [{ "kind": "identifier", "value": "s" }] }] }, "line": 33 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 36,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "upperOf", "arguments": [{ "kind": "string", "value": "straße" }] }] }, "line": 38 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "byteLen", "arguments": [{ "kind": "call", "callee": "upperOf", "arguments": [{ "kind": "string", "value": "straße" }] }] }] }] }, "line": 39 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "byteLen", "arguments": [{ "kind": "call", "callee": "lowerOf", "arguments": [{ "kind": "string", "value": "İ" }] }] }] }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "decomposedBytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "101" }, { "kind": "number", "value": "204" }, { "kind": "number", "value": "129" }] }, "line": 43 },
+      { "kind": "binding", "mutable": false, "name": "decomposed", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "decomposedBytes" }] }, "line": 44 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "nfcOf", "arguments": [{ "kind": "identifier", "value": "decomposed" }] }] }, "line": 45 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "byteLen", "arguments": [{ "kind": "call", "callee": "nfcOf", "arguments": [{ "kind": "identifier", "value": "decomposed" }] }] }] }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "graphemeCount", "arguments": [{ "kind": "identifier", "value": "decomposed" }] }] }] }, "line": 48 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 49 }
+      ]
+    }
+    ]
+  }
+  ]
+}

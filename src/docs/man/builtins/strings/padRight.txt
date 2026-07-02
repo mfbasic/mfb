@@ -49,8 +49,10 @@ RETURN VALUE
 
 ERRORS
   77050002 (ErrInvalidArgument)
-  Raised when width is negative, or when padChar is not exactly one Unicode
-  scalar value (empty or longer than one scalar).
+  Raised when width is negative, when padChar is not exactly one Unicode
+  scalar value (empty or longer than one scalar), or when the result size (the
+  pad bytes plus the value bytes and the String header) cannot be represented
+  in 64 bits.
 
 EXAMPLES
   Right-pad a label with dots to a width of 5:

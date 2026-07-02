@@ -1,0 +1,25 @@
+' Audit finding #1 (CRIT): strings::repeat allocation-size multiply overflows.
+' A 32-byte value repeated 2^59 times makes len*times = 32 * 2^59 = 2^64, which
+' truncates to 0: the arena allocation is tiny while the copy loop writes 32 * 2^59
+' bytes -> heap overflow. The selected fix (audit O1) rejects the unrepresentable
+' size with the catchable ErrInvalidArgument (77050002) BEFORE allocating, so the
+' program recovers cleanly instead of corrupting the heap.
+'
+' strings::repeat is inline-lowered, so the fallible call is wrapped in a FUNC to
+' make it trappable (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN otherwise).
+IMPORT io
+IMPORT strings
+
+FUNC repeatValue(value AS String, times AS Integer) AS String
+  RETURN strings::repeat(value, times)
+END FUNC
+
+FUNC main AS Integer
+  LET wide AS String = "abcdefghijklmnopqrstuvwxyz012345"
+  LET result AS String = repeatValue(wide, 576460752303423488) TRAP(e)
+    io::print("caught " & toString(e.code))
+    RECOVER "recovered"
+  END TRAP
+  io::print(result)
+  RETURN 0
+END FUNC

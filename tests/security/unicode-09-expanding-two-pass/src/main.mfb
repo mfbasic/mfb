@@ -1,0 +1,50 @@
+' Audit finding #9 (LO): the two-pass allocators (case-map, normalizeNfc, graphemes)
+' are safe only because the counting pass and the writing pass compute identical lengths
+' from identical table lookups. A future edit that made the passes diverge would turn
+' into a silent heap overflow with no guard. The selected fix (audit O1) adds a debug
+' write-vs-alloc assertion; this test is the standing correctness corpus that a
+' count/write divergence would break -- expanding maps whose output is longer than the
+' input in scalars and/or bytes.
+'
+' upper/lower/normalizeNfc/graphemes are constant-folded when the argument is a static
+' string (the fold runs in Rust, not the runtime two-pass emitter). To exercise the
+' RUNTIME allocators, every input here is dynamic: string args arrive through FUNC
+' parameters, and the decomposed NFC input is built from bytes via toString.
+IMPORT io
+IMPORT strings
+
+FUNC upperOf(s AS String) AS String
+  RETURN strings::upper(s)
+END FUNC
+
+FUNC lowerOf(s AS String) AS String
+  RETURN strings::lower(s)
+END FUNC
+
+FUNC nfcOf(s AS String) AS String
+  RETURN strings::normalizeNfc(s)
+END FUNC
+
+FUNC byteLen(s AS String) AS Integer
+  RETURN len(strings::toBytes(s))
+END FUNC
+
+FUNC graphemeCount(s AS String) AS Integer
+  RETURN len(strings::graphemes(s))
+END FUNC
+
+FUNC main AS Integer
+  ' upper: ß (U+00DF, 2 bytes) expands to "SS" -> "STRASSE", 7 ASCII bytes.
+  io::print(upperOf("straße"))
+  io::print(toString(byteLen(upperOf("straße"))))
+  ' lower: İ (U+0130, 2 bytes) lowers to "i" + combining dot (U+0307): 2 scalars, 3 bytes.
+  io::print(toString(byteLen(lowerOf("İ"))))
+  ' normalizeNfc: decomposed "e" + combining acute (U+0301) composes to "é": 1 scalar, 2 bytes.
+  LET decomposedBytes AS List OF Byte = [101, 204, 129]
+  LET decomposed AS String = toString(decomposedBytes)
+  io::print(nfcOf(decomposed))
+  io::print(toString(byteLen(nfcOf(decomposed))))
+  ' graphemes: base + combining mark is a single extended grapheme cluster.
+  io::print(toString(graphemeCount(decomposed)))
+  RETURN 0
+END FUNC

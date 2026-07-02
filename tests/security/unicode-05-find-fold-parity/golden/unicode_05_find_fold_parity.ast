@@ -1,0 +1,78 @@
+{
+  "project": "unicode_05_find_fold_parity",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 },
+    { "module": "strings", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "findAt",
+      "line": 13,
+      "params": [
+      { "name": "value", "type": "String", "default": null },
+      { "name": "needle", "type": "String", "default": null },
+      { "name": "start", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.find", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "needle" }, { "kind": "identifier", "value": "start" }] }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "midOf",
+      "line": 17,
+      "params": [
+      { "name": "value", "type": "String", "default": null },
+      { "name": "start", "type": "Integer", "default": null },
+      { "name": "count", "type": "Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "start" }, { "kind": "identifier", "value": "count" }] }, "line": 18 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 21,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "idx", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 23,
+        "expression": { "kind": "call", "callee": "findAt", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "string", "value": "x" }, { "kind": "number", "value": "10" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "find " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 24 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 25 }
+        ]
+      }, "line": 23 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "idx" }] }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "slice", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 28,
+        "expression": { "kind": "call", "callee": "midOf", "arguments": [{ "kind": "string", "value": "abc" }, { "kind": "number", "value": "10" }, { "kind": "number", "value": "1" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mid " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 29 },
+        { "kind": "recover", "value": { "kind": "string", "value": "?" }, "line": 30 }
+        ]
+      }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "slice" }] }, "line": 32 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 33 }
+      ]
+    }
+    ]
+  }
+  ]
+}

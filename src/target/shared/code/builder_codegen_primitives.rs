@@ -243,6 +243,61 @@ impl CodeBuilder<'_> {
         self.emit_error_code_return(ERR_ENCODING_CODE, ERR_ENCODING_MESSAGE)
     }
 
+    /// `product = lhs * rhs` for an allocation size, branching to `overflow`
+    /// when the mathematical product does not fit in 64 bits (audit-unicode #1/
+    /// #2/#8). The high half is computed first so `product` may alias `lhs` or
+    /// `rhs`.
+    pub(super) fn emit_checked_size_multiply(
+        &mut self,
+        product: &str,
+        lhs: &str,
+        rhs: &str,
+        overflow: &str,
+    ) {
+        let high = self.temporary_vreg();
+        self.emit(abi::unsigned_multiply_high_registers(&high, lhs, rhs));
+        self.emit(abi::compare_immediate(&high, "0"));
+        self.emit(abi::branch_ne(overflow));
+        self.emit(abi::multiply_registers(product, lhs, rhs));
+    }
+
+    /// `dst = lhs + rhs` for an allocation size, branching to `overflow` on
+    /// unsigned wrap. `dst` may alias `lhs` but must not alias `rhs` (the wrap
+    /// test compares the sum against `rhs`).
+    pub(super) fn emit_checked_size_add(&mut self, dst: &str, lhs: &str, rhs: &str, overflow: &str) {
+        self.emit(abi::add_registers(dst, lhs, rhs));
+        self.emit(abi::compare_registers(dst, rhs));
+        self.emit(abi::branch_lo(overflow));
+    }
+
+    /// `dst = src + immediate` for an allocation size, branching to `overflow`
+    /// on unsigned wrap. `dst` must not alias `src`.
+    pub(super) fn emit_checked_size_add_immediate(
+        &mut self,
+        dst: &str,
+        src: &str,
+        immediate: usize,
+        overflow: &str,
+    ) {
+        self.emit(abi::add_immediate(dst, src, immediate));
+        self.emit(abi::compare_registers(dst, src));
+        self.emit(abi::branch_lo(overflow));
+    }
+
+    /// Assert a two-pass writer ended exactly where its counting pass said it
+    /// would (audit-unicode #9). A count/write divergence has already written
+    /// past the allocation, so this cannot recover — it faults deterministically
+    /// (null load) instead of letting the heap corruption propagate silently.
+    pub(super) fn emit_write_cursor_assert(&mut self, cursor: &str, expected: &str, tag: &str) {
+        let ok = self.label(&format!("{tag}_write_assert_ok"));
+        self.emit(abi::compare_registers(cursor, expected));
+        self.emit(abi::branch_eq(&ok));
+        let zero = self.temporary_vreg();
+        self.emit(abi::move_immediate(&zero, "Integer", "0"));
+        self.emit(abi::load_u8(&zero, &zero, 0));
+        self.emit(abi::label(&ok));
+    }
+
     pub(super) fn emit_error_code_return(
         &mut self,
         code: &str,

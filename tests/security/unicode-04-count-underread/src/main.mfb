@@ -1,0 +1,18 @@
+' Audit finding #4 (MED): strings::count computes the loop limit as an unsigned
+' valueLen - needleLen with no needleLen > valueLen guard. When the needle is longer
+' than the value the subtraction underflows to a huge value, the terminating
+' branch never fires, and the loop reads needleLen bytes past the value buffer on
+' every iteration (OOB read + near-unbounded loop). The selected fix (audit O1) adds
+' the contains-style guard so a longer needle returns 0 occurrences -- the documented
+' semantics -- with no OOB read.
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  ' needle longer than value: 0 occurrences, no OOB read / runaway loop.
+  io::print(toString(strings::count("ab", "abcdef")))
+  ' sanity: normal counts still work.
+  io::print(toString(strings::count("abcabcabc", "abc")))
+  io::print(toString(strings::count("aaaa", "aa")))
+  RETURN 0
+END FUNC

@@ -1,0 +1,52 @@
+{
+  "project": "unicode_02_pad_overflow",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 9 },
+    { "module": "strings", "line": 10 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "padValue",
+      "line": 12,
+      "params": [
+      { "name": "value", "type": "String", "default": null },
+      { "name": "width", "type": "Integer", "default": null },
+      { "name": "padChar", "type": "String", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.padLeft", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "width" }, { "kind": "identifier", "value": "padChar" }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "result", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 17,
+        "expression": { "kind": "call", "callee": "padValue", "arguments": [{ "kind": "string", "value": "x" }, { "kind": "number", "value": "4611686018427387905" }, { "kind": "string", "value": "😀" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "caught " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 18 },
+        { "kind": "recover", "value": { "kind": "string", "value": "recovered" }, "line": 19 }
+        ]
+      }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "result" }] }, "line": 21 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 22 }
+      ]
+    }
+    ]
+  }
+  ]
+}

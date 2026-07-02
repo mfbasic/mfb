@@ -1,0 +1,52 @@
+{
+  "project": "unicode_01_repeat_overflow",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 10 },
+    { "module": "strings", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "repeatValue",
+      "line": 13,
+      "params": [
+      { "name": "value", "type": "String", "default": null },
+      { "name": "times", "type": "Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "strings.repeat", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "times" }] }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 17,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "wide", "type": "String", "value": { "kind": "string", "value": "abcdefghijklmnopqrstuvwxyz012345" }, "line": 18 },
+      { "kind": "binding", "mutable": false, "name": "result", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 19,
+        "expression": { "kind": "call", "callee": "repeatValue", "arguments": [{ "kind": "identifier", "value": "wide" }, { "kind": "number", "value": "576460752303423488" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "caught " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 20 },
+        { "kind": "recover", "value": { "kind": "string", "value": "recovered" }, "line": 21 }
+        ]
+      }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "result" }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
+      ]
+    }
+    ]
+  }
+  ]
+}

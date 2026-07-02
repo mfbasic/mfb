@@ -17,7 +17,10 @@ bash "$ROOT/scripts/test-accept.sh" "$MFB_EXE" "$ACTUAL" >/dev/null 2>&1 || true
 tests=("$@")
 if [ "${#tests[@]}" -eq 0 ]; then
   tests=()
-  for d in "$ROOT"/tests/*/; do tests+=("$(basename "$d")"); done
+  for d in "$ROOT"/tests/*/ "$ROOT"/tests/security/*/; do
+    rel=${d#"$ROOT/tests/"}
+    tests+=("${rel%/}")
+  done
 fi
 
 count=0

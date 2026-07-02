@@ -1,0 +1,34 @@
+' Audit finding #5 (RETRACTED): the earlier draft claimed constant-argument find/mid
+' get constant-folded and turn an out-of-range start into a compile-time BUILD error,
+' diverging from the catchable runtime ErrIndexOutOfRange. That divergence does not
+' exist: find/mid are never folded (unicode_backend::find/mid are dead code), so both
+' always lower to the single runtime path. This test locks that guarantee -- calls
+' with constant, out-of-range arguments must COMPILE and raise the catchable runtime
+' error 77050001, never fail the build.
+'
+' find/mid are inline-lowered, so each is wrapped in a FUNC to make it trappable.
+IMPORT io
+IMPORT strings
+
+FUNC findAt(value AS String, needle AS String, start AS Integer) AS Integer
+  RETURN strings::find(value, needle, start)
+END FUNC
+
+FUNC midOf(value AS String, start AS Integer, count AS Integer) AS String
+  RETURN strings::mid(value, start, count)
+END FUNC
+
+FUNC main AS Integer
+  ' Constant args, start past the scalar length (3): catchable at runtime, not a build error.
+  LET idx AS Integer = findAt("abc", "x", 10) TRAP(e)
+    io::print("find " & toString(e.code))
+    RECOVER -1
+  END TRAP
+  io::print(toString(idx))
+  LET slice AS String = midOf("abc", 10, 1) TRAP(e)
+    io::print("mid " & toString(e.code))
+    RECOVER "?"
+  END TRAP
+  io::print(slice)
+  RETURN 0
+END FUNC

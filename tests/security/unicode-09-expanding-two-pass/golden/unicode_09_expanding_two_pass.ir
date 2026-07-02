@@ -1,0 +1,93 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "unicode_09_expanding_two_pass",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "upperOf",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.upper", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "lowerOf",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.lower", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "nfcOf",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.normalizeNfc", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "byteLen",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "strings.toBytes", "args": [{ "kind": "local", "name": "s" }] }] } }
+    ]
+  },
+  {
+    "name": "graphemeCount",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "s", "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "strings.graphemes", "args": [{ "kind": "local", "name": "s" }] }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "upperOf", "args": [{ "kind": "const", "type": "String", "value": "straße" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "byteLen", "args": [{ "kind": "call", "target": "upperOf", "args": [{ "kind": "const", "type": "String", "value": "straße" }] }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "byteLen", "args": [{ "kind": "call", "target": "lowerOf", "args": [{ "kind": "const", "type": "String", "value": "İ" }] }] }] }] } },
+    { "op": "bind", "mutable": false, "name": "decomposedBytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "101" }, { "kind": "const", "type": "Byte", "value": "204" }, { "kind": "const", "type": "Byte", "value": "129" }] } },
+    { "op": "bind", "mutable": false, "name": "decomposed", "type": "String", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "decomposedBytes" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "nfcOf", "args": [{ "kind": "local", "name": "decomposed" }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "byteLen", "args": [{ "kind": "call", "target": "nfcOf", "args": [{ "kind": "local", "name": "decomposed" }] }] }] }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "graphemeCount", "args": [{ "kind": "local", "name": "decomposed" }] }] }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

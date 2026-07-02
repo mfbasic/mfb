@@ -1,0 +1,47 @@
+' Audit finding #3 (HIGH, latent): the runtime UTF-8 decoder + property lookup do
+' no bounds/validity check, so a malformed codepoint would read out of bounds of the
+' two-stage Unicode tables. It is latent ONLY because every String is well-formed
+' UTF-8 by construction: a source program cannot build an invalid-UTF-8 String, so
+' the OOB path itself is unreachable from MFBASIC. This test asserts the invariant
+' that keeps it latent -- the byte->String ingress validator (toString(List OF Byte))
+' must reject every malformed sequence with ErrEncoding (77020004). If this ever
+' regresses, finding #3 becomes reachable, so this is the guard that matters.
+'
+' toString is inline-lowered, so it is wrapped in a SUB (tryDecode) whose body calls it
+' as an ordinary auto-propagating call; the caller traps the propagated failure.
+IMPORT io
+
+SUB tryDecode(bytes AS List OF Byte)
+  LET decoded AS String = toString(bytes)
+  ' Only reached when the bytes were valid UTF-8 (the bug would be: malformed accepted).
+  io::print("accepted " & toString(len(decoded)))
+END SUB
+
+FUNC main AS Integer
+  LET overlong AS List OF Byte = [192, 128]              ' 0xC0 0x80 : overlong "/"
+  tryDecode(overlong) TRAP(e)
+    io::print("overlong " & toString(e.code))
+    RECOVER
+  END TRAP
+  LET surrogate AS List OF Byte = [237, 160, 128]        ' 0xED 0xA0 0x80 : U+D800
+  tryDecode(surrogate) TRAP(e)
+    io::print("surrogate " & toString(e.code))
+    RECOVER
+  END TRAP
+  LET tooBig AS List OF Byte = [244, 144, 128, 128]      ' 0xF4 0x90 .. : > U+10FFFF
+  tryDecode(tooBig) TRAP(e)
+    io::print("tooBig " & toString(e.code))
+    RECOVER
+  END TRAP
+  LET truncated AS List OF Byte = [226, 130]             ' 0xE2 0x82 : 3-byte lead, 1 byte short
+  tryDecode(truncated) TRAP(e)
+    io::print("truncated " & toString(e.code))
+    RECOVER
+  END TRAP
+  LET badCont AS List OF Byte = [194, 32]                ' 0xC2 0x20 : continuation not 0x80..0xBF
+  tryDecode(badCont) TRAP(e)
+    io::print("badCont " & toString(e.code))
+    RECOVER
+  END TRAP
+  RETURN 0
+END FUNC

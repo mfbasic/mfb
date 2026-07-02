@@ -1,0 +1,55 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "unicode_02_pad_overflow",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "padValue",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "value", "type": "String", "default": null },
+    { "name": "width", "type": "Integer", "default": null },
+    { "name": "padChar", "type": "String", "default": null }
+    ],
+    "returns": "String",
+    "body": [
+    { "op": "return", "value": { "kind": "call", "target": "strings.padLeft", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "width" }, { "kind": "local", "name": "padChar" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "target": "padValue", "args": [{ "kind": "const", "type": "String", "value": "x" }, { "kind": "const", "type": "Integer", "value": "4611686018427387905" }, { "kind": "const", "type": "String", "value": "😀" }] } },
+    { "op": "bind", "mutable": true, "name": "$trap_val1", "type": "String", "value": null },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      { "op": "assign", "name": "$trap_val1", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res0" } } }
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "caught " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } },
+      { "op": "assign", "name": "$trap_val1", "value": { "kind": "const", "type": "String", "value": "recovered" } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "result", "type": "String", "value": { "kind": "local", "name": "$trap_val1" } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "result" }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

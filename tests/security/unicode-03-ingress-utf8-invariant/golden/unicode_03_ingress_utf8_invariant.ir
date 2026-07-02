@@ -1,0 +1,98 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "unicode_03_ingress_utf8_invariant",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "tryDecode",
+    "visibility": "private",
+    "kind": "sub",
+    "params": [
+    { "name": "bytes", "type": "List OF Byte", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "decoded", "type": "String", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "bytes" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "accepted " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "decoded" }] }] } }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "overlong", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "192" }, { "kind": "const", "type": "Byte", "value": "128" }] } },
+    { "op": "bind", "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "target": "tryDecode", "args": [{ "kind": "local", "name": "overlong" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "overlong " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "surrogate", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "237" }, { "kind": "const", "type": "Byte", "value": "160" }, { "kind": "const", "type": "Byte", "value": "128" }] } },
+    { "op": "bind", "mutable": false, "name": "$trap_res1", "type": "Result OF Nothing", "value": { "kind": "callResult", "target": "tryDecode", "args": [{ "kind": "local", "name": "surrogate" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res1" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "surrogate " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "tooBig", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "244" }, { "kind": "const", "type": "Byte", "value": "144" }, { "kind": "const", "type": "Byte", "value": "128" }, { "kind": "const", "type": "Byte", "value": "128" }] } },
+    { "op": "bind", "mutable": false, "name": "$trap_res2", "type": "Result OF Nothing", "value": { "kind": "callResult", "target": "tryDecode", "args": [{ "kind": "local", "name": "tooBig" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res2" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "tooBig " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "truncated", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "226" }, { "kind": "const", "type": "Byte", "value": "130" }] } },
+    { "op": "bind", "mutable": false, "name": "$trap_res3", "type": "Result OF Nothing", "value": { "kind": "callResult", "target": "tryDecode", "args": [{ "kind": "local", "name": "truncated" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res3" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res3" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "truncated " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "badCont", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "194" }, { "kind": "const", "type": "Byte", "value": "32" }] } },
+    { "op": "bind", "mutable": false, "name": "$trap_res4", "type": "Result OF Nothing", "value": { "kind": "callResult", "target": "tryDecode", "args": [{ "kind": "local", "name": "badCont" }] } },
+    {
+      "op": "if",
+      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res4" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res4" } } },
+      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "badCont " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" }] } }] } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

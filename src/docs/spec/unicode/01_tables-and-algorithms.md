@@ -222,9 +222,16 @@ of truth. [[src/target/shared/code/private/unicode.rs:emit_unicode_u32_mapping_l
 The shared scalar codec underpins every algorithm. `emit_utf8_decode_next` reads
 the leading byte, branches on the 0x80/0xE0/0xF0 thresholds for 1–4 byte widths,
 masks/shifts the continuation bytes, and returns both the scalar and its byte
-width. `emit_utf8_encoded_width` computes a scalar's encoded width (thresholds
-0x80 / 0x800 / 0x10000), and `emit_utf8_encode_next` writes 1–4 bytes and
-advances the cursor. [[src/target/shared/code/private/unicode.rs:emit_utf8_decode_next]]
+width. The decoder is self-defending: even though every `String` is valid UTF-8
+by construction, it validates each continuation byte (`0x80..=0xBF`) before
+reading the next and rejects surrogates, overlong encodings, and leads beyond
+U+10FFFF, decoding any malformed sequence as U+FFFD with width 1. The scalar it
+produces is therefore always `<= 0x10FFFF`, which keeps the two-stage property
+lookup in-bounds regardless of caller discipline; on a valid `String` the
+substitution never fires. `emit_utf8_encoded_width` computes a scalar's encoded
+width (thresholds 0x80 / 0x800 / 0x10000), and `emit_utf8_encode_next` writes
+1–4 bytes and advances the cursor.
+[[src/target/shared/code/private/unicode.rs:emit_utf8_decode_next]]
 [[src/target/shared/code/private/unicode.rs:emit_utf8_encode_next]]
 
 ## Runtime algorithm: grapheme segmentation
@@ -302,6 +309,12 @@ All three maps are full (sequence-valued), so multi-scalar expansions like
 `ß → ss` (uppercase) and Turkish-dotted-I lowering are handled by the flattened
 sequences, exactly as the compile-time crate path would produce; the
 case-mapping behavior is not locale-tailored. [[src/unicode_runtime_tables.rs:parse_tables]]
+
+Every two-pass allocator (case mapping, NFC, `graphemes`) asserts at the end of
+its writing pass that the write cursor landed exactly on the byte length the
+counting pass allocated; a count/write divergence — which would otherwise be a
+silent heap overflow — faults deterministically instead.
+[[src/target/shared/code/builder_codegen_primitives.rs:emit_write_cursor_assert]]
 
 ## See Also
 

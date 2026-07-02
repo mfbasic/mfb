@@ -15,13 +15,19 @@ FILTERS=("$@")
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 TEST_ROOT="$ROOT/tests"
 
-# Returns 0 if $1 matches any filter glob, or if no filters were given.
+# Returns 0 if $1 (relative test path) or its basename matches any filter glob,
+# or if no filters were given.
 matches_filter() {
   [ "${#FILTERS[@]}" -eq 0 ] && return 0
-  local name=$1 pat
+  local name=$1 pat base
+  base=$(basename "$name")
   for pat in "${FILTERS[@]}"; do
     # shellcheck disable=SC2254
     case "$name" in
+      $pat) return 0 ;;
+    esac
+    # shellcheck disable=SC2254
+    case "$base" in
       $pat) return 0 ;;
     esac
   done
@@ -118,11 +124,12 @@ mkdir -p "$ACTUAL_ROOT"
 
 cd "$ROOT" || exit 2
 
-for test_dir in "$TEST_ROOT"/*; do
+# Top-level tests plus grouped suites (e.g. tests/security/*) one level down.
+for test_dir in "$TEST_ROOT"/* "$TEST_ROOT"/security/*; do
   [ -d "$test_dir" ] || continue
   [ -f "$test_dir/project.json" ] || continue
 
-  test_name=$(basename "$test_dir")
+  test_name=${test_dir#"$TEST_ROOT/"}
   matches_filter "$test_name" || continue
   ran=$((ran + 1))
   package_name=$(project_name "$test_dir")

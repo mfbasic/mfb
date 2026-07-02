@@ -1,0 +1,23 @@
+' Audit finding #2 (CRIT): strings::padLeft/padRight size multiply+add overflows.
+' padChar "😀" is 4 bytes; with value "x" (1 scalar) and width = 2^62 + 1, the pad
+' count is 2^62, so pad_count * padLen = 2^62 * 4 = 2^64 truncates to 0: a tiny
+' allocation followed by a 2^64-byte write -> heap overflow. The selected fix
+' (audit O1, shared emit_checked_alloc_size) rejects the unrepresentable size with
+' the catchable ErrInvalidArgument (77050002) before allocating.
+'
+' padLeft is inline-lowered, so the fallible call is wrapped in a FUNC to trap it.
+IMPORT io
+IMPORT strings
+
+FUNC padValue(value AS String, width AS Integer, padChar AS String) AS String
+  RETURN strings::padLeft(value, width, padChar)
+END FUNC
+
+FUNC main AS Integer
+  LET result AS String = padValue("x", 4611686018427387905, "😀") TRAP(e)
+    io::print("caught " & toString(e.code))
+    RECOVER "recovered"
+  END TRAP
+  io::print(result)
+  RETURN 0
+END FUNC

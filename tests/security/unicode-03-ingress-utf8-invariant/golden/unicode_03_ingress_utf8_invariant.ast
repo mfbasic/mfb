@@ -1,0 +1,94 @@
+{
+  "project": "unicode_03_ingress_utf8_invariant",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 12 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "tryDecode",
+      "line": 14,
+      "params": [
+      { "name": "bytes", "type": "List OF Byte", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "decoded", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bytes" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "accepted " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "decoded" }] }] } }] }, "line": 17 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 20,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "overlong", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "192" }, { "kind": "number", "value": "128" }] }, "line": 21 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 22,
+        "expression": { "kind": "call", "callee": "tryDecode", "arguments": [{ "kind": "identifier", "value": "overlong" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "overlong " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 23 },
+        { "kind": "recover", "value": null, "line": 24 }
+        ]
+      }, "line": 22 },
+      { "kind": "binding", "mutable": false, "name": "surrogate", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "237" }, { "kind": "number", "value": "160" }, { "kind": "number", "value": "128" }] }, "line": 26 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 27,
+        "expression": { "kind": "call", "callee": "tryDecode", "arguments": [{ "kind": "identifier", "value": "surrogate" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "surrogate " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 28 },
+        { "kind": "recover", "value": null, "line": 29 }
+        ]
+      }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "tooBig", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "244" }, { "kind": "number", "value": "144" }, { "kind": "number", "value": "128" }, { "kind": "number", "value": "128" }] }, "line": 31 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 32,
+        "expression": { "kind": "call", "callee": "tryDecode", "arguments": [{ "kind": "identifier", "value": "tooBig" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "tooBig " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 33 },
+        { "kind": "recover", "value": null, "line": 34 }
+        ]
+      }, "line": 32 },
+      { "kind": "binding", "mutable": false, "name": "truncated", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "226" }, { "kind": "number", "value": "130" }] }, "line": 36 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 37,
+        "expression": { "kind": "call", "callee": "tryDecode", "arguments": [{ "kind": "identifier", "value": "truncated" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "truncated " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 38 },
+        { "kind": "recover", "value": null, "line": 39 }
+        ]
+      }, "line": 37 },
+      { "kind": "binding", "mutable": false, "name": "badCont", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "194" }, { "kind": "number", "value": "32" }] }, "line": 41 },
+      { "kind": "expression", "expression": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 42,
+        "expression": { "kind": "call", "callee": "tryDecode", "arguments": [{ "kind": "identifier", "value": "badCont" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "badCont " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "code" }] } }] }, "line": 43 },
+        { "kind": "recover", "value": null, "line": 44 }
+        ]
+      }, "line": 42 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 46 }
+      ]
+    }
+    ]
+  }
+  ]
+}

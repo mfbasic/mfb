@@ -42,7 +42,9 @@ RETURN VALUE
 
 ERRORS
   77050002 (ErrInvalidArgument)
-  Raised when times is negative.
+  Raised when times is negative, and when the result size (the byte length of
+  value multiplied by times, plus the String header) cannot be represented in
+  64 bits.
 
 TYPE CHECKING
   value must be String. times must be an Integer.

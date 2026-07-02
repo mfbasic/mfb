@@ -1,0 +1,37 @@
+' Audit finding #7 (LO): padLeft/padRight accept padChar when it has exactly one
+' non-continuation byte -- a byte-structural test, not UTF-8 validation, so a malformed
+' lead would be copied verbatim. That malformed case is unreachable from source (padChar
+' is a String, hence already valid UTF-8), so the selected fix (audit O1: validate padChar
+' as one well-formed scalar) is defense-in-depth with no behavior change. This test locks
+' the REACHABLE contract the man page promises: empty and multi-scalar padChar are
+' rejected with ErrInvalidArgument (77050002); a single scalar (including a multi-byte
+' one) is accepted.
+'
+' padLeft is inline-lowered, so the rejection cases go through a SUB (tryPad) whose body
+' calls it as an ordinary auto-propagating call; the caller traps the propagated failure.
+IMPORT io
+IMPORT strings
+
+SUB tryPad(value AS String, width AS Integer, padChar AS String)
+  LET padded AS String = strings::padLeft(value, width, padChar)
+  ' Only reached if padChar was accepted (the bug would be: malformed padChar accepted).
+  io::print("accepted " & toString(len(strings::toBytes(padded))))
+END SUB
+
+FUNC main AS Integer
+  ' Empty padChar -> rejected.
+  tryPad("x", 4, "") TRAP(e)
+    io::print("empty " & toString(e.code))
+    RECOVER
+  END TRAP
+  ' Multi-scalar padChar -> rejected.
+  tryPad("x", 4, "ab") TRAP(e)
+    io::print("multi " & toString(e.code))
+    RECOVER
+  END TRAP
+  ' Single ASCII scalar padChar -> accepted: "---x".
+  io::print(strings::padLeft("x", 4, "-"))
+  ' Single multi-byte scalar padChar (😀 = 4 bytes) -> accepted: "😀😀😀x" = 13 bytes.
+  io::print(toString(len(strings::toBytes(strings::padLeft("x", 4, "😀")))))
+  RETURN 0
+END FUNC

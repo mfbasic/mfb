@@ -80,22 +80,29 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&count_done));
         self.emit(abi::store_u64(&scratch22, abi::stack_pointer(), count_slot));
 
+        // Checked size arithmetic (audit-unicode #8): the grapheme count is
+        // derived from an arena-bounded string, so a wrap is unreachable on real
+        // hardware, but every arena-size computation shares the same
+        // self-defending shape.
+        let size_overflow = self.label("strings_graphemes_size_overflow");
         self.emit(abi::move_immediate(
             &scratch13,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch13, &scratch13, &scratch22));
-        self.emit(abi::add_immediate(
+        self.emit_checked_size_multiply(&scratch13, &scratch13, &scratch22, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch13,
             COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(
+            &size_overflow,
+        );
+        self.emit_checked_size_add(
             abi::return_register(),
             abi::return_register(),
             &scratch9,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -111,6 +118,11 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        // A size wrap reports the same 77010001 an impossible allocation would
+        // (x0 does not hold an error code before the call, so the register-based
+        // return above cannot be shared).
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
@@ -163,6 +175,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&write_loop));
         self.emit(abi::label(&write_final));
         self.emit_string_split_write_entry(&scratch20, &scratch21, &scratch22, &scratch24, &scratch9, &scratch14)?;
+        // audit-unicode #9: the write pass must have emitted exactly the entry
+        // count and payload bytes the counting pass allocated; a divergence is a
+        // silent heap overflow.
+        self.emit_write_cursor_assert(&scratch22, &scratch9, "strings_graphemes_data");
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
+        self.emit(abi::move_immediate(
+            &scratch12,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(&scratch11, &scratch11, &scratch12));
+        self.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
+        self.emit(abi::add_immediate(&scratch10, &scratch10, COLLECTION_HEADER_SIZE));
+        self.emit_write_cursor_assert(&scratch20, &scratch10, "strings_graphemes_entries");
         self.emit(abi::label(&write_empty));
 
         let result = self.allocate_register()?;
@@ -209,17 +236,22 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), count_slot));
 
         // alloc size = HEADER + count * (ENTRY_SIZE) + count (one payload byte each).
+        // The size multiply/add is checked (audit-unicode #8): the count is an
+        // arena-bounded string length so a wrap is unreachable on real hardware,
+        // but every arena-size computation shares the same self-defending shape.
+        let size_overflow = self.label("strings_to_bytes_size_overflow");
         self.emit(abi::move_immediate(
             &scratch13,
             "Integer",
             &(COLLECTION_ENTRY_SIZE + 1).to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch13, &scratch9, &scratch13));
-        self.emit(abi::add_immediate(
+        self.emit_checked_size_multiply(&scratch13, &scratch9, &scratch13, &size_overflow);
+        self.emit_checked_size_add_immediate(
             abi::return_register(),
             &scratch13,
             COLLECTION_HEADER_SIZE,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -232,6 +264,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
+        // A size wrap reports the same 77010001 an impossible allocation would;
+        // it cannot share the register-based return above (x0 holds the failed
+        // call's tag there, not an error code, before the call ever runs).
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&alloc_ok));
         // x1 holds the new collection pointer.
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
@@ -425,6 +462,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&scratch23, &scratch23, &scratch11));
         self.emit(abi::branch(&write_loop));
         self.emit(abi::label(&write_done));
+        // audit-unicode #9: the write pass must end exactly at the byte length
+        // the counting pass allocated; a divergence is a silent heap overflow.
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), length_slot));
+        self.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
+        self.emit(abi::add_immediate(&scratch10, &scratch10, 8));
+        self.emit_write_cursor_assert(&scratch28, &scratch10, "strings_case_map");
         self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
         self.emit(abi::store_u8(&scratch10, &scratch28, 0));
 
@@ -538,12 +582,18 @@ impl CodeBuilder<'_> {
             scalar_count_slot,
         ));
 
+        // Checked temp-buffer sizing (audit-unicode #8): the decomposed scalar
+        // count is derived from an arena-bounded string, so a wrap is
+        // unreachable on real hardware, but every arena-size computation shares
+        // the same self-defending shape.
+        let size_overflow = self.label("strings_nfc_size_overflow");
         self.emit(abi::move_immediate(&scratch13, "Integer", "8"));
-        self.emit(abi::multiply_registers(
+        self.emit_checked_size_multiply(
             abi::return_register(),
             &scratch24,
             &scratch13,
-        ));
+            &size_overflow,
+        );
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -559,6 +609,11 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::branch_eq(&temp_alloc_ok));
         self.emit_allocation_error_return()?;
+        // A size wrap reports the same 77010001 an impossible allocation would
+        // (x0 does not hold an error code before the call, so the register-based
+        // return above cannot be shared).
+        self.emit(abi::label(&size_overflow));
+        self.emit_error_code_return(ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_MESSAGE)?;
         self.emit(abi::label(&temp_alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), temp_slot));
 
@@ -813,6 +868,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
         self.emit(abi::branch(&encode_loop));
         self.emit(abi::label(&encode_done));
+        // audit-unicode #9: the encode pass must end exactly at the byte length
+        // the counting pass allocated; a divergence is a silent heap overflow.
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
+        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), output_len_slot));
+        self.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
+        self.emit(abi::add_immediate(&scratch10, &scratch10, 8));
+        self.emit_write_cursor_assert(&scratch28, &scratch10, "strings_nfc");
         self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
         self.emit(abi::store_u8(&scratch10, &scratch28, 0));
 
@@ -1603,6 +1665,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&scratch12, &scratch17, 8));
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch14, "Integer", "0"));
+        // needle longer than value -> 0 occurrences, before the unsigned
+        // valueLen - needleLen below underflows and the loop reads past the
+        // value buffer (audit-unicode #4); same guard shape as `contains`.
+        self.emit(abi::compare_registers(&scratch10, &scratch9));
+        self.emit(abi::branch_hi(&done));
         self.emit(abi::label(&loop_label));
         // need x14 + needleLen <= valueLen, i.e. cursor <= valueLen - needleLen.
         self.emit(abi::subtract_registers(&scratch13, &scratch9, &scratch10));
@@ -1823,11 +1890,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(times_rem, "0"));
         self.emit(abi::branch_lt(&invalid));
         self.emit(abi::load_u64(len, val_ptr, 0));
-        // total = len * times.
-        self.emit(abi::multiply_registers(total, len, times_rem));
+        // total = len * times, rejecting products (and the +9 header below) that
+        // do not fit in 64 bits: an unchecked wrap here allocated small while the
+        // copy loop wrote the full len*times bytes (audit-unicode #1, heap
+        // overflow). Unrepresentable sizes raise the same catchable 77050002 as
+        // the other argument rejections.
+        self.emit_checked_size_multiply(total, len, times_rem, &invalid);
         self.emit(abi::store_u64(total, abi::stack_pointer(), total_slot));
         // allocate total + 9.
-        self.emit(abi::add_immediate(abi::return_register(), total, 9));
+        self.emit_checked_size_add_immediate(abi::return_register(), total, 9, &invalid);
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1978,6 +2049,18 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&done));
             self.emit(abi::compare_immediate(&scratch14, "1"));
             self.emit(abi::branch_ne(&invalid));
+            // The count above is byte-structural (non-continuation bytes == 1);
+            // additionally require the scalar to be well-formed UTF-8
+            // (audit-unicode #7). The validating decoder substitutes U+FFFD with
+            // width 1 for any malformed sequence, so a valid single scalar — the
+            // only padChar constructible from source — is exactly one that
+            // decodes across the whole padChar and re-encodes at the same width.
+            self.emit_utf8_decode_next(&scratch11, &scratch12, &scratch14);
+            self.emit(abi::compare_registers(&scratch14, &scratch9));
+            self.emit(abi::branch_ne(&invalid));
+            self.emit_utf8_encoded_width(&scratch12, &scratch13);
+            self.emit(abi::compare_registers(&scratch13, &scratch9));
+            self.emit(abi::branch_ne(&invalid));
         }
 
         // Count scalars in value into x14.
@@ -2023,16 +2106,20 @@ impl CodeBuilder<'_> {
         }
         self.emit(abi::store_u64(&scratch10, abi::stack_pointer(), pad_count_slot));
 
-        // total = valueLen + pad_count * padLen.
+        // total = valueLen + pad_count * padLen, rejecting sizes that do not fit
+        // in 64 bits: an unchecked wrap here allocated small while the pad loop
+        // wrote the full pad_count*padLen bytes (audit-unicode #2, heap
+        // overflow). Unrepresentable widths raise the same catchable 77050002 as
+        // the other argument rejections.
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), pad_len_slot));
-        self.emit(abi::multiply_registers(&scratch12, &scratch10, &scratch11));
-        self.emit(abi::add_registers(&scratch11, &scratch9, &scratch12));
+        self.emit_checked_size_multiply(&scratch12, &scratch10, &scratch11, &invalid);
+        self.emit_checked_size_add(&scratch11, &scratch9, &scratch12, &invalid);
         self.emit(abi::store_u64(&scratch11, abi::stack_pointer(), total_slot));
 
         // allocate total + 9.
-        self.emit(abi::add_immediate(abi::return_register(), &scratch11, 9));
+        self.emit_checked_size_add_immediate(abi::return_register(), &scratch11, 9, &invalid);
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {

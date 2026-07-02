@@ -155,6 +155,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(haystack_len, haystack_ptr, 0));
         self.emit(abi::load_u64(needle_len, needle_ptr, 0));
         self.emit(abi::load_u64(start, abi::stack_pointer(), start_slot));
+        // Negative start: raise the documented 77050001 immediately instead of
+        // relying on loop exhaustion after a full O(n) walk (audit-unicode #6);
+        // matches the explicit checks in list-find and mid.
+        self.emit(abi::compare_immediate(start, "0"));
+        self.emit(abi::branch_lt(&invalid_start));
         self.emit(abi::move_immediate(scalar_index, "Integer", "0"));
         self.emit(abi::add_immediate(cursor, haystack_ptr, 8));
         self.emit(abi::move_register(remaining, haystack_len));

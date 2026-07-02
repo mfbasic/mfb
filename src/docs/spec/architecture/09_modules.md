@@ -36,7 +36,7 @@ A map of the compiler's source modules and their responsibilities.
 | `src/builtins/errorcode.rs` | `errorCode` integer-constant package. |
 | `src/builtins/resource.rs` | Data-driven resource-type registry. |
 | `src/builtins/*_package.mfb` | MFBASIC-source built-in packages injected at build (`collections`, `csv`, `datetime`, `http`, `json`, `net`, `regex`, `regex_unicode`). |
-| `src/unicode_backend.rs` | Unicode normalization and grapheme code generation. |
+| `src/unicode_backend.rs` | Compile-time (constant-fold) Unicode oracles: upper/lower/caseFold/normalizeNfc/graphemes on static strings. |
 | `src/unicode_runtime_tables.rs` | Compile-time Unicode lookup tables embedded in generated code. |
 | `src/target.rs` | Target parsing, backend registry, backend dispatch. |
 | `src/target/shared/lower.rs` | Shared IR-to-NIR entry: merges installed packages into IR, then lowers. |

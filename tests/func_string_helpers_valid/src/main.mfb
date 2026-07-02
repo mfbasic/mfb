@@ -15,6 +15,8 @@ FUNC main AS Integer
   p("ss1", strings::stripSuffix("foobar", "bar"))
   p("ss2", strings::stripSuffix("foobar", "xyz"))
   io::print("cnt " & toString(strings::count("aaa", "a")) & toString(strings::count("aaa", "aa")) & toString(strings::count("abcabc", "bc")) & toString(strings::count("xyz", "a")))
+  ' needle longer than value: 0 occurrences (audit-unicode #4 regression).
+  io::print("cnt2 " & toString(strings::count("ab", "abcdef")))
   p("l1", strings::left("hello", 3))
   p("l2", strings::left("hi", 5))
   p("l3", strings::left("hi", 0))
@@ -28,6 +30,8 @@ FUNC main AS Integer
   p("pl3", strings::padLeft("hello", 3))
   p("pr1", strings::padRight("42", 5))
   p("pr2", strings::padRight("42", 5, "0"))
+  ' multi-byte single-scalar padChar accepted (audit-unicode #7 regression).
+  p("pl4", strings::padLeft("x", 3, "😀"))
   p("ga1", strings::graphemeAt("abc", 1))
   io::print("gc " & toString(strings::graphemesCount("abc")) & " " & toString(strings::graphemesCount("e" & "́" & "fg")))
   p("tc1", strings::trimChars("xxhelloxx", "x"))

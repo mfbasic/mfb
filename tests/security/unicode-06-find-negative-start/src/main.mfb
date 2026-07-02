@@ -1,0 +1,26 @@
+' Audit finding #6 (LO): runtime string find never tests start >= 0. A negative start
+' (huge as unsigned) never equals the incrementing scalar index, so the locate loop
+' walks the whole string before raising ErrIndexOutOfRange -- safe by accident, but an
+' O(n) walk on a bogus argument and inconsistent with list-find/mid (explicit checks).
+' The selected fix (audit O1) adds an explicit signed start >= 0 check up front, raising
+' the same catchable ErrIndexOutOfRange (77050001) the man page documents for find --
+' identical observable result, no spec change.
+'
+' find is inline-lowered, so it is wrapped in a FUNC to make it trappable.
+IMPORT io
+IMPORT strings
+
+FUNC findAt(value AS String, needle AS String, start AS Integer) AS Integer
+  RETURN strings::find(value, needle, start)
+END FUNC
+
+FUNC main AS Integer
+  LET idx AS Integer = findAt("abc", "b", -1) TRAP(e)
+    io::print("caught " & toString(e.code))
+    RECOVER -1
+  END TRAP
+  io::print(toString(idx))
+  ' sanity: a valid start still finds the needle.
+  io::print(toString(strings::find("abc", "b", 0)))
+  RETURN 0
+END FUNC

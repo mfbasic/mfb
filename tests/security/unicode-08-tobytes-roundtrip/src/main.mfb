@@ -1,0 +1,23 @@
+' Audit finding #8 (LO): toBytes, grapheme-collection sizing, and normalizeNfc's temp
+' buffer use truncating size multiplies without overflow guards. Unlike #1/#2 the
+' multiplier is a length already resident in an arena-bounded buffer, so a wrap is
+' unreachable on real hardware -- the selected fix (audit O1) routes them through the
+' same checked helper only for uniformity/self-defense, with no behavior change. This
+' test locks the REACHABLE contract: the derived-length sizing stays exactly correct for
+' a multi-byte string, so toBytes round-trips byte-for-byte.
+IMPORT io
+IMPORT strings
+IMPORT collections
+
+FUNC main AS Integer
+  LET s AS String = "héllo😀"
+  LET bytes AS List OF Byte = strings::toBytes(s)
+  ' h(1) + é(2) + l(1) + l(1) + o(1) + 😀(4) = 10 bytes.
+  io::print(toString(len(bytes)))
+  ' first byte 'h' = 104; the é lead byte 0xC3 = 195.
+  io::print(toString(collections::get(bytes, 0)))
+  io::print(toString(collections::get(bytes, 1)))
+  ' round-trip: bytes back to the original string.
+  io::print(toString(bytes))
+  RETURN 0
+END FUNC

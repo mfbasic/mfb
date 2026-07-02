@@ -1,0 +1,14 @@
+$ mfb build -ast tests/security/unicode-04-count-underread
+Wrote AST to tests/security/unicode-04-count-underread/unicode_04_count_underread.ast
+[exit 0]
+$ mfb build -ir tests/security/unicode-04-count-underread
+Wrote IR to tests/security/unicode-04-count-underread/unicode_04_count_underread.ir
+[exit 0]
+$ mfb build tests/security/unicode-04-count-underread
+Wrote executable to tests/security/unicode-04-count-underread/unicode_04_count_underread.out
+[exit 0]
+$ tests/security/unicode-04-count-underread/unicode_04_count_underread.out
+0
+3
+2
+[exit 0]
