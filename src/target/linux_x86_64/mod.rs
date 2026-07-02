@@ -23,11 +23,10 @@ impl NativeBackend for Backend {
     }
 
     fn capabilities(&self) -> BackendCapabilities {
-        // Phase 1 (plan-00-H): the x86-64 backend brings up the integer-only
-        // entry + arena machine floor. The runtime-helper surface (io/fs/net/...)
-        // is not wired yet — those OS methods return a Phase-1 error — so the
-        // backend advertises no runtime calls. Programs that only run integer
-        // language code go through the entry + arena path alone.
+        // plan-00-H complete: the x86-64 backend advertises the full console
+        // runtime-call surface — identical to linux-aarch64 (io/fs/net/term/
+        // datetime/thread/tls) — all served by the shared helpers through the
+        // MIR seam and the x86 remap.
         BackendCapabilities {
             executable: true,
             native_ir: true,
