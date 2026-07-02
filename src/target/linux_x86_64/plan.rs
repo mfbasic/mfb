@@ -249,6 +249,12 @@ impl NativePlanPlatform for Platform {
         }
     }
 
+    fn app_mode_imports(&self) -> Vec<PlatformImport> {
+        // Shared with linux-aarch64 (app mode is glibc-only on both):
+        // src/target/linux_gtk/mod.rs::app_mode_imports.
+        crate::target::linux_gtk::app_mode_imports()
+    }
+
     fn native_call_imports(&self, target: &str, required_by: &str) -> Vec<PlatformImport> {
         // toString needs no import: every formatter (Integer, Fixed, and the
         // Float `%.*f` renderer, `float_format.rs`) is in-tree.

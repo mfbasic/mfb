@@ -352,6 +352,356 @@ pub(crate) fn emit_app_program_entry(
     ])
 }
 
+/// The x86-64 flavor of [`emit_app_program_entry`]: the ELF-entry trampoline is
+/// per-ISA (the SysV `__libc_start_main` call passes its 7th argument on the
+/// stack), and every other function — GTK signal callbacks, GLib idle callbacks,
+/// the pthread worker shim — is bracketed by [`wrap_x86_instructions`] so it
+/// honors the SysV callee-saved contract and the runtime's zero-register
+/// convention (see that function's doc).
+pub(crate) fn emit_app_program_entry_x86(
+    spec: &AppEntrySpec,
+    _platform_imports: &HashMap<String, String>,
+) -> Result<Vec<CodeFunction>, String> {
+    let mut functions = vec![
+        emit_main_bootstrap(),
+        emit_activate_handler(),
+        emit_worker_shim(spec),
+        emit_key_pressed_handler(),
+        emit_window_closed_handler(),
+        emit_finish_helper(),
+        emit_append_helper(),
+        emit_append_idle_helper(),
+        emit_term_draw_helper(),
+        emit_term_show_idle_helper(),
+        emit_term_hide_idle_helper(),
+        emit_term_redraw_idle_helper(),
+        emit_term_write_helper(),
+        emit_term_scroll_helper(),
+        emit_term_init_helper(),
+    ];
+    for function in &mut functions {
+        finalize_x86_app_function(&mut function.instructions);
+    }
+    // The trampoline is the raw ELF entry (no caller, no callee-saved contract,
+    // kernel-aligned stack) — unwrapped, first.
+    functions.insert(0, emit_libc_start_trampoline_x86());
+    Ok(functions)
+}
+
+/// x86-64 ELF entry: hand off to `__libc_start_main`, which initializes the C
+/// runtime — crucially `environ` (GTK needs `DISPLAY`) — and then calls the real
+/// `_mfb_gtkapp_main`. SysV passes the first six arguments in registers and the
+/// seventh (`stack_end`) on the stack; the kernel enters `_main` with `rsp`
+/// 16-aligned pointing at `argc`, so the 16-byte slot below keeps the call site
+/// 16-aligned as the ABI requires. `__libc_start_main` never returns.
+fn emit_libc_start_trampoline_x86() -> CodeFunction {
+    let mut asm = Asm::new(MAIN_SYMBOL);
+    asm.push(abi::label("entry"));
+    // The x86 selection maps x0..x5 to rdi/rsi/rdx/rcx/r8/r9 at the call.
+    asm.local_address("x0", GTK_MAIN_SYMBOL); // main
+    asm.push(abi::load_u64("x1", abi::stack_pointer(), 0)); // argc
+    asm.push(abi::add_immediate("x2", abi::stack_pointer(), 8)); // argv
+    asm.push(abi::move_immediate("x3", "Integer", "0")); // init
+    asm.push(abi::move_immediate("x4", "Integer", "0")); // fini
+    asm.push(abi::move_immediate("x5", "Integer", "0")); // rtld_fini
+    // stack_end = the entry sp, passed as the 7th (stack) argument.
+    asm.push(abi::add_immediate("x9", abi::stack_pointer(), 0));
+    asm.push(abi::subtract_stack(16));
+    asm.push(abi::store_u64("x9", abi::stack_pointer(), 0));
+    asm.call_external("__libc_start_main");
+    asm.push(abi::branch_self());
+    asm.push(abi::return_());
+    asm.finish(MAIN_SYMBOL, "Nothing")
+}
+
+/// The wrap bracket's base size: four callee-saved slots + padding that flips
+/// the stack parity so a C-callee-entered body (rsp ≡ 8 mod 16) reaches its
+/// interior call sites 16-aligned. No hand-built app frame is 56 bytes, so the
+/// bracket's `sub`/`add` are identifiable by this immediate when the spill area
+/// is folded in after allocation.
+const X86_WRAP_BYTES: usize = 56;
+
+/// Finalize a hand-built app function for x86-64. These bodies were written
+/// against the AArch64 register conventions: `x9`–`x17` caller-saved scratch
+/// and `x19`–`x28` callee-saved parking, 19 distinct registers. The x86
+/// selection folds that space onto an 11-entry pool where `xN` and `xN+11`
+/// alias (x9/x20 → rbx, …) and six of the pool's registers are SysV
+/// **caller**-saved — so aliased pairs clobber each other and parked values die
+/// across C calls. Instead of hand-auditing every body, this renames the whole
+/// scratch/parking space to virtual registers and runs the shared linear-scan
+/// allocator against the real x86 register model — exactly how the builder
+/// path handles the same problem — with the spill area folded into the wrap
+/// bracket below the function's own frame.
+///
+/// The bracket itself saves the callee-saved registers the allocator may hand
+/// out (`rbx`/`r12`/`r13`) plus the pinned zero register `r14`, zeroes `r14`
+/// for the runtime's zero-register convention (a GTK callback arrives with a
+/// foreign value in it), restores all four at every return, and keeps the
+/// interior 16-aligned. `x19` stays physical: the selection realizes it as the
+/// pinned arena register, callee-saved either way, and the bodies that use it
+/// as plain scratch save/restore it through their own frame slots.
+pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>) {
+    use crate::arch::aarch64::ops::CodeOp;
+    use crate::target::shared::code::{mir, regalloc};
+
+    stage_result_reuse_x86(instructions);
+
+    // Rename the AArch64 scratch/parking registers to per-function vregs (one
+    // per distinct register, preserving each def/use chain — the same mapping
+    // the retired vregify pass used).
+    let is_scratch = |name: &str| -> bool {
+        name.strip_prefix('x')
+            .and_then(|rest| rest.parse::<u32>().ok())
+            .is_some_and(|n| (9..=17).contains(&n) || (20..=28).contains(&n))
+    };
+    let mut order: Vec<String> = Vec::new();
+    for instruction in instructions.iter() {
+        for (_, value) in &instruction.fields {
+            if is_scratch(value) && !order.contains(value) {
+                order.push(value.clone());
+            }
+        }
+    }
+    let rename: HashMap<String, String> = order
+        .into_iter()
+        .enumerate()
+        .map(|(index, register)| (register, format!("%v{index}")))
+        .collect();
+    for instruction in instructions.iter_mut() {
+        for (_, value) in instruction.fields.iter_mut() {
+            if let Some(vreg) = rename.get(value) {
+                *value = vreg.clone();
+            }
+        }
+    }
+
+    // The function's own frame (its first sub_sp): the spill area sits above it
+    // and above the wrap slots, all addressed from the frame-level sp.
+    let inner_frame = instructions
+        .iter()
+        .find(|instruction| instruction.op == CodeOp::SubSp)
+        .and_then(|instruction| instruction.get("imm"))
+        .and_then(|imm| imm.parse::<usize>().ok())
+        .unwrap_or(0);
+
+    // Bracket: save/zero/restore + parity.
+    let entry_at = usize::from(
+        instructions
+            .first()
+            .is_some_and(|instruction| instruction.op == CodeOp::Label),
+    );
+    let prologue = vec![
+        abi::subtract_stack(X86_WRAP_BYTES),
+        abi::store_u64("rbx", abi::stack_pointer(), 0),
+        abi::store_u64("r12", abi::stack_pointer(), 8),
+        abi::store_u64("r13", abi::stack_pointer(), 16),
+        abi::store_u64("r14", abi::stack_pointer(), 24),
+        abi::exclusive_or_registers("r14", "r14", "r14"),
+    ];
+    instructions.splice(entry_at..entry_at, prologue);
+    let mut index = entry_at + 6;
+    while index < instructions.len() {
+        if instructions[index].op == CodeOp::Ret {
+            let epilogue = vec![
+                abi::load_u64("rbx", abi::stack_pointer(), 0),
+                abi::load_u64("r12", abi::stack_pointer(), 8),
+                abi::load_u64("r13", abi::stack_pointer(), 16),
+                abi::load_u64("r14", abi::stack_pointer(), 24),
+                abi::add_stack(X86_WRAP_BYTES),
+            ];
+            let count = epilogue.len();
+            instructions.splice(index..index, epilogue);
+            index += count + 1;
+        } else {
+            index += 1;
+        }
+    }
+
+    // Select to x86 ops (role remap + scratch map for anything left physical),
+    // then color the vregs. The later plan-assembly MIR routing round-trips the
+    // already-selected stream as an identity pass.
+    let neutral = mir::lower_to_mir(instructions);
+    let backend = mir::active_backend();
+    *instructions = backend.select(&neutral);
+    let spill_base = inner_frame + X86_WRAP_BYTES;
+    let outcome = regalloc::allocate(
+        regalloc::RegallocKind::LinearScan,
+        instructions,
+        &[],
+        &[],
+        backend.register_model(),
+        spill_base,
+        &[],
+    );
+    let spill_bytes =
+        outcome.spill_slots.len() * backend.register_model().spill_slot_bytes();
+    // Round to 16 so the bracket keeps the interior alignment parity.
+    let spill_bytes = (spill_bytes + 15) & !15;
+    if spill_bytes > 0 {
+        let sentinel = X86_WRAP_BYTES.to_string();
+        let bumped = (X86_WRAP_BYTES + spill_bytes).to_string();
+        for instruction in instructions.iter_mut() {
+            if matches!(instruction.op, CodeOp::SubSp | CodeOp::AddSp) {
+                for (key, value) in instruction.fields.iter_mut() {
+                    if *key == "imm" && *value == sentinel {
+                        *value = bumped.clone();
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// x86 flavor of an app io/term helper body triple (see
+/// [`finalize_x86_app_function`]).
+pub(crate) fn wrap_x86_helper(
+    triple: (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>),
+) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>) {
+    let (frame, mut instructions, relocations) = triple;
+    finalize_x86_app_function(&mut instructions);
+    (frame, instructions, relocations)
+}
+
+/// Make the AArch64 "call result feeds the next call's first argument" idiom
+/// explicit for x86. Hand-built sequences like
+/// `bl gtk_scrolled_window_new; bl g_object_ref_sink` rely on the result
+/// register doubling as the first argument register — true on AArch64 (both are
+/// `x0`), false on SysV x86-64 (`rax` vs `rdi`). Before every call whose `x0`
+/// was last defined by a *previous call's return* (no intervening def), insert
+/// `mov x0, x0`: the x86 role remap colors the destination as the upcoming
+/// call's first argument (`rdi`) and the source as the prior call's result
+/// (`rax`), producing exactly the missing `mov rdi, rax`. Conservative at
+/// labels (unknown provenance across merges — the hand-built bodies stage
+/// explicitly across branches).
+fn stage_result_reuse_x86(instructions: &mut Vec<CodeInstruction>) {
+    use crate::arch::aarch64::ops::CodeOp;
+    let mut result_live = false;
+    let mut index = 0;
+    while index < instructions.len() {
+        match instructions[index].op {
+            CodeOp::Label => result_live = false,
+            CodeOp::BranchLink | CodeOp::BranchLinkRegister => {
+                if result_live {
+                    instructions.insert(index, abi::move_register("x0", "x0"));
+                    index += 1;
+                }
+                result_live = true;
+            }
+            _ => {
+                let defines_x0 = instructions[index]
+                    .fields
+                    .iter()
+                    .any(|(key, value)| *key == "dst" && value == "x0");
+                if defines_x0 {
+                    result_live = false;
+                }
+            }
+        }
+        index += 1;
+    }
+}
+
+/// The app-mode platform import set, shared by the aarch64 and x86-64 Linux
+/// plans (plan-05-linux-app.md §6.4). App mode is glibc-only (§1.1), so the
+/// library names are fixed: GTK is plain C and every call is an ordinary
+/// imported function; `__libc_start_main` runs the C runtime init before the
+/// real `main`; pthread spawns the language worker; the pipe primitives feed
+/// window input to the reused fd-0 console readers.
+pub(crate) fn app_mode_imports() -> Vec<crate::target::shared::plan::PlatformImport> {
+    use crate::target::shared::plan::PlatformImport;
+    let gtk: &[(&str, &str)] = &[
+        // Application + window lifecycle.
+        (GIO, "g_application_run"),
+        (GIO, "g_application_quit"),
+        (GTK, "gtk_application_new"),
+        (GTK, "gtk_application_window_new"),
+        (GTK, "gtk_window_set_title"),
+        (GTK, "gtk_window_set_default_size"),
+        (GTK, "gtk_window_set_child"),
+        (GTK, "gtk_window_present"),
+        // Scrolling container.
+        (GTK, "gtk_scrolled_window_new"),
+        (GTK, "gtk_scrolled_window_set_child"),
+        // Read-only transcript (GtkTextView + GtkTextBuffer).
+        (GTK, "gtk_text_view_new"),
+        (GTK, "gtk_text_view_set_editable"),
+        (GTK, "gtk_text_view_set_monospace"),
+        (GTK, "gtk_text_view_get_buffer"),
+        (GTK, "gtk_text_view_scroll_mark_onscreen"),
+        (GTK, "gtk_text_buffer_create_mark"),
+        (GTK, "gtk_text_buffer_delete_mark"),
+        (GTK, "gtk_text_buffer_get_end_iter"),
+        (GTK, "gtk_text_buffer_insert"),
+        // Terminal-style key input captured at the window (no entry box; mirrors
+        // the macOS NSTextView keyDown: override). GDK lives in libgtk-4.
+        (GTK, "gtk_event_controller_key_new"),
+        (GTK, "gtk_widget_add_controller"),
+        (GTK, "gdk_keyval_to_unicode"),
+        (GLIB, "g_unichar_to_utf8"),
+        // term:: TUI surface: a GtkDrawingArea rendered with Cairo (libcairo).
+        (GTK, "gtk_drawing_area_new"),
+        (GTK, "gtk_drawing_area_set_draw_func"),
+        (GTK, "gtk_widget_queue_draw"),
+        (GOBJECT, "g_object_ref_sink"),
+        (CAIRO, "cairo_set_source_rgb"),
+        (CAIRO, "cairo_paint"),
+        (CAIRO, "cairo_rectangle"),
+        (CAIRO, "cairo_fill"),
+        (CAIRO, "cairo_select_font_face"),
+        (CAIRO, "cairo_set_font_size"),
+        (CAIRO, "cairo_move_to"),
+        (CAIRO, "cairo_show_text"),
+        // Font-metric measurement at init (sizes the grid from cell extents).
+        (CAIRO, "cairo_font_extents"),
+        (CAIRO, "cairo_text_extents"),
+        (CAIRO, "cairo_image_surface_create"),
+        (CAIRO, "cairo_create"),
+        (CAIRO, "cairo_destroy"),
+        (CAIRO, "cairo_surface_destroy"),
+        // GObject signal wiring (non-variadic form; §6.4) + main-thread marshal.
+        (GOBJECT, "g_signal_connect_data"),
+        (GLIB, "g_idle_add"),
+        // The worker thread and the window-input pipe come from libc/libpthread,
+        // exactly as the console runtime resolves them on glibc.
+        (LIBPTHREAD, "pthread_create"),
+        (LIBPTHREAD, "pthread_detach"),
+        // `__libc_start_main` runs the C runtime + shared-library constructors
+        // (the GLib/GObject type system) before calling our real `main`; the
+        // entry can't link crt1.o, so it calls this directly (plan-05 §6.1).
+        (LIBC, "__libc_start_main"),
+        (LIBC, "pipe"),
+        (LIBC, "dup2"),
+        (LIBC, "getenv"),
+        (LIBC, "setenv"),
+        (LIBC, "write"),
+        // Output marshaling to the GTK main thread + the worker park-on-finish.
+        (LIBC, "malloc"),
+        (LIBC, "free"),
+        (LIBC, "memcpy"),
+        (LIBC, "memset"),
+        (LIBC, "memmove"),
+        (LIBC, "pause"),
+        // The finish helper's hard-exit fallback. The x86-64 console exit is a
+        // raw `exit_group` syscall, so unlike aarch64 nothing else declares it.
+        (LIBC, "_exit"),
+        // The app `io::input` helper delegates to the console readLine body
+        // (reading the fd-0 window pipe), which imports the terminal probes —
+        // no-ops on a pipe (isatty(0) = 0 skips the termios calls), but the
+        // symbols must bind. The plan's per-call rows only declare them for a
+        // program that calls io.readLine directly.
+        (LIBC, "read"),
+        (LIBC, "isatty"),
+        (LIBC, "tcgetattr"),
+        (LIBC, "tcsetattr"),
+    ];
+    gtk.iter()
+        .map(|(library, symbol)| PlatformImport {
+            library: (*library).to_string(),
+            symbol: (*symbol).to_string(),
+            required_by: "_main".to_string(),
+        })
+        .collect()
+}
 
 mod app_io;
 mod bootstrap;

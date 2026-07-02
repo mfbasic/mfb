@@ -18,9 +18,10 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
+use crate::target::linux_gtk as gtk;
 use crate::target::shared::code::{
-    self, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation, MirPlan, NativeCodePlan,
-    ProgramEntrySpec, RelocIntent,
+    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
+    MirPlan, NativeCodePlan, ProgramEntrySpec, RelocIntent,
 };
 use crate::target::shared::nir::NirModule;
 use crate::target::shared::plan::NativePlan;
@@ -156,10 +157,29 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_program_exit(
         &self,
-        _from: &str,
+        from: &str,
         instructions: &mut Vec<CodeInstruction>,
-        _relocations: &mut Vec<CodeRelocation>,
+        relocations: &mut Vec<CodeRelocation>,
     ) -> Result<(), String> {
+        // App mode (plan-05-linux-app.md §6.7): the worker program reports
+        // completion through the GTK finish helper instead of hard-exiting, so
+        // the main thread (GTK loop) decides the shutdown policy — mirrors
+        // linux-aarch64.
+        if from == code::MACAPP_PROGRAM_SYMBOL {
+            instructions.extend([
+                abi::branch_link(gtk::FINISH_SYMBOL),
+                abi::branch_self(),
+                abi::return_(),
+            ]);
+            relocations.push(CodeRelocation {
+                from: from.to_string(),
+                to: gtk::FINISH_SYMBOL.to_string(),
+                kind: RelocIntent::Call,
+                binding: "internal".to_string(),
+                library: None,
+            });
+            return Ok(());
+        }
         // exit_group(code). The shared callers place the exit code in the neutral
         // return register `x0`; because this syscall immediately follows, select
         // maps that `x0` to the syscall's first argument (rdi) at the caller's own
@@ -173,6 +193,83 @@ impl code::CodegenPlatform for Platform {
         // (callers like the signal handler end with this).
         instructions.push(abi::return_());
         Ok(())
+    }
+
+    // --- Linux GTK4 app mode (shared with linux-aarch64 via target::linux_gtk;
+    // the x86 variants bracket every callback/helper for the SysV callee-saved
+    // contract + the r14 zero register, and use the per-ISA entry trampoline) ---
+
+    fn emit_app_program_entry(
+        &self,
+        spec: &AppEntrySpec,
+        platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<Vec<CodeFunction>, String>> {
+        Some(gtk::emit_app_program_entry_x86(spec, platform_imports))
+    }
+
+    fn app_mode_data_objects(&self) -> Vec<CodeDataObject> {
+        gtk::app_mode_data_objects()
+    }
+
+    fn emit_app_io_write_helper(
+        &self,
+        symbol: &str,
+        stderr: bool,
+        newline: bool,
+        _term_state_offset: Option<usize>,
+        _platform_imports: &HashMap<String, String>,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(gtk::wrap_x86_helper(gtk::emit_app_io_write_helper(
+            symbol, stderr, newline,
+        ))))
+    }
+
+    fn emit_app_io_flush_helper(
+        &self,
+        symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(gtk::wrap_x86_helper(gtk::emit_app_io_flush_helper(
+            symbol,
+        ))))
+    }
+
+    fn emit_app_io_input_helper(
+        &self,
+        symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(gtk::wrap_x86_helper(gtk::emit_app_io_input_helper(
+            symbol,
+        ))))
+    }
+
+    fn emit_app_raw_input_mode(
+        &self,
+        symbol: &str,
+        instructions: &mut Vec<CodeInstruction>,
+        relocations: &mut Vec<CodeRelocation>,
+    ) -> Option<Result<(), String>> {
+        gtk::emit_set_raw_input_mode(instructions, relocations, symbol);
+        Some(Ok(()))
+    }
+
+    fn emit_app_io_is_terminal_helper(
+        &self,
+        symbol: &str,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        Some(Ok(gtk::wrap_x86_helper(
+            gtk::emit_app_io_is_terminal_helper(symbol),
+        )))
+    }
+
+    fn emit_app_term_helper(
+        &self,
+        call: &str,
+        symbol: &str,
+        term_state_offset: usize,
+    ) -> Option<Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>), String>> {
+        gtk::emit_app_term_helper(call, symbol, term_state_offset)
+            .map(gtk::wrap_x86_helper)
+            .map(Ok)
     }
 
     fn emit_arena_map(

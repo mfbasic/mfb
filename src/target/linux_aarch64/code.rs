@@ -3,7 +3,7 @@ use std::path::PathBuf;
 
 use crate::arch::aarch64::abi;
 use crate::os::linux::flavor::LinuxFlavor;
-use crate::target::linux_aarch64::gtk;
+use crate::target::linux_gtk as gtk;
 use crate::target::shared::code::{
     self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
     MirPlan, NativeCodePlan, ProgramEntrySpec, RelocIntent,

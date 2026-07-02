@@ -5,6 +5,8 @@ use crate::binary_repr::BinaryReprMetadata;
 use crate::ir::IrProject;
 
 pub mod linux_aarch64;
+/// Linux GTK4 app-mode codegen shared by the aarch64 and x86-64 Linux targets.
+pub(crate) mod linux_gtk;
 pub mod linux_x86_64;
 pub mod macos_aarch64;
 pub mod package_mfp;

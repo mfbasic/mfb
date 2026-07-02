@@ -147,7 +147,9 @@ impl NativeBackend for Backend {
     }
 
     fn supports_app_mode(&self) -> bool {
-        false
+        // GTK4 app mode (plan-05-linux-app.md), shared with linux-aarch64 via
+        // `target::linux_gtk` — glibc-only, like the aarch64 flavor.
+        true
     }
 
     fn write_executable(
@@ -235,9 +237,17 @@ fn write_executable(
     // `Platform::libc()` names the library each import binds to); on x86-64 the
     // two worlds share every kernel struct layout the codegen bakes in
     // (stat/dirent/termios, pthread object sizes), so only the import library
-    // names and the interpreter differ.
+    // names and the interpreter differ. App mode (plan-05-linux-app.md §5.2) is
+    // glibc-only (GTK is a glibc-world dependency) and emits a single
+    // `<name>.out`, exactly like linux-aarch64.
+    let app_mode = build_mode.is_app();
+    let flavors: &[LinuxFlavor] = if app_mode {
+        &[LinuxFlavor::Glibc]
+    } else {
+        &LinuxFlavor::ALL
+    };
     let mut paths = Vec::new();
-    for &flavor in &LinuxFlavor::ALL {
+    for &flavor in flavors {
         let native_plan = plan_lower(&module, flavor)?;
         native_plan.validate()?;
         os::linux::validate_native_object_plan(&native_plan)?;
@@ -250,7 +260,7 @@ fn write_executable(
             &ir.name,
             "x86_64",
             flavor,
-            false,
+            app_mode,
             &image,
         )?);
     }
@@ -354,7 +364,12 @@ fn lower_validated_module(
 ) -> Result<crate::target::shared::nir::NirModule, String> {
     validate::validate_target(target)?;
     validate::validate_project(ir, packages)?;
-    if !matches!(build_mode, NativeBuildMode::Console) {
+    if !matches!(
+        build_mode,
+        NativeBuildMode::Console | NativeBuildMode::LinuxApp
+    ) {
+        // Console or GTK4 app-mode output only; the CLI selects the build mode
+        // from the target OS, so `MacApp` never reaches here.
         return Err(format!(
             "Linux x86-64 native targets do not support the {} build mode",
             build_mode.as_str()
