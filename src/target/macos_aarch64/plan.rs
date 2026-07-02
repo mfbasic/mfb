@@ -115,6 +115,8 @@ impl plan::NativePlanPlatform for Platform {
             ("Foundation", "_OBJC_CLASS_$_NSNumber"),
             ("Foundation", "_OBJC_CLASS_$_NSAttributedString"),
             ("libSystem", "_pthread_create"),
+            ("libSystem", "_pthread_attr_init"),
+            ("libSystem", "_pthread_attr_setstacksize"),
             ("libSystem", "_pause"),
             ("libSystem", "_getenv"),
             ("libSystem", "_write"),
@@ -420,6 +422,8 @@ impl plan::NativePlanPlatform for Platform {
             | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
             | "thread.emit" | "thread.isCancelled" => [
                 "_pthread_create",
+                "_pthread_attr_init",
+                "_pthread_attr_setstacksize",
                 "_pthread_detach",
                 "_pthread_mutex_init",
                 "_pthread_mutex_lock",

@@ -184,6 +184,8 @@ impl plan::NativePlanPlatform for Platform {
             | "thread.drop" | "thread.send" | "thread.poll" | "thread.read" | "thread.receive"
             | "thread.emit" | "thread.isCancelled" => [
                 "pthread_create",
+                "pthread_attr_init",
+                "pthread_attr_setstacksize",
                 "pthread_detach",
                 "pthread_mutex_init",
                 "pthread_mutex_lock",

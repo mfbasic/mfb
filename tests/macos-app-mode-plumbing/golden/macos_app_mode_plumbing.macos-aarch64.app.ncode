@@ -43,6 +43,8 @@
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSNumber" },
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSAttributedString" },
   { "library": "libSystem", "symbol": "_pthread_create" },
+  { "library": "libSystem", "symbol": "_pthread_attr_init" },
+  { "library": "libSystem", "symbol": "_pthread_attr_setstacksize" },
   { "library": "libSystem", "symbol": "_pause" },
   { "library": "libSystem", "symbol": "_getenv" },
   { "library": "libSystem", "symbol": "_pipe" },

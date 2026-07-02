@@ -285,13 +285,15 @@ fn lower_thread_start_helper(
     // Vreg-allocated (plan-00-G Phase 2): the control-block/queue scratch slots are
     // an explicit sp-relative local region; x9/x10 scratch becomes vregs. Runs in
     // the parent (x20 is not the worker thread block here), so no reservation.
-    const FRAME_SIZE: usize = 96;
+    const FRAME_SIZE: usize = 160;
     const ENTRY_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 16;
     const IN_LIMIT_OFFSET: usize = 24;
     const OUT_LIMIT_OFFSET: usize = 32;
     const CB_OFFSET: usize = 40;
     const QUEUE_OFFSET: usize = 48;
+    // pthread_attr_t scratch: 64 bytes covers musl/glibc (56) and macOS (64).
+    const ATTR_OFFSET: usize = 56;
 
     let invalid_limit = format!("{symbol}_invalid_limit");
     let alloc_block_ok = format!("{symbol}_alloc_block_ok");
@@ -475,10 +477,36 @@ fn lower_thread_start_helper(
     } else {
         "pthread_create"
     };
+    let (attr_init_symbol, attr_setstacksize_symbol) = if platform.target() == "macos-aarch64" {
+        ("_pthread_attr_init", "_pthread_attr_setstacksize")
+    } else {
+        ("pthread_attr_init", "pthread_attr_setstacksize")
+    };
+    // Give the worker an explicit 8 MiB stack. musl's default pthread stack is
+    // 128 KiB — far below what the main thread gets (typically 8 MiB via
+    // RLIMIT_STACK) — so worker code with large frames (the regex engine has a
+    // ~230 KiB frame) overflowed the stack on Linux/musl while passing on
+    // macOS (512 KiB default). The memory is reserved lazily (virtual), so the
+    // cost per thread is address space, not RSS. The attr is stack scratch;
+    // pthread_attr_destroy is a no-op for a stacksize-only attr on musl,
+    // glibc, and macOS, so it is not called.
+    instructions.push(abi::add_immediate("x0", abi::stack_pointer(), ATTR_OFFSET));
+    instructions.push(abi::branch_link(attr_init_symbol));
+    relocations.push(external_branch(symbol, attr_init_symbol, platform_imports)?);
+    instructions.extend([
+        abi::add_immediate("x0", abi::stack_pointer(), ATTR_OFFSET),
+        abi::move_immediate("x1", "Integer", &(8 * 1024 * 1024).to_string()),
+    ]);
+    instructions.push(abi::branch_link(attr_setstacksize_symbol));
+    relocations.push(external_branch(
+        symbol,
+        attr_setstacksize_symbol,
+        platform_imports,
+    )?);
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
         abi::add_immediate("x0", "%v9", THREAD_OFFSET_OS_HANDLE),
-        abi::move_immediate("x1", "Integer", "0"),
+        abi::add_immediate("x1", abi::stack_pointer(), ATTR_OFFSET),
     ]);
     instructions.push(abi::load_page_address("x2", THREAD_TRAMPOLINE_SYMBOL));
     relocations.push(CodeRelocation {

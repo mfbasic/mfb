@@ -44,6 +44,8 @@
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSNumber", "requiredBy": "_main" },
   { "library": "Foundation", "symbol": "_OBJC_CLASS_$_NSAttributedString", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pthread_create", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_attr_init", "requiredBy": "_main" },
+  { "library": "libSystem", "symbol": "_pthread_attr_setstacksize", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pause", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_getenv", "requiredBy": "_main" },
   { "library": "libSystem", "symbol": "_pipe", "requiredBy": "_main" },
