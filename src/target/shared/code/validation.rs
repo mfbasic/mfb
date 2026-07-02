@@ -375,11 +375,31 @@ impl TypeModel {
         }
     }
 
+    /// A union's variants in **deterministic canonical order**: ascending
+    /// declaration/tag index (`union_variant_tags`), name as a tiebreak. The
+    /// backing `union_variant_unions` is a `HashMap`, whose iteration order
+    /// leaked into codegen (the resource-union drop dispatch emitted its
+    /// per-variant tag checks in map order, so the same source produced
+    /// different binaries run-to-run — bug-01). Pinning the order here makes
+    /// every consumer deterministic without per-call-site changes; tags and
+    /// layout are untouched (only emitted instruction order was ever affected).
     pub(super) fn variants_for_union<'a>(&'a self, union: &'a str) -> impl Iterator<Item = &'a String> + 'a {
-        self.union_variant_unions
+        let mut variants: Vec<&'a String> = self
+            .union_variant_unions
             .iter()
             .filter(move |(_, unions)| unions.contains(union))
             .map(|(variant, _)| variant)
+            .collect();
+        variants.sort_by_key(|variant| {
+            (
+                self.union_variant_tags
+                    .get(*variant)
+                    .copied()
+                    .unwrap_or(usize::MAX),
+                (*variant).clone(),
+            )
+        });
+        variants.into_iter()
     }
 }
 
