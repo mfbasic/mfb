@@ -243,9 +243,47 @@ impl code::CodegenPlatform for Platform {
 
     fn emit_thread_trampoline(
         &self,
-        _platform_imports: &HashMap<String, String>,
+        platform_imports: &HashMap<String, String>,
     ) -> Result<CodeFunction, String> {
-        Err("x86_64 Phase 1: emit_thread_trampoline not yet implemented".into())
+        // Same shared trampoline as AArch64: pthread hands the control block in
+        // the first argument register; the body is alias-free machine-floor
+        // code (x13/x14/x20 scratch) that selects cleanly through the x86 remap.
+        let mut function = code::lower_thread_trampoline(platform_imports, self)?;
+        // Zero the x86 zero register for THIS thread. `x31` realizes as `r14`,
+        // which the program entry zeroes once for the main thread — but a
+        // pthread worker starts with whatever musl left in r14, so every
+        // "zero" in the worker (string NUL terminators, queue/tag zero-init,
+        // zero compares) would be garbage. Mirrors `emit_program_entry`.
+        let zero = abi::exclusive_or_registers("x31", "x31", "x31");
+        let at = usize::from(
+            function
+                .instructions
+                .first()
+                .is_some_and(|inst| inst.op == crate::arch::aarch64::ops::CodeOp::Label),
+        );
+        function.instructions.insert(at, zero);
+        // Re-bias the stack for SysV alignment. pthread enters the trampoline
+        // like any C callee (rsp ≡ 8 mod 16); the shared trampoline's 80-byte
+        // frame keeps that parity, so every function it calls would be entered
+        // at ≡ 0 — the whole worker call tree then runs 8 off the C convention
+        // and musl's SSE locals (movaps/movdqa on [rsp+K] in fstatat,
+        // pthread_create, …) fault. An extra 8-byte bias (popped before the
+        // trampoline's return) restores ≡ 0 at its call instructions, exactly
+        // what SysV requires. The trampoline's own [sp, K] slots are relative
+        // to the final sp, so they are unaffected. AArch64 needs no bias.
+        function
+            .instructions
+            .insert(at + 1, abi::subtract_stack(8));
+        let mut i = at + 2;
+        while i < function.instructions.len() {
+            if function.instructions[i].op == crate::arch::aarch64::ops::CodeOp::Ret {
+                function.instructions.insert(i, abi::add_stack(8));
+                i += 2;
+            } else {
+                i += 1;
+            }
+        }
+        Ok(function)
     }
 
     // --- Runtime-helper OS methods (deferred to a later phase) --------------

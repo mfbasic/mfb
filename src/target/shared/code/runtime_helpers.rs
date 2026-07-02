@@ -549,6 +549,11 @@ pub(crate) fn lower_thread_trampoline(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
 ) -> Result<CodeFunction, String> {
+    // Machine-floor code (fixed registers, no vregs). Scratch is x13/x14 — NOT
+    // x9/x10: the x86 residual-scratch pool wraps at xN+11, so x9 would alias
+    // the parked control-block register x20 (both rbx) and `load x9,[x20,…]`
+    // would destroy the block pointer it dereferences. x13/x14 (r9/r10) are
+    // distinct from x20 (rbx) on both ISAs.
     const FRAME_SIZE: usize = 80;
     const LR_OFFSET: usize = 0;
     const ARENA_OFFSET: usize = 8;
@@ -571,12 +576,12 @@ pub(crate) fn lower_thread_trampoline(
         abi::move_register("x20", "x0"),
         abi::store_u64("x20", abi::stack_pointer(), CB_OFFSET),
         abi::load_u64(ARENA_STATE_REGISTER, "x20", THREAD_OFFSET_ARENA_STATE),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_ENTRY),
-        abi::load_u64(CLOSURE_ENV_REGISTER, "x9", CLOSURE_OFFSET_ENV),
-        abi::load_u64("x9", "x9", CLOSURE_OFFSET_CODE),
+        abi::load_u64("x13", "x20", THREAD_OFFSET_ENTRY),
+        abi::load_u64(CLOSURE_ENV_REGISTER, "x13", CLOSURE_OFFSET_ENV),
+        abi::load_u64("x13", "x13", CLOSURE_OFFSET_CODE),
         abi::load_u64("x1", "x20", THREAD_OFFSET_DATA),
         abi::move_register("x0", "x20"),
-        abi::branch_link_register("x9"),
+        abi::branch_link_register("x13"),
         abi::store_u64(RESULT_TAG_REGISTER, abi::stack_pointer(), TAG_OFFSET),
         abi::store_u64(RESULT_VALUE_REGISTER, abi::stack_pointer(), VALUE_OFFSET),
         abi::store_u64(
@@ -590,8 +595,8 @@ pub(crate) fn lower_thread_trampoline(
             SOURCE_OFFSET,
         ),
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_INBOUND_QUEUE),
-        abi::move_register("x0", "x9"),
+        abi::load_u64("x13", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::move_register("x0", "x13"),
     ];
     let mut relocations = Vec::new();
     emit_thread_external_call(
@@ -604,10 +609,10 @@ pub(crate) fn lower_thread_trampoline(
     )?;
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_INBOUND_QUEUE),
-        abi::move_immediate("x10", "Integer", "1"),
-        abi::store_u64("x10", "x9", THREAD_QUEUE_CLOSED_OFFSET),
-        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::load_u64("x13", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::move_immediate("x14", "Integer", "1"),
+        abi::store_u64("x14", "x13", THREAD_QUEUE_CLOSED_OFFSET),
+        abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -619,8 +624,8 @@ pub(crate) fn lower_thread_trampoline(
     )?;
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_INBOUND_QUEUE),
-        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::load_u64("x13", "x20", THREAD_OFFSET_INBOUND_QUEUE),
+        abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -651,8 +656,8 @@ pub(crate) fn lower_thread_trampoline(
     ] {
         instructions.extend([
             abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64("x9", "x20", resource_queue_offset),
-            abi::move_register("x0", "x9"),
+            abi::load_u64("x13", "x20", resource_queue_offset),
+            abi::move_register("x0", "x13"),
         ]);
         emit_thread_external_call(
             THREAD_TRAMPOLINE_SYMBOL,
@@ -664,10 +669,10 @@ pub(crate) fn lower_thread_trampoline(
         )?;
         instructions.extend([
             abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64("x9", "x20", resource_queue_offset),
-            abi::move_immediate("x10", "Integer", "1"),
-            abi::store_u64("x10", "x9", THREAD_QUEUE_CLOSED_OFFSET),
-            abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+            abi::load_u64("x13", "x20", resource_queue_offset),
+            abi::move_immediate("x14", "Integer", "1"),
+            abi::store_u64("x14", "x13", THREAD_QUEUE_CLOSED_OFFSET),
+            abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
         ]);
         emit_thread_external_call(
             THREAD_TRAMPOLINE_SYMBOL,
@@ -679,8 +684,8 @@ pub(crate) fn lower_thread_trampoline(
         )?;
         instructions.extend([
             abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-            abi::load_u64("x9", "x20", resource_queue_offset),
-            abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+            abi::load_u64("x13", "x20", resource_queue_offset),
+            abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
         ]);
         emit_thread_external_call(
             THREAD_TRAMPOLINE_SYMBOL,
@@ -705,8 +710,8 @@ pub(crate) fn lower_thread_trampoline(
     }
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
-        abi::move_register("x0", "x9"),
+        abi::load_u64("x13", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
+        abi::move_register("x0", "x13"),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -718,22 +723,22 @@ pub(crate) fn lower_thread_trampoline(
     )?;
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_STATE),
-        abi::compare_immediate("x9", THREAD_STATE_CLOSED),
+        abi::load_u64("x13", "x20", THREAD_OFFSET_STATE),
+        abi::compare_immediate("x13", THREAD_STATE_CLOSED),
         abi::branch_eq(&result_closed),
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x9", abi::stack_pointer(), TAG_OFFSET),
-        abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_TAG),
-        abi::load_u64("x9", abi::stack_pointer(), VALUE_OFFSET),
-        abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_VALUE),
-        abi::load_u64("x9", abi::stack_pointer(), ERROR_OFFSET),
-        abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_ERROR),
-        abi::load_u64("x9", abi::stack_pointer(), SOURCE_OFFSET),
-        abi::store_u64("x9", "x20", THREAD_OFFSET_RESULT_SOURCE),
-        abi::move_immediate("x10", "Integer", THREAD_STATE_COMPLETED),
-        abi::store_u64("x10", "x20", THREAD_OFFSET_STATE),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
-        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_EMPTY_OFFSET),
+        abi::load_u64("x13", abi::stack_pointer(), TAG_OFFSET),
+        abi::store_u64("x13", "x20", THREAD_OFFSET_RESULT_TAG),
+        abi::load_u64("x13", abi::stack_pointer(), VALUE_OFFSET),
+        abi::store_u64("x13", "x20", THREAD_OFFSET_RESULT_VALUE),
+        abi::load_u64("x13", abi::stack_pointer(), ERROR_OFFSET),
+        abi::store_u64("x13", "x20", THREAD_OFFSET_RESULT_ERROR),
+        abi::load_u64("x13", abi::stack_pointer(), SOURCE_OFFSET),
+        abi::store_u64("x13", "x20", THREAD_OFFSET_RESULT_SOURCE),
+        abi::move_immediate("x14", "Integer", THREAD_STATE_COMPLETED),
+        abi::store_u64("x14", "x20", THREAD_OFFSET_STATE),
+        abi::load_u64("x13", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
+        abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_EMPTY_OFFSET),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,
@@ -745,8 +750,8 @@ pub(crate) fn lower_thread_trampoline(
     )?;
     instructions.extend([
         abi::load_u64("x20", abi::stack_pointer(), CB_OFFSET),
-        abi::load_u64("x9", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
-        abi::add_immediate("x0", "x9", THREAD_QUEUE_NOT_FULL_OFFSET),
+        abi::load_u64("x13", "x20", THREAD_OFFSET_OUTBOUND_QUEUE),
+        abi::add_immediate("x0", "x13", THREAD_QUEUE_NOT_FULL_OFFSET),
     ]);
     emit_thread_external_call(
         THREAD_TRAMPOLINE_SYMBOL,

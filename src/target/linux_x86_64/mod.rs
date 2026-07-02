@@ -35,9 +35,9 @@ impl NativeBackend for Backend {
             native_object_plan: true,
             native_code_plan: true,
             // The runtime-helper OS methods are wired via libc (mirroring
-            // AArch64), so the same call surface is supported — except thread.*
-            // (needs the pthread trampoline) and tls.* (needs the OpenSSL
-            // dlopen backend), which are not wired yet.
+            // AArch64), so the same call surface is supported — including
+            // thread.* (the shared pthread trampoline; alias-free x13/x14/x20
+            // scratch). tls.* (OpenSSL dlopen backend) is not wired yet.
             runtime_calls: &[
                 "datetime.nowNanos",
                 "datetime.monotonicNanos",
@@ -123,6 +123,16 @@ impl NativeBackend for Backend {
                 "net.receiveTextFrom",
                 "net.sendTo",
                 "net.sendTextTo",
+                "thread.start",
+                "thread.isRunning",
+                "thread.waitFor",
+                "thread.cancel",
+                "thread.send",
+                "thread.poll",
+                "thread.receive",
+                "thread.transferResource",
+                "thread.acceptResource",
+                "thread.isCancelled",
             ],
         }
     }
