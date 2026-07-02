@@ -276,12 +276,15 @@ mod tests {
 
     #[test]
     fn plain_text_package_summary_comes_from_name_line() {
-        let math = package("math").expect("math man package present");
-        assert!(!is_markdown_page(math.page.expect("math overview page")));
-        assert_eq!(
-            math.summary,
-            "numeric constants and deterministic math helper functions",
-        );
+        // Every shipped package overview is currently Markdown, but the
+        // plain-text `NAME <pkg> - <summary>` branch in `build_package` is still
+        // live: exercise it directly so a regression in the classic-page path is
+        // still caught.
+        let page = "NAME\n  demo - numeric constants and helpers\n\nSYNOPSIS\n  demo::x()\n";
+        assert!(!is_markdown_page(page));
+        let (name, summary) = parse_name_line(page).expect("package NAME line");
+        assert_eq!(name, "demo");
+        assert_eq!(summary, "numeric constants and helpers");
     }
 
     #[test]

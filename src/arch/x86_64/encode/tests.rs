@@ -192,14 +192,26 @@ fn udiv_sdiv() {
 
 #[test]
 fn msub() {
-    // msub rbx, rsi, rdi, rax : mov rax,rsi (48 89 F0) ; imul rax,rdi (48 0F AF C7);
-    // mov rbx,rax (48 89 C3) ; sub rbx,rax (48 29 C3)
+    // dst = minuend - lhs*rhs. When the minuend is rax (which the product goes
+    // through), it is captured into dst FIRST, before rax is clobbered:
+    // mov rbx,rax (48 89 C3) ; mov rax,rsi (48 89 F0) ; imul rax,rdi (48 0F AF C7) ;
+    // sub rbx,rax (48 29 C3)
     assert_eq!(
         bytes(
             "msub",
             &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdi"), ("minuend", "rax")]
         ),
-        [0x48, 0x89, 0xF0, 0x48, 0x0F, 0xAF, 0xC7, 0x48, 0x89, 0xC3, 0x48, 0x29, 0xC3]
+        [0x48, 0x89, 0xC3, 0x48, 0x89, 0xF0, 0x48, 0x0F, 0xAF, 0xC7, 0x48, 0x29, 0xC3]
+    );
+    // Non-rax minuend keeps the product-first order:
+    // mov rax,rsi (48 89 F0) ; imul rax,rdi (48 0F AF C7) ; mov rbx,rcx (48 89 CB) ;
+    // sub rbx,rax (48 29 C3)
+    assert_eq!(
+        bytes(
+            "msub",
+            &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdi"), ("minuend", "rcx")]
+        ),
+        [0x48, 0x89, 0xF0, 0x48, 0x0F, 0xAF, 0xC7, 0x48, 0x89, 0xCB, 0x48, 0x29, 0xC3]
     );
 }
 
@@ -369,9 +381,14 @@ fn branches_are_fixed_size() {
 
 #[test]
 fn call_emits_5_bytes() {
-    // bl sym : E8 + 4 placeholder
-    let call = bytes("bl", &[("target", "_some_fn")]);
-    assert_eq!(call, [0xE8, 0, 0, 0, 0]);
+    // Internal `_mfb_*` call: E8 + rel32 placeholder, no variadic al marker
+    // (internal functions are never variadic and may pass a 7th arg in rax).
+    let internal = bytes("bl", &[("target", "_mfb_some_fn")]);
+    assert_eq!(internal, [0xE8, 0, 0, 0, 0]);
+    // External (libc) call: `mov eax, 8` (B8 08 ..) then E8 + rel32 — the SysV
+    // variadic ABI's vector-arg-count marker.
+    let external = bytes("bl", &[("target", "snprintf")]);
+    assert_eq!(external, [0xB8, 8, 0, 0, 0, 0xE8, 0, 0, 0, 0]);
 }
 
 #[test]
@@ -453,12 +470,16 @@ fn sub_borrow_no_borrow_in() {
 
 #[test]
 fn unsupported_op_errors() {
-    let ins = CodeInstruction::new("fadd_d")
-        .field("dst", "d0")
-        .field("lhs", "d1")
-        .field("rhs", "d2");
+    // A valid CodeOp the x86 backend does not encode (an AArch64-only SIMD
+    // lane shift); `CodeInstruction::new` only accepts real mnemonics, so this
+    // exercises the emitter's unsupported-op fallthrough rather than an unknown
+    // mnemonic.
+    let ins = CodeInstruction::new("sshl_v")
+        .field("dst", "v0")
+        .field("lhs", "v1")
+        .field("rhs", "v2");
     let err = match encode_instruction(&ins) {
-        Ok(_) => panic!("expected fadd_d to be unsupported"),
+        Ok(_) => panic!("expected sshl_v to be unsupported"),
         Err(err) => err,
     };
     assert!(err.contains("unsupported op"), "got: {err}");
