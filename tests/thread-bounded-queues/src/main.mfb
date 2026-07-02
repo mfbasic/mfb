@@ -5,9 +5,14 @@ IMPORT thread_runtime_workers
 FUNC main AS Integer
   LET outbound AS Thread OF String TO Integer = thread::start(thread_runtime_workers::emitThreeBuffered, "seed", 1, 3)
   LET hasFirst AS Boolean = thread::poll(outbound, 100)
-  LET first AS String = thread::receive(outbound, 0)
-  LET second AS String = thread::receive(outbound, 0)
-  LET third AS String = thread::receive(outbound, 0)
+  REM Timed receives: a no-wait receive(_, 0) here races the worker's second
+  REM and third sends (poll only guarantees ONE message arrived) — on a
+  REM single-core host the parent can drain the queue before the worker is
+  REM rescheduled. A timed receive waits for the message and still returns
+  REM promptly (ErrNotFound) if the worker completes with an empty queue.
+  LET first AS String = thread::receive(outbound, 1000)
+  LET second AS String = thread::receive(outbound, 1000)
+  LET third AS String = thread::receive(outbound, 1000)
   io::print(first)
   io::print(second)
   io::print(third)

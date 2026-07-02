@@ -20,9 +20,9 @@
     "body": [
     { "op": "bind", "mutable": false, "name": "outbound", "type": "Thread OF String TO Integer", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.emitThreeBuffered", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "seed" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
     { "op": "bind", "mutable": false, "name": "hasFirst", "type": "Boolean", "value": { "kind": "call", "target": "thread.poll", "args": [{ "kind": "local", "name": "outbound" }, { "kind": "const", "type": "Integer", "value": "100" }] } },
-    { "op": "bind", "mutable": false, "name": "first", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "outbound" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "mutable": false, "name": "second", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "outbound" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "mutable": false, "name": "third", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "outbound" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "mutable": false, "name": "first", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "outbound" }, { "kind": "const", "type": "Integer", "value": "1000" }] } },
+    { "op": "bind", "mutable": false, "name": "second", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "outbound" }, { "kind": "const", "type": "Integer", "value": "1000" }] } },
+    { "op": "bind", "mutable": false, "name": "third", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "outbound" }, { "kind": "const", "type": "Integer", "value": "1000" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "first" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "second" }] } },
     { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "third" }] } },
