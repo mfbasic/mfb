@@ -72,76 +72,13 @@ impl CodeBuilder<'_> {
     /// callee-saved registers the coloring used so `finalize_frame` saves them.
     /// Must run after the body is fully emitted and before the peephole pass and
     /// `finalize_frame`, which both expect physical register names (plan-03).
-    /// Rewrite the hand-written **high FP/SIMD** registers the transcendental and
-    /// SIMD kernels name directly (`d`/`v`/`q` 16–31) into fresh FP virtual
-    /// registers, so the allocator places them per-ISA. The GPR scratch pool
-    /// (`x8`–`x17`/`x20`–`x28`) that this pass historically also virtualized is
-    /// now minted as vregs at the builder emit sites themselves (`temporary_vreg`),
-    /// so no hardcoded GPR scratch reaches here — only this narrow FP normalization
-    /// remains, and it is gated to backends whose FP file is narrower than
-    /// AArch64's 32 vector registers (x86: 16 xmm).
-    ///
-    /// It stays a post-emit pass (rather than being inlined like the GPR scratch)
-    /// because those kernels use `v16`–`v31` as a *function-global* coefficient
-    /// register file shared across a setup method and many body/helper methods
-    /// (e.g. `emit_float_kernel_setup` → `emit_exp_body`/`emit_log_body`/…): the
-    /// value in `v20` set up once must reach every consumer. Unifying by physical
-    /// name across the whole emitted stream — as this pass does — is exactly that
-    /// contract; inlining it would mean threading a 16-register file through every
-    /// kernel method's signature. On AArch64 (`vregify_high_fp() == false`) the
-    /// kernels keep their physical `v16`–`v31` (32 registers, no pressure), so this
-    /// is a no-op there. Each distinct physical FP register becomes ONE FP vreg.
-    fn vregify_kernel_fp_registers(&mut self) {
-        // Only linear-scan colors vregs by liveness; BumpAndReset maps them eagerly
-        // back to the same physical pool, so renaming would gain nothing.
-        if self.regalloc_kind != regalloc::RegallocKind::LinearScan {
-            return;
-        }
-        let vregify_high_fp = mir::active_backend().vregify_high_fp();
-        if !vregify_high_fp {
-            return;
-        }
-        let is_high_fp = |reg: &str| -> bool {
-            reg.strip_prefix(['d', 'v', 'q'])
-                .and_then(|rest| rest.parse::<u32>().ok())
-                .is_some_and(|n| (16..=31).contains(&n))
-        };
-        // First-appearance order so the vreg numbering is deterministic.
-        let mut fp_order: Vec<String> = Vec::new();
-        for instruction in &self.instructions {
-            for (_, value) in &instruction.fields {
-                if is_high_fp(value) && !fp_order.contains(value) {
-                    fp_order.push(value.clone());
-                }
-            }
-        }
-        if fp_order.is_empty() {
-            return;
-        }
-        let mut rename: HashMap<String, String> = HashMap::new();
-        for register in fp_order {
-            let vreg = self
-                .allocate_fp_register()
-                .expect("linear-scan mints FP vregs without exhausting a pool");
-            rename.insert(register, vreg);
-        }
-        for instruction in &mut self.instructions {
-            for (_, value) in instruction.fields.iter_mut() {
-                if let Some(vreg) = rename.get(value) {
-                    *value = vreg.clone();
-                }
-            }
-        }
-        self.used_callee_saved
-            .retain(|register| !rename.contains_key(register));
-    }
-
     pub(super) fn run_register_allocation(&mut self) {
-        // The GPR scratch pool (x8-x17/x20-x28) is now minted as vregs directly at
-        // the builder emit sites (`temporary_vreg`); only the SIMD/transcendental
-        // kernels' function-global high-FP register file still needs virtualizing
-        // (x86 only), before the MIR seam so selection + allocation handle it.
-        self.vregify_kernel_fp_registers();
+        // Every register the builders and kernels once hardcoded — the GPR
+        // scratch pool (x8-x17/x20-x28) and the SIMD kernels' high-FP file
+        // (d/v/q 16-31) — is now minted as a virtual register at the emit site
+        // (`temporary_vreg`/`temporary_fp_vreg`), so the stream arriving here
+        // carries only vregs, ABI-role registers, and pinned registers. There is
+        // no rename/patch pass.
         // MIR seam (plan-00-A): the fully-lowered, pre-allocation stream is the
         // point where the neutral MIR layer sits (`NIR → MIR → select → alloc`,
         // `mir.md §2`/§3). A `-mir` dump captures this function's MIR here (with
@@ -155,7 +92,9 @@ impl CodeBuilder<'_> {
         let backend = mir::active_backend();
         let neutral = mir::lower_to_mir(&self.instructions);
         self.instructions = backend.select(&neutral);
-        let spill_base = self.stack_size;
+        // 16-aligned so FP spill slots hit `str q`'s alignment requirement (the
+        // slot stride is `spill_slot_bytes()` = 16 on every backend).
+        let spill_base = type_utils::align(self.stack_size, 16);
         let outcome = regalloc::allocate(
             self.regalloc_kind,
             &mut self.instructions,

@@ -110,13 +110,17 @@ const INT_CALLER_SAVED: &[&str] = &[
 ];
 
 /// Allocatable scalar FP registers (plan-03 Stage C/D): caller-saved `d0`–`d7`
-/// scratch first, then callee-saved `d8`–`d15` for values that must survive a
-/// call (their low 64 bits are callee-saved by the PCS, and the inlined `math::`
-/// NEON kernels avoid `v8`–`v15`, §4.6). `d16`–`d31` are caller-saved and
-/// kernel-clobbered, so they are never handed out as long-lived homes.
+/// and `d16`–`d31` first (no save/restore cost), then callee-saved `d8`–`d15`
+/// for values that must survive a call (their low 64 bits are callee-saved by
+/// the PCS, §4.5). `d16`–`d31` joined the pool when the SIMD/transcendental
+/// kernels stopped owning them physically — their register file is now FP
+/// virtual registers minted at the emit site (`temporary_fp_vreg`), so the
+/// allocator places the whole bank; a call-crossing value still lands in
+/// `d8`–`d15` via the call-clobber interference, exactly as before.
 const FP_ALLOCATABLE: &[&str] = &[
-    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d8", "d9", "d10", "d11", "d12", "d13", "d14",
-    "d15",
+    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d16", "d17", "d18", "d19", "d20", "d21",
+    "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31", "d8", "d9", "d10",
+    "d11", "d12", "d13", "d14", "d15",
 ];
 
 /// Caller-saved FP registers: `d0`–`d7` and `d16`–`d31` (the low 64 bits of
@@ -170,17 +174,30 @@ impl RegisterModel for Aarch64RegisterModel {
         }
     }
 
+    fn spill_slot_bytes(&self) -> usize {
+        // FP virtual registers can carry 128-bit SIMD vectors (the kernels'
+        // register file); a 64-bit `str d` spill would drop the high lane, so FP
+        // spills are `str q`/`ldr q` into 16-byte slots. Every slot (int and fp)
+        // uses this stride uniformly, mirroring x86 (`movups`).
+        16
+    }
+
     fn emit_spill(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         match class {
             RegClass::Int => abi::store_u64(reg, abi::stack_pointer(), offset),
-            RegClass::Fp => abi::store_double(reg, abi::stack_pointer(), offset),
+            // 128-bit store — a 64-bit `str d` would drop a spilled vector's high
+            // lane, corrupting the vector::/math-array kernels. `str q` needs a
+            // 16-aligned offset: the slot stride is 16, the spill base is
+            // 16-aligned by the callers, and `finalize_frame` shifts by a
+            // 16-aligned save area.
+            RegClass::Fp => abi::vector_store(reg, abi::stack_pointer(), offset),
         }
     }
 
     fn emit_reload(&self, class: RegClass, reg: &str, offset: usize) -> CodeInstruction {
         match class {
             RegClass::Int => abi::load_u64(reg, abi::stack_pointer(), offset),
-            RegClass::Fp => abi::load_double(reg, abi::stack_pointer(), offset),
+            RegClass::Fp => abi::vector_load(reg, abi::stack_pointer(), offset),
         }
     }
 

@@ -44,6 +44,15 @@ pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, S
                 1,
             ));
         }
+        // 128-bit q load/store: one scaled word when the offset is 16-aligned
+        // and in range, else the GPR-scratch address fallback (a huge frame puts
+        // FP spill slots past the 65520-byte scaled ceiling).
+        CodeOp::LdrQ | CodeOp::StrQ => {
+            return Ok(sized_memory_imm(
+                immediate(field(instruction, "offset")?)?,
+                16,
+            ));
+        }
         // Explicit-carry add (plan-00-G §4): `adds; cset` (no carry-in) or
         // `cmp; adcs; cset` (carry-in register) — the no-carry-in form avoids
         // `cmp xzr,#1` (x31 = SP in the immediate form). Explicit-borrow sub is

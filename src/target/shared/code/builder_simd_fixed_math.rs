@@ -69,10 +69,17 @@ impl CodeBuilder<'_> {
         let pairs = self.allocate_register()?;
         self.emit(abi::shift_right_immediate(&pairs, &count, 1));
 
-        // Persistent vector state: v17 = broadcast(1), v18 = negative-lane mask.
+        // Persistent vector state threaded through both kernel runs: `one` =
+        // broadcast(1), `neg_mask` = the OR-accumulated negative-lane mask (read
+        // by the error reduce after the loops); `mask`/`sel` are the kernel's
+        // per-run scratch. FP vregs, so the allocator places them per-ISA.
+        let one = self.temporary_fp_vreg();
+        let neg_mask = self.temporary_fp_vreg();
+        let mask = self.temporary_fp_vreg();
+        let sel = self.temporary_fp_vreg();
         self.emit(abi::move_immediate("x0", "Integer", "1"));
-        self.emit(abi::vector_dup_from_x("v17", "x0"));
-        self.emit(abi::vector_eor("v18", "v18", "v18"));
+        self.emit(abi::vector_dup_from_x(&one, "x0"));
+        self.emit(abi::vector_eor(&neg_mask, &neg_mask, &neg_mask));
 
         // --- 2-lane chunk loop ---
         let loop_label = self.label("simd_fxsqrt_loop");
@@ -81,7 +88,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_immediate(&pairs, "0"));
         self.emit(abi::branch_eq(&loop_done));
         self.emit(abi::vector_load("v0", &in_data, 0));
-        self.emit_fixed_sqrt_vector();
+        self.emit_fixed_sqrt_vector(&one, &neg_mask, &mask, &sel);
         self.emit(abi::vector_store("v3", &out_data, 0));
         self.emit(abi::add_immediate(&in_data, &in_data, 16));
         self.emit(abi::add_immediate(&out_data, &out_data, 16));
@@ -98,14 +105,14 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&tail_done));
         self.emit(abi::load_u64("x0", &in_data, 0));
         self.emit(abi::vector_dup_from_x("v0", "x0"));
-        self.emit_fixed_sqrt_vector();
+        self.emit_fixed_sqrt_vector(&one, &neg_mask, &mask, &sel);
         self.emit(abi::vector_extract_to_x("x0", "v3", 0));
         self.emit(abi::store_u64("x0", &out_data, 0));
         self.emit(abi::label(&tail_done));
 
         // --- Error reduce: any negative lane → ErrInvalidArgument ---
-        self.emit(abi::vector_extract_to_x("x0", "v18", 0));
-        self.emit(abi::vector_extract_to_x("x1", "v18", 1));
+        self.emit(abi::vector_extract_to_x("x0", &neg_mask, 0));
+        self.emit(abi::vector_extract_to_x("x1", &neg_mask, 1));
         self.emit(abi::or_registers("x0", "x0", "x1"));
         let no_err = self.label("simd_fxsqrt_no_err");
         self.emit(abi::compare_immediate("x0", "0"));
@@ -121,15 +128,17 @@ impl CodeBuilder<'_> {
     }
 
     /// Emit the 2-lane restoring-sqrt kernel: input raw Q32.32 lanes in `v0`,
-    /// result in `v3`; negative lanes OR-accumulated into `v18`. Assumes
-    /// `v17 = broadcast(1)`. Uses `x0` as the (shared) digit counter and vector
-    /// scratch `v1..v7,v16,v19` — all caller-saved, like the scalar kernel's
-    /// register-tight body. Mirrors `emit_fixed_sqrt` op-for-op so each lane is
-    /// bit-identical to the scalar result.
-    fn emit_fixed_sqrt_vector(&mut self) {
+    /// result in `v3`; negative lanes OR-accumulated into `neg_mask`. `one` holds
+    /// broadcast(1); `mask`/`sel` are this kernel's vector scratch (FP vregs the
+    /// caller mints once and threads through both runs). Uses `x0` as the
+    /// (shared) digit counter and physical `v1..v7` for the rest — all
+    /// caller-saved, like the scalar kernel's register-tight body. Mirrors
+    /// `emit_fixed_sqrt` op-for-op so each lane is bit-identical to the scalar
+    /// result.
+    fn emit_fixed_sqrt_vector(&mut self, one: &str, neg_mask: &str, mask: &str, sel: &str) {
         // Negative-lane detection (raw < 0): arithmetic shift fills all-ones.
-        self.emit(abi::vector_sshr("v16", "v0", 63));
-        self.emit(abi::vector_orr("v18", "v18", "v16"));
+        self.emit(abi::vector_sshr(mask, "v0", 63));
+        self.emit(abi::vector_orr(neg_mask, neg_mask, mask));
 
         // nhi=v1=src, nlo=v2=0, res=v3=0, rem=v4=0.
         self.emit(abi::vector_orr("v1", "v0", "v0")); // nhi = src
@@ -156,21 +165,21 @@ impl CodeBuilder<'_> {
         self.emit(abi::vector_shl("v3", "v3", 1));
         // trial = 2*res + 1.
         self.emit(abi::vector_shl("v7", "v3", 1));
-        self.emit(abi::vector_add("v7", "v7", "v17"));
+        self.emit(abi::vector_add("v7", "v7", one));
         // Per-lane: if rem >= trial { rem -= trial; res += 1 }.
-        self.emit(abi::vector_cmge("v16", "v4", "v7")); // mask
-        self.emit(abi::vector_and("v19", "v7", "v16"));
-        self.emit(abi::vector_sub("v4", "v4", "v19"));
-        self.emit(abi::vector_and("v19", "v17", "v16"));
-        self.emit(abi::vector_add("v3", "v3", "v19"));
+        self.emit(abi::vector_cmge(mask, "v4", "v7"));
+        self.emit(abi::vector_and(sel, "v7", mask));
+        self.emit(abi::vector_sub("v4", "v4", sel));
+        self.emit(abi::vector_and(sel, one, mask));
+        self.emit(abi::vector_add("v3", "v3", sel));
         self.emit(abi::subtract_immediate("x0", "x0", 1));
         self.emit(abi::branch(&loop_label));
         self.emit(abi::label(&loop_done));
 
         // Round to nearest: if rem > res { res += 1 }.
-        self.emit(abi::vector_cmgt("v16", "v4", "v3"));
-        self.emit(abi::vector_and("v19", "v17", "v16"));
-        self.emit(abi::vector_add("v3", "v3", "v19"));
+        self.emit(abi::vector_cmgt(mask, "v4", "v3"));
+        self.emit(abi::vector_and(sel, one, mask));
+        self.emit(abi::vector_add("v3", "v3", sel));
     }
 
     /// `math.log/log10(values AS Fixed[]) AS Fixed[]` — per-lane loop over the

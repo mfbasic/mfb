@@ -289,7 +289,8 @@ thread marshalling. Storing a `d`-native float writes the same 8 bytes a `str x`
 would (`str d`), so copy/transfer/golden output is unchanged — only the in-flight
 register class differs. (The carrier is sound only under liveness-based coloring,
 so the `bump` oracle keeps the legacy GP-native round-trip; `MOD`/`^` run
-hardcoded-register kernels and stay GP-native too.)
+dedicated scalar kernels — their FP working set is allocator-placed virtual
+registers plus the fixed `d0`–`d7` input/scratch bank — and stay GP-native too.)
 
 A value live across a call stays in a callee-saved `d8`–`d15` rather than
 spilling. A loop-carried float accumulator — a non-escaping `Float` local
@@ -309,8 +310,10 @@ core:
   trait answers every register question — the allocatable banks and their class
   (integer `x0`–`x30` vs FP/SIMD `d0`–`d31`, where `d_n` aliases the low 64 bits
   of the NEON `v_n`), the caller/callee-saved partition per class, ABI-pinned and
-  scratch registers, and the per-class spill/reload/move emitters (`str d`/`ldr
-  d` for the FP class). AArch64 implements it now; an x86_64 sibling implements
+  scratch registers, and the per-class spill/reload emitters. FP spills are
+  128-bit `str q`/`ldr q` into 16-byte slots — an FP virtual register can carry a
+  SIMD vector (the `math::` kernels' working file), and a 64-bit `str d` would
+  drop its high lane. AArch64 implements it now; an x86_64 sibling implements
   the same trait later.[[src/arch/aarch64/regmodel.rs:RegisterModel]]
 
 The allocation method is a swappable `AllocationStrategy`, selected by the

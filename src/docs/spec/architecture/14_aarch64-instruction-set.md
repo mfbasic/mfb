@@ -138,7 +138,9 @@ the four arithmetic and five conversion ops.
 The vectorized `math::` array overloads (`mfb spec language builtin-functions`
 §18.2) process two 64-bit lanes per instruction. These ops take **vector
 register** operands named `v0`..`v31` (the `ldr_q`/`str_q` data register also
-accepts the `q0`..`q31` spelling); the lane arrangement is fixed by the op —
+accepts the `q0`..`q31` spelling, and every vector operand accepts the
+`d0`..`d31` scalar view the register allocator hands out for FP virtual
+registers — only the register number is decoded); the lane arrangement is fixed by the op —
 `.2d` (two i64/f64 lanes) for every numeric op, `.16b` for the bitwise/select
 ops `and_v`/`orr_v`/`eor_v`/`bsl_v`/`bit_v`. Field placement matches the scalar
 ops: `Vd=bits[4:0]`, `Vn=bits[9:5]`, `Vm=bits[20:16]`.
@@ -146,8 +148,8 @@ ops: `Vd=bits[4:0]`, `Vn=bits[9:5]`, `Vm=bits[20:16]`.
 
 | Op | Mnemonic | Fields | Base word | Notes |
 |----|----------|--------|-----------|-------|
-| `LdrQ` | `ldr_q` | `dst`,`base`,`offset` | `0x3DC00000` | 128-bit load; `imm12=off/16` |
-| `StrQ` | `str_q` | `src`,`base`,`offset` | `0x3D800000` | 128-bit store; `src=Vt` |
+| `LdrQ` | `ldr_q` | `dst`,`base`,`offset` | `0x3DC00000` | 128-bit load; `imm12=off/16`; unaligned/out-of-range offsets fall back to a GPR-scratch address (`add`; `ldr q [scratch]`) |
+| `StrQ` | `str_q` | `src`,`base`,`offset` | `0x3D800000` | 128-bit store; `src=Vt`; same fallback as `ldr_q` |
 | `FAddV` | `fadd_v` | `dst`,`lhs`,`rhs` | `0x4E60D400` | `fadd .2d` |
 | `FSubV` | `fsub_v` | `dst`,`lhs`,`rhs` | `0x4EE0D400` | `fsub .2d` |
 | `FMulV` | `fmul_v` | `dst`,`lhs`,`rhs` | `0x6E60DC00` | `fmul .2d` |

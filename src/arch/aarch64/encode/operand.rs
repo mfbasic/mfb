@@ -57,13 +57,15 @@ pub(super) fn reg(name: String) -> Result<u8, String> {
     }
 }
 
-/// Parse a NEON vector register operand. Accepts `v0`..`v31` and the `q0`..`q31`
-/// load/store spelling (the arrangement suffix, e.g. `.2d`, is implied by the op,
-/// so only the register number is decoded here).
+/// Parse a NEON vector register operand. Accepts `v0`..`v31`, the `q0`..`q31`
+/// load/store spelling, and the `d0`..`d31` scalar view the register allocator
+/// hands out for FP virtual registers (the arrangement suffix, e.g. `.2d`, is
+/// implied by the op, so only the register number is decoded here).
 pub(super) fn vreg(name: String) -> Result<u8, String> {
     let digits = name
         .strip_prefix('v')
         .or_else(|| name.strip_prefix('q'))
+        .or_else(|| name.strip_prefix('d'))
         .ok_or_else(|| format!("unknown AArch64 vector register '{name}'"))?;
     let number = digits
         .parse::<u8>()

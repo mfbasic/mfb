@@ -151,7 +151,7 @@ impl CodeBuilder<'_> {
     ) -> Result<ValueResult, String> {
         // Pure integer parse with no call ABI: every working register is scratch,
         // minted as a vreg so the allocator colors it per-ISA (was hand-pinned
-        // x8-x17 + an out-of-pool x6 the vregify pass could not reach). `xzr`
+        // x8-x17 + an out-of-pool x6). `xzr`
         // below stays — it is the architectural zero register, not scratch.
         let string_v = self.temporary_vreg();
         let length_v = self.temporary_vreg();

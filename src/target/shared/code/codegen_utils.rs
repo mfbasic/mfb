@@ -353,7 +353,11 @@ pub(super) fn finalize_frame(
     {
         callee_saved.push(abi::link_register().to_string());
     }
-    let save_size = callee_saved.len() * 8;
+    // Rounded to 16 so the shift below keeps every 16-aligned spill offset
+    // 16-aligned — AArch64 FP spills are `str q`/`ldr q`, whose scaled immediate
+    // requires a 16-byte-aligned address (the saves themselves still land at
+    // `index * 8`; an odd count leaves 8 padding bytes).
+    let save_size = align(callee_saved.len() * 8, 16);
     // A called function on x86-64 must offset its 16-aligned frame by the pushed
     // return address so rsp is 16-aligned at its own call sites (0 on AArch64).
     let call_padding = if has_calls {

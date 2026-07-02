@@ -389,22 +389,31 @@ impl Encoder {
         }
     }
 
-    /// 128-bit `LDR Qt, [Xn, #offset]` — offset must be a multiple of 16.
+    /// 128-bit `LDR Qt, [Xn, #offset]` — scaled form when the offset is a
+    /// 16-aligned multiple within range, otherwise the address is materialized
+    /// through a GPR scratch (the same fallback the `ldr x` family uses for
+    /// out-of-range offsets; a huge frame puts FP spill slots past 65520).
     fn emit_ldr_q(&mut self, vt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 16 != 0 || offset / 16 > 4095 {
-            return Err(format!("AArch64 ldr q offset {offset} is not encodable"));
+        if offset % 16 == 0 && offset / 16 <= 4095 {
+            let imm12 = (offset / 16) as u32;
+            return self.emit_word(0x3dc0_0000 | (imm12 << 10) | ((rn as u32) << 5) | vt as u32);
         }
-        let imm12 = (offset / 16) as u32;
-        self.emit_word(0x3dc0_0000 | (imm12 << 10) | ((rn as u32) << 5) | vt as u32)
+        // `vt` is a vector register, so only `rn` needs excluding.
+        let scratch = scratch_excluding(rn, 31);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0x3dc0_0000 | ((scratch as u32) << 5) | vt as u32)
     }
 
-    /// 128-bit `STR Qt, [Xn, #offset]` — offset must be a multiple of 16.
+    /// 128-bit `STR Qt, [Xn, #offset]` — scaled form when in range, else via a
+    /// GPR scratch address (see [`Self::emit_ldr_q`]).
     fn emit_str_q(&mut self, vt: u8, rn: u8, offset: u64) -> Result<(), String> {
-        if offset % 16 != 0 || offset / 16 > 4095 {
-            return Err(format!("AArch64 str q offset {offset} is not encodable"));
+        if offset % 16 == 0 && offset / 16 <= 4095 {
+            let imm12 = (offset / 16) as u32;
+            return self.emit_word(0x3d80_0000 | (imm12 << 10) | ((rn as u32) << 5) | vt as u32);
         }
-        let imm12 = (offset / 16) as u32;
-        self.emit_word(0x3d80_0000 | (imm12 << 10) | ((rn as u32) << 5) | vt as u32)
+        let scratch = scratch_excluding(rn, 31);
+        self.emit_add_imm(scratch, rn, offset)?;
+        self.emit_word(0x3d80_0000 | ((scratch as u32) << 5) | vt as u32)
     }
 
     /// Three-same NEON ops: `op Vd.<T>, Vn.<T>, Vm.<T>`. The arrangement (`.2d`

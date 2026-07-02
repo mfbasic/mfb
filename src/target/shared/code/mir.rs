@@ -536,27 +536,6 @@ pub(crate) trait Backend: Sync {
     fn frame_call_padding(&self) -> usize {
         0
     }
-
-    /// Whether the vregify pass must keep `CLOSURE_ENV_REGISTER` (x28) physical.
-    /// x28 is a cross-function convention register (the caller stages the closure
-    /// env there before the indirect call; the lambda reads it live-in). On
-    /// AArch64 its wide callee-saved bank lets the allocator color that live-in
-    /// back to x28, so vregifying it stays byte-identical and correct; on x86 the
-    /// tighter file colors the lambda's env to a different GPR than the caller
-    /// wrote → a garbage env deref (SIGSEGV). x86 returns true to pin it.
-    fn pins_closure_env_register(&self) -> bool {
-        false
-    }
-
-    /// Whether the vregify pass must rename the high physical FP/SIMD registers
-    /// (`d`/`v`/`q` 16–31) to FP vregs so the allocator colors them onto this
-    /// ISA's narrower FP file with spilling. AArch64 has 32 vector registers and
-    /// uses `v16`–`v31` directly (byte-identical), so it returns false; x86 has
-    /// only 16 xmm, so the `vector::`/math-array kernels' `v16`–`v31` would
-    /// otherwise leak to the encoder as un-encodable `vN`. Returns true for x86.
-    fn vregify_high_fp(&self) -> bool {
-        false
-    }
 }
 
 thread_local! {

@@ -56,56 +56,37 @@ const HIGH32_MASK: &str = "18446744069414584320"; // 0xFFFFFFFF00000000
 const ABS_MASK: &str = "9223372036854775807"; // 0x7FFFFFFFFFFFFFFF
 const SIGN_BIT: &str = "9223372036854775808"; // 0x8000000000000000
 
-/// `d`-register homes for the scalar pow kernel — one register per live f64. All
-/// are caller-saved (the kernel makes no call) and disjoint from the `d0`-`d2`
-/// scratch and the callee-saved `d8`-`d15`. `x`/`y` hold the two inputs.
-struct PowHomes {
-    x: &'static str,
-    y: &'static str,
-    ax: &'static str,
-    sh: &'static str,
-    sl: &'static str,
-    th: &'static str,
-    tl: &'static str,
-    rr: &'static str,
-    uu: &'static str,
-    vv: &'static str,
-    ww: &'static str,
-    ph: &'static str,
-    pl: &'static str,
-    zh: &'static str,
-    zl: &'static str,
-    t1: &'static str,
-    t2: &'static str,
-    s2: &'static str,
-    tmp: &'static str,
-    cs: &'static str,
-    zz: &'static str,
+/// Register homes for the scalar pow kernel — one home per live f64. The five
+/// low homes (`x`/`y` inputs and `ax`/`sh`/`sl`) are the physical caller-saved
+/// `d3`–`d7`, disjoint from the `d0`-`d2` scratch; the remaining sixteen are FP
+/// virtual registers minted per invocation ([`CodeBuilder::emit_pow_scalar`]),
+/// so the allocator places them per-ISA — no fixed high-bank claim and no
+/// post-emit register patching. The kernel makes no returning call, so every
+/// home is caller-saved-safe exactly as the historical fixed `d16`–`d31` bank
+/// was.
+struct PowHomes<'a> {
+    x: &'a str,
+    y: &'a str,
+    ax: &'a str,
+    sh: &'a str,
+    sl: &'a str,
+    th: &'a str,
+    tl: &'a str,
+    rr: &'a str,
+    uu: &'a str,
+    vv: &'a str,
+    ww: &'a str,
+    ph: &'a str,
+    pl: &'a str,
+    zh: &'a str,
+    zl: &'a str,
+    t1: &'a str,
+    t2: &'a str,
+    s2: &'a str,
+    tmp: &'a str,
+    cs: &'a str,
+    zz: &'a str,
 }
-
-const POW_HOMES: PowHomes = PowHomes {
-    x: "d3",
-    y: "d4",
-    ax: "d5",
-    sh: "d6",
-    sl: "d7",
-    th: "d16",
-    tl: "d17",
-    rr: "d18",
-    uu: "d19",
-    vv: "d20",
-    ww: "d21",
-    ph: "d22",
-    pl: "d23",
-    zh: "d24",
-    zl: "d25",
-    t1: "d26",
-    t2: "d27",
-    s2: "d28",
-    tmp: "d29",
-    cs: "d30",
-    zz: "d31",
-};
 
 impl CodeBuilder<'_> {
     /// Copy a value home into a working `d`-register (a no-op when they coincide).
@@ -160,7 +141,47 @@ impl CodeBuilder<'_> {
 
     /// Emit scalar `pow(x, y)`; returns a register with the result bit pattern.
     pub(super) fn emit_pow_scalar(&mut self, x_loc: &str, y_loc: &str) -> Result<String, String> {
-        let s = POW_HOMES;
+        // The sixteen high value homes are FP vregs minted per invocation (the
+        // low five stay on the physical `d3`-`d7` input/scratch bank).
+        let th_v = self.temporary_fp_vreg();
+        let tl_v = self.temporary_fp_vreg();
+        let rr_v = self.temporary_fp_vreg();
+        let uu_v = self.temporary_fp_vreg();
+        let vv_v = self.temporary_fp_vreg();
+        let ww_v = self.temporary_fp_vreg();
+        let ph_v = self.temporary_fp_vreg();
+        let pl_v = self.temporary_fp_vreg();
+        let zh_v = self.temporary_fp_vreg();
+        let zl_v = self.temporary_fp_vreg();
+        let t1_v = self.temporary_fp_vreg();
+        let t2_v = self.temporary_fp_vreg();
+        let s2_v = self.temporary_fp_vreg();
+        let tmp_v = self.temporary_fp_vreg();
+        let cs_v = self.temporary_fp_vreg();
+        let zz_v = self.temporary_fp_vreg();
+        let s = PowHomes {
+            x: "d3",
+            y: "d4",
+            ax: "d5",
+            sh: "d6",
+            sl: "d7",
+            th: &th_v,
+            tl: &tl_v,
+            rr: &rr_v,
+            uu: &uu_v,
+            vv: &vv_v,
+            ww: &ww_v,
+            ph: &ph_v,
+            pl: &pl_v,
+            zh: &zh_v,
+            zl: &zl_v,
+            t1: &t1_v,
+            t2: &t2_v,
+            s2: &s2_v,
+            tmp: &tmp_v,
+            cs: &cs_v,
+            zz: &zz_v,
+        };
         // Inputs arrive in GPRs; move their bit patterns into the value homes.
         self.emit(abi::float_move_d_from_x(s.x, x_loc));
         self.emit(abi::float_move_d_from_x(s.y, y_loc));

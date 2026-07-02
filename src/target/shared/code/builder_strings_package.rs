@@ -153,7 +153,7 @@ impl CodeBuilder<'_> {
         let cmp_loop = self.label("strings_chars_set_cmp_loop");
         let next = self.label("strings_chars_set_next");
         // Scratch as vregs (was out-of-pool x2-x7 plus x0/x1, which are x86 ABI
-        // argument/return registers). x8/x16 stay (vregify pool).
+        // argument/return registers).
         let chars_ptr_v = self.temporary_vreg();
         let chars_len_v = self.temporary_vreg();
         let cursor_v = self.temporary_vreg();

@@ -615,8 +615,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
         self.emit(abi::label(&order_loop));
         // x12 (dead at the loop head; redefined below) — not x6: ABI registers
-        // stay physical through vregify, and the x86 remap role-colors them
-        // (x6/x7 both collapsed onto rax, corrupting the scan pointers).
+        // stay physical, and the x86 remap role-colors them (x6/x7 both
+        // collapsed onto rax, corrupting the scan pointers).
         self.emit(abi::add_immediate(&scratch12, &scratch23, 1));
         self.emit(abi::compare_registers(&scratch12, &scratch21));
         self.emit(abi::branch_ge(&order_done));
@@ -692,8 +692,8 @@ impl CodeBuilder<'_> {
         self.emit_unicode_property_lookup(&scratch10, &scratch13);
         self.emit_unicode_property_flags(&scratch13, &scratch9);
         // x13/x9 are dead here (both consumed by the property extraction just
-        // above); use them — not x6/x7: ABI registers stay physical through
-        // vregify and the x86 remap role-colors them (x6 and x7 both collapsed
+        // above); use them — not x6/x7: ABI registers stay physical and the
+        // x86 remap role-colors them (x6 and x7 both collapsed
         // onto rax, so the scan pointer lost its table base).
         self.emit(abi::move_immediate(&scratch13, "Integer", "1023"));
         self.emit(abi::compare_registers(&scratch16, &scratch13));
@@ -1049,8 +1049,7 @@ impl CodeBuilder<'_> {
         let copy_done = self.label("strings_join_copy_done");
 
         // Copy-loop scratch as vregs (was out-of-pool x2/x3/x4, which fall back to
-        // rax via the Ret-role default on x86 and collide). x9-x17 stay (vregify
-        // pool). AArch64 unaffected.
+        // rax via the Ret-role default on x86 and collide). AArch64 unaffected.
         let cursor_v = self.temporary_vreg();
         let remaining_v = self.temporary_vreg();
         let byte_v = self.temporary_vreg();
@@ -1222,8 +1221,7 @@ impl CodeBuilder<'_> {
         let done = self.label("strings_split_done");
 
         // Inner delimiter-scan scratch as vregs (was out-of-pool x2-x6, which
-        // collide with x86 ABI argument registers). x9-x17/x20-x28 remain (the
-        // vregify pass colors those under LinearScan).
+        // collide with x86 ABI argument registers).
         let scan_i_v = self.temporary_vreg();
         let scan_ptr_v = self.temporary_vreg();
         let delim_ptr_v = self.temporary_vreg();
