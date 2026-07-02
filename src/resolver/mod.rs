@@ -76,6 +76,11 @@ pub fn resolve_project_with(
     // `net::uses_package` to see the dependency (plan-03-http.md Phase 4).
     let augmented = builtins::http::augmented_project(&augmented)?;
     let augmented = builtins::net::augmented_project(&augmented)?;
+    // `crypto` is injected before `encoding`: `crypto_package.mfb` imports
+    // `encoding`, so the encoding source companion must be added only after
+    // crypto's source is present for `encoding::uses_package` to see the
+    // dependency (mirrors `http` before `net`; plan-04-crypto.md Part C).
+    let augmented = builtins::crypto::augmented_project(&augmented)?;
     let augmented = builtins::encoding::augmented_project(&augmented)?;
     let mut resolver = Resolver::new(project_dir, manifest, &augmented);
     resolver.resolve();

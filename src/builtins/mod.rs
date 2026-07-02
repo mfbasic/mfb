@@ -1,5 +1,6 @@
 pub(crate) mod bits;
 pub(crate) mod collections;
+pub(crate) mod crypto;
 pub(crate) mod csv;
 pub(crate) mod datetime;
 pub(crate) mod encoding;
@@ -26,6 +27,7 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
         name,
         "bits"
             | "collections"
+            | "crypto"
             | "csv"
             | "datetime"
             | "encoding"
@@ -46,7 +48,8 @@ pub(crate) fn is_builtin_import(name: &str) -> bool {
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    datetime::is_builtin_type(name)
+    crypto::is_builtin_type(name)
+        || datetime::is_builtin_type(name)
         || fs::is_builtin_type(name)
         || http::is_builtin_type(name)
         || io::is_builtin_type(name)
@@ -176,6 +179,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         .or_else(|| strings::call_return_type_name(name))
         .or_else(|| math::call_return_type_name(name))
         .or_else(|| bits::call_return_type_name(name))
+        .or_else(|| crypto::call_return_type_name(name))
         .or_else(|| encoding::call_return_type_name(name))
         .or_else(|| fs::call_return_type_name(name))
         .or_else(|| io::call_return_type_name(name))
@@ -210,6 +214,7 @@ pub(crate) fn is_builtin_call(name: &str) -> bool {
         || strings::is_strings_call(name)
         || math::is_math_call(name)
         || bits::is_bits_call(name)
+        || crypto::is_crypto_call(name)
         || encoding::is_encoding_call(name)
         || fs::is_fs_call(name)
         || io::is_io_call(name)
@@ -255,6 +260,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| strings::call_param_names(name))
         .or_else(|| math::call_param_names(name))
         .or_else(|| bits::call_param_names(name))
+        .or_else(|| crypto::call_param_names(name))
         .or_else(|| encoding::call_param_names(name))
         .or_else(|| fs::call_param_names(name))
         .or_else(|| io::call_param_names(name))

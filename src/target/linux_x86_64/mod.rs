@@ -38,6 +38,7 @@ impl NativeBackend for Backend {
             // thread.* (the shared pthread trampoline; alias-free x13/x14/x20
             // scratch) and tls.* (the shared OpenSSL dlopen backend).
             runtime_calls: &[
+                "crypto.randomBytes",
                 "datetime.nowNanos",
                 "datetime.monotonicNanos",
                 "datetime.localOffset",

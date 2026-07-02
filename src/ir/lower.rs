@@ -164,6 +164,10 @@ pub fn lower_project_with_external_functions(
         .expect("built-in http package source must parse");
     let augmented = builtins::net::augmented_project(&augmented)
         .expect("built-in net package source must parse");
+    // `crypto` before `encoding`: `crypto_package.mfb` imports `encoding`
+    // (mirrors `http` before `net`; plan-04-crypto.md Part C).
+    let augmented = builtins::crypto::augmented_project(&augmented)
+        .expect("built-in crypto package source must parse");
     let augmented = builtins::encoding::augmented_project(&augmented)
         .expect("built-in encoding package source must parse");
     let ast = &augmented;
@@ -2052,6 +2056,15 @@ fn expression_type(
                 return builtins::datetime::resolve_call(&canonical_callee, &arg_types)
                     .map(|resolved| resolved.return_type.to_string());
             }
+            if builtins::crypto::is_crypto_call(&canonical_callee) {
+                let arg_types =
+                    normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
+                        .iter()
+                        .map(|argument| expression_type(argument, locals, context))
+                        .collect::<Option<Vec<_>>>()?;
+                return builtins::crypto::resolve_call(&canonical_callee, &arg_types)
+                    .map(|resolved| resolved.return_type.to_string());
+            }
             if builtins::thread::is_thread_call(&canonical_callee) {
                 let arg_types =
                     normalize_builtin_call_arguments(canonical_callee.as_str(), arguments)
@@ -2208,6 +2221,7 @@ fn builtin_argument_types(callee: &str) -> Option<Vec<String>> {
         .or_else(|| builtins::regex::expected_arguments(callee))
         .or_else(|| builtins::net::argument_types(callee))
         .or_else(|| builtins::tls::argument_types(callee))
+        .or_else(|| builtins::crypto::argument_types(callee))
         .or_else(|| builtins::http::expected_arguments(callee))
         .or_else(|| builtins::thread::expected_arguments(callee))?;
     // Overloaded/optional-argument descriptions (e.g. `strings.find`'s
@@ -2558,6 +2572,24 @@ fn lower_expression_with_expected(
                     value: (*value).to_string(),
                 });
             }
+            // `crypto`'s AEAD `aad` argument defaults to the empty byte list; a
+            // `List OF ...` default lowers to an empty list literal, not a scalar
+            // const (plan-04-crypto.md §A.5).
+            for (type_, value) in
+                builtins::crypto::default_argument_padding(&canonical_callee, args.len())
+            {
+                if type_.starts_with("List OF ") {
+                    args.push(IrValue::ListLiteral {
+                        type_: (*type_).to_string(),
+                        values: Vec::new(),
+                    });
+                } else {
+                    args.push(IrValue::Const {
+                        type_: (*type_).to_string(),
+                        value: (*value).to_string(),
+                    });
+                }
+            }
             // `http::read`/`write` default the `headers` argument to the empty map
             // and the method to a literal (plan-03-http.md §B.1). A `Map OF ...`
             // default lowers to an empty map literal, not a scalar const.
@@ -2645,6 +2677,25 @@ fn lower_expression_with_expected(
                         })
                         .collect();
                     builtins::vector::implementation_name(&canonical_callee, &arg_types)
+                        .map(|name| crate::internal_name::internalize(&name))
+                })
+                .or_else(|| {
+                    // `crypto::` maps most calls 1:1, but the hash/HMAC/PBKDF2
+                    // functions carry a `String` overload selected by the
+                    // relevant argument's type (plan-04-crypto.md §A.2). The
+                    // native entry points (`randomBytes`, NIST-EC) return `None`
+                    // and stay `crypto.*` runtime-helper calls.
+                    if !builtins::crypto::is_crypto_call(&canonical_callee) {
+                        return None;
+                    }
+                    let arg_types: Vec<String> = arguments
+                        .iter()
+                        .map(call_arg_value)
+                        .map(|argument| {
+                            expression_type(argument, locals, context).unwrap_or_default()
+                        })
+                        .collect();
+                    builtins::crypto::implementation_name(&canonical_callee, &arg_types)
                         .map(|name| crate::internal_name::internalize(&name))
                 })
                 .or_else(|| {

@@ -2,6 +2,7 @@ use super::*;
 
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
     &[
+        CRYPTO_RANDOM_BYTES_SPEC,
         DATETIME_NOW_NANOS_SPEC,
         DATETIME_MONOTONIC_NANOS_SPEC,
         DATETIME_LOCAL_OFFSET_SPEC,

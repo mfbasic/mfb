@@ -2,6 +2,7 @@ use crate::builtins;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RuntimeHelper {
+    Crypto,
     Datetime,
     Fs,
     General,
@@ -17,6 +18,7 @@ pub enum RuntimeHelper {
 impl RuntimeHelper {
     pub fn name(self) -> &'static str {
         match self {
+            RuntimeHelper::Crypto => "crypto",
             RuntimeHelper::Datetime => "datetime",
             RuntimeHelper::Fs => "fs",
             RuntimeHelper::General => "general",
@@ -72,6 +74,7 @@ pub(crate) struct RuntimeAbiParam {
 
 
 mod catalog;
+mod crypto_specs;
 mod datetime_specs;
 mod fs_specs;
 mod io_specs;
@@ -84,6 +87,7 @@ mod usage;
 pub(crate) use catalog::{spec_for_call, spec_for_symbol, supported_helper_specs};
 pub(crate) use usage::{is_native_direct_call, required_helpers};
 
+use crypto_specs::*;
 use datetime_specs::*;
 use fs_specs::*;
 use io_specs::*;
@@ -93,7 +97,9 @@ use term_specs::*;
 use thread_specs::*;
 
 pub fn helper_for_call(name: &str) -> Option<RuntimeHelper> {
-    if matches!(
+    if builtins::crypto::is_native_crypto_call(name) {
+        Some(RuntimeHelper::Crypto)
+    } else if matches!(
         name,
         "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset"
     ) {

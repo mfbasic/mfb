@@ -974,6 +974,29 @@ fn lower_runtime_helper(
         });
     }
     match spec.call {
+        "crypto.randomBytes" => {
+            let (frame, instructions, relocations, stack_slots) =
+                crypto::lower_crypto_random_bytes_helper(symbol, platform_imports, platform)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
         "datetime.nowNanos" | "datetime.monotonicNanos" | "datetime.localOffset" => {
             let (frame, instructions, relocations, stack_slots) =
                 datetime::lower_datetime_helper(spec.call, symbol, platform_imports, platform)?;
@@ -2459,6 +2482,7 @@ mod builder_strings_builtins;
 mod builder_strings_package;
 mod builder_value_semantics;
 mod builder_values;
+mod crypto;
 mod datetime;
 mod link_thunk;
 mod net;
@@ -2569,6 +2593,7 @@ fn standard_error_messages() -> &'static [(&'static str, &'static str, &'static 
             ERR_INTERRUPTED_MESSAGE,
             ERR_INTERRUPTED_SYMBOL,
         ),
+        (ERR_UNKNOWN_CODE, ERR_UNKNOWN_MESSAGE, ERR_UNKNOWN_SYMBOL),
         (ERR_READ_CODE, ERR_READ_MESSAGE, ERR_READ_SYMBOL),
         (
             ERR_ALREADY_EXISTS_CODE,

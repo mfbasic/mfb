@@ -1,0 +1,67 @@
+' Known-answer vectors for the crypto package's deterministic primitives
+' (plan-04-crypto.md Part D). Randomised entry points (randomBytes/randomInt/
+' uuid4) are covered by property checks that print deterministic facts.
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+IMPORT strings
+
+SUB main()
+  ' SHA-2 (FIPS 180-4).
+  io::print(encoding::hexEncode(crypto::sha256("abc")))
+  io::print(encoding::hexEncode(crypto::sha224("abc")))
+  io::print(encoding::hexEncode(crypto::sha512("abc")))
+  io::print(encoding::hexEncode(crypto::sha384("abc")))
+
+  ' HMAC (RFC 4231 test case 2).
+  LET jefe AS List OF Byte = encoding::utf8Encode("Jefe")
+  io::print(encoding::hexEncode(crypto::hmacSha256(jefe, "what do ya want for nothing?")))
+  io::print(encoding::hexEncode(crypto::hmacSha512(jefe, "what do ya want for nothing?")))
+
+  ' HKDF (RFC 5869 test case 1).
+  LET ikm AS List OF Byte = encoding::hexDecode("0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b0b")
+  LET salt AS List OF Byte = encoding::hexDecode("000102030405060708090a0b0c")
+  LET info AS List OF Byte = encoding::hexDecode("f0f1f2f3f4f5f6f7f8f9")
+  io::print(encoding::hexEncode(crypto::hkdfSha256(ikm, salt, info, 42)))
+
+  ' PBKDF2-HMAC-SHA-256 (RFC 7914 vectors, low iteration counts).
+  LET pw AS List OF Byte = encoding::utf8Encode("passwd")
+  LET sa AS List OF Byte = encoding::utf8Encode("salt")
+  io::print(encoding::hexEncode(crypto::pbkdf2Sha256(pw, sa, 1, 64)))
+  io::print(encoding::hexEncode(crypto::pbkdf2Sha512(pw, sa, 1, 64)))
+
+  ' AES-256-GCM (McGrew & Viega test case 16).
+  LET gkey AS List OF Byte = encoding::hexDecode("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308")
+  LET gnonce AS List OF Byte = encoding::hexDecode("cafebabefacedbaddecaf888")
+  LET gaad AS List OF Byte = encoding::hexDecode("feedfacedeadbeeffeedfacedeadbeefabaddad2")
+  LET gpt AS List OF Byte = encoding::hexDecode("d9313225f88406e5a55909c5aff5269a86a7a9531534f7da2e4c303d8a318a721c3c0c95956809532fcf0e2449a6b525b16aedf5aa0de657ba637b39")
+  LET gbox AS crypto::Sealed = crypto::aes256GcmSeal(gkey, gnonce, gpt, gaad)
+  io::print(encoding::hexEncode(gbox.ciphertext))
+  io::print(encoding::hexEncode(gbox.tag))
+  LET gback AS List OF Byte = crypto::aes256GcmOpen(gkey, gnonce, gbox.ciphertext, gbox.tag, gaad)
+  io::print("gcm-open=" & encoding::hexEncode(gback))
+
+  ' ChaCha20-Poly1305 (RFC 8439 §2.8.2).
+  LET ckey AS List OF Byte = encoding::hexDecode("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
+  LET cnonce AS List OF Byte = encoding::hexDecode("070000004041424344454647")
+  LET caad AS List OF Byte = encoding::hexDecode("50515253c0c1c2c3c4c5c6c7")
+  LET cpt AS List OF Byte = encoding::utf8Encode("Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.")
+  LET cbox AS crypto::Sealed = crypto::chacha20Poly1305Seal(ckey, cnonce, cpt, caad)
+  io::print(encoding::hexEncode(cbox.ciphertext))
+  io::print(encoding::hexEncode(cbox.tag))
+
+  ' constantTimeEqual.
+  LET d1 AS List OF Byte = crypto::sha256("abc")
+  LET d2 AS List OF Byte = crypto::sha256("abc")
+  LET d3 AS List OF Byte = crypto::sha256("abd")
+  io::print("cteq-same=" & toString(crypto::constantTimeEqual(d1, d2)))
+  io::print("cteq-diff=" & toString(crypto::constantTimeEqual(d1, d3)))
+
+  ' CSPRNG property checks (deterministic facts about random output).
+  io::print("rand-len=" & toString(len(crypto::randomBytes(24))))
+  LET u AS String = crypto::uuid4()
+  io::print("uuid-len=" & toString(strings::byteLen(u)))
+  io::print("uuid-version=" & strings::mid(u, 14, 1))
+  MUT r AS Integer = crypto::randomInt(7, 7)
+  io::print("randint-degenerate=" & toString(r))
+END SUB

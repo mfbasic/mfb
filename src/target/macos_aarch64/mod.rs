@@ -31,6 +31,7 @@ impl NativeBackend for Backend {
             native_object_plan: true,
             native_code_plan: true,
             runtime_calls: &[
+                "crypto.randomBytes",
                 "datetime.nowNanos",
                 "datetime.monotonicNanos",
                 "datetime.localOffset",

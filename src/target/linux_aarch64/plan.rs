@@ -80,6 +80,7 @@ impl plan::NativePlanPlatform for Platform {
 
     fn runtime_imports(&self, spec: &RuntimeHelperSpec) -> Vec<PlatformImport> {
         match spec.call {
+            "crypto.randomBytes" => vec![self.libc_import("getentropy", spec.symbol)],
             "datetime.nowNanos" | "datetime.monotonicNanos" => {
                 vec![self.libc_import("clock_gettime", spec.symbol)]
             }

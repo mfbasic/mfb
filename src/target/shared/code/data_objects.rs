@@ -234,6 +234,14 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             push_string_value(&mut values, value.to_string());
         }
     }
+    // `crypto::randomBytes` fails `ErrInvalidArgument` on a negative count and
+    // `ErrUnknown` on an (essentially unreachable) OS-entropy failure
+    // (plan-04-crypto.md §A.6).
+    if module_uses_call(module, "crypto.randomBytes") {
+        for value in [ERR_INVALID_ARGUMENT_MESSAGE, ERR_UNKNOWN_MESSAGE] {
+            push_string_value(&mut values, value.to_string());
+        }
+    }
     if module_uses_any_call(
         module,
         &[
