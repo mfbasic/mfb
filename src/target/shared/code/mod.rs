@@ -526,10 +526,20 @@ pub(crate) fn lower_module_for_platform(
     let register_signal_handlers = module.entry.is_some() && !module.build_mode.is_app();
     if let Some(entry) = &module.entry {
         let language_entry_symbol = nir::function_symbol(&entry.name);
+        // An arg-accepting entry appends the args region (argc/argv/list/data
+        // length/saved count slots) ABOVE the globals; without the extra room
+        // those slots overlapped the first global slots — or, with no globals,
+        // spilled past the frame onto the OS argc/argv words at a raw Linux
+        // ELF entry (the frame is carved from the initial stack).
+        let entry_args_region = if entry.accepts_args {
+            ENTRY_ARGS_REGION_SIZE
+        } else {
+            0
+        };
         let entry_stack_size = align(
             ENTRY_STACK_SIZE + (globals_base + link_slot_count + term_state_slots) * 8,
             16,
-        );
+        ) + entry_args_region;
         let entry_global_slots = globals_base + link_slot_count + term_state_slots;
         if module.build_mode.is_app() {
             // App mode (plan-04-macos-app.md §6.6, plan-05-linux-app.md §6.1): the

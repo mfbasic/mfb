@@ -33,22 +33,23 @@ Slot layout in the entry frame:
 ```text
 entry frame (base = sp = x19)
   +0                      ArenaState      ; ARENA_STATE_SIZE = 104 bytes, the main arena-state
-  +104  ENTRY_ARGC        argc scratch    ; ARENA_STATE_SIZE
-  +112  ENTRY_ARGV        argv scratch    ; ENTRY_ARGC + 8  (also ENTRY_STACK_SIZE)
-  +120  ENTRY_ARGS_LIST   args List ptr   ; ENTRY_ARGV + 8
-  +128  ENTRY_ARGS_DATA_LENGTH            ; ENTRY_ARGS_LIST + 8
-  +136  ENTRY_ARGS_COUNT_SAVED            ; ENTRY_ARGS_DATA_LENGTH + 8
+  +104  ENTRY_SEED_SCRATCH getentropy buf ; ARENA_STATE_SIZE (RNG-seed scratch word)
   +112  ENTRY_GLOBALS[0..]               ; ENTRY_STACK_SIZE = 112; globals, LINK slots, term:: state
+  +top-48  args region (arg-accepting entries only; base = frame size - 48)
+           +0 argc  +8 argv  +16 args List ptr  +24 data length  +32 saved count
 ```
 
-`ENTRY_STACK_SIZE` is `112`; globals begin there. The `ENTRY_ARG*` scratch
-offsets are computed from `ARENA_STATE_SIZE` (`104`), so `ENTRY_ARGC` sits in the
-8 bytes just below the globals region and the remaining arg scratch slots overlap
-the start of the globals area. They are transient: `argc`/`argv` are saved and the
-args `List` is materialized only after global initialization, immediately before
-the language entry consumes it, so the overlap with global slots is never live at
-the same time. The total frame is `ENTRY_STACK_SIZE + (globals + LINK + term::
-state slots) * 8`, rounded up to 16. [[src/target/shared/code/error_constants.rs:ENTRY_ARGC_OFFSET]]
+`ENTRY_STACK_SIZE` is `112`; globals begin there. The in-frame
+scratch word at `ARENA_STATE_SIZE` (`104`) is the RNG-seed `getentropy` buffer.
+For an arg-accepting entry, a dedicated 48-byte args region (argc, argv, args
+`List` pointer, data length, saved count) is appended ABOVE the globals at the
+top of the frame — the slots must not overlap the globals (they are written
+after global initialization, while the globals are live) and must not spill
+past the frame (at a raw Linux ELF entry the words above the frame are the OS
+`argc`/`argv` vector itself). The total frame is `ENTRY_STACK_SIZE + (globals +
+LINK + term:: state slots) * 8`, rounded up to 16, plus `ENTRY_ARGS_REGION_SIZE`
+(`48`) when the entry accepts args.
+[[src/target/shared/code/error_constants.rs:ENTRY_ARGS_REGION_SIZE]]
 
 When the program uses `term::`, eight `TERM_STATE_SLOTS` (`u64` each) are reserved
 just past the program globals and `LINK` slots; the entry's global-slot clear

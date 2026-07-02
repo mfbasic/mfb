@@ -120,6 +120,14 @@ pub(crate) trait CodegenPlatform {
     /// no shared-code edit at the selection sites (plan-00-H/I additivity). A
     /// required method, so a new backend cannot be added without supplying one.
     fn backend(&self) -> &'static dyn super::mir::Backend;
+    /// Whether the program entry receives `argc`/`argv` in `x0`/`x1` (the C
+    /// `main` convention — macOS, where libSystem calls `main` via `LC_MAIN`).
+    /// A raw Linux ELF entry is JUMPED to with `argc` at `[sp]` and `argv` at
+    /// `[sp+8]` and undefined argument registers, so the Linux platforms return
+    /// false and the shared entry loads them from the initial stack instead.
+    fn entry_args_in_registers(&self) -> bool {
+        true
+    }
     fn termios_size(&self) -> usize;
     fn termios_lflag_offset(&self) -> usize;
     fn termios_lflag_width(&self) -> usize;

@@ -190,11 +190,17 @@ pub(crate) const PCG_MULT_LO: u64 = 0x4385_DF64_9FCC_F645;
 /// PCG64 default stream increment, high and low 64-bit limbs.
 pub(crate) const PCG_INC_HI: u64 = 0x5851_F42D_4C95_7F2D;
 pub(crate) const PCG_INC_LO: u64 = 0x1405_7B7E_F767_814F;
-pub(crate) const ENTRY_ARGC_OFFSET: usize = ARENA_STATE_SIZE;
-pub(crate) const ENTRY_ARGV_OFFSET: usize = ENTRY_ARGC_OFFSET + 8;
-pub(crate) const ENTRY_ARGS_LIST_OFFSET: usize = ENTRY_ARGV_OFFSET + 8;
-pub(crate) const ENTRY_ARGS_DATA_LENGTH_OFFSET: usize = ENTRY_ARGS_LIST_OFFSET + 8;
-pub(crate) const ENTRY_ARGS_COUNT_SAVED_OFFSET: usize = ENTRY_ARGS_DATA_LENGTH_OFFSET + 8;
+/// One in-frame scratch word between the arena state (0..104) and the globals
+/// (ENTRY_STACK_SIZE=112..): the RNG-seed block's `getentropy` buffer.
+pub(crate) const ENTRY_SEED_SCRATCH_OFFSET: usize = ARENA_STATE_SIZE;
+/// Size of the args region appended to the entry frame for an arg-accepting
+/// entry: five 8-byte slots (argc, argv, args list, data length, saved count),
+/// rounded up to the 16-byte frame granule. The region sits ABOVE the globals
+/// (at `entry_stack_size - ENTRY_ARGS_REGION_SIZE`); the old fixed offsets at
+/// 104..144 overlapped the first four global slots and, for a program with no
+/// globals, spilled past the frame — silently-scratch memory on macOS, but the
+/// OS argc/argv words themselves at a raw Linux ELF entry.
+pub(crate) const ENTRY_ARGS_REGION_SIZE: usize = 48;
 pub(crate) const ARENA_DEFAULT_BLOCK_SIZE: u64 = 4096;
 pub(crate) const ARENA_BLOCK_HEADER_SIZE: usize = 32;
 /// Per-arena address-ordered coalescing free-list head (lowest-address free

@@ -60,6 +60,11 @@ impl code::CodegenPlatform for Platform {
         &crate::arch::aarch64::backend::AARCH64_BACKEND
     }
 
+    // Raw ELF entry: argc/argv are on the initial stack, not in registers.
+    fn entry_args_in_registers(&self) -> bool {
+        false
+    }
+
     fn termios_size(&self) -> usize {
         60
     }
