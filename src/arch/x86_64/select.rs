@@ -57,7 +57,15 @@ fn map_scratch_register(n: usize) -> &'static str {
 
 // SysV: call args rdi,rsi,rdx,rcx,r8,r9; syscall args rdi,rsi,rdx,r10,r8,r9;
 // returns rax,rdx; syscall nr + result rax.
-const CALL_ARGS: &[&str] = &["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+// SysV integer argument registers, extended with two INTERNAL argument
+// registers for `x6`/`x7`: MFBASIC functions take up to 8 parameters and
+// AArch64 has 8 argument registers, but SysV only has 6 — so internal calls
+// pass the 7th in `rax` (dead at a call site: the variadic al marker is only
+// emitted for external libc calls, see the `bl` encoder) and the 8th in `rbp`
+// (reserved, never allocated, and no vregified builder function names it).
+// Libc calls never exceed 6 integer args, so the extension is internal-only
+// in practice.
+const CALL_ARGS: &[&str] = &["rdi", "rsi", "rdx", "rcx", "r8", "r9", "rax", "rbp"];
 const SYS_ARGS: &[&str] = &["rdi", "rsi", "rdx", "r10", "r8", "r9"];
 // x0/x1 are the SysV return registers (rax/rdx). x2/x3 extend the set only for
 // the runtime's 4-register error-Result convention (tag=x0, value=x1,

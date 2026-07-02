@@ -537,18 +537,26 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "x86.jne" => jmp_label(instruction, JccKind::Jne),
         "bl" => {
             let target = field(instruction, "target")?;
-            // `mov eax, 8` (al = 8) then `E8 rel32` (call). The SysV variadic ABI
-            // requires al = number of vector registers used for the variadic args
-            // before calling a variadic function (snprintf with a `%f`); 8 is a
-            // safe superset (the callee saves xmm0-7). Harmless for non-variadic
-            // and internal calls: al is never an argument register and the return
-            // value overwrites rax. rel32 disp field is at offset 6 (after the
-            // 5-byte mov + the E8 opcode).
-            let bytes = vec![0xB8, 8, 0, 0, 0, 0xE8, 0, 0, 0, 0];
+            // For an external (libc) call: `mov eax, 8` (al = 8) then `E8 rel32`
+            // (call). The SysV variadic ABI requires al = number of vector
+            // registers used for the variadic args before calling a variadic
+            // function (snprintf with a `%f`); 8 is a safe superset (the callee
+            // saves xmm0-7). For an INTERNAL `_mfb_*` call the marker must NOT
+            // be emitted: internal functions can take 7 arguments, and the 7th
+            // is passed in rax (`CALL_ARGS[6]` in select) — `mov eax, 8` would
+            // destroy it right before the call (the regex engine's 7-parameter
+            // parse functions read a clobbered list pointer). No internal
+            // function is variadic, so al is meaningless there.
+            let internal = target.starts_with("_mfb_");
+            let (bytes, disp_field_offset) = if internal {
+                (vec![0xE8, 0, 0, 0, 0], 1)
+            } else {
+                (vec![0xB8, 8, 0, 0, 0, 0xE8, 0, 0, 0, 0], 6)
+            };
             Ok(Encoded {
                 bytes,
                 side_effect: SideEffect::Reloc {
-                    disp_field_offset: 6,
+                    disp_field_offset,
                     target,
                     intent: RelocIntent::Call,
                 },
