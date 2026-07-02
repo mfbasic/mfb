@@ -1,0 +1,50 @@
+{
+  "project": "func_tls_listen_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "tls", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "serveOnce",
+      "line": 8,
+      "params": [
+      { "name": "listener", "type": "TlsListener", "resource": true, "state": null, "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "tls.accept", "arguments": [{ "kind": "identifier", "value": "listener" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "string", "value": "hello\n" }] }, "line": 10 },
+      { "kind": "binding", "mutable": false, "name": "reply", "type": null, "value": { "kind": "call", "callee": "tls.readText", "arguments": [{ "kind": "identifier", "value": "client" }, { "kind": "number", "value": "64" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "client" }] }, "line": 12 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "reply" }] }, "line": 13 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 16,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s1", "type": null, "value": { "kind": "call", "callee": "tls.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "8443" }, { "kind": "string", "value": "cert.pem" }, { "kind": "string", "value": "key.pem" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "s2", "type": null, "value": { "kind": "call", "callee": "tls.listen", "arguments": [{ "kind": "string", "value": "" }, { "kind": "number", "value": "8444" }, { "kind": "string", "value": "cert.pem" }, { "kind": "string", "value": "key.pem" }, { "kind": "number", "value": "128" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "serveOnce", "arguments": [{ "kind": "identifier", "value": "s1" }] }] }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "timed", "type": null, "value": { "kind": "call", "callee": "tls.accept", "arguments": [{ "kind": "identifier", "value": "s2" }, { "kind": "number", "value": "5000" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "timed" }] }, "line": 21 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "s1" }] }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "s2" }] }, "line": 23 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 24 }
+      ]
+    }
+    ]
+  }
+  ]
+}

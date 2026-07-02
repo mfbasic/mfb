@@ -1,0 +1,15 @@
+IMPORT tls
+
+FUNC main AS Integer
+  RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
+  RES conn = tls::connect("example.com", 443)
+  ' No arguments (accept needs a listener).
+  LET missing = tls::accept()
+  ' Wrong receiver type: a TlsSocket is not a TlsListener.
+  LET wrongReceiver = tls::accept(conn)
+  ' Wrong timeout type: timeoutMs must be Integer.
+  LET badTimeout = tls::accept(server, "soon")
+  ' Too many arguments (accept takes at most 2).
+  LET tooMany = tls::accept(server, 1000, 2000)
+  RETURN 0
+END FUNC

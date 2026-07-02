@@ -712,6 +712,732 @@ pub(crate) fn lower_tls_connect_helper(
 }
 
 // ---------------------------------------------------------------------------
+// tls.listen
+// ---------------------------------------------------------------------------
+
+pub(crate) fn lower_tls_listen_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_listen_macos(symbol, platform_imports, platform);
+    }
+    const FRAME_SIZE: usize = 224;
+    const HOST_OFFSET: usize = 8;
+    const PORT_OFFSET: usize = 16;
+    const CERT_OFFSET: usize = 24;
+    const KEY_OFFSET: usize = 32;
+    const BACKLOG_OFFSET: usize = 40;
+    const RES_OFFSET: usize = 48; // addrinfo*
+    const FD_OFFSET: usize = 56;
+    const HOSTCSTR_OFFSET: usize = 64;
+    const ONE_OFFSET: usize = 72; // SO_REUSEADDR option value
+    const CERTCSTR_OFFSET: usize = 80;
+    const KEYCSTR_OFFSET: usize = 88;
+    const HANDLE_OFFSET: usize = 96;
+    const FNPTR_OFFSET: usize = 104;
+    const CTX_OFFSET: usize = 112;
+    const HINTS_OFFSET: usize = 128; // 128..176
+
+    let null_host = format!("{symbol}_null_host");
+    let resolved = format!("{symbol}_resolved");
+    let resolve_fail = format!("{symbol}_resolve_fail");
+    let socket_fail = format!("{symbol}_socket_fail");
+    let op_fail = format!("{symbol}_op_fail");
+    let ctx_fail = format!("{symbol}_ctx_fail");
+    let tls_fail_fd = format!("{symbol}_tls_fail_fd");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let alloc_fail_fd = format!("{symbol}_alloc_fail_fd");
+    let done = format!("{symbol}_done");
+
+    let addr_off = platform.addrinfo_addr_offset();
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+
+    // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog.
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST_OFFSET),
+        abi::store_u64("x1", abi::stack_pointer(), PORT_OFFSET),
+        abi::store_u64("x2", abi::stack_pointer(), CERT_OFFSET),
+        abi::store_u64("x3", abi::stack_pointer(), KEY_OFFSET),
+        abi::store_u64("x4", abi::stack_pointer(), BACKLOG_OFFSET),
+    ]);
+    // Zero a 48-byte hints block; ai_flags = AI_PASSIVE, ai_family = AF_INET,
+    // ai_socktype = SOCK_STREAM — the bind/listen resolution mirrors
+    // net::listenTcp (an empty host binds all interfaces via a NULL node).
+    for offset in (0..48).step_by(8) {
+        instructions.push(abi::store_u64(
+            "x31",
+            abi::stack_pointer(),
+            HINTS_OFFSET + offset,
+        ));
+    }
+    instructions.extend([
+        abi::move_immediate("%v9", "Integer", HINTS_FAMILY_WORD_PASSIVE),
+        abi::store_u64("%v9", abi::stack_pointer(), HINTS_OFFSET),
+        abi::move_immediate("%v9", "Integer", SOCK_STREAM),
+        abi::store_u64("%v9", abi::stack_pointer(), HINTS_OFFSET + 8),
+        // Empty host => NULL node (all interfaces).
+        abi::load_u64("%v9", abi::stack_pointer(), HOST_OFFSET),
+        abi::load_u64("%v9", "%v9", 0),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&null_host),
+    ]);
+    emit_cstring(
+        symbol,
+        "host",
+        HOST_OFFSET,
+        HOSTCSTR_OFFSET,
+        &alloc_fail,
+        &mut instructions,
+        &mut relocations,
+    );
+    instructions.extend([
+        abi::branch(&resolved),
+        abi::label(&null_host),
+        abi::store_u64("x31", abi::stack_pointer(), HOSTCSTR_OFFSET),
+        abi::label(&resolved),
+        // getaddrinfo(host, NULL, &hints, &res)
+        abi::load_u64(
+            abi::return_register(),
+            abi::stack_pointer(),
+            HOSTCSTR_OFFSET,
+        ),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::add_immediate("x2", abi::stack_pointer(), HINTS_OFFSET),
+        abi::add_immediate("x3", abi::stack_pointer(), RES_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "getaddrinfo",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&resolve_fail),
+        // socket(ai_family, ai_socktype, ai_protocol)
+        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
+        abi::load_u32(abi::return_register(), "%v9", 4),
+        abi::load_u32("x1", "%v9", 8),
+        abi::load_u32("x2", "%v9", 12),
+    ]);
+    platform.emit_libc_call(
+        "socket",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&socket_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        // Overwrite sin_port (ai_addr + 2/3) with the requested port.
+        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64("%v9", "%v9", addr_off),
+        abi::load_u64("%v10", abi::stack_pointer(), PORT_OFFSET),
+        abi::shift_right_immediate("%v11", "%v10", 8),
+        abi::store_u8("%v11", "%v9", 2),
+        abi::store_u8("%v10", "%v9", 3),
+        // setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, 4) - best effort.
+        abi::move_immediate("%v9", "Integer", "1"),
+        abi::store_u64("%v9", abi::stack_pointer(), ONE_OFFSET),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate("x1", "Integer", platform.sol_socket()),
+        abi::move_immediate("x2", "Integer", platform.so_reuseaddr()),
+        abi::add_immediate("x3", abi::stack_pointer(), ONE_OFFSET),
+        abi::move_immediate("x4", "Integer", "4"),
+    ]);
+    platform.emit_libc_call(
+        "setsockopt",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // bind(fd, ai_addr, ai_addrlen)
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), RES_OFFSET),
+        abi::load_u64("x1", "%v9", addr_off),
+        abi::load_u32("x2", "%v9", 16),
+    ]);
+    platform.emit_libc_call(
+        "bind",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&op_fail),
+        // listen(fd, backlog)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64("x1", abi::stack_pointer(), BACKLOG_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "listen",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&op_fail),
+        // freeaddrinfo(res)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), RES_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "freeaddrinfo",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // --- Server identity: cert chain + private key into a server SSL_CTX ---
+    emit_cstring(
+        symbol,
+        "cert",
+        CERT_OFFSET,
+        CERTCSTR_OFFSET,
+        &alloc_fail_fd,
+        &mut instructions,
+        &mut relocations,
+    );
+    emit_cstring(
+        symbol,
+        "key",
+        KEY_OFFSET,
+        KEYCSTR_OFFSET,
+        &alloc_fail_fd,
+        &mut instructions,
+        &mut relocations,
+    );
+    emit_dlopen_libssl(
+        symbol,
+        HANDLE_OFFSET,
+        &tls_fail_fd,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // method = TLS_server_method(); stash transiently in the CTX slot.
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "TLS_server_method",
+        FNPTR_OFFSET,
+        &tls_fail_fd,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+    ]);
+    // ctx = SSL_CTX_new(method)
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_new",
+        FNPTR_OFFSET,
+        &tls_fail_fd,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&tls_fail_fd),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+    ]);
+    // SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, NULL)
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_ctrl",
+        FNPTR_OFFSET,
+        &ctx_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::move_immediate("x1", "Integer", SSL_CTRL_SET_MIN_PROTO_VERSION),
+        abi::move_immediate("x2", "Integer", TLS1_2_VERSION),
+        abi::move_immediate("x3", "Integer", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+    ]);
+    // SSL_CTX_use_certificate_chain_file(ctx, certCstr) == 1
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_use_certificate_chain_file",
+        FNPTR_OFFSET,
+        &ctx_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("x1", abi::stack_pointer(), CERTCSTR_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&ctx_fail),
+    ]);
+    // SSL_CTX_use_PrivateKey_file(ctx, keyCstr, SSL_FILETYPE_PEM = 1) == 1
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_use_PrivateKey_file",
+        FNPTR_OFFSET,
+        &ctx_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("x1", abi::stack_pointer(), KEYCSTR_OFFSET),
+        abi::move_immediate("x2", "Integer", "1"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&ctx_fail),
+    ]);
+    // SSL_CTX_check_private_key(ctx) == 1
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_check_private_key",
+        FNPTR_OFFSET,
+        &ctx_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&ctx_fail),
+    ]);
+    // Build the TlsListener record { fd, closed = 0, ctx, reserved = 0 }.
+    instructions.extend([
+        abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail_fd);
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("%v9", "x1", TLS_LISTENER_OFFSET_FD),
+        abi::store_u64("x31", "x1", TLS_LISTENER_OFFSET_CLOSED),
+        abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
+        abi::store_u64("%v9", "x1", TLS_LISTENER_OFFSET_CTX),
+        abi::store_u64("x31", "x1", 24),
+        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+
+    // Error paths.
+    // ctx_fail: the server context exists but the identity failed to load —
+    // free the context, close the fd, and report ErrTlsFailed.
+    instructions.push(abi::label(&ctx_fail));
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_free",
+        FNPTR_OFFSET,
+        &tls_fail_fd,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+    ]);
+    instructions.push(abi::label(&tls_fail_fd));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    // bind/listen failure: close the fd, release the resolver results.
+    instructions.push(abi::label(&op_fail));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&socket_fail));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        RES_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "freeaddrinfo",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_NETWORK_FAILED_CODE,
+        ERR_NETWORK_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&resolve_fail));
+    emit_fail(
+        symbol,
+        ERR_ADDRESS_INVALID_CODE,
+        ERR_ADDRESS_INVALID_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail_fd));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+
+    instructions.extend([
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+}
+
+// ---------------------------------------------------------------------------
+// tls.accept
+// ---------------------------------------------------------------------------
+
+pub(crate) fn lower_tls_accept_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_accept_macos(symbol, platform_imports, platform);
+    }
+    const FRAME_SIZE: usize = 96;
+    const FD_OFFSET: usize = 8;
+    const TIMEOUT_OFFSET: usize = 16;
+    const CONNFD_OFFSET: usize = 24;
+    const CTX_OFFSET: usize = 32;
+    const HANDLE_OFFSET: usize = 40;
+    const FNPTR_OFFSET: usize = 48;
+    const SSL_OFFSET: usize = 56;
+    const POLLFD_OFFSET: usize = 64; // pollfd { fd; events; revents }
+
+    let closed = format!("{symbol}_closed");
+    let no_timeout = format!("{symbol}_no_timeout");
+    let accept_fail = format!("{symbol}_accept_fail");
+    let accept_timeout = format!("{symbol}_accept_timeout");
+    let ssl_fail = format!("{symbol}_ssl_fail");
+    let tls_fail_conn = format!("{symbol}_tls_fail_conn");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    // x0 = listener record { fd@0, closed@8, ctx@16 }; x1 = timeoutMs.
+    instructions.extend([
+        abi::store_u64("x1", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&closed),
+        abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_FD),
+        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CTX),
+        abi::store_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
+        // timeoutMs > 0 bounds the wait for an inbound connection with
+        // poll(POLLIN); <= 0 blocks in accept.
+        abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_le(&no_timeout),
+        abi::load_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::store_u64("%v9", abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("%v10", "Integer", "1"), // POLLIN
+        abi::store_u8("%v10", abi::stack_pointer(), POLLFD_OFFSET + 4),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 5),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 6),
+        abi::store_u8("x31", abi::stack_pointer(), POLLFD_OFFSET + 7),
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), POLLFD_OFFSET),
+        abi::move_immediate("x1", "Integer", "1"),
+        abi::load_u64("x2", abi::stack_pointer(), TIMEOUT_OFFSET),
+    ]);
+    platform.emit_libc_call(
+        "poll",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&accept_fail),
+        abi::branch_eq(&accept_timeout),
+        abi::label(&no_timeout),
+        // accept(fd, NULL, NULL)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), FD_OFFSET),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::move_immediate("x2", "Integer", "0"),
+    ]);
+    platform.emit_libc_call(
+        "accept",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(&accept_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), CONNFD_OFFSET),
+    ]);
+    // --- Server-side handshake on the accepted fd ---
+    emit_dlopen_libssl(
+        symbol,
+        HANDLE_OFFSET,
+        &tls_fail_conn,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // ssl = SSL_new(listener.ctx)
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_new",
+        FNPTR_OFFSET,
+        &tls_fail_conn,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&tls_fail_conn),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+    ]);
+    // SSL_set_fd(ssl, connfd)
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_set_fd",
+        FNPTR_OFFSET,
+        &ssl_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("x1", abi::stack_pointer(), CONNFD_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&ssl_fail),
+    ]);
+    // r = SSL_accept(ssl); require 1 (server handshake complete).
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_accept",
+        FNPTR_OFFSET,
+        &ssl_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_ne(&ssl_fail),
+    ]);
+    // Build the TlsSocket record { fd, closed = 0, ssl, ctx = 0 } — the zero
+    // ctx slot marks a borrowed (listener-owned) server context, which the
+    // close helper must not free (plan-06-tls-server.md §6.4).
+    instructions.extend([
+        abi::move_immediate(abi::return_register(), "Integer", TLS_RECORD_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut instructions, &mut relocations, &alloc_fail);
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), CONNFD_OFFSET),
+        abi::store_u64("%v9", "x1", TLS_OFFSET_FD),
+        abi::store_u64("x31", "x1", TLS_OFFSET_CLOSED),
+        abi::load_u64("%v9", abi::stack_pointer(), SSL_OFFSET),
+        abi::store_u64("%v9", "x1", TLS_OFFSET_SSL),
+        abi::store_u64("x31", "x1", TLS_OFFSET_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+
+    // Error paths.
+    // ssl_fail: free the session, then close the accepted fd.
+    instructions.push(abi::label(&ssl_fail));
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_free",
+        FNPTR_OFFSET,
+        &tls_fail_conn,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), SSL_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+    ]);
+    instructions.push(abi::label(&tls_fail_conn));
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        CONNFD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&accept_fail));
+    emit_fail(
+        symbol,
+        ERR_NETWORK_FAILED_CODE,
+        ERR_NETWORK_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&accept_timeout));
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&closed));
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+}
+
+// ---------------------------------------------------------------------------
 // tls.read / tls.readText
 // ---------------------------------------------------------------------------
 
@@ -1108,6 +1834,7 @@ pub(crate) fn lower_tls_close_helper(
 
     let already = format!("{symbol}_already");
     let load_fail = format!("{symbol}_load_fail");
+    let ctx_done = format!("{symbol}_ctx_done");
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![abi::label("entry")];
@@ -1168,7 +1895,123 @@ pub(crate) fn lower_tls_close_helper(
         abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
         abi::branch_link_register("%v9"),
     ]);
-    // SSL_CTX_free(ctx)
+    // SSL_CTX_free(ctx) — null-guarded: an accepted (server-side) socket
+    // stores 0 here because its context is owned by the listener and shared
+    // with sibling sockets; freeing it would double-free / kill live sessions
+    // (plan-06-tls-server.md §6.4). Client sockets own their ctx and free it
+    // exactly as before.
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(&ctx_done),
+    ]);
+    emit_dlsym(
+        symbol,
+        HANDLE_OFFSET,
+        "SSL_CTX_free",
+        FNPTR_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    instructions.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CTX_OFFSET),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR_OFFSET),
+        abi::branch_link_register("%v9"),
+    ]);
+    instructions.push(abi::label(&ctx_done));
+    // close(fd)
+    instructions.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FD_OFFSET,
+    ));
+    platform.emit_libc_call(
+        "close",
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // Mark the record closed.
+    instructions.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), REC_OFFSET),
+        abi::move_immediate("%v10", "Integer", "1"),
+        abi::store_u64("%v10", "%v9", TLS_OFFSET_CLOSED),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+    // A failure to resolve OpenSSL during close still closes the fd and reports
+    // success-ish OK (the session is gone); but to surface load problems we map
+    // it to ErrTlsFailed.
+    instructions.push(abi::label(&load_fail));
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+        &done,
+    );
+    instructions.extend([
+        abi::label(&already),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+}
+
+// ---------------------------------------------------------------------------
+// tls.closeListener (internal listener-shaped close body; the user-facing
+// name stays `tls::close` — see plan-06-tls-server.md §4.1/§6.4)
+// ---------------------------------------------------------------------------
+
+pub(crate) fn lower_tls_close_listener_helper(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    if platform.target().contains("macos") {
+        return macos::lower_tls_close_listener_macos(symbol, platform_imports, platform);
+    }
+    const FRAME_SIZE: usize = 64;
+    const REC_OFFSET: usize = 8;
+    const FD_OFFSET: usize = 16;
+    const CTX_OFFSET: usize = 24;
+    const HANDLE_OFFSET: usize = 32;
+    const FNPTR_OFFSET: usize = 40;
+
+    let already = format!("{symbol}_already");
+    let load_fail = format!("{symbol}_load_fail");
+    let done = format!("{symbol}_done");
+
+    let mut instructions = vec![abi::label("entry")];
+    let mut relocations = Vec::new();
+    instructions.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), REC_OFFSET),
+        // Idempotent: a closed handle returns OK.
+        abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&already),
+        abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_FD),
+        abi::store_u64("%v9", abi::stack_pointer(), FD_OFFSET),
+        abi::load_u64("%v9", abi::return_register(), TLS_LISTENER_OFFSET_CTX),
+        abi::store_u64("%v9", abi::stack_pointer(), CTX_OFFSET),
+    ]);
+    emit_dlopen_libssl(
+        symbol,
+        HANDLE_OFFSET,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+    )?;
+    // SSL_CTX_free(ctx) — the listener owns the shared server context and
+    // frees it exactly once here; accepted sockets only borrow it.
     emit_dlsym(
         symbol,
         HANDLE_OFFSET,
@@ -1202,13 +2045,10 @@ pub(crate) fn lower_tls_close_helper(
     instructions.extend([
         abi::load_u64("%v9", abi::stack_pointer(), REC_OFFSET),
         abi::move_immediate("%v10", "Integer", "1"),
-        abi::store_u64("%v10", "%v9", TLS_OFFSET_CLOSED),
+        abi::store_u64("%v10", "%v9", TLS_LISTENER_OFFSET_CLOSED),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
     ]);
-    // A failure to resolve OpenSSL during close still closes the fd and reports
-    // success-ish OK (the session is gone); but to surface load problems we map
-    // it to ErrTlsFailed.
     instructions.push(abi::label(&load_fail));
     emit_fail(
         symbol,

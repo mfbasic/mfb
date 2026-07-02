@@ -459,10 +459,16 @@ impl plan::NativePlanPlatform for Platform {
                 imports
             }
             call if crate::builtins::tls::is_tls_call(call) => {
-                // The macOS TLS backend resolves Network.framework and libdispatch
-                // entirely through dlopen/dlsym at load time; only those two (plus
-                // errno) are statically imported.
-                ["_dlopen", "_dlsym", "___error"]
+                // The macOS TLS backend resolves Network.framework (and, for the
+                // server side, Security.framework + CoreFoundation) entirely
+                // through dlopen/dlsym at load time; only dlopen/dlsym (plus
+                // errno) are statically imported. `tls.listen` additionally
+                // reads the PEM certificate/key files via the libc file calls.
+                let mut symbols = vec!["_dlopen", "_dlsym", "___error"];
+                if call == "tls.listen" {
+                    symbols.extend(["_open", "_read", "_lseek", "_close"]);
+                }
+                symbols
                     .into_iter()
                     .map(|symbol| PlatformImport {
                         library: "libSystem".to_string(),

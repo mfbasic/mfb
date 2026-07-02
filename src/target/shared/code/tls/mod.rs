@@ -17,15 +17,25 @@ use super::*;
 use crate::arch::aarch64::abi;
 
 // OpenSSL handles share this fixed record layout (distinct from the `File`
-// layout used by `Socket`/`UdpSocket`).
+// layout used by `Socket`/`UdpSocket`). An accepted (server-side) `TlsSocket`
+// stores 0 in the `SSL_CTX*` slot: the marker that it borrows the listener's
+// shared server context and must not free it (plan-06-tls-server.md §5.1).
 pub(super) const TLS_OFFSET_FD: usize = 0;
 pub(super) const TLS_OFFSET_CLOSED: usize = 8;
 pub(super) const TLS_OFFSET_SSL: usize = 16;
 pub(super) const TLS_OFFSET_CTX: usize = 24;
 pub(super) const TLS_RECORD_SIZE: &str = "32";
 
+// The `TlsListener` record (Linux/OpenSSL): the listening fd plus the server
+// `SSL_CTX*` it owns (freed exactly once, when the listener closes). The
+// fourth slot is reserved (plan-06-tls-server.md §5.1).
+pub(super) const TLS_LISTENER_OFFSET_FD: usize = 0;
+pub(super) const TLS_LISTENER_OFFSET_CLOSED: usize = 8;
+pub(super) const TLS_LISTENER_OFFSET_CTX: usize = 16;
+
 pub(super) const SOCK_STREAM: &str = "1";
 pub(super) const HINTS_FAMILY_WORD: &str = "8589934592"; // ai_family = AF_INET (2 << 32), ai_flags = 0
+pub(super) const HINTS_FAMILY_WORD_PASSIVE: &str = "8589934593"; // ai_flags = AI_PASSIVE (1)
 pub(super) const RTLD_NOW: &str = "2";
 
 // OpenSSL constants (stable across 1.1.1 and 3.x).
@@ -39,8 +49,8 @@ pub(super) const TLS1_2_VERSION: &str = "771"; // 0x0303
 /// (OpenSSL 3.x), then `.so.1.1` (OpenSSL 1.1.1).
 pub(super) const TLS_LIB_NAMES: &[&str] = &["libssl.so.3", "libssl.so.1.1"];
 
-/// Every OpenSSL symbol the helpers `dlsym`. Each gets a read-only C-string data
-/// object so the load can name it.
+/// Every OpenSSL symbol the client-side helpers `dlsym`. Each gets a read-only
+/// C-string data object so the load can name it.
 pub(super) const TLS_SYMBOLS: &[&str] = &[
     "TLS_client_method",
     "SSL_CTX_new",
@@ -57,6 +67,18 @@ pub(super) const TLS_SYMBOLS: &[&str] = &[
     "SSL_shutdown",
     "SSL_free",
     "SSL_CTX_free",
+];
+
+/// The additional server-side entry points (`tls::listen`/`tls::accept`).
+/// Their name strings are emitted only when a module uses a server helper, so
+/// client-only programs stay byte-identical (plan-06-tls-server.md §1).
+pub(super) const TLS_SERVER_SYMBOLS: &[&str] = &[
+    "TLS_server_method",
+    "SSL_CTX_ctrl",
+    "SSL_CTX_use_certificate_chain_file",
+    "SSL_CTX_use_PrivateKey_file",
+    "SSL_CTX_check_private_key",
+    "SSL_accept",
 ];
 
 fn lib_data_symbol(index: usize) -> String {
@@ -77,8 +99,10 @@ pub(super) fn hex_encode_cstring(text: &str) -> String {
 }
 
 /// Read-only C-string data objects (library sonames + symbol names) referenced
-/// by the TLS helpers. Emitted once when a module uses any `tls` call.
-pub(super) fn tls_cstring_data_objects() -> Vec<CodeDataObject> {
+/// by the TLS helpers. Emitted once when a module uses any `tls` call; the
+/// server-only symbol names are appended only when a server helper
+/// (`tls.listen`/`tls.accept`/`tls.closeListener`) is in the plan.
+pub(super) fn tls_cstring_data_objects(server: bool) -> Vec<CodeDataObject> {
     let mut objects = Vec::new();
     for (index, name) in TLS_LIB_NAMES.iter().enumerate() {
         objects.push(CodeDataObject {
@@ -90,7 +114,12 @@ pub(super) fn tls_cstring_data_objects() -> Vec<CodeDataObject> {
             value: hex_encode_cstring(name),
         });
     }
-    for name in TLS_SYMBOLS {
+    let symbols: Box<dyn Iterator<Item = &&str>> = if server {
+        Box::new(TLS_SYMBOLS.iter().chain(TLS_SERVER_SYMBOLS.iter()))
+    } else {
+        Box::new(TLS_SYMBOLS.iter())
+    };
+    for name in symbols {
         objects.push(CodeDataObject {
             symbol: sym_data_symbol(name),
             kind: "raw".to_string(),
@@ -355,7 +384,8 @@ pub(crate) mod macos;
 mod openssl;
 
 pub(super) use openssl::{
-    lower_tls_close_helper, lower_tls_connect_helper, lower_tls_read_helper,
+    lower_tls_accept_helper, lower_tls_close_helper, lower_tls_close_listener_helper,
+    lower_tls_connect_helper, lower_tls_listen_helper, lower_tls_read_helper,
     lower_tls_write_helper,
 };
 
@@ -363,6 +393,6 @@ pub(super) use openssl::{
 // macOS backend: Network.framework over a dispatch-semaphore synchronous bridge
 // ===========================================================================
 
-pub(super) fn macos_tls_data_objects() -> Vec<CodeDataObject> {
-    macos::data_objects()
+pub(super) fn macos_tls_data_objects(server: bool) -> Vec<CodeDataObject> {
+    macos::data_objects(server)
 }

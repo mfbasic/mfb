@@ -216,14 +216,17 @@ impl NativePlanPlatform for Platform {
             }
             call if crate::builtins::tls::is_tls_call(call) => {
                 // The TLS backend resolves OpenSSL at load time via dlopen/dlsym;
-                // tls.connect also opens the TCP socket itself, and every helper
-                // can report errno-derived failures.
+                // tls.connect/listen also open the TCP socket themselves, and
+                // every helper can report errno-derived failures.
                 let mut imports = vec![
                     self.libc_import("dlopen", spec.symbol),
                     self.libc_import("dlsym", spec.symbol),
                     self.libc_import("__errno_location", spec.symbol),
                 ];
-                if matches!(call, "tls.connect" | "tls.close") {
+                if matches!(
+                    call,
+                    "tls.connect" | "tls.close" | "tls.listen" | "tls.accept" | "tls.closeListener"
+                ) {
                     imports.push(self.libc_import("close", spec.symbol));
                 }
                 if call == "tls.connect" {
@@ -240,6 +243,27 @@ impl NativePlanPlatform for Platform {
                         "getsockopt",
                         "setsockopt",
                     ] {
+                        imports.push(self.libc_import(base, spec.symbol));
+                    }
+                }
+                if call == "tls.listen" {
+                    // Resolve, bind, and listen the server socket
+                    // (SO_REUSEADDR via setsockopt), mirroring net::listenTcp.
+                    for base in [
+                        "getaddrinfo",
+                        "freeaddrinfo",
+                        "socket",
+                        "bind",
+                        "listen",
+                        "setsockopt",
+                    ] {
+                        imports.push(self.libc_import(base, spec.symbol));
+                    }
+                }
+                if call == "tls.accept" {
+                    // accept the inbound connection; poll bounds the wait when
+                    // timeoutMs > 0.
+                    for base in ["accept", "poll"] {
                         imports.push(self.libc_import(base, spec.symbol));
                     }
                 }

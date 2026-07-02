@@ -1,0 +1,35 @@
+{
+  "project": "func_tls_accept_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "tls", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tls.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "8443" }, { "kind": "string", "value": "cert.pem" }, { "kind": "string", "value": "key.pem" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "blocking", "type": null, "value": { "kind": "call", "callee": "tls.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "timed", "type": null, "value": { "kind": "call", "callee": "tls.accept", "arguments": [{ "kind": "identifier", "value": "server" }, { "kind": "number", "value": "2500" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "blocking" }, { "kind": "string", "value": "one\n" }] }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "timed" }, { "kind": "string", "value": "two\n" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "timed" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "blocking" }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "ok" }] }, "line": 16 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 17 }
+      ]
+    }
+    ]
+  }
+  ]
+}

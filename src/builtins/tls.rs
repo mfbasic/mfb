@@ -10,13 +10,21 @@
 use std::borrow::Cow;
 
 pub(crate) const TLS_SOCKET_TYPE: &str = "TlsSocket";
+pub(crate) const TLS_LISTENER_TYPE: &str = "TlsListener";
 
 const CONNECT: &str = "tls.connect";
+const LISTEN: &str = "tls.listen";
+const ACCEPT: &str = "tls.accept";
 const READ: &str = "tls.read";
 const READ_TEXT: &str = "tls.readText";
 const WRITE: &str = "tls.write";
 const WRITE_TEXT: &str = "tls.writeText";
 const CLOSE: &str = "tls.close";
+/// Internal listener-shaped close body. `tls::close` stays the single
+/// user-facing name over both handle types; IR lowering routes a `TlsListener`
+/// operand here because the two records differ in shape (plan-06-tls-server.md
+/// §4.1/§6.4). Not user-callable.
+pub(crate) const CLOSE_LISTENER: &str = "tls.closeListener";
 
 #[derive(Clone)]
 pub(crate) struct ResolvedCall<'a> {
@@ -26,25 +34,35 @@ pub(crate) struct ResolvedCall<'a> {
 pub(crate) fn is_tls_call(name: &str) -> bool {
     matches!(
         name,
-        CONNECT | READ | READ_TEXT | WRITE | WRITE_TEXT | CLOSE
+        CONNECT | LISTEN | ACCEPT | READ | READ_TEXT | WRITE | WRITE_TEXT | CLOSE | CLOSE_LISTENER
     )
 }
 
 pub(crate) fn is_builtin_type(name: &str) -> bool {
-    name == TLS_SOCKET_TYPE
+    name == TLS_SOCKET_TYPE || name == TLS_LISTENER_TYPE
 }
 
 pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
-    (type_name == TLS_SOCKET_TYPE).then_some(CLOSE)
+    match type_name {
+        TLS_SOCKET_TYPE => Some(CLOSE),
+        // Scope drops route straight to the listener-shaped internal close
+        // body; the user-facing overload of `tls::close` over `TlsListener` is
+        // rewritten to the same target during IR lowering.
+        TLS_LISTENER_TYPE => Some(CLOSE_LISTENER),
+        _ => None,
+    }
 }
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         CONNECT => Some(&[&["host"], &["port"], &["timeoutMs"], &["serverName"]]),
+        LISTEN => Some(&[&["host"], &["port"], &["certPath"], &["keyPath"], &["backlog"]]),
+        ACCEPT => Some(&[&["listener"], &["timeoutMs"]]),
         READ | READ_TEXT => Some(&[&["sock"], &["maxBytes"]]),
         WRITE => Some(&[&["sock"], &["bytes"]]),
         WRITE_TEXT => Some(&[&["sock"], &["value"]]),
-        CLOSE => Some(&[&["resource", "sock"]]),
+        CLOSE => Some(&[&["resource", "sock", "listener"]]),
+        CLOSE_LISTENER => Some(&[&["listener"]]),
         _ => None,
     }
 }
@@ -52,9 +70,11 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
         CONNECT => Some(TLS_SOCKET_TYPE),
+        LISTEN => Some(TLS_LISTENER_TYPE),
+        ACCEPT => Some(TLS_SOCKET_TYPE),
         READ => Some("List OF Byte"),
         READ_TEXT => Some("String"),
-        WRITE | WRITE_TEXT | CLOSE => Some("Nothing"),
+        WRITE | WRITE_TEXT | CLOSE | CLOSE_LISTENER => Some("Nothing"),
         _ => None,
     }
 }
@@ -69,11 +89,29 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             Cow::Borrowed(TLS_SOCKET_TYPE)
         }
+        // listen(host, port, certPath, keyPath, backlog = 0)
+        LISTEN
+            if exact(arg_types, &["String", "Integer", "String", "String"])
+                || exact(arg_types, &["String", "Integer", "String", "String", "Integer"]) =>
+        {
+            Cow::Borrowed(TLS_LISTENER_TYPE)
+        }
+        // accept(listener, timeoutMs = 0)
+        ACCEPT
+            if exact(arg_types, &[TLS_LISTENER_TYPE])
+                || exact(arg_types, &[TLS_LISTENER_TYPE, "Integer"]) =>
+        {
+            Cow::Borrowed(TLS_SOCKET_TYPE)
+        }
         READ if exact(arg_types, &[TLS_SOCKET_TYPE, "Integer"]) => Cow::Borrowed("List OF Byte"),
         READ_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE, "Integer"]) => Cow::Borrowed("String"),
         WRITE if exact(arg_types, &[TLS_SOCKET_TYPE, "List OF Byte"]) => Cow::Borrowed("Nothing"),
         WRITE_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE, "String"]) => Cow::Borrowed("Nothing"),
-        CLOSE if exact(arg_types, &[TLS_SOCKET_TYPE]) => Cow::Borrowed("Nothing"),
+        CLOSE
+            if exact(arg_types, &[TLS_SOCKET_TYPE]) || exact(arg_types, &[TLS_LISTENER_TYPE]) =>
+        {
+            Cow::Borrowed("Nothing")
+        }
         _ => return None,
     };
     Some(ResolvedCall { return_type })
@@ -82,18 +120,23 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
 pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     match name {
         CONNECT => Some("String, Integer, Integer, String"),
+        LISTEN => Some("String, Integer, String, String, Integer"),
+        ACCEPT => Some("TlsListener, Integer"),
         READ | READ_TEXT => Some("TlsSocket, Integer"),
         WRITE => Some("TlsSocket, List OF Byte"),
         WRITE_TEXT => Some("TlsSocket, String"),
-        CLOSE => Some("TlsSocket"),
+        CLOSE => Some("TlsSocket or TlsListener"),
         _ => None,
     }
 }
 
 /// Concrete per-argument types for literal coercion. Overloaded/defaulted calls
-/// return `None` and rely on explicit argument types.
+/// return `None` and rely on explicit argument types. `listen`/`accept` vary
+/// only in trailing defaulted arity, so their positional types stay concrete.
 pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
     match name {
+        LISTEN => Some("String, Integer, String, String, Integer"),
+        ACCEPT => Some("TlsListener, Integer"),
         READ | READ_TEXT => Some("TlsSocket, Integer"),
         WRITE => Some("TlsSocket, List OF Byte"),
         WRITE_TEXT => Some("TlsSocket, String"),
@@ -104,8 +147,10 @@ pub(crate) fn argument_types(name: &str) -> Option<&'static str> {
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     match name {
         CONNECT => Some((2, 4)),
+        LISTEN => Some((4, 5)),
+        ACCEPT => Some((1, 2)),
         READ | READ_TEXT | WRITE | WRITE_TEXT => Some((2, 2)),
-        CLOSE => Some((1, 1)),
+        CLOSE | CLOSE_LISTENER => Some((1, 1)),
         _ => None,
     }
 }
@@ -118,17 +163,25 @@ pub(crate) fn default_argument_padding(
     provided: usize,
 ) -> &'static [(&'static str, &'static str)] {
     const CONNECT_DEFAULTS: &[(&str, &str)] = &[("Integer", "0"), ("String", "")];
+    const LISTEN_DEFAULTS: &[(&str, &str)] = &[("Integer", "0")];
+    const ACCEPT_DEFAULTS: &[(&str, &str)] = &[("Integer", "0")];
     match name {
         // connect(host, port, [timeoutMs=0], [serverName=""])
         CONNECT => &CONNECT_DEFAULTS[provided.saturating_sub(2).min(CONNECT_DEFAULTS.len())..],
+        // listen(host, port, certPath, keyPath, [backlog=0]) — 0 uses the host
+        // default backlog, mirroring net::listenTcp.
+        LISTEN => &LISTEN_DEFAULTS[provided.saturating_sub(4).min(LISTEN_DEFAULTS.len())..],
+        // accept(listener, [timeoutMs=0]) — 0 blocks without a deadline.
+        ACCEPT => &ACCEPT_DEFAULTS[provided.saturating_sub(1).min(ACCEPT_DEFAULTS.len())..],
         _ => &[],
     }
 }
 
 /// Whether argument `index` of `name` consumes (moves) its resource operand.
-/// `tls.close` consumes the `TlsSocket` it closes.
+/// `tls.close` consumes the handle it closes (either shape); `tls.accept`
+/// borrows its listener (it stays open for the next accept).
 pub(crate) fn consumes_argument(name: &str, index: usize) -> bool {
-    matches!((name, index), (CLOSE, 0))
+    matches!((name, index), (CLOSE, 0) | (CLOSE_LISTENER, 0))
 }
 
 fn exact(arg_types: &[String], expected: &[&str]) -> bool {

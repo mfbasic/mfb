@@ -1,0 +1,18 @@
+IMPORT tls
+IMPORT io
+
+' Exercises both accept overloads on one listener: the blocking form and the
+' timed form. The accepted sockets are ordinary TlsSockets, closed in any
+' order while the listener stays open (it is closed last).
+FUNC main AS Integer
+  RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
+  RES blocking = tls::accept(server)
+  RES timed = tls::accept(server, 2500)
+  tls::writeText(blocking, "one\n")
+  tls::writeText(timed, "two\n")
+  tls::close(timed)
+  tls::close(blocking)
+  tls::close(server)
+  io::print("ok")
+  RETURN 0
+END FUNC

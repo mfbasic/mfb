@@ -1,0 +1,25 @@
+IMPORT tls
+IMPORT io
+
+' Serves one line to the first accepted client, then tears everything down.
+' Both listen overloads (4-arg default backlog, 5-arg explicit backlog) and
+' both accept overloads (blocking, timed) are exercised. The listener is
+' borrowed by accept and closed once at the end (never consumed by accept).
+FUNC serveOnce(RES listener AS TlsListener) AS Integer
+  RES client = tls::accept(listener)
+  tls::writeText(client, "hello\n")
+  LET reply = tls::readText(client, 64)
+  tls::close(client)
+  RETURN len(reply)
+END FUNC
+
+FUNC main AS Integer
+  RES s1 = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
+  RES s2 = tls::listen("", 8444, "cert.pem", "key.pem", 128)
+  io::print(toString(serveOnce(s1)))
+  RES timed = tls::accept(s2, 5000)
+  tls::close(timed)
+  tls::close(s1)
+  tls::close(s2)
+  RETURN 0
+END FUNC

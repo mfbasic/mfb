@@ -1,11 +1,12 @@
 # close
 
-Close a TLS connection and release its OS handle.
+Close a TLS socket or listener and release its OS handle.
 
 ## Synopsis
 
 ```
 tls::close(sock AS TlsSocket) AS Nothing
+tls::close(listener AS TlsListener) AS Nothing
 ```
 
 ## Package
@@ -37,11 +38,21 @@ earlier scope-drop reports success rather than an error. This differs from
 `net::close`, which treats an already-closed resource as an error.
 [[src/target/shared/code/tls/openssl.rs:lower_tls_close_helper]]
 
-Closing is otherwise automatic. Every `TlsSocket` is closed by lexical drop when
-the binding that holds it leaves scope. [[src/builtins/tls.rs:resource_close_function]]
-Call `tls::close` only when the connection must be torn down earlier than that —
-for example to let a peer observe the end of the stream promptly, or to bound the
-number of connections a long-running program holds open at once.
+`close` also closes a `TlsListener` from `tls::listen`. The same name spans both
+handle types: given a listener it closes the listening socket and frees the
+server TLS context the listener owns. Because every accepted `TlsSocket` only
+*borrows* that shared context, closing the listener is safe while accepted
+sockets are still open — the context is freed exactly once, when the listener
+closes, and an accepted socket's own close never touches it. The listener close
+is likewise idempotent and consumes its handle.
+[[src/target/shared/code/tls/openssl.rs:lower_tls_close_listener_helper]]
+
+Closing is otherwise automatic. Every `TlsSocket` and `TlsListener` is closed by
+lexical drop when the binding that holds it leaves scope.
+[[src/builtins/tls.rs:resource_close_function]] Call `tls::close` only when the
+handle must be torn down earlier than that — for example to let a peer observe
+the end of the stream promptly, or to bound the number of connections a
+long-running program holds open at once.
 
 TLS is implemented on Linux by driving the system OpenSSL library (`libssl.so.3`,
 falling back to `libssl.so.1.1`) so a single binary spans OpenSSL 1.1.1 and 3.x;
@@ -54,13 +65,14 @@ is still closed in that case. [[src/target/shared/code/tls/openssl.rs:lower_tls_
 
 | Parameter | Type | Description |
 | --- | --- | --- |
-| `sock` | `TlsSocket` | The connected TLS socket to close, as returned by `tls::connect`. The value is consumed by the call and cannot be used afterward. Closing a socket that is already closed is harmless and returns successfully. |
+| `sock` | `TlsSocket` | The connected TLS socket to close, as returned by `tls::connect` or `tls::accept`. The value is consumed by the call and cannot be used afterward. Closing a socket that is already closed is harmless and returns successfully. |
+| `listener` | `TlsListener` | Alternatively, the listener to close, as returned by `tls::listen`. Closes the listening socket and frees the server TLS context it owns; safe to call while accepted sockets are still open. Consumed by the call; closing an already-closed listener returns successfully. |
 
 ## Return value
 
 | Type | Description |
 | --- | --- |
-| `Nothing` | `close` returns no value. After a successful return the TLS session has been shut down, the OS handle released, and the socket marked closed; it must not be used again. [[src/builtins/tls.rs:call_return_type_name]] |
+| `Nothing` | `close` returns no value. After a successful return the TLS session (or listener) has been shut down, the OS handle released, and the handle marked closed; it must not be used again. [[src/builtins/tls.rs:call_return_type_name]] |
 
 ## Errors
 
@@ -96,6 +108,8 @@ NEXT
 ## See also
 
 - `mfb man tls connect`
+- `mfb man tls listen`
+- `mfb man tls accept`
 - `mfb man tls read`
 - `mfb man tls readText`
 - `mfb man tls write`

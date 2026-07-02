@@ -117,11 +117,14 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         NET_SEND_TO_SPEC,
         NET_SEND_TEXT_TO_SPEC,
         TLS_CONNECT_SPEC,
+        TLS_LISTEN_SPEC,
+        TLS_ACCEPT_SPEC,
         TLS_READ_SPEC,
         TLS_READ_TEXT_SPEC,
         TLS_WRITE_SPEC,
         TLS_WRITE_TEXT_SPEC,
         TLS_CLOSE_SPEC,
+        TLS_CLOSE_LISTENER_SPEC,
     ]
 }
 

@@ -402,8 +402,10 @@ pub(crate) trait CodegenPlatform {
     /// [`Self::emit_thread_trampoline`] — their register layout is dictated by
     /// the runtime, not the allocator. Default empty (platforms with no such
     /// boundary, e.g. the OpenSSL/Linux TLS path). Only assembled when the
-    /// program actually uses TLS.
-    fn emit_tls_block_trampolines(&self) -> Vec<CodeFunction> {
+    /// program actually uses TLS; `server` adds the listener-side trampolines
+    /// (new-connection handler) when `tls::listen`/`accept` are in the plan.
+    fn emit_tls_block_trampolines(&self, server: bool) -> Vec<CodeFunction> {
+        let _ = server;
         Vec::new()
     }
 

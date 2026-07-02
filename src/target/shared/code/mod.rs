@@ -452,10 +452,16 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_tls_"))
     {
+        // Server-only strings (listener symbols, identity plumbing) are gated
+        // so client-only programs keep their exact pre-server data section.
+        let tls_server = native_plan
+            .runtime_symbols
+            .iter()
+            .any(|symbol| is_tls_server_symbol(symbol));
         if platform.target().contains("macos") {
-            data_objects.extend(tls::macos_tls_data_objects());
+            data_objects.extend(tls::macos_tls_data_objects(tls_server));
         } else {
-            data_objects.extend(tls::tls_cstring_data_objects());
+            data_objects.extend(tls::tls_cstring_data_objects(tls_server));
         }
     }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
@@ -775,7 +781,10 @@ pub(crate) fn lower_module_for_platform(
         .iter()
         .any(|symbol| symbol.starts_with("_mfb_rt_tls_"))
     {
-        code_functions.extend(platform.emit_tls_block_trampolines());
+        let tls_server = runtime_symbols
+            .iter()
+            .any(|symbol| is_tls_server_symbol(symbol));
+        code_functions.extend(platform.emit_tls_block_trampolines(tls_server));
     }
     if runtime_symbols
         .iter()
@@ -1846,6 +1855,8 @@ fn lower_runtime_helper(
         call if call.starts_with("tls.") => {
             let (frame, instructions, relocations, stack_slots) = match call {
                 "tls.connect" => tls::lower_tls_connect_helper(symbol, platform_imports, platform)?,
+                "tls.listen" => tls::lower_tls_listen_helper(symbol, platform_imports, platform)?,
+                "tls.accept" => tls::lower_tls_accept_helper(symbol, platform_imports, platform)?,
                 "tls.read" => {
                     tls::lower_tls_read_helper(symbol, platform_imports, platform, false)?
                 }
@@ -1859,6 +1870,9 @@ fn lower_runtime_helper(
                     tls::lower_tls_write_helper(symbol, platform_imports, platform, true)?
                 }
                 "tls.close" => tls::lower_tls_close_helper(symbol, platform_imports, platform)?,
+                "tls.closeListener" => {
+                    tls::lower_tls_close_listener_helper(symbol, platform_imports, platform)?
+                }
                 other => {
                     return Err(format!(
                         "native code plan does not emit runtime call '{other}'"
@@ -1889,6 +1903,17 @@ fn lower_runtime_helper(
             "native code plan does not emit runtime call '{other}'"
         )),
     }
+}
+
+/// Whether a runtime helper symbol belongs to the TLS **server** side
+/// (`tls::listen`/`tls::accept`/the listener close). Gates the server-only
+/// data objects and block trampolines so client-only programs keep their
+/// exact pre-server native output (plan-06-tls-server.md §1 non-goals).
+fn is_tls_server_symbol(symbol: &str) -> bool {
+    matches!(
+        symbol,
+        "_mfb_rt_tls_tls_listen" | "_mfb_rt_tls_tls_accept" | "_mfb_rt_tls_tls_closeListener"
+    )
 }
 
 fn lower_direct_builtin_runtime_helper(

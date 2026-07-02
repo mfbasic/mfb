@@ -15,6 +15,13 @@ REPO_ROOT = Path(__file__).parent.parent
 BUILTINS_DIR = REPO_ROOT / "src" / "builtins"
 SKIP_FILES = {"mod.rs", "resource.rs"}
 
+# Internal dispatch targets that appear in an `is_<pkg>_call` predicate for the
+# runtime plumbing but are not part of the user-callable surface, so they are
+# omitted from the documented function list. `tls::closeListener` is the
+# listener-shaped body that `tls::close` over a `TlsListener` rewrites to during
+# IR lowering (plan-06-tls-server.md §4.1).
+INTERNAL_CALLS = {"tls::closeListener"}
+
 # FUNC/SUB/TYPE declarations in MFBASIC package sources, e.g.
 #   EXPORT TYPE Instant
 #   FUNC __datetime_now AS Instant
@@ -121,7 +128,11 @@ def collect_packages() -> dict[str, dict[str, list[str]]]:
             for fn in (f"is_{stem}_call", f"is_{stem}_function")
             for ident in idents_in_fn(src, fn)
         ]
-        functions = [n.replace(".", "::") for n in resolve(call_idents, const_map)]
+        functions = [
+            n.replace(".", "::")
+            for n in resolve(call_idents, const_map)
+            if n.replace(".", "::") not in INTERNAL_CALLS
+        ]
         constants = (
             [n.replace(".", "::") for n in resolve(idents_in_fn(src, "is_math_constant"), const_map)]
             if stem == "math"

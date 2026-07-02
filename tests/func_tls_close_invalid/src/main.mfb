@@ -4,5 +4,7 @@ FUNC main AS Integer
   LET missing = tls::close()
   LET wrongType = tls::close(1)
   LET tooMany = tls::close(1, 2)
+  ' close overloads over TlsSocket and TlsListener only — a String is neither.
+  LET notHandle = tls::close("socket")
   RETURN 0
 END FUNC

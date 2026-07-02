@@ -2610,6 +2610,23 @@ fn lower_expression_with_expected(
             };
             let resolved_target = package_override
                 .or_else(|| {
+                    // `tls::close` spans two record shapes; a `TlsListener`
+                    // operand routes to the listener-shaped internal close
+                    // helper while `tls::close` stays the single user-facing
+                    // name (plan-06-tls-server.md §4.1/§6.4). The target is a
+                    // runtime helper, not a source companion, so it is not
+                    // internalized.
+                    if canonical_callee != "tls.close" {
+                        return None;
+                    }
+                    arguments
+                        .first()
+                        .map(call_arg_value)
+                        .and_then(|argument| expression_type(argument, locals, context))
+                        .filter(|type_| type_ == builtins::tls::TLS_LISTENER_TYPE)
+                        .map(|_| builtins::tls::CLOSE_LISTENER.to_string())
+                })
+                .or_else(|| {
                     builtins::datetime::implementation_name(&canonical_callee, args.len())
                         .map(|name| crate::internal_name::internalize(&name))
                 })

@@ -1,0 +1,34 @@
+{
+  "project": "func_tls_close_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "tls", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "client", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "example.com" }, { "kind": "number", "value": "443" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "client" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "server", "type": null, "value": { "kind": "call", "callee": "tls.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "8443" }, { "kind": "string", "value": "cert.pem" }, { "kind": "string", "value": "key.pem" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "a", "type": null, "value": { "kind": "call", "callee": "tls.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 17 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "b", "type": null, "value": { "kind": "call", "callee": "tls.accept", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "b" }] }, "line": 20 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "server" }] }, "line": 21 },
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "dropped", "type": null, "value": { "kind": "call", "callee": "tls.listen", "arguments": [{ "kind": "string", "value": "127.0.0.1" }, { "kind": "number", "value": "8444" }, { "kind": "string", "value": "cert.pem" }, { "kind": "string", "value": "key.pem" }] }, "line": 24 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 25 }
+      ]
+    }
+    ]
+  }
+  ]
+}

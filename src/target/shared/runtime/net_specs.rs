@@ -480,12 +480,81 @@ const TLS_SOCKET_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     location: "x0",
 }];
 
+const TLS_LISTEN_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "host",
+        type_: "String",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "port",
+        type_: "Integer",
+        location: "x1",
+    },
+    RuntimeAbiParam {
+        name: "certPath",
+        type_: "String",
+        location: "x2",
+    },
+    RuntimeAbiParam {
+        name: "keyPath",
+        type_: "String",
+        location: "x3",
+    },
+    RuntimeAbiParam {
+        name: "backlog",
+        type_: "Integer",
+        location: "x4",
+    },
+];
+
+const TLS_ACCEPT_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "listener",
+        type_: "TlsListener",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "timeoutMs",
+        type_: "Integer",
+        location: "x1",
+    },
+];
+
+const TLS_LISTENER_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "listener",
+    type_: "TlsListener",
+    location: "x0",
+}];
+
 pub(crate) const TLS_CONNECT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Tls,
     call: "tls.connect",
     symbol: "_mfb_rt_tls_tls_connect",
     abi: RuntimeHelperAbi {
         params: TLS_CONNECT_PARAMS,
+        returns: "TlsSocket",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_LISTEN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.listen",
+    symbol: "_mfb_rt_tls_tls_listen",
+    abi: RuntimeHelperAbi {
+        params: TLS_LISTEN_PARAMS,
+        returns: "TlsListener",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_ACCEPT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.accept",
+    symbol: "_mfb_rt_tls_tls_accept",
+    abi: RuntimeHelperAbi {
+        params: TLS_ACCEPT_PARAMS,
         returns: "TlsSocket",
         clobbers: abi::IO_PRINT_CLOBBERS,
     },
@@ -541,6 +610,17 @@ pub(crate) const TLS_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     symbol: "_mfb_rt_tls_tls_close",
     abi: RuntimeHelperAbi {
         params: TLS_SOCKET_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const TLS_CLOSE_LISTENER_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Tls,
+    call: "tls.closeListener",
+    symbol: "_mfb_rt_tls_tls_closeListener",
+    abi: RuntimeHelperAbi {
+        params: TLS_LISTENER_PARAMS,
         returns: "Nothing",
         clobbers: abi::IO_PRINT_CLOBBERS,
     },

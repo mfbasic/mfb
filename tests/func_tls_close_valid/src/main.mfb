@@ -1,0 +1,26 @@
+IMPORT tls
+
+' tls::close spans both handle types. A client TlsSocket, an accepted server
+' TlsSocket, and a TlsListener are all closed by the same call. Because an
+' accepted socket only borrows the listener's shared server context, closing
+' the listener while accepted sockets have already been closed must not
+' double-free — the listener owns and frees the context exactly once. Both
+' handle types are also closed automatically by lexical drop, so an explicit
+' close followed by a drop is safe (close is idempotent).
+FUNC main AS Integer
+  ' Client socket close.
+  RES client = tls::connect("example.com", 443)
+  tls::close(client)
+
+  ' Server listener with two accepted sockets closed before the listener.
+  RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
+  RES a = tls::accept(server)
+  RES b = tls::accept(server)
+  tls::close(a)
+  tls::close(b)
+  tls::close(server)
+
+  ' A listener left to drop (no explicit close) is closed at scope exit.
+  RES dropped = tls::listen("127.0.0.1", 8444, "cert.pem", "key.pem")
+  RETURN 0
+END FUNC

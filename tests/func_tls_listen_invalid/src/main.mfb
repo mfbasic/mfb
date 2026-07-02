@@ -1,0 +1,21 @@
+IMPORT tls
+
+' A TlsListener is a non-collectable resource: it cannot be a record field.
+TYPE Holder
+  listener AS TlsListener
+END TYPE
+
+FUNC main AS Integer
+  ' Too few arguments (listen needs at least 4).
+  LET missing = tls::listen()
+  LET tooFew = tls::listen("host", 443, "cert.pem")
+  ' Wrong argument types: port must be Integer, cert/key must be String.
+  LET badPort = tls::listen("host", "443", "cert.pem", "key.pem")
+  LET badCert = tls::listen("host", 443, 1, "key.pem")
+  ' Too many arguments (listen takes at most 5).
+  LET tooMany = tls::listen("host", 443, "cert.pem", "key.pem", 10, 20)
+  ' A TlsListener cannot be stored as a collection element.
+  RES s = tls::listen("host", 443, "cert.pem", "key.pem")
+  LET items AS List OF TlsListener = [s]
+  RETURN 0
+END FUNC

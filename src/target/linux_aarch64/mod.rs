@@ -126,11 +126,14 @@ impl NativeBackend for Backend {
                 "net.sendTo",
                 "net.sendTextTo",
                 "tls.connect",
+                "tls.listen",
+                "tls.accept",
                 "tls.read",
                 "tls.readText",
                 "tls.write",
                 "tls.writeText",
                 "tls.close",
+                "tls.closeListener",
             ],
         }
     }

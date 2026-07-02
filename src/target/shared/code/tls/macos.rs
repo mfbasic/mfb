@@ -2,6 +2,16 @@ use super::*;
 
 const MACLIB: &str = "/System/Library/Frameworks/Network.framework/Network";
 const MACLIB_SYMBOL: &str = "_mfb_tls_maclib";
+// The server identity is built from the PEM pair via Security.framework
+// (SecItemImport + SecIdentityCreate) and CoreFoundation (CFData/CFArray);
+// both are dlopen'd only by the server path (plan-06-tls-server.md §7).
+const MACSEC: &str = "/System/Library/Frameworks/Security.framework/Security";
+const MACSEC_SYMBOL: &str = "_mfb_tls_macsec";
+const MACCF: &str = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
+const MACCF_SYMBOL: &str = "_mfb_tls_maccf";
+// An empty listen host binds all interfaces.
+const ANYHOST: &str = "0.0.0.0";
+const ANYHOST_SYMBOL: &str = "_mfb_tls_anyhost";
 const QLABEL: &str = "mfb.tls";
 const QLABEL_SYMBOL: &str = "_mfb_tls_qlabel";
 const DESC_SYMBOL: &str = "_mfb_tls_block_desc";
@@ -14,11 +24,20 @@ pub(crate) const STATE_INVOKE: &str = "_mfb_tls_nw_state_invoke";
 pub(crate) const SEND_INVOKE: &str = "_mfb_tls_nw_send_invoke";
 pub(crate) const RECV_INVOKE: &str = "_mfb_tls_nw_recv_invoke";
 // Configure-TLS block invoke: overrides the SNI / certificate-validation
-// server name when `serverName` is supplied.
+// server name when `serverName` is supplied. The server path reuses the same
+// trampoline shape to install the local identity: it captures
+// (sec_identity, nw_tls_copy_sec_protocol_options,
+// sec_protocol_options_set_local_identity) instead.
 pub(crate) const CFG_INVOKE: &str = "_mfb_tls_nw_cfg_invoke";
+// New-connection handler invoke for `tls::listen`: retains the inbound
+// nw_connection into the listener context's ring and signals the semaphore.
+pub(crate) const LCONN_INVOKE: &str = "_mfb_tls_nw_lconn_invoke";
 
 // nw_connection_state_t
 const NW_STATE_READY: &str = "3";
+// nw_listener_state_t (distinct numbering from connection states)
+const NW_LISTENER_READY: &str = "2";
+const NW_LISTENER_FAILED: &str = "3";
 
 // The handle record: closed flag, nw_connection, dispatch queue, ctx pointer.
 const REC_CLOSED: usize = 0;
@@ -39,6 +58,19 @@ pub(crate) const CTX_CONTENT: usize = 24;
 pub(crate) const CTX_ERROR: usize = 32;
 pub(crate) const CTX_RETAIN: usize = 40; // dispatch_retain, used by the receive block
 const CTX_SIZE: &str = "48";
+
+// The listener context extends the shared ctx prefix (the listener's
+// state-changed handler is the plain STATE_INVOKE trampoline over the same
+// slots) with a single-producer/single-consumer ring of pending retained
+// nw_connections. The serial dispatch queue is the only producer; `tls::accept`
+// on the owning thread is the only consumer; the semaphore signal/wait pair
+// orders the slot writes. CTX_RETAIN holds `nw_retain` here (the conn handler
+// retains each connection so it survives past the callback).
+pub(crate) const LCTX_HEAD: usize = 48; // producer count (trampoline-owned)
+pub(crate) const LCTX_TAIL: usize = 56; // consumer count (accept-owned)
+pub(crate) const LCTX_RING: usize = 64; // LCTX_RING_CAP pointer slots
+pub(crate) const LCTX_RING_CAP: usize = 16; // power of two (index mask 15)
+const LCTX_SIZE: &str = "192"; // 64 + 16*8
 
 // Block literal: isa, flags, invoke, descriptor, one captured ctx pointer.
 const BLK_ISA: usize = 0;
@@ -81,6 +113,28 @@ const SYMBOLS: &[&str] = &[
     "sec_protocol_options_set_tls_server_name",
 ];
 
+/// The additional server-side entry points (`tls::listen`/`tls::accept`).
+/// Their name strings are emitted only when a module uses a server helper, so
+/// client-only programs stay byte-identical (plan-06-tls-server.md §1).
+const SERVER_SYMBOLS: &[&str] = &[
+    "nw_listener_create",
+    "nw_listener_set_queue",
+    "nw_listener_set_new_connection_handler",
+    "nw_listener_set_state_changed_handler",
+    "nw_listener_start",
+    "nw_listener_cancel",
+    "nw_parameters_set_local_endpoint",
+    "nw_parameters_set_reuse_local_address",
+    "nw_retain",
+    "sec_identity_create",
+    "sec_protocol_options_set_local_identity",
+    "SecItemImport",
+    "SecIdentityCreate",
+    "CFDataCreate",
+    "CFArrayGetCount",
+    "CFArrayGetValueAtIndex",
+];
+
 fn raw_cstr(symbol: &str, text: &str) -> CodeDataObject {
     CodeDataObject {
         symbol: symbol.to_string(),
@@ -92,7 +146,7 @@ fn raw_cstr(symbol: &str, text: &str) -> CodeDataObject {
     }
 }
 
-pub(super) fn data_objects() -> Vec<CodeDataObject> {
+pub(super) fn data_objects(server: bool) -> Vec<CodeDataObject> {
     let mut objects = vec![
         raw_cstr(MACLIB_SYMBOL, MACLIB),
         raw_cstr(QLABEL_SYMBOL, QLABEL),
@@ -117,6 +171,14 @@ pub(super) fn data_objects() -> Vec<CodeDataObject> {
     ];
     for name in SYMBOLS {
         objects.push(raw_cstr(&sym_data_symbol(name), name));
+    }
+    if server {
+        objects.push(raw_cstr(MACSEC_SYMBOL, MACSEC));
+        objects.push(raw_cstr(MACCF_SYMBOL, MACCF));
+        objects.push(raw_cstr(ANYHOST_SYMBOL, ANYHOST));
+        for name in SERVER_SYMBOLS {
+            objects.push(raw_cstr(&sym_data_symbol(name), name));
+        }
     }
     objects
 }
@@ -1492,10 +1554,35 @@ fn emit_dlopen_libssl_macos(
     instructions: &mut Vec<CodeInstruction>,
     relocations: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
+    emit_dlopen_at(
+        symbol,
+        MACLIB_SYMBOL,
+        handle_off,
+        fail,
+        platform_imports,
+        platform,
+        instructions,
+        relocations,
+    )
+}
+
+/// `dlopen` the framework named by the C-string data object `lib_symbol` into
+/// `sp + handle_off`; branch to `fail` when it does not load.
+#[allow(clippy::too_many_arguments)]
+fn emit_dlopen_at(
+    symbol: &str,
+    lib_symbol: &str,
+    handle_off: usize,
+    fail: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
     emit_data_address(
         symbol,
         abi::return_register(),
-        MACLIB_SYMBOL,
+        lib_symbol,
         instructions,
         relocations,
     );
@@ -1513,4 +1600,1468 @@ fn emit_dlopen_libssl_macos(
         abi::branch_eq(fail),
     ]);
     Ok(())
+}
+
+// ===========================================================================
+// Server side: tls.listen / tls.accept / tls.closeListener
+// (plan-06-tls-server.md §7)
+// ===========================================================================
+
+/// Read the whole file named by the MFBASIC `String` at `sp + path_off` into a
+/// fresh arena buffer: pointer at `sp + buf_off`, byte length at
+/// `sp + len_off`. `open_fail` is taken when the file cannot be opened (no fd
+/// yet); `read_fail_fd` when a seek/read fails or the file is empty (the open
+/// fd is at `sp + fd_off` for the caller to close).
+#[allow(clippy::too_many_arguments)]
+fn emit_read_whole_file(
+    symbol: &str,
+    prefix: &str,
+    path_off: usize,
+    cstr_off: usize,
+    fd_off: usize,
+    readoff_off: usize,
+    buf_off: usize,
+    len_off: usize,
+    open_fail: &str,
+    read_fail_fd: &str,
+    alloc_fail: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    let read_loop = format!("{symbol}_{prefix}_read");
+    let read_done = format!("{symbol}_{prefix}_read_done");
+    emit_cstring(symbol, prefix, path_off, cstr_off, alloc_fail, ins, rel);
+    // fd = open(path, O_RDONLY)
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), cstr_off),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::move_immediate("x2", "Integer", "0"),
+    ]);
+    platform.emit_open_file(symbol, platform_imports, ins, rel)?;
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_lt(open_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), fd_off),
+        // len = lseek(fd, 0, SEEK_END); an empty file is not a valid PEM.
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::move_immediate("x2", "Integer", "2"),
+    ]);
+    platform.emit_seek_file(symbol, platform_imports, ins, rel)?;
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_le(read_fail_fd),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), len_off),
+        // rewind: lseek(fd, 0, SEEK_SET)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::move_immediate("x2", "Integer", "0"),
+    ]);
+    platform.emit_seek_file(symbol, platform_imports, ins, rel)?;
+    // buf = arena_alloc(len, 1)
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), len_off),
+        abi::move_immediate("x1", "Integer", "1"),
+    ]);
+    emit_alloc(symbol, ins, rel, alloc_fail);
+    ins.extend([
+        abi::store_u64("x1", abi::stack_pointer(), buf_off),
+        abi::store_u64("x31", abi::stack_pointer(), readoff_off),
+        abi::label(&read_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), readoff_off),
+        abi::load_u64("%v10", abi::stack_pointer(), len_off),
+        abi::compare_registers("%v9", "%v10"),
+        abi::branch_ge(&read_done),
+        // n = read(fd, buf + off, len - off)
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
+        abi::load_u64("x1", abi::stack_pointer(), buf_off),
+        abi::add_registers("x1", "x1", "%v9"),
+        abi::subtract_registers("x2", "%v10", "%v9"),
+    ]);
+    platform.emit_read_file(symbol, platform_imports, ins, rel)?;
+    ins.extend([
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_le(read_fail_fd),
+        abi::load_u64("%v9", abi::stack_pointer(), readoff_off),
+        abi::add_registers("%v9", "%v9", abi::return_register()),
+        abi::store_u64("%v9", abi::stack_pointer(), readoff_off),
+        abi::branch(&read_loop),
+        abi::label(&read_done),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), fd_off),
+    ]);
+    platform.emit_close_file(symbol, platform_imports, ins, rel)?;
+    Ok(())
+}
+
+/// Import one PEM item (a certificate or a private key) from the bytes at
+/// `sp + buf_off`/`len_off` via `CFDataCreate` + `SecItemImport`, leaving the
+/// first imported item (`SecCertificateRef`/`SecKeyRef`) at `sp + ref_off`.
+#[allow(clippy::too_many_arguments)]
+fn emit_import_pem_item(
+    symbol: &str,
+    buf_off: usize,
+    len_off: usize,
+    data_off: usize,
+    items_off: usize,
+    ref_off: usize,
+    sec_handle_off: usize,
+    cf_handle_off: usize,
+    fnptr_off: usize,
+    fail: &str,
+    load_fail: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    ins: &mut Vec<CodeInstruction>,
+    rel: &mut Vec<CodeRelocation>,
+) -> Result<(), String> {
+    // data = CFDataCreate(NULL, buf, len)
+    dlsym(
+        symbol,
+        cf_handle_off,
+        "CFDataCreate",
+        fnptr_off,
+        load_fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::load_u64("x1", abi::stack_pointer(), buf_off),
+        abi::load_u64("x2", abi::stack_pointer(), len_off),
+        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), data_off),
+    ]);
+    // SecItemImport(data, NULL, NULL, NULL, 0, NULL, NULL, &items) == errSecSuccess
+    dlsym(
+        symbol,
+        sec_handle_off,
+        "SecItemImport",
+        fnptr_off,
+        load_fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::store_u64("x31", abi::stack_pointer(), items_off),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), data_off),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::move_immediate("x2", "Integer", "0"),
+        abi::move_immediate("x3", "Integer", "0"),
+        abi::move_immediate("x4", "Integer", "0"),
+        abi::move_immediate("x5", "Integer", "0"),
+        abi::move_immediate("x6", "Integer", "0"),
+        abi::add_immediate("x7", abi::stack_pointer(), items_off),
+        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(fail),
+        abi::load_u64("%v9", abi::stack_pointer(), items_off),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_eq(fail),
+    ]);
+    // CFArrayGetCount(items) >= 1
+    dlsym(
+        symbol,
+        cf_handle_off,
+        "CFArrayGetCount",
+        fnptr_off,
+        load_fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), items_off),
+        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "1"),
+        abi::branch_lt(fail),
+    ]);
+    // ref = CFArrayGetValueAtIndex(items, 0)
+    dlsym(
+        symbol,
+        cf_handle_off,
+        "CFArrayGetValueAtIndex",
+        fnptr_off,
+        load_fail,
+        platform_imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), items_off),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), fnptr_off),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), ref_off),
+    ]);
+    Ok(())
+}
+
+pub(super) fn lower_tls_listen_macos(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    const FRAME_SIZE: usize = 448;
+    const HOST: usize = 8;
+    const PORT: usize = 16;
+    const CERT: usize = 24;
+    const KEY: usize = 32;
+    // x4 (backlog) is accepted for ABI parity but unused: Network.framework
+    // manages its own accept backlog.
+    const NWH: usize = 40;
+    const SECH: usize = 48;
+    const CFH: usize = 56;
+    const FNPTR: usize = 64;
+    const HOSTCSTR: usize = 72;
+    const PORTCSTR: usize = 80;
+    const PORTBUF: usize = 88; // 88..112
+    const PATHCSTR: usize = 112;
+    const FILEFD: usize = 120;
+    const READOFF: usize = 128;
+    const CERTBUF: usize = 136;
+    const CERTLEN: usize = 144;
+    const KEYBUF: usize = 152;
+    const KEYLEN: usize = 160;
+    const DATA: usize = 168;
+    const ITEMS: usize = 176;
+    const CERTREF: usize = 184;
+    const KEYREF: usize = 192;
+    const IDENT: usize = 200;
+    const SECIDENT: usize = 208;
+    const CFG: usize = 216;
+    const ENDPOINT: usize = 224;
+    const PARAMS: usize = 232;
+    const LISTENER: usize = 240;
+    const QUEUE: usize = 248;
+    const LCTX: usize = 256;
+    const CFGBLOCK: usize = 264; // 264..320: the identity-config block literal
+    const SBLOCK: usize = 320; // 320..360: state-changed block literal
+    const CBLOCK: usize = 360; // 360..400: new-connection block literal
+    const WAITFN: usize = 400;
+
+    let cert_fail = format!("{symbol}_cert_fail");
+    let read_fail_fd = format!("{symbol}_read_fail_fd");
+    let net_fail = format!("{symbol}_net_fail");
+    let listen_fail = format!("{symbol}_listen_fail");
+    let load_fail = format!("{symbol}_load_fail");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let null_host = format!("{symbol}_null_host");
+    let host_ready = format!("{symbol}_host_ready");
+    let itoa_loop = format!("{symbol}_itoa");
+    let wait_loop = format!("{symbol}_wait");
+    let ready = format!("{symbol}_ready");
+    let done = format!("{symbol}_done");
+
+    let mut ins = vec![abi::label("entry")];
+    let mut rel = Vec::new();
+    // x0 = host; x1 = port; x2 = certPath; x3 = keyPath; x4 = backlog (unused).
+    ins.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), HOST),
+        abi::store_u64("x1", abi::stack_pointer(), PORT),
+        abi::store_u64("x2", abi::stack_pointer(), CERT),
+        abi::store_u64("x3", abi::stack_pointer(), KEY),
+    ]);
+    // Read the PEM pair into arena buffers before touching any framework.
+    emit_read_whole_file(
+        symbol,
+        "cert",
+        CERT,
+        PATHCSTR,
+        FILEFD,
+        READOFF,
+        CERTBUF,
+        CERTLEN,
+        &cert_fail,
+        &read_fail_fd,
+        &alloc_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    emit_read_whole_file(
+        symbol,
+        "key",
+        KEY,
+        PATHCSTR,
+        FILEFD,
+        READOFF,
+        KEYBUF,
+        KEYLEN,
+        &cert_fail,
+        &read_fail_fd,
+        &alloc_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    // dlopen Network.framework, Security.framework, CoreFoundation.
+    emit_dlopen_at(
+        symbol,
+        MACLIB_SYMBOL,
+        NWH,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    emit_dlopen_at(
+        symbol,
+        MACSEC_SYMBOL,
+        SECH,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    emit_dlopen_at(
+        symbol,
+        MACCF_SYMBOL,
+        CFH,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    // certRef / keyRef from the PEM bytes.
+    emit_import_pem_item(
+        symbol,
+        CERTBUF,
+        CERTLEN,
+        DATA,
+        ITEMS,
+        CERTREF,
+        SECH,
+        CFH,
+        FNPTR,
+        &cert_fail,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    emit_import_pem_item(
+        symbol,
+        KEYBUF,
+        KEYLEN,
+        DATA,
+        ITEMS,
+        KEYREF,
+        SECH,
+        CFH,
+        FNPTR,
+        &cert_fail,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    // identity = SecIdentityCreate(NULL, certRef, keyRef) — the keychain-free
+    // cert+key pairing entry point in Security.framework (resolved via dlsym;
+    // absent => ErrTlsFailed, never a stub).
+    dlsym(
+        symbol,
+        SECH,
+        "SecIdentityCreate",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::load_u64("x1", abi::stack_pointer(), CERTREF),
+        abi::load_u64("x2", abi::stack_pointer(), KEYREF),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&cert_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), IDENT),
+    ]);
+    // secIdentity = sec_identity_create(identity)
+    dlsym(
+        symbol,
+        SECH,
+        "sec_identity_create",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), IDENT),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&cert_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), SECIDENT),
+    ]);
+    // Build the configure-TLS block that installs the local identity:
+    // CFG_INVOKE copies the sec_protocol_options and calls the captured
+    // setter with the captured payload — here
+    // sec_protocol_options_set_local_identity(options, secIdentity).
+    dlsym(
+        symbol,
+        NWH,
+        "_NSConcreteStackBlock",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + BLK_ISA),
+        abi::store_u64("x31", abi::stack_pointer(), CFGBLOCK + BLK_FLAGS),
+    ]);
+    emit_data_address(symbol, "%v9", CFG_INVOKE, &mut ins, &mut rel);
+    ins.push(abi::store_u64(
+        "%v9",
+        abi::stack_pointer(),
+        CFGBLOCK + BLK_INVOKE,
+    ));
+    emit_data_address(symbol, "%v9", CFG_DESC_SYMBOL, &mut ins, &mut rel);
+    ins.push(abi::store_u64(
+        "%v9",
+        abi::stack_pointer(),
+        CFGBLOCK + BLK_DESC,
+    ));
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), SECIDENT),
+        abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SNAME),
+    ]);
+    dlsym(
+        symbol,
+        NWH,
+        "nw_tls_copy_sec_protocol_options",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_COPYFN),
+    ]);
+    dlsym(
+        symbol,
+        SECH,
+        "sec_protocol_options_set_local_identity",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::store_u64("%v9", abi::stack_pointer(), CFGBLOCK + CFG_CAP_SETFN),
+    ]);
+    // cfg = *_nw_parameters_configure_protocol_default_configuration
+    dlsym(
+        symbol,
+        NWH,
+        "_nw_parameters_configure_protocol_default_configuration",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::load_u64("%v9", "%v9", 0),
+        abi::store_u64("%v9", abi::stack_pointer(), CFG),
+    ]);
+    // params = nw_parameters_create_secure_tcp(&cfgBlock, cfg)
+    dlsym(
+        symbol,
+        NWH,
+        "nw_parameters_create_secure_tcp",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::add_immediate(abi::return_register(), abi::stack_pointer(), CFGBLOCK),
+        abi::load_u64("x1", abi::stack_pointer(), CFG),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&net_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
+    ]);
+    // nw_parameters_set_reuse_local_address(params, true)
+    dlsym(
+        symbol,
+        NWH,
+        "nw_parameters_set_reuse_local_address",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
+        abi::move_immediate("x1", "Integer", "1"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    // Local endpoint: empty host binds all interfaces ("0.0.0.0").
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), HOST),
+        abi::load_u64("%v10", "%v9", 0),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_eq(&null_host),
+    ]);
+    emit_cstring(
+        symbol,
+        "host",
+        HOST,
+        HOSTCSTR,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
+    ins.push(abi::branch(&host_ready));
+    ins.push(abi::label(&null_host));
+    emit_data_address(symbol, "%v9", ANYHOST_SYMBOL, &mut ins, &mut rel);
+    ins.extend([
+        abi::store_u64("%v9", abi::stack_pointer(), HOSTCSTR),
+        abi::label(&host_ready),
+    ]);
+    // itoa(port) -> NUL-terminated decimal at PORTBUF, pointer in PORTCSTR.
+    ins.extend([
+        abi::move_immediate("%v9", "Integer", "0"),
+        abi::store_u8("%v9", abi::stack_pointer(), PORTBUF + 23),
+        abi::load_u64("%v10", abi::stack_pointer(), PORT),
+        abi::move_immediate("%v11", "Integer", "10"),
+        abi::add_immediate("%v14", abi::stack_pointer(), PORTBUF + 22),
+        abi::label(&itoa_loop),
+        abi::unsigned_divide_registers("%v15", "%v10", "%v11"),
+        abi::multiply_subtract_registers("%v16", "%v15", "%v11", "%v10"),
+        abi::add_immediate("%v16", "%v16", 48),
+        abi::store_u8("%v16", "%v14", 0),
+        abi::subtract_immediate("%v14", "%v14", 1),
+        abi::move_register("%v10", "%v15"),
+        abi::compare_immediate("%v10", "0"),
+        abi::branch_ne(&itoa_loop),
+        abi::add_immediate("%v13", "%v14", 1),
+        abi::store_u64("%v13", abi::stack_pointer(), PORTCSTR),
+    ]);
+    // endpoint = nw_endpoint_create_host(host, port)
+    dlsym(
+        symbol,
+        NWH,
+        "nw_endpoint_create_host",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), HOSTCSTR),
+        abi::load_u64("x1", abi::stack_pointer(), PORTCSTR),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&net_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), ENDPOINT),
+    ]);
+    // nw_parameters_set_local_endpoint(params, endpoint)
+    dlsym(
+        symbol,
+        NWH,
+        "nw_parameters_set_local_endpoint",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
+        abi::load_u64("x1", abi::stack_pointer(), ENDPOINT),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    // listener = nw_listener_create(params)
+    dlsym(
+        symbol,
+        NWH,
+        "nw_listener_create",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), PARAMS),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_eq(&net_fail),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
+    ]);
+    // queue = dispatch_queue_create("mfb.tls", NULL)
+    dlsym(
+        symbol,
+        NWH,
+        "dispatch_queue_create",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    emit_data_address(symbol, abi::return_register(), QLABEL_SYMBOL, &mut ins, &mut rel);
+    ins.extend([
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), QUEUE),
+    ]);
+    // Allocate + initialize the listener context (shared ctx prefix + ring).
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", LCTX_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    ins.push(abi::store_u64("x1", abi::stack_pointer(), LCTX));
+    dlsym(
+        symbol,
+        NWH,
+        "dispatch_semaphore_create",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::store_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::store_u64("x31", "%v9", CTX_STATE),
+        abi::store_u64("x31", "%v9", CTX_CONTENT),
+        abi::store_u64("x31", "%v9", CTX_ERROR),
+        abi::store_u64("x31", "%v9", LCTX_HEAD),
+        abi::store_u64("x31", "%v9", LCTX_TAIL),
+    ]);
+    dlsym(
+        symbol,
+        NWH,
+        "dispatch_semaphore_signal",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::store_u64("%v10", "%v9", CTX_SIGNAL),
+    ]);
+    // ctx->retain = &nw_retain (the conn handler retains queued connections).
+    dlsym(
+        symbol,
+        NWH,
+        "nw_retain",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::store_u64("%v10", "%v9", CTX_RETAIN),
+    ]);
+    // nw_listener_set_queue(listener, queue)
+    dlsym(
+        symbol,
+        NWH,
+        "nw_listener_set_queue",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
+        abi::load_u64("x1", abi::stack_pointer(), QUEUE),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    // State-changed handler (the shared STATE_INVOKE trampoline over lctx).
+    emit_build_block(
+        symbol,
+        NWH,
+        STATE_INVOKE,
+        LCTX,
+        SBLOCK,
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlsym(
+        symbol,
+        NWH,
+        "nw_listener_set_state_changed_handler",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
+        abi::add_immediate("x1", abi::stack_pointer(), SBLOCK),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    // New-connection handler (retain + enqueue + signal).
+    emit_build_block(
+        symbol,
+        NWH,
+        LCONN_INVOKE,
+        LCTX,
+        CBLOCK,
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlsym(
+        symbol,
+        NWH,
+        "nw_listener_set_new_connection_handler",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
+        abi::add_immediate("x1", abi::stack_pointer(), CBLOCK),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    // nw_listener_start(listener)
+    dlsym(
+        symbol,
+        NWH,
+        "nw_listener_start",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    // Wait until the listener is ready (bind complete) or failed.
+    dlsym(
+        symbol,
+        NWH,
+        "dispatch_semaphore_wait",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::store_u64("%v9", abi::stack_pointer(), WAITFN),
+        abi::label(&wait_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::move_immediate("x1", "Integer", "0"),
+        abi::bitwise_not("x1", "x1"), // DISPATCH_TIME_FOREVER
+        abi::load_u64("%v10", abi::stack_pointer(), WAITFN),
+        abi::branch_link_register("%v10"),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::load_u32("%v10", "%v9", CTX_STATE),
+        abi::compare_immediate("%v10", NW_LISTENER_READY),
+        abi::branch_eq(&ready),
+        abi::compare_immediate("%v10", NW_LISTENER_FAILED),
+        abi::branch_ge(&listen_fail), // failed / cancelled
+        abi::branch(&wait_loop),      // invalid / waiting
+        abi::label(&ready),
+    ]);
+    // Build the TlsListener record { closed=0, listener, queue, lctx }.
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    ins.extend([
+        abi::store_u64("x31", "x1", REC_CLOSED),
+        abi::load_u64("%v9", abi::stack_pointer(), LISTENER),
+        abi::store_u64("%v9", "x1", REC_CONN),
+        abi::load_u64("%v9", abi::stack_pointer(), QUEUE),
+        abi::store_u64("%v9", "x1", REC_QUEUE),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::store_u64("%v9", "x1", REC_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+    // listen_fail: bind/start failed — cancel the listener, report a network
+    // failure (mirrors net::listenTcp's bind error).
+    ins.push(abi::label(&listen_fail));
+    dlsym(
+        symbol,
+        NWH,
+        "nw_listener_cancel",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), LISTENER),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    ins.push(abi::label(&net_fail));
+    emit_fail(
+        symbol,
+        ERR_NETWORK_FAILED_CODE,
+        ERR_NETWORK_FAILED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    // read_fail_fd: a seek/read on an opened PEM file failed — close it first.
+    ins.push(abi::label(&read_fail_fd));
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        FILEFD,
+    ));
+    platform.emit_close_file(symbol, platform_imports, &mut ins, &mut rel)?;
+    ins.push(abi::label(&cert_fail));
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&load_fail));
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.extend([
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE); Ok((frame, ins, rel, stack_slots))}
+}
+
+pub(super) fn lower_tls_accept_macos(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    const FRAME_SIZE: usize = 208;
+    const REC: usize = 8;
+    const TIMEOUT: usize = 16;
+    const NWH: usize = 24;
+    const FNPTR: usize = 32;
+    const LCTX: usize = 40;
+    const QUEUE: usize = 48;
+    const DEADLINE: usize = 56;
+    const WAITFN: usize = 64;
+    const CONN: usize = 72;
+    const CCTX: usize = 80;
+    const SBLOCK: usize = 96; // 96..136: per-connection state block literal
+
+    let closed = format!("{symbol}_closed");
+    let load_fail = format!("{symbol}_load_fail");
+    let alloc_fail = format!("{symbol}_alloc_fail");
+    let wait_forever = format!("{symbol}_wait_forever");
+    let deadline_ready = format!("{symbol}_deadline_ready");
+    let wait_loop = format!("{symbol}_wait");
+    let pop = format!("{symbol}_pop");
+    let listener_dead = format!("{symbol}_listener_dead");
+    let accept_timeout = format!("{symbol}_accept_timeout");
+    let hs_loop = format!("{symbol}_hs_wait");
+    let hs_timeout = format!("{symbol}_hs_timeout");
+    let conn_fail = format!("{symbol}_conn_fail");
+    let ready = format!("{symbol}_ready");
+    let done = format!("{symbol}_done");
+
+    let mut ins = vec![abi::label("entry")];
+    let mut rel = Vec::new();
+    // x0 = listener record { closed@0, listener@8, queue@16, lctx@24 };
+    // x1 = timeoutMs.
+    ins.extend([
+        abi::store_u64("x1", abi::stack_pointer(), TIMEOUT),
+        abi::load_u64("%v9", abi::return_register(), REC_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&closed),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
+        abi::load_u64("%v9", abi::return_register(), REC_CTX),
+        abi::store_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::load_u64("%v9", abi::return_register(), REC_QUEUE),
+        abi::store_u64("%v9", abi::stack_pointer(), QUEUE),
+    ]);
+    emit_dlopen_libssl_macos(
+        symbol,
+        NWH,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    // Deadline: timeoutMs > 0 => dispatch_time(NOW, ms*1e6); else FOREVER.
+    // The one absolute deadline bounds both the wait for a connection and the
+    // server handshake.
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), TIMEOUT),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_le(&wait_forever),
+    ]);
+    dlsym(
+        symbol,
+        NWH,
+        "dispatch_time",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"), // DISPATCH_TIME_NOW
+        abi::load_u64("x1", abi::stack_pointer(), TIMEOUT),
+        abi::move_immediate("%v10", "Integer", "1000000"),
+        abi::multiply_registers("x1", "x1", "%v10"), // ms -> ns
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), DEADLINE),
+        abi::branch(&deadline_ready),
+        abi::label(&wait_forever),
+        abi::move_immediate("%v9", "Integer", "0"),
+        abi::bitwise_not("%v9", "%v9"), // DISPATCH_TIME_FOREVER
+        abi::store_u64("%v9", abi::stack_pointer(), DEADLINE),
+        abi::label(&deadline_ready),
+    ]);
+    dlsym(
+        symbol,
+        NWH,
+        "dispatch_semaphore_wait",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::store_u64("%v9", abi::stack_pointer(), WAITFN),
+        // Wait for a queued connection (the ring is checked first so
+        // connections that arrived before this accept are drained even when
+        // their semaphore counts were consumed by earlier state wakeups).
+        abi::label(&wait_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::load_u64("%v10", "%v9", LCTX_HEAD),
+        abi::load_u64("%v11", "%v9", LCTX_TAIL),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_ne(&pop),
+        // Listener failed/cancelled while we wait?
+        abi::load_u32("%v10", "%v9", CTX_STATE),
+        abi::compare_immediate("%v10", NW_LISTENER_FAILED),
+        abi::branch_ge(&listener_dead),
+        abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::load_u64("x1", abi::stack_pointer(), DEADLINE),
+        abi::load_u64("%v10", abi::stack_pointer(), WAITFN),
+        abi::branch_link_register("%v10"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&accept_timeout),
+        abi::branch(&wait_loop),
+        // Pop the oldest queued connection.
+        abi::label(&pop),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::load_u64("%v11", "%v9", LCTX_TAIL),
+        abi::move_immediate("%v12", "Integer", "15"),
+        abi::and_registers("%v12", "%v11", "%v12"),
+        abi::shift_left_immediate("%v12", "%v12", 3),
+        abi::add_immediate("%v13", "%v9", LCTX_RING),
+        abi::add_registers("%v13", "%v13", "%v12"),
+        abi::load_u64("%v14", "%v13", 0),
+        abi::store_u64("%v14", abi::stack_pointer(), CONN),
+        abi::add_immediate("%v11", "%v11", 1),
+        abi::store_u64("%v11", "%v9", LCTX_TAIL),
+    ]);
+    // Per-connection block context { sem, signal, state, content, error }.
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", CTX_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    ins.push(abi::store_u64("x1", abi::stack_pointer(), CCTX));
+    dlsym(
+        symbol,
+        NWH,
+        "dispatch_semaphore_create",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", "0"),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        abi::load_u64("%v9", abi::stack_pointer(), CCTX),
+        abi::store_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::store_u64("x31", "%v9", CTX_STATE),
+        abi::store_u64("x31", "%v9", CTX_CONTENT),
+        abi::store_u64("x31", "%v9", CTX_ERROR),
+    ]);
+    dlsym(
+        symbol,
+        NWH,
+        "dispatch_semaphore_signal",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
+        abi::load_u64("%v9", abi::stack_pointer(), CCTX),
+        abi::store_u64("%v10", "%v9", CTX_SIGNAL),
+    ]);
+    // nw_connection_set_queue(conn, queue) — the listener's serial queue.
+    dlsym(
+        symbol,
+        NWH,
+        "nw_connection_set_queue",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+        abi::load_u64("x1", abi::stack_pointer(), QUEUE),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    // Per-connection state handler, then start (runs the server handshake).
+    emit_build_block(
+        symbol,
+        NWH,
+        STATE_INVOKE,
+        CCTX,
+        SBLOCK,
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlsym(
+        symbol,
+        NWH,
+        "nw_connection_set_state_changed_handler",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+        abi::add_immediate("x1", abi::stack_pointer(), SBLOCK),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    dlsym(
+        symbol,
+        NWH,
+        "nw_connection_start",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+        // Wait for the connection to reach ready (handshake complete).
+        abi::label(&hs_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), CCTX),
+        abi::load_u64(abi::return_register(), "%v9", CTX_SEM),
+        abi::load_u64("x1", abi::stack_pointer(), DEADLINE),
+        abi::load_u64("%v10", abi::stack_pointer(), WAITFN),
+        abi::branch_link_register("%v10"),
+        abi::compare_immediate(abi::return_register(), "0"),
+        abi::branch_ne(&hs_timeout),
+        abi::load_u64("%v9", abi::stack_pointer(), CCTX),
+        abi::load_u32("%v10", "%v9", CTX_STATE),
+        abi::compare_immediate("%v10", NW_STATE_READY),
+        abi::branch_eq(&ready),
+        abi::compare_immediate("%v10", "2"), // preparing
+        abi::branch_eq(&hs_loop),
+        abi::compare_immediate("%v10", "0"), // invalid
+        abi::branch_eq(&hs_loop),
+        abi::branch(&conn_fail), // waiting/failed/cancelled
+        abi::label(&ready),
+    ]);
+    // Build the TlsSocket record { closed=0, conn, queue, cctx } — identical
+    // to a client socket, so read/write/close work unchanged.
+    ins.extend([
+        abi::move_immediate(abi::return_register(), "Integer", REC_SIZE),
+        abi::move_immediate("x1", "Integer", "8"),
+    ]);
+    emit_alloc(symbol, &mut ins, &mut rel, &alloc_fail);
+    ins.extend([
+        abi::store_u64("x31", "x1", REC_CLOSED),
+        abi::load_u64("%v9", abi::stack_pointer(), CONN),
+        abi::store_u64("%v9", "x1", REC_CONN),
+        abi::load_u64("%v9", abi::stack_pointer(), QUEUE),
+        abi::store_u64("%v9", "x1", REC_QUEUE),
+        abi::load_u64("%v9", abi::stack_pointer(), CCTX),
+        abi::store_u64("%v9", "x1", REC_CTX),
+        abi::move_register(RESULT_VALUE_REGISTER, "x1"),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+    // conn_fail / hs_timeout: cancel the accepted connection first.
+    ins.push(abi::label(&conn_fail));
+    dlsym(
+        symbol,
+        NWH,
+        "nw_connection_cancel",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&hs_timeout));
+    dlsym(
+        symbol,
+        NWH,
+        "nw_connection_cancel",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+        abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v9"),
+    ]);
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&accept_timeout));
+    emit_fail(
+        symbol,
+        ERR_TIMEOUT_CODE,
+        ERR_TIMEOUT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&listener_dead));
+    emit_fail(
+        symbol,
+        ERR_NETWORK_FAILED_CODE,
+        ERR_NETWORK_FAILED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&closed));
+    emit_fail(
+        symbol,
+        ERR_RESOURCE_CLOSED_CODE,
+        ERR_RESOURCE_CLOSED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&load_fail));
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.push(abi::label(&alloc_fail));
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.extend([
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE); Ok((frame, ins, rel, stack_slots))}
+}
+
+pub(super) fn lower_tls_close_listener_macos(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+    const FRAME_SIZE: usize = 96;
+    const REC: usize = 8;
+    const HANDLE: usize = 16;
+    const FNPTR: usize = 24;
+    const LCTX: usize = 32;
+    const CONN: usize = 40;
+    const SETQFN: usize = 48;
+    const CANCELFN: usize = 56;
+    const RELEASEFN: usize = 64;
+
+    let already = format!("{symbol}_already");
+    let load_fail = format!("{symbol}_load_fail");
+    let drain_loop = format!("{symbol}_drain");
+    let drained = format!("{symbol}_drained");
+    let done = format!("{symbol}_done");
+
+    let mut ins = vec![abi::label("entry")];
+    let mut rel = Vec::new();
+    ins.extend([
+        abi::store_u64(abi::return_register(), abi::stack_pointer(), REC),
+        // Idempotent: a closed handle returns OK.
+        abi::load_u64("%v9", abi::return_register(), REC_CLOSED),
+        abi::compare_immediate("%v9", "0"),
+        abi::branch_ne(&already),
+        abi::load_u64("%v9", abi::return_register(), REC_CTX),
+        abi::store_u64("%v9", abi::stack_pointer(), LCTX),
+    ]);
+    emit_dlopen_libssl_macos(
+        symbol,
+        HANDLE,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    for (name, off) in [
+        ("nw_connection_set_queue", SETQFN),
+        ("nw_connection_cancel", CANCELFN),
+        ("nw_release", RELEASEFN),
+    ] {
+        dlsym(
+            symbol,
+            HANDLE,
+            name,
+            FNPTR,
+            &load_fail,
+            platform_imports,
+            platform,
+            &mut ins,
+            &mut rel,
+        )?;
+        ins.extend([
+            abi::load_u64("%v9", abi::stack_pointer(), FNPTR),
+            abi::store_u64("%v9", abi::stack_pointer(), off),
+        ]);
+    }
+    // Reject every still-queued (retained, never-started) connection: give it
+    // the listener's queue, cancel it, drop our retain.
+    ins.extend([
+        abi::label(&drain_loop),
+        abi::load_u64("%v9", abi::stack_pointer(), LCTX),
+        abi::load_u64("%v10", "%v9", LCTX_HEAD),
+        abi::load_u64("%v11", "%v9", LCTX_TAIL),
+        abi::compare_registers("%v10", "%v11"),
+        abi::branch_eq(&drained),
+        abi::move_immediate("%v12", "Integer", "15"),
+        abi::and_registers("%v12", "%v11", "%v12"),
+        abi::shift_left_immediate("%v12", "%v12", 3),
+        abi::add_immediate("%v13", "%v9", LCTX_RING),
+        abi::add_registers("%v13", "%v13", "%v12"),
+        abi::load_u64("%v14", "%v13", 0),
+        abi::store_u64("%v14", abi::stack_pointer(), CONN),
+        abi::add_immediate("%v11", "%v11", 1),
+        abi::store_u64("%v11", "%v9", LCTX_TAIL),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+        abi::load_u64("%v9", abi::stack_pointer(), REC),
+        abi::load_u64("x1", "%v9", REC_QUEUE),
+        abi::load_u64("%v10", abi::stack_pointer(), SETQFN),
+        abi::branch_link_register("%v10"),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+        abi::load_u64("%v10", abi::stack_pointer(), CANCELFN),
+        abi::branch_link_register("%v10"),
+        abi::load_u64(abi::return_register(), abi::stack_pointer(), CONN),
+        abi::load_u64("%v10", abi::stack_pointer(), RELEASEFN),
+        abi::branch_link_register("%v10"),
+        abi::branch(&drain_loop),
+        abi::label(&drained),
+    ]);
+    // nw_listener_cancel(listener)
+    dlsym(
+        symbol,
+        HANDLE,
+        "nw_listener_cancel",
+        FNPTR,
+        &load_fail,
+        platform_imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), REC),
+        abi::load_u64(abi::return_register(), "%v9", REC_CONN),
+        abi::load_u64("%v10", abi::stack_pointer(), FNPTR),
+        abi::branch_link_register("%v10"),
+        // Mark closed.
+        abi::load_u64("%v9", abi::stack_pointer(), REC),
+        abi::move_immediate("%v10", "Integer", "1"),
+        abi::store_u64("%v10", "%v9", REC_CLOSED),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::branch(&done),
+    ]);
+    ins.push(abi::label(&load_fail));
+    emit_fail(
+        symbol,
+        ERR_TLS_FAILED_CODE,
+        ERR_TLS_FAILED_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
+    ins.extend([
+        abi::label(&already),
+        abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
+        abi::label(&done),
+        abi::return_(),
+    ]);
+    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut ins, &[], FRAME_SIZE); Ok((frame, ins, rel, stack_slots))}
 }
