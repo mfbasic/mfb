@@ -263,56 +263,78 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     // no intervening use) is NOT staged and keeps its arg mapping.
     let def_is_staged_result = |def_idx: usize, n: usize| -> bool {
         let target = format!("x{n}");
-        let mut j = def_idx + 1;
-        let mut entered_reset = false;
-        let mut seen = vec![false; count];
-        loop {
-            if j >= count || seen[j] {
-                return false;
-            }
-            seen[j] = true;
-            // Passing into a reset block (a branch-only target or a merge) means
-            // the consuming use there is colored `is_result` (its
-            // `defined_since_boundary` is cleared) — so the def must be RETS to
-            // match. A use in the SAME straight-line block (e.g. the exit-code
-            // path's `mov x0,x1; cmp x0,255`, whose value then flows on to the
-            // `exit` syscall as SYS_ARGS[0]) is NOT staged.
-            if block_entry[j] {
-                entered_reset = true;
-            }
-            if abi_boundary_of(&instructions[j]).is_some() {
-                return false; // reaches a call/syscall boundary before any use
-            }
-            let mut reads = false;
-            let mut redefines = false;
-            for (k, v) in &instructions[j].fields {
-                if v == &target {
-                    if X86_DEF_FIELDS.contains(k) {
-                        redefines = true;
-                    } else {
-                        reads = true;
+        // BFS over control flow following BOTH edges of conditional branches:
+        // the SIMD binary tail's select (`ldr x0,[a]; …; b.le done; mov x0,x1;
+        // done: str x0`) delivers the first def to the reset-block store along
+        // the TAKEN edge while the fall-through path redefines it — the def is
+        // staged if ANY path reaches a qualifying reset-block result read.
+        let mut work: Vec<(usize, bool)> = vec![(def_idx + 1, false)];
+        let mut seen = std::collections::HashSet::new();
+        let mut staged = false;
+        while let Some((mut j, mut entered_reset)) = work.pop() {
+            loop {
+                if j >= count || !seen.insert((j, entered_reset)) {
+                    break;
+                }
+                // Passing into a reset block (a branch-only target or a merge)
+                // means a use there is colored `is_result` (its
+                // `defined_since_boundary` is cleared) — so the def must be RETS
+                // to match. A read in the SAME straight-line block does not
+                // finalize the coloring — the value stays live past it (the
+                // entry's exit path is `mov x0,x1; cmp x0,255; ja …; jmp
+                // exit_label`, where the decisive consumer is the exit label's
+                // arena-staging store); such a use is forced to the matching
+                // RETS color by `staged_live` below.
+                if block_entry[j] {
+                    entered_reset = true;
+                }
+                if abi_boundary_of(&instructions[j]).is_some() {
+                    break; // this path consumes it at a call/syscall boundary
+                }
+                let mut reads = false;
+                let mut redefines = false;
+                for (k, v) in &instructions[j].fields {
+                    if v == &target {
+                        if X86_DEF_FIELDS.contains(k) {
+                            redefines = true;
+                        } else {
+                            reads = true;
+                        }
                     }
                 }
-            }
-            if reads {
-                return entered_reset
+                if reads
+                    && entered_reset
                     && matches!(
                         boundary_before[j],
                         Some(AbiBoundary::Call) | Some(AbiBoundary::Syscall)
-                    );
-            }
-            if redefines {
-                return false; // overwritten before any use
-            }
-            if instructions[j].op == CodeOp::Branch {
-                match branch_target(j) {
-                    Some(t) => j = t,
-                    None => return false,
+                    )
+                {
+                    staged = true;
+                    break;
                 }
-            } else {
-                j += 1;
+                if redefines {
+                    break; // overwritten on this path before a deciding use
+                }
+                if instructions[j].op == CodeOp::Branch {
+                    match branch_target(j) {
+                        Some(t) => j = t,
+                        None => break,
+                    }
+                } else {
+                    // A conditional branch (any non-Branch op with a target —
+                    // b.cc / cbz-style / x86.jcc) forks: queue the taken edge
+                    // and continue on the fall-through.
+                    if let Some(t) = branch_target(j) {
+                        work.push((t, entered_reset));
+                    }
+                    j += 1;
+                }
+            }
+            if staged {
+                break;
             }
         }
+        staged
     };
     let staged_result_def: Vec<bool> = (0..count)
         .map(|i| {
@@ -352,12 +374,22 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     let mut param_home: std::collections::BTreeMap<usize, String> =
         std::collections::BTreeMap::new();
 
+    // Registers whose live def was colored RETS as a staged result: same-block
+    // uses (the exit path's `cmp x0,255` between the staged `mov x0,x1` and the
+    // exit label's arena-staging store) must read the SAME register the def
+    // wrote, not the role-based coloring (whose next boundary is the shutdown
+    // call, giving CALL_ARGS). Cleared on redefinition, at boundaries, and at
+    // block entries (a reset block's uses are colored `is_result` = RETS
+    // directly, so the def and the cross-block consumer already agree).
+    let mut staged_live: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
     for i in 0..count {
         let role = next_after[i];
         // A block reached only by branches starts its def tracking fresh (its
         // linear predecessor is a different control-flow path).
         if block_entry[i] {
             defined_since_boundary.clear();
+            staged_live.clear();
         }
         let mut new_defs: Vec<String> = Vec::new();
         let mut new_def_ns: Vec<usize> = Vec::new();
@@ -430,6 +462,11 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                 && !boundary_since_entry
                 && !defined_since_entry.contains(&n);
             let mapped = if is_def && n < RETS.len() && staged_result_def[i] {
+                staged_live.insert(n);
+                RETS[n].to_string()
+            } else if !is_def && n < RETS.len() && staged_live.contains(&n) {
+                // A same-block use of a staged-result def reads the register the
+                // def actually wrote (RETS), not the role-based coloring.
                 RETS[n].to_string()
             } else if is_param_use {
                 CALL_ARGS
@@ -437,6 +474,9 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
                     .map(|reg| reg.to_string())
                     .unwrap_or_else(|| map_abi_register(n, role, is_result))
             } else {
+                if is_def {
+                    staged_live.remove(&n);
+                }
                 map_abi_register(n, role, is_result)
             };
             if is_param_use {
@@ -457,6 +497,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             Some(AbiBoundary::Call | AbiBoundary::Syscall) => {
                 boundary_since_entry = true;
                 defined_since_boundary.clear();
+                staged_live.clear();
             }
             Some(AbiBoundary::Ret) => {}
             None => {
