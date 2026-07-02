@@ -574,8 +574,11 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::move_immediate("x23", "Integer", "0"));
         self.emit(abi::label(&order_loop));
-        self.emit(abi::add_immediate("x6", "x23", 1));
-        self.emit(abi::compare_registers("x6", "x21"));
+        // x12 (dead at the loop head; redefined below) — not x6: ABI registers
+        // stay physical through vregify, and the x86 remap role-colors them
+        // (x6/x7 both collapsed onto rax, corrupting the scan pointers).
+        self.emit(abi::add_immediate("x12", "x23", 1));
+        self.emit(abi::compare_registers("x12", "x21"));
         self.emit(abi::branch_ge(&order_done));
         self.emit(abi::shift_left_immediate("x12", "x23", 3));
         self.emit(abi::add_registers("x12", "x25", "x12"));
@@ -648,26 +651,30 @@ impl CodeBuilder<'_> {
         self.emit_unicode_property_comb_length("x13", "x17");
         self.emit_unicode_property_lookup("x10", "x13");
         self.emit_unicode_property_flags("x13", "x9");
-        self.emit(abi::move_immediate("x6", "Integer", "1023"));
-        self.emit(abi::compare_registers("x16", "x6"));
+        // x13/x9 are dead here (both consumed by the property extraction just
+        // above); use them — not x6/x7: ABI registers stay physical through
+        // vregify and the x86 remap role-colors them (x6 and x7 both collapsed
+        // onto rax, so the scan pointer lost its table base).
+        self.emit(abi::move_immediate("x13", "Integer", "1023"));
+        self.emit(abi::compare_registers("x16", "x13"));
         self.emit(abi::branch_ge(&compose_write));
-        self.emit(abi::move_immediate("x6", "Integer", "1"));
-        self.emit(abi::and_registers("x9", "x9", "x6"));
+        self.emit(abi::move_immediate("x13", "Integer", "1"));
+        self.emit(abi::and_registers("x9", "x9", "x13"));
         self.emit(abi::compare_immediate("x9", "0"));
         self.emit(abi::branch_eq(&compose_write));
-        self.emit_load_data_address("x6", UNICODE_COMBINATIONS_SECOND_SYMBOL);
-        self.emit(abi::shift_left_immediate("x7", "x16", 2));
-        self.emit(abi::add_registers("x6", "x6", "x7"));
+        self.emit_load_data_address("x13", UNICODE_COMBINATIONS_SECOND_SYMBOL);
+        self.emit(abi::shift_left_immediate("x9", "x16", 2));
+        self.emit(abi::add_registers("x13", "x13", "x9"));
         self.emit_load_data_address("x8", UNICODE_COMBINATIONS_COMBINED_SYMBOL);
-        self.emit(abi::add_registers("x8", "x8", "x7"));
+        self.emit(abi::add_registers("x8", "x8", "x9"));
         self.emit(abi::label(&compose_scan_loop));
         self.emit(abi::compare_immediate("x17", "0"));
         self.emit(abi::branch_eq(&compose_write));
-        self.emit(abi::load_u32("x14", "x6", 0));
+        self.emit(abi::load_u32("x14", "x13", 0));
         self.emit(abi::compare_registers("x14", "x10"));
         self.emit(abi::branch_eq(&compose_found));
         self.emit(abi::branch_hi(&compose_write));
-        self.emit(abi::add_immediate("x6", "x6", 4));
+        self.emit(abi::add_immediate("x13", "x13", 4));
         self.emit(abi::add_immediate("x8", "x8", 4));
         self.emit(abi::subtract_immediate("x17", "x17", 1));
         self.emit(abi::branch(&compose_scan_loop));
