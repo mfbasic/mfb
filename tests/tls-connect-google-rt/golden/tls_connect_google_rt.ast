@@ -1,0 +1,36 @@
+{
+  "project": "tls_connect_google_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "strings", "line": 2 },
+    { "module": "tls", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "conn", "type": null, "value": { "kind": "call", "callee": "tls.connect", "arguments": [{ "kind": "string", "value": "8.8.8.8" }, { "kind": "number", "value": "443" }, { "kind": "number", "value": "0" }, { "kind": "string", "value": "dns.google" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "connected=TRUE" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "crlfBytes", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "13" }] }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "number", "value": "10" }] }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "crlf", "type": "String", "value": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "crlfBytes" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "HEAD / HTTP/1.0" }, "right": { "kind": "identifier", "value": "crlf" } }, "right": { "kind": "string", "value": "Host: dns.google" } }, "right": { "kind": "identifier", "value": "crlf" } }, "right": { "kind": "identifier", "value": "crlf" } }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "reply", "type": "String", "value": { "kind": "call", "callee": "tls.readText", "arguments": [{ "kind": "identifier", "value": "conn" }, { "kind": "number", "value": "4096" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "httpResponse=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "strings.startsWith", "arguments": [{ "kind": "identifier", "value": "reply" }, { "kind": "string", "value": "HTTP/" }] }] } }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.close", "arguments": [{ "kind": "identifier", "value": "conn" }] }, "line": 19 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "closed=TRUE" }] }, "line": 20 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 21 }
+      ]
+    }
+    ]
+  }
+  ]
+}

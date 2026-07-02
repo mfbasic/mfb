@@ -1,0 +1,22 @@
+IMPORT io
+IMPORT strings
+IMPORT tls
+
+' Live-network TLS proof: connect to a stable Google IP. 8.8.8.8 is Google
+' Public DNS's anycast address — permanently allocated, serves HTTPS, and its
+' dns.google certificate includes the bare IP in its subject alternative
+' names. The serverName argument validates the chain against dns.google and
+' sends it as the SNI host. Output is reduced to stable booleans so the
+' golden does not depend on the remote response bytes.
+FUNC main AS Integer
+  RES conn = tls::connect("8.8.8.8", 443, 0, "dns.google")
+  io::print("connected=TRUE")
+  LET crlfBytes AS List OF Byte = [toByte(13), toByte(10)]
+  LET crlf AS String = toString(crlfBytes)
+  tls::writeText(conn, "HEAD / HTTP/1.0" & crlf & "Host: dns.google" & crlf & crlf)
+  LET reply AS String = tls::readText(conn, 4096)
+  io::print("httpResponse=" & toString(strings::startsWith(reply, "HTTP/")))
+  tls::close(conn)
+  io::print("closed=TRUE")
+  RETURN 0
+END FUNC
