@@ -96,7 +96,7 @@ pub(super) fn lower_fs_create_temp_file_helper(
         abi::branch(&open_error),
         abi::label(&random_ok),
     ]);
-    emit_uuid_v4_to_path(symbol, &mut instructions, RANDOM_OFFSET, &cursor);
+    emit_uuid_v4_to_path(symbol, &mut instructions, &mut vregs, RANDOM_OFFSET, &cursor);
     for b in b".tmp" {
         instructions.extend([
             abi::move_immediate(&byte, "Byte", &b.to_string()),
@@ -196,50 +196,57 @@ fn temp_file_open_flags(target: &str) -> &'static str {
 fn emit_uuid_v4_to_path(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
     random_offset: usize,
     cursor: &str,
 ) {
+    let dash = vregs.next();
+    let byte = vregs.next();
+    let mask = vregs.next();
+    let high = vregs.next();
+    let low = vregs.next();
     for index in 0..16 {
         if matches!(index, 4 | 6 | 8 | 10) {
             instructions.extend([
-                abi::move_immediate("x14", "Byte", "45"),
-                abi::store_u8("x14", cursor, 0),
+                abi::move_immediate(&dash, "Byte", "45"),
+                abi::store_u8(&dash, cursor, 0),
                 abi::add_immediate(cursor, cursor, 1),
             ]);
         }
         instructions.push(abi::load_u8(
-            "x9",
+            &byte,
             abi::stack_pointer(),
             random_offset + index,
         ));
         if index == 6 {
             instructions.extend([
-                abi::move_immediate("x10", "Integer", "15"),
-                abi::and_registers("x9", "x9", "x10"),
-                abi::move_immediate("x10", "Integer", "64"),
-                abi::or_registers("x9", "x9", "x10"),
+                abi::move_immediate(&mask, "Integer", "15"),
+                abi::and_registers(&byte, &byte, &mask),
+                abi::move_immediate(&mask, "Integer", "64"),
+                abi::or_registers(&byte, &byte, &mask),
             ]);
         } else if index == 8 {
             instructions.extend([
-                abi::move_immediate("x10", "Integer", "63"),
-                abi::and_registers("x9", "x9", "x10"),
-                abi::move_immediate("x10", "Integer", "128"),
-                abi::or_registers("x9", "x9", "x10"),
+                abi::move_immediate(&mask, "Integer", "63"),
+                abi::and_registers(&byte, &byte, &mask),
+                abi::move_immediate(&mask, "Integer", "128"),
+                abi::or_registers(&byte, &byte, &mask),
             ]);
         }
         instructions.extend([
-            abi::shift_right_immediate("x10", "x9", 4),
-            abi::move_immediate("x11", "Integer", "15"),
-            abi::and_registers("x11", "x9", "x11"),
+            abi::shift_right_immediate(&high, &byte, 4),
+            abi::move_immediate(&low, "Integer", "15"),
+            abi::and_registers(&low, &byte, &low),
         ]);
-        emit_hex_nibble_to_path(symbol, instructions, index, "high", "x10", cursor);
-        emit_hex_nibble_to_path(symbol, instructions, index, "low", "x11", cursor);
+        emit_hex_nibble_to_path(symbol, instructions, vregs, index, "high", &high, cursor);
+        emit_hex_nibble_to_path(symbol, instructions, vregs, index, "low", &low, cursor);
     }
 }
 
 fn emit_hex_nibble_to_path(
     symbol: &str,
     instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
     byte_index: usize,
     half: &str,
     nibble: &str,
@@ -247,15 +254,16 @@ fn emit_hex_nibble_to_path(
 ) {
     let digit = format!("{symbol}_uuid_{byte_index}_{half}_digit");
     let store = format!("{symbol}_uuid_{byte_index}_{half}_store");
+    let ascii = vregs.next();
     instructions.extend([
         abi::compare_immediate(nibble, "10"),
         abi::branch_lt(&digit),
-        abi::add_immediate("x12", nibble, 87),
+        abi::add_immediate(&ascii, nibble, 87),
         abi::branch(&store),
         abi::label(&digit),
-        abi::add_immediate("x12", nibble, 48),
+        abi::add_immediate(&ascii, nibble, 48),
         abi::label(&store),
-        abi::store_u8("x12", cursor, 0),
+        abi::store_u8(&ascii, cursor, 0),
         abi::add_immediate(cursor, cursor, 1),
     ]);
 }

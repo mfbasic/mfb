@@ -155,26 +155,32 @@ pub(super) fn emit_call_validate_utf8(
 
 /// Lower the standalone UTF-8 validation helper. It takes a byte pointer in `x0`
 /// and a byte length in `x1`, and returns `0` in `x0` when the buffer is
-/// well-formed UTF-8 or `1` otherwise. It makes no calls, so it needs no stack
-/// frame.
+/// well-formed UTF-8 or `1` otherwise. The working set is virtual registers the
+/// allocator colors per-ISA (a hardcoded pool would land on x86 callee-saved
+/// GPRs and clobber the caller); it makes no calls, so the resulting frame is
+/// whatever callee-saved saves the coloring requires (typically none).
 pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
     let symbol = VALIDATE_UTF8_SYMBOL;
     let invalid = format!("{symbol}_invalid");
+    let mut vregs = Vregs::new();
     let mut instructions = vec![abi::label("entry")];
     if std::env::var("MFB_ASCII").is_ok() {
         let lp = format!("{symbol}_lp");
         let ok = format!("{symbol}_ok");
+        let pos = vregs.next();
+        let rem = vregs.next();
+        let byte = vregs.next();
         instructions.extend([
-            abi::move_register("x9", "x0"),
-            abi::move_register("x10", "x1"),
+            abi::move_register(&pos, "x0"),
+            abi::move_register(&rem, "x1"),
             abi::label(&lp),
-            abi::compare_immediate("x10", "0"),
+            abi::compare_immediate(&rem, "0"),
             abi::branch_eq(&ok),
-            abi::load_u8("x11", "x9", 0),
-            abi::compare_immediate("x11", "127"),
+            abi::load_u8(&byte, &pos, 0),
+            abi::compare_immediate(&byte, "127"),
             abi::branch_hi(&invalid),
-            abi::add_immediate("x9", "x9", 1),
-            abi::subtract_immediate("x10", "x10", 1),
+            abi::add_immediate(&pos, &pos, 1),
+            abi::subtract_immediate(&rem, &rem, 1),
             abi::branch(&lp),
             abi::label(&ok),
             abi::move_immediate("x0", "Integer", "0"),
@@ -184,7 +190,7 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
             abi::return_(),
         ]);
     } else {
-        emit_validate_utf8(symbol, "x0", "x1", &invalid, &mut instructions);
+        emit_validate_utf8(symbol, "x0", "x1", &invalid, &mut instructions, &mut vregs);
         instructions.extend([
             abi::move_immediate("x0", "Integer", "0"),
             abi::return_(),
@@ -193,16 +199,14 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
             abi::return_(),
         ]);
     }
+    let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     CodeFunction {
         name: "runtime.validateUtf8".to_string(),
         symbol: symbol.to_string(),
         params: Vec::new(),
         returns: "Integer".to_string(),
-        frame: CodeFrame {
-            stack_size: 0,
-            callee_saved: Vec::new(),
-        },
-        stack_slots: Vec::new(),
+        frame,
+        stack_slots,
         instructions,
         relocations: Vec::new(),
     }
@@ -210,21 +214,22 @@ pub(super) fn lower_validate_utf8_helper() -> CodeFunction {
 
 /// Validate that the `len`-byte buffer at `ptr` is well-formed UTF-8, branching
 /// to `error_label` on the first invalid sequence. Used by
-/// [`lower_validate_utf8_helper`]. Clobbers `x9`-`x14`. `ptr` and `len` are read
-/// into scratch registers before any clobber, so they may name `x0`/`x1`.
+/// [`lower_validate_utf8_helper`]. The working set is minted from `vregs`; `ptr`
+/// and `len` are read into it before any other def, so they may name `x0`/`x1`.
 fn emit_validate_utf8(
     symbol: &str,
     ptr: &str,
     len: &str,
     error_label: &str,
     instructions: &mut Vec<CodeInstruction>,
+    vregs: &mut Vregs,
 ) {
-    let pos = "x9";
-    let rem = "x10";
-    let byte = "x11";
-    let cont = "x12";
-    let lo = "x13";
-    let hi = "x14";
+    let pos = &vregs.next();
+    let rem = &vregs.next();
+    let byte = &vregs.next();
+    let cont = &vregs.next();
+    let lo = &vregs.next();
+    let hi = &vregs.next();
 
     let loop_start = format!("{symbol}_utf8_loop");
     let done = format!("{symbol}_utf8_done");
