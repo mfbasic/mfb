@@ -1,8 +1,11 @@
 # Repository Protocol
 
 The wire protocol between the `mfb` client and a repository (registry) service.
-It backs four commands: `mfb repo register`, `mfb repo auth`, `mfb pkg add`, and
-`mfb pkg publish`. The client side is the `mfb_repository` crate's `client`
+It backs four commands: `mfb repo register`, `mfb repo auth`, `mfb pkg publish`,
+and `mfb build --sign`. (`mfb pkg add` does not use this protocol: it accepts
+only `file://` URLs and copies the `.mfp` into `packages/`
+locally.[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]])
+The client side is the `mfb_repository` crate's `client`
 module; the reference server is the same crate's `server` module. This topic
 owns the HTTP surface (endpoints, methods, JSON bodies), the challenge-response
 authentication flow, the JWT session token, and the validate-then-publish
@@ -26,6 +29,12 @@ response. On a non-success status it reads the body, and if the body parses as
 `{"error": "..."}` it returns that string verbatim; otherwise it returns
 `repository request failed with status <status>: <body>`. A connection failure
 returns `failed to connect to repository service: <err>`.[[repository/src/client.rs:post_json]][[repository/src/server.rs:ErrorResponse]]
+
+The reference server ships as the `mfb-repo` binary: `mfb-repo --path
+<repo_path> [--listen <addr:port>]`. It listens on `127.0.0.1:7777` by default,
+prints `MFB_REPO_LISTEN=<actual addr>` once bound, and keeps its state under
+`<repo_path>` as a SQLite `meta.db` plus a `packages/` blob
+directory.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]][[repository/src/store.rs:open_repository]]
 
 ### Encoding
 
@@ -121,8 +130,11 @@ Response `ChallengeResponse`:[[repository/src/server.rs:ChallengeResponse]]
 }
 ```
 
-The server looks up the owner's auth key; an unknown owner or a fingerprint that
-does not match the registered key yields `400`.[[repository/src/server.rs:challenge]]
+The server looks up the owner's auth key; an unknown owner (`unknown owner`) or
+a fingerprint that does not match the registered key (`mismatched local key
+fingerprint`) yields `400`.[[repository/src/server.rs:challenge]] The nonce is
+32 random bytes and the challenge expires **300 seconds** after
+issue.[[repository/src/store.rs:create_challenge]]
 
 ### Step 2 — `/auth/login`
 
@@ -149,7 +161,10 @@ Response `LoginResponse`:[[repository/src/server.rs:LoginResponse]]
 
 The server completes the challenge (verifying the signature over the challenge
 message). A replayed/already-consumed challenge yields `409` (message contains
-`reused challenge`).[[repository/src/server.rs:login]][[repository/src/server.rs:conflict_or_bad_request]]
+`reused challenge`); an unknown challenge id yields `400 unknown challenge` and
+a lapsed one `400 expired challenge`. Completion is single-use: the challenge
+row is marked used in the same transaction that accepts the
+signature.[[repository/src/server.rs:login]][[repository/src/server.rs:conflict_or_bad_request]][[repository/src/store.rs:complete_challenge]]
 The CLI prints `Authenticated owner <owner> until <expiresAt>`.[[src/cli/repo.rs:run_repo_command]]
 
 ### Session Token (JWT)
@@ -195,9 +210,13 @@ Response `SigningInfoResponse`:[[repository/src/server.rs:SigningInfoResponse]]
 ```
 
 In the reference server the ident and signing keys are the same key, so the two
-`*Key`/`*Fingerprint` pairs carry identical values. The server rejects the
-request if the session `sub` differs from the requested owner, or if the
-session's `owner_id`/`auth_fingerprint` no longer match the current key.[[repository/src/server.rs:signing_info]]
+`*Key`/`*Fingerprint` pairs carry identical values (bare base64url — the
+`ed25519:` prefix is added client-side when the key is embedded in metadata).
+The server rejects the request if the session `sub` differs from the requested
+owner — an **exact, case-sensitive** string compare against the registered
+display form, unlike the case-folded ident-owner check at publish time — or if
+the session's `owner_id`/`auth_fingerprint` no longer match the current
+key.[[repository/src/server.rs:signing_info]]
 
 ## Package Artifact Requests
 
@@ -232,10 +251,15 @@ Returns `ValidatePackageResponse`:[[repository/src/server.rs:ValidatePackageResp
 
 The server verifies the session token, base64url-decodes and parses the `.mfp`,
 recomputes the content hash, and accumulates `diagnostics`. `valid` is true iff
-`diagnostics` is empty. Checks include: request `contentHash`/`ident`/`version`/
+`diagnostics` is empty. An artifact that fails `.mfp` parsing is reported the
+same way — `200` with `valid: false`, an **empty** `contentHash`, and the parse
+error as the sole diagnostic — not as an HTTP error. Checks include: request
+`contentHash`/`ident`/`version`/
 `identFingerprint`/`signingFingerprint` matching the parsed package; the ident
 shaped as `<owner>#<package>`; the session owner (case-folded) matching the
-ident owner; the package `identKey` equal to `ed25519:<current public key>`; the
+ident owner; the session's `owner_id`/`auth_fingerprint` still matching the
+owner's current key; the package `identKey` equal to `ed25519:<current public
+key>`; the
 package fingerprints and `author` matching the registered owner; the embedded
 package signature verifying against the owner's public key; and the
 `ident@version` not already published.[[repository/src/server.rs:validate_package_request]]
@@ -250,11 +274,14 @@ Returns `PublishPackageResponse`:[[repository/src/server.rs:PublishPackageRespon
   "version": "1.2.3",
   "hash": "<hex>",
   "publishedAt": 1700000000,
-  "state": "published",
+  "state": "available",
   "blobStored": true,
   "logEntry": "publish:<uuid>"
 }
 ```
+
+`state` is the constant `available` — the state recorded on the new
+`package_versions` row.[[repository/src/store.rs:publish_package_version]]
 
 `/publish` re-runs the **full validation** internally first; if `valid` is false
 it returns `400 package validation failed: <diagnostics joined by "; ">`. On
@@ -284,5 +311,5 @@ the same invariant independently by re-validating inside `/publish`.[[repository
 * ./mfb spec package-manager key-store — on-disk keypair and session-token storage (the rollback target and session source)
 * ./mfb spec package-manager owner-names — owner-name validation and case folding applied before every request
 * ./mfb spec package container-format — the `.mfp` bytes carried in `artifact` and parsed during validation
-* ./mfb spec tooling cli-reference — `repo register`/`repo auth`/`pkg add`/`pkg publish` command surface and exit codes
+* ./mfb spec tooling cli-reference — `repo register`/`repo auth`/`pkg publish` command surface and exit codes
 * ./mfb spec tooling project-manifest — the `project.json` that `pkg publish` reads before building

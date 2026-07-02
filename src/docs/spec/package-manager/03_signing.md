@@ -6,11 +6,15 @@ How publisher identity, package signatures, and the local-vs-repository key matc
 
 The repository models two logical roles, the **ident key** and the **signing key**, even though the current implementation derives both from a single per-owner Ed25519 keypair. The ident key names the publisher (publisher identity); the signing key is the key whose private half signs `.mfp` packages.
 
-| Concept | Meaning | Encoding |
+| Concept | Meaning | Encoding (metadata form) |
 | --- | --- | --- |
 | ident key | Publisher identity public key | `ed25519:` + URL-safe base64 (no pad) of 32-byte public key |
 | signing key | Key verifying a package signature | `ed25519:` + URL-safe base64 of 32-byte public key |
 | fingerprint | Key identifier | lowercase hex of `SHA-256(public_key)` |
+
+The `ed25519:`-prefixed form is the *metadata* encoding (package header,
+manifest, executable signing blob); the `/keys/signing` wire response carries
+the bare base64 key and the client prepends the prefix. [[src/cli/build.rs:load_build_signing_info]]
 
 A keypair is 32-byte public + 32-byte private; a signature is 64 bytes. [[repository/src/crypto.rs:PUBLIC_KEY_LEN]] Keys are generated from OS entropy. [[repository/src/crypto.rs:generate_keypair]] The public key can always be re-derived from the private key, which is how the build path checks a local key against the repository. [[repository/src/crypto.rs:public_from_private]]
 
@@ -107,4 +111,4 @@ The binary-representation reader does **not** verify the cryptographic signature
 * ./mfb spec package-manager key-store — where the local keypair and session token are stored on disk
 * ./mfb spec package-manager owner-names — owner-name validation rules used before signing
 * ./mfb spec tooling project-manifest — `identKey`, `identFingerprint`, and `signingFingerprint` fields in the manifest
-* ./mfb spec tooling cli-reference — `mfb build --sign`, `mfb register`, and `mfb auth`
+* ./mfb spec tooling cli-reference — `mfb build --sign`, `mfb repo register`, and `mfb repo auth`

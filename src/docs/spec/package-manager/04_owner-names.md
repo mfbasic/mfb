@@ -87,6 +87,11 @@ At publish time the owner segment parsed out of the package ident
 a mismatch yields `session owner does not match package ident owner`.
 [[repository/src/server.rs:validate_package_request]]
 
+One endpoint is an exception: `/keys/signing` compares the requested owner
+against the session subject (the registered *display* form) **without**
+folding, so `mfb build --sign` must be given the owner in exactly the case it
+was registered with. [[repository/src/server.rs:signing_info]]
+
 ## Where Validation Runs
 
 `validate_owner_name` is the single source of truth and is called on both sides

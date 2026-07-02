@@ -8,13 +8,17 @@ constant mechanism. Constants are keyed package-qualified (`"errorCode.<Name>"`)
 and resolved by exact match against the generated table. [[src/builtins/errorcode.rs:constant_value]]
 
 These integers are exactly the values runtime code stamps into `Error.code` when
-a fallible operation fails (see *See Also*). They are program-visible data, not
-host-tool diagnostics; the compiler-facing rule set (`src/rules.rs`) is a separate
-registry and is not surfaced here.
+a fallible operation fails (see *See Also*) — both the native codegen/runtime
+helpers [[src/target/shared/code/error_constants.rs:ERR_OVERFLOW_CODE]] and the
+embedded MFBASIC standard packages (`regex`, `datetime`, `csv`, `json`, `http`,
+`net`, …) fail with registry values, and user code may `FAIL` with them too. They
+are program-visible data, not host-tool diagnostics; the compiler-facing rule set
+(`src/rules/`, see `./mfb spec diagnostics rule-codes`) is a separate registry
+and is not surfaced here.
 
 ## Encoding Rule
 
-The canonical code string has the dotted/hyphenated form `G-SSS-EEEE`:
+The canonical code string has the hyphenated form `G-SSS-EEEE`:
 
 * `G` — generator (`7` for all runtime codes)
 * `SSS` — subsystem
@@ -43,8 +47,9 @@ registry are:
 
 ## Constant Registry
 
-The complete `errorCode::` Name → Integer mapping. Verified against
-`ERRORCODE_CONSTANTS`; rows are listed in registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
+The complete `errorCode::` Name → Integer mapping. This table is the build input
+from which `ERRORCODE_CONSTANTS` is generated (see *Drift Guard*); row order is
+registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 
 | Code         | Integer    | Name                          | Meaning |
 |--------------|------------|-------------------------------|---------|

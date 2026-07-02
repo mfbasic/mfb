@@ -25,7 +25,10 @@ and returns it, falling back to a synthetic `0-000-0000 UNKNOWN_RULE` error rule
 when no name matches (a missing rule never panics — it degrades to a generic
 error). [[src/rules/mod.rs:rule_for]] The `code` is therefore a stable display label,
 not the lookup key, which is why two rules may legitimately carry the same code
-as long as their names differ (see *Code Collisions*).
+as long as their names differ (see *Code Collisions*). Registration is likewise
+independent of emission: `rule_for` performs a pure name lookup, nothing requires
+a registered rule to have a live call site, and the registry may carry rules
+ahead of (or after) the code that emits them. [[src/rules/mod.rs:rule_for]]
 
 ## Severity
 
@@ -201,10 +204,11 @@ by the caller. [[src/rules/mod.rs:show_diagnostic]] [[src/rules/mod.rs:show_gene
 
 ## The Rule Registry
 
-The complete registry follows, grouped by subsystem. All 180 rules are listed;
-none are omitted. Each row is `code | NAME | severity | message`, transcribed
-verbatim from the table. [[src/rules/table.rs:RULES]] Unless noted, severity is
-`error`.
+The complete registry follows, grouped by subsystem. All 179 `RULES` entries are
+listed; none are omitted, and the synthetic `0-000-0000` fallback (not a `RULES`
+member) is appended at the end. Each row is `code | NAME | severity | message`,
+transcribed verbatim from the table. [[src/rules/table.rs:RULES]] Unless noted,
+severity is `error`.
 
 ### `1-100` — MFBASIC source intake
 
@@ -250,7 +254,8 @@ verbatim from the table. [[src/rules/table.rs:RULES]] Unless noted, severity is
 
 The low block (`0001`-`0011`) validates `project.json`; the high block
 (`0100`/`0101`) reports orchestration failures. Note `2-200-0009` is the only
-`warn` and `2-200-0010` the only `info` in this subsystem.
+`warn` and `2-200-0010` the only `info` — not just in this subsystem but in the
+entire registry; every other rule is `error`. [[src/rules/table.rs:RULES]]
 
 | code | NAME | severity | message |
 | --- | --- | --- | --- |

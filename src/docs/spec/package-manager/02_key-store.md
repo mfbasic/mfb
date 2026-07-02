@@ -29,7 +29,7 @@ The root holds two subdirectories, one for keys and one for sessions; every file
 is named after its owner. [[repository/src/local.rs:keys_dir]]
 
 ```text
-$MFB_HOME (or ~/.mfb)/          0700
+$MFB_HOME (or ~/.mfb)/          (default mode)
 ├── keys/                       0700
 │   ├── <owner>.pub             0600   base64url public key
 │   └── <owner>.prv             0600   base64url private key
@@ -74,12 +74,13 @@ non-Unix targets the permission step is a no-op. [[repository/src/local.rs:set_p
 
 | target | mode | applied by |
 | --- | --- | --- |
-| `keys/`, `session/`, and the root chain | `0700` | `create_private_dir` (via `create_dir_all` then `set_permissions`) |
+| `keys/`, `session/` | `0700` | `create_private_dir` (via `create_dir_all` then `set_permissions`) |
 | `<owner>.pub`, `<owner>.prv`, `<owner>.ses` | `0600` | `write_private_file` (via `fs::write` then `set_permissions`) |
 
 `create_private_dir` calls `create_dir_all`, so the root and intermediate
-directories are created as needed; only the named directory's mode is set
-explicitly. [[repository/src/local.rs:create_private_dir]]
+directories are created as needed, but only the named leaf directory's mode is
+set explicitly — the root itself keeps the process-default (umask-derived)
+mode. [[repository/src/local.rs:create_private_dir]]
 
 ## Write & Read Operations
 
