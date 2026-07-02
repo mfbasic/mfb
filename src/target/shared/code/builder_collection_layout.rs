@@ -160,7 +160,8 @@ impl CodeBuilder<'_> {
                 Ok(())
             }
             other if is_collection_type(other) => {
-                // header + capacity * entrySize + dataCapacity.
+                // header + capacity * entrySize + dataCapacity (+ a map's
+                // bucket region).
                 self.emit(abi::load_u64(out_reg, ptr_reg, COLLECTION_OFFSET_CAPACITY));
                 self.emit(abi::move_immediate(
                     scratch,
@@ -175,6 +176,22 @@ impl CodeBuilder<'_> {
                     COLLECTION_OFFSET_DATA_CAPACITY,
                 ));
                 self.emit(abi::add_registers(out_reg, out_reg, scratch));
+                // A map block also carries its hash-index bucket region
+                // (2 * capacity u64 buckets = capacity << 4 bytes) past the
+                // data region — the same region emit_reserve_map_buckets adds
+                // on every allocation path. Omitting it here sized
+                // record-embedded map construction, copies, and frees
+                // 16*capacity bytes short, so the lazy `build_buckets` rebuild
+                // wrote its bucket markers past the block into the adjacent
+                // heap chunk (bug-02: regex `prog.names` corrupted the arena
+                // free list).
+                let is_map = CollectionTypeLayout::from_type(other)
+                    .is_some_and(|layout| layout.kind == COLLECTION_KIND_MAP);
+                if is_map {
+                    self.emit(abi::load_u64(scratch, ptr_reg, COLLECTION_OFFSET_CAPACITY));
+                    self.emit(abi::shift_left_immediate(scratch, scratch, 4));
+                    self.emit(abi::add_registers(out_reg, out_reg, scratch));
+                }
                 Ok(())
             }
             other => Err(format!(
