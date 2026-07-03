@@ -1,7 +1,7 @@
 /* Bignum modexp over the P-256 prime, base-2^28 limbs — the identical
  * algorithm to the MFBASIC version (schoolbook multiply + bit-serial binary
  * long-division reduction) on fixed-size native arrays, as the "how fast can
- * this exact algorithm go" oracle. Prints checksum 1181356819. */
+ * this exact algorithm go" oracle. Prints checksum 1627198717. */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -127,12 +127,12 @@ int main(void) {
     bn p = {{268435455, 268435455, 268435455, 4095, 0, 0, 16777216, 0, 268435455, 15}, 10};
     /* g = bytes 01..20 (big-endian) as a field element. */
     bn g = {{220077856, 27374017, 102176793, 20005201, 252711186, 12636384, 134810123, 5267568, 16909060}, 9};
-    uint64_t e = 45;
+    uint64_t e = 6822318947648322238ULL;
 
     bn r = {{1}, 1};
     bn b = g;
     bn t;
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 63; i++) {
         if ((e >> i) & 1) {
             bn_modmul(&t, &r, &b, &p);
             r = t;

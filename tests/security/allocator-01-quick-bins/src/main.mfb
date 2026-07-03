@@ -1,0 +1,56 @@
+' allocator-01: per-size-class quick bins + designated-victim carve chunk +
+' small-gated flush-before-grow. Mixed-size alloc/free churn is O(1)
+' amortized: a freed chunk <= 2048 bytes parks on its exact-size bin (O(1)
+' push) and the next same-class allocation pops it (O(1)); a bin miss
+' bump-serves from the designated victim; victim renewal takes the largest
+' parked bin chunk, a whole list chunk, or a fresh block. This churn
+' exercises every path: bin hit (recycled string/list sizes), victim bump
+' and renewal (first occurrence of each size), > 2048 fallback to the
+' coalescing list (the 8 KiB Z strings, which also force grows), and the
+' small-request flush retry. Values are verified, not just counted, so a bin
+' serving the wrong chunk or a corrupted victim fails loudly.
+' (align > 16 bypass: no reachable surface requests alignment > 8, so that
+' guard is exercised structurally by the goldens only.)
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+FUNC churn(rounds AS Integer) AS Integer
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < rounds
+    LET a AS String = strings::repeat("x", 1 + (i MOD 96))
+    MUT xs AS List OF Integer = []
+    MUT j AS Integer = 0
+    WHILE j < (i MOD 20)
+      xs = collections::append(xs, i * 100 + j)
+      j = j + 1
+    WEND
+    IF len(a) <> 1 + (i MOD 96) THEN
+      io::print("BAD string at " & toString(i))
+      RETURN -1
+    END IF
+    IF len(xs) > 0 THEN
+      IF collections::get(xs, len(xs) - 1) <> i * 100 + len(xs) - 1 THEN
+        io::print("BAD list at " & toString(i))
+        RETURN -1
+      END IF
+    END IF
+    IF (i MOD 17) = 0 THEN
+      LET big AS String = strings::repeat("Y", 1200 + (i MOD 1800))
+      acc = acc + len(big)
+    END IF
+    IF (i MOD 250) = 0 THEN
+      LET giant AS String = strings::repeat("Z", 8192)
+      acc = acc + len(giant)
+    END IF
+    acc = acc + len(a) + len(xs)
+    i = i + 1
+  WEND
+  RETURN acc
+END FUNC
+
+FUNC main AS Integer
+  io::print("bins " & toString(churn(5000)))
+  RETURN 0
+END FUNC

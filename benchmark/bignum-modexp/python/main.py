@@ -1,7 +1,7 @@
 """Bignum modexp over the P-256 prime, base-2^28 limb lists — the identical
 algorithm to the MFBASIC version (schoolbook multiply + bit-serial binary
 long-division reduction), deliberately NOT Python's native pow(), so all three
-implementations do the same list work. Prints checksum 1181356819."""
+implementations do the same list work. Prints checksum 1627198717."""
 
 MASK = 268435455  # 2^28 - 1
 
@@ -109,11 +109,11 @@ def main():
     p = [268435455, 268435455, 268435455, 4095, 0, 0, 16777216, 0, 268435455, 15]
     # g = bytes 01..20 (big-endian) as a field element.
     g = [220077856, 27374017, 102176793, 20005201, 252711186, 12636384, 134810123, 5267568, 16909060]
-    e = 45
+    e = 6822318947648322238
 
     r = [1]
     b = g
-    for i in range(6):
+    for i in range(63):
         if (e >> i) & 1:
             r = bn_modmul(r, b, p)
         b = bn_modmul(b, b, p)

@@ -2,16 +2,19 @@
 
 Every heap-backed value — strings, records, unions, errors, and collections —
 is allocated from an *arena*. An arena owns a chain of OS-mapped blocks plus a
-small fixed *arena-state* control structure, and manages the mapped bytes with a
-single per-arena **address-ordered coalescing free-list**: a freshly mapped
-block's usable region is added to the list as one big free chunk, `arena_alloc`
-carves allocations out of it (first-fit + split), and `arena_free` returns a
-chunk and merges it with address-adjacent free neighbors. The free-list subsumes
-the historical bump pointer — bumping is just splitting the one big trailing free
-chunk. Freeing is **internal reuse only**: a freed chunk goes back on the
-free-list for the next allocation but is never returned to the OS; mapped blocks
-are unmapped only by the bulk `arena_destroy` when the owning package instance
-shuts down.
+small fixed *arena-state* control structure, and manages the mapped bytes with
+three cooperating structures (allocator-01, the classic deferred-coalescing
+design): **128 per-size-class quick bins** (exact chunk sizes 16…2048 — a freed
+small chunk parks on its bin in O(1) and the next same-class allocation pops it
+in O(1)), a **designated-victim carve chunk** (one active chunk that bump-serves
+small bin misses, so misses never splinter parked inventory), and a per-arena
+**address-ordered coalescing free-list** as the backing store (large chunks,
+block remainders, and re-coalesced bin drains). The common alloc/free cycle is
+O(1) amortized regardless of the size mix. The designated victim subsumes the
+historical bump pointer. Freeing is **internal reuse only**: a freed chunk goes
+back to the allocator for the next allocation but is never returned to the OS;
+mapped blocks are unmapped only by the bulk `arena_destroy` when the owning
+package instance shuts down.
 
 Each package instance owns a distinct arena. The main package's arena-state lives
 on the entry stack and is pinned in `x19` (`ARENA_STATE_REGISTER`) for the life of
@@ -23,26 +26,32 @@ reclaim independently of the main thread (see `./mfb spec threading`).
 
 ## Arena-State Layout
 
-The arena-state structure is `ARENA_STATE_SIZE` = **104 bytes**: [[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]]
+The arena-state structure is `ARENA_STATE_SIZE` = **1144 bytes**: [[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]]
 
 ```text
 ArenaState (at x19)
-  +0   U64  blockHead        ; pointer to the current (most-recent) block, 0 if none
-  +8   U64  reserved         ; zero-initialized
-  +16  U64  fillRngLo        ; dedicated memory-fill PCG64 state, low 64 bits
-  +24  U64  fillRngHi        ; dedicated memory-fill PCG64 state, high 64 bits
-  +32  U64  exitStatus       ; pending exit/result code used during teardown
-  +40  U64  arenaStartTime   ; arena init time in ns (diagnostics + fill-seed mix)
-  +48  U64  freeListHead     ; lowest-address free chunk, 0 when the list is empty
-  +56  U64  reserved
-  +64  U64  cleanupFailCount ; count of cleanup errors (audit)
-  +72  U64  cleanupFailCode  ; last cleanup failure error code
-  +80  U64  cleanupFailMsg   ; pointer to last cleanup failure message
-  +88  U64  rngStateLo       ; PCG64 RNG state, low 64 bits
-  +96  U64  rngStateHi       ; PCG64 RNG state, high 64 bits
+  +0    U64  blockHead        ; pointer to the current (most-recent) block, 0 if none
+  +8    U64  reserved         ; zero-initialized
+  +16   U64  fillRngLo        ; dedicated memory-fill PCG64 state, low 64 bits
+  +24   U64  fillRngHi        ; dedicated memory-fill PCG64 state, high 64 bits
+  +32   U64  exitStatus       ; pending exit/result code used during teardown
+  +40   U64  arenaStartTime   ; arena init time in ns (diagnostics + fill-seed mix)
+  +48   U64  freeListHead     ; lowest-address free chunk, 0 when the list is empty
+  +56   U64  reserved
+  +64   U64  cleanupFailCount ; count of cleanup errors (audit)
+  +72   U64  cleanupFailCode  ; last cleanup failure error code
+  +80   U64  cleanupFailMsg   ; pointer to last cleanup failure message
+  +88   U64  rngStateLo       ; PCG64 RNG state, low 64 bits
+  +96   U64  rngStateHi       ; PCG64 RNG state, high 64 bits
+  +104  U64  quickBin[128]    ; per-size-class bin heads: exact chunk sizes
+                              ; 16, 32, …, 2048 (class = size/16 - 1); 0 = empty
+  +1128 U64  carvePtr         ; designated-victim carve chunk: current pointer
+  +1136 U64  carveSize        ; remaining bytes in the carve chunk (0 = none)
 ```
 
-`blockHead` anchors the unmap walk and `freeListHead` anchors allocation. The
+`blockHead` anchors the unmap walk; `freeListHead`, the 128 `quickBin` heads,
+and the `carvePtr`/`carveSize` designated victim anchor allocation (see the
+small-request fast paths below). The
 cleanup-failure triple records diagnostics if reclamation of a value fails during
 teardown, and the two RNG words at 88/96 give each arena (hence each thread) an
 independent `math::rand` stream seeded at startup. The `fillRngLo`/`fillRngHi`
@@ -124,23 +133,51 @@ The algorithm:
    `1`; `size` is then rounded up to the 16-byte granule, and `align` is raised
    to at least 16. This keeps every chunk 16-aligned and 16-sized. No request
    can ever normalize to a value smaller than itself.
+2a. **Quick-bin pop** (small requests: `align ≤ 16` and normalized
+   `size ≤ 2048`; anything else skips to step 3). If `quickBin[size/16 - 1]`
+   is non-empty, pop the bin head and return it — an exact-class O(1) hit, no
+   walk and no splitting. This is sound because free and alloc normalize
+   identically and every chunk the allocator ever hands out is 16-aligned, so
+   any bin node satisfies any `align ≤ 16` request of its class.
+2b. **Designated-victim bump.** On a bin miss, if the carve chunk holds at
+   least `size` bytes, serve from `carvePtr` and advance it — an O(1) bump.
+   Concentrating all small-miss carving in one chunk keeps parked bin
+   inventory whole (splitting parked chunks per miss was measured to shave
+   them into sub-class fragments nothing ever requests).
+2c. **Victim renewal.** When the carve chunk runs dry, its remnant parks on
+   its exact-size bin (or joins the coalescing list if larger than 2048), and
+   a new victim is acquired: the largest parked bin chunk that fits the
+   request (a bounded top-down slot scan). If no bin fits, the walk (step 3)
+   hands over a **whole** chunk — never a split — as the new victim; failing
+   that, the flush retry (step 4) and finally a fresh block from the grow
+   (step 5) supply it.
 3. **First-fit walk.** Walk the address-ordered free-list for the first chunk
-   where the request fits after alignment: `aligned = align_up(start, align)` and
-   `aligned + size <= start + chunkSize`. **Split** it — return `aligned`, push the
-   front padding (`aligned - start`, if > 0) and the tail remainder
-   (`chunkEnd - (aligned + size)`, if > 0) back as free chunks. All sums are
-   overflow-checked; an overflow skips the chunk. First-fit over an ascending list
-   reuses low-address holes before carving the trailing chunk, and carving the
-   trailing chunk *is* the old bump pointer (O(1) while the list is short).
-4. **Grow.** If no chunk fits, map a new block sized
-   `max(4096, round_up(size + align + 32, 4096))`, write its header, link it at
-   the head, and **carve the request directly from the fresh block**: one walk
-   finds the block's address-ordered slot, then the same four-case split as
-   step 3 serves the aligned request and inserts only the remainder(s) into the
-   list — the fresh block is never whole-inserted and the list is never
-   re-walked. Every sum in the sizing is overflow-checked (including the
-   32-byte header add); a wrapped sum reports `ErrOutOfMemory` rather than
-   mapping an undersized block.
+   where the request fits after alignment: `aligned = align_up(start, align)`
+   and `aligned + size <= start + chunkSize`. A small request (per step 2a's
+   bounds) takes the whole chunk as the new designated victim and bump-serves
+   from it. A large request **splits** it — return `aligned`; the front
+   padding (`aligned - start`, if > 0) and the tail remainder
+   (`chunkEnd - (aligned + size)`, if > 0) each park on their exact-size bin
+   when ≤ 2048 or relink into the list otherwise, so a split never leaves a
+   sub-class fragment on the list. All sums are overflow-checked; an overflow
+   skips the chunk.
+4. **Flush-before-grow** (small requests only). If no chunk fits, do not map
+   yet: drain every quick bin through the coalescing insert (restoring full
+   adjacent-merge) and retry the walk once. On this path the bins are known to
+   hold nothing of the request's class or larger (steps 2a–2c all missed), so
+   the drain is cheap and coalescing adjacent parked chunks genuinely can
+   produce a fit. A large request grows directly — draining a big parked-small
+   inventory almost never coalesces past interleaved live objects into a
+   large-enough run and was measured to dominate whole workloads.
+5. **Grow.** If the walk (and, for a small request, the flush retry) finds no
+   fit, map a new block sized `max(4096, round_up(size + align + 32, 4096))`,
+   write its header, link it at the head, and **carve the request directly
+   from the fresh block**: one walk finds the block's address-ordered slot,
+   then a small request takes the whole usable region as the new designated
+   victim while a large request splits it as in step 3 — the fresh block is
+   never whole-inserted and the list is never re-walked. Every sum in the
+   sizing is overflow-checked (including the 32-byte header add); a wrapped
+   sum reports `ErrOutOfMemory` rather than mapping an undersized block.
 
 A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
 `ErrOutOfMemory`. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
@@ -153,13 +190,17 @@ byte `size` in `x1` and returns nothing; [[src/target/shared/code/entry_and_aren
 clobbers all caller-saved integer registers (it carries a frame, saves the link
 register, and calls both `arena_insert_free` and `arena_fill_random`). `size` is
 normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
-so the freed extent matches the live chunk that was handed out. The chunk is
-first inserted into the address-ordered free-list (`_mfb_arena_insert_free`, the
-same ordered insert the grow path uses) and **coalesced** with the
-address-adjacent free neighbor on either side, and then entropy-scrubbed (see
-*Entropy Fill*) over `[ptr+16, ptr+size)` — every payload byte past the 16-byte
-`FreeNode` overlay the insert just wrote, so the scrub can never destroy live
-free-list metadata. A **repeated free of the same address is a no-op**: the
+so the freed extent matches the live chunk that was handed out. A chunk of
+2048 bytes or less then **parks on its exact-size quick bin** — an O(1) head
+push, no list walk (`quickBin[size/16 - 1]`; bin nodes reuse the `FreeNode`
+overlay, so a later flush hands them straight to the coalescing insert). A
+larger chunk is inserted into the address-ordered free-list
+(`_mfb_arena_insert_free`, the same ordered insert the grow path uses) and
+**coalesced** with the address-adjacent free neighbor on either side. Either
+way the chunk is then entropy-scrubbed (see *Entropy Fill*) over
+`[ptr+16, ptr+size)` — every payload byte past the 16-byte `FreeNode` overlay
+just written, so the scrub can never destroy live free-list metadata. A
+**repeated free of the same address is a no-op** on the coalescing path: the
 insert walk detects a node already at `ptr` and returns without relinking, so a
 double-free cannot corrupt the list into an overlapping structure. The
 coalescing cases:
@@ -202,10 +243,11 @@ the freed payload past the FreeNode words — see `arena_free` above), and
 An arena is reclaimed whole. `arena_destroy` (symbol `_mfb_arena_destroy`) walks
 the block chain from `blockHead` through each `prevBlock`, [[src/target/shared/code/entry_and_arena.rs:lower_arena_destroy]] unmapping every block
 with the platform `munmap`/`VirtualFree` hook, then clears **both list heads** —
-`blockHead` and `freeListHead` — to `0`, leaving the arena fully inert (the
-free-list head would otherwise dangle into the unmapped blocks). It frees no
-individual values; all memory returns to the OS at once. The helper is
-idempotent — a second call sees `blockHead == 0` and does nothing.
+`blockHead` and `freeListHead` — plus every quick-bin head and the
+designated-victim words to `0`, leaving the arena fully inert (the heads would
+otherwise dangle into the unmapped blocks).
+It frees no individual values; all memory returns to the OS at once. The helper
+is idempotent — a second call sees `blockHead == 0` and does nothing.
 
 At process teardown, `_mfb_shutdown` reads the arena-state address from
 `_mfb_rt_main_arena`, clears that global first [[src/target/shared/code/error_constants.rs:SHUTDOWN_SYMBOL]] (so a signal arriving mid-teardown

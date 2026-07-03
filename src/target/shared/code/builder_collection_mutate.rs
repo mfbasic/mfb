@@ -26,19 +26,23 @@ impl CodeBuilder<'_> {
         // A `d`-native float item is materialized into a GPR before being
         // spilled into the collection payload (plan-01 float-dnative).
         let item = self.materialize_float(item)?;
-        let insert_slot =
+        let (insert_slot, materialized) =
             self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
         let index_slot = self.allocate_stack_object("append_index", 8);
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), list_slot));
         self.emit(abi::load_u64(&scratch8, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), index_slot));
-        self.lower_list_insert_collection(
+        let result = self.lower_list_insert_collection(
             list_slot,
             index_slot,
             insert_slot,
             &list.type_,
             &element_type,
-        )
+        )?;
+        if materialized {
+            return self.free_intermediate_collection(insert_slot, &list.type_, result);
+        }
+        Ok(result)
     }
 
     pub(super) fn lower_collection_prepend(
@@ -68,18 +72,22 @@ impl CodeBuilder<'_> {
         }
         // Materialize a `d`-native float before the payload spill (plan-01).
         let item = self.materialize_float(item)?;
-        let insert_slot =
+        let (insert_slot, materialized) =
             self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
         let index_slot = self.allocate_stack_object("prepend_index", 8);
         self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), index_slot));
-        self.lower_list_insert_collection(
+        let result = self.lower_list_insert_collection(
             list_slot,
             index_slot,
             insert_slot,
             &list.type_,
             &element_type,
-        )
+        )?;
+        if materialized {
+            return self.free_intermediate_collection(insert_slot, &list.type_, result);
+        }
+        Ok(result)
     }
 
     pub(super) fn lower_collection_insert(
@@ -121,27 +129,37 @@ impl CodeBuilder<'_> {
         }
         // Materialize a `d`-native float before the payload spill (plan-01).
         let item = self.materialize_float(item)?;
-        let insert_slot =
+        let (insert_slot, materialized) =
             self.collection_argument_as_list_slot(&list.type_, &element_type, item)?;
-        self.lower_list_insert_collection(
+        let result = self.lower_list_insert_collection(
             list_slot,
             index_slot,
             insert_slot,
             &list.type_,
             &element_type,
-        )
+        )?;
+        if materialized {
+            return self.free_intermediate_collection(insert_slot, &list.type_, result);
+        }
+        Ok(result)
     }
 
+    /// Returns `(slot, materialized)`: `materialized` is true when the item was
+    /// wrapped in a freshly arena-allocated singleton list the CALLER must free
+    /// after the consuming insert copied out of it (via
+    /// [`Self::free_intermediate_collection`]) — leaving it live leaked one
+    /// block per value-path append/prepend/insert/set (bug-01's fourth leak:
+    /// ~40% of all allocations under `r = append(r, expr)` churn).
     pub(super) fn collection_argument_as_list_slot(
         &mut self,
         list_type: &str,
         element_type: &str,
         item: ValueResult,
-    ) -> Result<usize, String> {
+    ) -> Result<(usize, bool), String> {
         if item.type_ == list_type {
             let slot = self.allocate_stack_object("collection_insert_list", 8);
             self.emit(abi::store_u64(&item.location, abi::stack_pointer(), slot));
-            return Ok(slot);
+            return Ok((slot, false));
         }
         if item.type_ != element_type {
             return Err(format!(
@@ -172,7 +190,36 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             slot,
         ));
-        Ok(slot)
+        Ok((slot, true))
+    }
+
+    /// Free an intermediate collection block (a materialized singleton or a
+    /// consumed `removeAt` result) after the operation that copied out of it,
+    /// preserving `result` across the `arena_free` call (which clobbers every
+    /// caller-saved register). No-op for non-flat types, mirroring the
+    /// reassignment free guard.
+    pub(super) fn free_intermediate_collection(
+        &mut self,
+        block_slot: usize,
+        type_: &str,
+        result: ValueResult,
+    ) -> Result<ValueResult, String> {
+        if !self.is_freeable_flat_value(type_) {
+            return Ok(result);
+        }
+        let keep = self.allocate_stack_object("intermediate_free_keep", 8);
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), keep));
+        self.emit_owned_value_drop(&OwnedValueCleanup {
+            type_: type_.to_string(),
+            stack_offset: block_slot,
+        })?;
+        let register = self.allocate_register()?;
+        self.emit(abi::load_u64(&register, abi::stack_pointer(), keep));
+        Ok(ValueResult {
+            type_: result.type_,
+            location: register,
+            text: String::new(),
+        })
     }
 
     pub(super) fn lower_collection_remove_at(
@@ -245,7 +292,7 @@ impl CodeBuilder<'_> {
             }
             // Materialize a `d`-native float before the payload spill (plan-01).
             let item = self.materialize_float(item)?;
-            let singleton_slot =
+            let (singleton_slot, materialized) =
                 self.collection_argument_as_list_slot(&collection.type_, &element_type, item)?;
             let removed =
                 self.lower_list_remove_at(list_slot, index_slot, &collection.type_, &element_type)?;
@@ -255,13 +302,23 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 removed_slot,
             ));
-            return self.lower_list_insert_collection(
+            let mut result = self.lower_list_insert_collection(
                 removed_slot,
                 index_slot,
                 singleton_slot,
                 &collection.type_,
                 &element_type,
-            );
+            )?;
+            // Both intermediates were fully copied into the result: the
+            // materialized singleton and the removeAt product.
+            if materialized {
+                result = self.free_intermediate_collection(
+                    singleton_slot,
+                    &collection.type_,
+                    result,
+                )?;
+            }
+            return self.free_intermediate_collection(removed_slot, &collection.type_, result);
         }
 
         if let Some((key_type, value_type)) = map_type_parts(&collection.type_) {

@@ -18,7 +18,7 @@ IMPORT bits
 ' bits measured 3.1s/21s/113s. Once the allocator is fixed this should be
 ' near-instant and the exponent can grow back to 63 bits. All three
 ' implementations use the identical algorithm; expected output is checksum
-' 1181356819 (verified against Python pow(g, e, p)).
+' 1627198717 (verified against Python pow(g, e, p)).
 
 FUNC bnNorm(a AS List OF Integer) AS List OF Integer
   MUT n AS Integer = len(a)
@@ -196,12 +196,12 @@ FUNC main AS Integer
   LET p AS List OF Integer = [268435455, 268435455, 268435455, 4095, 0, 0, 16777216, 0, 268435455, 15]
   ' g = bytes 01..20 (big-endian) as a field element.
   LET g AS List OF Integer = [220077856, 27374017, 102176793, 20005201, 252711186, 12636384, 134810123, 5267568, 16909060]
-  LET e AS Integer = 45
+  LET e AS Integer = 6822318947648322238
 
   MUT r AS List OF Integer = [1]
   MUT b AS List OF Integer = g
   MUT i AS Integer = 0
-  WHILE i < 6
+  WHILE i < 63
     IF bits::band(bits::sr(e, i), 1) <> 0 THEN
       r = bnModmul(r, b, p)
     END IF

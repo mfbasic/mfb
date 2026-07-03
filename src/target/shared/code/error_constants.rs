@@ -125,7 +125,10 @@ pub(crate) const CLOSURE_ENV_REGISTER: &str = "x28";
 pub(crate) const CLOSURE_OBJECT_SIZE: usize = 16;
 pub(crate) const CLOSURE_OFFSET_CODE: usize = 0;
 pub(crate) const CLOSURE_OFFSET_ENV: usize = 8;
-pub(crate) const ENTRY_STACK_SIZE: usize = 112;
+/// Entry-frame prefix: the arena state plus the one seed-scratch word after it.
+/// Derived from `ARENA_STATE_SIZE` so the frame tracks arena-state growth
+/// (e.g. the allocator-01 quick bins) automatically.
+pub(crate) const ENTRY_STACK_SIZE: usize = ENTRY_SEED_SCRATCH_OFFSET + 8;
 pub(crate) const ENTRY_GLOBALS_OFFSET: usize = ENTRY_STACK_SIZE;
 /// `term::` TUI-mode state slots reserved in the program-entry frame just past
 /// the program globals and `LINK` slots (plan-01-term.md §6.2). Eight `u64`
@@ -162,7 +165,25 @@ pub(crate) const ARENA_FILL_RNG_HI_OFFSET: usize = 24;
 /// arenas seeding in the same instant (or after a `getentropy` failure) still get
 /// distinct poison streams.
 pub(crate) const ARENA_START_TIME_OFFSET: usize = 40;
-pub(crate) const ARENA_STATE_SIZE: usize = 104;
+/// Per-size-class quick bins (allocator-01): `ARENA_QUICK_BIN_COUNT` singly
+/// linked bin heads for exact chunk sizes 16, 32, …, `ARENA_QUICK_BIN_MAX`
+/// (granule 16; class index `size/16 - 1`), appended to the arena state after
+/// the historical 104 bytes. A freed chunk ≤ `ARENA_QUICK_BIN_MAX` parks on its
+/// bin (O(1) push) and the next same-class allocation pops it (O(1)); bins
+/// drain through the coalescing insert before the arena grows
+/// (flush-before-grow), so parked memory never forces a map. Bin nodes reuse
+/// the `FreeNode {next@0, size@8}` overlay.
+pub(crate) const ARENA_QUICK_BIN_BASE_OFFSET: usize = 104;
+pub(crate) const ARENA_QUICK_BIN_COUNT: usize = 128;
+pub(crate) const ARENA_QUICK_BIN_MAX: u64 = 2048;
+/// Designated-victim carve chunk (allocator-01): one active chunk that
+/// bump-serves small bin misses (`ptr`/`size` pair). Splitting parked bin
+/// inventory on every miss shaves it into sub-class crumbs (measured); the
+/// DV concentrates all small-miss carving in one chunk, dlmalloc-style.
+pub(crate) const ARENA_CARVE_PTR_OFFSET: usize =
+    ARENA_QUICK_BIN_BASE_OFFSET + ARENA_QUICK_BIN_COUNT * 8;
+pub(crate) const ARENA_CARVE_SIZE_OFFSET: usize = ARENA_CARVE_PTR_OFFSET + 8;
+pub(crate) const ARENA_STATE_SIZE: usize = ARENA_CARVE_SIZE_OFFSET + 8;
 /// Fill `x1` bytes at `x0` with output from the dedicated per-arena fill RNG.
 /// Used to scrub freed chunks and poison freshly mapped blocks. Clobbers
 /// x0, x1, x9–x16.
@@ -193,8 +214,9 @@ pub(crate) const PCG_MULT_LO: u64 = 0x4385_DF64_9FCC_F645;
 /// PCG64 default stream increment, high and low 64-bit limbs.
 pub(crate) const PCG_INC_HI: u64 = 0x5851_F42D_4C95_7F2D;
 pub(crate) const PCG_INC_LO: u64 = 0x1405_7B7E_F767_814F;
-/// One in-frame scratch word between the arena state (0..104) and the globals
-/// (ENTRY_STACK_SIZE=112..): the RNG-seed block's `getentropy` buffer.
+/// One in-frame scratch word between the arena state (0..`ARENA_STATE_SIZE`)
+/// and the globals (`ENTRY_STACK_SIZE`..): the RNG-seed block's `getentropy`
+/// buffer.
 pub(crate) const ENTRY_SEED_SCRATCH_OFFSET: usize = ARENA_STATE_SIZE;
 /// Size of the args region appended to the entry frame for an arg-accepting
 /// entry: five 8-byte slots (argc, argv, args list, data length, saved count),
