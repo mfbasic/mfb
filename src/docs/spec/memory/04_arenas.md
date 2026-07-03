@@ -115,9 +115,13 @@ The algorithm:
 
 1. **Validate alignment.** A zero `align`, or one that is not a power of two
    (`(align - 1) & align != 0`), returns `ErrInvalidArgument`.
-2. **Normalize the request.** A zero `size` becomes `1`; `size` is then rounded up
-   to the 16-byte granule, and `align` is raised to at least 16. This keeps every
-   chunk 16-aligned and 16-sized.
+2. **Normalize the request.** A request within `ARENA_MIN_CHUNK` (16) of
+   `u64::MAX` is rejected as `ErrInvalidArgument` before normalization — the
+   granule round-up would otherwise wrap it to a tiny size that allocates
+   *small*, and no such request could ever be satisfied. A zero `size` becomes
+   `1`; `size` is then rounded up to the 16-byte granule, and `align` is raised
+   to at least 16. This keeps every chunk 16-aligned and 16-sized. No request
+   can ever normalize to a value smaller than itself.
 3. **First-fit walk.** Walk the address-ordered free-list for the first chunk
    where the request fits after alignment: `aligned = align_up(start, align)` and
    `aligned + size <= start + chunkSize`. **Split** it — return `aligned`, push the
@@ -129,7 +133,9 @@ The algorithm:
 4. **Grow.** If no chunk fits, map a new block sized
    `max(4096, round_up(size + align + 32, 4096))`, write its header, link it at the
    head, insert its usable region as one free chunk (in address order), and retry
-   the walk.
+   the walk. Every sum in the sizing is overflow-checked (including the 32-byte
+   header add); a wrapped sum reports `ErrOutOfMemory` rather than mapping an
+   undersized block.
 
 A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
 `ErrOutOfMemory`. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to

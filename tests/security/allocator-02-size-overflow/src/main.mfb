@@ -1,0 +1,67 @@
+' allocator-02 (audit-1 MEM-07): `_mfb_arena_alloc` request-size overflow guards.
+' The allocator normalizes every request with `size += 15; size &= ~15`; without
+' an upper bound a request within 15 of u64::MAX wraps to a tiny normalized size
+' and the allocation succeeds small — turning every unchecked caller-side size
+' into a heap OOB write. The fix rejects a raw request above
+' u64::MAX - ARENA_MIN_CHUNK before normalization and carry-checks the grow
+' path's `map_size += ARENA_BLOCK_HEADER_SIZE` add.
+'
+' The guard window itself (>= 2^64-15) is unreachable from source today (every
+' per-site size computation is checked or bounded by i64::MAX), which is exactly
+' why `.run` goldens stay byte-identical. This test drives the LARGEST reachable
+' oversize requests end-to-end and asserts they trap catchably instead of
+' corrupting, then proves the heap still works with a mixed-size churn.
+'
+' - repeat("x", i64::MAX): total+9 = 2^63+8 reaches the allocator raw; the grow
+'   path cannot map it -> catchable allocation error 77010001.
+' - repeat("ab", i64::MAX): len*times = 2^64-2 fits, +9 wraps -> the per-site
+'   checked add rejects with 77050002 (MEM-01 check, kept as the semantic error).
+' - repeat("x", -1): negative count -> 77050002.
+'
+' strings::repeat is inline-lowered, so the fallible calls are wrapped in a FUNC
+' to make them trappable (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN otherwise).
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+FUNC repeatValue(value AS String, times AS Integer) AS String
+  RETURN strings::repeat(value, times)
+END FUNC
+
+FUNC main AS Integer
+  LET huge AS String = repeatValue("x", 9223372036854775807) TRAP(e)
+    io::print("repeat-huge caught " & toString(e.code))
+    RECOVER ""
+  END TRAP
+  io::print("huge len " & toString(len(huge)))
+
+  LET wrap AS String = repeatValue("ab", 9223372036854775807) TRAP(e)
+    io::print("repeat-wrap caught " & toString(e.code))
+    RECOVER ""
+  END TRAP
+  io::print("wrap len " & toString(len(wrap)))
+
+  LET negative AS String = repeatValue("x", -1) TRAP(e)
+    io::print("repeat-negative caught " & toString(e.code))
+    RECOVER ""
+  END TRAP
+  io::print("negative len " & toString(len(negative)))
+
+  ' The heap must be fully intact after the rejected requests: run a
+  ' mixed-size alloc/free churn and verify the values survive.
+  MUT total AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 200
+    LET s AS String = strings::repeat("y", 1 + (i MOD 37))
+    MUT xs AS List OF Integer = []
+    MUT j AS Integer = 0
+    WHILE j < (i MOD 11)
+      xs = collections::append(xs, j)
+      j = j + 1
+    WEND
+    total = total + len(s) + len(xs)
+    i = i + 1
+  WEND
+  io::print("churn total " & toString(total))
+  RETURN 0
+END FUNC

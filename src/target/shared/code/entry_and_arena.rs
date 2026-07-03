@@ -622,6 +622,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     let align_low = vregs.next();
     let align_pow2 = vregs.next();
     let not15 = vregs.next();
+    let max_request = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         abi::compare_immediate("x1", "0"),
@@ -640,6 +641,19 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::label("arena_alloc_align_ready"),
         // normalized size = round_up(max(size, 1), 16)
         abi::move_register(&size, "x0"),
+        // Reject a raw request within ARENA_MIN_CHUNK of u64::MAX before the
+        // +15 granule round-up (allocator-02, audit-1 MEM-07): without this
+        // bound the round-up wraps and the allocation succeeds *small*, turning
+        // every unchecked caller-side size computation into a heap OOB write.
+        // No request this large can ever be satisfied, so rejecting it as
+        // invalid loses nothing.
+        abi::move_immediate(
+            &max_request,
+            "Integer",
+            &(u64::MAX - ARENA_MIN_CHUNK).to_string(),
+        ),
+        abi::compare_registers(&size, &max_request),
+        abi::branch_hi("arena_alloc_invalid"),
         abi::compare_immediate(&size, "0"),
         abi::branch_ne("arena_alloc_size_nonzero"),
         abi::move_immediate(&size, "Integer", "1"),
@@ -738,6 +752,13 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::compare_registers(&map_size, &size),
         abi::branch_lo("arena_alloc_oom"),
         abi::add_immediate(&map_size, &map_size, ARENA_BLOCK_HEADER_SIZE),
+        // Carry-check the header add (allocator-02): a wrapped map_size would
+        // round up to the default block size, the block could never satisfy
+        // the huge request, and the walk-then-grow loop would mmap 4 KiB
+        // blocks forever. A wrapped value is < ARENA_BLOCK_HEADER_SIZE while
+        // any legitimate map_size is >= 1 + 16 + 32.
+        abi::compare_immediate(&map_size, &ARENA_BLOCK_HEADER_SIZE.to_string()),
+        abi::branch_lo("arena_alloc_oom"),
         abi::move_immediate(
             &default_block,
             "Integer",
