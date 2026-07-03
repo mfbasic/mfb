@@ -1,0 +1,55 @@
+' AEAD must FAIL CLOSED (plan-04-crypto.md Part D): a tampered tag or truncated
+' ciphertext yields ErrAuthenticationFailed and no plaintext; a wrong-length key
+' is ErrInvalidArgument. TRAP handlers assert the exact code for both AEADs.
+IMPORT bits
+IMPORT crypto
+IMPORT collections
+IMPORT encoding
+IMPORT errorCode
+IMPORT io
+
+FUNC gcmTamperedTag() AS Integer
+  LET key AS List OF Byte = encoding::hexDecode("feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308")
+  LET nonce AS List OF Byte = encoding::hexDecode("cafebabefacedbaddecaf888")
+  LET pt AS List OF Byte = encoding::utf8Encode("attack at dawn")
+  LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, pt)
+  LET badTag AS List OF Byte = collections::set(box.tag, 0, toByte(bits::bxor(toInt(collections::get(box.tag, 0)), 1)))
+  LET back AS List OF Byte = crypto::aes256GcmOpen(key, nonce, box.ciphertext, badTag)
+  RETURN len(back)
+  TRAP(err)
+    io::print("gcm-tamper-auth=" & toString(err.code = errorCode::ErrAuthenticationFailed))
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC chachaTamperedCiphertext() AS Integer
+  LET key AS List OF Byte = encoding::hexDecode("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f")
+  LET nonce AS List OF Byte = encoding::hexDecode("070000004041424344454647")
+  LET pt AS List OF Byte = encoding::utf8Encode("attack at dawn")
+  LET box AS crypto::Sealed = crypto::chacha20Poly1305Seal(key, nonce, pt)
+  LET badCt AS List OF Byte = collections::set(box.ciphertext, 0, toByte(bits::bxor(toInt(collections::get(box.ciphertext, 0)), 255)))
+  LET back AS List OF Byte = crypto::chacha20Poly1305Open(key, nonce, badCt, box.tag)
+  RETURN len(back)
+  TRAP(err)
+    io::print("chacha-tamper-auth=" & toString(err.code = errorCode::ErrAuthenticationFailed))
+    RETURN -1
+  END TRAP
+END FUNC
+
+FUNC gcmShortKey() AS Integer
+  LET key AS List OF Byte = encoding::hexDecode("feffe9928665731c")
+  LET nonce AS List OF Byte = encoding::hexDecode("cafebabefacedbaddecaf888")
+  LET pt AS List OF Byte = encoding::utf8Encode("x")
+  LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, pt)
+  RETURN len(box.tag)
+  TRAP(err)
+    io::print("gcm-short-key-invalid=" & toString(err.code = errorCode::ErrInvalidArgument))
+    RETURN -1
+  END TRAP
+END FUNC
+
+SUB main()
+  io::print("r1=" & toString(gcmTamperedTag()))
+  io::print("r2=" & toString(chachaTamperedCiphertext()))
+  io::print("r3=" & toString(gcmShortKey()))
+END SUB

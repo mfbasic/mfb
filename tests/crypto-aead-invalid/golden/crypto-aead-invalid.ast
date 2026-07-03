@@ -1,0 +1,108 @@
+{
+  "project": "crypto-aead-invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "bits", "line": 4 },
+    { "module": "crypto", "line": 5 },
+    { "module": "collections", "line": 6 },
+    { "module": "encoding", "line": 7 },
+    { "module": "errorCode", "line": 8 },
+    { "module": "io", "line": 9 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "gcmTamperedTag",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "feffe9928665731c6d6a8f9467308308feffe9928665731c6d6a8f9467308308" }] }, "line": 12 },
+      { "kind": "binding", "mutable": false, "name": "nonce", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "cafebabefacedbaddecaf888" }] }, "line": 13 },
+      { "kind": "binding", "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "attack at dawn" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "box", "type": "Sealed", "value": { "kind": "call", "callee": "crypto.aes256GcmSeal", "arguments": [{ "kind": "identifier", "value": "key" }, { "kind": "identifier", "value": "nonce" }, { "kind": "identifier", "value": "pt" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "badTag", "type": "List OF Byte", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "tag" }, { "kind": "number", "value": "0" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "call", "callee": "bits.bxor", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "tag" }, { "kind": "number", "value": "0" }] }] }, { "kind": "number", "value": "1" }] }] }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.aes256GcmOpen", "arguments": [{ "kind": "identifier", "value": "key" }, { "kind": "identifier", "value": "nonce" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "ciphertext" }, { "kind": "identifier", "value": "badTag" }] }, "line": 17 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "back" }] }, "line": 18 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 19,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "gcm-tamper-auth=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrAuthenticationFailed" } }] } }] }, "line": 20 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 21 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "chachaTamperedCiphertext",
+      "line": 25,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f" }] }, "line": 26 },
+      { "kind": "binding", "mutable": false, "name": "nonce", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "070000004041424344454647" }] }, "line": 27 },
+      { "kind": "binding", "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "attack at dawn" }] }, "line": 28 },
+      { "kind": "binding", "mutable": false, "name": "box", "type": "Sealed", "value": { "kind": "call", "callee": "crypto.chacha20Poly1305Seal", "arguments": [{ "kind": "identifier", "value": "key" }, { "kind": "identifier", "value": "nonce" }, { "kind": "identifier", "value": "pt" }] }, "line": 29 },
+      { "kind": "binding", "mutable": false, "name": "badCt", "type": "List OF Byte", "value": { "kind": "call", "callee": "collections.set", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "ciphertext" }, { "kind": "number", "value": "0" }, { "kind": "call", "callee": "toByte", "arguments": [{ "kind": "call", "callee": "bits.bxor", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "ciphertext" }, { "kind": "number", "value": "0" }] }] }, { "kind": "number", "value": "255" }] }] }] }, "line": 30 },
+      { "kind": "binding", "mutable": false, "name": "back", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.chacha20Poly1305Open", "arguments": [{ "kind": "identifier", "value": "key" }, { "kind": "identifier", "value": "nonce" }, { "kind": "identifier", "value": "badCt" }, { "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "tag" }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "back" }] }, "line": 32 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 33,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "chacha-tamper-auth=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrAuthenticationFailed" } }] } }] }, "line": 34 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 35 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "gcmShortKey",
+      "line": 39,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "key", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "feffe9928665731c" }] }, "line": 40 },
+      { "kind": "binding", "mutable": false, "name": "nonce", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "cafebabefacedbaddecaf888" }] }, "line": 41 },
+      { "kind": "binding", "mutable": false, "name": "pt", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "x" }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "box", "type": "Sealed", "value": { "kind": "call", "callee": "crypto.aes256GcmSeal", "arguments": [{ "kind": "identifier", "value": "key" }, { "kind": "identifier", "value": "nonce" }, { "kind": "identifier", "value": "pt" }] }, "line": 43 },
+      { "kind": "return", "value": { "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "box" }, "member": "tag" }] }, "line": 44 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 45,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "gcm-short-key-invalid=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "binary", "operator": "=", "left": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "code" }, "right": { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" } }] } }] }, "line": 46 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 47 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 51,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "r1=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "gcmTamperedTag", "arguments": [] }] } }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "r2=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "chachaTamperedCiphertext", "arguments": [] }] } }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "r3=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "gcmShortKey", "arguments": [] }] } }] }, "line": 54 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,6 @@
+gcm-tamper-auth=TRUE
+r1=-1
+chacha-tamper-auth=TRUE
+r2=-1
+gcm-short-key-invalid=TRUE
+r3=-1
