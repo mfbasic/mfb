@@ -28,6 +28,7 @@ benchmarks=(
   list-prepend
   list-set
   list-sort
+  bignum-modexp
   map-lookup-large
   map-set
   parse-csv
