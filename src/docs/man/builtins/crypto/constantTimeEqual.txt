@@ -1,0 +1,59 @@
+NAME
+  constantTimeEqual - compare two byte lists in constant time
+
+SYNOPSIS
+  crypto::constantTimeEqual(a AS List OF Byte, b AS List OF Byte) AS Boolean
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::constantTimeEqual reports whether the byte lists a and b are equal,
+  taking time that is independent of their contents. Unlike an ordinary
+  comparison, it does not return early at the first differing byte, so an
+  attacker cannot learn how many leading bytes matched by measuring how long
+  the comparison took. This is the correct way to compare secrets such as
+  message authentication codes, password hashes, or tokens.
+
+  The function is total: it always returns a Boolean and never raises an error.
+
+  What is and is not secret. The result depends only on whether every byte is
+  equal. The length of the inputs is not treated as secret: lists of different
+  lengths are reported as unequal, and the running time may reveal the lengths.
+  Only the byte contents are protected. When comparing values that should be a
+  fixed size (for example a 32-byte HMAC tag), the byte contents of same-length
+  inputs are what stays constant-time.
+
+PARAMETERS
+  a AS List OF Byte
+    The first byte list.
+
+  b AS List OF Byte
+    The second byte list.
+
+RETURN VALUE
+  AS Boolean
+    TRUE if a and b have the same length and every byte is equal; otherwise
+    FALSE.
+
+ERRORS
+  None.
+
+EXAMPLES
+  Verify a received MAC without leaking timing:
+
+    IMPORT crypto
+
+    LET expected AS List OF Byte = crypto::hmacSha256(key, message)
+    IF crypto::constantTimeEqual(expected, received) THEN
+      PRINT "authentic"
+    ELSE
+      PRINT "tampered"
+    END IF
+
+SEE ALSO
+  crypto::hmacSha256, crypto::hmacSha512, crypto::sha256,
+  mfb man encoding hexEncode

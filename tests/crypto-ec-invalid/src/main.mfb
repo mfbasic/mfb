@@ -1,0 +1,14 @@
+' A malformed (wrong-length) public key must be rejected with ErrInvalidArgument
+' rather than producing a bogus verdict or reading past the buffer.
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+
+SUB main()
+  LET badPub AS List OF Byte = encoding::hexDecode("04aabbccdd")
+  LET msg AS List OF Byte = encoding::utf8Encode("hi")
+  LET sig AS List OF Byte = encoding::hexDecode("3006020101020102")
+  io::print("before")
+  LET ok AS Boolean = crypto::p256Verify(badPub, msg, sig)
+  io::print("after=" & toString(ok))
+END SUB

@@ -1,0 +1,48 @@
+NAME
+  uuid4 - random RFC 4122 version-4 UUID string
+
+SYNOPSIS
+  crypto::uuid4() AS String
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::uuid4 returns a random version-4 UUID as a canonical lowercase string in
+  the 8-4-4-4-12 hyphenated form, for example
+  "f47ac10b-58cc-4372-a567-0e02b2c3d479". A version-4 UUID is 122 bits of
+  randomness with the 4-bit version field fixed to 4 and the 2-bit variant field
+  fixed to the RFC 4122 variant, exactly as the standard prescribes.
+
+  The random bits come from the same OS CSPRNG as crypto::randomBytes (getentropy),
+  so the identifiers are cryptographically strong and effectively collision-free in
+  practice. As with all crypto random helpers the generator is not seedable, so
+  each call produces a fresh, non-reproducible value. Use uuid4 whenever a random,
+  unguessable identifier is needed; for its non-cryptographic counterpart see mfb
+  man math rand.
+
+  This function is total: it takes no arguments and always succeeds.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS String
+    A canonical lowercase 8-4-4-4-12 version-4 UUID, 36 characters including the
+    four hyphens.
+
+ERRORS
+  None.
+
+EXAMPLES
+  Generate a unique identifier:
+
+    IMPORT crypto
+
+    LET id AS String = crypto::uuid4()
+
+SEE ALSO
+  crypto::randomBytes, crypto::randomInt, mfb man math rand

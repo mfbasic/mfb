@@ -1,0 +1,67 @@
+NAME
+  generateP384 - generate a random NIST P-384 ECDSA key pair (FIPS 186)
+
+SYNOPSIS
+  crypto::generateP384() AS crypto::KeyPair
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::generateP384 creates a fresh ECDSA key pair over the NIST P-384 curve
+  (FIPS 186) for use with crypto::p384Sign and crypto::p384Verify. It returns a
+  crypto::KeyPair with two fields:
+
+    - privateKey - 145 bytes, the wire form 0x04 || X || Y || K: the SEC1
+      uncompressed public point (0x04 tag, 48-byte X, 48-byte Y) followed by the
+      48-byte big-endian private scalar K. It is self-contained.
+    - publicKey  - 97 bytes, the wire form 0x04 || X || Y: the SEC1 uncompressed
+      public point.
+
+  The NIST curves bind the platform key API (SecKey on macOS, EVP_PKEY on
+  Linux), but the wire encodings above are identical on macOS and Linux and are
+  interoperable: a key produced on one platform is accepted on the other and by
+  OpenSSL/pyca. The secret material is drawn from the OS CSPRNG, so the result is
+  random and non-reproducible: every call yields a different key pair.
+
+  Secret safety. The privateKey field embeds the secret scalar K. Anyone who
+  holds it can forge signatures. Never log a KeyPair, and treat typeName /
+  toString / diagnostics as non-security boundaries. The publicKey is safe to
+  share; distribute it to verifiers.
+
+  To display or store a key, stringify its bytes with encoding::hexEncode
+  (lowercase hex) or encoding::base64Encode.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS crypto::KeyPair
+    A key pair whose privateKey is the 145-byte 0x04 || X || Y || K form and
+    whose publicKey is the 97-byte 0x04 || X || Y form.
+
+ERRORS
+  None.
+
+EXAMPLES
+  Generate a key pair and print the public key as hex:
+
+    IMPORT crypto
+    IMPORT encoding
+
+    LET kp AS crypto::KeyPair = crypto::generateP384()
+    PRINT encoding::hexEncode(kp.publicKey)
+
+  Sign a message with the freshly generated key:
+
+    IMPORT crypto
+
+    LET kp AS crypto::KeyPair = crypto::generateP384()
+    LET sig AS List OF Byte = crypto::p384Sign(kp.privateKey, message)
+
+SEE ALSO
+  crypto::p384Sign, crypto::p384Verify, crypto::generateP256,
+  crypto::generateP521, mfb man encoding hexEncode

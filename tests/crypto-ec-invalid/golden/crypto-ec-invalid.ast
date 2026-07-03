@@ -1,0 +1,32 @@
+{
+  "project": "crypto-ec-invalid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "crypto", "line": 3 },
+    { "module": "encoding", "line": 4 },
+    { "module": "io", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "badPub", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "04aabbccdd" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "msg", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "hi" }] }, "line": 9 },
+      { "kind": "binding", "mutable": false, "name": "sig", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.hexDecode", "arguments": [{ "kind": "string", "value": "3006020101020102" }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "ok", "type": "Boolean", "value": { "kind": "call", "callee": "crypto.p256Verify", "arguments": [{ "kind": "identifier", "value": "badPub" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "sig" }] }, "line": 12 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "after=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ok" }] } }] }, "line": 13 }
+      ]
+    }
+    ]
+  }
+  ]
+}

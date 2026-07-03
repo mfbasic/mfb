@@ -1,0 +1,70 @@
+NAME
+  p521Sign - ECDSA-sign a message with a NIST P-521 private key (FIPS 186)
+
+SYNOPSIS
+  crypto::p521Sign(privateKey AS List OF Byte, message AS List OF Byte) AS List OF Byte
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::p521Sign produces an ECDSA signature over message using privateKey on
+  the NIST P-521 curve (FIPS 186), hashing the message with SHA-512. The result
+  is an ASN.1 DER Ecdsa-Sig-Value (X9.62) returned as a List OF Byte. Verify it
+  later with crypto::p521Verify given the matching public key.
+
+  privateKey is the 199-byte wire form 0x04 || X || Y || K, exactly the
+  privateKey field returned by crypto::generateP521. message is the raw bytes to
+  sign; it is hashed with SHA-512 internally. The signature is DER-encoded and
+  its length varies with the encoding of the integers.
+
+  The NIST curves bind the platform key API (SecKey on macOS, EVP_PKEY on
+  Linux); the DER signature is wire-compatible across platforms and with
+  OpenSSL/pyca. Unlike Ed25519, ECDSA signing is NON-deterministic: a fresh
+  random nonce is drawn per call, so signing the same (privateKey, message) twice
+  yields different signatures. Both verify correctly.
+
+  Secret safety. privateKey embeds the secret scalar K. Anyone who holds it can
+  forge signatures. Never log it, and treat toString / diagnostics as
+  non-security boundaries. To store or display a signature, stringify its bytes
+  with encoding::hexEncode (lowercase hex) or encoding::base64Encode.
+
+PARAMETERS
+  privateKey AS List OF Byte
+    The 199-byte P-521 private key in the 0x04 || X || Y || K wire form (the
+    privateKey field of a crypto::generateP521 key pair).
+
+  message AS List OF Byte
+    The raw bytes to sign; hashed with SHA-512 internally.
+
+RETURN VALUE
+  AS List OF Byte
+    The ASN.1 DER (X9.62) ECDSA signature.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when privateKey is not the expected 199-byte P-521 length.
+
+EXAMPLES
+  Generate a key, sign a message, and verify the signature:
+
+    IMPORT crypto
+
+    LET kp AS crypto::KeyPair = crypto::generateP521()
+    LET sig AS List OF Byte = crypto::p521Sign(kp.privateKey, message)
+    LET ok AS Boolean = crypto::p521Verify(kp.publicKey, message, sig)
+
+  Display a signature as hex:
+
+    IMPORT crypto
+    IMPORT encoding
+
+    LET sig AS List OF Byte = crypto::p521Sign(kp.privateKey, message)
+    PRINT encoding::hexEncode(sig)
+
+SEE ALSO
+  crypto::p521Verify, crypto::generateP521, crypto::p256Sign,
+  crypto::p384Sign, mfb man encoding hexEncode

@@ -1,0 +1,71 @@
+NAME
+  pbkdf2Sha512 - PBKDF2 password-based key derivation over HMAC-SHA-512
+
+SYNOPSIS
+  crypto::pbkdf2Sha512(password AS List OF Byte, salt AS List OF Byte, iterations AS Integer, length AS Integer) AS List OF Byte
+  crypto::pbkdf2Sha512(password AS String, salt AS List OF Byte, iterations AS Integer, length AS Integer) AS List OF Byte
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::pbkdf2Sha512 is the PBKDF2 password-based key-derivation function of
+  RFC 8018 instantiated over HMAC-SHA-512. It stretches a low-entropy password
+  into a derived key of length bytes by iterating the HMAC core iterations times
+  per output block, making brute-force guessing of the password proportionally
+  more expensive. This deliberate cost is what distinguishes PBKDF2 from HKDF: use
+  PBKDF2 for passwords, and crypto::hkdfSha512 for already-high-entropy keying
+  material.
+
+  The salt should be unique per password and need not be secret; a random salt
+  from crypto::randomBytes (16 bytes or more) is recommended, stored alongside the
+  derived key. iterations sets the work factor and directly trades security for
+  latency; choose the largest value your latency budget tolerates.
+
+  password is overloaded: a String argument is UTF-8-encoded internally, so the
+  String and List OF Byte forms agree for ASCII and UTF-8 text. The function is
+  pure and total within its argument bounds: the same inputs always yield the same
+  bytes, on every target.
+
+PARAMETERS
+  password AS List OF Byte (or String)
+    The password to derive from. A String is UTF-8-encoded before use.
+
+  salt AS List OF Byte
+    A per-password salt. Should be unique; need not be secret.
+
+  iterations AS Integer
+    The PBKDF2 iteration count (work factor). Must be positive (>= 1). Larger
+    values are more resistant to brute force and slower.
+
+  length AS Integer
+    The number of derived key bytes to produce. Must be non-negative.
+
+RETURN VALUE
+  AS List OF Byte
+    Exactly length bytes of derived key material.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when iterations is not positive (zero or negative), or when length is
+  negative.
+
+EXAMPLES
+  Derive a 64-byte key from a password string:
+
+    IMPORT crypto
+
+    LET salt AS List OF Byte = crypto::randomBytes(16)
+    LET key AS List OF Byte = crypto::pbkdf2Sha512("correct horse", salt, 100000, 64)
+
+  The byte-list form is equivalent for UTF-8 input:
+
+    IMPORT crypto
+
+    LET key AS List OF Byte = crypto::pbkdf2Sha512(passwordBytes, salt, 100000, 64)
+
+SEE ALSO
+  crypto::pbkdf2Sha256, crypto::hkdfSha512, crypto::randomBytes, mfb man encoding

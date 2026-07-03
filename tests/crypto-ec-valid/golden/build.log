@@ -1,0 +1,27 @@
+$ mfb build -ast tests/crypto-ec-valid
+Wrote AST to tests/crypto-ec-valid/crypto-ec-valid.ast
+[exit 0]
+$ mfb build -ir tests/crypto-ec-valid
+Wrote IR to tests/crypto-ec-valid/crypto-ec-valid.ir
+[exit 0]
+$ mfb build tests/crypto-ec-valid
+Wrote executable to tests/crypto-ec-valid/crypto-ec-valid.out
+[exit 0]
+$ tests/crypto-ec-valid/crypto-ec-valid.out
+p256-good=TRUE
+p256-tamper=FALSE
+p384-good=TRUE
+p384-tamper=FALSE
+p521-good=TRUE
+p521-tamper=FALSE
+p256-crosskey=FALSE
+p256 priv-len=97/97 pub-len=65/65
+p256 pub-is-point-prefix=TRUE
+p256 first-byte-uncompressed=4
+p384 priv-len=145/145 pub-len=97/97
+p384 pub-is-point-prefix=TRUE
+p384 first-byte-uncompressed=4
+p521 priv-len=199/199 pub-len=133/133
+p521 pub-is-point-prefix=TRUE
+p521 first-byte-uncompressed=4
+[exit 0]

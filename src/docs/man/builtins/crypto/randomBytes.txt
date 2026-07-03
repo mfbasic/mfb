@@ -1,0 +1,58 @@
+NAME
+  randomBytes - cryptographically secure random bytes from the OS CSPRNG
+
+SYNOPSIS
+  crypto::randomBytes(count AS Integer) AS List OF Byte
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::randomBytes returns count fresh bytes drawn from the operating system's
+  cryptographically secure pseudo-random number generator (CSPRNG). The bytes come
+  from getentropy, the non-deprecated OS entropy source present on macOS and Linux
+  (glibc and musl), so the values are suitable for keys, nonces, salts, tokens,
+  and any use where unpredictability is a security requirement.
+
+  This generator is cryptographically secure and, by design, NOT seedable: there
+  is no way to fix or replay its output. That is the deliberate contrast with
+  math::rand (see mfb man math rand), which is a fast, seedable PCG64 generator
+  intended for simulations, sampling, and games. math::rand is NOT
+  cryptographically secure and must never be used for keys, tokens, or nonces;
+  crypto::randomBytes is the correct source for all such material.
+
+  Each call draws fresh entropy, so results are not reproducible across runs. A
+  count of 0 returns an empty list.
+
+PARAMETERS
+  count AS Integer
+    The number of random bytes to return. Must be non-negative; 0 yields an empty
+    list.
+
+RETURN VALUE
+  AS List OF Byte
+    A list of exactly count cryptographically secure random bytes.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+  Raised when count is negative.
+
+EXAMPLES
+  Generate a 32-byte key and a 12-byte AEAD nonce:
+
+    IMPORT crypto
+
+    LET key AS List OF Byte = crypto::randomBytes(32)
+    LET nonce AS List OF Byte = crypto::randomBytes(12)
+
+  A count of zero returns an empty list:
+
+    IMPORT crypto
+
+    LET none AS List OF Byte = crypto::randomBytes(0)
+
+SEE ALSO
+  crypto::randomInt, crypto::uuid4, mfb man math rand

@@ -1,0 +1,67 @@
+NAME
+  generateP521 - generate a random NIST P-521 ECDSA key pair (FIPS 186)
+
+SYNOPSIS
+  crypto::generateP521() AS crypto::KeyPair
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::generateP521 creates a fresh ECDSA key pair over the NIST P-521 curve
+  (FIPS 186) for use with crypto::p521Sign and crypto::p521Verify. It returns a
+  crypto::KeyPair with two fields:
+
+    - privateKey - 199 bytes, the wire form 0x04 || X || Y || K: the SEC1
+      uncompressed public point (0x04 tag, 66-byte X, 66-byte Y) followed by the
+      66-byte big-endian private scalar K. It is self-contained.
+    - publicKey  - 133 bytes, the wire form 0x04 || X || Y: the SEC1 uncompressed
+      public point.
+
+  The NIST curves bind the platform key API (SecKey on macOS, EVP_PKEY on
+  Linux), but the wire encodings above are identical on macOS and Linux and are
+  interoperable: a key produced on one platform is accepted on the other and by
+  OpenSSL/pyca. The secret material is drawn from the OS CSPRNG, so the result is
+  random and non-reproducible: every call yields a different key pair.
+
+  Secret safety. The privateKey field embeds the secret scalar K. Anyone who
+  holds it can forge signatures. Never log a KeyPair, and treat typeName /
+  toString / diagnostics as non-security boundaries. The publicKey is safe to
+  share; distribute it to verifiers.
+
+  To display or store a key, stringify its bytes with encoding::hexEncode
+  (lowercase hex) or encoding::base64Encode.
+
+PARAMETERS
+  None.
+
+RETURN VALUE
+  AS crypto::KeyPair
+    A key pair whose privateKey is the 199-byte 0x04 || X || Y || K form and
+    whose publicKey is the 133-byte 0x04 || X || Y form.
+
+ERRORS
+  None.
+
+EXAMPLES
+  Generate a key pair and print the public key as hex:
+
+    IMPORT crypto
+    IMPORT encoding
+
+    LET kp AS crypto::KeyPair = crypto::generateP521()
+    PRINT encoding::hexEncode(kp.publicKey)
+
+  Sign a message with the freshly generated key:
+
+    IMPORT crypto
+
+    LET kp AS crypto::KeyPair = crypto::generateP521()
+    LET sig AS List OF Byte = crypto::p521Sign(kp.privateKey, message)
+
+SEE ALSO
+  crypto::p521Sign, crypto::p521Verify, crypto::generateP256,
+  crypto::generateP384, mfb man encoding hexEncode

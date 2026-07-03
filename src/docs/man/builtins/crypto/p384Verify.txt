@@ -1,0 +1,76 @@
+NAME
+  p384Verify - verify an ECDSA P-384/SHA-384 signature
+
+SYNOPSIS
+  crypto::p384Verify(publicKey AS List OF Byte, message AS List OF Byte, signature AS List OF Byte) AS Boolean
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::p384Verify checks whether signature is a valid ECDSA signature of
+  message over the NIST P-384 curve with SHA-384 (FIPS 186). It returns TRUE if
+  and only if the signature verifies for that exact key and message, and FALSE
+  otherwise. The message is hashed with SHA-384 internally; pass the raw message
+  bytes, not a digest.
+
+  publicKey is the 97-byte SEC1 uncompressed point 0x04 || X || Y, where X and Y
+  are the 48-byte big-endian affine coordinates. signature is an ASN.1 DER
+  Ecdsa-Sig-Value (X9.62), as produced by crypto::p384Sign.
+
+  Verification is total and platform-independent: the same (publicKey, message,
+  signature) triple yields the same verdict on macOS and Linux, on aarch64 and
+  x86-64. Keys and signatures are wire-compatible across platforms and with
+  OpenSSL/pyca, so a signature made on one system verifies on another. ECDSA
+  signing is non-deterministic (a fresh nonce per call), but verification depends
+  only on the three inputs. A signature that does not match is reported as FALSE,
+  not as an error.
+
+  A wrong verdict is distinguished from a malformed key. If publicKey is not
+  exactly 97 bytes (a well-formed P-384 SEC1 point) the call raises
+  ErrInvalidArgument rather than returning a verdict. A valid-length key with a
+  signature that simply does not verify returns FALSE.
+
+PARAMETERS
+  publicKey AS List OF Byte
+    The P-384 public key as the 97-byte SEC1 uncompressed point 0x04 || X || Y.
+    Any other length is an error, not a false verdict.
+
+  message AS List OF Byte
+    The message bytes whose signature is being verified. Hashed with SHA-384
+    internally. Any length is accepted, including empty.
+
+  signature AS List OF Byte
+    The candidate signature as an ASN.1 DER Ecdsa-Sig-Value (X9.62).
+
+RETURN VALUE
+  AS Boolean
+    TRUE if signature is a valid P-384/SHA-384 signature of message under
+    publicKey; FALSE if it is not. A FALSE result is a normal outcome, not an
+    error.
+
+ERRORS
+  77050002 (ErrInvalidArgument)
+    Raised when publicKey is not exactly 97 bytes. A valid-length key paired with
+    a non-matching signature does not raise this error; it returns FALSE.
+
+EXAMPLES
+  Verify a signature produced by p384Sign:
+
+    IMPORT crypto
+
+    LET pair AS KeyPair = crypto::generateP384()
+    LET sig AS List OF Byte = crypto::p384Sign(pair.privateKey, message)
+    LET ok AS Boolean = crypto::p384Verify(pair.publicKey, message, sig)
+
+  A tampered message fails verification (returns FALSE, not an error):
+
+    IMPORT crypto
+
+    LET ok AS Boolean = crypto::p384Verify(pair.publicKey, altered, sig)
+
+SEE ALSO
+  crypto::p384Sign, crypto::generateP384, mfb man crypto

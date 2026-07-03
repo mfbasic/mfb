@@ -1,0 +1,63 @@
+' Property checks for the NIST-EC public-key surface (plan-04-crypto.md Part C).
+' Key generation and ECDSA signing are non-deterministic, so this asserts the
+' deterministic facts: key encodings, round-trip verification, tamper rejection,
+' and that the public key is the SEC1 point prefix of the private bytes.
+IMPORT crypto
+IMPORT encoding
+IMPORT io
+IMPORT collections
+
+SUB check(label AS String, field AS Integer)
+  LET point AS Integer = 1 + 2 * field
+  LET priv AS Integer = point + field
+  MUT kp AS crypto::KeyPair = crypto::generateP256()
+  IF field = 48 THEN
+    kp = crypto::generateP384()
+  END IF
+  IF field = 66 THEN
+    kp = crypto::generateP521()
+  END IF
+  io::print(label & " priv-len=" & toString(len(kp.privateKey)) & "/" & toString(priv) & " pub-len=" & toString(len(kp.publicKey)) & "/" & toString(point))
+  ' public key is the leading SEC1 point of the private bytes
+  MUT prefixOk AS Boolean = TRUE
+  MUT i AS Integer = 0
+  WHILE i < point
+    IF collections::get(kp.privateKey, i) <> collections::get(kp.publicKey, i) THEN
+      prefixOk = FALSE
+    END IF
+    i = i + 1
+  WEND
+  io::print(label & " pub-is-point-prefix=" & toString(prefixOk))
+  io::print(label & " first-byte-uncompressed=" & toString(collections::get(kp.publicKey, 0)))
+END SUB
+
+SUB main()
+  LET msg AS List OF Byte = encoding::utf8Encode("The quick brown fox")
+  LET tampered AS List OF Byte = encoding::utf8Encode("The quick brown Fox")
+
+  ' P-256
+  LET kp256 AS crypto::KeyPair = crypto::generateP256()
+  LET s256 AS List OF Byte = crypto::p256Sign(kp256.privateKey, msg)
+  io::print("p256-good=" & toString(crypto::p256Verify(kp256.publicKey, msg, s256)))
+  io::print("p256-tamper=" & toString(crypto::p256Verify(kp256.publicKey, tampered, s256)))
+
+  ' P-384
+  LET kp384 AS crypto::KeyPair = crypto::generateP384()
+  LET s384 AS List OF Byte = crypto::p384Sign(kp384.privateKey, msg)
+  io::print("p384-good=" & toString(crypto::p384Verify(kp384.publicKey, msg, s384)))
+  io::print("p384-tamper=" & toString(crypto::p384Verify(kp384.publicKey, tampered, s384)))
+
+  ' P-521
+  LET kp521 AS crypto::KeyPair = crypto::generateP521()
+  LET s521 AS List OF Byte = crypto::p521Sign(kp521.privateKey, msg)
+  io::print("p521-good=" & toString(crypto::p521Verify(kp521.publicKey, msg, s521)))
+  io::print("p521-tamper=" & toString(crypto::p521Verify(kp521.publicKey, tampered, s521)))
+
+  ' cross-key rejection: a P-256 signature must not verify under a fresh key
+  LET other AS crypto::KeyPair = crypto::generateP256()
+  io::print("p256-crosskey=" & toString(crypto::p256Verify(other.publicKey, msg, s256)))
+
+  check("p256", 32)
+  check("p384", 48)
+  check("p521", 66)
+END SUB

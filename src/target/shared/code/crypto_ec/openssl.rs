@@ -330,6 +330,17 @@ fn emit_copy(
     ]);
 }
 
+/// Branch to `fail` unless the byte count stored at `len_off` equals `expected`.
+/// Guards the fixed-length key splices against malformed (wrong-length) input,
+/// which would otherwise read past the argument buffer.
+fn emit_len_check(len_off: usize, expected: usize, fail: &str, ins: &mut Vec<CodeInstruction>) {
+    ins.extend([
+        abi::load_u64("%v9", abi::stack_pointer(), len_off),
+        abi::compare_immediate("%v9", &expected.to_string()),
+        abi::branch_ne(fail),
+    ]);
+}
+
 fn emit_alloc(
     symbol: &str,
     ins: &mut Vec<CodeInstruction>,
@@ -564,6 +575,7 @@ fn sign(
     ]);
     emit_read_byte_list(symbol, "priv", PRIVCOLL, PRIVBUF, PRIVLEN, &alloc_fail, &mut ins, &mut rel);
     emit_read_byte_list(symbol, "msg", MSGCOLL, MSGBUF, MSGLEN, &alloc_fail, &mut ins, &mut rel);
+    emit_len_check(PRIVLEN, p.point_len + p.field_len, &invalid_fail, &mut ins);
 
     dlopen_libcrypto(symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel)?;
 
@@ -728,6 +740,7 @@ fn verify(
     emit_read_byte_list(symbol, "pub", PUBCOLL, PUBBUF, PUBLEN, &alloc_fail, &mut ins, &mut rel);
     emit_read_byte_list(symbol, "msg", MSGCOLL, MSGBUF, MSGLEN, &alloc_fail, &mut ins, &mut rel);
     emit_read_byte_list(symbol, "sig", SIGCOLL, SIGBUF, SIGLEN, &alloc_fail, &mut ins, &mut rel);
+    emit_len_check(PUBLEN, p.point_len, &invalid_fail, &mut ins);
 
     dlopen_libcrypto(symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel)?;
 

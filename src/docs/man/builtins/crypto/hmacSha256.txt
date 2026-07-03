@@ -1,0 +1,73 @@
+NAME
+  hmacSha256 - HMAC-SHA-256 message authentication code (RFC 2104)
+
+SYNOPSIS
+  crypto::hmacSha256(key AS List OF Byte, data AS List OF Byte) AS List OF Byte
+  crypto::hmacSha256(key AS List OF Byte, data AS String) AS List OF Byte
+
+PACKAGE
+  crypto
+
+IMPORTS
+  IMPORT crypto
+
+DESCRIPTION
+  crypto::hmacSha256 computes the HMAC message authentication code of data
+  under key, using SHA-256 as the underlying hash, as specified by RFC 2104.
+  The result is a fixed 32-byte (256-bit) MAC returned as a List OF Byte. The
+  function is total: any inputs produce a MAC and it never raises an error.
+
+  HMAC keys of any length are accepted; per RFC 2104 a key longer than the
+  hash block size is hashed first, and a shorter key is zero-padded. The MAC is
+  a portable software core computed over the bits package, so its output is
+  byte-identical on every target (macOS/Linux, aarch64/x86-64).
+
+  Overloads. The key is always a List OF Byte. The data argument has two forms:
+
+    - List OF Byte form authenticates the raw bytes exactly as given.
+    - String form authenticates the UTF-8 encoding of the string. It is
+      equivalent to first converting the string to its UTF-8 bytes.
+
+  A MAC is raw binary. To display or store it as text, stringify it with
+  encoding::hexEncode (lowercase hex) or encoding::base64Encode. To compare a
+  received MAC against a computed one, use crypto::constantTimeEqual so the
+  comparison does not leak timing information.
+
+PARAMETERS
+  key AS List OF Byte
+    The secret HMAC key. Any length is accepted.
+
+  data AS List OF Byte
+    The message bytes to authenticate.
+
+  data AS String
+    A message string whose UTF-8 bytes are authenticated.
+
+RETURN VALUE
+  AS List OF Byte
+    The 32-byte HMAC-SHA-256 code.
+
+ERRORS
+  None.
+
+EXAMPLES
+  Authenticate a message and print the MAC as hex:
+
+    IMPORT crypto
+    IMPORT encoding
+
+    LET mac AS List OF Byte = crypto::hmacSha256(key, message)
+    PRINT encoding::hexEncode(mac)
+
+  Verify a received MAC in constant time:
+
+    IMPORT crypto
+
+    LET expected AS List OF Byte = crypto::hmacSha256(key, "payload")
+    IF crypto::constantTimeEqual(expected, received) THEN
+      PRINT "authentic"
+    END IF
+
+SEE ALSO
+  crypto::hmacSha512, crypto::sha256, crypto::constantTimeEqual,
+  mfb man encoding hexEncode

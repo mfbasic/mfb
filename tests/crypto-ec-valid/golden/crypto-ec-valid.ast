@@ -1,0 +1,106 @@
+{
+  "project": "crypto-ec-valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "crypto", "line": 5 },
+    { "module": "encoding", "line": 6 },
+    { "module": "io", "line": 7 },
+    { "module": "collections", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "check",
+      "line": 10,
+      "params": [
+      { "name": "label", "type": "String", "default": null },
+      { "name": "field", "type": "Integer", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "point", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "number", "value": "1" }, "right": { "kind": "binary", "operator": "*", "left": { "kind": "number", "value": "2" }, "right": { "kind": "identifier", "value": "field" } } }, "line": 11 },
+      { "kind": "binding", "mutable": false, "name": "priv", "type": "Integer", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "point" }, "right": { "kind": "identifier", "value": "field" } }, "line": 12 },
+      { "kind": "binding", "mutable": true, "name": "kp", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generateP256", "arguments": [] }, "line": 13 },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "field" }, "right": { "kind": "number", "value": "48" } },
+        "line": 14,
+        "then": [
+        { "kind": "assignment", "name": "kp", "value": { "kind": "call", "callee": "crypto.generateP384", "arguments": [] }, "line": 15 }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": "=", "left": { "kind": "identifier", "value": "field" }, "right": { "kind": "number", "value": "66" } },
+        "line": 17,
+        "then": [
+        { "kind": "assignment", "name": "kp", "value": { "kind": "call", "callee": "crypto.generateP521", "arguments": [] }, "line": 18 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " priv-len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }] }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "priv" }] } }, "right": { "kind": "string", "value": " pub-len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "publicKey" }] }] } }, "right": { "kind": "string", "value": "/" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "point" }] } }] }, "line": 20 },
+      { "kind": "binding", "mutable": true, "name": "prefixOk", "type": "Boolean", "value": { "kind": "boolean", "value": true }, "line": 22 },
+      { "kind": "binding", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 23 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "identifier", "value": "point" } },
+        "line": 24,
+        "body": [
+        {
+          "kind": "if",
+          "condition": { "kind": "binary", "operator": "<>", "left": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "privateKey" }, { "kind": "identifier", "value": "i" }] }, "right": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "publicKey" }, { "kind": "identifier", "value": "i" }] } },
+          "line": 25,
+          "then": [
+          { "kind": "assignment", "name": "prefixOk", "value": { "kind": "boolean", "value": false }, "line": 26 }
+          ],
+          "else": [
+          ]
+        },
+        { "kind": "assignment", "name": "i", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "i" }, "right": { "kind": "number", "value": "1" } }, "line": 28 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " pub-is-point-prefix=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "prefixOk" }] } }] }, "line": 30 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "identifier", "value": "label" }, "right": { "kind": "string", "value": " first-byte-uncompressed=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp" }, "member": "publicKey" }, { "kind": "number", "value": "0" }] }] } }] }, "line": 31 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "private",
+      "name": "main",
+      "line": 34,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "msg", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "The quick brown fox" }] }, "line": 35 },
+      { "kind": "binding", "mutable": false, "name": "tampered", "type": "List OF Byte", "value": { "kind": "call", "callee": "encoding.utf8Encode", "arguments": [{ "kind": "string", "value": "The quick brown Fox" }] }, "line": 36 },
+      { "kind": "binding", "mutable": false, "name": "kp256", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generateP256", "arguments": [] }, "line": 39 },
+      { "kind": "binding", "mutable": false, "name": "s256", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.p256Sign", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp256" }, "member": "privateKey" }, { "kind": "identifier", "value": "msg" }] }, "line": 40 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "p256-good=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.p256Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp256" }, "member": "publicKey" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "s256" }] }] } }] }, "line": 41 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "p256-tamper=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.p256Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp256" }, "member": "publicKey" }, { "kind": "identifier", "value": "tampered" }, { "kind": "identifier", "value": "s256" }] }] } }] }, "line": 42 },
+      { "kind": "binding", "mutable": false, "name": "kp384", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generateP384", "arguments": [] }, "line": 45 },
+      { "kind": "binding", "mutable": false, "name": "s384", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.p384Sign", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp384" }, "member": "privateKey" }, { "kind": "identifier", "value": "msg" }] }, "line": 46 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "p384-good=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.p384Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp384" }, "member": "publicKey" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "s384" }] }] } }] }, "line": 47 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "p384-tamper=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.p384Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp384" }, "member": "publicKey" }, { "kind": "identifier", "value": "tampered" }, { "kind": "identifier", "value": "s384" }] }] } }] }, "line": 48 },
+      { "kind": "binding", "mutable": false, "name": "kp521", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generateP521", "arguments": [] }, "line": 51 },
+      { "kind": "binding", "mutable": false, "name": "s521", "type": "List OF Byte", "value": { "kind": "call", "callee": "crypto.p521Sign", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp521" }, "member": "privateKey" }, { "kind": "identifier", "value": "msg" }] }, "line": 52 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "p521-good=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.p521Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp521" }, "member": "publicKey" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "s521" }] }] } }] }, "line": 53 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "p521-tamper=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.p521Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "kp521" }, "member": "publicKey" }, { "kind": "identifier", "value": "tampered" }, { "kind": "identifier", "value": "s521" }] }] } }] }, "line": 54 },
+      { "kind": "binding", "mutable": false, "name": "other", "type": "KeyPair", "value": { "kind": "call", "callee": "crypto.generateP256", "arguments": [] }, "line": 57 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "p256-crosskey=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "crypto.p256Verify", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "other" }, "member": "publicKey" }, { "kind": "identifier", "value": "msg" }, { "kind": "identifier", "value": "s256" }] }] } }] }, "line": 58 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "p256" }, { "kind": "number", "value": "32" }] }, "line": 60 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "p384" }, { "kind": "number", "value": "48" }] }, "line": 61 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "check", "arguments": [{ "kind": "string", "value": "p521" }, { "kind": "number", "value": "66" }] }, "line": 62 }
+      ]
+    }
+    ]
+  }
+  ]
+}

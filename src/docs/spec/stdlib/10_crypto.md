@@ -31,8 +31,28 @@ Two categories bind the platform instead of computing in source:
   `math::rand`** (PCG64, non-cryptographic; `./mfb spec stdlib math-rng`) and is
   deliberately **not seedable**.
 - **NIST-EC public-key** (P-256/384/521 key generation and ECDSA) binds the
-  platform's modern, non-deprecated key API (`SecKey` on macOS, `EVP_PKEY` on
-  Linux).
+  platform's key API — `SecKey` (Security.framework) on macOS, `EVP_PKEY`
+  (libcrypto) on Linux — rather than a software core: generic NIST bignum
+  arithmetic is ~100× costlier than Ed25519's special-prime field and is
+  impractical over `bits`. Both bindings use **no deprecated calls on any
+  supported version**: macOS uses the non-deprecated `SecKey`
+  create/sign/verify surface; Linux exchanges keys as DER through
+  `d2i_AutoPrivateKey`/`d2i_PUBKEY` + `EVP_DigestSign`/`EVP_DigestVerify`, which
+  are non-deprecated on both OpenSSL 1.1 and 3.x, and generates keys with
+  `EVP_EC_gen` (OpenSSL 3.x) or `EC_KEY_*` (OpenSSL 1.1, where it is not
+  deprecated). `libcrypto` is resolved at load time via `dlopen`
+  (`libcrypto.so.3`, falling back to `libcrypto.so.1.1`).
+
+  The two backends are **wire-compatible**: a key or signature produced on one
+  platform is accepted by the other (and by OpenSSL/pyca). The agreed encodings,
+  identical on every target, are
+
+  - `KeyPair.privateKey` = `0x04 ‖ X ‖ Y ‖ K` — the SEC1 uncompressed point
+    followed by the big-endian scalar (self-contained: 97 bytes for P-256, 145
+    for P-384, 199 for P-521);
+  - `KeyPair.publicKey` = `0x04 ‖ X ‖ Y` — the SEC1 uncompressed point (65 / 97 /
+    133 bytes);
+  - signatures = ASN.1 DER `Ecdsa-Sig-Value` (X9.62).
 
 Hardware acceleration (AES-NI, SHA extensions) is not currently inherited by the
 software cores; a future library-backed fast path could add it without changing
