@@ -103,13 +103,13 @@ all placement.
 `arena_alloc` (symbol `_mfb_arena_alloc`) takes a byte `size` in `x0` and a power-
 of-two `align` in `x1`, and returns a fallible result: [[src/target/shared/code/entry_and_arena.rs:lower_arena_alloc]] `x0` is `0` on success
 with the aligned pointer in `x1`, or an error code in `x0` with `x1 = 0` on
-failure. The caller-visible clobber set is **x9, x10, x14, x15, x20–x28**; callers
-must spill any live values held in those registers across the call. The fast
-(first-fit) path makes no call, but the rare block-grow path calls
+failure. Its register contract is the standard runtime-helper one: **all
+caller-saved integer registers (x0–x17) are clobbered**; callee-saved registers
+(x19–x28) are preserved by its PCS frame. Callers must not hold a live value in
+any caller-saved register across the call — spill to a stack slot instead. The
+fast (first-fit) path makes no call, but the rare block-grow path calls
 `arena_fill_random` to poison the freshly mapped block, so `arena_alloc` is **not**
-a leaf — it carries a 64-byte frame and saves the link register. The grow path
-saves and restores x11–x13 around the fill call, so those registers (and x17) stay
-out of the caller-visible clobber set, preserving the historical contract.
+a leaf — it carries a frame and saves the link register.
 
 The algorithm:
 

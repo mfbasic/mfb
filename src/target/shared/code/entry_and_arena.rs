@@ -593,20 +593,18 @@ fn emit_cleanup_failure_audit_report(
 
 pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFunction, String> {
     // Vreg-allocated (plan-00-G Phase 2): the body names virtual registers and the
-    // shared allocator places them per-ISA; `finalize_vreg_helper_reserved` runs
-    // the allocator + `finalize_frame` (which builds the frame, saves the link
+    // shared allocator places them per-ISA; `finalize_vreg_helper` runs the
+    // allocator + `finalize_frame` (which builds the frame, saves the link
     // register because the grow path calls `arena_fill_random`, and saves any
     // callee-saved registers the allocator used).
     //
-    // The hand-written callers of `_mfb_arena_alloc` — the builder collection /
-    // string lowerings, emitted with fixed physical registers in `_mfb_fn_main` —
-    // rely on the registers the hand-written original preserved across the call.
-    // The original's first-fit fast path (the common case) used only `x9`/`x10`/
-    // `x14`/`x15` (and the saved `x20`–`x27`) as scratch, so it left `x8`/`x11`/
-    // `x12`/`x13`/`x16`/`x17` intact; callers depend on that. Reserving those six
-    // from allocation keeps the migrated fast-path clobber set identical to the
-    // original (`x16` is still clobbered by the grow path's `mmap` syscall, exactly
-    // as before — `.ai/compiler.md`).
+    // Register contract (allocator-06): the standard runtime-helper one the
+    // regalloc call-clobber model already assumes — all caller-saved integer
+    // registers (`x0`–`x17`) are clobbered; callee-saved (`x19`–`x28`) are
+    // preserved by the PCS frame. No caller holds a value in a physical register
+    // across the call (audited tree-wide; every caller spills to stack slots or
+    // vregs). The historical `x8/x11/x12/x13/x17` survivor reservation was
+    // byte-identical-migration scaffolding and is gone.
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
     let mut vregs = Vregs::new();
     // Values that live across blocks: the normalized request, the walk cursor, and
@@ -767,19 +765,6 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     let ubase = vregs.next();
     let ins_cur = vregs.next();
     let ins_prev = vregs.next();
-    // The reserved survivor registers (`x8`/`x11`/`x12`/`x13`/`x17`) are held out of
-    // allocation so the first-fit fast path leaves them intact for callers, but the
-    // grow path's nested `arena_fill_random` call clobbers them as scratch — the
-    // migrated (vreg) fill helper colors its loop-carried ptr/count into the
-    // caller-saved scratch pool, which includes `x16`/`x17`. Save and restore all
-    // five around the call via vregs the allocator spills across it. (`x16` is not a
-    // reliable survivor regardless — the `mmap` syscall clobbers it on either
-    // platform — so callers must not keep a survivor there.)
-    let save_x8 = vregs.next();
-    let save_x11 = vregs.next();
-    let save_x12 = vregs.next();
-    let save_x13 = vregs.next();
-    let save_x17 = vregs.next();
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ge("arena_alloc_mapped"),
@@ -799,20 +784,9 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         // `ubase`/`usable` are live across the fill call, so the allocator spills
         // them (the call's clobber mask is every integer register).
         abi::add_immediate(&ubase, abi::return_register(), ARENA_BLOCK_HEADER_SIZE), // ubase
-        // Preserve the survivor registers the fill call would otherwise trample.
-        abi::move_register(&save_x8, "x8"),
-        abi::move_register(&save_x11, "x11"),
-        abi::move_register(&save_x12, "x12"),
-        abi::move_register(&save_x13, "x13"),
-        abi::move_register(&save_x17, "x17"),
         abi::move_register("x0", &ubase),
         abi::move_register("x1", &usable),
         abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
-        abi::move_register("x8", &save_x8),
-        abi::move_register("x11", &save_x11),
-        abi::move_register("x12", &save_x12),
-        abi::move_register("x13", &save_x13),
-        abi::move_register("x17", &save_x17),
         // Insert [base+32, base+32+usableCapacity) as one free chunk, in address
         // order. A fresh block is never adjacent to an existing chunk (the 32-byte
         // header always separates blocks), so no coalescing is required here.
@@ -847,13 +821,12 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::return_(),
     ]);
     let relocations = vec![internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FILL_RANDOM_SYMBOL)];
-    Ok(finalize_vreg_helper_reserved(
+    Ok(finalize_vreg_helper(
         "runtime.arena_alloc",
         ARENA_ALLOC_SYMBOL,
         "Pointer",
         instructions,
         relocations,
-        &["x8", "x11", "x12", "x13", "x16", "x17"],
     ))
 }
 
