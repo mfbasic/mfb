@@ -39,6 +39,15 @@ impl NativeBackend for Backend {
             // scratch) and tls.* (the shared OpenSSL dlopen backend).
             runtime_calls: &[
                 "crypto.randomBytes",
+                "crypto.generateP256Raw",
+                "crypto.generateP384Raw",
+                "crypto.generateP521Raw",
+                "crypto.p256Sign",
+                "crypto.p384Sign",
+                "crypto.p521Sign",
+                "crypto.p256Verify",
+                "crypto.p384Verify",
+                "crypto.p521Verify",
                 "datetime.nowNanos",
                 "datetime.monotonicNanos",
                 "datetime.localOffset",

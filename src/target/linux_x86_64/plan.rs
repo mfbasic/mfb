@@ -215,6 +215,16 @@ impl NativePlanPlatform for Platform {
                 imports.push(self.libc_import("__errno_location", spec.symbol));
                 imports
             }
+            call if crate::builtins::crypto::is_native_crypto_call(call)
+                && call != "crypto.randomBytes" =>
+            {
+                // The NIST-EC helpers resolve libcrypto at load time via
+                // dlopen/dlsym (no deprecated OpenSSL calls on any version).
+                vec![
+                    self.libc_import("dlopen", spec.symbol),
+                    self.libc_import("dlsym", spec.symbol),
+                ]
+            }
             call if crate::builtins::tls::is_tls_call(call) => {
                 // The TLS backend resolves OpenSSL at load time via dlopen/dlsym;
                 // tls.connect/listen also open the TCP socket themselves, and
