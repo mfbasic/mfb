@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-transfer-bidirectional-rt
+$ mfb build -ast -ir tests/thread-transfer-bidirectional-rt
 Wrote AST to tests/thread-transfer-bidirectional-rt/thread_transfer_bidirectional_rt.ast
-[exit 0]
-$ mfb build -ir tests/thread-transfer-bidirectional-rt
 Wrote IR to tests/thread-transfer-bidirectional-rt/thread_transfer_bidirectional_rt.ir
 [exit 0]
 $ mfb build tests/thread-transfer-bidirectional-rt

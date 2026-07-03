@@ -1,7 +1,5 @@
-$ mfb build -ast tests/trap-builtin-consumer
+$ mfb build -ast -ir tests/trap-builtin-consumer
 Wrote AST to tests/trap-builtin-consumer/trap_builtin_consumer.ast
-[exit 0]
-$ mfb build -ir tests/trap-builtin-consumer
 Wrote IR to tests/trap-builtin-consumer/trap_builtin_consumer.ir
 [exit 0]
 $ mfb build tests/trap-builtin-consumer

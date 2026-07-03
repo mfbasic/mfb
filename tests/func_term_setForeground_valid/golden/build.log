@@ -1,6 +1,4 @@
-$ mfb build -ast tests/func_term_setForeground_valid
+$ mfb build -ast -ir tests/func_term_setForeground_valid
 Wrote AST to tests/func_term_setForeground_valid/func_term_setForeground_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_term_setForeground_valid
 Wrote IR to tests/func_term_setForeground_valid/func_term_setForeground_valid.ir
 [exit 0]

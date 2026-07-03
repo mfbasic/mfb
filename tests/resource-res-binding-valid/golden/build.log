@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-res-binding-valid
+$ mfb build -ast -ir tests/resource-res-binding-valid
 Wrote AST to tests/resource-res-binding-valid/resource_res_binding_valid.ast
-[exit 0]
-$ mfb build -ir tests/resource-res-binding-valid
 Wrote IR to tests/resource-res-binding-valid/resource_res_binding_valid.ir
 [exit 0]
 $ mfb build tests/resource-res-binding-valid

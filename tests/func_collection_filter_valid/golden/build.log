@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_collection_filter_valid
+$ mfb build -ast -ir tests/func_collection_filter_valid
 Wrote AST to tests/func_collection_filter_valid/func_collection_filter_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_collection_filter_valid
 Wrote IR to tests/func_collection_filter_valid/func_collection_filter_valid.ir
 [exit 0]
 $ mfb build tests/func_collection_filter_valid

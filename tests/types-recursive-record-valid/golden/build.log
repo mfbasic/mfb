@@ -1,6 +1,4 @@
-$ mfb build -ast tests/types-recursive-record-valid
+$ mfb build -ast -ir tests/types-recursive-record-valid
 Wrote AST to tests/types-recursive-record-valid/types_recursive_record_valid.ast
-[exit 0]
-$ mfb build -ir tests/types-recursive-record-valid
 Wrote IR to tests/types-recursive-record-valid/types_recursive_record_valid.ir
 [exit 0]

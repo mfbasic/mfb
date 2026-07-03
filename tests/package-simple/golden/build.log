@@ -1,7 +1,5 @@
-$ mfb build -ast tests/package-simple
+$ mfb build -ast -ir tests/package-simple
 Wrote AST to tests/package-simple/package_simple.ast
-[exit 0]
-$ mfb build -ir tests/package-simple
 Wrote IR to tests/package-simple/package_simple.ir
 [exit 0]
 $ mfb build tests/package-simple

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/user-function-default-args-result-valid
+$ mfb build -ast -ir tests/user-function-default-args-result-valid
 Wrote AST to tests/user-function-default-args-result-valid/user_function_default_args_result_valid.ast
-[exit 0]
-$ mfb build -ir tests/user-function-default-args-result-valid
 Wrote IR to tests/user-function-default-args-result-valid/user_function_default_args_result_valid.ir
 [exit 0]
 $ mfb build tests/user-function-default-args-result-valid

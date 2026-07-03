@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-return-ownership-valid
+$ mfb build -ast -ir tests/resource-return-ownership-valid
 Wrote AST to tests/resource-return-ownership-valid/resource_return_ownership_valid.ast
-[exit 0]
-$ mfb build -ir tests/resource-return-ownership-valid
 Wrote IR to tests/resource-return-ownership-valid/resource_return_ownership_valid.ir
 [exit 0]
 $ mfb build tests/resource-return-ownership-valid

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/control-flow-inline-trap-nested-valid
+$ mfb build -ast -ir tests/control-flow-inline-trap-nested-valid
 Wrote AST to tests/control-flow-inline-trap-nested-valid/control_flow_inline_trap_nested_valid.ast
-[exit 0]
-$ mfb build -ir tests/control-flow-inline-trap-nested-valid
 Wrote IR to tests/control-flow-inline-trap-nested-valid/control_flow_inline_trap_nested_valid.ir
 [exit 0]
 $ mfb build tests/control-flow-inline-trap-nested-valid

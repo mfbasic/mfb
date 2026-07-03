@@ -1,18 +1,4 @@
-$ mfb build -ast tests/thread-result-field-removed-invalid
-   6 | 
-   7 | FUNC inspect(t AS Thread OF Nothing TO Integer) AS Integer
-   8 |   LET value AS Integer = t.result
-     | ^
-tests/thread-result-field-removed-invalid/src/main.mfb:8 error[2-203-0072 TYPE_THREAD_RESULT_REMOVED]: the thread result field is removed; use thread::waitFor
-               Thread values have no `result` field; use `thread::waitFor(t)` to retrieve the worker outcome.
-   6 | 
-   7 | FUNC inspect(t AS Thread OF Nothing TO Integer) AS Integer
-   8 |   LET value AS Integer = t.result
-     | ^
-tests/thread-result-field-removed-invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `value` does not have a known type.
-[exit 1]
-$ mfb build -ir tests/thread-result-field-removed-invalid
+$ mfb build -ast -ir tests/thread-result-field-removed-invalid
    6 | 
    7 | FUNC inspect(t AS Thread OF Nothing TO Integer) AS Integer
    8 |   LET value AS Integer = t.result

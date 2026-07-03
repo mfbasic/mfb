@@ -1,7 +1,5 @@
-$ mfb build -ast tests/datetime-instant-valid
+$ mfb build -ast -ir tests/datetime-instant-valid
 Wrote AST to tests/datetime-instant-valid/datetime-instant-valid.ast
-[exit 0]
-$ mfb build -ir tests/datetime-instant-valid
 Wrote IR to tests/datetime-instant-valid/datetime-instant-valid.ir
 [exit 0]
 $ mfb build tests/datetime-instant-valid

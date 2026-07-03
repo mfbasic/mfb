@@ -1,7 +1,5 @@
-$ mfb build -ast tests/native-resource-import-valid
+$ mfb build -ast -ir tests/native-resource-import-valid
 Wrote AST to tests/native-resource-import-valid/native_resource_import_valid.ast
-[exit 0]
-$ mfb build -ir tests/native-resource-import-valid
 Wrote IR to tests/native-resource-import-valid/native_resource_import_valid.ir
 [exit 0]
 $ mfb build tests/native-resource-import-valid

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/flat-union-rt
+$ mfb build -ast -ir tests/flat-union-rt
 Wrote AST to tests/flat-union-rt/flat_union_rt.ast
-[exit 0]
-$ mfb build -ir tests/flat-union-rt
 Wrote IR to tests/flat-union-rt/flat_union_rt.ir
 [exit 0]
 $ mfb build tests/flat-union-rt

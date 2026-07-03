@@ -1,6 +1,4 @@
-$ mfb build -ast tests/arithmetic-float-pow-overflow-rt
+$ mfb build -ast -ir tests/arithmetic-float-pow-overflow-rt
 Wrote AST to tests/arithmetic-float-pow-overflow-rt/arithmetic_float_pow_overflow_rt.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-float-pow-overflow-rt
 Wrote IR to tests/arithmetic-float-pow-overflow-rt/arithmetic_float_pow_overflow_rt.ir
 [exit 0]

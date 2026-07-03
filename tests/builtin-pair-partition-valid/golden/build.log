@@ -1,7 +1,5 @@
-$ mfb build -ast tests/builtin-pair-partition-valid
+$ mfb build -ast -ir tests/builtin-pair-partition-valid
 Wrote AST to tests/builtin-pair-partition-valid/builtin_pair_partition_valid.ast
-[exit 0]
-$ mfb build -ir tests/builtin-pair-partition-valid
 Wrote IR to tests/builtin-pair-partition-valid/builtin_pair_partition_valid.ir
 [exit 0]
 $ mfb build tests/builtin-pair-partition-valid

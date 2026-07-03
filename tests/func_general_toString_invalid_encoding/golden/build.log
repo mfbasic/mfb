@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_general_toString_invalid_encoding
+$ mfb build -ast -ir tests/func_general_toString_invalid_encoding
 Wrote AST to tests/func_general_toString_invalid_encoding/func_general_toString_invalid_encoding.ast
-[exit 0]
-$ mfb build -ir tests/func_general_toString_invalid_encoding
 Wrote IR to tests/func_general_toString_invalid_encoding/func_general_toString_invalid_encoding.ir
 [exit 0]
 $ mfb build tests/func_general_toString_invalid_encoding

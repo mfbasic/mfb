@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_encoding_utf16Decode_valid
+$ mfb build -ast -ir tests/func_encoding_utf16Decode_valid
 Wrote AST to tests/func_encoding_utf16Decode_valid/func_encoding_utf16Decode_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_encoding_utf16Decode_valid
 Wrote IR to tests/func_encoding_utf16Decode_valid/func_encoding_utf16Decode_valid.ir
 [exit 0]
 $ mfb build tests/func_encoding_utf16Decode_valid

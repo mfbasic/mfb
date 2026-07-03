@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-with-package-import-as
+$ mfb build -ast -ir tests/project-with-package-import-as
 Wrote AST to tests/project-with-package-import-as/project_with_package_import_as.ast
-[exit 0]
-$ mfb build -ir tests/project-with-package-import-as
 Wrote IR to tests/project-with-package-import-as/project_with_package_import_as.ir
 [exit 0]
 $ mfb build tests/project-with-package-import-as

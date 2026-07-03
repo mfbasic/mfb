@@ -1,7 +1,5 @@
-$ mfb build -ast tests/collection-set-string-grow-rt
+$ mfb build -ast -ir tests/collection-set-string-grow-rt
 Wrote AST to tests/collection-set-string-grow-rt/collection_set_string_grow_rt.ast
-[exit 0]
-$ mfb build -ir tests/collection-set-string-grow-rt
 Wrote IR to tests/collection-set-string-grow-rt/collection_set_string_grow_rt.ir
 [exit 0]
 $ mfb build tests/collection-set-string-grow-rt

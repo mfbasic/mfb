@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-return-type
+$ mfb build -ast -ir tests/thread-return-type
 Wrote AST to tests/thread-return-type/thread_return_type.ast
-[exit 0]
-$ mfb build -ir tests/thread-return-type
 Wrote IR to tests/thread-return-type/thread_return_type.ir
 [exit 0]
 $ mfb build tests/thread-return-type

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/datetime-parse-valid
+$ mfb build -ast -ir tests/datetime-parse-valid
 Wrote AST to tests/datetime-parse-valid/datetime-parse-valid.ast
-[exit 0]
-$ mfb build -ir tests/datetime-parse-valid
 Wrote IR to tests/datetime-parse-valid/datetime-parse-valid.ir
 [exit 0]
 $ mfb build tests/datetime-parse-valid

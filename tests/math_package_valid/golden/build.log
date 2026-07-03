@@ -1,7 +1,5 @@
-$ mfb build -ast tests/math_package_valid
+$ mfb build -ast -ir tests/math_package_valid
 Wrote AST to tests/math_package_valid/math_package_valid.ast
-[exit 0]
-$ mfb build -ir tests/math_package_valid
 Wrote IR to tests/math_package_valid/math_package_valid.ir
 [exit 0]
 $ mfb build tests/math_package_valid

@@ -168,60 +168,51 @@ for test_dir in "$TEST_ROOT"/* "$TEST_ROOT"/security/*; do
   rm -f "$ast_path" "$ir_path" "$hex_path" "$mfp_path" "$nir_path" "$nplan_path" "$nobj_path" "$ncode_path" "$mir_path" "$target_nir_path" "$target_nplan_path" "$target_nobj_path" "$target_ncode_path" "$target_mir_path" "$target_app_nir_path" "$target_app_nplan_path" "$target_app_ncode_path" "$test_dir/$package_name.out"
 
   {
-    echo "$ mfb build -ast tests/$test_name"
-    "$MFB_EXE" build -ast "tests/$test_name"
-    echo "[exit $?]"
-    echo "$ mfb build -ir tests/$test_name"
-    "$MFB_EXE" build -ir "tests/$test_name"
-    echo "[exit $?]"
+    # Batch the artifact dumps: `mfb build` output flags combine, so one
+    # invocation per flag family shares a single front-end pass instead of
+    # re-parsing/resolving/typechecking the project once per artifact.
+    console_flags="-ast -ir"
     if [ -f "$golden_dir/$package_name.hex" ]; then
-      echo "$ mfb build -br tests/$test_name"
-      "$MFB_EXE" build -br "tests/$test_name"
-      echo "[exit $?]"
+      console_flags="$console_flags -br"
     fi
+    if [ -f "$golden_dir/$package_name.$target_name.nir" ]; then
+      console_flags="$console_flags -nir"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.nplan" ]; then
+      console_flags="$console_flags -nplan"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.nobj" ]; then
+      console_flags="$console_flags -nobj"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.ncode" ]; then
+      console_flags="$console_flags -ncode"
+    fi
+    if [ -f "$golden_dir/$package_name.$target_name.mir" ]; then
+      console_flags="$console_flags -mir"
+    fi
+    echo "$ mfb build ${target_label}${console_flags} tests/$test_name"
+    # shellcheck disable=SC2086
+    "$MFB_EXE" build $target_arg $console_flags "tests/$test_name"
+    echo "[exit $?]"
     if [ -f "$golden_dir/$package_name.mfp" ] || [ -f "$golden_dir/$package_name.info" ]; then
       echo "$ mfb build tests/$test_name"
       "$MFB_EXE" build "tests/$test_name"
       echo "[exit $?]"
     fi
-    if [ -f "$golden_dir/$package_name.$target_name.nir" ]; then
-      echo "$ mfb build ${target_label}-nir tests/$test_name"
-      "$MFB_EXE" build $target_arg -nir "tests/$test_name"
-      echo "[exit $?]"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.nplan" ]; then
-      echo "$ mfb build ${target_label}-nplan tests/$test_name"
-      "$MFB_EXE" build $target_arg -nplan "tests/$test_name"
-      echo "[exit $?]"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.nobj" ]; then
-      echo "$ mfb build ${target_label}-nobj tests/$test_name"
-      "$MFB_EXE" build $target_arg -nobj "tests/$test_name"
-      echo "[exit $?]"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.ncode" ]; then
-      echo "$ mfb build ${target_label}-ncode tests/$test_name"
-      "$MFB_EXE" build $target_arg -ncode "tests/$test_name"
-      echo "[exit $?]"
-    fi
-    if [ -f "$golden_dir/$package_name.$target_name.mir" ]; then
-      echo "$ mfb build ${target_label}-mir tests/$test_name"
-      "$MFB_EXE" build $target_arg -mir "tests/$test_name"
-      echo "[exit $?]"
-    fi
+    app_flags=""
     if [ -f "$golden_dir/$package_name.$target_name.app.nir" ]; then
-      echo "$ mfb build ${target_label}-app -nir tests/$test_name"
-      "$MFB_EXE" build $target_arg -app -nir "tests/$test_name"
-      echo "[exit $?]"
+      app_flags="$app_flags -nir"
     fi
     if [ -f "$golden_dir/$package_name.$target_name.app.nplan" ]; then
-      echo "$ mfb build ${target_label}-app -nplan tests/$test_name"
-      "$MFB_EXE" build $target_arg -app -nplan "tests/$test_name"
-      echo "[exit $?]"
+      app_flags="$app_flags -nplan"
     fi
     if [ -f "$golden_dir/$package_name.$target_name.app.ncode" ]; then
-      echo "$ mfb build ${target_label}-app -ncode tests/$test_name"
-      "$MFB_EXE" build $target_arg -app -ncode "tests/$test_name"
+      app_flags="$app_flags -ncode"
+    fi
+    if [ -n "$app_flags" ]; then
+      echo "$ mfb build ${target_label}-app${app_flags} tests/$test_name"
+      # shellcheck disable=SC2086
+      "$MFB_EXE" build $target_arg -app $app_flags "tests/$test_name"
       echo "[exit $?]"
     fi
     if [ -f "$golden_dir/$package_name.run" ]; then

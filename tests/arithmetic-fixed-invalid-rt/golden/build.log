@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-fixed-invalid-rt
+$ mfb build -ast -ir tests/arithmetic-fixed-invalid-rt
 Wrote AST to tests/arithmetic-fixed-invalid-rt/arithmetic_fixed_invalid_rt.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-fixed-invalid-rt
 Wrote IR to tests/arithmetic-fixed-invalid-rt/arithmetic_fixed_invalid_rt.ir
 [exit 0]
 $ mfb build tests/arithmetic-fixed-invalid-rt

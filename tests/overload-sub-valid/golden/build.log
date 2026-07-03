@@ -1,7 +1,5 @@
-$ mfb build -ast tests/overload-sub-valid
+$ mfb build -ast -ir tests/overload-sub-valid
 Wrote AST to tests/overload-sub-valid/overload_sub_valid.ast
-[exit 0]
-$ mfb build -ir tests/overload-sub-valid
 Wrote IR to tests/overload-sub-valid/overload_sub_valid.ir
 [exit 0]
 $ mfb build tests/overload-sub-valid

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-drop-cleanup
+$ mfb build -ast -ir tests/thread-drop-cleanup
 Wrote AST to tests/thread-drop-cleanup/thread_drop_cleanup.ast
-[exit 0]
-$ mfb build -ir tests/thread-drop-cleanup
 Wrote IR to tests/thread-drop-cleanup/thread_drop_cleanup.ir
 [exit 0]
 $ mfb build tests/thread-drop-cleanup

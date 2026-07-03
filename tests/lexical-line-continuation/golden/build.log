@@ -1,7 +1,5 @@
-$ mfb build -ast tests/lexical-line-continuation
+$ mfb build -ast -ir tests/lexical-line-continuation
 Wrote AST to tests/lexical-line-continuation/lexical_line_continuation.ast
-[exit 0]
-$ mfb build -ir tests/lexical-line-continuation
 Wrote IR to tests/lexical-line-continuation/lexical_line_continuation.ir
 [exit 0]
 $ mfb build tests/lexical-line-continuation

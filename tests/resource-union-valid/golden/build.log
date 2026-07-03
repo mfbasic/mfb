@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-union-valid
+$ mfb build -ast -ir tests/resource-union-valid
 Wrote AST to tests/resource-union-valid/resource_union_valid.ast
-[exit 0]
-$ mfb build -ir tests/resource-union-valid
 Wrote IR to tests/resource-union-valid/resource_union_valid.ir
 [exit 0]
 $ mfb build tests/resource-union-valid

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_general_find_not_found
+$ mfb build -ast -ir tests/func_general_find_not_found
 Wrote AST to tests/func_general_find_not_found/func_general_find_not_found.ast
-[exit 0]
-$ mfb build -ir tests/func_general_find_not_found
 Wrote IR to tests/func_general_find_not_found/func_general_find_not_found.ir
 [exit 0]
 $ mfb build tests/func_general_find_not_found

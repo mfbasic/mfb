@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-return-integer
+$ mfb build -ast -ir tests/thread-return-integer
 Wrote AST to tests/thread-return-integer/thread_return_integer.ast
-[exit 0]
-$ mfb build -ir tests/thread-return-integer
 Wrote IR to tests/thread-return-integer/thread_return_integer.ir
 [exit 0]
 $ mfb build tests/thread-return-integer

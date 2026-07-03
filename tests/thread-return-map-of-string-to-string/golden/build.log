@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-return-map-of-string-to-string
+$ mfb build -ast -ir tests/thread-return-map-of-string-to-string
 Wrote AST to tests/thread-return-map-of-string-to-string/thread_return_map_of_string_to_string.ast
-[exit 0]
-$ mfb build -ir tests/thread-return-map-of-string-to-string
 Wrote IR to tests/thread-return-map-of-string-to-string/thread_return_map_of_string_to_string.ir
 [exit 0]
 $ mfb build tests/thread-return-map-of-string-to-string

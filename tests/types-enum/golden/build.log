@@ -1,7 +1,5 @@
-$ mfb build -ast tests/types-enum
+$ mfb build -ast -ir tests/types-enum
 Wrote AST to tests/types-enum/types_enum.ast
-[exit 0]
-$ mfb build -ir tests/types-enum
 Wrote IR to tests/types-enum/types_enum.ir
 [exit 0]
 $ mfb build tests/types-enum

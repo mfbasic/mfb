@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-state-mutation-valid
+$ mfb build -ast -ir tests/resource-state-mutation-valid
 Wrote AST to tests/resource-state-mutation-valid/resource_state_mutation_valid.ast
-[exit 0]
-$ mfb build -ir tests/resource-state-mutation-valid
 Wrote IR to tests/resource-state-mutation-valid/resource_state_mutation_valid.ir
 [exit 0]
 $ mfb build tests/resource-state-mutation-valid

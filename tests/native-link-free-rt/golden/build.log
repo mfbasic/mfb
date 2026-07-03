@@ -1,7 +1,5 @@
-$ mfb build -ast tests/native-link-free-rt
+$ mfb build -ast -ir tests/native-link-free-rt
 Wrote AST to tests/native-link-free-rt/native_link_free_rt.ast
-[exit 0]
-$ mfb build -ir tests/native-link-free-rt
 Wrote IR to tests/native-link-free-rt/native_link_free_rt.ir
 [exit 0]
 $ mfb build tests/native-link-free-rt

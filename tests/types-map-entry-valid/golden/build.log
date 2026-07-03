@@ -1,7 +1,5 @@
-$ mfb build -ast tests/types-map-entry-valid
+$ mfb build -ast -ir tests/types-map-entry-valid
 Wrote AST to tests/types-map-entry-valid/types_map_entry_valid.ast
-[exit 0]
-$ mfb build -ir tests/types-map-entry-valid
 Wrote IR to tests/types-map-entry-valid/types_map_entry_valid.ir
 [exit 0]
 $ mfb build tests/types-map-entry-valid

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-add-sub-valid
+$ mfb build -ast -ir tests/arithmetic-add-sub-valid
 Wrote AST to tests/arithmetic-add-sub-valid/arithmetic_add_sub_valid.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-add-sub-valid
 Wrote IR to tests/arithmetic-add-sub-valid/arithmetic_add_sub_valid.ir
 [exit 0]
 $ mfb build tests/arithmetic-add-sub-valid

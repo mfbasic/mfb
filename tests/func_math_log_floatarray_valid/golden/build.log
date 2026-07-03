@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_math_log_floatarray_valid
+$ mfb build -ast -ir tests/func_math_log_floatarray_valid
 Wrote AST to tests/func_math_log_floatarray_valid/func_math_log_floatarray_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_math_log_floatarray_valid
 Wrote IR to tests/func_math_log_floatarray_valid/func_math_log_floatarray_valid.ir
 [exit 0]
 $ mfb build tests/func_math_log_floatarray_valid

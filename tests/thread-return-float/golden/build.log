@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-return-float
+$ mfb build -ast -ir tests/thread-return-float
 Wrote AST to tests/thread-return-float/thread_return_float.ast
-[exit 0]
-$ mfb build -ir tests/thread-return-float
 Wrote IR to tests/thread-return-float/thread_return_float.ir
 [exit 0]
 $ mfb build tests/thread-return-float

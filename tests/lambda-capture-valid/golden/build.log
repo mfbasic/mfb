@@ -1,7 +1,5 @@
-$ mfb build -ast tests/lambda-capture-valid
+$ mfb build -ast -ir tests/lambda-capture-valid
 Wrote AST to tests/lambda-capture-valid/lambda_capture_valid.ast
-[exit 0]
-$ mfb build -ir tests/lambda-capture-valid
 Wrote IR to tests/lambda-capture-valid/lambda_capture_valid.ir
 [exit 0]
 $ mfb build tests/lambda-capture-valid

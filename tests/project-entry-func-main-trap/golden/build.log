@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-entry-func-main-trap
+$ mfb build -ast -ir tests/project-entry-func-main-trap
 Wrote AST to tests/project-entry-func-main-trap/project_entry_func_main_trap.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-func-main-trap
 Wrote IR to tests/project-entry-func-main-trap/project_entry_func_main_trap.ir
 [exit 0]
 $ mfb build tests/project-entry-func-main-trap

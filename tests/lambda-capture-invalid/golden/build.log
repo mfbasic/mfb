@@ -1,18 +1,4 @@
-$ mfb build -ast tests/lambda-capture-invalid
-   3 | FUNC main AS Integer
-   4 |   MUT offset AS Integer = 1
-   5 |   LET badMutable AS FUNC(Integer) AS Integer = LAMBDA(value AS Integer) -> value + offset
-     | ^
-tests/lambda-capture-invalid/src/main.mfb:5 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
-               Lambda captures mutable local `offset`; mutable captures are invalid.
-   6 | 
-   7 |   RES file = fs::openFile("tests/lambda-capture-invalid/data/input.txt")
-   8 |   LET badResource AS FUNC() AS String = LAMBDA() -> fs::readLine(file)
-     | ^
-tests/lambda-capture-invalid/src/main.mfb:8 error[2-203-0019 TYPE_LAMBDA_CAPTURE_UNSUPPORTED]: lambda capture is invalid
-               Lambda captures resource local `file`; resource captures are invalid.
-[exit 1]
-$ mfb build -ir tests/lambda-capture-invalid
+$ mfb build -ast -ir tests/lambda-capture-invalid
    3 | FUNC main AS Integer
    4 |   MUT offset AS Integer = 1
    5 |   LET badMutable AS FUNC(Integer) AS Integer = LAMBDA(value AS Integer) -> value + offset

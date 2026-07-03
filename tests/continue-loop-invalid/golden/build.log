@@ -1,23 +1,4 @@
-$ mfb build -ast tests/continue-loop-invalid
-   1 | FUNC main AS Integer
-   2 |   CONTINUE FOR
-     | ^
-tests/continue-loop-invalid/src/main.mfb:2 error[2-203-0076 CONTINUE_NO_MATCHING_LOOP]: CONTINUE has no matching enclosing loop
-               CONTINUE FOR has no matching enclosing loop.
-   1 | FUNC main AS Integer
-   2 |   CONTINUE FOR
-   3 |   LET unreachable AS Integer = 1
-     | ^
-tests/continue-loop-invalid/src/main.mfb:3 error[2-203-0081 UNREACHABLE_AFTER_EXIT]: statement is unreachable after EXIT or CONTINUE
-               Statement is unreachable after EXIT or CONTINUE.
-   2 |   CONTINUE FOR
-   3 |   LET unreachable AS Integer = 1
-   4 |   RETURN unreachable
-     | ^
-tests/continue-loop-invalid/src/main.mfb:4 error[2-203-0081 UNREACHABLE_AFTER_EXIT]: statement is unreachable after EXIT or CONTINUE
-               Statement is unreachable after EXIT or CONTINUE.
-[exit 1]
-$ mfb build -ir tests/continue-loop-invalid
+$ mfb build -ast -ir tests/continue-loop-invalid
    1 | FUNC main AS Integer
    2 |   CONTINUE FOR
      | ^

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-float-neg-literal-args-valid
+$ mfb build -ast -ir tests/arithmetic-float-neg-literal-args-valid
 Wrote AST to tests/arithmetic-float-neg-literal-args-valid/arithmetic-float-neg-literal-args-valid.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-float-neg-literal-args-valid
 Wrote IR to tests/arithmetic-float-neg-literal-args-valid/arithmetic-float-neg-literal-args-valid.ir
 [exit 0]
 $ mfb build tests/arithmetic-float-neg-literal-args-valid

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-collection-transfer-runtime
+$ mfb build -ast -ir tests/resource-collection-transfer-runtime
 Wrote AST to tests/resource-collection-transfer-runtime/resource_collection_transfer_runtime.ast
-[exit 0]
-$ mfb build -ir tests/resource-collection-transfer-runtime
 Wrote IR to tests/resource-collection-transfer-runtime/resource_collection_transfer_runtime.ir
 [exit 0]
 $ mfb build tests/resource-collection-transfer-runtime

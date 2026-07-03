@@ -1,42 +1,4 @@
-$ mfb build -ast tests/func_json_get_invalid
-   3 | FUNC main AS Integer
-   4 |   LET value AS Json = JsonNull[NOTHING]
-   5 |   LET missing AS Json = json::get()
-     | ^
-tests/func_json_get_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `json.get` has 0 argument(s), expected 2.
-   3 | FUNC main AS Integer
-   4 |   LET value AS Json = JsonNull[NOTHING]
-   5 |   LET missing AS Json = json::get()
-     | ^
-tests/func_json_get_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `missing` does not have a known type.
-   4 |   LET value AS Json = JsonNull[NOTHING]
-   5 |   LET missing AS Json = json::get()
-   6 |   LET wrongPath AS Json = json::get(value, ["x"], "bad")
-     | ^
-tests/func_json_get_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `json.get` has 3 argument(s), expected 2.
-   4 |   LET value AS Json = JsonNull[NOTHING]
-   5 |   LET missing AS Json = json::get()
-   6 |   LET wrongPath AS Json = json::get(value, ["x"], "bad")
-     | ^
-tests/func_json_get_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongPath` does not have a known type.
-   5 |   LET missing AS Json = json::get()
-   6 |   LET wrongPath AS Json = json::get(value, ["x"], "bad")
-   7 |   LET wrongType AS Json = json::get("bad", ["x"])
-     | ^
-tests/func_json_get_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `json.get` has argument type(s) (String, List OF String), expected Json, List OF String.
-   5 |   LET missing AS Json = json::get()
-   6 |   LET wrongPath AS Json = json::get(value, ["x"], "bad")
-   7 |   LET wrongType AS Json = json::get("bad", ["x"])
-     | ^
-tests/func_json_get_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongType` does not have a known type.
-[exit 1]
-$ mfb build -ir tests/func_json_get_invalid
+$ mfb build -ast -ir tests/func_json_get_invalid
    3 | FUNC main AS Integer
    4 |   LET value AS Json = JsonNull[NOTHING]
    5 |   LET missing AS Json = json::get()

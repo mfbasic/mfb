@@ -1,7 +1,5 @@
-$ mfb build -ast tests/datetime-invalid
+$ mfb build -ast -ir tests/datetime-invalid
 Wrote AST to tests/datetime-invalid/datetime-invalid.ast
-[exit 0]
-$ mfb build -ir tests/datetime-invalid
 Wrote IR to tests/datetime-invalid/datetime-invalid.ir
 [exit 0]
 $ mfb build tests/datetime-invalid

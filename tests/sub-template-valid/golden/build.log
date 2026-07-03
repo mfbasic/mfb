@@ -1,15 +1,7 @@
-$ mfb build -ast tests/sub-template-valid
+$ mfb build -ast -ir -nir -nplan -nobj tests/sub-template-valid
 Wrote AST to tests/sub-template-valid/sub_template_valid.ast
-[exit 0]
-$ mfb build -ir tests/sub-template-valid
 Wrote IR to tests/sub-template-valid/sub_template_valid.ir
-[exit 0]
-$ mfb build -nir tests/sub-template-valid
 Wrote native IR to tests/sub-template-valid/sub_template_valid.nir
-[exit 0]
-$ mfb build -nplan tests/sub-template-valid
 Wrote native plan to tests/sub-template-valid/sub_template_valid.nplan
-[exit 0]
-$ mfb build -nobj tests/sub-template-valid
 Wrote native object plan to tests/sub-template-valid/sub_template_valid.nobj
 [exit 0]

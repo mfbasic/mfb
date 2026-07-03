@@ -1,7 +1,5 @@
-$ mfb build -ast tests/string-ordering-valid
+$ mfb build -ast -ir tests/string-ordering-valid
 Wrote AST to tests/string-ordering-valid/string_ordering_valid.ast
-[exit 0]
-$ mfb build -ir tests/string-ordering-valid
 Wrote IR to tests/string-ordering-valid/string_ordering_valid.ir
 [exit 0]
 $ mfb build tests/string-ordering-valid

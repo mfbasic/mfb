@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/allocator-05-grow-carve
+$ mfb build -ast -ir tests/security/allocator-05-grow-carve
 Wrote AST to tests/security/allocator-05-grow-carve/allocator_05_grow_carve.ast
-[exit 0]
-$ mfb build -ir tests/security/allocator-05-grow-carve
 Wrote IR to tests/security/allocator-05-grow-carve/allocator_05_grow_carve.ir
 [exit 0]
 $ mfb build tests/security/allocator-05-grow-carve

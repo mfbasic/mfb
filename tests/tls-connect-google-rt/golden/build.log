@@ -1,7 +1,5 @@
-$ mfb build -ast tests/tls-connect-google-rt
+$ mfb build -ast -ir tests/tls-connect-google-rt
 Wrote AST to tests/tls-connect-google-rt/tls_connect_google_rt.ast
-[exit 0]
-$ mfb build -ir tests/tls-connect-google-rt
 Wrote IR to tests/tls-connect-google-rt/tls_connect_google_rt.ir
 [exit 0]
 $ mfb build tests/tls-connect-google-rt

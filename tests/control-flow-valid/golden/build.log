@@ -1,7 +1,5 @@
-$ mfb build -ast tests/control-flow-valid
+$ mfb build -ast -ir tests/control-flow-valid
 Wrote AST to tests/control-flow-valid/control_flow_valid.ast
-[exit 0]
-$ mfb build -ir tests/control-flow-valid
 Wrote IR to tests/control-flow-valid/control_flow_valid.ir
 [exit 0]
 $ mfb build tests/control-flow-valid

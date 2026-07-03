@@ -1,6 +1,4 @@
-$ mfb build -ast tests/func_thread_isCancelled_valid
+$ mfb build -ast -ir tests/func_thread_isCancelled_valid
 Wrote AST to tests/func_thread_isCancelled_valid/func_thread_isCancelled_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_thread_isCancelled_valid
 Wrote IR to tests/func_thread_isCancelled_valid/func_thread_isCancelled_valid.ir
 [exit 0]

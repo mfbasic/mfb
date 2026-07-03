@@ -1,12 +1,4 @@
-$ mfb build -ast tests/native-link-duplicate-resource-invalid
-   1 | ' A resource name may be declared only once (§12).
-   2 | EXPORT RESOURCE Db CLOSE BY demoLink::close
-   3 | RESOURCE Db CLOSE BY demoLink::close
-     | ^
-tests/native-link-duplicate-resource-invalid/src/lib.mfb:3 error[2-201-0010 SYMBOL_DUPLICATE_TOP_LEVEL]: top-level symbol is declared more than once
-               Top-level symbol `Db` was already declared in src/lib.mfb:2.
-[exit 1]
-$ mfb build -ir tests/native-link-duplicate-resource-invalid
+$ mfb build -ast -ir tests/native-link-duplicate-resource-invalid
    1 | ' A resource name may be declared only once (§12).
    2 | EXPORT RESOURCE Db CLOSE BY demoLink::close
    3 | RESOURCE Db CLOSE BY demoLink::close

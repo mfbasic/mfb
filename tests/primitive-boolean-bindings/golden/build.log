@@ -1,10 +1,6 @@
-$ mfb build -ast tests/primitive-boolean-bindings
+$ mfb build -ast -ir -br tests/primitive-boolean-bindings
 Wrote AST to tests/primitive-boolean-bindings/primitive_boolean_bindings.ast
-[exit 0]
-$ mfb build -ir tests/primitive-boolean-bindings
 Wrote IR to tests/primitive-boolean-bindings/primitive_boolean_bindings.ir
-[exit 0]
-$ mfb build -br tests/primitive-boolean-bindings
 Wrote binary representation hex to tests/primitive-boolean-bindings/primitive_boolean_bindings.hex
 [exit 0]
 $ mfb build tests/primitive-boolean-bindings

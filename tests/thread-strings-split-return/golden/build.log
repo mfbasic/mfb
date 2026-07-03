@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-strings-split-return
+$ mfb build -ast -ir tests/thread-strings-split-return
 Wrote AST to tests/thread-strings-split-return/thread_strings_split_return.ast
-[exit 0]
-$ mfb build -ir tests/thread-strings-split-return
 Wrote IR to tests/thread-strings-split-return/thread_strings_split_return.ir
 [exit 0]
 $ mfb build tests/thread-strings-split-return

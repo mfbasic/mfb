@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_math_exp_floatarray_rt
+$ mfb build -ast -ir tests/func_math_exp_floatarray_rt
 Wrote AST to tests/func_math_exp_floatarray_rt/func_math_exp_floatarray_rt.ast
-[exit 0]
-$ mfb build -ir tests/func_math_exp_floatarray_rt
 Wrote IR to tests/func_math_exp_floatarray_rt/func_math_exp_floatarray_rt.ir
 [exit 0]
 $ mfb build tests/func_math_exp_floatarray_rt

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_vector_normalize_zero_integer_rt
+$ mfb build -ast -ir tests/func_vector_normalize_zero_integer_rt
 Wrote AST to tests/func_vector_normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.ast
-[exit 0]
-$ mfb build -ir tests/func_vector_normalize_zero_integer_rt
 Wrote IR to tests/func_vector_normalize_zero_integer_rt/func_vector_normalize_zero_integer_rt.ir
 [exit 0]
 $ mfb build tests/func_vector_normalize_zero_integer_rt

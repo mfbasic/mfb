@@ -1,7 +1,5 @@
-$ mfb build -ast tests/primitive-promotion
+$ mfb build -ast -ir tests/primitive-promotion
 Wrote AST to tests/primitive-promotion/primitive_promotion.ast
-[exit 0]
-$ mfb build -ir tests/primitive-promotion
 Wrote IR to tests/primitive-promotion/primitive_promotion.ir
 [exit 0]
 $ mfb build tests/primitive-promotion

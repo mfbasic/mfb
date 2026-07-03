@@ -1,6 +1,4 @@
-$ mfb build -ast tests/project-sources-file-root
+$ mfb build -ast -ir tests/project-sources-file-root
 Wrote AST to tests/project-sources-file-root/project_sources_file_root.ast
-[exit 0]
-$ mfb build -ir tests/project-sources-file-root
 Wrote IR to tests/project-sources-file-root/project_sources_file_root.ir
 [exit 0]

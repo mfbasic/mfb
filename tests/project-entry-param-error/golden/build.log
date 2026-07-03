@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-entry-param-error
+$ mfb build -ast -ir tests/project-entry-param-error
 Wrote AST to tests/project-entry-param-error/project_entry_param_error.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-param-error
 Wrote IR to tests/project-entry-param-error/project_entry_param_error.ir
 [exit 0]
 $ mfb build tests/project-entry-param-error

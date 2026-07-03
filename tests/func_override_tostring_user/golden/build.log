@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_override_tostring_user
+$ mfb build -ast -ir tests/func_override_tostring_user
 Wrote AST to tests/func_override_tostring_user/func_override_tostring_user.ast
-[exit 0]
-$ mfb build -ir tests/func_override_tostring_user
 Wrote IR to tests/func_override_tostring_user/func_override_tostring_user.ir
 [exit 0]
 $ mfb build tests/func_override_tostring_user

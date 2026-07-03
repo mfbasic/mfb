@@ -1,15 +1,7 @@
-$ mfb build -ast tests/project-entry-func-args-main
+$ mfb build -ast -ir -nir -nplan -nobj tests/project-entry-func-args-main
 Wrote AST to tests/project-entry-func-args-main/project_entry_func_args_main.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-func-args-main
 Wrote IR to tests/project-entry-func-args-main/project_entry_func_args_main.ir
-[exit 0]
-$ mfb build -nir tests/project-entry-func-args-main
 Wrote native IR to tests/project-entry-func-args-main/project_entry_func_args_main.nir
-[exit 0]
-$ mfb build -nplan tests/project-entry-func-args-main
 Wrote native plan to tests/project-entry-func-args-main/project_entry_func_args_main.nplan
-[exit 0]
-$ mfb build -nobj tests/project-entry-func-args-main
 Wrote native object plan to tests/project-entry-func-args-main/project_entry_func_args_main.nobj
 [exit 0]

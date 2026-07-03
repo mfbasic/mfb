@@ -1,7 +1,5 @@
-$ mfb build -ast tests/unary-float-negation-invalid-format-rt
+$ mfb build -ast -ir tests/unary-float-negation-invalid-format-rt
 Wrote AST to tests/unary-float-negation-invalid-format-rt/unary_float_negation_invalid_format_rt.ast
-[exit 0]
-$ mfb build -ir tests/unary-float-negation-invalid-format-rt
 Wrote IR to tests/unary-float-negation-invalid-format-rt/unary_float_negation_invalid_format_rt.ir
 [exit 0]
 $ mfb build tests/unary-float-negation-invalid-format-rt

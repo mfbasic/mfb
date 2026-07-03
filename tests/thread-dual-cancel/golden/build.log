@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-dual-cancel
+$ mfb build -ast -ir tests/thread-dual-cancel
 Wrote AST to tests/thread-dual-cancel/thread_dual_cancel.ast
-[exit 0]
-$ mfb build -ir tests/thread-dual-cancel
 Wrote IR to tests/thread-dual-cancel/thread_dual_cancel.ir
 [exit 0]
 $ mfb build tests/thread-dual-cancel

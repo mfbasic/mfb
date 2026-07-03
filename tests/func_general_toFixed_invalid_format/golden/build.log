@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_general_toFixed_invalid_format
+$ mfb build -ast -ir tests/func_general_toFixed_invalid_format
 Wrote AST to tests/func_general_toFixed_invalid_format/func_general_toFixed_invalid_format.ast
-[exit 0]
-$ mfb build -ir tests/func_general_toFixed_invalid_format
 Wrote IR to tests/func_general_toFixed_invalid_format/func_general_toFixed_invalid_format.ir
 [exit 0]
 $ mfb build tests/func_general_toFixed_invalid_format

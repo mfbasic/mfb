@@ -1,7 +1,5 @@
-$ mfb build -ast tests/flat-nested-record-rt
+$ mfb build -ast -ir tests/flat-nested-record-rt
 Wrote AST to tests/flat-nested-record-rt/flat_nested_record_rt.ast
-[exit 0]
-$ mfb build -ir tests/flat-nested-record-rt
 Wrote IR to tests/flat-nested-record-rt/flat_nested_record_rt.ir
 [exit 0]
 $ mfb build tests/flat-nested-record-rt

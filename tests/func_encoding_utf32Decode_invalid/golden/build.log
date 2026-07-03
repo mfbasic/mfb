@@ -1,30 +1,4 @@
-$ mfb build -ast tests/func_encoding_utf32Decode_invalid
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET b AS String = encoding::utf32Decode()
-     | ^
-tests/func_encoding_utf32Decode_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `encoding.utf32Decode` has 0 argument(s), expected 1.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET b AS String = encoding::utf32Decode()
-     | ^
-tests/func_encoding_utf32Decode_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `b` does not have a known type.
-   3 | FUNC main AS Integer
-   4 |   LET b AS String = encoding::utf32Decode()
-   5 |   LET d AS String = encoding::utf32Decode("x")
-     | ^
-tests/func_encoding_utf32Decode_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `encoding.utf32Decode` has argument type(s) (String), expected List OF Integer.
-   3 | FUNC main AS Integer
-   4 |   LET b AS String = encoding::utf32Decode()
-   5 |   LET d AS String = encoding::utf32Decode("x")
-     | ^
-tests/func_encoding_utf32Decode_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `d` does not have a known type.
-[exit 1]
-$ mfb build -ir tests/func_encoding_utf32Decode_invalid
+$ mfb build -ast -ir tests/func_encoding_utf32Decode_invalid
    2 | 
    3 | FUNC main AS Integer
    4 |   LET b AS String = encoding::utf32Decode()

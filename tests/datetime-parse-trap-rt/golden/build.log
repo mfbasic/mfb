@@ -1,7 +1,5 @@
-$ mfb build -ast tests/datetime-parse-trap-rt
+$ mfb build -ast -ir tests/datetime-parse-trap-rt
 Wrote AST to tests/datetime-parse-trap-rt/datetime-parse-trap-rt.ast
-[exit 0]
-$ mfb build -ir tests/datetime-parse-trap-rt
 Wrote IR to tests/datetime-parse-trap-rt/datetime-parse-trap-rt.ir
 [exit 0]
 $ mfb build tests/datetime-parse-trap-rt

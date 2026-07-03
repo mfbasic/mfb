@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/unicode-02-pad-overflow
+$ mfb build -ast -ir tests/security/unicode-02-pad-overflow
 Wrote AST to tests/security/unicode-02-pad-overflow/unicode_02_pad_overflow.ast
-[exit 0]
-$ mfb build -ir tests/security/unicode-02-pad-overflow
 Wrote IR to tests/security/unicode-02-pad-overflow/unicode_02_pad_overflow.ir
 [exit 0]
 $ mfb build tests/security/unicode-02-pad-overflow

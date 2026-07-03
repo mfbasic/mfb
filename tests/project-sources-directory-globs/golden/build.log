@@ -1,6 +1,4 @@
-$ mfb build -ast tests/project-sources-directory-globs
+$ mfb build -ast -ir tests/project-sources-directory-globs
 Wrote AST to tests/project-sources-directory-globs/project_sources_directory_globs.ast
-[exit 0]
-$ mfb build -ir tests/project-sources-directory-globs
 Wrote IR to tests/project-sources-directory-globs/project_sources_directory_globs.ir
 [exit 0]

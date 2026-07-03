@@ -1,7 +1,5 @@
-$ mfb build -ast tests/collection-payload-alignment-rt
+$ mfb build -ast -ir tests/collection-payload-alignment-rt
 Wrote AST to tests/collection-payload-alignment-rt/collection_payload_alignment_rt.ast
-[exit 0]
-$ mfb build -ir tests/collection-payload-alignment-rt
 Wrote IR to tests/collection-payload-alignment-rt/collection_payload_alignment_rt.ir
 [exit 0]
 $ mfb build tests/collection-payload-alignment-rt

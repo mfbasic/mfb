@@ -1,7 +1,5 @@
-$ mfb build -ast tests/unary-numeric-negation-valid
+$ mfb build -ast -ir tests/unary-numeric-negation-valid
 Wrote AST to tests/unary-numeric-negation-valid/unary_numeric_negation_valid.ast
-[exit 0]
-$ mfb build -ir tests/unary-numeric-negation-valid
 Wrote IR to tests/unary-numeric-negation-valid/unary_numeric_negation_valid.ir
 [exit 0]
 $ mfb build tests/unary-numeric-negation-valid

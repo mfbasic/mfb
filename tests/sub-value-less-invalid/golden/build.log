@@ -1,36 +1,4 @@
-$ mfb build -ast tests/sub-value-less-invalid
-   6 | SUB doThing(flag AS Boolean)
-   7 |   IF flag THEN
-   8 |     RETURN
-     | ^
-tests/sub-value-less-invalid/src/main.mfb:8 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
-               A SUB returns no value; use `EXIT SUB`.
-   8 |     RETURN
-   9 |   END IF
-  10 |   RETURN NOTHING
-     | ^
-tests/sub-value-less-invalid/src/main.mfb:10 error[2-203-0073 SUB_RETURN_FORBIDDEN]: RETURN is forbidden in a SUB; use EXIT SUB
-               A SUB returns no value; use `EXIT SUB`.
-  17 | FUNC main AS Integer
-  18 |   doThing(TRUE)
-  19 |   LET captured = doThing(TRUE)
-     | ^
-tests/sub-value-less-invalid/src/main.mfb:19 error[2-203-0074 TYPE_SUB_HAS_NO_VALUE]: a SUB call produces no value and cannot be used in value position
-               SUB `doThing` produces no value; its call is a statement, not an expression.
-  18 |   doThing(TRUE)
-  19 |   LET captured = doThing(TRUE)
-  20 |   LET nested = takesInt(doThing(FALSE))
-     | ^
-tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0074 TYPE_SUB_HAS_NO_VALUE]: a SUB call produces no value and cannot be used in value position
-               SUB `doThing` produces no value; its call is a statement, not an expression.
-  18 |   doThing(TRUE)
-  19 |   LET captured = doThing(TRUE)
-  20 |   LET nested = takesInt(doThing(FALSE))
-     | ^
-tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Argument 1 for `takesInt` has type Nothing, expected Integer.
-[exit 1]
-$ mfb build -ir tests/sub-value-less-invalid
+$ mfb build -ast -ir tests/sub-value-less-invalid
    6 | SUB doThing(flag AS Boolean)
    7 |   IF flag THEN
    8 |     RETURN

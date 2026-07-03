@@ -1,15 +1,7 @@
-$ mfb build -ast tests/project-entry-sub-foobar
+$ mfb build -ast -ir -nir -nplan -nobj tests/project-entry-sub-foobar
 Wrote AST to tests/project-entry-sub-foobar/project_entry_sub_foobar.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-sub-foobar
 Wrote IR to tests/project-entry-sub-foobar/project_entry_sub_foobar.ir
-[exit 0]
-$ mfb build -nir tests/project-entry-sub-foobar
 Wrote native IR to tests/project-entry-sub-foobar/project_entry_sub_foobar.nir
-[exit 0]
-$ mfb build -nplan tests/project-entry-sub-foobar
 Wrote native plan to tests/project-entry-sub-foobar/project_entry_sub_foobar.nplan
-[exit 0]
-$ mfb build -nobj tests/project-entry-sub-foobar
 Wrote native object plan to tests/project-entry-sub-foobar/project_entry_sub_foobar.nobj
 [exit 0]

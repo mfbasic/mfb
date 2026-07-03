@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_bits_popCount_valid
+$ mfb build -ast -ir tests/func_bits_popCount_valid
 Wrote AST to tests/func_bits_popCount_valid/func_bits_popCount_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_bits_popCount_valid
 Wrote IR to tests/func_bits_popCount_valid/func_bits_popCount_valid.ir
 [exit 0]
 $ mfb build tests/func_bits_popCount_valid

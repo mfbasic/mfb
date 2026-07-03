@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/unicode-01-repeat-overflow
+$ mfb build -ast -ir tests/security/unicode-01-repeat-overflow
 Wrote AST to tests/security/unicode-01-repeat-overflow/unicode_01_repeat_overflow.ast
-[exit 0]
-$ mfb build -ir tests/security/unicode-01-repeat-overflow
 Wrote IR to tests/security/unicode-01-repeat-overflow/unicode_01_repeat_overflow.ir
 [exit 0]
 $ mfb build tests/security/unicode-01-repeat-overflow

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_collection_sum_overflow
+$ mfb build -ast -ir tests/func_collection_sum_overflow
 Wrote AST to tests/func_collection_sum_overflow/func_collection_sum_overflow.ast
-[exit 0]
-$ mfb build -ir tests/func_collection_sum_overflow
 Wrote IR to tests/func_collection_sum_overflow/func_collection_sum_overflow.ir
 [exit 0]
 $ mfb build tests/func_collection_sum_overflow

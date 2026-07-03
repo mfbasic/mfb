@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-exp-mod-valid
+$ mfb build -ast -ir tests/arithmetic-exp-mod-valid
 Wrote AST to tests/arithmetic-exp-mod-valid/arithmetic_exp_mod_valid.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-exp-mod-valid
 Wrote IR to tests/arithmetic-exp-mod-valid/arithmetic_exp_mod_valid.ir
 [exit 0]
 $ mfb build tests/arithmetic-exp-mod-valid

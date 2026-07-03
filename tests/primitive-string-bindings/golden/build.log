@@ -1,10 +1,6 @@
-$ mfb build -ast tests/primitive-string-bindings
+$ mfb build -ast -ir -br tests/primitive-string-bindings
 Wrote AST to tests/primitive-string-bindings/primitive_string_bindings.ast
-[exit 0]
-$ mfb build -ir tests/primitive-string-bindings
 Wrote IR to tests/primitive-string-bindings/primitive_string_bindings.ir
-[exit 0]
-$ mfb build -br tests/primitive-string-bindings
 Wrote binary representation hex to tests/primitive-string-bindings/primitive_string_bindings.hex
 [exit 0]
 $ mfb build tests/primitive-string-bindings

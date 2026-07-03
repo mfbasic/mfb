@@ -1,7 +1,5 @@
-$ mfb build -ast tests/unary-byte-negation-underflow-rt
+$ mfb build -ast -ir tests/unary-byte-negation-underflow-rt
 Wrote AST to tests/unary-byte-negation-underflow-rt/unary_byte_negation_underflow_rt.ast
-[exit 0]
-$ mfb build -ir tests/unary-byte-negation-underflow-rt
 Wrote IR to tests/unary-byte-negation-underflow-rt/unary_byte_negation_underflow_rt.ir
 [exit 0]
 $ mfb build tests/unary-byte-negation-underflow-rt

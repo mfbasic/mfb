@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-collection-map-value-runtime
+$ mfb build -ast -ir tests/resource-collection-map-value-runtime
 Wrote AST to tests/resource-collection-map-value-runtime/resource_collection_map_value_runtime.ast
-[exit 0]
-$ mfb build -ir tests/resource-collection-map-value-runtime
 Wrote IR to tests/resource-collection-map-value-runtime/resource_collection_map_value_runtime.ir
 [exit 0]
 $ mfb build tests/resource-collection-map-value-runtime

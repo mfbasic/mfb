@@ -1,7 +1,5 @@
-$ mfb build -ast tests/lexical-comments
+$ mfb build -ast -ir tests/lexical-comments
 Wrote AST to tests/lexical-comments/lexical_comments.ast
-[exit 0]
-$ mfb build -ir tests/lexical-comments
 Wrote IR to tests/lexical-comments/lexical_comments.ir
 [exit 0]
 $ mfb build tests/lexical-comments

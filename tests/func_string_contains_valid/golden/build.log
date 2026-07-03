@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_string_contains_valid
+$ mfb build -ast -ir tests/func_string_contains_valid
 Wrote AST to tests/func_string_contains_valid/func_string_contains_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_string_contains_valid
 Wrote IR to tests/func_string_contains_valid/func_string_contains_valid.ir
 [exit 0]
 $ mfb build tests/func_string_contains_valid

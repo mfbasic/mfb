@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/unicode-05-find-fold-parity
+$ mfb build -ast -ir tests/security/unicode-05-find-fold-parity
 Wrote AST to tests/security/unicode-05-find-fold-parity/unicode_05_find_fold_parity.ast
-[exit 0]
-$ mfb build -ir tests/security/unicode-05-find-fold-parity
 Wrote IR to tests/security/unicode-05-find-fold-parity/unicode_05_find_fold_parity.ir
 [exit 0]
 $ mfb build tests/security/unicode-05-find-fold-parity

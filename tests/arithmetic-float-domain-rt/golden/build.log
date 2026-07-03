@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-float-domain-rt
+$ mfb build -ast -ir tests/arithmetic-float-domain-rt
 Wrote AST to tests/arithmetic-float-domain-rt/arithmetic_float_domain_rt.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-float-domain-rt
 Wrote IR to tests/arithmetic-float-domain-rt/arithmetic_float_domain_rt.ir
 [exit 0]
 $ mfb build tests/arithmetic-float-domain-rt

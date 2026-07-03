@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-order-of-operations-valid
+$ mfb build -ast -ir tests/arithmetic-order-of-operations-valid
 Wrote AST to tests/arithmetic-order-of-operations-valid/arithmetic_order_of_operations_valid.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-order-of-operations-valid
 Wrote IR to tests/arithmetic-order-of-operations-valid/arithmetic_order_of_operations_valid.ir
 [exit 0]
 $ mfb build tests/arithmetic-order-of-operations-valid

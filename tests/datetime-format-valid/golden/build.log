@@ -1,7 +1,5 @@
-$ mfb build -ast tests/datetime-format-valid
+$ mfb build -ast -ir tests/datetime-format-valid
 Wrote AST to tests/datetime-format-valid/datetime-format-valid.ast
-[exit 0]
-$ mfb build -ir tests/datetime-format-valid
 Wrote IR to tests/datetime-format-valid/datetime-format-valid.ir
 [exit 0]
 $ mfb build tests/datetime-format-valid

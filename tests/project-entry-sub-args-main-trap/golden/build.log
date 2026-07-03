@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-entry-sub-args-main-trap
+$ mfb build -ast -ir tests/project-entry-sub-args-main-trap
 Wrote AST to tests/project-entry-sub-args-main-trap/project_entry_sub_args_main_trap.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-sub-args-main-trap
 Wrote IR to tests/project-entry-sub-args-main-trap/project_entry_sub_args_main_trap.ir
 [exit 0]
 $ mfb build tests/project-entry-sub-args-main-trap

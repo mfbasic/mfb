@@ -1,7 +1,5 @@
-$ mfb build -ast tests/package-workers
+$ mfb build -ast -ir tests/package-workers
 Wrote AST to tests/package-workers/package_workers.ast
-[exit 0]
-$ mfb build -ir tests/package-workers
 Wrote IR to tests/package-workers/package_workers.ir
 [exit 0]
 $ mfb build tests/package-workers

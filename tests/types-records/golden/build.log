@@ -1,7 +1,5 @@
-$ mfb build -ast tests/types-records
+$ mfb build -ast -ir tests/types-records
 Wrote AST to tests/types-records/types_records.ast
-[exit 0]
-$ mfb build -ir tests/types-records
 Wrote IR to tests/types-records/types_records.ir
 [exit 0]
 $ mfb build tests/types-records

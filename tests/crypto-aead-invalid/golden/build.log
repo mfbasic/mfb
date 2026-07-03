@@ -1,7 +1,5 @@
-$ mfb build -ast tests/crypto-aead-invalid
+$ mfb build -ast -ir tests/crypto-aead-invalid
 Wrote AST to tests/crypto-aead-invalid/crypto-aead-invalid.ast
-[exit 0]
-$ mfb build -ir tests/crypto-aead-invalid
 Wrote IR to tests/crypto-aead-invalid/crypto-aead-invalid.ir
 [exit 0]
 $ mfb build tests/crypto-aead-invalid

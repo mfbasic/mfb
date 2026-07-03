@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-return-byte
+$ mfb build -ast -ir tests/thread-return-byte
 Wrote AST to tests/thread-return-byte/thread_return_byte.ast
-[exit 0]
-$ mfb build -ir tests/thread-return-byte
 Wrote IR to tests/thread-return-byte/thread_return_byte.ir
 [exit 0]
 $ mfb build tests/thread-return-byte

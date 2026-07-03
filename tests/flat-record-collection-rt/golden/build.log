@@ -1,7 +1,5 @@
-$ mfb build -ast tests/flat-record-collection-rt
+$ mfb build -ast -ir tests/flat-record-collection-rt
 Wrote AST to tests/flat-record-collection-rt/flat_record_collection_rt.ast
-[exit 0]
-$ mfb build -ir tests/flat-record-collection-rt
 Wrote IR to tests/flat-record-collection-rt/flat_record_collection_rt.ir
 [exit 0]
 $ mfb build tests/flat-record-collection-rt

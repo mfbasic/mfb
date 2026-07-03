@@ -1,17 +1,4 @@
-$ mfb build -ast tests/func_visibility_top_level_invalid
-   1 | FUNC main AS Integer
-   2 |   secretTrace()
-     | ^
-tests/func_visibility_top_level_invalid/src/main.mfb:2 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
-               Callable `secretTrace` is not a top-level function.
-   1 | FUNC main AS Integer
-   2 |   secretTrace()
-   3 |   RETURN secretValue()
-     | ^
-tests/func_visibility_top_level_invalid/src/main.mfb:3 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
-               Callable `secretValue` is not a top-level function.
-[exit 1]
-$ mfb build -ir tests/func_visibility_top_level_invalid
+$ mfb build -ast -ir tests/func_visibility_top_level_invalid
    1 | FUNC main AS Integer
    2 |   secretTrace()
      | ^

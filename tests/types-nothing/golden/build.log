@@ -1,7 +1,5 @@
-$ mfb build -ast tests/types-nothing
+$ mfb build -ast -ir tests/types-nothing
 Wrote AST to tests/types-nothing/types_nothing.ast
-[exit 0]
-$ mfb build -ir tests/types-nothing
 Wrote IR to tests/types-nothing/types_nothing.ir
 [exit 0]
 $ mfb build tests/types-nothing

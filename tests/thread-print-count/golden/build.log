@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-print-count
+$ mfb build -ast -ir tests/thread-print-count
 Wrote AST to tests/thread-print-count/thread_print_count.ast
-[exit 0]
-$ mfb build -ir tests/thread-print-count
 Wrote IR to tests/thread-print-count/thread_print_count.ir
 [exit 0]
 $ mfb build tests/thread-print-count

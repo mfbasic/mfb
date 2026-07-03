@@ -1,7 +1,5 @@
-$ mfb build -ast tests/types-map-key-comparable-valid
+$ mfb build -ast -ir tests/types-map-key-comparable-valid
 Wrote AST to tests/types-map-key-comparable-valid/types_map_key_comparable_valid.ast
-[exit 0]
-$ mfb build -ir tests/types-map-key-comparable-valid
 Wrote IR to tests/types-map-key-comparable-valid/types_map_key_comparable_valid.ir
 [exit 0]
 $ mfb build tests/types-map-key-comparable-valid

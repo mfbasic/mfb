@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-entry-exit-range-runtime
+$ mfb build -ast -ir tests/project-entry-exit-range-runtime
 Wrote AST to tests/project-entry-exit-range-runtime/project_entry_exit_range_runtime.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-exit-range-runtime
 Wrote IR to tests/project-entry-exit-range-runtime/project_entry_exit_range_runtime.ir
 [exit 0]
 $ mfb build tests/project-entry-exit-range-runtime

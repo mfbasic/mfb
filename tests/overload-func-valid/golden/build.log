@@ -1,7 +1,5 @@
-$ mfb build -ast tests/overload-func-valid
+$ mfb build -ast -ir tests/overload-func-valid
 Wrote AST to tests/overload-func-valid/overload_func_valid.ast
-[exit 0]
-$ mfb build -ir tests/overload-func-valid
 Wrote IR to tests/overload-func-valid/overload_func_valid.ir
 [exit 0]
 $ mfb build tests/overload-func-valid

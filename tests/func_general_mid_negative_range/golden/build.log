@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_general_mid_negative_range
+$ mfb build -ast -ir tests/func_general_mid_negative_range
 Wrote AST to tests/func_general_mid_negative_range/func_general_mid_negative_range.ast
-[exit 0]
-$ mfb build -ir tests/func_general_mid_negative_range
 Wrote IR to tests/func_general_mid_negative_range/func_general_mid_negative_range.ir
 [exit 0]
 $ mfb build tests/func_general_mid_negative_range

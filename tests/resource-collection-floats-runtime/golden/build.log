@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-collection-floats-runtime
+$ mfb build -ast -ir tests/resource-collection-floats-runtime
 Wrote AST to tests/resource-collection-floats-runtime/resource_collection_floats_runtime.ast
-[exit 0]
-$ mfb build -ir tests/resource-collection-floats-runtime
 Wrote IR to tests/resource-collection-floats-runtime/resource_collection_floats_runtime.ir
 [exit 0]
 $ mfb build tests/resource-collection-floats-runtime

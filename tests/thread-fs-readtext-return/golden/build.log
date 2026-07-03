@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-fs-readtext-return
+$ mfb build -ast -ir tests/thread-fs-readtext-return
 Wrote AST to tests/thread-fs-readtext-return/thread_fs_readtext_return.ast
-[exit 0]
-$ mfb build -ir tests/thread-fs-readtext-return
 Wrote IR to tests/thread-fs-readtext-return/thread_fs_readtext_return.ir
 [exit 0]
 $ mfb build tests/thread-fs-readtext-return

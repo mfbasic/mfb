@@ -1,7 +1,5 @@
-$ mfb build -ast tests/compiler-large-functions
+$ mfb build -ast -ir tests/compiler-large-functions
 Wrote AST to tests/compiler-large-functions/compiler_large_functions.ast
-[exit 0]
-$ mfb build -ir tests/compiler-large-functions
 Wrote IR to tests/compiler-large-functions/compiler_large_functions.ir
 [exit 0]
 $ mfb build tests/compiler-large-functions

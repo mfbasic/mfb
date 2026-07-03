@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-send-file-ownership-rt
+$ mfb build -ast -ir tests/thread-send-file-ownership-rt
 Wrote AST to tests/thread-send-file-ownership-rt/thread_send_file_ownership_rt.ast
-[exit 0]
-$ mfb build -ir tests/thread-send-file-ownership-rt
 Wrote IR to tests/thread-send-file-ownership-rt/thread_send_file_ownership_rt.ir
 [exit 0]
 $ mfb build tests/thread-send-file-ownership-rt

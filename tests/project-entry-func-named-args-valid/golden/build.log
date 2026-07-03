@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-entry-func-named-args-valid
+$ mfb build -ast -ir tests/project-entry-func-named-args-valid
 Wrote AST to tests/project-entry-func-named-args-valid/project_entry_func_named_args_valid.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-func-named-args-valid
 Wrote IR to tests/project-entry-func-named-args-valid/project_entry_func_named_args_valid.ir
 [exit 0]
 $ mfb build tests/project-entry-func-named-args-valid

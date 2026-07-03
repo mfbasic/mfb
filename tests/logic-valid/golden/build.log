@@ -1,7 +1,5 @@
-$ mfb build -ast tests/logic-valid
+$ mfb build -ast -ir tests/logic-valid
 Wrote AST to tests/logic-valid/logic_valid.ast
-[exit 0]
-$ mfb build -ir tests/logic-valid
 Wrote IR to tests/logic-valid/logic_valid.ir
 [exit 0]
 $ mfb build tests/logic-valid

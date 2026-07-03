@@ -1,42 +1,4 @@
-$ mfb build -ast tests/control-flow-inline-trap-invalid
-   8 | ' Handler neither recovers nor diverges on every path.
-   9 | FUNC fallsThrough(v AS Integer) AS Integer
-  10 |   LET a = parsePositive(v) TRAP(e)
-     | ^
-tests/control-flow-inline-trap-invalid/src/main.mfb:10 error[2-203-0066 TYPE_INLINE_TRAP_FALLS_THROUGH]: inline TRAP handler path neither recovers nor diverges
-               Inline TRAP handler must end every path in RECOVER or a diverging statement (RETURN, FAIL, or PROPAGATE).
-  17 | FUNC recoverWrongType(v AS Integer) AS Integer
-  18 |   LET a = parsePositive(v) TRAP(e)
-  19 |     RECOVER "nope"
-     | ^
-tests/control-flow-inline-trap-invalid/src/main.mfb:19 error[2-203-0067 TYPE_RECOVER_TYPE_MISMATCH]: RECOVER value does not match the trapped expression's success type
-               RECOVER has type String, expected Integer.
-  25 | FUNC recoverMissingValue(v AS Integer) AS Integer
-  26 |   LET a = parsePositive(v) TRAP(e)
-  27 |     RECOVER
-     | ^
-tests/control-flow-inline-trap-invalid/src/main.mfb:27 error[2-203-0067 TYPE_RECOVER_TYPE_MISMATCH]: RECOVER value does not match the trapped expression's success type
-               RECOVER must supply a Integer value for the trapped expression.
-  34 |   RETURN parsePositive(v)
-  35 |   TRAP(e)
-  36 |     RECOVER 0
-     | ^
-tests/control-flow-inline-trap-invalid/src/main.mfb:36 error[2-203-0068 TYPE_RECOVER_OUTSIDE_INLINE_TRAP]: RECOVER is valid only inside an inline TRAP handler
-               RECOVER is valid only inside an inline TRAP handler.
-  40 | ' RECOVER with no enclosing trap at all.
-  41 | FUNC recoverOutside() AS Integer
-  42 |   RECOVER 5
-     | ^
-tests/control-flow-inline-trap-invalid/src/main.mfb:42 error[2-203-0068 TYPE_RECOVER_OUTSIDE_INLINE_TRAP]: RECOVER is valid only inside an inline TRAP handler
-               RECOVER is valid only inside an inline TRAP handler.
-  46 | ' Inline trap on an expression that cannot fail.
-  47 | FUNC infallibleTrap() AS Integer
-  48 |   LET a = 5 TRAP(e)
-     | ^
-tests/control-flow-inline-trap-invalid/src/main.mfb:48 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
-               Inline TRAP requires a fallible call; this expression cannot fail.
-[exit 1]
-$ mfb build -ir tests/control-flow-inline-trap-invalid
+$ mfb build -ast -ir tests/control-flow-inline-trap-invalid
    8 | ' Handler neither recovers nor diverges on every path.
    9 | FUNC fallsThrough(v AS Integer) AS Integer
   10 |   LET a = parsePositive(v) TRAP(e)

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/map-set-grow-rt
+$ mfb build -ast -ir tests/map-set-grow-rt
 Wrote AST to tests/map-set-grow-rt/map_set_grow_rt.ast
-[exit 0]
-$ mfb build -ir tests/map-set-grow-rt
 Wrote IR to tests/map-set-grow-rt/map_set_grow_rt.ir
 [exit 0]
 $ mfb build tests/map-set-grow-rt

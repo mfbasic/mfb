@@ -1,7 +1,5 @@
-$ mfb build -ast tests/crypto-kat-valid
+$ mfb build -ast -ir tests/crypto-kat-valid
 Wrote AST to tests/crypto-kat-valid/crypto-kat-valid.ast
-[exit 0]
-$ mfb build -ir tests/crypto-kat-valid
 Wrote IR to tests/crypto-kat-valid/crypto-kat-valid.ir
 [exit 0]
 $ mfb build tests/crypto-kat-valid

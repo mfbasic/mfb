@@ -1,7 +1,5 @@
-$ mfb build -ast tests/primitive-byte-bindings-overflow-rt
+$ mfb build -ast -ir tests/primitive-byte-bindings-overflow-rt
 Wrote AST to tests/primitive-byte-bindings-overflow-rt/primitive_byte_bindings_overflow_rt.ast
-[exit 0]
-$ mfb build -ir tests/primitive-byte-bindings-overflow-rt
 Wrote IR to tests/primitive-byte-bindings-overflow-rt/primitive_byte_bindings_overflow_rt.ir
 [exit 0]
 $ mfb build tests/primitive-byte-bindings-overflow-rt

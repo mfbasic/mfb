@@ -1,7 +1,5 @@
-$ mfb build -ast tests/datetime-civil-valid
+$ mfb build -ast -ir tests/datetime-civil-valid
 Wrote AST to tests/datetime-civil-valid/datetime-civil-valid.ast
-[exit 0]
-$ mfb build -ir tests/datetime-civil-valid
 Wrote IR to tests/datetime-civil-valid/datetime-civil-valid.ir
 [exit 0]
 $ mfb build tests/datetime-civil-valid

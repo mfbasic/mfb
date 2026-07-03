@@ -1,7 +1,5 @@
-$ mfb build -ast tests/types-with-update-owned
+$ mfb build -ast -ir tests/types-with-update-owned
 Wrote AST to tests/types-with-update-owned/types_with_update_owned.ast
-[exit 0]
-$ mfb build -ir tests/types-with-update-owned
 Wrote IR to tests/types-with-update-owned/types_with_update_owned.ir
 [exit 0]
 $ mfb build tests/types-with-update-owned

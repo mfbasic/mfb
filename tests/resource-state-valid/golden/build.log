@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-state-valid
+$ mfb build -ast -ir tests/resource-state-valid
 Wrote AST to tests/resource-state-valid/resource_state_valid.ast
-[exit 0]
-$ mfb build -ir tests/resource-state-valid
 Wrote IR to tests/resource-state-valid/resource_state_valid.ir
 [exit 0]
 $ mfb build tests/resource-state-valid

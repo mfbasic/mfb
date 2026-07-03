@@ -1,7 +1,5 @@
-$ mfb build -ast tests/regex-from-string-rt
+$ mfb build -ast -ir tests/regex-from-string-rt
 Wrote AST to tests/regex-from-string-rt/regex_from_string_rt.ast
-[exit 0]
-$ mfb build -ir tests/regex-from-string-rt
 Wrote IR to tests/regex-from-string-rt/regex_from_string_rt.ir
 [exit 0]
 $ mfb build tests/regex-from-string-rt

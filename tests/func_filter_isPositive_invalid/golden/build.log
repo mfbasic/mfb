@@ -1,40 +1,4 @@
-$ mfb build -ast tests/func_filter_isPositive_invalid
-   1 | FUNC main AS Integer
-   2 |   LET missing AS Boolean = isPositive()
-     | ^
-tests/func_filter_isPositive_invalid/src/main.mfb:2 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `isPositive` has 0 argument(s), expected 1.
-   1 | FUNC main AS Integer
-   2 |   LET missing AS Boolean = isPositive()
-     | ^
-tests/func_filter_isPositive_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `missing` does not have a known type.
-   1 | FUNC main AS Integer
-   2 |   LET missing AS Boolean = isPositive()
-   3 |   LET wrongType AS Boolean = isPositive("1")
-     | ^
-tests/func_filter_isPositive_invalid/src/main.mfb:3 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `isPositive` has argument type(s) (String), expected Integer, Float, or Fixed.
-   1 | FUNC main AS Integer
-   2 |   LET missing AS Boolean = isPositive()
-   3 |   LET wrongType AS Boolean = isPositive("1")
-     | ^
-tests/func_filter_isPositive_invalid/src/main.mfb:3 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongType` does not have a known type.
-   2 |   LET missing AS Boolean = isPositive()
-   3 |   LET wrongType AS Boolean = isPositive("1")
-   4 |   LET tooMany AS Boolean = isPositive(1, 2)
-     | ^
-tests/func_filter_isPositive_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `isPositive` has 2 argument(s), expected 1.
-   2 |   LET missing AS Boolean = isPositive()
-   3 |   LET wrongType AS Boolean = isPositive("1")
-   4 |   LET tooMany AS Boolean = isPositive(1, 2)
-     | ^
-tests/func_filter_isPositive_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `tooMany` does not have a known type.
-[exit 1]
-$ mfb build -ir tests/func_filter_isPositive_invalid
+$ mfb build -ast -ir tests/func_filter_isPositive_invalid
    1 | FUNC main AS Integer
    2 |   LET missing AS Boolean = isPositive()
      | ^

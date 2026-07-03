@@ -1,7 +1,5 @@
-$ mfb build -ast tests/comparisons-valid
+$ mfb build -ast -ir tests/comparisons-valid
 Wrote AST to tests/comparisons-valid/comparisons_valid.ast
-[exit 0]
-$ mfb build -ir tests/comparisons-valid
 Wrote IR to tests/comparisons-valid/comparisons_valid.ir
 [exit 0]
 $ mfb build tests/comparisons-valid

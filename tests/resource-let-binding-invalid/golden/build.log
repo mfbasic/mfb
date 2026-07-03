@@ -1,12 +1,4 @@
-$ mfb build -ast tests/resource-let-binding-invalid
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET f AS File = fs::open("x", "r")
-     | ^
-tests/resource-let-binding-invalid/src/main.mfb:4 error[2-203-0082 TYPE_RESOURCE_REQUIRES_RES]: resource must be bound with RES
-               binding `f` holds resource `File`; bind it with `RES`, not `LET`/`MUT`.
-[exit 1]
-$ mfb build -ir tests/resource-let-binding-invalid
+$ mfb build -ast -ir tests/resource-let-binding-invalid
    2 | 
    3 | FUNC main AS Integer
    4 |   LET f AS File = fs::open("x", "r")

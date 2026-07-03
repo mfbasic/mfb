@@ -1,18 +1,4 @@
-$ mfb build -ast tests/types-union-include-conflict-invalid
-  29 | 
-  30 | UNION DuplicateLocal INCLUDES Shape
-  31 |   Circle
-     | ^
-tests/types-union-include-conflict-invalid/src/main.mfb:31 error[2-203-0030 TYPE_DUPLICATE_VARIANT]: union variant is declared more than once
-               Member type `Circle` in UNION `DuplicateLocal` conflicts with a member included from UNION `Shape`.
-  32 | END UNION
-  33 | 
-  34 | UNION DuplicateIncludes INCLUDES Shape, AlsoRound
-     | ^
-tests/types-union-include-conflict-invalid/src/main.mfb:34 error[2-203-0030 TYPE_DUPLICATE_VARIANT]: union variant is declared more than once
-               Member type `Circle` in UNION `DuplicateIncludes` is provided by both included UNION `Shape` and included UNION `AlsoRound`.
-[exit 1]
-$ mfb build -ir tests/types-union-include-conflict-invalid
+$ mfb build -ast -ir tests/types-union-include-conflict-invalid
   29 | 
   30 | UNION DuplicateLocal INCLUDES Shape
   31 |   Circle

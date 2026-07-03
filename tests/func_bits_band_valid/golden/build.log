@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_bits_band_valid
+$ mfb build -ast -ir tests/func_bits_band_valid
 Wrote AST to tests/func_bits_band_valid/func_bits_band_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_bits_band_valid
 Wrote IR to tests/func_bits_band_valid/func_bits_band_valid.ir
 [exit 0]
 $ mfb build tests/func_bits_band_valid

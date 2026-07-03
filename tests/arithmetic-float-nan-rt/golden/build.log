@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-float-nan-rt
+$ mfb build -ast -ir tests/arithmetic-float-nan-rt
 Wrote AST to tests/arithmetic-float-nan-rt/arithmetic_float_nan_rt.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-float-nan-rt
 Wrote IR to tests/arithmetic-float-nan-rt/arithmetic_float_nan_rt.ir
 [exit 0]
 $ mfb build tests/arithmetic-float-nan-rt

@@ -1,12 +1,4 @@
-$ mfb build -ast tests/types-union-member-invalid
-   8 | 
-   9 | UNION Broken
-  10 |   Nested
-     | ^
-tests/types-union-member-invalid/src/main.mfb:10 error[2-203-0064 TYPE_UNION_MEMBER_REQUIRES_TYPE]: union members must name concrete TYPE declarations
-               UNION `Broken` member `Nested` must be a concrete TYPE.
-[exit 1]
-$ mfb build -ir tests/types-union-member-invalid
+$ mfb build -ast -ir tests/types-union-member-invalid
    8 | 
    9 | UNION Broken
   10 |   Nested

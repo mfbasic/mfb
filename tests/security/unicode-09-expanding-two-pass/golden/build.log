@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/unicode-09-expanding-two-pass
+$ mfb build -ast -ir tests/security/unicode-09-expanding-two-pass
 Wrote AST to tests/security/unicode-09-expanding-two-pass/unicode_09_expanding_two_pass.ast
-[exit 0]
-$ mfb build -ir tests/security/unicode-09-expanding-two-pass
 Wrote IR to tests/security/unicode-09-expanding-two-pass/unicode_09_expanding_two_pass.ir
 [exit 0]
 $ mfb build tests/security/unicode-09-expanding-two-pass

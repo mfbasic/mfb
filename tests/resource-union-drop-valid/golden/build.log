@@ -1,7 +1,5 @@
-$ mfb build -ast tests/resource-union-drop-valid
+$ mfb build -ast -ir tests/resource-union-drop-valid
 Wrote AST to tests/resource-union-drop-valid/resource_union_drop_valid.ast
-[exit 0]
-$ mfb build -ir tests/resource-union-drop-valid
 Wrote IR to tests/resource-union-drop-valid/resource_union_drop_valid.ir
 [exit 0]
 $ mfb build tests/resource-union-drop-valid

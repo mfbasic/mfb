@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-entry-func-default-error
+$ mfb build -ast -ir tests/project-entry-func-default-error
 Wrote AST to tests/project-entry-func-default-error/project_entry_func_default_error.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-func-default-error
 Wrote IR to tests/project-entry-func-default-error/project_entry_func_default_error.ir
 [exit 0]
 $ mfb build tests/project-entry-func-default-error

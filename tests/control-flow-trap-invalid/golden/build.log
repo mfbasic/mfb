@@ -1,18 +1,4 @@
-$ mfb build -ast tests/control-flow-trap-invalid
-  15 |     RETURN 1
-  16 |   END TRAP
-  17 |   TRAP(second)
-     |   ^^^^
-tests/control-flow-trap-invalid/src/main.mfb:17 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
-               Each function may declare at most one TRAP.
-  25 |     RETURN 1
-  26 |   END TRAP
-  27 |   LET after AS Integer = 1
-     |   ^^^
-tests/control-flow-trap-invalid/src/main.mfb:27 error[1-102-0004 MFB_PARSE_UNEXPECTED_STATEMENT]: parser found an unexpected statement
-               TRAP must appear at the bottom of the function after normal flow.
-[exit 1]
-$ mfb build -ir tests/control-flow-trap-invalid
+$ mfb build -ast -ir tests/control-flow-trap-invalid
   15 |     RETURN 1
   16 |   END TRAP
   17 |   TRAP(second)

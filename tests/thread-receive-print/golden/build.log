@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-receive-print
+$ mfb build -ast -ir tests/thread-receive-print
 Wrote AST to tests/thread-receive-print/thread_receive_print.ast
-[exit 0]
-$ mfb build -ir tests/thread-receive-print
 Wrote IR to tests/thread-receive-print/thread_receive_print.ir
 [exit 0]
 $ mfb build tests/thread-receive-print

@@ -1,15 +1,7 @@
-$ mfb build -ast tests/project-entry-func-default
+$ mfb build -ast -ir -nir -nplan -nobj tests/project-entry-func-default
 Wrote AST to tests/project-entry-func-default/project_entry_func_default.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-func-default
 Wrote IR to tests/project-entry-func-default/project_entry_func_default.ir
-[exit 0]
-$ mfb build -nir tests/project-entry-func-default
 Wrote native IR to tests/project-entry-func-default/project_entry_func_default.nir
-[exit 0]
-$ mfb build -nplan tests/project-entry-func-default
 Wrote native plan to tests/project-entry-func-default/project_entry_func_default.nplan
-[exit 0]
-$ mfb build -nobj tests/project-entry-func-default
 Wrote native object plan to tests/project-entry-func-default/project_entry_func_default.nobj
 [exit 0]

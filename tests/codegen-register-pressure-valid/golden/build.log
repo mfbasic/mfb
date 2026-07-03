@@ -1,7 +1,5 @@
-$ mfb build -ast tests/codegen-register-pressure-valid
+$ mfb build -ast -ir tests/codegen-register-pressure-valid
 Wrote AST to tests/codegen-register-pressure-valid/codegen_register_pressure_valid.ast
-[exit 0]
-$ mfb build -ir tests/codegen-register-pressure-valid
 Wrote IR to tests/codegen-register-pressure-valid/codegen_register_pressure_valid.ir
 [exit 0]
 $ mfb build tests/codegen-register-pressure-valid

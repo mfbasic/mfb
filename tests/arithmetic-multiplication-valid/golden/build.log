@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-multiplication-valid
+$ mfb build -ast -ir tests/arithmetic-multiplication-valid
 Wrote AST to tests/arithmetic-multiplication-valid/arithmetic_multiplication_valid.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-multiplication-valid
 Wrote IR to tests/arithmetic-multiplication-valid/arithmetic_multiplication_valid.ir
 [exit 0]
 $ mfb build tests/arithmetic-multiplication-valid

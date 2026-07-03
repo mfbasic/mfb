@@ -1,7 +1,5 @@
-$ mfb build -ast tests/unary-fixed-negation-overflow-rt
+$ mfb build -ast -ir tests/unary-fixed-negation-overflow-rt
 Wrote AST to tests/unary-fixed-negation-overflow-rt/unary_fixed_negation_overflow_rt.ast
-[exit 0]
-$ mfb build -ir tests/unary-fixed-negation-overflow-rt
 Wrote IR to tests/unary-fixed-negation-overflow-rt/unary_fixed_negation_overflow_rt.ir
 [exit 0]
 $ mfb build tests/unary-fixed-negation-overflow-rt

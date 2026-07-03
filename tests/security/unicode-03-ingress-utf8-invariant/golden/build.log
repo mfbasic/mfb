@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/unicode-03-ingress-utf8-invariant
+$ mfb build -ast -ir tests/security/unicode-03-ingress-utf8-invariant
 Wrote AST to tests/security/unicode-03-ingress-utf8-invariant/unicode_03_ingress_utf8_invariant.ast
-[exit 0]
-$ mfb build -ir tests/security/unicode-03-ingress-utf8-invariant
 Wrote IR to tests/security/unicode-03-ingress-utf8-invariant/unicode_03_ingress_utf8_invariant.ir
 [exit 0]
 $ mfb build tests/security/unicode-03-ingress-utf8-invariant

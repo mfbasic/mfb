@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-regex-rt
+$ mfb build -ast -ir tests/thread-regex-rt
 Wrote AST to tests/thread-regex-rt/thread_regex_rt.ast
-[exit 0]
-$ mfb build -ir tests/thread-regex-rt
 Wrote IR to tests/thread-regex-rt/thread_regex_rt.ir
 [exit 0]
 $ mfb build tests/thread-regex-rt

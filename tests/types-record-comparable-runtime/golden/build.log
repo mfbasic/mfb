@@ -1,7 +1,5 @@
-$ mfb build -ast tests/types-record-comparable-runtime
+$ mfb build -ast -ir tests/types-record-comparable-runtime
 Wrote AST to tests/types-record-comparable-runtime/types_record_comparable_runtime.ast
-[exit 0]
-$ mfb build -ir tests/types-record-comparable-runtime
 Wrote IR to tests/types-record-comparable-runtime/types_record_comparable_runtime.ir
 [exit 0]
 $ mfb build tests/types-record-comparable-runtime

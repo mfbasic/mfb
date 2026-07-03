@@ -1,7 +1,5 @@
-$ mfb build -ast tests/control-flow-resource-normal-runtime
+$ mfb build -ast -ir tests/control-flow-resource-normal-runtime
 Wrote AST to tests/control-flow-resource-normal-runtime/control_flow_resource_normal_runtime.ast
-[exit 0]
-$ mfb build -ir tests/control-flow-resource-normal-runtime
 Wrote IR to tests/control-flow-resource-normal-runtime/control_flow_resource_normal_runtime.ir
 [exit 0]
 $ mfb build tests/control-flow-resource-normal-runtime

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/scope-drop-free-rt
+$ mfb build -ast -ir tests/scope-drop-free-rt
 Wrote AST to tests/scope-drop-free-rt/scope_drop_free_rt.ast
-[exit 0]
-$ mfb build -ir tests/scope-drop-free-rt
 Wrote IR to tests/scope-drop-free-rt/scope_drop_free_rt.ir
 [exit 0]
 $ mfb build tests/scope-drop-free-rt

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/csv_write_valid
+$ mfb build -ast -ir tests/csv_write_valid
 Wrote AST to tests/csv_write_valid/csv_write_valid.ast
-[exit 0]
-$ mfb build -ir tests/csv_write_valid
 Wrote IR to tests/csv_write_valid/csv_write_valid.ir
 [exit 0]
 $ mfb build tests/csv_write_valid

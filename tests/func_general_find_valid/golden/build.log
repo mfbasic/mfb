@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_general_find_valid
+$ mfb build -ast -ir tests/func_general_find_valid
 Wrote AST to tests/func_general_find_valid/func_general_find_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_general_find_valid
 Wrote IR to tests/func_general_find_valid/func_general_find_valid.ir
 [exit 0]
 $ mfb build tests/func_general_find_valid

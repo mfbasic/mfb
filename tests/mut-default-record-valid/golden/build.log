@@ -1,7 +1,5 @@
-$ mfb build -ast tests/mut-default-record-valid
+$ mfb build -ast -ir tests/mut-default-record-valid
 Wrote AST to tests/mut-default-record-valid/mut_default_record_valid.ast
-[exit 0]
-$ mfb build -ir tests/mut-default-record-valid
 Wrote IR to tests/mut-default-record-valid/mut_default_record_valid.ir
 [exit 0]
 $ mfb build tests/mut-default-record-valid

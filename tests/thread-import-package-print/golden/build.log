@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-import-package-print
+$ mfb build -ast -ir tests/thread-import-package-print
 Wrote AST to tests/thread-import-package-print/thread_import_package_print.ast
-[exit 0]
-$ mfb build -ir tests/thread-import-package-print
 Wrote IR to tests/thread-import-package-print/thread_import_package_print.ir
 [exit 0]
 $ mfb build tests/thread-import-package-print

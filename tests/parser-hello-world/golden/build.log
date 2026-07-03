@@ -1,21 +1,9 @@
-$ mfb build -ast tests/parser-hello-world
+$ mfb build -ast -ir -nir -nplan -nobj -ncode -mir tests/parser-hello-world
 Wrote AST to tests/parser-hello-world/parser_hello_world.ast
-[exit 0]
-$ mfb build -ir tests/parser-hello-world
 Wrote IR to tests/parser-hello-world/parser_hello_world.ir
-[exit 0]
-$ mfb build -nir tests/parser-hello-world
 Wrote native IR to tests/parser-hello-world/parser_hello_world.nir
-[exit 0]
-$ mfb build -nplan tests/parser-hello-world
 Wrote native plan to tests/parser-hello-world/parser_hello_world.nplan
-[exit 0]
-$ mfb build -nobj tests/parser-hello-world
 Wrote native object plan to tests/parser-hello-world/parser_hello_world.nobj
-[exit 0]
-$ mfb build -ncode tests/parser-hello-world
 Wrote native code plan to tests/parser-hello-world/parser_hello_world.ncode
-[exit 0]
-$ mfb build -mir tests/parser-hello-world
 Wrote MIR to tests/parser-hello-world/parser_hello_world.mir
 [exit 0]

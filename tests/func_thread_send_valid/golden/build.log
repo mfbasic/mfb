@@ -1,6 +1,4 @@
-$ mfb build -ast tests/func_thread_send_valid
+$ mfb build -ast -ir tests/func_thread_send_valid
 Wrote AST to tests/func_thread_send_valid/func_thread_send_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_thread_send_valid
 Wrote IR to tests/func_thread_send_valid/func_thread_send_valid.ir
 [exit 0]

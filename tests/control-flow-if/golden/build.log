@@ -1,25 +1,11 @@
-$ mfb build -ast tests/control-flow-if
+$ mfb build -ast -ir -br -nir -nplan -nobj -ncode -mir tests/control-flow-if
 Wrote AST to tests/control-flow-if/control_flow_if.ast
-[exit 0]
-$ mfb build -ir tests/control-flow-if
 Wrote IR to tests/control-flow-if/control_flow_if.ir
-[exit 0]
-$ mfb build -br tests/control-flow-if
 Wrote binary representation hex to tests/control-flow-if/control_flow_if.hex
-[exit 0]
-$ mfb build -nir tests/control-flow-if
 Wrote native IR to tests/control-flow-if/control_flow_if.nir
-[exit 0]
-$ mfb build -nplan tests/control-flow-if
 Wrote native plan to tests/control-flow-if/control_flow_if.nplan
-[exit 0]
-$ mfb build -nobj tests/control-flow-if
 Wrote native object plan to tests/control-flow-if/control_flow_if.nobj
-[exit 0]
-$ mfb build -ncode tests/control-flow-if
 Wrote native code plan to tests/control-flow-if/control_flow_if.ncode
-[exit 0]
-$ mfb build -mir tests/control-flow-if
 Wrote MIR to tests/control-flow-if/control_flow_if.mir
 [exit 0]
 $ mfb build tests/control-flow-if

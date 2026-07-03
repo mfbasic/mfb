@@ -1,7 +1,5 @@
-$ mfb build -ast tests/fs-nofollow-symlink-rt
+$ mfb build -ast -ir tests/fs-nofollow-symlink-rt
 Wrote AST to tests/fs-nofollow-symlink-rt/fs_nofollow_symlink_rt.ast
-[exit 0]
-$ mfb build -ir tests/fs-nofollow-symlink-rt
 Wrote IR to tests/fs-nofollow-symlink-rt/fs_nofollow_symlink_rt.ir
 [exit 0]
 $ mfb build tests/fs-nofollow-symlink-rt

@@ -1,10 +1,4 @@
-$ mfb build -ast tests/project-entry-missing
-   1 | {
-     | ^
-tests/project-entry-missing/project.json:1 error[2-200-0011 PROJECT_ENTRY_INVALID]: project entry point is invalid
-               Executable project must declare an entry point named `main`.
-[exit 1]
-$ mfb build -ir tests/project-entry-missing
+$ mfb build -ast -ir tests/project-entry-missing
    1 | {
      | ^
 tests/project-entry-missing/project.json:1 error[2-200-0011 PROJECT_ENTRY_INVALID]: project entry point is invalid

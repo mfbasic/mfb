@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_collection_get_out_of_range
+$ mfb build -ast -ir tests/func_collection_get_out_of_range
 Wrote AST to tests/func_collection_get_out_of_range/func_collection_get_out_of_range.ast
-[exit 0]
-$ mfb build -ir tests/func_collection_get_out_of_range
 Wrote IR to tests/func_collection_get_out_of_range/func_collection_get_out_of_range.ir
 [exit 0]
 $ mfb build tests/func_collection_get_out_of_range

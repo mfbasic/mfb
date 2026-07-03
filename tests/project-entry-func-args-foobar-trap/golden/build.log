@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-entry-func-args-foobar-trap
+$ mfb build -ast -ir tests/project-entry-func-args-foobar-trap
 Wrote AST to tests/project-entry-func-args-foobar-trap/project_entry_func_args_foobar_trap.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-func-args-foobar-trap
 Wrote IR to tests/project-entry-func-args-foobar-trap/project_entry_func_args_foobar_trap.ir
 [exit 0]
 $ mfb build tests/project-entry-func-args-foobar-trap

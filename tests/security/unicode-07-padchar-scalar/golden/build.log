@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/unicode-07-padchar-scalar
+$ mfb build -ast -ir tests/security/unicode-07-padchar-scalar
 Wrote AST to tests/security/unicode-07-padchar-scalar/unicode_07_padchar_scalar.ast
-[exit 0]
-$ mfb build -ir tests/security/unicode-07-padchar-scalar
 Wrote IR to tests/security/unicode-07-padchar-scalar/unicode_07_padchar_scalar.ir
 [exit 0]
 $ mfb build tests/security/unicode-07-padchar-scalar

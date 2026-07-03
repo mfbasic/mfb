@@ -1,7 +1,5 @@
-$ mfb build -ast tests/json_write_valid
+$ mfb build -ast -ir tests/json_write_valid
 Wrote AST to tests/json_write_valid/json_write_valid.ast
-[exit 0]
-$ mfb build -ir tests/json_write_valid
 Wrote IR to tests/json_write_valid/json_write_valid.ir
 [exit 0]
 $ mfb build tests/json_write_valid

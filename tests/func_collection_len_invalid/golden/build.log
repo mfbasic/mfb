@@ -1,16 +1,4 @@
-$ mfb build -ast tests/func_collection_len_invalid
-   1 | FUNC main AS Integer
-   2 |   LET count AS Integer = len(10)
-     | ^
-tests/func_collection_len_invalid/src/main.mfb:2 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `len` has argument type(s) (Integer), expected String, List OF T, or Map OF K TO V.
-   1 | FUNC main AS Integer
-   2 |   LET count AS Integer = len(10)
-     | ^
-tests/func_collection_len_invalid/src/main.mfb:2 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `count` does not have a known type.
-[exit 1]
-$ mfb build -ir tests/func_collection_len_invalid
+$ mfb build -ast -ir tests/func_collection_len_invalid
    1 | FUNC main AS Integer
    2 |   LET count AS Integer = len(10)
      | ^

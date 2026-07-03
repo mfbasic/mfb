@@ -1,7 +1,5 @@
-$ mfb build -ast tests/fs-pathjoin-rules-rt
+$ mfb build -ast -ir tests/fs-pathjoin-rules-rt
 Wrote AST to tests/fs-pathjoin-rules-rt/fs_pathjoin_rules_rt.ast
-[exit 0]
-$ mfb build -ir tests/fs-pathjoin-rules-rt
 Wrote IR to tests/fs-pathjoin-rules-rt/fs_pathjoin_rules_rt.ir
 [exit 0]
 $ mfb build tests/fs-pathjoin-rules-rt

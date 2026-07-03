@@ -1,7 +1,5 @@
-$ mfb build -ast tests/flat-nested-collection-rt
+$ mfb build -ast -ir tests/flat-nested-collection-rt
 Wrote AST to tests/flat-nested-collection-rt/flat_nested_collection_rt.ast
-[exit 0]
-$ mfb build -ir tests/flat-nested-collection-rt
 Wrote IR to tests/flat-nested-collection-rt/flat_nested_collection_rt.ir
 [exit 0]
 $ mfb build tests/flat-nested-collection-rt

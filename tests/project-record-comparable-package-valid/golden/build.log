@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-record-comparable-package-valid
+$ mfb build -ast -ir tests/project-record-comparable-package-valid
 Wrote AST to tests/project-record-comparable-package-valid/project_record_comparable_package_valid.ast
-[exit 0]
-$ mfb build -ir tests/project-record-comparable-package-valid
 Wrote IR to tests/project-record-comparable-package-valid/project_record_comparable_package_valid.ir
 [exit 0]
 $ mfb build tests/project-record-comparable-package-valid

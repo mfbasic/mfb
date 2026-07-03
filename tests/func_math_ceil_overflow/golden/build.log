@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_math_ceil_overflow
+$ mfb build -ast -ir tests/func_math_ceil_overflow
 Wrote AST to tests/func_math_ceil_overflow/func_math_ceil_overflow.ast
-[exit 0]
-$ mfb build -ir tests/func_math_ceil_overflow
 Wrote IR to tests/func_math_ceil_overflow/func_math_ceil_overflow.ir
 [exit 0]
 $ mfb build tests/func_math_ceil_overflow

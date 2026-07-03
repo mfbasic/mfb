@@ -1,7 +1,5 @@
-$ mfb build -ast tests/project-entry-sub-args-foobar-error
+$ mfb build -ast -ir tests/project-entry-sub-args-foobar-error
 Wrote AST to tests/project-entry-sub-args-foobar-error/project_entry_sub_args_foobar_error.ast
-[exit 0]
-$ mfb build -ir tests/project-entry-sub-args-foobar-error
 Wrote IR to tests/project-entry-sub-args-foobar-error/project_entry_sub_args_foobar_error.ir
 [exit 0]
 $ mfb build tests/project-entry-sub-args-foobar-error

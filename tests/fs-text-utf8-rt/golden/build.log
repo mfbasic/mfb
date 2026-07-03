@@ -1,7 +1,5 @@
-$ mfb build -ast tests/fs-text-utf8-rt
+$ mfb build -ast -ir tests/fs-text-utf8-rt
 Wrote AST to tests/fs-text-utf8-rt/fs_text_utf8_rt.ast
-[exit 0]
-$ mfb build -ir tests/fs-text-utf8-rt
 Wrote IR to tests/fs-text-utf8-rt/fs_text_utf8_rt.ir
 [exit 0]
 $ mfb build tests/fs-text-utf8-rt

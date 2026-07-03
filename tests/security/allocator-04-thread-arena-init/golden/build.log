@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/allocator-04-thread-arena-init
+$ mfb build -ast -ir tests/security/allocator-04-thread-arena-init
 Wrote AST to tests/security/allocator-04-thread-arena-init/allocator_04_thread_arena_init.ast
-[exit 0]
-$ mfb build -ir tests/security/allocator-04-thread-arena-init
 Wrote IR to tests/security/allocator-04-thread-arena-init/allocator_04_thread_arena_init.ir
 [exit 0]
 $ mfb build tests/security/allocator-04-thread-arena-init

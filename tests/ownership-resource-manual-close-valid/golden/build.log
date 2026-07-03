@@ -1,7 +1,5 @@
-$ mfb build -ast tests/ownership-resource-manual-close-valid
+$ mfb build -ast -ir tests/ownership-resource-manual-close-valid
 Wrote AST to tests/ownership-resource-manual-close-valid/ownership_resource_manual_close_valid.ast
-[exit 0]
-$ mfb build -ir tests/ownership-resource-manual-close-valid
 Wrote IR to tests/ownership-resource-manual-close-valid/ownership_resource_manual_close_valid.ir
 [exit 0]
 $ mfb build tests/ownership-resource-manual-close-valid

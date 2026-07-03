@@ -1,12 +1,4 @@
-$ mfb build -ast tests/func_vector_constants_invalid
-   4 | 
-   5 | FUNC main AS Integer
-   6 |   LET a AS vector::Float2 = vector::forwardFloat2
-     | ^
-tests/func_vector_constants_invalid/src/main.mfb:6 error[2-201-0011 SYMBOL_UNKNOWN_IDENTIFIER]: identifier could not be resolved
-               Built-in package `vector` does not export `vector.forwardFloat2`.
-[exit 1]
-$ mfb build -ir tests/func_vector_constants_invalid
+$ mfb build -ast -ir tests/func_vector_constants_invalid
    4 | 
    5 | FUNC main AS Integer
    6 |   LET a AS vector::Float2 = vector::forwardFloat2

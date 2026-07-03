@@ -1,7 +1,5 @@
-$ mfb build -ast tests/security/unicode-08-tobytes-roundtrip
+$ mfb build -ast -ir tests/security/unicode-08-tobytes-roundtrip
 Wrote AST to tests/security/unicode-08-tobytes-roundtrip/unicode_08_tobytes_roundtrip.ast
-[exit 0]
-$ mfb build -ir tests/security/unicode-08-tobytes-roundtrip
 Wrote IR to tests/security/unicode-08-tobytes-roundtrip/unicode_08_tobytes_roundtrip.ir
 [exit 0]
 $ mfb build tests/security/unicode-08-tobytes-roundtrip

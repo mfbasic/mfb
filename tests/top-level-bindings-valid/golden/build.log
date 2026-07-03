@@ -1,7 +1,5 @@
-$ mfb build -ast tests/top-level-bindings-valid
+$ mfb build -ast -ir tests/top-level-bindings-valid
 Wrote AST to tests/top-level-bindings-valid/top_level_bindings_valid.ast
-[exit 0]
-$ mfb build -ir tests/top-level-bindings-valid
 Wrote IR to tests/top-level-bindings-valid/top_level_bindings_valid.ir
 [exit 0]
 $ mfb build tests/top-level-bindings-valid

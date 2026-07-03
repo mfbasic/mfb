@@ -1,7 +1,5 @@
-$ mfb build -ast tests/lambda-mut-foreach-valid
+$ mfb build -ast -ir tests/lambda-mut-foreach-valid
 Wrote AST to tests/lambda-mut-foreach-valid/lambda_mut_foreach_valid.ast
-[exit 0]
-$ mfb build -ir tests/lambda-mut-foreach-valid
 Wrote IR to tests/lambda-mut-foreach-valid/lambda_mut_foreach_valid.ir
 [exit 0]
 $ mfb build tests/lambda-mut-foreach-valid

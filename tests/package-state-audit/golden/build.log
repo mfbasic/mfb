@@ -1,7 +1,5 @@
-$ mfb build -ast tests/package-state-audit
+$ mfb build -ast -ir tests/package-state-audit
 Wrote AST to tests/package-state-audit/package_state_audit.ast
-[exit 0]
-$ mfb build -ir tests/package-state-audit
 Wrote IR to tests/package-state-audit/package_state_audit.ir
 [exit 0]
 $ mfb build tests/package-state-audit

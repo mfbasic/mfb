@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_vector_reflect_valid
+$ mfb build -ast -ir tests/func_vector_reflect_valid
 Wrote AST to tests/func_vector_reflect_valid/func_vector_reflect_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_vector_reflect_valid
 Wrote IR to tests/func_vector_reflect_valid/func_vector_reflect_valid.ir
 [exit 0]
 $ mfb build tests/func_vector_reflect_valid

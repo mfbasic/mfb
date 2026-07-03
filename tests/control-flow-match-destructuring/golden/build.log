@@ -1,7 +1,5 @@
-$ mfb build -ast tests/control-flow-match-destructuring
+$ mfb build -ast -ir tests/control-flow-match-destructuring
 Wrote AST to tests/control-flow-match-destructuring/control_flow_match_destructuring.ast
-[exit 0]
-$ mfb build -ir tests/control-flow-match-destructuring
 Wrote IR to tests/control-flow-match-destructuring/control_flow_match_destructuring.ir
 [exit 0]
 $ mfb build tests/control-flow-match-destructuring

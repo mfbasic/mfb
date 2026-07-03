@@ -1,18 +1,4 @@
-$ mfb build -ast tests/ownership-conditional-double-close-invalid
-   6 |     fs::close(file)
-   7 |   END IF
-   8 |   fs::close(file)
-     | ^
-tests/ownership-conditional-double-close-invalid/src/main.mfb:8 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
-               Binding `file` may have been moved on another control-flow path and cannot be used here.
-   6 |     fs::close(file)
-   7 |   END IF
-   8 |   fs::close(file)
-     | ^
-tests/ownership-conditional-double-close-invalid/src/main.mfb:8 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
-               Binding `file` may have been moved on another control-flow path and cannot be used here.
-[exit 1]
-$ mfb build -ir tests/ownership-conditional-double-close-invalid
+$ mfb build -ast -ir tests/ownership-conditional-double-close-invalid
    6 |     fs::close(file)
    7 |   END IF
    8 |   fs::close(file)

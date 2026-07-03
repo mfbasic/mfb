@@ -1,7 +1,5 @@
-$ mfb build -ast tests/exit-loop-valid
+$ mfb build -ast -ir tests/exit-loop-valid
 Wrote AST to tests/exit-loop-valid/exit_loop_valid.ast
-[exit 0]
-$ mfb build -ir tests/exit-loop-valid
 Wrote IR to tests/exit-loop-valid/exit_loop_valid.ir
 [exit 0]
 $ mfb build tests/exit-loop-valid

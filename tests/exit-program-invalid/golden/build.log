@@ -1,18 +1,4 @@
-$ mfb build -ast tests/exit-program-invalid
-   1 | FUNC main AS Integer
-   2 |   IF TRUE THEN
-   3 |     EXIT PROGRAM "bad"
-     | ^
-tests/exit-program-invalid/src/main.mfb:3 error[2-203-0079 TYPE_EXIT_PROGRAM_REQUIRES_INTEGER]: EXIT PROGRAM requires an Integer exit code
-               EXIT PROGRAM code has type String, expected Integer.
-   3 |     EXIT PROGRAM "bad"
-   4 |   ELSE
-   5 |     EXIT PROGRAM 300
-     | ^
-tests/exit-program-invalid/src/main.mfb:5 error[2-203-0080 EXIT_PROGRAM_CODE_OUT_OF_RANGE]: EXIT PROGRAM constant exit code is outside the host range
-               EXIT PROGRAM constant exit code must be in the host range 0..255.
-[exit 1]
-$ mfb build -ir tests/exit-program-invalid
+$ mfb build -ast -ir tests/exit-program-invalid
    1 | FUNC main AS Integer
    2 |   IF TRUE THEN
    3 |     EXIT PROGRAM "bad"

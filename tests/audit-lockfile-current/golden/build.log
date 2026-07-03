@@ -1,6 +1,4 @@
-$ mfb build -ast tests/audit-lockfile-current
+$ mfb build -ast -ir tests/audit-lockfile-current
 Wrote AST to tests/audit-lockfile-current/audit_lockfile_current.ast
-[exit 0]
-$ mfb build -ir tests/audit-lockfile-current
 Wrote IR to tests/audit-lockfile-current/audit_lockfile_current.ir
 [exit 0]

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-return-list-of-string
+$ mfb build -ast -ir tests/thread-return-list-of-string
 Wrote AST to tests/thread-return-list-of-string/thread_return_list_of_string.ast
-[exit 0]
-$ mfb build -ir tests/thread-return-list-of-string
 Wrote IR to tests/thread-return-list-of-string/thread_return_list_of_string.ir
 [exit 0]
 $ mfb build tests/thread-return-list-of-string

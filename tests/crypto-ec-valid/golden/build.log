@@ -1,7 +1,5 @@
-$ mfb build -ast tests/crypto-ec-valid
+$ mfb build -ast -ir tests/crypto-ec-valid
 Wrote AST to tests/crypto-ec-valid/crypto-ec-valid.ast
-[exit 0]
-$ mfb build -ir tests/crypto-ec-valid
 Wrote IR to tests/crypto-ec-valid/crypto-ec-valid.ir
 [exit 0]
 $ mfb build tests/crypto-ec-valid

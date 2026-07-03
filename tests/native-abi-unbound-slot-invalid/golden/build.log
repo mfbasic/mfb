@@ -1,12 +1,4 @@
-$ mfb build -ast tests/native-abi-unbound-slot-invalid
-   5 |   FUNC close(RES db AS Db) AS Nothing
-   6 |     SYMBOL "demo_close"
-   7 |     ABI (db CPtr, mystery CInt32) AS status CInt32
-     | ^
-tests/native-abi-unbound-slot-invalid/src/lib.mfb:7 error[2-203-0094 NATIVE_ABI_UNBOUND_SLOT]: an ABI slot binds to no parameter, CONST pin, or result marker
-               Native function `close` ABI slot `mystery` does not bind to a parameter, CONST pin, or the result marker.
-[exit 1]
-$ mfb build -ir tests/native-abi-unbound-slot-invalid
+$ mfb build -ast -ir tests/native-abi-unbound-slot-invalid
    5 |   FUNC close(RES db AS Db) AS Nothing
    6 |     SYMBOL "demo_close"
    7 |     ABI (db CPtr, mystery CInt32) AS status CInt32

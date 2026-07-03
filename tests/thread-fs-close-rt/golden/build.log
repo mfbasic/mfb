@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-fs-close-rt
+$ mfb build -ast -ir tests/thread-fs-close-rt
 Wrote AST to tests/thread-fs-close-rt/thread_fs_close_rt.ast
-[exit 0]
-$ mfb build -ir tests/thread-fs-close-rt
 Wrote IR to tests/thread-fs-close-rt/thread_fs_close_rt.ir
 [exit 0]
 $ mfb build tests/thread-fs-close-rt

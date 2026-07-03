@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-fs-listdir-order-rt
+$ mfb build -ast -ir tests/thread-fs-listdir-order-rt
 Wrote AST to tests/thread-fs-listdir-order-rt/thread_fs_listdir_order_rt.ast
-[exit 0]
-$ mfb build -ir tests/thread-fs-listdir-order-rt
 Wrote IR to tests/thread-fs-listdir-order-rt/thread_fs_listdir_order_rt.ir
 [exit 0]
 $ mfb build tests/thread-fs-listdir-order-rt

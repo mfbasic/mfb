@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_general_toByte_overflow
+$ mfb build -ast -ir tests/func_general_toByte_overflow
 Wrote AST to tests/func_general_toByte_overflow/func_general_toByte_overflow.ast
-[exit 0]
-$ mfb build -ir tests/func_general_toByte_overflow
 Wrote IR to tests/func_general_toByte_overflow/func_general_toByte_overflow.ir
 [exit 0]
 $ mfb build tests/func_general_toByte_overflow

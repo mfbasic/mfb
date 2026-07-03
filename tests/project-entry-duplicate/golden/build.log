@@ -1,10 +1,4 @@
-$ mfb build -ast tests/project-entry-duplicate
-   1 | FUNC main AS Integer
-     | ^
-tests/project-entry-duplicate/src/b_main.mfb:1 error[2-201-0010 SYMBOL_DUPLICATE_TOP_LEVEL]: top-level symbol is declared more than once
-               Top-level symbol `main` was already declared in src/a_main.mfb:1.
-[exit 1]
-$ mfb build -ir tests/project-entry-duplicate
+$ mfb build -ast -ir tests/project-entry-duplicate
    1 | FUNC main AS Integer
      | ^
 tests/project-entry-duplicate/src/b_main.mfb:1 error[2-201-0010 SYMBOL_DUPLICATE_TOP_LEVEL]: top-level symbol is declared more than once

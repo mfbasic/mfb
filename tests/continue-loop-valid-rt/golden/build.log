@@ -1,7 +1,5 @@
-$ mfb build -ast tests/continue-loop-valid-rt
+$ mfb build -ast -ir tests/continue-loop-valid-rt
 Wrote AST to tests/continue-loop-valid-rt/continue_loop_valid_rt.ast
-[exit 0]
-$ mfb build -ir tests/continue-loop-valid-rt
 Wrote IR to tests/continue-loop-valid-rt/continue_loop_valid_rt.ir
 [exit 0]
 $ mfb build tests/continue-loop-valid-rt

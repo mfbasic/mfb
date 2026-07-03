@@ -1,48 +1,4 @@
-$ mfb build -ast tests/func_regex_find_invalid
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Integer = regex::find("a")
-     | ^
-tests/func_regex_find_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `regex.find` has 1 argument(s), expected 2 to 3.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Integer = regex::find("a")
-     | ^
-tests/func_regex_find_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `missing` does not have a known type.
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Integer = regex::find("a")
-   5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)
-     | ^
-tests/func_regex_find_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `regex.find` has 4 argument(s), expected 2 to 3.
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Integer = regex::find("a")
-   5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)
-     | ^
-tests/func_regex_find_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `tooMany` does not have a known type.
-   4 |   LET missing AS Integer = regex::find("a")
-   5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)
-   6 |   LET wrongType AS Integer = regex::find("a", "b", "c")
-     | ^
-tests/func_regex_find_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `regex.find` has argument type(s) (String, String, String), expected String, String[, Integer].
-   4 |   LET missing AS Integer = regex::find("a")
-   5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)
-   6 |   LET wrongType AS Integer = regex::find("a", "b", "c")
-     | ^
-tests/func_regex_find_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `wrongType` does not have a known type.
-   5 |   LET tooMany AS Integer = regex::find("a", "b", 0, 1)
-   6 |   LET wrongType AS Integer = regex::find("a", "b", "c")
-   7 |   LET badName AS Integer = regex::find("a", "b", begin := 0)
-     | ^
-tests/func_regex_find_invalid/src/main.mfb:7 error[2-203-0059 TYPE_UNKNOWN_ARGUMENT_NAME]: call argument name does not match any parameter
-               Call to `regex.find` does not have a parameter named `begin`.
-[exit 1]
-$ mfb build -ir tests/func_regex_find_invalid
+$ mfb build -ast -ir tests/func_regex_find_invalid
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS Integer = regex::find("a")

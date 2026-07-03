@@ -1,7 +1,5 @@
-$ mfb build -ast tests/func_net_sendTextTo_valid
+$ mfb build -ast -ir tests/func_net_sendTextTo_valid
 Wrote AST to tests/func_net_sendTextTo_valid/func_net_sendTextTo_valid.ast
-[exit 0]
-$ mfb build -ir tests/func_net_sendTextTo_valid
 Wrote IR to tests/func_net_sendTextTo_valid/func_net_sendTextTo_valid.ir
 [exit 0]
 $ mfb build tests/func_net_sendTextTo_valid

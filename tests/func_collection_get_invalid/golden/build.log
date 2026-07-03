@@ -1,24 +1,4 @@
-$ mfb build -ast tests/func_collection_get_invalid
-   2 | FUNC main AS Integer
-   3 |   LET numbers AS List OF Integer = [1, 2, 3]
-   4 |   LET value AS Integer = collections::get(numbers, "1")
-     | ^
-tests/func_collection_get_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Call to `collections.get` has argument type(s) (List OF Integer, String), expected List OF T, Integer or Map OF K TO V, K.
-   2 | FUNC main AS Integer
-   3 |   LET numbers AS List OF Integer = [1, 2, 3]
-   4 |   LET value AS Integer = collections::get(numbers, "1")
-     | ^
-tests/func_collection_get_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               Initializer for binding `value` does not have a known type.
-   7 |   ' even though this call's arguments are well-typed. The supported form is to
-   8 |   ' wrap the call in a FUNC and TRAP on that FUNC call instead.
-   9 |   LET trapped AS Integer = collections::get(numbers, 0) TRAP(err)
-     | ^
-tests/func_collection_get_invalid/src/main.mfb:9 error[2-203-0102 TYPE_INLINE_TRAP_ON_INLINED_BUILTIN]: inline TRAP is not supported on an inline-lowered built-in
-               Inline TRAP is not supported on `collections.get` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead.
-[exit 1]
-$ mfb build -ir tests/func_collection_get_invalid
+$ mfb build -ast -ir tests/func_collection_get_invalid
    2 | FUNC main AS Integer
    3 |   LET numbers AS List OF Integer = [1, 2, 3]
    4 |   LET value AS Integer = collections::get(numbers, "1")

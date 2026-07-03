@@ -1,7 +1,5 @@
-$ mfb build -ast tests/thread-fs-readtext-utf8-rt
+$ mfb build -ast -ir tests/thread-fs-readtext-utf8-rt
 Wrote AST to tests/thread-fs-readtext-utf8-rt/thread_fs_readtext_utf8_rt.ast
-[exit 0]
-$ mfb build -ir tests/thread-fs-readtext-utf8-rt
 Wrote IR to tests/thread-fs-readtext-utf8-rt/thread_fs_readtext_utf8_rt.ir
 [exit 0]
 $ mfb build tests/thread-fs-readtext-utf8-rt

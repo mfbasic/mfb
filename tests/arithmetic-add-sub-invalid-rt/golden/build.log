@@ -1,7 +1,5 @@
-$ mfb build -ast tests/arithmetic-add-sub-invalid-rt
+$ mfb build -ast -ir tests/arithmetic-add-sub-invalid-rt
 Wrote AST to tests/arithmetic-add-sub-invalid-rt/arithmetic_add_sub_invalid_rt.ast
-[exit 0]
-$ mfb build -ir tests/arithmetic-add-sub-invalid-rt
 Wrote IR to tests/arithmetic-add-sub-invalid-rt/arithmetic_add_sub_invalid_rt.ir
 [exit 0]
 $ mfb build tests/arithmetic-add-sub-invalid-rt

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/flat-record-string-rt
+$ mfb build -ast -ir tests/flat-record-string-rt
 Wrote AST to tests/flat-record-string-rt/flat_record_string_rt.ast
-[exit 0]
-$ mfb build -ir tests/flat-record-string-rt
 Wrote IR to tests/flat-record-string-rt/flat_record_string_rt.ir
 [exit 0]
 $ mfb build tests/flat-record-string-rt

@@ -1,7 +1,5 @@
-$ mfb build -ast tests/fs-path-errors-rt
+$ mfb build -ast -ir tests/fs-path-errors-rt
 Wrote AST to tests/fs-path-errors-rt/fs_path_errors_rt.ast
-[exit 0]
-$ mfb build -ir tests/fs-path-errors-rt
 Wrote IR to tests/fs-path-errors-rt/fs_path_errors_rt.ir
 [exit 0]
 $ mfb build tests/fs-path-errors-rt
