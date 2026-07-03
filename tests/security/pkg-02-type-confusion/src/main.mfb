@@ -1,0 +1,13 @@
+' Consumer for the PKG-02 security fixture: it imports the malicious
+' `sec_confused` package whose compiled IR carries a type-confused body (a
+' member access on an Integer). The package's signature tables still declare
+' `run() AS Integer`, so this consumer type-checks and links; the build must
+' fail during IR semantic verification when the body is decoded for native
+' lowering, rather than producing an executable.
+IMPORT io
+IMPORT sec_confused AS sec_confused
+
+FUNC main AS Integer
+  io::print(toString(sec_confused::run()))
+  RETURN 0
+END FUNC

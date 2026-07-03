@@ -1,0 +1,12 @@
+{
+  "name": "pkg_02_type_confusion",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "sec_confused", "ident": "sec#confused", "version": "=0.1.0", "source": "file:packages/sec_confused.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

@@ -93,6 +93,14 @@ pub(crate) fn merge_packages(ir: &IrProject, packages: &[PathBuf]) -> Result<IrP
     for (id, ref_fns, ref_globals) in &identities {
         crate::ir::apply_package_identity(&mut merged, ref_fns, ref_globals, id);
     }
+    // Semantically verify the fully merged IR before it is lowered to native
+    // code (plan-19-ir-semantic-verification.md). `verify_package` re-states the
+    // package-format structural invariants; this pass adds the semantic ones —
+    // typing, closure-capture bounds, call/constructor arity, union-variant
+    // membership — that codegen otherwise trusts. Decoded package IR is attacker
+    // controlled and never passed the source type checker, so this is the gate
+    // that keeps type-confused IR (audit-1 PKG-02) out of the victim's binary.
+    crate::ir::verify_semantics(&merged)?;
     Ok(merged)
 }
 

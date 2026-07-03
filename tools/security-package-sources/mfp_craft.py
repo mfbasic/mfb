@@ -329,6 +329,57 @@ def mutate_binary_repr_string_length(data: bytes, length: int = 0xFFFFFFFF) -> b
     return container.to_bytes()
 
 
+def mutate_type_confusion(data: bytes) -> bytes:
+    """PKG-02: replace the MFBR body with a project whose exported `run` function
+    body is type-confused — a `MemberAccess` on an `Integer` constant. The
+    package's structured signature tables (unchanged) still declare `run() AS
+    Integer`, so the consumer type-checks and links against it; the malicious IR
+    only surfaces when the consumer decodes and merges the body for native
+    lowering. The IR semantic verifier must reject it before codegen turns the
+    member access into an out-of-bounds field load in the victim's binary.
+
+    The body is hand-encoded to mirror `src/ir/binary.rs` (MFBR version 2):
+    `MFBR` + u16(2) + project{name, entry=None, bindings=[], types=[],
+    functions=[run]}` where `run`'s single op is
+    `Return(MemberAccess(target=Const Integer "0", member="x"))`.
+    """
+    container = parse_mfp(data)
+    mfpc = parse_mfpc(container.binary_repr)
+
+    def put_str(value: bytes) -> bytes:
+        return _u32(len(value)) + value
+
+    # A `Const { type_: "Integer", value: "0" }` value (tag 0).
+    const_int = bytes([0]) + put_str(b"Integer") + put_str(b"0")
+    # A `MemberAccess { target: const_int, member: "x" }` value (tag 17).
+    member_access = bytes([17]) + const_int + put_str(b"x")
+    # A `Return { value: Some(member_access) }` op (tag 3, opt-value present).
+    return_op = bytes([3]) + bytes([1]) + member_access
+    # The exported `run` function.
+    function = bytearray()
+    function += put_str(b"run")  # name
+    function += put_str(b"export")  # visibility
+    function += put_str(b"func")  # kind
+    function += bytes([0])  # isolated = false
+    function += _u32(0)  # params: none
+    function += put_str(b"Integer")  # returns
+    function += _u32(1) + return_op  # body: one Return op
+    function += put_str(b"")  # source file
+
+    body = bytearray()
+    body += b"MFBR"
+    body += _u16(2)  # BINARY_REPR_VERSION
+    body += put_str(b"sec_confused")  # project name
+    body += bytes([0])  # entry: None
+    body += _u32(0)  # bindings: none
+    body += _u32(0)  # types: none
+    body += _u32(1) + bytes(function)  # functions: one
+    # No native LINK trailer: the body ends after `functions`.
+    mfpc.set(SECTION_BINARY_REPR, bytes(body))
+    container.binary_repr = mfpc.to_bytes()
+    return container.to_bytes()
+
+
 def mutate_deep_body(data: bytes, depth: int = 300) -> bytes:
     """PKG-03: replace the MFBR body with a minimal project whose single binding
     value is `depth` nested `Unary` expressions, overflowing an unbounded

@@ -38,6 +38,20 @@ The reader does **not** verify the cryptographic signature; that is the package 
 
 * `decode_binary_repr` checks the `MFBR` magic and `version == 2`, then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error. [[src/ir/binary.rs:decode_binary_repr]]
 
+## Merge-time semantic verification (enforced before native lowering)
+
+Reading a `.mfp` reconstructs an `IrProject`, but that IR is only lowered to native code when it is *merged* into a consuming build (`merge_packages`, `src/target/shared/nir/lower.rs`). At that point — after every imported package's IR and the importer's own IR are merged into one project, and before any code is emitted — a semantic verifier runs over the merged IR (`ir::verify_semantics`, `src/ir/verify/`). A crafted `.mfp` carries hand-serialized IR that never passed the source type checker, so this pass re-establishes the semantic invariants codegen would otherwise trust (audit-1 finding **PKG-02**). A failure aborts the build with a `PACKAGE_BINARY_REPRESENTATION_VERIFY_*` error; the type-confused IR is never lowered.
+
+The verifier is **sound with respect to acceptance**: it rejects only what it can *prove* is malformed and skips any node whose type it cannot reconstruct with certainty, so it accepts exactly the IR the front end emits today. Within that limit it enforces:
+
+* **Member access** resolves to a real member — a `MemberAccess` on a primitive (`Integer`/`Float`/`String`/`Boolean`/`Byte`/`Fixed`/`Nothing`) is rejected, as is one on a record type that does not declare the member (fields expanded through `includes`).
+* **Closure captures** stay in range — every `Capture` index is below the captured-slot count of the `Closure` site that targets the enclosing function.
+* **Call / constructor arity** matches the callee — a direct call to an internal function passes an argument count within `[required, total]` for that signature, and a record constructor supplies no more arguments than the record has fields.
+* **Union wraps** name a real variant — a `UnionWrap.member_type` must be a variant of the named union (variants expanded through included unions).
+* **`MATCH`** carries at least one case, bounded to `256` levels of statement nesting (mirroring the decoder's depth cap).
+
+This complements the structural `verify_package` re-check (unique/non-empty function and type names) that runs per-package as the IR is decoded.
+
 ## Compile-time guarantees (assumed on import, not re-checked)
 
 These were enforced by the source compiler when the package was built and are **not** re-verified by the import-time reader. An importer relies on the package having been produced by a conforming compiler:
@@ -61,7 +75,7 @@ These guarantees are defined and enforced by the source compiler, not restated h
 The format anticipates these, but the current reader does **not** check them. An implementer should be aware they are gaps, not guarantees:
 
 * Section ranges may overlap, and a duplicate `sectionId` silently takes the last entry rather than being rejected.
-* No re-typechecking, re-checking of resource linearity, exhaustiveness, or return/effect agreement on the decoded IR at import time (these rely on the compile-time guarantees above).
+* At *import/read* time the reader does not re-typecheck the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). That pass covers member access, closure-capture bounds, call/constructor arity, union-variant membership, and non-empty `MATCH`; it does **not** yet re-derive flow-sensitive resource linearity or full `Result`/effect-agreement, which still rely on the compile-time guarantees above.
 * No native-binding verifier — there is no `NATIVE_LINK_TABLE` section to validate; native `LINK` metadata is carried in the IR payload trailer and validated, if at all, when that IR is merged and lowered.
 * No standalone signature verification in the reader (delegated to the package manager).
 

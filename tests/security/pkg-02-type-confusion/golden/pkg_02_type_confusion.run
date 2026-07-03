@@ -1,0 +1,4 @@
+' Presence of this file makes the acceptance harness run a full `mfb build`
+' (which decodes + merges the package IR, exercising the semantic verifier)
+' rather than only the `-ast -ir` dump. The build fails before any executable
+' is produced, so this file's contents are never compared; it is a trigger.

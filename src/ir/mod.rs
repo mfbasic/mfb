@@ -116,6 +116,7 @@ mod op;
 mod package;
 mod types;
 mod value;
+mod verify;
 #[cfg(test)]
 mod tests;
 
@@ -130,6 +131,7 @@ pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
 pub(crate) use lower::collect_project_docs;
 pub use lower::{lower_project_with_external_functions, write_ir};
 pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
+pub use verify::check as verify_semantics;
 pub use package::{
     apply_package_identity, merge_package, package_qualified_reference_names,
     prefix_package_symbols,
