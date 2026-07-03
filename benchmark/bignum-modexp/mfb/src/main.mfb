@@ -13,8 +13,8 @@ IMPORT bits
 '
 ' The exponent is deliberately tiny: this mixed-size alloc/free churn hits the
 ' arena allocator's first-fit free-list walk (the still-open allocator half of
-' bug-01 — see planning/old-plans/bug-01-arena-alloc-quadratic.md "Sketch of a
-' fix"), so cost grows QUADRATICALLY in cumulative allocations: 5/10/20 exponent
+' bug-01 — see planning/bug-01-arena-alloc-quadratic.md for the fix design),
+' so cost grows QUADRATICALLY in cumulative allocations: 5/10/20 exponent
 ' bits measured 3.1s/21s/113s. Once the allocator is fixed this should be
 ' near-instant and the exponent can grow back to 63 bits. All three
 ' implementations use the identical algorithm; expected output is checksum

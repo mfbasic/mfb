@@ -5,7 +5,7 @@
 # Each reduction walks ~560 bits of the double-width product and allocates
 # several short-lived MIXED-SIZE lists per bit, which hits the arena
 # allocator's first-fit free-list walk (the still-open allocator half of
-# bug-01, planning/old-plans/bug-01-arena-alloc-quadratic.md): cost grows
+# bug-01, planning/bug-01-arena-alloc-quadratic.md): cost grows
 # quadratically in cumulative allocations (5/10/20 exponent bits measured
 # 3.1s/21s/113s per run), so the exponent is capped at 6 bits (10 modmuls,
 # ~500k allocations, ~4s) until the allocator is fixed — after which this
