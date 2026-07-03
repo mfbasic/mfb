@@ -930,8 +930,48 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::label("arena_alloc_flush_next_bin"),
         abi::add_immediate(&flush_index, &flush_index, 1),
         abi::branch("arena_alloc_flush_bin"),
+        // Post-flush re-park sweep: after coalescing, move every list chunk
+        // ≤ QUICK_BIN_MAX back onto its exact-size bin. Without this, drained
+        // small chunks that did not merge into large runs rot on the list
+        // forever — nothing small ever walks (bins and the victim serve
+        // first), so ONLY large requests pay for them, once per walk
+        // (measured: 17k dead 16-byte nodes doubling a JSON parse). After the
+        // sweep the list holds only > QUICK_BIN_MAX chunks and the retry
+        // re-enters through the victim-renewal bin scan, which sees every
+        // swept chunk.
         abi::label("arena_alloc_flush_done"),
-        abi::branch("arena_alloc_walk"),
+        abi::move_immediate(&flush_slot, "Integer", "0"), // prev
+        abi::load_u64(&flush_node, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::label("arena_alloc_sweep_loop"),
+        abi::compare_immediate(&flush_node, "0"),
+        abi::branch_eq("arena_alloc_sweep_done"),
+        abi::load_u64(&flush_next, &flush_node, 0),
+        abi::load_u64(&flush_offset, &flush_node, 8),
+        abi::compare_immediate(&flush_offset, &ARENA_QUICK_BIN_MAX.to_string()),
+        abi::branch_hi("arena_alloc_sweep_keep"),
+        // Unlink cur from the list …
+        abi::compare_immediate(&flush_slot, "0"),
+        abi::branch_eq("arena_alloc_sweep_unlink_head"),
+        abi::store_u64(&flush_next, &flush_slot, 0),
+        abi::branch("arena_alloc_sweep_binpush"),
+        abi::label("arena_alloc_sweep_unlink_head"),
+        abi::store_u64(&flush_next, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::label("arena_alloc_sweep_binpush"),
+        // … and push it onto its exact-size bin (node.size at +8 is intact).
+        abi::shift_right_immediate(&bin_scan, &flush_offset, 4),
+        abi::shift_left_immediate(&bin_scan, &bin_scan, 3),
+        abi::add_registers(&bin_scan, ARENA_STATE_REGISTER, &bin_scan),
+        abi::load_u64(&bin_head, &bin_scan, ARENA_QUICK_BIN_BASE_OFFSET - 8),
+        abi::store_u64(&bin_head, &flush_node, 0),
+        abi::store_u64(&flush_node, &bin_scan, ARENA_QUICK_BIN_BASE_OFFSET - 8),
+        abi::move_register(&flush_node, &flush_next),
+        abi::branch("arena_alloc_sweep_loop"),
+        abi::label("arena_alloc_sweep_keep"),
+        abi::move_register(&flush_slot, &flush_node),
+        abi::move_register(&flush_node, &flush_next),
+        abi::branch("arena_alloc_sweep_loop"),
+        abi::label("arena_alloc_sweep_done"),
+        abi::branch("arena_alloc_dv_scan"),
         abi::label("arena_alloc_grow_map"),
         abi::add_registers(&map_size, &size, &eff_align),
         abi::compare_registers(&map_size, &size),
