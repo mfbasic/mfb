@@ -368,20 +368,23 @@ fn lower_thread_start_helper(
         &mut instructions,
         &mut relocations,
     );
+    // Zero the child arena state with a loop over ARENA_STATE_SIZE
+    // (allocator-04): the block is arena-allocated (poisoned, not zero), and
+    // this initializer must stay in lockstep with the program-entry zeroing
+    // (`entry_and_arena.rs` `lower_program_entry`) — both zero exactly
+    // `ARENA_STATE_SIZE`, so growing the state (e.g. quick bins) can never
+    // leave a field as garbage in one path but not the other.
+    let child_zero_loop = format!("{symbol}_child_arena_zero");
     instructions.extend([
         abi::branch(&parent_done),
         abi::label(&alloc_worker_arena_ok),
-        abi::store_u64("x31", "x1", 0),
-        abi::store_u64("x31", "x1", 8),
-        abi::store_u64("x31", "x1", 16),
-        abi::store_u64("x31", "x1", 24),
-        abi::store_u64("x31", "x1", 32),
-        abi::store_u64("x31", "x1", 40),
-        abi::store_u64("x31", "x1", 48),
-        abi::store_u64("x31", "x1", 56),
-        abi::store_u64("x31", "x1", ARENA_CLEANUP_FAILURE_COUNT_OFFSET),
-        abi::store_u64("x31", "x1", ARENA_CLEANUP_FAILURE_CODE_OFFSET),
-        abi::store_u64("x31", "x1", ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET),
+        abi::move_register("%v11", "x1"),
+        abi::add_immediate("%v12", "x1", ARENA_STATE_SIZE),
+        abi::label(&child_zero_loop),
+        abi::store_u64("x31", "%v11", 0),
+        abi::add_immediate("%v11", "%v11", 8),
+        abi::compare_registers("%v11", "%v12"),
+        abi::branch_lo(&child_zero_loop),
         abi::load_u64("%v9", abi::stack_pointer(), CB_OFFSET),
         abi::store_u64("x1", "%v9", THREAD_OFFSET_ARENA_STATE),
     ]);

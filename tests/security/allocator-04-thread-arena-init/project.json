@@ -1,0 +1,10 @@
+{
+  "name": "allocator_04_thread_arena_init",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [{ "name": "allocator_churn_worker", "version": "=0.1.0", "source": "file:packages/allocator_churn_worker.mfp" }],
+  "entry": "main",
+  "targets": ["native"]
+}

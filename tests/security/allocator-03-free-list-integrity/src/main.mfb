@@ -1,0 +1,71 @@
+' allocator-03 (audit-1 MEM-03): arena free-path integrity under churn.
+' The fix makes `arena_free` insert-then-scrub (the entropy scrub now covers
+' [ptr+16, ptr+size) AFTER the coalescing insert wrote the FreeNode, so a
+' repeated free can never poison live free-list metadata) and adds an
+' idempotency guard in `arena_insert_free` (`cur == ptr` returns instead of
+' double-linking). No reachable double-drop exists in correct programs (the
+' known-prone TRAP-cleanup and thread paths were fixed), so the guard is inert
+' here by design; this test is the execution proof for the REORDERED free path:
+' heavy mixed-size alloc/free/coalesce churn where every value is verified
+' after its neighbors were freed and their chunks reused.
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+' Scope-drop churn: each iteration allocates strings and lists of varying
+' size in an inner scope, verifies them, and drops them — every drop is an
+' arena_free through the new insert-then-scrub path, and every iteration
+' reuses chunks the previous iteration freed and coalesced.
+FUNC churn(rounds AS Integer) AS Integer
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < rounds
+    LET small AS String = strings::repeat("a", 1 + (i MOD 13))
+    LET wide AS String = strings::repeat("bc", 1 + (i MOD 61))
+    MUT xs AS List OF Integer = []
+    MUT j AS Integer = 0
+    WHILE j < (i MOD 29)
+      xs = collections::append(xs, i * 1000 + j)
+      j = j + 1
+    WEND
+    ' Verify values while their siblings' freed chunks are being reused.
+    IF len(small) <> 1 + (i MOD 13) THEN
+      io::print("BAD small at " & toString(i))
+      RETURN 1
+    END IF
+    IF len(wide) <> 2 * (1 + (i MOD 61)) THEN
+      io::print("BAD wide at " & toString(i))
+      RETURN 1
+    END IF
+    IF len(xs) > 0 THEN
+      IF collections::get(xs, len(xs) - 1) <> i * 1000 + (len(xs) - 1) THEN
+        io::print("BAD list at " & toString(i))
+        RETURN 1
+      END IF
+    END IF
+    acc = acc + len(small) + len(wide) + len(xs)
+    i = i + 1
+  WEND
+  RETURN acc
+END FUNC
+
+' Single-free control: allocate one value, free it (scope drop), reallocate
+' the same size, and prove the fresh allocation is fully usable — the scrub
+' coverage change ([ptr+16..) instead of [ptr..)) never leaks into behavior.
+FUNC control AS Integer
+  MUT probe AS Integer = 0
+  MUT k AS Integer = 0
+  WHILE k < 50
+    LET a AS String = strings::repeat("z", 64)
+    probe = probe + len(a)
+    k = k + 1
+  WEND
+  RETURN probe
+END FUNC
+
+FUNC main AS Integer
+  LET total AS Integer = churn(3000)
+  io::print("churn " & toString(total))
+  io::print("control " & toString(control()))
+  RETURN 0
+END FUNC

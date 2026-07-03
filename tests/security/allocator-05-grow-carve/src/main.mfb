@@ -1,0 +1,35 @@
+' allocator-05: grow-path serve-direct carve. When `arena_alloc` has to map a
+' new block it now carves the request straight out of the fresh block (one
+' positional walk, remainder-only insert) instead of inserting the whole block
+' and re-walking the entire free-list. Every `big` below exceeds
+' ARENA_DEFAULT_BLOCK_SIZE (4096) so each one forces a grow + direct carve;
+' the interleaved small allocations land in the carved remainders. Content is
+' verified (not just lengths) so an overlapping or mis-carved chunk fails.
+IMPORT collections
+IMPORT io
+IMPORT strings
+
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < 40
+    LET reps AS Integer = 1024 + i * 128
+    LET big AS String = strings::repeat("abcdefgh", reps)
+    LET small AS String = strings::repeat("s", 1 + (i MOD 9))
+    IF len(big) <> 8 * reps THEN
+      io::print("BAD big len at " & toString(i))
+      RETURN 1
+    END IF
+    IF strings::count(big, "abcdefgh") <> reps THEN
+      io::print("BAD big content at " & toString(i))
+      RETURN 1
+    END IF
+    total = total + len(big) + len(small)
+    i = i + 1
+  WEND
+  LET giant AS String = strings::repeat("z", 1048576)
+  io::print("giant " & toString(len(giant)))
+  io::print("giant quads " & toString(strings::count(giant, "zzzz")))
+  io::print("grow total " & toString(total))
+  RETURN 0
+END FUNC

@@ -1,0 +1,63 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "allocator_05_grow_carve",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "loop": "while",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "40" } },
+      "body": [
+      { "op": "bind", "mutable": false, "name": "reps", "type": "Integer", "value": { "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1024" }, "right": { "kind": "binary", "op": "*", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "128" } } } },
+      { "op": "bind", "mutable": false, "name": "big", "type": "String", "value": { "kind": "call", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "abcdefgh" }, { "kind": "local", "name": "reps" }] } },
+      { "op": "bind", "mutable": false, "name": "small", "type": "String", "value": { "kind": "call", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "s" }, { "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1" }, "right": { "kind": "binary", "op": "MOD", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "9" } } }] } },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "<>", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "big" }] }, "right": { "kind": "binary", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "8" }, "right": { "kind": "local", "name": "reps" } } },
+        "then": [
+        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "BAD big len at " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ],
+        "else": [
+        ]
+      },
+      {
+        "op": "if",
+        "condition": { "kind": "binary", "op": "<>", "left": { "kind": "call", "target": "strings.count", "args": [{ "kind": "local", "name": "big" }, { "kind": "const", "type": "String", "value": "abcdefgh" }] }, "right": { "kind": "local", "name": "reps" } },
+        "then": [
+        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "BAD big content at " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "i" }] } }] } },
+        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        ],
+        "else": [
+        ]
+      },
+      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "big" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "small" }] } } },
+      { "op": "assign", "name": "i", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "bind", "mutable": false, "name": "giant", "type": "String", "value": { "kind": "call", "target": "strings.repeat", "args": [{ "kind": "const", "type": "String", "value": "z" }, { "kind": "const", "type": "Integer", "value": "1048576" }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "giant " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "giant" }] }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "giant quads " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.count", "args": [{ "kind": "local", "name": "giant" }, { "kind": "const", "type": "String", "value": "zzzz" }] }] } }] } },
+    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "grow total " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "total" }] } }] } },
+    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

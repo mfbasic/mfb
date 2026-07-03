@@ -31,33 +31,21 @@ pub(crate) fn lower_program_entry(
     instructions.extend([
         abi::subtract_stack(entry_stack_size),
         abi::add_immediate(ARENA_STATE_REGISTER, abi::stack_pointer(), 0),
-        abi::store_u64("x31", ARENA_STATE_REGISTER, 0),
-        abi::store_u64("x31", ARENA_STATE_REGISTER, 8),
-        abi::store_u64("x31", ARENA_STATE_REGISTER, 16),
-        abi::store_u64("x31", ARENA_STATE_REGISTER, 24),
-        // The main arena-state lives on the entry stack (not zero-filled), so the
-        // free-list head must be explicitly cleared before the first allocation.
-        abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        // Zero the whole arena state with a loop (allocator-04): the entry
+        // frame is live stack, NOT zero-filled, and this initializer must stay
+        // in lockstep with the thread-spawn child-state zeroing
+        // (`runtime_helpers.rs` `lower_thread_start_helper`) — both zero
+        // exactly `ARENA_STATE_SIZE`, so growing the state (e.g. quick bins)
+        // can never leave a field as garbage in one path but not the other.
+        // `x9`/`x10` are free scratch here; `x0`/`x1` (argc/argv) are live.
+        abi::move_register("x9", ARENA_STATE_REGISTER),
+        abi::add_immediate("x10", ARENA_STATE_REGISTER, ARENA_STATE_SIZE),
+        abi::label("entry_arena_state_zero"),
+        abi::store_u64("x31", "x9", 0),
+        abi::add_immediate("x9", "x9", 8),
+        abi::compare_registers("x9", "x10"),
+        abi::branch_lo("entry_arena_state_zero"),
     ]);
-    if emit_cleanup_failure_audit {
-        instructions.extend([
-            abi::store_u64(
-                "x31",
-                ARENA_STATE_REGISTER,
-                ARENA_CLEANUP_FAILURE_COUNT_OFFSET,
-            ),
-            abi::store_u64(
-                "x31",
-                ARENA_STATE_REGISTER,
-                ARENA_CLEANUP_FAILURE_CODE_OFFSET,
-            ),
-            abi::store_u64(
-                "x31",
-                ARENA_STATE_REGISTER,
-                ARENA_CLEANUP_FAILURE_MESSAGE_OFFSET,
-            ),
-        ]);
-    }
     for index in 0..global_slot_count {
         instructions.push(abi::store_u64(
             "x31",
@@ -808,9 +796,16 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_register("x0", &ubase),
         abi::move_register("x1", &usable),
         abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
-        // Insert [base+32, base+32+usableCapacity) as one free chunk, in address
-        // order. A fresh block is never adjacent to an existing chunk (the 32-byte
-        // header always separates blocks), so no coalescing is required here.
+        // Serve the request directly from the fresh chunk (allocator-05): the
+        // block was sized so `usable >= size + eff_align`, so instead of
+        // linking the whole chunk and re-walking the entire list to rediscover
+        // it, walk once to the chunk's address-ordered slot, park the successor
+        // in the fresh node's `next` word (`arena_alloc_found` reads it from
+        // `[cur, 0]`), and enter the existing four-case split with
+        // `cur = ubase`, `prev = ins_prev`. The split links only the
+        // remainder(s). A fresh block is never adjacent to an existing chunk
+        // (the 32-byte header always separates blocks), so no coalescing is
+        // required here.
         abi::load_u64(&ins_cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET), // cur
         abi::move_immediate(&ins_prev, "Integer", "0"),                            // prev
         abi::label("arena_alloc_ins_loop"),
@@ -822,15 +817,20 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::load_u64(&ins_cur, &ins_cur, 0),
         abi::branch("arena_alloc_ins_loop"),
         abi::label("arena_alloc_ins_do"),
-        abi::store_u64(&ins_cur, &ubase, 0),
-        abi::store_u64(&usable, &ubase, 8),
-        abi::compare_immediate(&ins_prev, "0"),
-        abi::branch_eq("arena_alloc_ins_head"),
-        abi::store_u64(&ubase, &ins_prev, 0),
-        abi::branch("arena_alloc_walk"),
-        abi::label("arena_alloc_ins_head"),
-        abi::store_u64(&ubase, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
-        abi::branch("arena_alloc_walk"),
+        abi::store_u64(&ins_cur, &ubase, 0), // fresh.next = successor
+        abi::move_register(&cur, &ubase),
+        abi::move_register(&prev, &ins_prev),
+        // aligned = round_up(ubase, eff_align); end_needed = aligned + size;
+        // cur_end = ubase + usable — the same geometry the walk computes. The
+        // walk's overflow-skip guards are unnecessary for a fresh mapping
+        // (mmap'd extents cannot wrap).
+        abi::subtract_immediate(&align_mask, &eff_align, 1),
+        abi::add_registers(&aligned, &cur, &align_mask),
+        abi::bitwise_not(&align_notmask, &align_mask),
+        abi::and_registers(&aligned, &aligned, &align_notmask),
+        abi::add_registers(&end_needed, &aligned, &size),
+        abi::add_registers(&cur_end, &cur, &usable),
+        abi::branch("arena_alloc_found"),
         abi::label("arena_alloc_invalid"),
         abi::move_immediate(abi::return_register(), "Integer", ERR_INVALID_ARGUMENT_CODE),
         abi::move_immediate("x1", "Integer", "0"),
@@ -1070,7 +1070,10 @@ pub(super) fn lower_make_error_result() -> CodeFunction {
 /// address-ordered free-list and coalesce with the address-adjacent neighbor on
 /// either side. `size` must already be normalized (≥16, multiple of 16) and
 /// `ptr` 16-aligned; both hold for every chunk the allocator hands out and for a
-/// fresh block's usable region. Leaf function; clobbers x9–x13.
+/// fresh block's usable region. A `ptr` that is already a free node is a no-op
+/// (allocator-03 idempotency guard), so a double-free relinks nothing. Leaf
+/// function; vreg-allocated — treat all caller-saved integer registers as
+/// clobbered.
 pub(super) fn lower_arena_insert_free() -> CodeFunction {
     let mut vregs = Vregs::new();
     // ptr (x0) / size (x1) are read-only args; this is a leaf, so they stay
@@ -1091,6 +1094,11 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
         abi::branch_eq("insert_slot"),
         abi::compare_registers(&cur, "x0"),
         abi::branch_hi("insert_slot"), // cur > ptr
+        // Idempotency guard (allocator-03): the chunk is already a free node —
+        // a double-free becomes a no-op instead of double-linking `ptr` and
+        // coalescing against its own (about-to-be-rewritten) metadata.
+        abi::compare_registers(&cur, "x0"),
+        abi::branch_eq("insert_already_free"),
         abi::move_register(&prev, &cur),
         abi::load_u64(&cur, &cur, 0),
         abi::branch("insert_find"),
@@ -1155,6 +1163,8 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
         abi::store_u64("x0", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::label("insert_done"),
         abi::return_(),
+        abi::label("insert_already_free"),
+        abi::return_(),
     ];
     finalize_vreg_helper(
         "runtime.arena_insert_free",
@@ -1167,9 +1177,13 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
 
 /// `arena_free(x0 = ptr, x1 = size)` — return a single compiler-sized allocation
 /// to the per-arena free-list. Normalizes `size` exactly as `arena_alloc` did
-/// (so the freed extent matches the live chunk), entropy-scrubs the chunk
-/// (plan-01 §6.2), then coalesces it in via `arena_insert_free`. Never unmaps.
-/// Clobbers x9–x16.
+/// (so the freed extent matches the live chunk), coalesces it in via
+/// `arena_insert_free`, then entropy-scrubs the payload bytes past the 16-byte
+/// FreeNode overlay the insert just wrote (plan-01 §6.2, allocator-03: the
+/// insert must never read PRNG-poisoned free-list metadata, and a double-free —
+/// an idempotent no-op inside the insert — must never scrub a live node's
+/// `{next, size}` words). Never unmaps. Vreg-allocated — treat all caller-saved
+/// integer registers as clobbered.
 pub(super) fn lower_arena_free() -> CodeFunction {
     let mut vregs = Vregs::new();
     let not_15 = (!(ARENA_MIN_CHUNK - 1)).to_string();
@@ -1190,13 +1204,19 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         abi::add_immediate("x1", "x1", (ARENA_MIN_CHUNK - 1) as usize),
         abi::move_immediate(&mask, "Integer", &not_15),
         abi::and_registers(&size, "x1", &mask),
-        // Scrub the chunk, then coalesce it back in.
-        abi::move_register("x0", &ptr),
-        abi::move_register("x1", &size),
-        abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
+        // Coalesce the chunk in first (writes the FreeNode {next, size} words
+        // at ptr+0/+8, or nothing on a double-free / adjacent merge) …
         abi::move_register("x0", &ptr),
         abi::move_register("x1", &size),
         abi::branch_link(ARENA_INSERT_FREE_SYMBOL),
+        // … then scrub only [ptr+16, ptr+size), preserving the freshly written
+        // node words. A 16-byte chunk is all node — nothing to scrub.
+        abi::compare_immediate(&size, &ARENA_MIN_CHUNK.to_string()),
+        abi::branch_eq("arena_free_done"),
+        abi::add_immediate("x0", &ptr, ARENA_MIN_CHUNK as usize),
+        abi::subtract_immediate("x1", &size, ARENA_MIN_CHUNK as usize),
+        abi::branch_link(ARENA_FILL_RANDOM_SYMBOL),
+        abi::label("arena_free_done"),
         abi::return_(),
     ];
     finalize_vreg_helper(
@@ -1205,8 +1225,8 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         "Nothing",
         instructions,
         vec![
-            internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL),
             internal_branch(ARENA_FREE_SYMBOL, ARENA_INSERT_FREE_SYMBOL),
+            internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL),
         ],
     )
 }
@@ -1236,7 +1256,12 @@ pub(super) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<Code
         abi::move_register(&head, &next),
         abi::branch("arena_destroy_loop"),
         abi::label("arena_destroy_done"),
+        // Leave the arena fully inert (allocator-04): clear the free-list head
+        // alongside the block-list head — it points into the just-unmapped
+        // blocks, and a stale head would turn any post-destroy allocation into
+        // a use-after-free walk.
         abi::store_u64("x31", ARENA_STATE_REGISTER, 0),
+        abi::store_u64("x31", ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
         abi::return_(),
     ]);
     Ok(finalize_vreg_helper(

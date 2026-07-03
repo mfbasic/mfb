@@ -1,0 +1,21 @@
+' allocator-04: worker arena-state initialization + destroy hygiene.
+' Thread-spawn zeroes the child arena state with a loop over ARENA_STATE_SIZE
+' (replacing the hand-unrolled store list that had to be kept in sync with the
+' entry shim by hand), and `arena_destroy` now clears the free-list head next
+' to the block-list head so a destroyed arena is fully inert. Two workers do
+' heavy mixed-size churn in their own arenas concurrently; wrong or missing
+' state zeroing (a garbage free-list head or bin pointer) corrupts the churn
+' checksum or crashes outright.
+IMPORT io
+IMPORT thread
+IMPORT allocator_churn_worker
+
+FUNC main AS Integer
+  LET a AS Thread OF Nothing TO Integer = thread::start(allocator_churn_worker::churnWorker, 2000, 1, 1)
+  LET b AS Thread OF Nothing TO Integer = thread::start(allocator_churn_worker::churnWorker, 1500, 1, 1)
+  LET ra AS Integer = thread::waitFor(a)
+  LET rb AS Integer = thread::waitFor(b)
+  io::print("worker a " & toString(ra))
+  io::print("worker b " & toString(rb))
+  RETURN 0
+END FUNC

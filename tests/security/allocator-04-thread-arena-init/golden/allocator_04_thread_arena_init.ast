@@ -1,0 +1,33 @@
+{
+  "project": "allocator_04_thread_arena_init",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 9 },
+    { "module": "thread", "line": 10 },
+    { "module": "allocator_churn_worker", "line": 11 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 13,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "a", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "allocator_churn_worker.churnWorker" }, { "kind": "number", "value": "2000" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "b", "type": "Thread OF Nothing TO Integer", "value": { "kind": "call", "callee": "thread.start", "arguments": [{ "kind": "identifier", "value": "allocator_churn_worker.churnWorker" }, { "kind": "number", "value": "1500" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, "line": 15 },
+      { "kind": "binding", "mutable": false, "name": "ra", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "a" }] }, "line": 16 },
+      { "kind": "binding", "mutable": false, "name": "rb", "type": "Integer", "value": { "kind": "call", "callee": "thread.waitFor", "arguments": [{ "kind": "identifier", "value": "b" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "worker a " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ra" }] } }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "worker b " }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "rb" }] } }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}

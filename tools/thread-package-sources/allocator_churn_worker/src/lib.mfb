@@ -1,0 +1,27 @@
+IMPORT collections
+IMPORT strings
+IMPORT thread
+
+' allocator-04 execution proof: heavy mixed-size alloc/free churn inside a
+' worker thread. The worker's arena state is arena-allocated and zeroed by the
+' thread-spawn loop (over ARENA_STATE_SIZE); a missed word there (a garbage
+' free-list head or quick-bin pointer) corrupts this churn immediately.
+EXPORT ISOLATED FUNC churnWorker(t AS ThreadWorker OF Nothing TO Integer, rounds AS Integer) AS Integer
+  MUT acc AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < rounds
+    LET s AS String = strings::repeat("w", 1 + (i MOD 23))
+    MUT xs AS List OF Integer = []
+    MUT j AS Integer = 0
+    WHILE j < (i MOD 7)
+      xs = collections::append(xs, i + j)
+      j = j + 1
+    WEND
+    IF len(s) <> 1 + (i MOD 23) THEN
+      RETURN -1
+    END IF
+    acc = acc + len(s) + len(xs)
+    i = i + 1
+  WEND
+  RETURN acc
+END FUNC
