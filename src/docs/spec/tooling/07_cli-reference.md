@@ -42,14 +42,18 @@ an existing file (`write_new_file`).[[src/cli/init.rs:write_new_file]]
 ## `build` Flags
 
 `parse_build_options` parses the flags.[[src/cli/build.rs:parse_build_options]] The
-output-mode flags are **mutually exclusive** — a second one yields `mfb build
-accepts only one output mode`. With no output flag, `build` validates and emits
-the project's primary artifact (`<name>.out` for executable, `<name>.mfp` for
+output-mode flags **combine**: any number of distinct output flags may be given
+in one invocation, and every requested artifact file is written from a single
+shared front-end pass, in flag order (repeating the same flag yields `mfb build
+got duplicate output flag `-<flag>``). Each artifact is a `<name>.<ext>` file in
+the project directory — identical byte-for-byte to the file a single-flag
+invocation writes. With no output flag, `build` validates and emits the
+project's primary artifact (`<name>.out` for executable, `<name>.mfp` for
 package).
 
 | Flag | Output mode | Artifact / effect |
 | --- | --- | --- |
-| (none) | `Validate` | `.out` (executable) or `.mfp` (package) |
+| (none) | full build (empty `outputs`) | `.out` (executable) or `.mfp` (package) |
 | `-ast` | `Ast` | `<name>.ast` (parsed AST dump) |
 | `-ir` | `Ir` | `<name>.ir` |
 | `-br` | `BinaryRepr` | `<name>.hex` (hex dump of this project's MFPC binary representation) |
@@ -65,8 +69,8 @@ package).
 
 `-target` requires a value (`mfb build -target requires os-arch`). `--sign`
 requires a value, accepts at most one (`mfb build accepts at most one --sign
-option`), and is only honored for the default `Validate` mode (package/executable
-builds); combined with a native-output flag it errors with `mfb build --sign is
+option`), and is only honored when no output flag is given (package/executable
+builds); combined with any output flag it errors with `mfb build --sign is
 only supported for package and executable builds`. The signing key is resolved
 through `load_build_signing_info`, which cross-checks the local private key
 against the repository's signing key/fingerprint.[[src/cli/build.rs:load_build_signing_info]]

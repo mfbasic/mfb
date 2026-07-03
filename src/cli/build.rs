@@ -19,7 +19,11 @@ use crate::typecheck;
 
 pub(crate) struct BuildOptions {
     pub(crate) location: PathBuf,
-    pub(crate) output: BuildOutput,
+    /// Requested artifact dumps, in flag order. Empty means a full
+    /// validate/build (the flagless `mfb build`). Any combination of the
+    /// output flags may be given in one invocation; each artifact is written
+    /// from a single shared front-end pass.
+    pub(crate) outputs: Vec<BuildOutput>,
     pub(crate) target: target::BuildTarget,
     pub(crate) sign_owner: Option<String>,
     pub(crate) app_mode: bool,
@@ -28,8 +32,8 @@ pub(crate) struct BuildOptions {
     pub(crate) regalloc: target::shared::code::regalloc::RegallocKind,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum BuildOutput {
-    Validate,
     Ast,
     Ir,
     BinaryRepr,
@@ -42,9 +46,25 @@ pub(crate) enum BuildOutput {
     Mir,
 }
 
+impl BuildOutput {
+    fn from_flag(flag: &str) -> Option<BuildOutput> {
+        match flag {
+            "-ast" => Some(BuildOutput::Ast),
+            "-ir" => Some(BuildOutput::Ir),
+            "-br" => Some(BuildOutput::BinaryRepr),
+            "-nir" => Some(BuildOutput::NativeIr),
+            "-nplan" => Some(BuildOutput::NativePlan),
+            "-nobj" => Some(BuildOutput::NativeObjectPlan),
+            "-ncode" => Some(BuildOutput::NativeCodePlan),
+            "-mir" => Some(BuildOutput::Mir),
+            _ => None,
+        }
+    }
+}
+
 pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, String> {
     let mut location = None;
-    let mut output = BuildOutput::Validate;
+    let mut outputs: Vec<BuildOutput> = Vec::new();
     let mut target = None;
     let mut sign_owner = None;
     let mut app_mode = false;
@@ -52,46 +72,11 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
-        if arg == "-ast" {
-            if !matches!(output, BuildOutput::Validate) {
-                return Err("mfb build accepts only one output mode".to_string());
+        if let Some(output) = BuildOutput::from_flag(&arg) {
+            if outputs.contains(&output) {
+                return Err(format!("mfb build got duplicate output flag `{arg}`"));
             }
-            output = BuildOutput::Ast;
-        } else if arg == "-ir" {
-            if !matches!(output, BuildOutput::Validate) {
-                return Err("mfb build accepts only one output mode".to_string());
-            }
-            output = BuildOutput::Ir;
-        } else if arg == "-br" {
-            if !matches!(output, BuildOutput::Validate) {
-                return Err("mfb build accepts only one output mode".to_string());
-            }
-            output = BuildOutput::BinaryRepr;
-        } else if arg == "-nir" {
-            if !matches!(output, BuildOutput::Validate) {
-                return Err("mfb build accepts only one output mode".to_string());
-            }
-            output = BuildOutput::NativeIr;
-        } else if arg == "-nplan" {
-            if !matches!(output, BuildOutput::Validate) {
-                return Err("mfb build accepts only one output mode".to_string());
-            }
-            output = BuildOutput::NativePlan;
-        } else if arg == "-nobj" {
-            if !matches!(output, BuildOutput::Validate) {
-                return Err("mfb build accepts only one output mode".to_string());
-            }
-            output = BuildOutput::NativeObjectPlan;
-        } else if arg == "-ncode" {
-            if !matches!(output, BuildOutput::Validate) {
-                return Err("mfb build accepts only one output mode".to_string());
-            }
-            output = BuildOutput::NativeCodePlan;
-        } else if arg == "-mir" {
-            if !matches!(output, BuildOutput::Validate) {
-                return Err("mfb build accepts only one output mode".to_string());
-            }
-            output = BuildOutput::Mir;
+            outputs.push(output);
         } else if arg == "-target" {
             let Some(value) = iter.next() else {
                 return Err("mfb build -target requires os-arch".to_string());
@@ -131,7 +116,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
 
     Ok(BuildOptions {
         location: location.unwrap_or_else(|| PathBuf::from(".")),
-        output,
+        outputs,
         target: target.unwrap_or_else(target::BuildTarget::host),
         sign_owner,
         app_mode,
@@ -190,7 +175,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let entry = validate_entry_point(&options.location, &manifest, &concrete_ast)?;
     typecheck::check_project(&options.location, &concrete_ast)?;
     let signing = match &options.sign_owner {
-        Some(owner) if matches!(options.output, BuildOutput::Validate) => {
+        Some(owner) if options.outputs.is_empty() => {
             Some(load_build_signing_info(owner).map_err(|err| {
                 eprintln!("error: {err}");
             })?)
@@ -204,315 +189,250 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         None => None,
     };
 
-    match options.output {
-        BuildOutput::Validate => {
-            if project_kind == "executable" {
-                let packages =
-                    installed_package_files(&options.location, &manifest).map_err(|err| {
-                        eprintln!("error: {err}");
-                    })?;
+    if options.outputs.is_empty() {
+        if project_kind == "executable" {
+            let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
+            let (external_functions, external_params) =
+                external_package_function_types_from_files(&packages).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let ir = ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry.clone(),
+                &external_functions,
+                &external_params,
+            );
+            let executable_paths = target::write_executable(
+                &options.location,
+                &ir,
+                &target,
+                &packages,
+                signing
+                    .as_ref()
+                    .map(|signing| signing.executable_metadata.as_slice()),
+                build_mode,
+            )
+            .map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
+            for executable_path in executable_paths {
+                println!("Wrote executable to {}", executable_path.display());
+            }
+        } else if project_kind == "package" {
+            let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
+            let (external_functions, external_params) =
+                external_package_function_types_from_files(&packages).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+            let mut ir = ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry.clone(),
+                &external_functions,
+                &external_params,
+            );
+            // Collect documentation from the pre-monomorphization AST: it keeps
+            // the original declaration names (and every overload), which the
+            // monomorphized AST renames away, so overloaded/generic exported
+            // declarations still get a `.mfp` doc entry (plan-09-doc.md §5).
+            ir.docs = ir::collect_project_docs(&ast);
+            let mut metadata = package_metadata(&manifest);
+            if let Some(signing) = &signing {
+                apply_signing_metadata(&mut metadata, signing);
+            }
+            let package_path = target::write_package(
+                &options.location,
+                &ir,
+                &metadata,
+                &packages,
+                signing
+                    .as_ref()
+                    .map(|signing| signing.private_key.as_slice()),
+            )
+            .map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
+            println!("Wrote package to {}", package_path.display());
+        } else {
+            println!(
+                "Validated MFBASIC project at {}",
+                options.location.display()
+            );
+        }
+        return Ok(());
+    }
+
+    // Artifact dumps. Any combination of output flags shares this one
+    // front-end pass; `packages` and the merged IR are computed at most once
+    // and each artifact writer then runs its own (unchanged) backend path.
+    // Artifacts are written in flag order; the first failure stops the run.
+    let mut packages_cache: Option<Vec<PathBuf>> = None;
+    let mut ir_cache: Option<ir::IrProject> = None;
+    for output in &options.outputs {
+        // The -ast and -ir dumps work for every project kind; the native
+        // dumps require an executable project.
+        match output {
+            BuildOutput::Ast => {
+                let ast_path = ast::write_ast(&options.location, &ast).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
+                println!("Wrote AST to {}", ast_path.display());
+                continue;
+            }
+            BuildOutput::Ir => {
                 let (external_functions, external_params) =
-                    external_package_function_types_from_files(&packages).map_err(|err| {
-                        eprintln!("error: {err}");
-                    })?;
+                    external_package_function_types(&options.location, &manifest);
                 let ir = ir::lower_project_with_external_functions(
                     &concrete_ast,
                     entry.clone(),
                     &external_functions,
                     &external_params,
                 );
-                let executable_paths = target::write_executable(
-                    &options.location,
-                    &ir,
-                    &target,
-                    &packages,
-                    signing
-                        .as_ref()
-                        .map(|signing| signing.executable_metadata.as_slice()),
-                    build_mode,
-                )
-                .map_err(|err| {
+                let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-                for executable_path in executable_paths {
-                    println!("Wrote executable to {}", executable_path.display());
+                println!("Wrote IR to {}", ir_path.display());
+                continue;
+            }
+            BuildOutput::BinaryRepr => {}
+            BuildOutput::NativeIr
+            | BuildOutput::NativePlan
+            | BuildOutput::NativeObjectPlan
+            | BuildOutput::NativeCodePlan
+            | BuildOutput::Mir => {
+                if project_kind == "package" {
+                    let what = match output {
+                        BuildOutput::NativeIr => "native IR",
+                        BuildOutput::NativePlan => "native plan",
+                        BuildOutput::NativeObjectPlan => "native object plan",
+                        BuildOutput::NativeCodePlan => "native code plan",
+                        _ => "MIR",
+                    };
+                    rules::show_general_diagnostic(
+                        "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
+                        &format!("Package projects do not support {what} output; run `mfb build` to write a .mfp package."),
+                    );
+                    return Err(());
                 }
-            } else if project_kind == "package" {
-                let packages =
-                    installed_package_files(&options.location, &manifest).map_err(|err| {
-                        eprintln!("error: {err}");
-                    })?;
-                let (external_functions, external_params) =
-                    external_package_function_types_from_files(&packages).map_err(|err| {
-                        eprintln!("error: {err}");
-                    })?;
-                let mut ir = ir::lower_project_with_external_functions(
-                    &concrete_ast,
-                    entry.clone(),
-                    &external_functions,
-                    &external_params,
-                );
-                // Collect documentation from the pre-monomorphization AST: it keeps
-                // the original declaration names (and every overload), which the
-                // monomorphized AST renames away, so overloaded/generic exported
-                // declarations still get a `.mfp` doc entry (plan-09-doc.md §5).
-                ir.docs = ir::collect_project_docs(&ast);
-                let mut metadata = package_metadata(&manifest);
-                if let Some(signing) = &signing {
-                    apply_signing_metadata(&mut metadata, signing);
-                }
-                let package_path = target::write_package(
-                    &options.location,
-                    &ir,
-                    &metadata,
-                    &packages,
-                    signing
-                        .as_ref()
-                        .map(|signing| signing.private_key.as_slice()),
-                )
-                .map_err(|err| {
+            }
+        }
+
+        if packages_cache.is_none() {
+            packages_cache = Some(
+                installed_package_files(&options.location, &manifest).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?,
+            );
+        }
+        let packages = packages_cache.as_ref().expect("cached packages");
+        if ir_cache.is_none() {
+            let (external_functions, external_params) =
+                external_package_function_types_from_files(packages).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
-                println!("Wrote package to {}", package_path.display());
-            } else {
+            ir_cache = Some(ir::lower_project_with_external_functions(
+                &concrete_ast,
+                entry.clone(),
+                &external_functions,
+                &external_params,
+            ));
+        }
+        let ir = ir_cache.as_ref().expect("cached IR");
+
+        match output {
+            BuildOutput::BinaryRepr => {
+                let version = manifest
+                    .get("version")
+                    .and_then(|value| value.get::<String>())
+                    .expect("validated project version");
+                // -br dumps this project's own structured Binary Representation. Imported
+                // packages are decoded and merged only in the native consumption
+                // path; the hex dump reflects the project's own IR, not a merge.
+                let binary_repr_path =
+                    binary_repr::write_binary_repr_hex(&options.location, ir, version).map_err(
+                        |err| {
+                            eprintln!("error: {err}");
+                        },
+                    )?;
                 println!(
-                    "Validated MFBASIC project at {}",
-                    options.location.display()
+                    "Wrote binary representation hex to {}",
+                    binary_repr_path.display()
                 );
             }
-        }
-        BuildOutput::Ast => {
-            let ast_path = ast::write_ast(&options.location, &ast).map_err(|err| {
-                eprintln!("error: {err}");
-            })?;
-            println!("Wrote AST to {}", ast_path.display());
-        }
-        BuildOutput::Ir => {
-            let (external_functions, external_params) =
-                external_package_function_types(&options.location, &manifest);
-            let ir = ir::lower_project_with_external_functions(
-                &concrete_ast,
-                entry.clone(),
-                &external_functions,
-                &external_params,
-            );
-            let ir_path = ir::write_ir(&options.location, &ir).map_err(|err| {
-                eprintln!("error: {err}");
-            })?;
-            println!("Wrote IR to {}", ir_path.display());
-        }
-        BuildOutput::BinaryRepr => {
-            let packages =
-                installed_package_files(&options.location, &manifest).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let ir = ir::lower_project_with_external_functions(
-                &concrete_ast,
-                entry.clone(),
-                &external_functions,
-                &external_params,
-            );
-            let version = manifest
-                .get("version")
-                .and_then(|value| value.get::<String>())
-                .expect("validated project version");
-            // -br dumps this project's own structured Binary Representation. Imported
-            // packages are decoded and merged only in the native consumption
-            // path; the hex dump reflects the project's own IR, not a merge.
-            let binary_repr_path =
-                binary_repr::write_binary_repr_hex(&options.location, &ir, version).map_err(
-                    |err| {
-                        eprintln!("error: {err}");
-                    },
-                )?;
-            println!(
-                "Wrote binary representation hex to {}",
-                binary_repr_path.display()
-            );
-        }
-        BuildOutput::NativeIr => {
-            if project_kind == "package" {
-                rules::show_general_diagnostic(
-                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
-                    "Package projects do not support native IR output; run `mfb build` to write a .mfp package.",
-                );
-                return Err(());
+            BuildOutput::NativeIr => {
+                let nir_path =
+                    match target::write_nir(&options.location, ir, &target, packages, build_mode) {
+                        Ok(path) => path,
+                        Err(err) => {
+                            eprintln!("error: {err}");
+                            return Err(());
+                        }
+                    };
+                println!("Wrote native IR to {}", nir_path.display());
             }
-
-            let packages =
-                installed_package_files(&options.location, &manifest).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let ir = ir::lower_project_with_external_functions(
-                &concrete_ast,
-                entry,
-                &external_functions,
-                &external_params,
-            );
-            let nir_path =
-                match target::write_nir(&options.location, &ir, &target, &packages, build_mode) {
+            BuildOutput::NativePlan => {
+                let plan_path = match target::write_native_plan(
+                    &options.location,
+                    ir,
+                    &target,
+                    packages,
+                    build_mode,
+                ) {
                     Ok(path) => path,
                     Err(err) => {
                         eprintln!("error: {err}");
                         return Err(());
                     }
                 };
-            println!("Wrote native IR to {}", nir_path.display());
-        }
-        BuildOutput::NativePlan => {
-            if project_kind == "package" {
-                rules::show_general_diagnostic(
-                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
-                    "Package projects do not support native plan output; run `mfb build` to write a .mfp package.",
-                );
-                return Err(());
+                println!("Wrote native plan to {}", plan_path.display());
             }
-
-            let packages =
-                installed_package_files(&options.location, &manifest).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let ir = ir::lower_project_with_external_functions(
-                &concrete_ast,
-                entry,
-                &external_functions,
-                &external_params,
-            );
-            let plan_path = match target::write_native_plan(
-                &options.location,
-                &ir,
-                &target,
-                &packages,
-                build_mode,
-            ) {
-                Ok(path) => path,
-                Err(err) => {
-                    eprintln!("error: {err}");
-                    return Err(());
-                }
-            };
-            println!("Wrote native plan to {}", plan_path.display());
-        }
-        BuildOutput::NativeObjectPlan => {
-            if project_kind == "package" {
-                rules::show_general_diagnostic(
-                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
-                    "Package projects do not support native object plan output; run `mfb build` to write a .mfp package.",
-                );
-                return Err(());
-            }
-
-            let packages =
-                installed_package_files(&options.location, &manifest).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let ir = ir::lower_project_with_external_functions(
-                &concrete_ast,
-                entry,
-                &external_functions,
-                &external_params,
-            );
-            let object_path = match target::write_native_object_plan(
-                &options.location,
-                &ir,
-                &target,
-                &packages,
-                build_mode,
-            ) {
-                Ok(path) => path,
-                Err(err) => {
-                    eprintln!("error: {err}");
-                    return Err(());
-                }
-            };
-            println!("Wrote native object plan to {}", object_path.display());
-        }
-        BuildOutput::NativeCodePlan => {
-            if project_kind == "package" {
-                rules::show_general_diagnostic(
-                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
-                    "Package projects do not support native code plan output; run `mfb build` to write a .mfp package.",
-                );
-                return Err(());
-            }
-
-            let packages =
-                installed_package_files(&options.location, &manifest).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let ir = ir::lower_project_with_external_functions(
-                &concrete_ast,
-                entry,
-                &external_functions,
-                &external_params,
-            );
-            let code_path = match target::write_native_code_plan(
-                &options.location,
-                &ir,
-                &target,
-                &packages,
-                build_mode,
-            ) {
-                Ok(path) => path,
-                Err(err) => {
-                    eprintln!("error: {err}");
-                    return Err(());
-                }
-            };
-            println!("Wrote native code plan to {}", code_path.display());
-        }
-        BuildOutput::Mir => {
-            if project_kind == "package" {
-                rules::show_general_diagnostic(
-                    "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
-                    "Package projects do not support MIR output; run `mfb build` to write a .mfp package.",
-                );
-                return Err(());
-            }
-
-            let packages =
-                installed_package_files(&options.location, &manifest).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let (external_functions, external_params) =
-                external_package_function_types_from_files(&packages).map_err(|err| {
-                    eprintln!("error: {err}");
-                })?;
-            let ir = ir::lower_project_with_external_functions(
-                &concrete_ast,
-                entry,
-                &external_functions,
-                &external_params,
-            );
-            let mir_path =
-                match target::write_mir(&options.location, &ir, &target, &packages, build_mode) {
+            BuildOutput::NativeObjectPlan => {
+                let object_path = match target::write_native_object_plan(
+                    &options.location,
+                    ir,
+                    &target,
+                    packages,
+                    build_mode,
+                ) {
                     Ok(path) => path,
                     Err(err) => {
                         eprintln!("error: {err}");
                         return Err(());
                     }
                 };
-            println!("Wrote MIR to {}", mir_path.display());
+                println!("Wrote native object plan to {}", object_path.display());
+            }
+            BuildOutput::NativeCodePlan => {
+                let code_path = match target::write_native_code_plan(
+                    &options.location,
+                    ir,
+                    &target,
+                    packages,
+                    build_mode,
+                ) {
+                    Ok(path) => path,
+                    Err(err) => {
+                        eprintln!("error: {err}");
+                        return Err(());
+                    }
+                };
+                println!("Wrote native code plan to {}", code_path.display());
+            }
+            BuildOutput::Mir => {
+                let mir_path =
+                    match target::write_mir(&options.location, ir, &target, packages, build_mode) {
+                        Ok(path) => path,
+                        Err(err) => {
+                            eprintln!("error: {err}");
+                            return Err(());
+                        }
+                    };
+                println!("Wrote MIR to {}", mir_path.display());
+            }
+            BuildOutput::Ast | BuildOutput::Ir => unreachable!("handled above"),
         }
     }
 

@@ -36,7 +36,7 @@ use cli::pkg::{run_pkg_command, PkgCommandError};
 use cli::repo::{run_repo_command, RepoCommandError};
 use cli::spec::show_spec;
 
-pub(crate) const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package\n  doc [--out file] [location]          Render HTML docs from package or file source\n  fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode|-mir] [-target os-arch] [-app] [location] Validate and build an MFBASIC project\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help
+pub(crate) const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package\n  doc [--out file] [location]          Render HTML docs from package or file source\n  fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode|-mir]... [-target os-arch] [-app] [location] Validate and build an MFBASIC project (output flags combine; each requested artifact is written in one pass)\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help
   spec [topic] [subtopic] [--all]      Show the MFBASIC language specification";
 
 fn main() {
@@ -211,7 +211,43 @@ mod tests {
         let options =
             parse_build_options(vec!["-app".to_string(), "-nir".to_string()]).expect("options");
         assert!(options.app_mode);
-        assert!(matches!(options.output, BuildOutput::NativeIr));
+        assert_eq!(options.outputs, vec![BuildOutput::NativeIr]);
+    }
+
+    #[test]
+    fn parse_build_options_combines_output_flags_in_order() {
+        let options = parse_build_options(vec![
+            "-ast".to_string(),
+            "-ir".to_string(),
+            "-ncode".to_string(),
+            "-mir".to_string(),
+            "some/project".to_string(),
+        ])
+        .expect("options");
+        assert_eq!(
+            options.outputs,
+            vec![
+                BuildOutput::Ast,
+                BuildOutput::Ir,
+                BuildOutput::NativeCodePlan,
+                BuildOutput::Mir,
+            ]
+        );
+    }
+
+    #[test]
+    fn parse_build_options_rejects_duplicate_output_flag() {
+        let result = parse_build_options(vec!["-ncode".to_string(), "-ncode".to_string()]);
+        match result {
+            Err(err) => assert!(err.contains("duplicate output flag `-ncode`")),
+            Ok(_) => panic!("duplicate output flag must be rejected"),
+        }
+    }
+
+    #[test]
+    fn parse_build_options_no_output_flags_means_full_build() {
+        let options = parse_build_options(vec!["some/project".to_string()]).expect("options");
+        assert!(options.outputs.is_empty());
     }
 
     #[test]

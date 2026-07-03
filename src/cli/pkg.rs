@@ -12,7 +12,7 @@ use crate::manifest::{parse_project_json, project_kind, validate_packages_array,
 use crate::target;
 use crate::USAGE;
 
-use super::build::{build_project, BuildOptions, BuildOutput};
+use super::build::{build_project, BuildOptions};
 
 pub(crate) enum PkgCommandError {
     Usage(String),
@@ -65,7 +65,7 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
 
     build_project(&BuildOptions {
         location: project_dir.to_path_buf(),
-        output: BuildOutput::Validate,
+        outputs: Vec::new(),
         target: target::BuildTarget::host(),
         sign_owner: Some(owner.to_string()),
         app_mode: false,
