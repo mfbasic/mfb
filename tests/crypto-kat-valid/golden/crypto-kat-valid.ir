@@ -3917,6 +3917,69 @@
     ]
   },
   {
+    "name": "#crypto_bytePrefix",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "data", "type": "List OF Byte", "default": null },
+    { "name": "n", "type": "Integer", "default": null }
+    ],
+    "returns": "List OF Byte",
+    "body": [
+    { "op": "bind", "mutable": true, "name": "out", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [] } },
+    { "op": "bind", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    {
+      "op": "while",
+      "loop": "while",
+      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "local", "name": "n" } },
+      "body": [
+      { "op": "assign", "name": "out", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "local", "name": "out" }, { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "data" }, { "kind": "local", "name": "i" }] }] } },
+      { "op": "assign", "name": "i", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      ]
+    },
+    { "op": "return", "value": { "kind": "local", "name": "out" } }
+    ]
+  },
+  {
+    "name": "#crypto_generateP256",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "KeyPair",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "priv", "type": "List OF Byte", "value": { "kind": "call", "target": "crypto.generateP256Raw", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "target": "#crypto_bytePrefix", "args": [{ "kind": "local", "name": "priv" }, { "kind": "const", "type": "Integer", "value": "65" }] } },
+    { "op": "return", "value": { "kind": "constructor", "type": "KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] } }
+    ]
+  },
+  {
+    "name": "#crypto_generateP384",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "KeyPair",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "priv", "type": "List OF Byte", "value": { "kind": "call", "target": "crypto.generateP384Raw", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "target": "#crypto_bytePrefix", "args": [{ "kind": "local", "name": "priv" }, { "kind": "const", "type": "Integer", "value": "97" }] } },
+    { "op": "return", "value": { "kind": "constructor", "type": "KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] } }
+    ]
+  },
+  {
+    "name": "#crypto_generateP521",
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "KeyPair",
+    "body": [
+    { "op": "bind", "mutable": false, "name": "priv", "type": "List OF Byte", "value": { "kind": "call", "target": "crypto.generateP521Raw", "args": [] } },
+    { "op": "bind", "mutable": false, "name": "pub", "type": "List OF Byte", "value": { "kind": "call", "target": "#crypto_bytePrefix", "args": [{ "kind": "local", "name": "priv" }, { "kind": "const", "type": "Integer", "value": "133" }] } },
+    { "op": "return", "value": { "kind": "constructor", "type": "KeyPair", "args": [{ "kind": "local", "name": "priv" }, { "kind": "local", "name": "pub" }] } }
+    ]
+  },
+  {
     "name": "#crypto_ed25519Sign",
     "visibility": "private",
     "kind": "func",
@@ -3930,7 +3993,7 @@
       "op": "if",
       "condition": { "kind": "binary", "op": "<>", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "privateKey" }] }, "right": { "kind": "const", "type": "Integer", "value": "32" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "ed25519 private key must be 32 bytes" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto.mfb" }, { "kind": "const", "type": "Integer", "value": "2130" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "77050002" }, { "kind": "const", "type": "String", "value": "ed25519 private key must be 32 bytes" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "builtins/crypto.mfb" }, { "kind": "const", "type": "Integer", "value": "2164" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ],
       "else": [
       ]

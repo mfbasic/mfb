@@ -463,6 +463,21 @@ impl plan::NativePlanPlatform for Platform {
                 });
                 imports
             }
+            call if crate::builtins::crypto::is_native_crypto_call(call)
+                && call != "crypto.randomBytes" =>
+            {
+                // The NIST-EC helpers resolve Security.framework + CoreFoundation
+                // (SecKey/CFDictionary/CFData) entirely through dlopen/dlsym at
+                // load time, so only dlopen/dlsym are statically imported.
+                ["_dlopen", "_dlsym"]
+                    .into_iter()
+                    .map(|symbol| PlatformImport {
+                        library: "libSystem".to_string(),
+                        symbol: symbol.to_string(),
+                        required_by: spec.symbol.to_string(),
+                    })
+                    .collect()
+            }
             call if crate::builtins::tls::is_tls_call(call) => {
                 // The macOS TLS backend resolves Network.framework (and, for the
                 // server side, Security.framework + CoreFoundation) entirely

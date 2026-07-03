@@ -464,6 +464,19 @@ pub(crate) fn lower_module_for_platform(
             data_objects.extend(tls::tls_cstring_data_objects(tls_server));
         }
     }
+    // NIST-EC helpers reference read-only C strings (framework paths + dlsym
+    // names) for their load-time dlopen/dlsym.
+    if native_plan
+        .runtime_symbols
+        .iter()
+        .any(|symbol| crypto_ec::is_ec_symbol(symbol))
+    {
+        if platform.target().contains("macos") {
+            data_objects.extend(crypto_ec::macos::data_objects());
+        } else {
+            data_objects.extend(crypto_ec::openssl::data_objects());
+        }
+    }
     let type_model = TypeModel::from_module_and_packages(module, packages)?;
     let mut code_functions = Vec::new();
     let mut runtime_symbols = native_plan.runtime_symbols.clone();
@@ -953,6 +966,29 @@ fn lower_runtime_helper(
                 platform,
             )?,
         };
+        return Ok(CodeFunction {
+            name: format!("runtime.{}", spec.call),
+            symbol: symbol.to_string(),
+            params: spec
+                .abi
+                .params
+                .iter()
+                .map(|param| CodeParam {
+                    name: param.name.to_string(),
+                    type_: param.type_.to_string(),
+                    location: param.location.to_string(),
+                })
+                .collect(),
+            returns: spec.abi.returns.to_string(),
+            frame,
+            stack_slots,
+            instructions,
+            relocations,
+        });
+    }
+    if crypto_ec::ec_call(spec.call).is_some() {
+        let (frame, instructions, relocations, stack_slots) =
+            crypto_ec::lower_crypto_ec_helper(spec.call, symbol, platform_imports, platform)?;
         return Ok(CodeFunction {
             name: format!("runtime.{}", spec.call),
             symbol: symbol.to_string(),
@@ -2483,6 +2519,7 @@ mod builder_strings_package;
 mod builder_value_semantics;
 mod builder_values;
 mod crypto;
+mod crypto_ec;
 mod datetime;
 mod link_thunk;
 mod net;

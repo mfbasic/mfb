@@ -3,6 +3,15 @@ use super::*;
 pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
     &[
         CRYPTO_RANDOM_BYTES_SPEC,
+        CRYPTO_GENERATE_P256_RAW_SPEC,
+        CRYPTO_GENERATE_P384_RAW_SPEC,
+        CRYPTO_GENERATE_P521_RAW_SPEC,
+        CRYPTO_P256_SIGN_SPEC,
+        CRYPTO_P384_SIGN_SPEC,
+        CRYPTO_P521_SIGN_SPEC,
+        CRYPTO_P256_VERIFY_SPEC,
+        CRYPTO_P384_VERIFY_SPEC,
+        CRYPTO_P521_VERIFY_SPEC,
         DATETIME_NOW_NANOS_SPEC,
         DATETIME_MONOTONIC_NANOS_SPEC,
         DATETIME_LOCAL_OFFSET_SPEC,

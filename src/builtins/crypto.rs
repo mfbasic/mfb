@@ -51,6 +51,12 @@ const GENERATE_ED25519: &str = "crypto.generateEd25519";
 const GENERATE_P256: &str = "crypto.generateP256";
 const GENERATE_P384: &str = "crypto.generateP384";
 const GENERATE_P521: &str = "crypto.generateP521";
+// Raw NIST keygen (native): returns the private bytes `0x04||X||Y||K`. The
+// public `generateP*` above is source glue that slices out the public point and
+// builds a `KeyPair`, so it stays a source call while these route to the helper.
+const GENERATE_P256_RAW: &str = "crypto.generateP256Raw";
+const GENERATE_P384_RAW: &str = "crypto.generateP384Raw";
+const GENERATE_P521_RAW: &str = "crypto.generateP521Raw";
 const ED25519_SIGN: &str = "crypto.ed25519Sign";
 const ED25519_VERIFY: &str = "crypto.ed25519Verify";
 const P256_SIGN: &str = "crypto.p256Sign";
@@ -69,9 +75,9 @@ pub(crate) fn is_native_crypto_call(name: &str) -> bool {
     matches!(
         name,
         RANDOM_BYTES
-            | GENERATE_P256
-            | GENERATE_P384
-            | GENERATE_P521
+            | GENERATE_P256_RAW
+            | GENERATE_P384_RAW
+            | GENERATE_P521_RAW
             | P256_SIGN
             | P256_VERIFY
             | P384_SIGN
@@ -114,6 +120,9 @@ pub(crate) fn is_crypto_call(name: &str) -> bool {
             | GENERATE_P256
             | GENERATE_P384
             | GENERATE_P521
+            | GENERATE_P256_RAW
+            | GENERATE_P384_RAW
+            | GENERATE_P521_RAW
             | ED25519_SIGN
             | ED25519_VERIFY
             | P256_SIGN
@@ -142,7 +151,8 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         }
         RANDOM_BYTES => &[&["count"]],
         RANDOM_INT => &[&["min"], &["max"]],
-        UUID4 | GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521 => &[],
+        UUID4 | GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521
+        | GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW => &[],
         ED25519_SIGN | P256_SIGN | P384_SIGN | P521_SIGN => &[&["privateKey"], &["message"]],
         ED25519_VERIFY | P256_VERIFY | P384_VERIFY | P521_VERIFY => {
             &[&["publicKey"], &["message"], &["signature"]]
@@ -158,7 +168,7 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         SHA256 | SHA224 | SHA512 | SHA384 | HMAC_SHA256 | HMAC_SHA512 | HKDF_SHA256
         | HKDF_SHA512 | PBKDF2_SHA256 | PBKDF2_SHA512 | AES256_GCM_OPEN
         | CHACHA20_POLY1305_OPEN | RANDOM_BYTES | ED25519_SIGN | P256_SIGN | P384_SIGN
-        | P521_SIGN => BYTES,
+        | P521_SIGN | GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW => BYTES,
         AES256_GCM_SEAL | CHACHA20_POLY1305_SEAL => SEALED_TYPE,
         GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521 => KEYPAIR_TYPE,
         RANDOM_INT => "Integer",
@@ -173,7 +183,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
 
 pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     let span = match name {
-        UUID4 | GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521 => (0, 0),
+        UUID4 | GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521
+        | GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW => (0, 0),
         RANDOM_BYTES => (1, 1),
         SHA256 | SHA224 | SHA512 | SHA384 => (1, 1),
         RANDOM_INT | HMAC_SHA256 | HMAC_SHA512 | CONSTANT_TIME_EQUAL | ED25519_SIGN
@@ -205,7 +216,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         }
         RANDOM_BYTES => "Integer",
         RANDOM_INT => "Integer, Integer",
-        UUID4 | GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521 => "()",
+        UUID4 | GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521
+        | GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW => "()",
         ED25519_SIGN | P256_SIGN | P384_SIGN | P521_SIGN => "List OF Byte, List OF Byte",
         ED25519_VERIFY | P256_VERIFY | P384_VERIFY | P521_VERIFY => {
             "List OF Byte, List OF Byte, List OF Byte"
@@ -262,6 +274,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             if arg_types.is_empty() =>
         {
             KEYPAIR_TYPE
+        }
+        GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW if arg_types.is_empty() => {
+            BYTES
         }
         ED25519_SIGN | P256_SIGN | P384_SIGN | P521_SIGN
             if exact(arg_types, &[BYTES, BYTES]) =>

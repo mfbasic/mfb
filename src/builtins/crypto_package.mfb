@@ -2125,6 +2125,40 @@ FUNC __crypto_generateEd25519() AS KeyPair
   RETURN KeyPair[seed, pub]
 END FUNC
 
+' --- NIST EC key generation --------------------------------------------------
+' The platform key API (SecKey/EVP_PKEY) is reached through the native raw
+' keygen helper, which returns the private bytes as `0x04||X||Y||K`. The public
+' key is the leading SEC1 uncompressed point `0x04||X||Y` (1 + 2*fieldLen bytes:
+' 65 for P-256, 97 for P-384, 133 for P-521). Both encodings are wire-compatible
+' across macOS and Linux.
+FUNC __crypto_bytePrefix(data AS List OF Byte, n AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    out = collections::append(out, collections::get(data, i))
+    i = i + 1
+  WEND
+  RETURN out
+END FUNC
+
+FUNC __crypto_generateP256() AS KeyPair
+  LET priv AS List OF Byte = crypto::generateP256Raw()
+  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 65)
+  RETURN KeyPair[priv, pub]
+END FUNC
+
+FUNC __crypto_generateP384() AS KeyPair
+  LET priv AS List OF Byte = crypto::generateP384Raw()
+  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 97)
+  RETURN KeyPair[priv, pub]
+END FUNC
+
+FUNC __crypto_generateP521() AS KeyPair
+  LET priv AS List OF Byte = crypto::generateP521Raw()
+  LET pub AS List OF Byte = __crypto_bytePrefix(priv, 133)
+  RETURN KeyPair[priv, pub]
+END FUNC
+
 FUNC __crypto_ed25519Sign(privateKey AS List OF Byte, message AS List OF Byte) AS List OF Byte
   IF len(privateKey) <> 32 THEN
     FAIL error(77050002, "ed25519 private key must be 32 bytes")
