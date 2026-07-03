@@ -272,6 +272,41 @@ impl CodeBuilder<'_> {
                                 };
                                 self.emit_resource_cleanup_call(&cleanup)?;
                                 Some(slot)
+                            } else if !by_ref
+                                && self.is_freeable_flat_value(&result.type_)
+                                && !self.for_each_iterable_locals.iter().any(|n| n == name)
+                            {
+                                // Free the binding's previous block before
+                                // overwriting the slot. A reassignment installs a
+                                // fresh independent block; without this the old
+                                // block leaks (bug-01) — e.g. the value-semantic
+                                // `list = collections::append(list, complexItem)`
+                                // fallback (when the item isn't a simple element
+                                // and the in-place path declines) or a plain
+                                // `list = otherList`. The new value is spilled
+                                // across the `arena_free` (which trashes the
+                                // caller-saved registers) and reloaded, mirroring
+                                // the thread/resource paths. The slot still holds
+                                // the old block here, and the freshly computed new
+                                // value never aliases it (`lower_value_owned`
+                                // deep-copies aliasing sources; a call result is a
+                                // fresh block), so the free is sound and once-only.
+                                // A live `FOR EACH` iterable is excluded: its
+                                // iterator still reads the old block, so freeing it
+                                // mid-loop would be a use-after-free (mirrors the
+                                // `try_inplace_set_assign` guard). That old block
+                                // leaks, but the pattern is rare.
+                                let slot = self.allocate_stack_object("reassign_value", 8);
+                                self.emit(abi::store_u64(
+                                    &result.location,
+                                    abi::stack_pointer(),
+                                    slot,
+                                ));
+                                self.emit_owned_value_drop(&OwnedValueCleanup {
+                                    type_: result.type_.clone(),
+                                    stack_offset,
+                                })?;
+                                Some(slot)
                             } else {
                                 None
                             };

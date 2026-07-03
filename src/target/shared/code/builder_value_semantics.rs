@@ -590,6 +590,16 @@ impl CodeBuilder<'_> {
                 "toFixed" => Some("Fixed".to_string()),
                 "toByte" => Some("Byte".to_string()),
                 "isNumeric" => Some("Boolean".to_string()),
+                // A list element read resolves to the list's element type, so an
+                // append/set whose item is a `get` (or arithmetic over `get`s)
+                // stays on the allocation-free in-place fast path instead of the
+                // value-semantic fallback that copies the whole list each op
+                // (bug-01). Only lists are resolved here (map value reads fall
+                // through to the conservative `None`).
+                "get" | "getOr" | "collections.get" | "collections.getOr" => args
+                    .first()
+                    .and_then(|arg| self.static_type_name(arg))
+                    .and_then(|type_| super::list_element_type(&type_)),
                 "math.floor" | "math.ceil" | "math.round" => Some("Integer".to_string()),
                 "math.sqrt" | "math.exp" | "math.log" | "math.log10" | "math.sin" | "math.cos"
                 | "math.tan" | "math.asin" | "math.acos" | "math.atan" => {

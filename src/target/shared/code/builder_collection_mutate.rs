@@ -755,6 +755,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
         self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "append_grow_entries");
 
+        // Free the old buffer, then install the grown one. The in-place append
+        // fires only under unique ownership, so the old buffer has no other
+        // reference; freeing it here stops the geometric-grow path from leaking
+        // it (bug-01: every append that outgrew its capacity accumulated the
+        // abandoned buffer, so append-heavy loops grew the arena without bound).
+        // Sized capacity-based (HEADER + capacity*ENTRY + dataCapacity), matching
+        // what the allocation reserved.
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
+        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::move_immediate(
+            &scratch16,
+            "Integer",
+            &COLLECTION_ENTRY_SIZE.to_string(),
+        ));
+        self.emit(abi::multiply_registers(&scratch10, &scratch9, &scratch16));
+        self.emit(abi::add_immediate(&scratch10, &scratch10, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::add_registers("x1", &scratch10, &scratch11));
+        self.emit(abi::move_register(abi::return_register(), &scratch8));
+        self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
+        self.relocations.push(CodeRelocation {
+            from: self.current_symbol.clone(),
+            to: ARENA_FREE_SYMBOL.to_string(),
+            kind: RelocIntent::Call,
+            binding: "internal".to_string(),
+            library: None,
+        });
         // Install the grown buffer; fall through to write the new element.
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), buffer_slot));
