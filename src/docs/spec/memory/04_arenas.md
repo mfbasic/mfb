@@ -51,8 +51,10 @@ Fill below), seeded independently so it never perturbs the reproducible
 `math::rand` sequence. The `ENTRY_*` argv/argc fields
 the entry shim stores begin at offset `ARENA_STATE_SIZE`, immediately after this
 structure on the entry stack. Because the main arena-state lives on the entry
-stack (not zero-filled), the entry shim explicitly clears `freeListHead` before
-the first allocation; worker arenas are zero-initialized at creation.
+stack (not zero-filled), the entry shim zeroes the whole `ARENA_STATE_SIZE`
+range with a loop before the first allocation; the thread-spawn path zeroes a
+worker's freshly allocated arena state with the same size-derived loop, so the
+two initializers can never fall out of lockstep when the state grows.
 
 ## Free-List Layout
 
@@ -131,11 +133,14 @@ The algorithm:
    reuses low-address holes before carving the trailing chunk, and carving the
    trailing chunk *is* the old bump pointer (O(1) while the list is short).
 4. **Grow.** If no chunk fits, map a new block sized
-   `max(4096, round_up(size + align + 32, 4096))`, write its header, link it at the
-   head, insert its usable region as one free chunk (in address order), and retry
-   the walk. Every sum in the sizing is overflow-checked (including the 32-byte
-   header add); a wrapped sum reports `ErrOutOfMemory` rather than mapping an
-   undersized block.
+   `max(4096, round_up(size + align + 32, 4096))`, write its header, link it at
+   the head, and **carve the request directly from the fresh block**: one walk
+   finds the block's address-ordered slot, then the same four-case split as
+   step 3 serves the aligned request and inserts only the remainder(s) into the
+   list — the fresh block is never whole-inserted and the list is never
+   re-walked. Every sum in the sizing is overflow-checked (including the
+   32-byte header add); a wrapped sum reports `ErrOutOfMemory` rather than
+   mapping an undersized block.
 
 A failed mapping (the platform `mmap`/`VirtualAlloc` hook) reports
 `ErrOutOfMemory`. Both `ErrInvalidArgument` and `ErrOutOfMemory` surface to
@@ -144,15 +149,20 @@ source as ordinary language-level errors (see the language spec §14.3.1).
 ## `arena_free(ptr, size)`
 
 `arena_free` (symbol `_mfb_arena_free`) takes the chunk pointer in `x0` and its
-byte `size` in `x1` and returns nothing; [[src/target/shared/code/entry_and_arena.rs:lower_arena_free]] it clobbers **x9–x16** (it carries a
-32-byte frame, saves the link register, and calls both `arena_fill_random` and
-`arena_insert_free`). `size` is
+byte `size` in `x1` and returns nothing; [[src/target/shared/code/entry_and_arena.rs:lower_arena_free]] like every runtime helper it
+clobbers all caller-saved integer registers (it carries a frame, saves the link
+register, and calls both `arena_insert_free` and `arena_fill_random`). `size` is
 normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
-so the freed extent matches the live chunk that was handed out. The chunk is first
-entropy-scrubbed (see *Entropy Fill*), then
-inserted into the address-ordered free-list (`_mfb_arena_insert_free`, the same
-ordered insert the grow path uses) and **coalesced** with the address-adjacent
-free neighbor on either side:
+so the freed extent matches the live chunk that was handed out. The chunk is
+first inserted into the address-ordered free-list (`_mfb_arena_insert_free`, the
+same ordered insert the grow path uses) and **coalesced** with the
+address-adjacent free neighbor on either side, and then entropy-scrubbed (see
+*Entropy Fill*) over `[ptr+16, ptr+size)` — every payload byte past the 16-byte
+`FreeNode` overlay the insert just wrote, so the scrub can never destroy live
+free-list metadata. A **repeated free of the same address is a no-op**: the
+insert walk detects a node already at `ptr` and returns without relinking, so a
+double-free cannot corrupt the list into an overlapping structure. The
+coalescing cases:
 
 - `prev.start + prev.size == ptr` → extend `prev` over the chunk;
 - `ptr + size == next.start` → absorb `next`;
@@ -183,15 +193,18 @@ arena address and start time (offset 40); each worker mixes a draw from the
 parent's fill stream with its own arena address. [[src/target/shared/code/entry_and_arena.rs:lower_arena_fill_seed]] Its output is never observable —
 filled bytes are always overwritten by a constructor before any read — so the
 stream needs no reproducibility. `arena_fill_random(ptr, len)` streams PRNG words
-(no syscall per fill); `arena_free` calls it before relinking a chunk, and
+(no syscall per fill); `arena_free` calls it after the coalescing insert (over
+the freed payload past the FreeNode words — see `arena_free` above), and
 `arena_alloc` calls it on a freshly mapped block's usable region before first use.
 
 ## Cleanup and Reclamation
 
 An arena is reclaimed whole. `arena_destroy` (symbol `_mfb_arena_destroy`) walks
 the block chain from `blockHead` through each `prevBlock`, [[src/target/shared/code/entry_and_arena.rs:lower_arena_destroy]] unmapping every block
-with the platform `munmap`/`VirtualFree` hook, then clears `blockHead` to `0`. It
-frees no individual values; all memory returns to the OS at once. The helper is
+with the platform `munmap`/`VirtualFree` hook, then clears **both list heads** —
+`blockHead` and `freeListHead` — to `0`, leaving the arena fully inert (the
+free-list head would otherwise dangle into the unmapped blocks). It frees no
+individual values; all memory returns to the OS at once. The helper is
 idempotent — a second call sees `blockHead == 0` and does nothing.
 
 At process teardown, `_mfb_shutdown` reads the arena-state address from
