@@ -92,6 +92,7 @@ registry order. [[src/builtins/errorcode.rs:ERRORCODE_CONSTANTS]]
 | `7-705-0014` | `77050014` | `ErrFloatInf`                 | Floating-point operation produced an infinity result. |
 | `7-705-0015` | `77050015` | `ErrFloatOverflow`            | Floating-point arithmetic overflowed to infinity. |
 | `7-706-0001` | `77060001` | `ErrWrapped`                  | Generic wrapper code for adding context while preserving the underlying message. |
+| `7-705-0016` | `77050016` | `ErrAuthenticationFailed`     | Authenticated decryption failed: the message authentication tag did not verify. |
 
 ## Resolution API
 

@@ -1554,3 +1554,642 @@ FUNC __crypto_uuid4() AS String
   LET p5 AS String = strings::mid(hex, 20, 12)
   RETURN p1 & "-" & p2 & "-" & p3 & "-" & p4 & "-" & p5
 END FUNC
+
+' ===========================================================================
+' Ed25519 (RFC 8032) — portable software core (TweetNaCl-style), used on every
+' target. gf field elements are 16-limb (16-bit) `List OF Integer`; points are
+' 64-element lists (X||Y||Z||T, extended coordinates). Reuses `crypto::sha512`.
+' ===========================================================================
+
+' --- gf constants ----------------------------------------------------------
+
+FUNC __crypto_gf0() AS List OF Integer
+  MUT g AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 16
+    g = collections::append(g, 0)
+    i = i + 1
+  WEND
+  RETURN g
+END FUNC
+
+FUNC __crypto_gf1() AS List OF Integer
+  MUT g AS List OF Integer = __crypto_gf0()
+  g = collections::set(g, 0, 1)
+  RETURN g
+END FUNC
+
+FUNC __crypto_gfD() AS List OF Integer
+  MUT g AS List OF Integer = []
+  g = collections::append(g, 30883)
+  g = collections::append(g, 4953)
+  g = collections::append(g, 19914)
+  g = collections::append(g, 30187)
+  g = collections::append(g, 55467)
+  g = collections::append(g, 16705)
+  g = collections::append(g, 2637)
+  g = collections::append(g, 112)
+  g = collections::append(g, 59544)
+  g = collections::append(g, 30585)
+  g = collections::append(g, 16505)
+  g = collections::append(g, 36039)
+  g = collections::append(g, 65139)
+  g = collections::append(g, 11119)
+  g = collections::append(g, 27886)
+  g = collections::append(g, 20995)
+  RETURN g
+END FUNC
+
+FUNC __crypto_gfD2() AS List OF Integer
+  MUT g AS List OF Integer = []
+  g = collections::append(g, 61785)
+  g = collections::append(g, 9906)
+  g = collections::append(g, 39828)
+  g = collections::append(g, 60374)
+  g = collections::append(g, 45398)
+  g = collections::append(g, 33411)
+  g = collections::append(g, 5274)
+  g = collections::append(g, 224)
+  g = collections::append(g, 53552)
+  g = collections::append(g, 61171)
+  g = collections::append(g, 33010)
+  g = collections::append(g, 6542)
+  g = collections::append(g, 64743)
+  g = collections::append(g, 22239)
+  g = collections::append(g, 55772)
+  g = collections::append(g, 9222)
+  RETURN g
+END FUNC
+
+FUNC __crypto_gfX() AS List OF Integer
+  MUT g AS List OF Integer = []
+  g = collections::append(g, 54554)
+  g = collections::append(g, 36645)
+  g = collections::append(g, 11616)
+  g = collections::append(g, 51542)
+  g = collections::append(g, 42930)
+  g = collections::append(g, 38181)
+  g = collections::append(g, 51040)
+  g = collections::append(g, 26924)
+  g = collections::append(g, 56412)
+  g = collections::append(g, 64982)
+  g = collections::append(g, 57905)
+  g = collections::append(g, 49316)
+  g = collections::append(g, 21502)
+  g = collections::append(g, 52590)
+  g = collections::append(g, 14035)
+  g = collections::append(g, 8553)
+  RETURN g
+END FUNC
+
+FUNC __crypto_gfY() AS List OF Integer
+  MUT g AS List OF Integer = []
+  g = collections::append(g, 26200)
+  MUT i AS Integer = 1
+  WHILE i < 16
+    g = collections::append(g, 26214)
+    i = i + 1
+  WEND
+  RETURN g
+END FUNC
+
+FUNC __crypto_gfI() AS List OF Integer
+  MUT g AS List OF Integer = []
+  g = collections::append(g, 41136)
+  g = collections::append(g, 18958)
+  g = collections::append(g, 6951)
+  g = collections::append(g, 50414)
+  g = collections::append(g, 58488)
+  g = collections::append(g, 44335)
+  g = collections::append(g, 6150)
+  g = collections::append(g, 12099)
+  g = collections::append(g, 55207)
+  g = collections::append(g, 15867)
+  g = collections::append(g, 153)
+  g = collections::append(g, 11085)
+  g = collections::append(g, 57099)
+  g = collections::append(g, 20417)
+  g = collections::append(g, 9344)
+  g = collections::append(g, 11139)
+  RETURN g
+END FUNC
+
+' The group order L as 32 little-endian byte values.
+FUNC __crypto_edL() AS List OF Integer
+  LET raw AS List OF Byte = encoding::hexDecode("edd3f55c1a631258d69cf7a2def9de1400000000000000000000000000000010")
+  MUT g AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 32
+    g = collections::append(g, toInt(collections::get(raw, i)))
+    i = i + 1
+  WEND
+  RETURN g
+END FUNC
+
+' --- gf field arithmetic ---------------------------------------------------
+
+FUNC __crypto_edA(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  MUT o AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 16
+    o = collections::append(o, collections::get(a, i) + collections::get(b, i))
+    i = i + 1
+  WEND
+  RETURN o
+END FUNC
+
+FUNC __crypto_edZ(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  MUT o AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 16
+    o = collections::append(o, collections::get(a, i) - collections::get(b, i))
+    i = i + 1
+  WEND
+  RETURN o
+END FUNC
+
+FUNC __crypto_car25519(o AS List OF Integer) AS List OF Integer
+  MUT r AS List OF Integer = o
+  MUT i AS Integer = 0
+  WHILE i < 16
+    LET v AS Integer = collections::get(r, i) + 65536
+    LET c AS Integer = bits::sra(v, 16)
+    IF i < 15 THEN
+      r = collections::set(r, i + 1, collections::get(r, i + 1) + c - 1)
+    ELSE
+      r = collections::set(r, 0, collections::get(r, 0) + 38 * (c - 1))
+    END IF
+    r = collections::set(r, i, v - c * 65536)
+    i = i + 1
+  WEND
+  RETURN r
+END FUNC
+
+FUNC __crypto_edM(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  MUT o AS List OF Integer = []
+  MUT k AS Integer = 0
+  WHILE k < 16
+    MUT acc AS Integer = 0
+    MUT i AS Integer = 0
+    WHILE i < 16
+      LET j AS Integer = k - i
+      IF j >= 0 AND j <= 15 THEN
+        acc = acc + collections::get(a, i) * collections::get(b, j)
+      END IF
+      LET j2 AS Integer = k + 16 - i
+      IF j2 >= 0 AND j2 <= 15 THEN
+        acc = acc + 38 * (collections::get(a, i) * collections::get(b, j2))
+      END IF
+      i = i + 1
+    WEND
+    o = collections::append(o, acc)
+    k = k + 1
+  WEND
+  o = __crypto_car25519(o)
+  o = __crypto_car25519(o)
+  RETURN o
+END FUNC
+
+FUNC __crypto_edS(a AS List OF Integer) AS List OF Integer
+  RETURN __crypto_edM(a, a)
+END FUNC
+
+FUNC __crypto_inv25519(i0 AS List OF Integer) AS List OF Integer
+  MUT c AS List OF Integer = i0
+  MUT a AS Integer = 253
+  WHILE a >= 0
+    c = __crypto_edS(c)
+    IF a <> 2 AND a <> 4 THEN
+      c = __crypto_edM(c, i0)
+    END IF
+    a = a - 1
+  WEND
+  RETURN c
+END FUNC
+
+FUNC __crypto_pow2523(i0 AS List OF Integer) AS List OF Integer
+  MUT c AS List OF Integer = i0
+  MUT a AS Integer = 250
+  WHILE a >= 0
+    c = __crypto_edS(c)
+    IF a <> 1 THEN
+      c = __crypto_edM(c, i0)
+    END IF
+    a = a - 1
+  WEND
+  RETURN c
+END FUNC
+
+FUNC __crypto_pack25519(n AS List OF Integer) AS List OF Byte
+  MUT t AS List OF Integer = n
+  t = __crypto_car25519(t)
+  t = __crypto_car25519(t)
+  t = __crypto_car25519(t)
+  MUT pass2 AS Integer = 0
+  WHILE pass2 < 2
+    MUT m AS List OF Integer = []
+    m = collections::append(m, collections::get(t, 0) - 65517)
+    MUT i AS Integer = 1
+    WHILE i < 15
+      LET prev AS Integer = collections::get(m, i - 1)
+      LET mi AS Integer = collections::get(t, i) - 65535 - bits::band(bits::sra(prev, 16), 1)
+      m = collections::append(m, mi)
+      m = collections::set(m, i - 1, bits::band(collections::get(m, i - 1), 65535))
+      i = i + 1
+    WEND
+    LET prev14 AS Integer = collections::get(m, 14)
+    LET m15 AS Integer = collections::get(t, 15) - 32767 - bits::band(bits::sra(prev14, 16), 1)
+    m = collections::append(m, m15)
+    LET b AS Integer = bits::band(bits::sra(m15, 16), 1)
+    m = collections::set(m, 14, bits::band(collections::get(m, 14), 65535))
+    IF b = 0 THEN
+      t = m
+    END IF
+    pass2 = pass2 + 1
+  WEND
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = 0
+  WHILE i < 16
+    LET ti AS Integer = collections::get(t, i)
+    out = collections::append(out, toByte(bits::band(ti, 255)))
+    out = collections::append(out, toByte(bits::band(bits::sr(ti, 8), 255)))
+    i = i + 1
+  WEND
+  RETURN out
+END FUNC
+
+FUNC __crypto_unpack25519(b AS List OF Byte) AS List OF Integer
+  MUT o AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 16
+    LET lo AS Integer = toInt(collections::get(b, 2 * i))
+    LET hi AS Integer = toInt(collections::get(b, 2 * i + 1))
+    o = collections::append(o, lo + bits::sl(hi, 8))
+    i = i + 1
+  WEND
+  o = collections::set(o, 15, bits::band(collections::get(o, 15), 32767))
+  RETURN o
+END FUNC
+
+FUNC __crypto_par25519(a AS List OF Integer) AS Integer
+  LET packed AS List OF Byte = __crypto_pack25519(a)
+  RETURN bits::band(toInt(collections::get(packed, 0)), 1)
+END FUNC
+
+FUNC __crypto_neq25519(a AS List OF Integer, b AS List OF Integer) AS Boolean
+  LET pa AS List OF Byte = __crypto_pack25519(a)
+  LET pb AS List OF Byte = __crypto_pack25519(b)
+  RETURN __crypto_constantTimeEqual(pa, pb) = FALSE
+END FUNC
+
+' --- point helpers ---------------------------------------------------------
+
+FUNC __crypto_concatInt(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  MUT o AS List OF Integer = a
+  LET n AS Integer = len(b)
+  MUT i AS Integer = 0
+  WHILE i < n
+    o = collections::append(o, collections::get(b, i))
+    i = i + 1
+  WEND
+  RETURN o
+END FUNC
+
+FUNC __crypto_gfAt(p AS List OF Integer, which AS Integer) AS List OF Integer
+  MUT g AS List OF Integer = []
+  LET base AS Integer = which * 16
+  MUT i AS Integer = 0
+  WHILE i < 16
+    g = collections::append(g, collections::get(p, base + i))
+    i = i + 1
+  WEND
+  RETURN g
+END FUNC
+
+FUNC __crypto_point4(x AS List OF Integer, y AS List OF Integer, z AS List OF Integer, t AS List OF Integer) AS List OF Integer
+  MUT p AS List OF Integer = __crypto_concatInt(x, y)
+  p = __crypto_concatInt(p, z)
+  p = __crypto_concatInt(p, t)
+  RETURN p
+END FUNC
+
+FUNC __crypto_first64(pair AS List OF Integer) AS List OF Integer
+  MUT o AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 64
+    o = collections::append(o, collections::get(pair, i))
+    i = i + 1
+  WEND
+  RETURN o
+END FUNC
+
+FUNC __crypto_last64(pair AS List OF Integer) AS List OF Integer
+  MUT o AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 64
+    o = collections::append(o, collections::get(pair, 64 + i))
+    i = i + 1
+  WEND
+  RETURN o
+END FUNC
+
+' Edwards point addition (extended coordinates): returns p + q.
+FUNC __crypto_edAdd(p AS List OF Integer, q AS List OF Integer) AS List OF Integer
+  LET px AS List OF Integer = __crypto_gfAt(p, 0)
+  LET py AS List OF Integer = __crypto_gfAt(p, 1)
+  LET pz AS List OF Integer = __crypto_gfAt(p, 2)
+  LET pt AS List OF Integer = __crypto_gfAt(p, 3)
+  LET qx AS List OF Integer = __crypto_gfAt(q, 0)
+  LET qy AS List OF Integer = __crypto_gfAt(q, 1)
+  LET qz AS List OF Integer = __crypto_gfAt(q, 2)
+  LET qt AS List OF Integer = __crypto_gfAt(q, 3)
+  MUT a AS List OF Integer = __crypto_edZ(py, px)
+  LET t1 AS List OF Integer = __crypto_edZ(qy, qx)
+  a = __crypto_edM(a, t1)
+  MUT b AS List OF Integer = __crypto_edA(px, py)
+  LET t2 AS List OF Integer = __crypto_edA(qx, qy)
+  b = __crypto_edM(b, t2)
+  MUT c AS List OF Integer = __crypto_edM(pt, qt)
+  c = __crypto_edM(c, __crypto_gfD2())
+  MUT d AS List OF Integer = __crypto_edM(pz, qz)
+  d = __crypto_edA(d, d)
+  LET e AS List OF Integer = __crypto_edZ(b, a)
+  LET f AS List OF Integer = __crypto_edZ(d, c)
+  LET g AS List OF Integer = __crypto_edA(d, c)
+  LET h AS List OF Integer = __crypto_edA(b, a)
+  LET x3 AS List OF Integer = __crypto_edM(e, f)
+  LET y3 AS List OF Integer = __crypto_edM(h, g)
+  LET z3 AS List OF Integer = __crypto_edM(g, f)
+  LET t3 AS List OF Integer = __crypto_edM(e, h)
+  RETURN __crypto_point4(x3, y3, z3, t3)
+END FUNC
+
+' Constant-time conditional swap of the two 64-limb points in `pair` when b=1.
+FUNC __crypto_cswap128(pair AS List OF Integer, b AS Integer) AS List OF Integer
+  LET mask AS Integer = 0 - b
+  MUT r AS List OF Integer = pair
+  MUT i AS Integer = 0
+  WHILE i < 64
+    LET x AS Integer = collections::get(r, i)
+    LET y AS Integer = collections::get(r, 64 + i)
+    LET t AS Integer = bits::band(mask, bits::bxor(x, y))
+    r = collections::set(r, i, bits::bxor(x, t))
+    r = collections::set(r, 64 + i, bits::bxor(y, t))
+    i = i + 1
+  WEND
+  RETURN r
+END FUNC
+
+' Montgomery-style ladder over the extended-coordinate point `q`, constant-time
+' via a masked conditional swap of the packed (p||q) pair.
+' NOTE: impractically slow under the current arena allocator (bug-01): a single
+' scalar multiplication is ~15000 small `List OF Integer` allocations, and each
+' `Integer` element costs a 40-byte collection entry, so one operation takes
+' minutes. Blocked on the bug-01 allocator fix; see planning/bug-01.
+FUNC __crypto_scalarmult(q AS List OF Integer, s AS List OF Byte) AS List OF Integer
+  LET p AS List OF Integer = __crypto_point4(__crypto_gf0(), __crypto_gf1(), __crypto_gf1(), __crypto_gf0())
+  MUT pair AS List OF Integer = __crypto_concatInt(p, q)
+  MUT i AS Integer = 255
+  WHILE i >= 0
+    LET byteIdx AS Integer = i / 8
+    LET bitIdx AS Integer = bits::band(i, 7)
+    LET b AS Integer = bits::band(bits::sr(toInt(collections::get(s, byteIdx)), bitIdx), 1)
+    pair = __crypto_cswap128(pair, b)
+    LET pp AS List OF Integer = __crypto_first64(pair)
+    LET qq AS List OF Integer = __crypto_last64(pair)
+    LET newQ AS List OF Integer = __crypto_edAdd(qq, pp)
+    LET newP AS List OF Integer = __crypto_edAdd(pp, pp)
+    pair = __crypto_concatInt(newP, newQ)
+    pair = __crypto_cswap128(pair, b)
+    i = i - 1
+  WEND
+  RETURN __crypto_first64(pair)
+END FUNC
+
+FUNC __crypto_scalarbase(s AS List OF Byte) AS List OF Integer
+  LET x AS List OF Integer = __crypto_gfX()
+  LET y AS List OF Integer = __crypto_gfY()
+  LET z AS List OF Integer = __crypto_gf1()
+  LET t AS List OF Integer = __crypto_edM(x, y)
+  LET base AS List OF Integer = __crypto_point4(x, y, z, t)
+  RETURN __crypto_scalarmult(base, s)
+END FUNC
+
+' Pack an extended-coordinate point to its 32-byte compressed encoding.
+FUNC __crypto_packPoint(p AS List OF Integer) AS List OF Byte
+  LET px AS List OF Integer = __crypto_gfAt(p, 0)
+  LET py AS List OF Integer = __crypto_gfAt(p, 1)
+  LET pz AS List OF Integer = __crypto_gfAt(p, 2)
+  LET zi AS List OF Integer = __crypto_inv25519(pz)
+  LET tx AS List OF Integer = __crypto_edM(px, zi)
+  LET ty AS List OF Integer = __crypto_edM(py, zi)
+  MUT r AS List OF Byte = __crypto_pack25519(ty)
+  LET parity AS Integer = __crypto_par25519(tx)
+  LET r31 AS Integer = bits::bxor(toInt(collections::get(r, 31)), bits::sl(parity, 7))
+  r = collections::set(r, 31, toByte(r31))
+  RETURN r
+END FUNC
+
+' Decode a compressed public key to the negated extended-coordinate point.
+' Returns a 65-element list: element 0 = 1 when valid (else 0), 1..64 = point.
+FUNC __crypto_unpackneg(p AS List OF Byte) AS List OF Integer
+  LET r2 AS List OF Integer = __crypto_gf1()
+  LET r1 AS List OF Integer = __crypto_unpack25519(p)
+  LET num0 AS List OF Integer = __crypto_edS(r1)
+  MUT den AS List OF Integer = __crypto_edM(num0, __crypto_gfD())
+  LET num AS List OF Integer = __crypto_edZ(num0, r2)
+  den = __crypto_edA(r2, den)
+  LET den2 AS List OF Integer = __crypto_edS(den)
+  LET den4 AS List OF Integer = __crypto_edS(den2)
+  LET den6 AS List OF Integer = __crypto_edM(den4, den2)
+  MUT t AS List OF Integer = __crypto_edM(den6, num)
+  t = __crypto_edM(t, den)
+  t = __crypto_pow2523(t)
+  t = __crypto_edM(t, num)
+  t = __crypto_edM(t, den)
+  t = __crypto_edM(t, den)
+  MUT r0 AS List OF Integer = __crypto_edM(t, den)
+  LET chk1 AS List OF Integer = __crypto_edM(__crypto_edS(r0), den)
+  IF __crypto_neq25519(chk1, num) THEN
+    r0 = __crypto_edM(r0, __crypto_gfI())
+  END IF
+  LET chk2 AS List OF Integer = __crypto_edM(__crypto_edS(r0), den)
+  IF __crypto_neq25519(chk2, num) THEN
+    MUT bad AS List OF Integer = []
+    bad = collections::append(bad, 0)
+    MUT z AS Integer = 0
+    WHILE z < 64
+      bad = collections::append(bad, 0)
+      z = z + 1
+    WEND
+    RETURN bad
+  END IF
+  LET par AS Integer = __crypto_par25519(r0)
+  LET signBit AS Integer = bits::band(bits::sr(toInt(collections::get(p, 31)), 7), 1)
+  IF par = signBit THEN
+    r0 = __crypto_edZ(__crypto_gf0(), r0)
+  END IF
+  LET r3 AS List OF Integer = __crypto_edM(r0, r1)
+  LET point AS List OF Integer = __crypto_point4(r0, r1, r2, r3)
+  MUT ok AS List OF Integer = []
+  ok = collections::append(ok, 1)
+  RETURN __crypto_concatInt(ok, point)
+END FUNC
+
+' --- scalar reduction mod L ------------------------------------------------
+
+FUNC __crypto_modL(x AS List OF Integer) AS List OF Byte
+  LET L AS List OF Integer = __crypto_edL()
+  MUT xs AS List OF Integer = x
+  MUT i AS Integer = 63
+  WHILE i >= 32
+    MUT carry AS Integer = 0
+    MUT j AS Integer = i - 32
+    WHILE j < i - 12
+      LET xj AS Integer = collections::get(xs, j) + carry - 16 * collections::get(xs, i) * collections::get(L, j - (i - 32))
+      carry = bits::sra(xj + 128, 8)
+      xs = collections::set(xs, j, xj - carry * 256)
+      j = j + 1
+    WEND
+    xs = collections::set(xs, j, collections::get(xs, j) + carry)
+    xs = collections::set(xs, i, 0)
+    i = i - 1
+  WEND
+  LET q AS Integer = bits::sra(collections::get(xs, 31), 4)
+  MUT carry AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < 32
+    LET xj AS Integer = collections::get(xs, j) + carry - q * collections::get(L, j)
+    carry = bits::sra(xj, 8)
+    xs = collections::set(xs, j, bits::band(xj, 255))
+    j = j + 1
+  WEND
+  j = 0
+  WHILE j < 32
+    xs = collections::set(xs, j, collections::get(xs, j) - carry * collections::get(L, j))
+    j = j + 1
+  WEND
+  MUT out AS List OF Byte = []
+  MUT k AS Integer = 0
+  WHILE k < 32
+    LET nextAdd AS Integer = bits::sra(collections::get(xs, k), 8)
+    xs = collections::set(xs, k + 1, collections::get(xs, k + 1) + nextAdd)
+    out = collections::append(out, toByte(bits::band(collections::get(xs, k), 255)))
+    k = k + 1
+  WEND
+  RETURN out
+END FUNC
+
+FUNC __crypto_reduce(r AS List OF Byte) AS List OF Byte
+  MUT x AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 64
+    x = collections::append(x, toInt(collections::get(r, i)))
+    i = i + 1
+  WEND
+  RETURN __crypto_modL(x)
+END FUNC
+
+' --- byte-slice helpers ----------------------------------------------------
+
+FUNC __crypto_slice(data AS List OF Byte, start AS Integer, stop AS Integer) AS List OF Byte
+  MUT out AS List OF Byte = []
+  MUT i AS Integer = start
+  WHILE i < stop
+    out = collections::append(out, collections::get(data, i))
+    i = i + 1
+  WEND
+  RETURN out
+END FUNC
+
+FUNC __crypto_clampScalar(a AS List OF Byte) AS List OF Byte
+  MUT r AS List OF Byte = a
+  r = collections::set(r, 0, toByte(bits::band(toInt(collections::get(r, 0)), 248)))
+  LET hi AS Integer = bits::bor(bits::band(toInt(collections::get(r, 31)), 127), 64)
+  r = collections::set(r, 31, toByte(hi))
+  RETURN r
+END FUNC
+
+' --- Ed25519 public API bodies ---------------------------------------------
+
+FUNC __crypto_ed25519Public(seed AS List OF Byte) AS List OF Byte
+  LET d AS List OF Byte = __crypto_sha512_bytes(seed)
+  LET a AS List OF Byte = __crypto_clampScalar(__crypto_truncate(d, 32))
+  LET p AS List OF Integer = __crypto_scalarbase(a)
+  RETURN __crypto_packPoint(p)
+END FUNC
+
+FUNC __crypto_generateEd25519() AS KeyPair
+  LET seed AS List OF Byte = crypto::randomBytes(32)
+  LET pub AS List OF Byte = __crypto_ed25519Public(seed)
+  RETURN KeyPair[seed, pub]
+END FUNC
+
+FUNC __crypto_ed25519Sign(privateKey AS List OF Byte, message AS List OF Byte) AS List OF Byte
+  IF len(privateKey) <> 32 THEN
+    FAIL error(77050002, "ed25519 private key must be 32 bytes")
+  END IF
+  LET d AS List OF Byte = __crypto_sha512_bytes(privateKey)
+  LET a AS List OF Byte = __crypto_clampScalar(__crypto_truncate(d, 32))
+  LET prefix AS List OF Byte = __crypto_slice(d, 32, 64)
+  LET pub AS List OF Byte = __crypto_ed25519Public(privateKey)
+  LET rInput AS List OF Byte = __crypto_concat(prefix, message)
+  LET r AS List OF Byte = __crypto_reduce(__crypto_sha512_bytes(rInput))
+  LET rPoint AS List OF Integer = __crypto_scalarbase(r)
+  LET bigR AS List OF Byte = __crypto_packPoint(rPoint)
+  MUT hInput AS List OF Byte = __crypto_concat(bigR, pub)
+  hInput = __crypto_concat(hInput, message)
+  LET h AS List OF Byte = __crypto_reduce(__crypto_sha512_bytes(hInput))
+  MUT x AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 64
+    IF i < 32 THEN
+      x = collections::append(x, toInt(collections::get(r, i)))
+    ELSE
+      x = collections::append(x, 0)
+    END IF
+    i = i + 1
+  WEND
+  i = 0
+  WHILE i < 32
+    MUT j AS Integer = 0
+    WHILE j < 32
+      LET idx AS Integer = i + j
+      LET add AS Integer = toInt(collections::get(h, i)) * toInt(collections::get(a, j))
+      x = collections::set(x, idx, collections::get(x, idx) + add)
+      j = j + 1
+    WEND
+    i = i + 1
+  WEND
+  LET bigS AS List OF Byte = __crypto_modL(x)
+  RETURN __crypto_concat(bigR, bigS)
+END FUNC
+
+FUNC __crypto_ed25519Verify(publicKey AS List OF Byte, message AS List OF Byte, signature AS List OF Byte) AS Boolean
+  IF len(publicKey) <> 32 THEN
+    RETURN FALSE
+  END IF
+  IF len(signature) <> 64 THEN
+    RETURN FALSE
+  END IF
+  LET negRes AS List OF Integer = __crypto_unpackneg(publicKey)
+  IF collections::get(negRes, 0) = 0 THEN
+    RETURN FALSE
+  END IF
+  MUT q AS List OF Integer = []
+  MUT i AS Integer = 1
+  WHILE i < 65
+    q = collections::append(q, collections::get(negRes, i))
+    i = i + 1
+  WEND
+  LET bigR AS List OF Byte = __crypto_truncate(signature, 32)
+  LET bigS AS List OF Byte = __crypto_slice(signature, 32, 64)
+  MUT hInput AS List OF Byte = __crypto_concat(bigR, publicKey)
+  hInput = __crypto_concat(hInput, message)
+  LET h AS List OF Byte = __crypto_reduce(__crypto_sha512_bytes(hInput))
+  LET pMul AS List OF Integer = __crypto_scalarmult(q, h)
+  LET qMul AS List OF Integer = __crypto_scalarbase(bigS)
+  LET pSum AS List OF Integer = __crypto_edAdd(pMul, qMul)
+  LET tCheck AS List OF Byte = __crypto_packPoint(pSum)
+  RETURN __crypto_constantTimeEqual(bigR, tCheck)
+END FUNC

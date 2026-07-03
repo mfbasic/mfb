@@ -57,6 +57,18 @@ SUB main()
   io::print("cteq-same=" & toString(crypto::constantTimeEqual(d1, d2)))
   io::print("cteq-diff=" & toString(crypto::constantTimeEqual(d1, d3)))
 
+  ' Ed25519 (RFC 8032 test 1): deterministic signature + verify round-trip.
+  LET edSeed AS List OF Byte = encoding::hexDecode("9d61b19deffbbcc0f5dcb4a5eb28efbcccca7ab3b7a3c6ee5ce3af5b7cba5327")
+  LET edMsg AS List OF Byte = encoding::utf8Encode("test message")
+  LET edSig AS List OF Byte = crypto::ed25519Sign(edSeed, edMsg)
+  io::print(encoding::hexEncode(edSig))
+  LET edPub AS List OF Byte = crypto::generateEd25519().publicKey
+  LET edKp AS crypto::KeyPair = crypto::generateEd25519()
+  LET edSig2 AS List OF Byte = crypto::ed25519Sign(edKp.privateKey, edMsg)
+  LET edBad AS List OF Byte = encoding::utf8Encode("Test message")
+  io::print("ed-good=" & toString(crypto::ed25519Verify(edKp.publicKey, edMsg, edSig2)))
+  io::print("ed-bad=" & toString(crypto::ed25519Verify(edKp.publicKey, edBad, edSig2)))
+
   ' CSPRNG property checks (deterministic facts about random output).
   io::print("rand-len=" & toString(len(crypto::randomBytes(24))))
   LET u AS String = crypto::uuid4()
