@@ -36,8 +36,153 @@ use cli::pkg::{run_pkg_command, PkgCommandError};
 use cli::repo::{run_repo_command, RepoCommandError};
 use cli::spec::show_spec;
 
-pub(crate) const USAGE: &str = "Usage: mfb <command> <arguments>\n\nCommands:\n  help                                 Show this message\n  init <location>                      Create a new MFBASIC executable project\n  init-pkg <location>                  Create a new MFBASIC package project\n  repo register <owner_name>           Register a repository owner\n  repo auth <owner_name>               Authenticate as a repository owner\n  pkg add <url>                        Add a compiled package to the current project\n  pkg info <package>                   Show information about a compiled package\n  pkg verify                           Verify packages declared by project.json\n  pkg publish <owner_name> <package>   Publish a signed package project\n  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package\n  doc [--out file] [location]          Render HTML docs from package or file source\n  fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)\n  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode|-mir]... [-target os-arch] [-app] [location] Validate and build an MFBASIC project (output flags combine; each requested artifact is written in one pass)\n  audit [--format text|json] [--locked] [path] Report audit findings for a project\n  man [package] [function]             Show built-in package and function help
-  spec [topic] [subtopic] [--all]      Show the MFBASIC language specification";
+pub(crate) const USAGE: &str = "\
+Usage: mfb <command> [arguments]
+
+Project Setup:
+  init <path>             Create a new MFBASIC executable project
+  init-pkg <path>         Create a new MFBASIC package project
+
+Package Management:
+  pkg add <url>           Add a compiled package to the current project
+  pkg info <pkg>          Show information about a compiled package
+  pkg verify              Verify packages declared in project.json
+  pkg publish <own> <pkg> Publish a signed package project
+
+Repository & Auth:
+  repo register <owner>   Register a repository owner
+  repo auth <owner>       Authenticate as a repository owner
+
+Build & Development:
+  build [options] [path]  Validate and build an MFBASIC project
+  fmt [options] [path]    Format project source (indentation/capitalization)
+  audit [options] [path]  Report security and code audit findings
+
+Documentation & Reference:
+  doc [options] [path]    Render HTML docs from package or file source
+  pkg doc <pkg> [options] Render HTML docs from a compiled package
+  man [pkg] [func]        Show built-in package and function help
+  spec [topic] [sub]      Show the MFBASIC language specification
+  help                    Show this message
+
+Run 'mfb <command> --help' for more information on a specific command.";
+
+pub(crate) const INIT_HELP: &str = "\
+Usage: mfb init <path>
+
+Create a new MFBASIC executable project at the specified path.
+
+Arguments:
+  <path>      The directory where the project will be initialized.";
+
+pub(crate) const INIT_PKG_HELP: &str = "\
+Usage: mfb init-pkg <path>
+
+Create a new MFBASIC package project (library) at the specified path.
+
+Arguments:
+  <path>      The directory where the project will be initialized.";
+
+pub(crate) const PKG_HELP: &str = "\
+Usage: mfb pkg <command> [arguments]
+
+Commands:
+  add <url>           Add a compiled package as a dependency
+  info <pkg>          Show metadata and dependencies of a compiled package
+  verify              Check project.json dependencies against local cache
+  publish <own> <pkg> Sign and publish the current project to a repository
+  doc <pkg>           Generate HTML documentation from a compiled package
+
+Options for 'publish':
+  --owner <name>      Explicitly set the owner name for signing";
+
+pub(crate) const REPO_HELP: &str = "\
+Usage: mfb repo <command> <owner>
+
+Commands:
+  register            Register a new repository owner identity
+  auth                Log in to an existing owner account
+
+Arguments:
+  <owner>             The unique handle for the repository owner";
+
+pub(crate) const BUILD_HELP: &str = "\
+Usage: mfb build [options] [path]
+
+Validate and compile an MFBASIC project.
+
+Arguments:
+  [path]              Path to the project (default: current directory)
+
+Options:
+  --sign <owner>      Sign the resulting binary with the specified owner
+  --target <os-arch>  Cross-compile to a specific target (e.g., linux-x64)
+  --app               Build as a standalone application instead of a library
+
+Debug/Inspection (Emits intermediate output):
+  -ast                Outputs Abstract Syntax Tree
+  -ir                 Outputs Intermediate Representation
+  -br                 Outputs MFPC binary representation
+  -mir                Outputs Mid-level IR
+  -nir                Outputs native IR
+  -nplan              Outputs the execution plan
+  -ncode              Outputs native code output";
+
+pub(crate) const FMT_HELP: &str = "\
+Usage: mfb fmt [options] [path]
+
+Format MFBASIC source files for consistent indentation and capitalization.
+
+Options:
+  --check             Check if files are formatted without writing changes
+  --indent <N>        Set the number of spaces for indentation (default: 2)
+
+Arguments:
+  [path]              File or directory to format (default: current directory)";
+
+pub(crate) const AUDIT_HELP: &str = "\
+Usage: mfb audit [options] [path]
+
+Scan the project for security vulnerabilities and code smells.
+
+Options:
+  --format <type>     Output format: text, json (default: text)
+  --locked            Only audit packages defined in project.lock";
+
+pub(crate) const DOC_HELP: &str = "\
+Usage: mfb doc [options] [path]
+
+Render HTML documentation from source files or a project directory.
+
+Options:
+  --out <file>        Path to the generated HTML file (default: index.html)
+
+Arguments:
+  [path]              Source file or project folder to document";
+
+pub(crate) const MAN_HELP: &str = "\
+Usage: mfb man [package] [function]
+
+Display the built-in manual for packages and specific functions.
+
+Example:
+  mfb man standard print";
+
+pub(crate) const SPEC_HELP: &str = "\
+Usage: mfb spec [topic] [subtopic] [options]
+
+Display the formal MFBASIC language specification.
+
+Options:
+  --all               Print the entire specification to the console
+
+Example:
+  mfb spec types integer";
+
+/// Returns true when `arg` requests command-specific help.
+pub(crate) fn is_help_flag(arg: &str) -> bool {
+    arg == "--help" || arg == "-h"
+}
 
 fn main() {
     let mut args = env::args().skip(1);
@@ -47,12 +192,19 @@ fn main() {
             println!("{USAGE}");
         }
         Some("init") => {
-            let Some(location) = args.next() else {
+            let init_args = args.collect::<Vec<_>>();
+            if init_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{INIT_HELP}");
+                return;
+            }
+            let mut init_args = init_args.into_iter();
+
+            let Some(location) = init_args.next() else {
                 eprintln!("error: mfb init requires <location>\n\n{USAGE}");
                 process::exit(2);
             };
 
-            if args.next().is_some() {
+            if init_args.next().is_some() {
                 eprintln!("error: mfb init accepts exactly one <location>\n\n{USAGE}");
                 process::exit(2);
             }
@@ -63,12 +215,19 @@ fn main() {
             }
         }
         Some("init-pkg") => {
-            let Some(location) = args.next() else {
+            let init_args = args.collect::<Vec<_>>();
+            if init_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{INIT_PKG_HELP}");
+                return;
+            }
+            let mut init_args = init_args.into_iter();
+
+            let Some(location) = init_args.next() else {
                 eprintln!("error: mfb init-pkg requires <location>\n\n{USAGE}");
                 process::exit(2);
             };
 
-            if args.next().is_some() {
+            if init_args.next().is_some() {
                 eprintln!("error: mfb init-pkg accepts exactly one <location>\n\n{USAGE}");
                 process::exit(2);
             }
@@ -79,7 +238,12 @@ fn main() {
             }
         }
         Some("build") => {
-            let build_options = match parse_build_options(args.collect()) {
+            let build_args = args.collect::<Vec<_>>();
+            if build_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{BUILD_HELP}");
+                return;
+            }
+            let build_options = match parse_build_options(build_args) {
                 Ok(options) => options,
                 Err(err) => {
                     eprintln!("error: {err}\n\n{USAGE}");
@@ -93,6 +257,10 @@ fn main() {
         }
         Some("pkg") => {
             let pkg_args = args.collect::<Vec<_>>();
+            if pkg_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{PKG_HELP}");
+                return;
+            }
             if let Err(err) = run_pkg_command(&pkg_args) {
                 match err {
                     PkgCommandError::Usage(message) => {
@@ -108,6 +276,10 @@ fn main() {
         }
         Some("repo") => {
             let repo_args = args.collect::<Vec<_>>();
+            if repo_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{REPO_HELP}");
+                return;
+            }
             if let Err(err) = run_repo_command(&repo_args) {
                 match err {
                     RepoCommandError::Usage(message) => {
@@ -122,7 +294,12 @@ fn main() {
             }
         }
         Some("audit") => {
-            let options = match audit::parse_options(args.collect()) {
+            let audit_args = args.collect::<Vec<_>>();
+            if audit_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{AUDIT_HELP}");
+                return;
+            }
+            let options = match audit::parse_options(audit_args) {
                 Ok(options) => options,
                 Err(err) => {
                     eprintln!("error: {err}\n\n{USAGE}");
@@ -133,6 +310,10 @@ fn main() {
         }
         Some("man") => {
             let man_args = args.collect::<Vec<_>>();
+            if man_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{MAN_HELP}");
+                return;
+            }
             if let Err(err) = show_man(&man_args) {
                 eprintln!("error: {err}");
                 process::exit(2);
@@ -140,6 +321,10 @@ fn main() {
         }
         Some("spec") => {
             let spec_args = args.collect::<Vec<_>>();
+            if spec_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{SPEC_HELP}");
+                return;
+            }
             if let Err(err) = show_spec(&spec_args) {
                 eprintln!("error: {err}");
                 process::exit(2);
@@ -147,10 +332,18 @@ fn main() {
         }
         Some("doc") => {
             let doc_args = args.collect::<Vec<_>>();
+            if doc_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{DOC_HELP}");
+                return;
+            }
             process::exit(run_doc_command(&doc_args));
         }
         Some("fmt") => {
             let fmt_args = args.collect::<Vec<_>>();
+            if fmt_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{FMT_HELP}");
+                return;
+            }
             process::exit(run_fmt_command(&fmt_args));
         }
         Some(command) => {
