@@ -35,6 +35,16 @@ Universal rules below. Before a given kind of work, also read the matching `.ai/
   `ToolSearch` to load the schemas you need before answering questions about the
   language, spec, or built-ins; prefer `mfb_spec`/`mfb_man` over reading files by
   hand. Schemas load per context, so re-run `ToolSearch` after a fresh context.
+- **No compound background jobs.** A background Bash job must be exactly ONE
+  command. Chaining (`a && b`, `a; b`, timing wrappers around multiple steps)
+  in a backgrounded job dies silently in this environment: later steps never
+  run or their output is lost, the job looks "done", and a full ~15-minute
+  golden cycle gets wasted — repeatedly. A short pipe on a single step
+  (`cmd | tail -1`) is fine. Sequence long steps as separate jobs: launch one,
+  wait for its completion notification, verify its effect (e.g. `git status`
+  for a golden sync), then launch the next. When polling processes, remember
+  `pgrep -f` takes ERE — `pgrep -f "a|b"`, never `"a\|b"` (matches nothing and
+  misreports the job as finished).
 
 ## Read before that kind of work
 
