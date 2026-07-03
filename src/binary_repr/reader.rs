@@ -65,7 +65,7 @@ pub(super) fn read_doc_table(bytes: &[u8]) -> Result<PackageDocs, String> {
         })
     };
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut decls = Vec::with_capacity(count);
+    let mut decls = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 2));
     for _ in 0..count {
         let kind = doc_kind_name(cursor_u16(bytes, &mut offset)?).to_string();
         let name = cursor_string(bytes, &mut offset)?;
@@ -303,7 +303,14 @@ pub(super) fn read_binary_repr_package(bytes: &[u8]) -> Result<PackageBinaryRepr
         if end > bytes.len() {
             return Err("truncated MFPC section".to_string());
         }
-        sections.insert(id, &bytes[offset..end]);
+        // Reject duplicate section ids (PKG-06). A `HashMap::insert` silently
+        // keeps the last copy, letting a crafted package ship two views of a
+        // singleton section (e.g. two BINARY_REPR/ABI_INDEX) — one to satisfy a
+        // cheap inspector, the other to be decoded and lowered. Every MFPC
+        // section is a singleton, so a repeated id is always tampering.
+        if sections.insert(id, &bytes[offset..end]).is_some() {
+            return Err(format!("duplicate MFPC section id {id}"));
+        }
     }
 
     let string_values = read_string_pool(
@@ -422,7 +429,8 @@ pub(super) fn decode_type_export(
     let (fields, variants, members) = match kind {
         BinaryReprExportKind::Type => {
             let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-            let mut fields = Vec::with_capacity(field_count);
+            let mut fields =
+                Vec::with_capacity(bounded_capacity(field_count, entry.payload.len() - offset, 12));
             for _ in 0..field_count {
                 fields.push(decode_type_field(
                     &entry.payload,
@@ -435,12 +443,17 @@ pub(super) fn decode_type_export(
         }
         BinaryReprExportKind::Union => {
             let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-            let mut variants = Vec::with_capacity(variant_count);
+            let mut variants =
+                Vec::with_capacity(bounded_capacity(variant_count, entry.payload.len() - offset, 8));
             for _ in 0..variant_count {
                 let variant_name =
                     string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?.to_string();
                 let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-                let mut fields = Vec::with_capacity(field_count);
+                let mut fields = Vec::with_capacity(bounded_capacity(
+                    field_count,
+                    entry.payload.len() - offset,
+                    8,
+                ));
                 for _ in 0..field_count {
                     let field_name =
                         string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?.to_string();
@@ -462,7 +475,8 @@ pub(super) fn decode_type_export(
         }
         BinaryReprExportKind::Enum => {
             let member_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-            let mut members = Vec::with_capacity(member_count);
+            let mut members =
+                Vec::with_capacity(bounded_capacity(member_count, entry.payload.len() - offset, 8));
             for _ in 0..member_count {
                 members.push(
                     string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?.to_string(),
@@ -512,7 +526,7 @@ pub(super) fn decode_type_field(
 pub(super) fn read_string_pool(bytes: &[u8]) -> Result<Vec<String>, String> {
     let mut offset = 0;
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut strings = Vec::with_capacity(count);
+    let mut strings = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 4));
     for _ in 0..count {
         let length = cursor_u32(bytes, &mut offset)? as usize;
         let end = offset
@@ -590,8 +604,9 @@ pub(super) fn type_entry_names(types: &TypeTable, strings: &[String]) -> Result<
         })
         .collect::<HashMap<_, _>>();
     let mut decoded = HashMap::new();
+    let mut in_progress = HashSet::new();
     for id in raw.keys().copied().collect::<Vec<_>>() {
-        let name = decode_type_name(id, &raw, strings, &mut decoded)?;
+        let name = decode_type_name(id, &raw, strings, &mut decoded, &mut in_progress)?;
         decoded.insert(id, name);
     }
     Ok(decoded)
@@ -602,6 +617,7 @@ pub(super) fn decode_type_name(
     raw: &HashMap<u32, (u16, u32, Vec<u8>)>,
     strings: &[String],
     decoded: &mut HashMap<u32, String>,
+    in_progress: &mut HashSet<u32>,
 ) -> Result<String, String> {
     if let Some(name) = primitive_type_name(id) {
         return Ok(name.to_string());
@@ -609,44 +625,65 @@ pub(super) fn decode_type_name(
     if let Some(name) = decoded.get(&id) {
         return Ok(name.clone());
     }
+    // Cycle guard (PKG-04): a composite type whose payload references its own id
+    // (directly or via a mutual reference) would otherwise recurse forever until
+    // the stack overflows. Mark the id in-progress *before* recursing — mirroring
+    // `AbiSerializer::serialize_type`'s `type_refs` guard — and reject re-entry.
+    if !in_progress.insert(id) {
+        return Err(format!("cyclic type id {id}"));
+    }
+    let result = decode_type_name_body(id, raw, strings, decoded, in_progress);
+    in_progress.remove(&id);
+    let decoded_name = result?;
+    decoded.insert(id, decoded_name.clone());
+    Ok(decoded_name)
+}
+
+fn decode_type_name_body(
+    id: u32,
+    raw: &HashMap<u32, (u16, u32, Vec<u8>)>,
+    strings: &[String],
+    decoded: &mut HashMap<u32, String>,
+    in_progress: &mut HashSet<u32>,
+) -> Result<String, String> {
     let Some((kind, name, payload)) = raw.get(&id) else {
         return Err(format!("unknown type id {id}"));
     };
     let decoded_name = match *kind {
         4 => {
-            let element = read_payload_type(payload, 0, raw, strings, decoded)?;
+            let element = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
             format!("List OF {element}")
         }
         5 => {
-            let key = read_payload_type(payload, 0, raw, strings, decoded)?;
-            let value = read_payload_type(payload, 4, raw, strings, decoded)?;
+            let key = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
+            let value = read_payload_type(payload, 4, raw, strings, decoded, in_progress)?;
             format!("Map OF {key} TO {value}")
         }
         6 => {
-            let success = read_payload_type(payload, 0, raw, strings, decoded)?;
+            let success = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
             format!("Result OF {success}")
         }
         7 => {
-            let message = read_payload_type(payload, 0, raw, strings, decoded)?;
-            let output = read_payload_type(payload, 4, raw, strings, decoded)?;
+            let message = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
+            let output = read_payload_type(payload, 4, raw, strings, decoded, in_progress)?;
             let resource = if payload.len() >= 12 {
-                Some(read_payload_type(payload, 8, raw, strings, decoded)?)
+                Some(read_payload_type(payload, 8, raw, strings, decoded, in_progress)?)
             } else {
                 None
             };
             builtins::thread::format_thread_type("Thread", &message, resource.as_deref(), &output)
         }
-        8 => decode_function_type(payload, raw, strings, decoded)?,
+        8 => decode_function_type(payload, raw, strings, decoded, in_progress)?,
         9 => {
-            let key = read_payload_type(payload, 0, raw, strings, decoded)?;
-            let value = read_payload_type(payload, 4, raw, strings, decoded)?;
+            let key = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
+            let value = read_payload_type(payload, 4, raw, strings, decoded, in_progress)?;
             format!("MapEntry OF {key} TO {value}")
         }
         10 => {
-            let message = read_payload_type(payload, 0, raw, strings, decoded)?;
-            let output = read_payload_type(payload, 4, raw, strings, decoded)?;
+            let message = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
+            let output = read_payload_type(payload, 4, raw, strings, decoded, in_progress)?;
             let resource = if payload.len() >= 12 {
-                Some(read_payload_type(payload, 8, raw, strings, decoded)?)
+                Some(read_payload_type(payload, 8, raw, strings, decoded, in_progress)?)
             } else {
                 None
             };
@@ -659,7 +696,6 @@ pub(super) fn decode_type_name(
         }
         _ => string_at(strings, *name)?.to_string(),
     };
-    decoded.insert(id, decoded_name.clone());
     Ok(decoded_name)
 }
 
@@ -668,16 +704,17 @@ pub(super) fn decode_function_type(
     raw: &HashMap<u32, (u16, u32, Vec<u8>)>,
     strings: &[String],
     decoded: &mut HashMap<u32, String>,
+    in_progress: &mut HashSet<u32>,
 ) -> Result<String, String> {
     let mut offset = 0;
     let isolated = cursor_u32(payload, &mut offset)? != 0;
     let param_count = cursor_u32(payload, &mut offset)? as usize;
     let return_type = cursor_u32(payload, &mut offset)?;
-    let returns = decode_type_name(return_type, raw, strings, decoded)?;
-    let mut params = Vec::with_capacity(param_count);
+    let returns = decode_type_name(return_type, raw, strings, decoded, in_progress)?;
+    let mut params = Vec::with_capacity(bounded_capacity(param_count, payload.len() - offset, 4));
     for _ in 0..param_count {
         let param = cursor_u32(payload, &mut offset)?;
-        params.push(decode_type_name(param, raw, strings, decoded)?);
+        params.push(decode_type_name(param, raw, strings, decoded, in_progress)?);
     }
     let prefix = if isolated { "ISOLATED FUNC" } else { "FUNC" };
     Ok(format!("{prefix}({}) AS {returns}", params.join(", ")))
@@ -689,9 +726,10 @@ pub(super) fn read_payload_type(
     raw: &HashMap<u32, (u16, u32, Vec<u8>)>,
     strings: &[String],
     decoded: &mut HashMap<u32, String>,
+    in_progress: &mut HashSet<u32>,
 ) -> Result<String, String> {
     let id = checked_u32_at(payload, offset)?;
-    decode_type_name(id, raw, strings, decoded)
+    decode_type_name(id, raw, strings, decoded, in_progress)
 }
 
 pub(super) fn primitive_type_name(id: u32) -> Option<&'static str> {
@@ -721,7 +759,7 @@ pub(super) fn read_function_table(
 ) -> Result<Vec<Function>, String> {
     let mut offset = 0;
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut functions = Vec::with_capacity(count);
+    let mut functions = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 4));
     for _ in 0..count {
         let name = cursor_u32(bytes, &mut offset)?;
         let kind = cursor_u16(bytes, &mut offset)?;
@@ -735,7 +773,7 @@ pub(super) fn read_function_table(
         let cleanup_count = cursor_u32(bytes, &mut offset)? as usize;
         let _cleanup_offset = cursor_u64(bytes, &mut offset)?;
 
-        let mut params = Vec::with_capacity(param_count);
+        let mut params = Vec::with_capacity(bounded_capacity(param_count, bytes.len() - offset, 16));
         for _ in 0..param_count {
             let param_name = cursor_u32(bytes, &mut offset)?;
             let _ = string_at(strings, param_name)?;
@@ -749,14 +787,16 @@ pub(super) fn read_function_table(
                 default_const,
             });
         }
-        let mut registers = Vec::with_capacity(register_count);
+        let mut registers =
+            Vec::with_capacity(bounded_capacity(register_count, bytes.len() - offset, 8));
         for _ in 0..register_count {
             registers.push(Register {
                 type_id: cursor_u32(bytes, &mut offset)?,
                 flags: cursor_u32(bytes, &mut offset)?,
             });
         }
-        let mut cleanups = Vec::with_capacity(cleanup_count);
+        let mut cleanups =
+            Vec::with_capacity(bounded_capacity(cleanup_count, bytes.len() - offset, 24));
         for _ in 0..cleanup_count {
             cleanups.push(Cleanup {
                 id: cursor_u32(bytes, &mut offset)?,
@@ -798,7 +838,7 @@ pub(super) fn read_function_table(
 pub(super) fn read_const_pool(bytes: &[u8]) -> Result<ConstPool, String> {
     let mut offset = 0;
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut entries = Vec::with_capacity(count);
+    let mut entries = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 8));
     for _ in 0..count {
         let kind = cursor_u16(bytes, &mut offset)?;
         let _reserved = cursor_u16(bytes, &mut offset)?;
@@ -853,7 +893,7 @@ pub(super) fn read_manifest(bytes: &[u8]) -> Result<BinaryReprManifest, String> 
 pub(super) fn read_import_table(bytes: &[u8]) -> Result<ImportTable, String> {
     let mut offset = 0;
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut entries = Vec::with_capacity(count);
+    let mut entries = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 21));
     for _ in 0..count {
         entries.push(ImportEntry {
             package_name: cursor_u32(bytes, &mut offset)?,
@@ -876,7 +916,7 @@ pub(super) fn read_import_table(bytes: &[u8]) -> Result<ImportTable, String> {
 
 pub(super) fn read_used_symbols(bytes: &[u8], offset: &mut usize) -> Result<Vec<AbiUsedSymbol>, String> {
     let count = cursor_u32(bytes, offset)? as usize;
-    let mut symbols = Vec::with_capacity(count);
+    let mut symbols = Vec::with_capacity(bounded_capacity(count, bytes.len() - *offset, 36));
     for _ in 0..count {
         symbols.push(AbiUsedSymbol {
             name: cursor_u32(bytes, offset)?,
@@ -889,7 +929,7 @@ pub(super) fn read_used_symbols(bytes: &[u8], offset: &mut usize) -> Result<Vec<
 pub(super) fn read_resource_table(bytes: &[u8]) -> Result<ResourceTable, String> {
     let mut offset = 0;
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut entries = Vec::with_capacity(count);
+    let mut entries = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 12));
     for _ in 0..count {
         entries.push(ResourceEntry {
             type_id: cursor_u32(bytes, &mut offset)?,
@@ -897,13 +937,16 @@ pub(super) fn read_resource_table(bytes: &[u8]) -> Result<ResourceTable, String>
             flags: cursor_u32(bytes, &mut offset)?,
         });
     }
+    if offset != bytes.len() {
+        return Err("invalid trailing bytes in resource table".to_string());
+    }
     Ok(ResourceTable { entries })
 }
 
 pub(super) fn read_global_table(bytes: &[u8]) -> Result<Vec<GlobalEntry>, String> {
     let mut offset = 0;
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut globals = Vec::with_capacity(count);
+    let mut globals = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 12));
     for _ in 0..count {
         globals.push(GlobalEntry {
             name: cursor_u32(bytes, &mut offset)?,
@@ -920,7 +963,7 @@ pub(super) fn read_global_table(bytes: &[u8]) -> Result<Vec<GlobalEntry>, String
 pub(super) fn read_export_table(bytes: &[u8]) -> Result<Vec<DecodedExport>, String> {
     let mut offset = 0;
     let count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut exports = Vec::with_capacity(count);
+    let mut exports = Vec::with_capacity(bounded_capacity(count, bytes.len() - offset, 12));
     for _ in 0..count {
         let name = cursor_u32(bytes, &mut offset)?;
         let kind = match cursor_u16(bytes, &mut offset)? {
@@ -949,7 +992,7 @@ pub(super) fn read_abi_index(bytes: &[u8]) -> Result<AbiIndex, String> {
     let _reserved = cursor_u16(bytes, &mut offset)?;
 
     let export_count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut exports = Vec::with_capacity(export_count);
+    let mut exports = Vec::with_capacity(bounded_capacity(export_count, bytes.len() - offset, 38));
     for _ in 0..export_count {
         let name = cursor_u32(bytes, &mut offset)?;
         let kind = match cursor_u16(bytes, &mut offset)? {
@@ -964,7 +1007,7 @@ pub(super) fn read_abi_index(bytes: &[u8]) -> Result<AbiIndex, String> {
     }
 
     let edge_count = cursor_u32(bytes, &mut offset)? as usize;
-    let mut dep_edges = Vec::with_capacity(edge_count);
+    let mut dep_edges = Vec::with_capacity(bounded_capacity(edge_count, bytes.len() - offset, 17));
     for _ in 0..edge_count {
         let package_name = cursor_u32(bytes, &mut offset)?;
         let package_ident = cursor_u32(bytes, &mut offset)?;
@@ -975,7 +1018,8 @@ pub(super) fn read_abi_index(bytes: &[u8]) -> Result<AbiIndex, String> {
             other => return Err(format!("unsupported ABI_INDEX dep pin value {other}")),
         };
         let used_count = cursor_u32(bytes, &mut offset)? as usize;
-        let mut used_symbols = Vec::with_capacity(used_count);
+        let mut used_symbols =
+            Vec::with_capacity(bounded_capacity(used_count, bytes.len() - offset, 36));
         for _ in 0..used_count {
             used_symbols.push(AbiUsedSymbol {
                 name: cursor_u32(bytes, &mut offset)?,

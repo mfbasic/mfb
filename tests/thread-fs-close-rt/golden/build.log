@@ -1,8 +1,10 @@
 $ mfb build -ast -ir tests/thread-fs-close-rt
+uses fs_thread_workers - [Unsigned]
 Wrote AST to tests/thread-fs-close-rt/thread_fs_close_rt.ast
 Wrote IR to tests/thread-fs-close-rt/thread_fs_close_rt.ir
 [exit 0]
 $ mfb build tests/thread-fs-close-rt
+uses fs_thread_workers - [Unsigned]
 Wrote executable to tests/thread-fs-close-rt/thread_fs_close_rt.out
 [exit 0]
 $ tests/thread-fs-close-rt/thread_fs_close_rt.out

@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/security/pkg-03-decode-depth
+uses sec_deep - [Unsigned]
+Wrote AST to tests/security/pkg-03-decode-depth/pkg_03_decode_depth.ast
+Wrote IR to tests/security/pkg-03-decode-depth/pkg_03_decode_depth.ir
+[exit 0]
+$ mfb build tests/security/pkg-03-decode-depth
+uses sec_deep - [Unsigned]
+error: failed to read 'tests/security/pkg-03-decode-depth/packages/sec_deep.mfp': PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED: expression/statement nesting exceeds the 256 level decode limit
+[exit 1]

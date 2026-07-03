@@ -1,0 +1,10 @@
+' Consumer for the PKG-04 security fixture: it imports the malicious
+' `sec_cyclic` package and calls an export. The build must fail during package
+' decode/verification rather than producing an executable.
+IMPORT io
+IMPORT sec_cyclic AS sec_cyclic
+
+FUNC main AS Integer
+  io::print(toString(sec_cyclic::run()))
+  RETURN 0
+END FUNC

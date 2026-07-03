@@ -1,8 +1,10 @@
 $ mfb build -ast -ir tests/thread-strings-split-return
+uses thread_runtime_workers - [Unsigned]
 Wrote AST to tests/thread-strings-split-return/thread_strings_split_return.ast
 Wrote IR to tests/thread-strings-split-return/thread_strings_split_return.ir
 [exit 0]
 $ mfb build tests/thread-strings-split-return
+uses thread_runtime_workers - [Unsigned]
 Wrote executable to tests/thread-strings-split-return/thread_strings_split_return.out
 [exit 0]
 $ tests/thread-strings-split-return/thread_strings_split_return.out

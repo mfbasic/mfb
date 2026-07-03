@@ -1,8 +1,10 @@
 $ mfb build -ast -ir tests/thread-error-source-rt
+uses thread_runtime_workers - [Unsigned]
 Wrote AST to tests/thread-error-source-rt/thread_error_source_rt.ast
 Wrote IR to tests/thread-error-source-rt/thread_error_source_rt.ir
 [exit 0]
 $ mfb build tests/thread-error-source-rt
+uses thread_runtime_workers - [Unsigned]
 Wrote executable to tests/thread-error-source-rt/thread_error_source_rt.out
 [exit 0]
 $ tests/thread-error-source-rt/thread_error_source_rt.out

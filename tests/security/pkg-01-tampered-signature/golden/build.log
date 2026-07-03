@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/security/pkg-01-tampered-signature
+uses sec_signed - [Tampered]
+error: package `sec_signed` failed signature verification (tampered or untrusted); refusing to build
+[exit 1]

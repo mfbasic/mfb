@@ -70,6 +70,7 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         sign_owner: Some(owner.to_string()),
         app_mode: false,
         regalloc: target::shared::code::regalloc::active_kind(),
+        allow_unsigned: false,
     })
     .map_err(|_| "package build failed".to_string())?;
 

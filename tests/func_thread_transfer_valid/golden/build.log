@@ -1,8 +1,10 @@
 $ mfb build -ast -ir tests/func_thread_transfer_valid
+uses thread_file_sink - [Unsigned]
 Wrote AST to tests/func_thread_transfer_valid/func_thread_transfer_valid.ast
 Wrote IR to tests/func_thread_transfer_valid/func_thread_transfer_valid.ir
 [exit 0]
 $ mfb build tests/func_thread_transfer_valid
+uses thread_file_sink - [Unsigned]
 Wrote executable to tests/func_thread_transfer_valid/func_thread_transfer_valid.out
 [exit 0]
 $ tests/func_thread_transfer_valid/func_thread_transfer_valid.out

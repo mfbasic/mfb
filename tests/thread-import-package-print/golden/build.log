@@ -1,8 +1,12 @@
 $ mfb build -ast -ir tests/thread-import-package-print
+uses thread_imp_print - [Unsigned]
+uses thread_import_worker - [Unsigned]
 Wrote AST to tests/thread-import-package-print/thread_import_package_print.ast
 Wrote IR to tests/thread-import-package-print/thread_import_package_print.ir
 [exit 0]
 $ mfb build tests/thread-import-package-print
+uses thread_imp_print - [Unsigned]
+uses thread_import_worker - [Unsigned]
 Wrote executable to tests/thread-import-package-print/thread_import_package_print.out
 [exit 0]
 $ tests/thread-import-package-print/thread_import_package_print.out

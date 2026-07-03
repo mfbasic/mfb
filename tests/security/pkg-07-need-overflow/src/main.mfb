@@ -1,0 +1,10 @@
+' Consumer for the PKG-07 security fixture: it imports the malicious
+' `sec_needlen` package and calls an export. The build must fail during package
+' decode/verification rather than producing an executable.
+IMPORT io
+IMPORT sec_needlen AS sec_needlen
+
+FUNC main AS Integer
+  io::print(toString(sec_needlen::run()))
+  RETURN 0
+END FUNC

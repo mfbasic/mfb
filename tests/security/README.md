@@ -1,6 +1,44 @@
 # Security regression tests
 
 Test cases for the security findings in `planning/audit-unicode.md` (the `strings::` /
+Unicode runtime audit), one directory per finding `unicode-0N-<slug>`, and for the
+`.mfp` package decode/verify audit `planning/audit-1-package-decode.md`, one directory
+per finding `pkg-0N-<slug>`.
+
+## `.mfp` package decode fixtures (`pkg-0N-*`)
+
+Each `pkg-0N-*` fixture is an executable project that imports a deliberately
+malicious compiled package under its `packages/`. The `.mfp` bytes are *generated*
+(never hand-typed) by the `generate.py` script that lives next to each benign base
+package under `tools/security-package-sources/pkg-0N-<slug>/`, using the shared
+`tools/security-package-sources/mfp_craft.py` helpers. Regenerate after a container-
+format change with, e.g.:
+
+```
+python3 tools/security-package-sources/pkg-06-duplicate-section/generate.py
+```
+
+The build must fail during package verification/decode rather than produce an
+executable, so each `golden/build.log` asserts a non-zero exit with the finding's
+diagnostic. PKG-03 and PKG-07 only trip on the full merge (after `-ast -ir`
+succeeds via the lossy external-type path), so those two carry a `.run` trigger plus
+`.ast`/`.ir` goldens; the rest fail at resolve time and carry only `build.log`.
+
+| Directory | Finding | Severity | Asserts |
+| --- | --- | --- | --- |
+| `pkg-01-tampered-signature` | PKG-01 | CRIT | signed package tampered post-sign → `uses … - [Tampered]`, build refuses (non-zero) |
+| `pkg-03-decode-depth` | PKG-03 | HIGH | ~300 nested `Unary` in the MFBR body → decode aborts at the 256-level cap (no stack overflow) |
+| `pkg-04-type-cycle` | PKG-04 | HIGH | self-referential `List` type id → `cyclic type id 10` (no infinite recursion) |
+| `pkg-05-alloc-count` | PKG-05 | MED | `0xFFFFFFFF` string-pool count → clean truncation error (no gigabyte `with_capacity`) |
+| `pkg-06-duplicate-section` | PKG-06 | MED | duplicate MFPC section id → `duplicate MFPC section id 1` |
+| `pkg-07-need-overflow` | PKG-07 | LOW | `0xFFFFFFFF`-byte MFBR string length → overflow-safe `need` reports truncation (no wrap/panic) |
+
+PKG-02 (semantic verification of decoded IR) is deferred to
+`planning/plan-19-ir-semantic-verification.md` and has no fixture yet.
+
+## Unicode runtime fixtures (`unicode-0N-*`)
+
+Test cases for the security findings in `planning/audit-unicode.md` (the `strings::` /
 Unicode runtime audit). One directory per finding: `unicode-0N-<slug>`.
 
 ## Status: wired into the harness; fixes landed

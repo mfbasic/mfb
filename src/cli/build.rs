@@ -1,4 +1,7 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use tinyjson::JsonValue;
 
 use crate::ast;
 use crate::binary_repr;
@@ -30,6 +33,11 @@ pub(crate) struct BuildOptions {
     /// Register-allocation strategy selected by `-regalloc <name>` (plan-03
     /// §4.2). Defaults to the backend default.
     pub(crate) regalloc: target::shared::code::regalloc::RegallocKind,
+    /// `--unsigned`: opt into building against unsigned dependencies whose
+    /// source is not local (audit-1 PKG-01). Unsigned *local* (`file:`/`local:`)
+    /// dependencies are always permitted; this flag additionally allows unsigned
+    /// dependencies pulled from a remote/registry source.
+    pub(crate) allow_unsigned: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -68,6 +76,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
     let mut target = None;
     let mut sign_owner = None;
     let mut app_mode = false;
+    let mut allow_unsigned = false;
     let mut regalloc = target::shared::code::regalloc::active_kind();
     let mut iter = args.into_iter();
 
@@ -100,6 +109,8 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
                 return Err("mfb build accepts at most one -app option".to_string());
             }
             app_mode = true;
+        } else if arg == "--unsigned" {
+            allow_unsigned = true;
         } else if arg == "-regalloc" {
             let Some(value) = iter.next() else {
                 return Err("mfb build -regalloc requires a strategy name".to_string());
@@ -121,6 +132,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         sign_owner,
         app_mode,
         regalloc,
+        allow_unsigned,
     })
 }
 
@@ -132,6 +144,12 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     let project_path = options.location.join("project.json");
     let manifest = validate_project_manifest(&project_path)?;
     let project_kind = project_kind(&manifest);
+
+    // audit-1 PKG-01: verify every declared dependency's signature against a
+    // project-pinned trust anchor before it is decoded, merged, or lowered, and
+    // print a per-package verification report. A tampered signed dependency (or a
+    // disallowed unsigned one) hard-fails the build with a non-zero exit.
+    verify_and_report_packages(&options.location, &manifest, options.allow_unsigned)?;
 
     // `mfb build -app` (plan-04-macos-app.md §5.1, plan-05-linux-app.md §5.1) is an
     // executable-only build flag supported on app-capable native targets (macOS via
@@ -485,6 +503,149 @@ fn load_build_signing_info(owner: &str) -> Result<BuildSigningInfo, String> {
         private_key,
         executable_metadata,
     })
+}
+
+/// Result of verifying one installed dependency (audit-1 PKG-01).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PackageVerification {
+    /// `signature_type == 1`, the recomputed content hash matches, and the
+    /// Ed25519 signature verifies against the project-pinned trust anchor.
+    Verified,
+    /// `signature_type == 0` — no signature present.
+    Unsigned,
+    /// A signed package that fails to verify (bad/absent trust anchor, hash
+    /// mismatch, bad signature) or is otherwise malformed. Always fatal.
+    Tampered,
+}
+
+impl PackageVerification {
+    fn label(self) -> &'static str {
+        match self {
+            PackageVerification::Verified => "Verified",
+            PackageVerification::Unsigned => "Unsigned",
+            PackageVerification::Tampered => "Tampered",
+        }
+    }
+}
+
+/// Verify every declared dependency and print `uses <name> - [<state>]` for each
+/// (audit-1 PKG-01). Verification is a hard build gate: all packages are checked
+/// and reported first, then the build aborts with a non-zero exit if any package
+/// is Tampered, or if an Unsigned package is not permitted by policy.
+///
+/// The trust anchor is the `identKey` pinned in the importing project's
+/// `project.json` dependency entry — never the key embedded in the untrusted
+/// file. Unsigned dependencies from a local source (`file:`/`local:`, or no
+/// source) are permitted; unsigned dependencies from a remote source require the
+/// `--unsigned` opt-in.
+pub(crate) fn verify_and_report_packages(
+    project_dir: &Path,
+    manifest: &HashMap<String, JsonValue>,
+    allow_unsigned: bool,
+) -> Result<(), ()> {
+    let Some(packages) = manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>())
+    else {
+        return Ok(());
+    };
+
+    let mut errors: Vec<String> = Vec::new();
+    for entry in packages {
+        let Some(object) = entry.get::<HashMap<String, JsonValue>>() else {
+            continue;
+        };
+        let Some(name) = object.get("name").and_then(|value| value.get::<String>()) else {
+            continue;
+        };
+        let source = object
+            .get("source")
+            .and_then(|value| value.get::<String>())
+            .map(String::as_str)
+            .unwrap_or_default();
+        let trust_anchor = object
+            .get("identKey")
+            .or_else(|| object.get("ident_key"))
+            .and_then(|value| value.get::<String>())
+            .map(String::as_str);
+
+        let package_file = project_dir
+            .join("packages")
+            .join(format!("{name}.mfp"));
+        if !package_file.is_file() {
+            // A missing dependency is reported by the later install check with a
+            // more actionable message; do not emit a verification line for it.
+            continue;
+        }
+
+        let state = classify_installed_package(&package_file, trust_anchor);
+        println!("uses {name} - [{}]", state.label());
+        match state {
+            PackageVerification::Verified => {}
+            PackageVerification::Unsigned => {
+                if !source_is_local(source) && !allow_unsigned {
+                    errors.push(format!(
+                        "package `{name}` is unsigned but its source is not local; pass --unsigned to allow it"
+                    ));
+                }
+            }
+            PackageVerification::Tampered => {
+                errors.push(format!(
+                    "package `{name}` failed signature verification (tampered or untrusted); refusing to build"
+                ));
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        for error in &errors {
+            eprintln!("error: {error}");
+        }
+        Err(())
+    }
+}
+
+/// A dependency `source` that resolves to a file on disk the project controls,
+/// rather than a remote/registry fetch. Unsigned local dependencies are the
+/// common local-development case and are permitted without `--unsigned`.
+fn source_is_local(source: &str) -> bool {
+    source.is_empty() || source.starts_with("file:") || source.starts_with("local:")
+}
+
+/// Classify an installed `.mfp` (audit-1 PKG-01). Any parse error is treated as
+/// Tampered — a malformed container on the trusted import path is never benign.
+fn classify_installed_package(path: &Path, trust_anchor: Option<&str>) -> PackageVerification {
+    let Ok(bytes) = std::fs::read(path) else {
+        return PackageVerification::Tampered;
+    };
+    let Ok(package) = mfb_repository::package::parse_mfp_package(&bytes) else {
+        return PackageVerification::Tampered;
+    };
+    if package.signature_type == 0 {
+        return PackageVerification::Unsigned;
+    }
+    // Signed: the pinned trust anchor is the sole verification key. A signed
+    // package with no pinned anchor cannot be trusted (the file-embedded key is
+    // attacker-controlled), so it is Tampered until the project pins a key.
+    let Some(trust_anchor) = trust_anchor else {
+        return PackageVerification::Tampered;
+    };
+    let Ok(public_key) = decode_trust_anchor(trust_anchor) else {
+        return PackageVerification::Tampered;
+    };
+    match mfb_repository::package::verify_package_signature(&package, &public_key) {
+        Ok(()) => PackageVerification::Verified,
+        Err(_) => PackageVerification::Tampered,
+    }
+}
+
+/// Decode a pinned trust-anchor public key. Accepts the header key format
+/// (`ed25519:<base64url>`) as well as a bare base64url key.
+fn decode_trust_anchor(value: &str) -> Result<Vec<u8>, String> {
+    let encoded = value.strip_prefix("ed25519:").unwrap_or(value);
+    mfb_repository::crypto::decode_bytes(encoded, "identKey")
 }
 
 pub(crate) fn apply_signing_metadata(

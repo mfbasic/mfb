@@ -70,18 +70,56 @@ fn put_opt_value(out: &mut Vec<u8>, value: &Option<IrValue>) {
 
 // --- low-level reader ------------------------------------------------------
 
+/// Recursion cap for the Binary Representation body decoder (PKG-03). A crafted
+/// package can nest expressions/statements arbitrarily deep; each level is one
+/// native stack frame, so an unbounded tree overflows the stack and aborts the
+/// compiler before any structural check runs. 256 is far deeper than any real
+/// program yet shallow enough to never overflow the thread stack.
+const MAX_DECODE_DEPTH: usize = 256;
+
 struct IrReader<'a> {
     bytes: &'a [u8],
     pos: usize,
+    /// Current recursion depth of the op/value/link-expr decoders. Bounded by
+    /// [`MAX_DECODE_DEPTH`]; see [`IrReader::enter`].
+    depth: usize,
 }
 
 impl<'a> IrReader<'a> {
     fn new(bytes: &'a [u8]) -> Self {
-        IrReader { bytes, pos: 0 }
+        IrReader {
+            bytes,
+            pos: 0,
+            depth: 0,
+        }
+    }
+
+    /// Enter one recursion level, erroring past [`MAX_DECODE_DEPTH`]. The caller
+    /// must pair a successful `enter` with [`IrReader::leave`] on every exit path.
+    fn enter(&mut self) -> Result<(), String> {
+        self.depth += 1;
+        if self.depth > MAX_DECODE_DEPTH {
+            self.depth -= 1;
+            return Err(format!(
+                "PACKAGE_BINARY_REPRESENTATION_DECODE_FAILED: expression/statement nesting exceeds the {MAX_DECODE_DEPTH} level decode limit"
+            ));
+        }
+        Ok(())
+    }
+
+    fn leave(&mut self) {
+        self.depth -= 1;
     }
 
     fn need(&self, n: usize) -> Result<(), String> {
-        if self.pos + n > self.bytes.len() {
+        // `checked_add` keeps the bound overflow-safe on every target (PKG-07):
+        // `n` originates from an attacker `u32` (string/blob lengths), so on a
+        // 32-bit host `pos + n` could wrap and spuriously pass the check.
+        if self
+            .pos
+            .checked_add(n)
+            .map_or(true, |end| end > self.bytes.len())
+        {
             Err(format!(
                 "Binary Representation truncated: needed {n} bytes at offset {}, have {}",
                 self.pos,
@@ -378,6 +416,13 @@ fn decode_opt_link_expr(r: &mut IrReader) -> Result<Option<IrLinkExpr>, String> 
 }
 
 fn decode_link_expr(r: &mut IrReader) -> Result<IrLinkExpr, String> {
+    r.enter()?;
+    let result = decode_link_expr_body(r);
+    r.leave();
+    result
+}
+
+fn decode_link_expr_body(r: &mut IrReader) -> Result<IrLinkExpr, String> {
     match r.u8()? {
         0 => Ok(IrLinkExpr::Var),
         1 => Ok(IrLinkExpr::Int(
@@ -409,7 +454,11 @@ fn decode_vec<T, F: Fn(&mut IrReader) -> Result<T, String>>(
     f: F,
 ) -> Result<Vec<T>, String> {
     let n = r.count()?;
-    let mut out = Vec::with_capacity(n);
+    // Never pre-allocate more slots than the remaining bytes could possibly
+    // fill (PKG-05): every element consumes at least one byte on the wire, so an
+    // attacker `count` of `0xFFFF_FFFF` behind a tiny body cannot request a
+    // multi-gigabyte allocation. The vec still grows to the true length.
+    let mut out = Vec::with_capacity(n.min(r.bytes.len().saturating_sub(r.pos)));
     for _ in 0..n {
         out.push(f(r)?);
     }
@@ -657,6 +706,13 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
 }
 
 fn decode_op(r: &mut IrReader) -> Result<IrOp, String> {
+    r.enter()?;
+    let result = decode_op_body(r);
+    r.leave();
+    result
+}
+
+fn decode_op_body(r: &mut IrReader) -> Result<IrOp, String> {
     let tag = r.u8()?;
     Ok(match tag {
         0 => IrOp::Bind {
@@ -951,6 +1007,13 @@ fn get_loc(r: &mut IrReader) -> Result<IrSourceLoc, String> {
 }
 
 fn decode_value(r: &mut IrReader) -> Result<IrValue, String> {
+    r.enter()?;
+    let result = decode_value_body(r);
+    r.leave();
+    result
+}
+
+fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
     let tag = r.u8()?;
     Ok(match tag {
         0 => IrValue::Const {
@@ -1106,12 +1169,19 @@ pub fn verify_package(pir: &IrProject) -> Result<(), String> {
     // Control-flow / trap structure: every MATCH must carry at least one case
     // (an empty MATCH cannot be exhaustive), and is checked recursively.
     for function in &pir.functions {
-        verify_ops(&function.body)?;
+        verify_ops(&function.body, 0)?;
     }
     Ok(())
 }
 
-fn verify_ops(ops: &[IrOp]) -> Result<(), String> {
+fn verify_ops(ops: &[IrOp], depth: usize) -> Result<(), String> {
+    // Defensive depth cap mirroring the decoder (PKG-03): `verify_package` runs
+    // on merged IR, which may not have flowed through the depth-bounded decoder.
+    if depth > MAX_DECODE_DEPTH {
+        return Err(format!(
+            "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: statement nesting exceeds the {MAX_DECODE_DEPTH} level limit"
+        ));
+    }
     for op in ops {
         match op {
             IrOp::If {
@@ -1119,11 +1189,11 @@ fn verify_ops(ops: &[IrOp]) -> Result<(), String> {
                 else_body,
                 ..
             } => {
-                verify_ops(then_body)?;
-                verify_ops(else_body)?;
+                verify_ops(then_body, depth + 1)?;
+                verify_ops(else_body, depth + 1)?;
             }
             IrOp::While { body, .. } | IrOp::ForEach { body, .. } | IrOp::Trap { body, .. } => {
-                verify_ops(body)?
+                verify_ops(body, depth + 1)?
             }
             IrOp::Match { cases, .. } => {
                 if cases.is_empty() {
@@ -1132,7 +1202,7 @@ fn verify_ops(ops: &[IrOp]) -> Result<(), String> {
                     );
                 }
                 for case in cases {
-                    verify_ops(&case.body)?;
+                    verify_ops(&case.body, depth + 1)?;
                 }
             }
             _ => {}

@@ -29,7 +29,7 @@ pub(super) fn put_prose_list(bytes: &mut Vec<u8>, prose: &[(u8, String)]) {
 
 pub(super) fn cursor_prose_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<(u8, String)>, String> {
     let count = cursor_u32(bytes, offset)? as usize;
-    let mut values = Vec::with_capacity(count);
+    let mut values = Vec::with_capacity(bounded_capacity(count, bytes.len() - *offset, 5));
     for _ in 0..count {
         let kind = *bytes
             .get(*offset)
@@ -42,7 +42,7 @@ pub(super) fn cursor_prose_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<
 
 pub(super) fn cursor_pair_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<(String, String)>, String> {
     let count = cursor_u32(bytes, offset)? as usize;
-    let mut values = Vec::with_capacity(count);
+    let mut values = Vec::with_capacity(bounded_capacity(count, bytes.len() - *offset, 8));
     for _ in 0..count {
         let first = cursor_string(bytes, offset)?;
         let second = cursor_string(bytes, offset)?;
@@ -61,6 +61,16 @@ pub(super) fn cursor_optional_str(bytes: &[u8], offset: &mut usize) -> Result<Op
     } else {
         Ok(Some(cursor_string(bytes, offset)?))
     }
+}
+
+/// Cap an attacker-supplied element count to what the remaining bytes could
+/// possibly hold (PKG-05). Each element occupies at least `min_elem` (>= 1)
+/// bytes on the wire, so `remaining / min_elem` is a hard upper bound on the
+/// real element count; pre-allocating beyond it only serves a memory-exhaustion
+/// DoS (a 4-byte `0xFFFF_FFFF` count would otherwise request gigabytes up
+/// front). The vec still grows to the true length as elements are decoded.
+pub(super) fn bounded_capacity(count: usize, remaining: usize, min_elem: usize) -> usize {
+    count.min(remaining / min_elem.max(1))
 }
 
 pub(super) fn hash_bytes(bytes: &[u8]) -> [u8; ABI_HASH_LEN] {
@@ -167,22 +177,33 @@ pub(super) fn cursor_string(bytes: &[u8], offset: &mut usize) -> Result<String, 
 }
 
 pub(super) fn checked_u16_at(bytes: &[u8], offset: usize) -> Result<u16, String> {
+    // `checked_add` keeps `offset + N` from wrapping on a hostile offset (PKG-07),
+    // so the slice bound stays correct on every target width.
+    let end = offset
+        .checked_add(2)
+        .ok_or_else(|| "truncated binary representation".to_string())?;
     let value = bytes
-        .get(offset..offset + 2)
+        .get(offset..end)
         .ok_or_else(|| "truncated binary representation".to_string())?;
     Ok(u16::from_le_bytes([value[0], value[1]]))
 }
 
 pub(super) fn checked_u32_at(bytes: &[u8], offset: usize) -> Result<u32, String> {
+    let end = offset
+        .checked_add(4)
+        .ok_or_else(|| "truncated binary representation".to_string())?;
     let value = bytes
-        .get(offset..offset + 4)
+        .get(offset..end)
         .ok_or_else(|| "truncated binary representation".to_string())?;
     Ok(u32::from_le_bytes([value[0], value[1], value[2], value[3]]))
 }
 
 pub(super) fn checked_u64_at(bytes: &[u8], offset: usize) -> Result<u64, String> {
+    let end = offset
+        .checked_add(8)
+        .ok_or_else(|| "truncated binary representation".to_string())?;
     let value = bytes
-        .get(offset..offset + 8)
+        .get(offset..end)
         .ok_or_else(|| "truncated binary representation".to_string())?;
     Ok(u64::from_le_bytes([
         value[0], value[1], value[2], value[3], value[4], value[5], value[6], value[7],

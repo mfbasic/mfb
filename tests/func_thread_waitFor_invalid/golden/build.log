@@ -1,4 +1,5 @@
 $ mfb build -ast -ir tests/func_thread_waitFor_invalid
+uses thread_workers - [Unsigned]
    2 | 
    3 | FUNC main AS Integer
    4 |   LET missing AS Integer = thread::waitFor()

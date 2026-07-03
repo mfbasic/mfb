@@ -1,4 +1,6 @@
 $ mfb build -ast -ir tests/func_thread_send_invalid
+uses thread_workers - [Unsigned]
+uses thread_file_workers - [Unsigned]
    8 | END TYPE
    9 | 
   10 | SUB rejectBadMessage(t AS Thread OF BadMessage TO Integer, payload AS BadMessage)

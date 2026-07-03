@@ -1,0 +1,12 @@
+{
+  "name": "pkg_01_tampered_signature",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "sec_signed", "ident": "sec#signed", "version": "=0.1.0", "source": "file:packages/sec_signed.mfp", "identKey": "ed25519:ebVWLo_mVPlAeLES6KmLp5AfhTrmlb7X4OORC60ElmQ" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

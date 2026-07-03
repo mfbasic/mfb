@@ -1,0 +1,10 @@
+' Consumer for the PKG-01 security fixture: it imports the malicious
+' `sec_signed` package and calls an export. The build must fail during package
+' decode/verification rather than producing an executable.
+IMPORT io
+IMPORT sec_signed AS sec_signed
+
+FUNC main AS Integer
+  io::print(toString(sec_signed::run()))
+  RETURN 0
+END FUNC

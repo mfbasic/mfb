@@ -1,0 +1,6 @@
+' Benign base package for the PKG-01 security fixture. `generate.py`
+' builds this, then rewrites the compiled `.mfp` into the malicious variant
+' committed under tests/security/pkg-01-tampered-signature/packages/.
+EXPORT FUNC run() AS Integer
+  RETURN 42
+END FUNC

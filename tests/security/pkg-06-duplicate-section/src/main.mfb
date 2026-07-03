@@ -1,0 +1,10 @@
+' Consumer for the PKG-06 security fixture: it imports the malicious
+' `sec_dup` package and calls an export. The build must fail during package
+' decode/verification rather than producing an executable.
+IMPORT io
+IMPORT sec_dup AS sec_dup
+
+FUNC main AS Integer
+  io::print(toString(sec_dup::run()))
+  RETURN 0
+END FUNC

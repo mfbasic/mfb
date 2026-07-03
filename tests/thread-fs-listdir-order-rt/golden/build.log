@@ -1,8 +1,10 @@
 $ mfb build -ast -ir tests/thread-fs-listdir-order-rt
+uses fs_thread_workers - [Unsigned]
 Wrote AST to tests/thread-fs-listdir-order-rt/thread_fs_listdir_order_rt.ast
 Wrote IR to tests/thread-fs-listdir-order-rt/thread_fs_listdir_order_rt.ir
 [exit 0]
 $ mfb build tests/thread-fs-listdir-order-rt
+uses fs_thread_workers - [Unsigned]
 Wrote executable to tests/thread-fs-listdir-order-rt/thread_fs_listdir_order_rt.out
 [exit 0]
 $ tests/thread-fs-listdir-order-rt/thread_fs_listdir_order_rt.out

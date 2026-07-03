@@ -1,8 +1,10 @@
 $ mfb build -ast -ir tests/thread-return-integer
+uses thread_runtime_workers - [Unsigned]
 Wrote AST to tests/thread-return-integer/thread_return_integer.ast
 Wrote IR to tests/thread-return-integer/thread_return_integer.ir
 [exit 0]
 $ mfb build tests/thread-return-integer
+uses thread_runtime_workers - [Unsigned]
 Wrote executable to tests/thread-return-integer/thread_return_integer.out
 [exit 0]
 $ tests/thread-return-integer/thread_return_integer.out

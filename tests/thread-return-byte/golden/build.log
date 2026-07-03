@@ -1,8 +1,10 @@
 $ mfb build -ast -ir tests/thread-return-byte
+uses thread_runtime_workers - [Unsigned]
 Wrote AST to tests/thread-return-byte/thread_return_byte.ast
 Wrote IR to tests/thread-return-byte/thread_return_byte.ir
 [exit 0]
 $ mfb build tests/thread-return-byte
+uses thread_runtime_workers - [Unsigned]
 Wrote executable to tests/thread-return-byte/thread_return_byte.out
 [exit 0]
 $ tests/thread-return-byte/thread_return_byte.out

@@ -1,0 +1,12 @@
+{
+  "name": "pkg_07_need_overflow",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "sec_needlen", "ident": "sec#needlen", "version": "=0.1.0", "source": "file:packages/sec_needlen.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

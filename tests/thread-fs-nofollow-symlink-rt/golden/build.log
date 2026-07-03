@@ -1,8 +1,10 @@
 $ mfb build -ast -ir tests/thread-fs-nofollow-symlink-rt
+uses fs_thread_workers - [Unsigned]
 Wrote AST to tests/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.ast
 Wrote IR to tests/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.ir
 [exit 0]
 $ mfb build tests/thread-fs-nofollow-symlink-rt
+uses fs_thread_workers - [Unsigned]
 Wrote executable to tests/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.out
 [exit 0]
 $ tests/thread-fs-nofollow-symlink-rt/thread_fs_nofollow_symlink_rt.out

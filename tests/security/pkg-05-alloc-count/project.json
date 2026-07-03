@@ -1,0 +1,12 @@
+{
+  "name": "pkg_05_alloc_count",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "sec_count", "ident": "sec#count", "version": "=0.1.0", "source": "file:packages/sec_count.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

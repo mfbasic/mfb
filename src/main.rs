@@ -118,6 +118,7 @@ Options:
   --sign <owner>      Sign the resulting binary with the specified owner
   --target <os-arch>  Cross-compile to a specific target (e.g., linux-x64)
   --app               Build as a standalone application instead of a library
+  --unsigned          Allow unsigned dependencies from a non-local source
 
 Debug/Inspection (Emits intermediate output):
   -ast                Outputs Abstract Syntax Tree

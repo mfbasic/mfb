@@ -1,0 +1,10 @@
+' Consumer for the PKG-03 security fixture: it imports the malicious
+' `sec_deep` package and calls an export. The build must fail during package
+' decode/verification rather than producing an executable.
+IMPORT io
+IMPORT sec_deep AS sec_deep
+
+FUNC main AS Integer
+  io::print(toString(sec_deep::run()))
+  RETURN 0
+END FUNC

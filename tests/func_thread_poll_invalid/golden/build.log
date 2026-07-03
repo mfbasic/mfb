@@ -1,4 +1,5 @@
 $ mfb build -ast -ir tests/func_thread_poll_invalid
+uses thread_workers - [Unsigned]
    4 | FUNC main AS Integer
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   LET missing AS Boolean = thread::poll()

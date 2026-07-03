@@ -1,4 +1,5 @@
 $ mfb build -ast -ir tests/func_thread_transfer_invalid
+uses thread_workers - [Unsigned]
    5 |   LET t AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
    6 |   ' A data-only thread has no resource plane, so `transfer`/`accept` are invalid.
    7 |   thread::transfer(t, "x")
