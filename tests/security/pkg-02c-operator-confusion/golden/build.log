@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/security/pkg-02c-operator-confusion
+uses sec_operator_confused - [Unsigned]
+Wrote AST to tests/security/pkg-02c-operator-confusion/pkg_02c_operator_confusion.ast
+Wrote IR to tests/security/pkg-02c-operator-confusion/pkg_02c_operator_confusion.ir
+[exit 0]
+$ mfb build tests/security/pkg-02c-operator-confusion
+uses sec_operator_confused - [Unsigned]
+error: TYPE_BINARY_OPERATOR_MISMATCH: Operator `-` requires numeric operands, got Integer and String.
+[exit 1]

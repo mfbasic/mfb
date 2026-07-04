@@ -1,0 +1,10 @@
+' Consumer for PKG-02c: imports a package whose compiled IR subtracts a String
+' from an Integer. The IR operand-type check (plan-20-E) must reject it at the
+' verify stage rather than lowering it to a wrong machine instruction.
+IMPORT io
+IMPORT sec_operator_confused AS sec_operator_confused
+
+FUNC main AS Integer
+  io::print(toString(sec_operator_confused::run()))
+  RETURN 0
+END FUNC

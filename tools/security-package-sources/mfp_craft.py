@@ -454,6 +454,61 @@ def mutate_type_confusion_computed(data: bytes) -> bytes:
     return container.to_bytes()
 
 
+def mutate_operator_confusion(data: bytes) -> bytes:
+    """PKG-02c: replace the MFBR body with a `run` whose IR subtracts a String
+    from an Integer — `Return(Binary("-", Const Integer "1", Const String "x"))`.
+    The package's signature tables still declare `run() AS Integer`, so the
+    consumer links it, but the operand types are incompatible: codegen selects
+    the machine instruction from the operand types, so lowering this would emit
+    an integer subtract over a String pointer (pointer arithmetic on attacker
+    data). The IR operand-type check (plan-20-E) must reject it before codegen.
+    The Binary node claims result type "Integer" (the attacker's lie).
+    """
+    container = parse_mfp(data)
+    mfpc = parse_mfpc(container.binary_repr)
+
+    def put_str(value: bytes) -> bytes:
+        return _u32(len(value)) + value
+
+    def put_loc(line: int = 0, column: int = 0) -> bytes:
+        return _u32(line) + _u32(column)
+
+    const_int = bytes([0]) + put_str(b"Integer") + put_str(b"1")
+    const_str = bytes([0]) + put_str(b"String") + put_str(b"x")
+    # Binary { op:"-", left:const_int, right:const_str, type_:"Integer", loc } (tag 18).
+    binary_sub = (
+        bytes([18])
+        + put_str(b"-")
+        + const_int
+        + const_str
+        + put_str(b"Integer")
+        + put_loc()
+    )
+    return_op = bytes([3]) + bytes([1]) + binary_sub + put_loc()
+    function = bytearray()
+    function += put_str(b"run")
+    function += put_str(b"export")
+    function += put_str(b"func")
+    function += bytes([0])
+    function += _u32(0)
+    function += put_str(b"Integer")
+    function += _u32(1) + return_op
+    function += put_str(b"")
+    function += put_loc()
+
+    body = bytearray()
+    body += b"MFBR"
+    body += _u16(3)
+    body += put_str(b"sec_operator_confused")
+    body += bytes([0])
+    body += _u32(0)
+    body += _u32(0)
+    body += _u32(1) + bytes(function)
+    mfpc.set(SECTION_BINARY_REPR, bytes(body))
+    container.binary_repr = mfpc.to_bytes()
+    return container.to_bytes()
+
+
 def mutate_deep_body(data: bytes, depth: int = 300) -> bytes:
     """PKG-03: replace the MFBR body with a minimal project whose single binding
     value is `depth` nested `Unary` expressions, overflowing an unbounded

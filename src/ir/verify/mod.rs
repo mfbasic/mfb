@@ -497,9 +497,12 @@ impl TypeEnv {
             | IrValue::Unary { operand: value, .. } => {
                 self.check_value(value, locals);
             }
-            IrValue::Binary { left, right, .. } => {
+            IrValue::Binary {
+                op, left, right, ..
+            } => {
                 self.check_value(left, locals);
                 self.check_value(right, locals);
+                self.check_binary_operands(op, left, right, locals);
             }
             IrValue::WithUpdate {
                 target, updates, ..
@@ -558,6 +561,57 @@ impl TypeEnv {
                     format!("record `{type_name}` has no member `{member}`"),
                 );
             }
+        }
+    }
+
+    /// Reject a binary operator applied to operands whose types it cannot
+    /// accept — the IR-level counterpart of `typecheck`'s `infer_binary`
+    /// operand rule (`TYPE_BINARY_OPERATOR_MISMATCH` / `TYPE_REQUIRES_COMPARABLE`).
+    /// On decoded package IR this is a memory-safety gate: codegen selects the
+    /// machine instruction from the operand *types*, so a crafted `String - Integer`
+    /// would emit an integer subtract over a string pointer (pointer arithmetic
+    /// on attacker data). Only rejects when both operand types are known and
+    /// provably incompatible; `Unknown` is treated as any type (matching
+    /// `is_numeric(Unknown) == true`), so no valid program is ever rejected.
+    fn check_binary_operands(
+        &self,
+        op: &str,
+        left: &IrValue,
+        right: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
+        let (Some(lt), Some(rt)) = (self.infer_type(left, locals), self.infer_type(right, locals))
+        else {
+            return; // an operand type is unknown → skip (no false reject)
+        };
+        let numeric = |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Unknown");
+        let string = |t: &str| matches!(t, "String" | "Unknown");
+        let boolean = |t: &str| matches!(t, "Boolean" | "Unknown");
+        let ok = match op {
+            "AND" | "OR" | "XOR" => boolean(&lt) && boolean(&rt),
+            "&" => string(&lt) && string(&rt),
+            "<" | ">" | "<=" | ">=" => {
+                (numeric(&lt) && numeric(&rt)) || (string(&lt) && string(&rt))
+            }
+            // Equality (`=`/`<>`) accepts any comparable/compatible pair,
+            // including records and enums — reproducing that soundly needs the
+            // full comparability recursion, so it is left to the dedicated
+            // TYPE_REQUIRES_COMPARABLE port; skip here.
+            "=" | "<>" => true,
+            // Everything else is arithmetic / bitwise: numeric operands only.
+            _ => numeric(&lt) && numeric(&rt),
+        };
+        if !ok {
+            let requirement = match op {
+                "AND" | "OR" | "XOR" => "Boolean operands".to_string(),
+                "&" => "String operands".to_string(),
+                "<" | ">" | "<=" | ">=" => "numeric or String operands".to_string(),
+                _ => "numeric operands".to_string(),
+            };
+            self.emit(
+                "TYPE_BINARY_OPERATOR_MISMATCH",
+                format!("Operator `{op}` requires {requirement}, got {lt} and {rt}."),
+            );
         }
     }
 

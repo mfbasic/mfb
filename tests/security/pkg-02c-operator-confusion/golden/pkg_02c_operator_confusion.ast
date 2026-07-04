@@ -1,0 +1,27 @@
+{
+  "project": "pkg_02c_operator_confusion",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 4 },
+    { "module": "sec_operator_confused", "alias": "sec_operator_confused", "line": 5 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 7,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sec_operator_confused.run", "arguments": [] }] }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    }
+    ]
+  }
+  ]
+}

@@ -1,0 +1,5 @@
+' Benign base for PKG-02c; generate.py rewrites the compiled body into a
+' `run` whose IR subtracts a String from an Integer (operand type confusion).
+EXPORT FUNC run() AS Integer
+  RETURN 42
+END FUNC
