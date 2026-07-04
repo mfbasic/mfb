@@ -190,6 +190,9 @@ mod lowering_totality_tests {
                 }
             }
             for rule in act_rules {
+                if std::env::var("CENSUS_EXTRA").is_ok() {
+                    eprintln!("EXTRA {rule} in {}", dir.display());
+                }
                 *extra.entry(rule).or_default() += 1;
             }
         }

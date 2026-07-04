@@ -156,6 +156,8 @@ struct UnionInfo {
 struct FnSig {
     total: usize,
     optional: usize,
+    /// Declared parameter types, positional (for argument-type checking).
+    params: Vec<String>,
 }
 
 /// The reconstructed typing context: everything the semantic rules need to
@@ -256,6 +258,7 @@ impl TypeEnv {
                         .iter()
                         .filter(|p| p.default.is_some())
                         .count(),
+                    params: function.params.iter().map(|p| p.type_.clone()).collect(),
                 },
             );
         }
@@ -358,6 +361,7 @@ impl TypeEnv {
                     if let Some(value) = value {
                         self.check_value_captures(value, closure_slots);
                         self.check_value(value, locals);
+                        self.check_return_type(value, locals);
                     }
                 }
                 IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
@@ -481,6 +485,7 @@ impl TypeEnv {
                     self.check_value(arg, locals);
                 }
                 self.check_call_arity(target, args.len(), locals);
+                self.check_call_argument_types(target, args, locals);
             }
             IrValue::Constructor { type_, args } => {
                 for arg in args {
@@ -753,6 +758,140 @@ impl TypeEnv {
         }
     }
 
+    /// Reject a call to a known user function whose argument types are
+    /// incompatible with the declared parameter types (`typecheck`'s
+    /// `TYPE_CALL_ARGUMENT_MISMATCH`). On decoded package IR this is an ABI-level
+    /// type confusion: codegen marshals each argument by its declared parameter
+    /// type, so a crafted `String` passed where an `Integer` is expected is read
+    /// as an integer at the callee boundary. Lowering has already normalized the
+    /// call (positional, defaults filled, union members wrapped), so a direct
+    /// arg-type-vs-param-type comparison is faithful. `Unknown` never rejects.
+    fn check_call_argument_types(
+        &self,
+        target: &str,
+        args: &[IrValue],
+        locals: &HashMap<String, String>,
+    ) {
+        if locals.contains_key(target) {
+            return; // indirect call — no named signature
+        }
+        let Some(sig) = self.functions.get(target) else {
+            return;
+        };
+        for (index, arg) in args.iter().enumerate() {
+            let Some(param_type) = sig.params.get(index) else {
+                break;
+            };
+            let Some(actual) = self.infer_type(arg, locals) else {
+                continue;
+            };
+            if !self.expression_compatible(param_type, &actual, arg) {
+                self.emit(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    format!(
+                        "Argument {} for `{target}` has type {actual}, expected {param_type}.",
+                        index + 1
+                    ),
+                );
+            }
+        }
+    }
+
+    /// Type compatibility (`typecheck::compatible`), on canonical type-name
+    /// strings. `Unknown` on either side is compatible; the `RES` ownership
+    /// marker is stripped; container types recurse; a union accepts any of its
+    /// variants. Anything unresolved falls back to string equality (never a
+    /// false rejection because callers gate on both types being known).
+    fn compatible(&self, expected: &str, actual: &str) -> bool {
+        if expected == "Unknown" || actual == "Unknown" {
+            return true;
+        }
+        let expected = expected.strip_prefix("RES ").unwrap_or(expected);
+        let actual = actual.strip_prefix("RES ").unwrap_or(actual);
+        if expected == actual {
+            return true;
+        }
+        if let (Some(e), Some(a)) = (
+            expected.strip_prefix("List OF "),
+            actual.strip_prefix("List OF "),
+        ) {
+            return self.compatible(e, a);
+        }
+        if let (Some(e), Some(a)) = (
+            expected.strip_prefix("Result OF "),
+            actual.strip_prefix("Result OF "),
+        ) {
+            return self.compatible(e, a);
+        }
+        if let (Some((ek, ev)), Some((ak, av))) = (parse_map(expected), parse_map(actual)) {
+            return self.compatible(ek, ak) && self.compatible(ev, av);
+        }
+        // Bare-name equality (an imported type is registered under its bare
+        // name; a qualified `pkg.Type` reference resolves to the same type).
+        let expected_bare = expected.rsplit('.').next().unwrap_or(expected);
+        let actual_bare = actual.rsplit('.').next().unwrap_or(actual);
+        if expected_bare == actual_bare {
+            return true;
+        }
+        // A union accepts any of its variants.
+        if let Some(variants) = self.union_variants(expected) {
+            if variants.contains(actual_bare) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// `typecheck::expression_compatible`: `compatible`, plus the literal
+    /// coercions that the AST checker allows for constant arguments — a `Byte`
+    /// parameter accepts an in-range `Integer` literal, `Fixed` accepts an
+    /// `Integer`/`Float` literal. The `Const` node carries the literal type and
+    /// value, so the same check applies on the IR.
+    fn expression_compatible(&self, expected: &str, actual: &str, value: &IrValue) -> bool {
+        if self.compatible(expected, actual) {
+            return true;
+        }
+        if let IrValue::Const { type_, value } = value {
+            match (expected, type_.as_str()) {
+                ("Byte", "Integer") => {
+                    return value.parse::<u16>().is_ok_and(|n| n <= u8::MAX as u16);
+                }
+                ("Fixed", "Integer") | ("Fixed", "Float") => return true,
+                _ => {}
+            }
+        }
+        // Negated numeric literal into Fixed (`-1` etc.).
+        if expected == "Fixed" {
+            if let IrValue::Unary { op, operand, .. } = value {
+                if op == "-" && matches!(operand.as_ref(), IrValue::Const { type_, .. } if type_ == "Integer" || type_ == "Float")
+                {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Reject a `RETURN <value>` whose value type is incompatible with the
+    /// function's declared return type (`typecheck`'s `TYPE_RETURN_MISMATCH`).
+    /// Codegen places the return value into the ABI return slot by the declared
+    /// type, so a crafted mismatch is a type confusion at the return boundary.
+    fn check_return_type(&self, value: &IrValue, locals: &HashMap<String, String>) {
+        let expected = self.current_return.borrow().clone();
+        if expected.is_empty() || expected == "Nothing" || expected == "Unknown" {
+            return;
+        }
+        let Some(actual) = self.infer_type(value, locals) else {
+            return;
+        };
+        if !self.expression_compatible(&expected, &actual, value) {
+            self.emit(
+                "TYPE_RETURN_MISMATCH",
+                format!("RETURN value has type {actual}, expected {expected}."),
+            );
+        }
+    }
+
     /// Reject a record constructor supplied with more arguments than the record
     /// has fields (an overflow of the record's positional slots). Under-supply
     /// is left unchecked: `IrField` carries no default marker, so the minimum
@@ -940,6 +1079,13 @@ fn usable_type(annotated: Option<&str>) -> Option<String> {
         Some(t) if !t.is_empty() && t != "Unknown" => Some(t.to_string()),
         _ => None,
     }
+}
+
+/// Parse a `Map OF K TO V` type string into `(K, V)`.
+fn parse_map(type_: &str) -> Option<(&str, &str)> {
+    let rest = type_.strip_prefix("Map OF ")?;
+    let idx = rest.find(" TO ")?;
+    Some((&rest[..idx], &rest[idx + " TO ".len()..]))
 }
 
 /// Build a `member → type` map from a record's declared fields.
