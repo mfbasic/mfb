@@ -534,15 +534,50 @@ impl TypeEnv {
                     self.check_value(&update.value, locals);
                 }
             }
-            IrValue::ListLiteral { values, .. } => {
+            IrValue::ListLiteral { type_, values } => {
                 for v in values {
                     self.check_value(v, locals);
                 }
+                // A crafted list whose elements do not match its element type is
+                // a type confusion: codegen lays out and reads elements
+                // uniformly by the declared element type.
+                if let Some(element) = type_.strip_prefix("List OF ") {
+                    for v in values {
+                        if let Some(actual) = self.infer_type(v, locals) {
+                            if !self.expression_compatible(element, &actual, v) {
+                                self.emit(
+                                    "TYPE_LIST_ELEMENT_MISMATCH",
+                                    format!("List element has type {actual}, expected {element}."),
+                                );
+                            }
+                        }
+                    }
+                }
             }
-            IrValue::MapLiteral { entries, .. } => {
+            IrValue::MapLiteral { type_, entries } => {
                 for (k, v) in entries {
                     self.check_value(k, locals);
                     self.check_value(v, locals);
+                }
+                if let Some((key_type, value_type)) = parse_map(type_) {
+                    for (k, v) in entries {
+                        if let Some(actual) = self.infer_type(k, locals) {
+                            if !self.expression_compatible(key_type, &actual, k) {
+                                self.emit(
+                                    "TYPE_MAP_KEY_MISMATCH",
+                                    format!("Map key has type {actual}, expected {key_type}."),
+                                );
+                            }
+                        }
+                        if let Some(actual) = self.infer_type(v, locals) {
+                            if !self.expression_compatible(value_type, &actual, v) {
+                                self.emit(
+                                    "TYPE_MAP_VALUE_MISMATCH",
+                                    format!("Map value has type {actual}, expected {value_type}."),
+                                );
+                            }
+                        }
+                    }
                 }
             }
             IrValue::Const { .. }
