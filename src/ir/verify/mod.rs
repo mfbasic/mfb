@@ -615,26 +615,98 @@ impl TypeEnv {
             "<" | ">" | "<=" | ">=" => {
                 (numeric(&lt) && numeric(&rt)) || (string(&lt) && string(&rt))
             }
-            // Equality (`=`/`<>`) accepts any comparable/compatible pair,
-            // including records and enums — reproducing that soundly needs the
-            // full comparability recursion, so it is left to the dedicated
-            // TYPE_REQUIRES_COMPARABLE port; skip here.
-            "=" | "<>" => true,
+            // Equality (`=`/`<>`): numeric pairs compare, otherwise both
+            // operands must be compatible AND comparable. A crafted comparison
+            // of non-comparable values (collections, functions, resources,
+            // unions) would mislead codegen's comparison lowering.
+            "=" | "<>" => {
+                if numeric(&lt) && numeric(&rt) {
+                    true
+                } else if self.compatible(&lt, &rt) || self.compatible(&rt, &lt) {
+                    self.is_comparable(&lt) && self.is_comparable(&rt)
+                } else {
+                    // Incompatible operands: an operator mismatch, not a
+                    // comparability failure — reported below with the right id.
+                    false
+                }
+            }
             // Everything else is arithmetic / bitwise: numeric operands only.
             _ => numeric(&lt) && numeric(&rt),
         };
         if !ok {
+            if matches!(op, "=" | "<>") {
+                // Compatible-but-not-comparable is a comparability failure;
+                // incompatible operands are an operator mismatch.
+                let rule = if self.compatible(&lt, &rt) || self.compatible(&rt, &lt) {
+                    "TYPE_REQUIRES_COMPARABLE"
+                } else {
+                    "TYPE_BINARY_OPERATOR_MISMATCH"
+                };
+                self.emit(
+                    rule,
+                    format!(
+                        "Operator `{op}` requires compatible comparable operands, got {lt} and {rt}."
+                    ),
+                );
+                return;
+            }
             let requirement = match op {
-                "AND" | "OR" | "XOR" => "Boolean operands".to_string(),
-                "&" => "String operands".to_string(),
-                "<" | ">" | "<=" | ">=" => "numeric or String operands".to_string(),
-                _ => "numeric operands".to_string(),
+                "AND" | "OR" | "XOR" => "Boolean operands",
+                "&" => "String operands",
+                "<" | ">" | "<=" | ">=" => "numeric or String operands",
+                _ => "numeric operands",
             };
             self.emit(
                 "TYPE_BINARY_OPERATOR_MISMATCH",
                 format!("Operator `{op}` requires {requirement}, got {lt} and {rt}."),
             );
         }
+    }
+
+    /// Whether a value of type `type_` can be compared for equality
+    /// (`typecheck::is_comparable`): primitives/enums yes; collections,
+    /// functions, results, resources, and unions no; a record only if every
+    /// field is comparable. `Unknown` is comparable (never a false rejection).
+    fn is_comparable(&self, type_: &str) -> bool {
+        self.is_comparable_seen(resource_base_type(type_), &mut HashSet::new())
+    }
+
+    fn is_comparable_seen(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer"
+            | "Nothing" | "String" | "Unknown" => return true,
+            _ => {}
+        }
+        if type_.starts_with("List OF ")
+            || type_.starts_with("Map OF ")
+            || type_.starts_with("Result OF ")
+            || type_.starts_with("FUNC(")
+            || type_.starts_with("Thread ")
+            || type_.starts_with("ThreadWorker ")
+        {
+            return false;
+        }
+        if is_resource_name(type_) {
+            return false;
+        }
+        if self.unions.contains_key(type_) {
+            return false;
+        }
+        if self.enums.contains_key(type_) {
+            return true;
+        }
+        if !seen.insert(type_.to_string()) {
+            return false; // a cycle → not a base case
+        }
+        if let Some(fields) = self.field_types.get(type_) {
+            let all = fields
+                .values()
+                .all(|ft| self.is_comparable_seen(resource_base_type(ft), seen));
+            seen.remove(type_);
+            return all;
+        }
+        // Unknown user type — permissive (no false rejection).
+        true
     }
 
     /// Structural well-formedness of the type table (`typecheck`'s
