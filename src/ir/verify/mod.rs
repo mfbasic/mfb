@@ -177,6 +177,8 @@ struct TypeEnv {
     /// Record type name → (member name → declared member type), for chained
     /// member-access type inference.
     field_types: HashMap<String, HashMap<String, String>>,
+    /// Enum type name → its complete member-name set, for MATCH exhaustiveness.
+    enums: HashMap<String, HashSet<String>>,
     /// Accumulated diagnostics (plan-20-E..I); the checker pushes here instead
     /// of short-circuiting, so it reproduces the full diagnostic sequence.
     diags: RefCell<Vec<Diagnostic>>,
@@ -197,9 +199,16 @@ impl TypeEnv {
     fn build(project: &IrProject) -> Self {
         let mut records = HashMap::new();
         let mut unions = HashMap::new();
+        let mut enums: HashMap<String, HashSet<String>> = HashMap::new();
         let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
         for ty in &project.types {
             match ty.kind.as_str() {
+                "enum" => {
+                    enums.insert(
+                        ty.name.clone(),
+                        ty.members.iter().map(|m| m.name.clone()).collect(),
+                    );
+                }
                 "type" | "record" => {
                     records.insert(
                         ty.name.clone(),
@@ -279,6 +288,7 @@ impl TypeEnv {
             globals,
             closure_counts,
             field_types,
+            enums,
             diags: RefCell::new(Vec::new()),
             current_line: Cell::new(0),
             current_file: RefCell::new(String::new()),
@@ -370,6 +380,7 @@ impl TypeEnv {
                     }
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
+                    self.check_match_exhaustive(value, cases, locals);
                     for case in cases {
                         match &case.pattern {
                             super::IrMatchPattern::Else => {}
@@ -616,6 +627,76 @@ impl TypeEnv {
                 format!("Operator `{op}` requires {requirement}, got {lt} and {rt}."),
             );
         }
+    }
+
+    /// Reject a `MATCH` on an enum or union that neither covers every
+    /// member/variant nor has an unguarded catch-all (`typecheck`'s
+    /// `TYPE_MATCH_NOT_EXHAUSTIVE`). On decoded package IR this is a
+    /// memory-safety gate: a non-exhaustive match falls through with no arm
+    /// selected, leaving a typed value uninitialized. Only checked when the
+    /// scrutinee resolves to a known enum/union with a complete member set
+    /// (Result-matches lower to a Boolean flag and are skipped); guarded cases
+    /// do not count toward coverage, matching the source rule.
+    fn check_match_exhaustive(
+        &self,
+        value: &IrValue,
+        cases: &[super::IrMatchCase],
+        locals: &HashMap<String, String>,
+    ) {
+        let Some(ty) = self.infer_type(value, locals) else {
+            return;
+        };
+        // The complete member/variant set, and whether it is a union (for the
+        // diagnostic wording). Anything else (Boolean Result flag, primitive,
+        // unresolved include) is skipped — no false rejection.
+        let (all, is_union) = if let Some(variants) = self.union_variants(&ty) {
+            (variants, true)
+        } else if let Some(members) = self.enums.get(&ty) {
+            (members.clone(), false)
+        } else {
+            return;
+        };
+        let pattern_name = |v: &IrValue| -> Option<String> {
+            match v {
+                IrValue::Local(name) => Some(name.clone()),
+                IrValue::MemberAccess { member, .. } => Some(member.clone()),
+                _ => None,
+            }
+        };
+        let mut covered: HashSet<String> = HashSet::new();
+        for case in cases {
+            if case.guard.is_some() {
+                continue; // a guarded arm may not fire → does not cover
+            }
+            match &case.pattern {
+                super::IrMatchPattern::Else => return, // unguarded catch-all
+                super::IrMatchPattern::Value(v) => {
+                    if let Some(name) = pattern_name(v) {
+                        covered.insert(name);
+                    }
+                }
+                super::IrMatchPattern::OneOf(vs) => {
+                    for v in vs {
+                        if let Some(name) = pattern_name(v) {
+                            covered.insert(name);
+                        }
+                    }
+                }
+            }
+        }
+        let mut missing: Vec<&String> = all.difference(&covered).collect();
+        if missing.is_empty() {
+            return;
+        }
+        missing.sort();
+        let kind = if is_union { "UNION" } else { "ENUM" };
+        self.emit(
+            "TYPE_MATCH_NOT_EXHAUSTIVE",
+            format!(
+                "MATCH on {kind} `{ty}` does not cover {}; add unguarded CASE arms or CASE ELSE.",
+                missing[0]
+            ),
+        );
     }
 
     /// The unary counterpart of `check_binary_operands` (`typecheck`'s
