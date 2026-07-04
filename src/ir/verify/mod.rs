@@ -104,6 +104,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
             env.check_value(value, &HashMap::new());
         }
     }
+    env.check_type_declarations(project);
     env.diags.take()
 }
 
@@ -634,6 +635,84 @@ impl TypeEnv {
                 format!("Operator `{op}` requires {requirement}, got {lt} and {rt}."),
             );
         }
+    }
+
+    /// Structural well-formedness of the type table (`typecheck`'s
+    /// `check_type_decl`), checkable directly on the IR. On decoded package IR
+    /// these guard codegen's layout and drop assumptions: a record that owns a
+    /// resource field, a union mixing data and resource variants (tag-dependent
+    /// copyability / drop dispatch), or a record with no base case (infinite
+    /// size) would all mislead the layout/drop lowering. Reported at the type
+    /// declaration line; the file is unset (a decoded package has no source).
+    fn check_type_declarations(&self, project: &IrProject) {
+        self.current_file.replace(String::new());
+        for ty in &project.types {
+            self.current_line.set(ty.loc.line);
+            match ty.kind.as_str() {
+                "type" | "record" => {
+                    for field in &ty.fields {
+                        if is_resource_name(resource_base_type(&field.type_)) {
+                            self.emit(
+                                "TYPE_RESOURCE_FIELD_FORBIDDEN",
+                                format!(
+                                    "Record `{}` field `{}` is resource `{}`; records cannot own resources.",
+                                    ty.name, field.name, field.type_
+                                ),
+                            );
+                        }
+                    }
+                    if self.record_field_cycle(&ty.name, &ty.name, &mut HashSet::new()) {
+                        self.emit(
+                            "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
+                            format!(
+                                "Record `{}` refers to itself without passing through a List, Map, or UNION; such a record has no base case and cannot be constructed.",
+                                ty.name
+                            ),
+                        );
+                    }
+                }
+                "union" => {
+                    let resource_variants = ty
+                        .variants
+                        .iter()
+                        .filter(|v| is_resource_name(&v.name))
+                        .count();
+                    if resource_variants > 0 && resource_variants < ty.variants.len() {
+                        self.emit(
+                            "TYPE_MIXED_RESOURCE_UNION",
+                            format!(
+                                "UNION `{}` mixes data and resource variants; a union must be all-data or all-resource.",
+                                ty.name
+                            ),
+                        );
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// Whether `record` reaches `target` through a chain of direct record-typed
+    /// fields (no List/Map/Union indirection) — i.e. an infinitely-sized record.
+    fn record_field_cycle(&self, record: &str, target: &str, seen: &mut HashSet<String>) -> bool {
+        if !seen.insert(record.to_string()) {
+            return false;
+        }
+        let Some(fields) = self.field_types.get(record) else {
+            return false;
+        };
+        for field_type in fields.values() {
+            // Only *direct* record fields propagate the cycle; a List/Map/Union
+            // field is a legitimate base-case indirection.
+            let base = resource_base_type(field_type);
+            if base == target {
+                return true;
+            }
+            if self.records.contains_key(base) && self.record_field_cycle(base, target, seen) {
+                return true;
+            }
+        }
+        false
     }
 
     /// Reject a read of a resource binding after it was moved (closed, returned)
@@ -1199,6 +1278,11 @@ fn usable_type(annotated: Option<&str>) -> Option<String> {
         Some(t) if !t.is_empty() && t != "Unknown" => Some(t.to_string()),
         _ => None,
     }
+}
+
+/// Whether `name` is a built-in resource type (has a registered close op).
+fn is_resource_name(name: &str) -> bool {
+    builtins::resource::builtin_resource_close_function(name).is_some()
 }
 
 /// The base resource type name, stripping the `RES ` ownership marker and a
