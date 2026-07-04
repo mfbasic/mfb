@@ -1150,6 +1150,12 @@ impl TypeEnv {
             builtins::strings::resolve_call(target, &arg_types).is_none()
         } else if builtins::encoding::is_encoding_call(target) {
             builtins::encoding::resolve_call(target, &arg_types).is_none()
+        } else if builtins::io::is_io_call(target) {
+            builtins::io::resolve_call(target, &arg_types).is_none()
+        } else if builtins::fs::is_fs_call(target) {
+            builtins::fs::resolve_call(target, &arg_types).is_none()
+        } else if builtins::net::is_net_call(target) {
+            builtins::net::resolve_call(target, &arg_types).is_none()
         } else {
             return;
         };
