@@ -1148,6 +1148,8 @@ impl TypeEnv {
             builtins::vector::resolve_call(target, &arg_types).is_none()
         } else if builtins::strings::is_strings_call(target) {
             builtins::strings::resolve_call(target, &arg_types).is_none()
+        } else if builtins::encoding::is_encoding_call(target) {
+            builtins::encoding::resolve_call(target, &arg_types).is_none()
         } else {
             return;
         };
