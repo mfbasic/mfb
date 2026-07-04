@@ -104,7 +104,7 @@ fn rejects_member_access_on_integer() {
     }];
     let f = func("run", vec![], body);
     let err = check(&project(vec![f], vec![])).expect_err("member on Integer must be rejected");
-    assert!(err.contains("member `x`"), "{err}");
+    assert!(err.contains("TYPE_FIELD_ACCESS_REQUIRES_RECORD"), "{err}");
 }
 
 #[test]
@@ -156,7 +156,7 @@ fn rejects_call_with_too_many_arguments() {
     let caller = func("run", vec![], body);
     let err = check(&project(vec![callee, caller], vec![]))
         .expect_err("over-arity call must be rejected");
-    assert!(err.contains("call to `helper`"), "{err}");
+    assert!(err.contains("Call to `helper`"), "{err}");
 }
 
 #[test]

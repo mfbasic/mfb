@@ -602,8 +602,8 @@ impl TypeEnv {
         };
         if PRIMITIVE_TYPES.contains(&type_name.as_str()) {
             self.emit(
-                VERIFY_TYPE,
-                format!("member `{member}` accessed on a `{type_name}` value"),
+                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+                format!("field access requires a record value, got `{type_name}`."),
             );
             return;
         }
@@ -614,8 +614,8 @@ impl TypeEnv {
         if let Some(fields) = self.record_fields(&type_name) {
             if !fields.contains(member) {
                 self.emit(
-                    VERIFY_TYPE,
-                    format!("record `{type_name}` has no member `{member}`"),
+                    "TYPE_UNKNOWN_FIELD",
+                    format!("record `{type_name}` has no member `{member}`."),
                 );
             }
         }
@@ -1069,9 +1069,9 @@ impl TypeEnv {
         let required = sig.total.saturating_sub(sig.optional);
         if argc < required || argc > sig.total {
             self.emit(
-                VERIFY_TYPE,
+                "TYPE_CALL_ARITY_MISMATCH",
                 format!(
-                    "call to `{target}` passes {argc} argument(s), expected {required}..={}",
+                    "Call to `{target}` has {argc} argument(s), expected {required}..={}.",
                     sig.total
                 ),
             );
