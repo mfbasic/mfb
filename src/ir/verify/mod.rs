@@ -489,6 +489,7 @@ impl TypeEnv {
                 }
                 self.check_call_arity(target, args.len(), locals);
                 self.check_call_argument_types(target, args, locals);
+                self.check_builtin_call_args(target, args, locals);
             }
             IrValue::Constructor { type_, args } => {
                 for arg in args {
@@ -1114,6 +1115,43 @@ impl TypeEnv {
                     ),
                 );
             }
+        }
+    }
+
+    /// Reject a call to a numeric built-in whose argument types match no
+    /// overload — the IR-level counterpart of `typecheck`'s per-built-in
+    /// `TYPE_CALL_ARGUMENT_MISMATCH`, reusing the *same* `resolve_call` dispatch
+    /// the compiler already uses for return-type inference (so there is one
+    /// source of truth for the argument rules, not a re-implementation). On
+    /// decoded package IR a crafted `math.sqrt("x")` would otherwise reach
+    /// codegen, which selects the float instruction from the declared numeric
+    /// type. Restricted to the pure-numeric packages (math/bits) where the
+    /// arguments are ordinary values with no receiver/predicate normalization,
+    /// so `resolve_call`'s None is unambiguously an argument mismatch. Skipped
+    /// unless every argument type is known (no false rejection).
+    fn check_builtin_call_args(
+        &self,
+        target: &str,
+        args: &[IrValue],
+        locals: &HashMap<String, String>,
+    ) {
+        let arg_types: Option<Vec<String>> =
+            args.iter().map(|a| self.infer_type(a, locals)).collect();
+        let Some(arg_types) = arg_types else {
+            return;
+        };
+        let unresolved = if builtins::math::is_math_call(target) {
+            builtins::math::resolve_call(target, &arg_types).is_none()
+        } else if builtins::bits::is_bits_call(target) {
+            builtins::bits::resolve_call(target, &arg_types).is_none()
+        } else {
+            return;
+        };
+        if unresolved {
+            self.emit(
+                "TYPE_CALL_ARGUMENT_MISMATCH",
+                format!("Arguments to `{target}` do not match any overload."),
+            );
         }
     }
 
