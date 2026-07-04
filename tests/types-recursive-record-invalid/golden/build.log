@@ -1,8 +1,18 @@
 $ mfb build -ast -ir tests/types-recursive-record-invalid
-tests/types-recursive-record-invalid/<generated>:1 error[2-203-0065 TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]: recursive record cycle must pass through a List, Map, or UNION
+   1 | TYPE Node
+     | ^
+tests/types-recursive-record-invalid/src/main.mfb:1 error[2-203-0065 TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]: recursive record cycle must pass through a List, Map, or UNION
                Record `Node` refers to itself without passing through a List, Map, or UNION; such a record has no base case and cannot be constructed.
-tests/types-recursive-record-invalid/<generated>:6 error[2-203-0065 TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]: recursive record cycle must pass through a List, Map, or UNION
+   4 | END TYPE
+   5 | 
+   6 | TYPE A
+     | ^
+tests/types-recursive-record-invalid/src/main.mfb:6 error[2-203-0065 TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]: recursive record cycle must pass through a List, Map, or UNION
                Record `A` refers to itself without passing through a List, Map, or UNION; such a record has no base case and cannot be constructed.
-tests/types-recursive-record-invalid/<generated>:10 error[2-203-0065 TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]: recursive record cycle must pass through a List, Map, or UNION
+   8 | END TYPE
+   9 | 
+  10 | TYPE B
+     | ^
+tests/types-recursive-record-invalid/src/main.mfb:10 error[2-203-0065 TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION]: recursive record cycle must pass through a List, Map, or UNION
                Record `B` refers to itself without passing through a List, Map, or UNION; such a record has no base case and cannot be constructed.
 [exit 1]

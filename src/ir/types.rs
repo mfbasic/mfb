@@ -12,6 +12,9 @@ pub(crate) struct IrType {
     pub(crate) members: Vec<IrEnumMember>,
     // Source location of the type declaration.
     pub(crate) loc: IrSourceLoc,
+    // Project-relative source file this type was declared in, for diagnostics
+    // (plan-20-Z relocated type-declaration rules report against it).
+    pub(crate) file: String,
 }
 
 #[derive(Clone)]

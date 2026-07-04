@@ -532,6 +532,7 @@ fn encode_type(out: &mut Vec<u8>, t: &IrType) {
     put_vec(out, &t.variants, encode_variant);
     put_vec(out, &t.members, |o, m| put_str(o, &m.name));
     put_loc(out, t.loc);
+    put_str(out, &t.file);
 }
 
 fn decode_type(r: &mut IrReader) -> Result<IrType, String> {
@@ -544,6 +545,7 @@ fn decode_type(r: &mut IrReader) -> Result<IrType, String> {
         variants: decode_vec(r, decode_variant)?,
         members: decode_vec(r, |r| Ok(IrEnumMember { name: r.string()? }))?,
         loc: get_loc(r)?,
+        file: r.string()?,
     })
 }
 

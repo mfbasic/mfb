@@ -477,6 +477,7 @@ mod binary_repr_tests {
                     variants: vec![],
                     members: vec![],
                     loc: IrSourceLoc::default(),
+                    file: "src/main.mfb".to_string(),
                 },
                 IrType {
                     kind: "union".to_string(),
@@ -496,6 +497,7 @@ mod binary_repr_tests {
                     }],
                     members: vec![],
                     loc: IrSourceLoc::default(),
+                    file: "src/main.mfb".to_string(),
                 },
                 IrType {
                     kind: "enum".to_string(),
@@ -513,6 +515,7 @@ mod binary_repr_tests {
                         },
                     ],
                     loc: IrSourceLoc::default(),
+                    file: "src/main.mfb".to_string(),
                 },
             ],
             functions: vec![IrFunction {

@@ -87,6 +87,9 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_FIXED_LITERAL_OVERFLOW",
     "TYPE_FIXED_LITERAL_UNDERFLOW",
     "TYPE_UNARY_OPERATOR_UNKNOWN",
+    "TYPE_UNION_INCLUDE_REQUIRES_UNION",
+    "TYPE_UNION_MEMBER_REQUIRES_TYPE",
+    "TYPE_ENUM_REQUIRES_MEMBER",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -919,13 +922,14 @@ impl TypeEnv {
     /// size) would all mislead the layout/drop lowering. Reported at the type
     /// declaration line; the file is unset (a decoded package has no source).
     fn check_type_declarations(&self, project: &IrProject) {
-        self.current_file.replace(String::new());
         for ty in &project.types {
+            self.current_file.replace(ty.file.clone());
             self.current_line.set(ty.loc.line);
             match ty.kind.as_str() {
                 "type" | "record" => {
                     for field in &ty.fields {
                         if is_resource_name(resource_base_type(&field.type_)) {
+                            self.current_line.set(field.loc.line);
                             self.emit(
                                 "TYPE_RESOURCE_FIELD_FORBIDDEN",
                                 format!(
@@ -933,6 +937,7 @@ impl TypeEnv {
                                     ty.name, field.name, field.type_
                                 ),
                             );
+                            self.current_line.set(ty.loc.line);
                         }
                     }
                     if self.record_field_cycle(&ty.name, &ty.name, &mut HashSet::new()) {
@@ -946,6 +951,43 @@ impl TypeEnv {
                     }
                 }
                 "union" => {
+                    // `INCLUDES` may only name other unions. A name that is a
+                    // known non-union type (record or enum) is a malformed
+                    // include. (Undeclared names are a different, resolve-time
+                    // rule, so only reject names the IR positively knows.)
+                    for include in &ty.includes {
+                        if !self.unions.contains_key(include)
+                            && (self.records.contains_key(include)
+                                || self.enums.contains_key(include))
+                        {
+                            self.emit(
+                                "TYPE_UNION_INCLUDE_REQUIRES_UNION",
+                                format!(
+                                    "UNION `{}` includes `{}`, but `{}` is not a UNION.",
+                                    ty.name, include, include
+                                ),
+                            );
+                        }
+                    }
+                    // Each named member must be a concrete TYPE (record). A
+                    // member that is itself a union or an enum is not a concrete
+                    // type. (Records-registered variant names are fine; only a
+                    // name that is *also* a declared union/enum is rejected.)
+                    for variant in &ty.variants {
+                        if self.unions.contains_key(&variant.name)
+                            || self.enums.contains_key(&variant.name)
+                        {
+                            self.current_line.set(variant.loc.line);
+                            self.emit(
+                                "TYPE_UNION_MEMBER_REQUIRES_TYPE",
+                                format!(
+                                    "UNION `{}` member `{}` must be a concrete TYPE.",
+                                    ty.name, variant.name
+                                ),
+                            );
+                            self.current_line.set(ty.loc.line);
+                        }
+                    }
                     let resource_variants = ty
                         .variants
                         .iter()
@@ -958,6 +1000,14 @@ impl TypeEnv {
                                 "UNION `{}` mixes data and resource variants; a union must be all-data or all-resource.",
                                 ty.name
                             ),
+                        );
+                    }
+                }
+                "enum" => {
+                    if ty.members.is_empty() {
+                        self.emit(
+                            "TYPE_ENUM_REQUIRES_MEMBER",
+                            format!("ENUM `{}` must declare at least one member.", ty.name),
                         );
                     }
                 }

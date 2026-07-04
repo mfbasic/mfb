@@ -1,0 +1,11 @@
+TYPE Thing
+  value AS Integer
+END TYPE
+
+UNION Bad INCLUDES Thing
+  Thing
+END UNION
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

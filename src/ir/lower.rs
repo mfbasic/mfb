@@ -244,7 +244,9 @@ pub fn lower_project_with_external_functions(
             match item {
                 Item::Binding(_) => {}
                 Item::Function(function) => functions.push(lower_function(function, &mut context)),
-                Item::Type(type_decl) => types.push(lower_type(type_decl, &type_index)),
+                Item::Type(type_decl) => {
+                    types.push(lower_type(type_decl, &type_index, &context.current_file))
+                }
                 // Native LINK resource declarations and re-export aliases carry no
                 // executable body. The LINK block's native functions are surfaced
                 // to package metadata separately (plan-link-update.md §10); they
@@ -496,7 +498,7 @@ pub fn write_ir(project_dir: &Path, ir: &IrProject) -> Result<PathBuf, String> {
     Ok(ir_path)
 }
 
-fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex) -> IrType {
+fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex, file: &str) -> IrType {
     let kind = match type_decl.kind {
         TypeDeclKind::Type => "type",
         TypeDeclKind::Union => "union",
@@ -518,6 +520,7 @@ fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex) -> IrType {
             line: type_decl.line as u32,
             column: 1,
         },
+        file: file.to_string(),
     }
 }
 

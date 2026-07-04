@@ -1,0 +1,6 @@
+$ mfb build -ast -ir tests/types-enum-empty-invalid
+   1 | ENUM Empty
+     | ^
+tests/types-enum-empty-invalid/src/main.mfb:1 error[2-203-0031 TYPE_ENUM_REQUIRES_MEMBER]: enum must declare at least one member
+               ENUM `Empty` must declare at least one member.
+[exit 1]

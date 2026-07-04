@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/types-union-include-nonunion-invalid
+   3 | END TYPE
+   4 | 
+   5 | UNION Bad INCLUDES Thing
+     | ^
+tests/types-union-include-nonunion-invalid/src/main.mfb:5 error[2-203-0046 TYPE_UNION_INCLUDE_REQUIRES_UNION]: union includes must name union types
+               UNION `Bad` includes `Thing`, but `Thing` is not a UNION.
+[exit 1]

@@ -65,6 +65,7 @@ fn record(name: &str, fields: &[&str]) -> IrType {
         variants: vec![],
         members: vec![],
         loc: IrSourceLoc::default(),
+        file: String::new(),
     }
 }
 
@@ -184,10 +185,14 @@ fn accepts_call_omitting_defaulted_argument() {
 
 #[test]
 fn skips_arity_for_unknown_call_targets() {
-    // Builtins / native calls are not in the internal function table.
+    // A dotted target whose module is neither a known builtin package nor an
+    // internal function is left alone: the checker cannot reconstruct its
+    // signature, so it never invents an arity/argument rejection. (`io.print`
+    // would resolve as a real builtin and be argument-checked, so use a name
+    // that resolves to nothing.)
     let body = vec![IrOp::Return {
         value: Some(IrValue::Call {
-            target: "io.print".to_string(),
+            target: "mystery.helper".to_string(),
             args: vec![int_const("1"), int_const("2"), int_const("3")],
             loc: IrSourceLoc::default(),
             type_: "Unknown".to_string(),
@@ -299,6 +304,7 @@ fn union(name: &str, variants: &[&str]) -> IrType {
             .collect(),
         members: vec![],
         loc: IrSourceLoc::default(),
+        file: String::new(),
     }
 }
 
