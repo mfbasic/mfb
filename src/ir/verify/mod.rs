@@ -91,7 +91,9 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
             }
         }
         let closure_slots = env.closure_slot_count(&function.name);
-        env.check_ops(&function.body, &mut locals, closure_slots, 0);
+        env.check_ops(&function.body, &mut locals.clone(), closure_slots, 0);
+        // Resource use-after-move is a separate straight-line dataflow pass.
+        env.check_resource_moves(&function.body, &mut locals, &mut HashSet::new());
     }
     // Global initializers are lowered into a synthetic function later; verify
     // their initializer expressions here with an empty local scope.
@@ -634,6 +636,124 @@ impl TypeEnv {
         }
     }
 
+    /// Reject a read of a resource binding after it was moved (closed, returned)
+    /// — `typecheck`'s `TYPE_USE_AFTER_MOVE`. On decoded package IR a
+    /// use-after-move is a use-after-free / double-free: the resource's backing
+    /// handle is released by the move, so a later read hands codegen a dangling
+    /// handle. Conservative straight-line dataflow: a move is only tracked
+    /// within a linear op sequence (nested blocks get a fresh copy that does not
+    /// leak moves back out), so no valid program is ever rejected; it catches
+    /// the common close-then-use and double-close. Consumption = a call to the
+    /// resource type's registered close op with the binding as its first
+    /// argument, or `RETURN <resource>`.
+    fn check_resource_moves(
+        &self,
+        ops: &[IrOp],
+        locals: &mut HashMap<String, String>,
+        moved: &mut HashSet<String>,
+    ) {
+        for op in ops {
+            self.current_line.set(op.loc().line);
+            // A read of an already-moved binding is a use-after-move. The
+            // consuming op reads the binding too, but at that point it is not
+            // yet in `moved` (we insert below), so the consume itself is fine
+            // and a *second* consume (double close) is correctly flagged.
+            let mut reads = Vec::new();
+            collect_local_reads_op(op, &mut reads);
+            for name in &reads {
+                if moved.contains(name) {
+                    self.emit(
+                        "TYPE_USE_AFTER_MOVE",
+                        format!("Binding `{name}` was moved and cannot be used again."),
+                    );
+                }
+            }
+            if let Some(consumed) = self.consumed_resource(op, locals) {
+                moved.insert(consumed);
+            }
+            match op {
+                IrOp::Bind {
+                    name, type_, value, ..
+                } => {
+                    // A rebind of a resource name reopens ownership.
+                    if value.is_some() {
+                        moved.remove(name);
+                    }
+                    locals.insert(name.clone(), type_.clone());
+                }
+                IrOp::If {
+                    then_body,
+                    else_body,
+                    ..
+                } => {
+                    self.check_resource_moves(then_body, &mut locals.clone(), &mut moved.clone());
+                    self.check_resource_moves(else_body, &mut locals.clone(), &mut moved.clone());
+                }
+                IrOp::Match { cases, .. } => {
+                    for case in cases {
+                        self.check_resource_moves(
+                            &case.body,
+                            &mut locals.clone(),
+                            &mut moved.clone(),
+                        );
+                    }
+                }
+                IrOp::While { body, .. }
+                | IrOp::For { body, .. }
+                | IrOp::DoUntil { body, .. }
+                | IrOp::ForEach { body, .. }
+                | IrOp::Trap { body, .. } => {
+                    self.check_resource_moves(body, &mut locals.clone(), &mut moved.clone());
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The resource binding consumed by an op, if any: a call to the binding's
+    /// registered close op with it as the first argument, or `RETURN <binding>`.
+    fn consumed_resource(&self, op: &IrOp, locals: &HashMap<String, String>) -> Option<String> {
+        let close_consumes = |value: &IrValue| -> Option<String> {
+            let (target, args) = match value {
+                IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
+                    (target, args)
+                }
+                _ => return None,
+            };
+            let IrValue::Local(name) = args.first()? else {
+                return None;
+            };
+            let type_ = locals.get(name)?;
+            let base = resource_base_type(type_);
+            if builtins::resource::builtin_resource_close_function(base) == Some(target.as_str()) {
+                Some(name.clone())
+            } else {
+                None
+            }
+        };
+        match op {
+            IrOp::Eval { value, .. } => close_consumes(value),
+            IrOp::Bind {
+                value: Some(value), ..
+            } => close_consumes(value),
+            IrOp::Assign { value, .. } => close_consumes(value),
+            IrOp::Return {
+                value: Some(IrValue::Local(name)),
+                ..
+            } => {
+                let type_ = locals.get(name)?;
+                if builtins::resource::builtin_resource_close_function(resource_base_type(type_))
+                    .is_some()
+                {
+                    Some(name.clone())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
+
     /// Reject a `MATCH` on an enum or union that neither covers every
     /// member/variant nor has an unguarded catch-all (`typecheck`'s
     /// `TYPE_MATCH_NOT_EXHAUSTIVE`). On decoded package IR this is a
@@ -1078,6 +1198,104 @@ fn usable_type(annotated: Option<&str>) -> Option<String> {
     match annotated {
         Some(t) if !t.is_empty() && t != "Unknown" => Some(t.to_string()),
         _ => None,
+    }
+}
+
+/// The base resource type name, stripping the `RES ` ownership marker and a
+/// trailing `STATE T` clause (`File STATE Cursor` → `File`).
+fn resource_base_type(type_: &str) -> &str {
+    let t = type_.strip_prefix("RES ").unwrap_or(type_);
+    match t.find(" STATE ") {
+        Some(idx) => &t[..idx],
+        None => t,
+    }
+}
+
+/// Collect the names of every `Local` read anywhere in an op's value positions
+/// (not its nested bodies — those are traversed separately).
+fn collect_local_reads_op(op: &IrOp, out: &mut Vec<String>) {
+    let mut v = |value: &IrValue, out: &mut Vec<String>| collect_local_reads_value(value, out);
+    match op {
+        IrOp::Bind {
+            value: Some(value), ..
+        }
+        | IrOp::Assign { value, .. }
+        | IrOp::AssignGlobal { value, .. }
+        | IrOp::StateAssign { value, .. }
+        | IrOp::Eval { value, .. }
+        | IrOp::ExitProgram { code: value, .. }
+        | IrOp::Fail { error: value, .. }
+        | IrOp::Return {
+            value: Some(value), ..
+        } => v(value, out),
+        IrOp::If { condition, .. } | IrOp::While { condition, .. } => v(condition, out),
+        IrOp::For {
+            start, end, step, ..
+        } => {
+            v(start, out);
+            v(end, out);
+            v(step, out);
+        }
+        IrOp::ForEach { iterable, .. } => v(iterable, out),
+        IrOp::Match { value, .. } => v(value, out),
+        _ => {}
+    }
+}
+
+/// Collect the names of every `Local` read within a value expression.
+fn collect_local_reads_value(value: &IrValue, out: &mut Vec<String>) {
+    match value {
+        IrValue::Local(name) => out.push(name.clone()),
+        IrValue::Call { args, .. } | IrValue::CallResult { args, .. } => {
+            for a in args {
+                collect_local_reads_value(a, out);
+            }
+        }
+        IrValue::Constructor { args, .. } => {
+            for a in args {
+                collect_local_reads_value(a, out);
+            }
+        }
+        IrValue::Closure { captures, .. } => {
+            for c in captures {
+                collect_local_reads_value(c, out);
+            }
+        }
+        IrValue::UnionWrap { value, .. }
+        | IrValue::UnionExtract { value, .. }
+        | IrValue::ResultIsOk { value }
+        | IrValue::ResultValue { value, .. }
+        | IrValue::ResultError { value }
+        | IrValue::Unary { operand: value, .. }
+        | IrValue::MemberAccess { target: value, .. } => collect_local_reads_value(value, out),
+        IrValue::Binary { left, right, .. } => {
+            collect_local_reads_value(left, out);
+            collect_local_reads_value(right, out);
+        }
+        IrValue::WithUpdate {
+            target, updates, ..
+        } => {
+            collect_local_reads_value(target, out);
+            for u in updates {
+                collect_local_reads_value(&u.value, out);
+            }
+        }
+        IrValue::ListLiteral { values, .. } => {
+            for e in values {
+                collect_local_reads_value(e, out);
+            }
+        }
+        IrValue::MapLiteral { entries, .. } => {
+            for (k, val) in entries {
+                collect_local_reads_value(k, out);
+                collect_local_reads_value(val, out);
+            }
+        }
+        IrValue::Const { .. }
+        | IrValue::Global(_)
+        | IrValue::LocalRef { .. }
+        | IrValue::FunctionRef { .. }
+        | IrValue::Capture { .. } => {}
     }
 }
 
