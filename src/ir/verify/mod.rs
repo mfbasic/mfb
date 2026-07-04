@@ -493,9 +493,12 @@ impl TypeEnv {
             IrValue::UnionExtract { value, .. }
             | IrValue::ResultIsOk { value }
             | IrValue::ResultValue { value, .. }
-            | IrValue::ResultError { value }
-            | IrValue::Unary { operand: value, .. } => {
+            | IrValue::ResultError { value } => {
                 self.check_value(value, locals);
+            }
+            IrValue::Unary { op, operand, .. } => {
+                self.check_value(operand, locals);
+                self.check_unary_operand(op, operand, locals);
             }
             IrValue::Binary {
                 op, left, right, ..
@@ -612,6 +615,35 @@ impl TypeEnv {
                 "TYPE_BINARY_OPERATOR_MISMATCH",
                 format!("Operator `{op}` requires {requirement}, got {lt} and {rt}."),
             );
+        }
+    }
+
+    /// The unary counterpart of `check_binary_operands` (`typecheck`'s
+    /// `infer_unary` / `TYPE_UNARY_OPERATOR_MISMATCH`): `NOT` requires a Boolean
+    /// operand, unary `-` a numeric one. Same memory-safety rationale — codegen
+    /// picks the instruction from the operand type. `Unknown` never rejects.
+    fn check_unary_operand(&self, op: &str, operand: &IrValue, locals: &HashMap<String, String>) {
+        let Some(t) = self.infer_type(operand, locals) else {
+            return;
+        };
+        match op {
+            "NOT" => {
+                if !matches!(t.as_str(), "Boolean" | "Unknown") {
+                    self.emit(
+                        "TYPE_UNARY_OPERATOR_MISMATCH",
+                        format!("Operator `NOT` requires a Boolean operand, got {t}."),
+                    );
+                }
+            }
+            "-" => {
+                if !matches!(t.as_str(), "Integer" | "Byte" | "Float" | "Fixed" | "Unknown") {
+                    self.emit(
+                        "TYPE_UNARY_OPERATOR_MISMATCH",
+                        format!("Unary `-` requires a numeric operand, got {t}."),
+                    );
+                }
+            }
+            _ => {}
         }
     }
 
