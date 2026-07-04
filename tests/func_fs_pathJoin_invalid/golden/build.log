@@ -47,4 +47,34 @@ tests/func_fs_pathJoin_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_M
      | ^
 tests/func_fs_pathJoin_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS String = fs::pathJoin()
+     | ^
+tests/func_fs_pathJoin_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `fs.pathJoin` do not match any overload.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS String = fs::pathJoin()
+   5 |   LET wrongType AS String = fs::pathJoin("x")
+     | ^
+tests/func_fs_pathJoin_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `fs.pathJoin` do not match any overload.
+   4 |   LET missing AS String = fs::pathJoin()
+   5 |   LET wrongType AS String = fs::pathJoin("x")
+   6 |   LET wrongList AS String = fs::pathJoin([1, 2])
+     | ^
+tests/func_fs_pathJoin_invalid/src/main.mfb:6 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Integer, expected String.
+   4 |   LET missing AS String = fs::pathJoin()
+   5 |   LET wrongType AS String = fs::pathJoin("x")
+   6 |   LET wrongList AS String = fs::pathJoin([1, 2])
+     | ^
+tests/func_fs_pathJoin_invalid/src/main.mfb:6 error[2-203-0051 TYPE_LIST_ELEMENT_MISMATCH]: list element type does not match the expected element type
+               List element has type Integer, expected String.
+   5 |   LET wrongType AS String = fs::pathJoin("x")
+   6 |   LET wrongList AS String = fs::pathJoin([1, 2])
+   7 |   LET tooMany AS String = fs::pathJoin(["a"], ["b"])
+     | ^
+tests/func_fs_pathJoin_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `fs.pathJoin` do not match any overload.
 [exit 1]

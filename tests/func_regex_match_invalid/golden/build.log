@@ -53,4 +53,28 @@ tests/func_regex_match_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_M
      | ^
 tests/func_regex_match_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badName` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = regex::match("a")
+     | ^
+tests/func_regex_match_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `#regex_match` has 1 argument(s), expected 2..=2.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Boolean = regex::match("a")
+   5 |   LET tooMany AS Boolean = regex::match("a", "b", "c")
+     | ^
+tests/func_regex_match_invalid/src/main.mfb:5 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `#regex_match` has 3 argument(s), expected 2..=2.
+   4 |   LET missing AS Boolean = regex::match("a")
+   5 |   LET tooMany AS Boolean = regex::match("a", "b", "c")
+   6 |   LET wrongType AS Boolean = regex::match("a", 5)
+     | ^
+tests/func_regex_match_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 2 for `#regex_match` has type Integer, expected String.
+   5 |   LET tooMany AS Boolean = regex::match("a", "b", "c")
+   6 |   LET wrongType AS Boolean = regex::match("a", 5)
+   7 |   LET badName AS Boolean = regex::match(text := "a", pattern := "b")
+     | ^
+tests/func_regex_match_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `#regex_match` has 1 argument(s), expected 2..=2.
 [exit 1]

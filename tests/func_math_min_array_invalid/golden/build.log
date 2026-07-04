@@ -11,4 +11,10 @@ tests/func_math_min_array_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGU
      | ^
 tests/func_math_min_array_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `m` does not have a known type.
+   4 |   LET b AS List OF Float = [1.0, 2.0]
+   5 |   ' mismatched element types are rejected at compile time
+   6 |   LET m AS List OF Integer = math::min(a, b)
+     | ^
+tests/func_math_min_array_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `math.min` do not match any overload.
 [exit 1]

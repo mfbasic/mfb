@@ -11,4 +11,10 @@ tests/func_math_exp_floatarray_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL
      | ^
 tests/func_math_exp_floatarray_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `ys` does not have a known type.
+   4 | FUNC main AS Integer
+   5 |   LET xs AS List OF Integer = [1, 2, 3]
+   6 |   LET ys AS List OF Integer = math::exp(xs)
+     | ^
+tests/func_math_exp_floatarray_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `math.exp` do not match any overload.
 [exit 1]

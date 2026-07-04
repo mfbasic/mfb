@@ -59,4 +59,34 @@ tests/func_string_helpers_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGU
      | ^
 tests/func_string_helpers_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `e` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+     | ^
+tests/func_string_helpers_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `strings.startsWithAny` do not match any overload.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+   5 |   LET b AS String = strings::left("abc")
+     | ^
+tests/func_string_helpers_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `strings.left` do not match any overload.
+   4 |   LET a AS Boolean = strings::startsWithAny("abc", "a")
+   5 |   LET b AS String = strings::left("abc")
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+     | ^
+tests/func_string_helpers_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `strings.padLeft` do not match any overload.
+   5 |   LET b AS String = strings::left("abc")
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+   7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
+     | ^
+tests/func_string_helpers_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `strings.graphemesCount` do not match any overload.
+   6 |   LET c AS String = strings::padLeft("abc", 5, "x", "y")
+   7 |   LET d AS Integer = strings::graphemesCount("abc", 1)
+   8 |   LET e AS String = strings::repeat("abc", "x")
+     | ^
+tests/func_string_helpers_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `strings.repeat` do not match any overload.
 [exit 1]

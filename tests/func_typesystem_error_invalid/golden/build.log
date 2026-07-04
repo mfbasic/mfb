@@ -27,20 +27,8 @@ tests/func_typesystem_error_invalid/src/main.mfb:9 error[2-203-0038 TYPE_READ_ON
   10 | 
   11 |   LET unknownErrorField AS Integer = base.detail
      | ^
-tests/func_typesystem_error_invalid/src/main.mfb:11 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
-               Error value has no field `detail`.
-   9 |   LET updatedLoc AS ErrorLoc = WITH base.source { line := 9 }
-  10 | 
-  11 |   LET unknownErrorField AS Integer = base.detail
-     | ^
 tests/func_typesystem_error_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `unknownErrorField` does not have a known type.
-  10 | 
-  11 |   LET unknownErrorField AS Integer = base.detail
-  12 |   LET unknownLocField AS Integer = base.source.offset
-     | ^
-tests/func_typesystem_error_invalid/src/main.mfb:12 error[2-203-0045 TYPE_UNKNOWN_FIELD]: record field does not exist
-               ErrorLoc value has no field `offset`.
   10 | 
   11 |   LET unknownErrorField AS Integer = base.detail
   12 |   LET unknownLocField AS Integer = base.source.offset

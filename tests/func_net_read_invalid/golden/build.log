@@ -47,4 +47,28 @@ tests/func_net_read_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISM
      | ^
 tests/func_net_read_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::read()
+     | ^
+tests/func_net_read_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.read` do not match any overload.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::read()
+   5 |   LET wrongType = net::read(1, 16)
+     | ^
+tests/func_net_read_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.read` do not match any overload.
+   4 |   LET missing = net::read()
+   5 |   LET wrongType = net::read(1, 16)
+   6 |   LET wrongCount = net::read("s")
+     | ^
+tests/func_net_read_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.read` do not match any overload.
+   5 |   LET wrongType = net::read(1, 16)
+   6 |   LET wrongCount = net::read("s")
+   7 |   LET tooMany = net::read(1, 2, 3)
+     | ^
+tests/func_net_read_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.read` do not match any overload.
 [exit 1]

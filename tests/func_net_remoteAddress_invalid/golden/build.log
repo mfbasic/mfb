@@ -35,4 +35,22 @@ tests/func_net_remoteAddress_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_A
      | ^
 tests/func_net_remoteAddress_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::remoteAddress()
+     | ^
+tests/func_net_remoteAddress_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.remoteAddress` do not match any overload.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::remoteAddress()
+   5 |   LET wrongType = net::remoteAddress(1)
+     | ^
+tests/func_net_remoteAddress_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.remoteAddress` do not match any overload.
+   4 |   LET missing = net::remoteAddress()
+   5 |   LET wrongType = net::remoteAddress(1)
+   6 |   LET tooMany = net::remoteAddress(1, 2)
+     | ^
+tests/func_net_remoteAddress_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.remoteAddress` do not match any overload.
 [exit 1]

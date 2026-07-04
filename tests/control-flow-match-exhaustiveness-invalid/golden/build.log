@@ -17,4 +17,16 @@ tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:31 error[2-203-0062
      | ^
 tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:41 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
                MATCH on UNION `Shape` does not cover Circle; add unguarded CASE arms or CASE ELSE.
+  19 | 
+  20 | FUNC partialUnion(shape AS Shape) AS Integer
+  21 |   MATCH shape
+     | ^
+tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:21 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on UNION `Shape` does not cover Point; add unguarded CASE arms or CASE ELSE.
+  39 | 
+  40 | FUNC guardedUnion(shape AS Shape) AS Integer
+  41 |   MATCH shape
+     | ^
+tests/control-flow-match-exhaustiveness-invalid/src/main.mfb:41 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on UNION `Shape` does not cover Circle; add unguarded CASE arms or CASE ELSE.
 [exit 1]

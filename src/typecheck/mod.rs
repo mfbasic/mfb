@@ -21,6 +21,31 @@ mod inference;
 mod resources;
 mod types;
 
+/// Rules relocated to `ir::verify` (plan-20-Z). `typecheck` still runs its
+/// inference (elaboration) but no longer emits or fails for these — `ir::verify`
+/// rejects them on the source-lowered IR and on decoded package IR, so each is
+/// enforced by exactly one implementation. Only rules `ir::verify` reproduces
+/// completely (every case its `*-invalid` fixtures exercise) appear here; the
+/// rest stay in `typecheck` until their port is complete.
+pub(super) const RELOCATED_TO_IR_VERIFY: &[&str] = &[
+    "TYPE_BINARY_OPERATOR_MISMATCH",
+    "TYPE_UNARY_OPERATOR_MISMATCH",
+    // NOTE: TYPE_REQUIRES_COMPARABLE is NOT relocated — typecheck also uses it
+    // for map-key comparability, which the IR checker does not yet cover.
+    "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+    "TYPE_UNKNOWN_FIELD",
+    // NOTE: TYPE_CALL_ARITY_MISMATCH is NOT relocated — the IR checker's arity
+    // check covers only user functions, while typecheck also checks builtin
+    // call arity (e.g. term::clear(1)).
+    "TYPE_RETURN_MISMATCH",
+    "TYPE_LIST_ELEMENT_MISMATCH",
+    "TYPE_MAP_KEY_MISMATCH",
+    "TYPE_MAP_VALUE_MISMATCH",
+    "TYPE_RESOURCE_FIELD_FORBIDDEN",
+    "TYPE_MIXED_RESOURCE_UNION",
+    "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
+];
+
 use self::helpers::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -2040,6 +2065,15 @@ impl<'a> TypeChecker<'a> {
     }
 
     pub(super) fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
+        // plan-20-Z cutover: rules relocated to `ir::verify` are rejected there
+        // (on the source-lowered IR, in `build.rs`), so `typecheck` no longer
+        // emits or fails for them — it keeps only elaboration (inference still
+        // annotates the AST) and the rules not yet relocated. This makes
+        // `ir::verify` the single source of truth for each ported rule while the
+        // migration proceeds rule-by-rule.
+        if RELOCATED_TO_IR_VERIFY.contains(&rule) {
+            return;
+        }
         self.had_error = true;
         rules::show_diagnostic(rule, detail, &self.project_dir.join(&file.path), line, 1, 1);
     }

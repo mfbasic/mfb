@@ -53,4 +53,28 @@ tests/func_bits_band_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]
      | ^
 tests/func_bits_band_invalid/src/main.mfb:10 error[2-203-0102 TYPE_INLINE_TRAP_ON_INLINED_BUILTIN]: inline TRAP is not supported on an inline-lowered built-in
                Inline TRAP is not supported on `bits.band` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = bits::band(1)
+     | ^
+tests/func_bits_band_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `bits.band` do not match any overload.
+   3 | FUNC main AS Integer
+   4 |   LET a AS Integer = bits::band(1)
+   5 |   LET b AS Integer = bits::band(1, 2, 3)
+     | ^
+tests/func_bits_band_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `bits.band` do not match any overload.
+   4 |   LET a AS Integer = bits::band(1)
+   5 |   LET b AS Integer = bits::band(1, 2, 3)
+   6 |   LET c AS Integer = bits::band(1.5, 2)
+     | ^
+tests/func_bits_band_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `bits.band` do not match any overload.
+   5 |   LET b AS Integer = bits::band(1, 2, 3)
+   6 |   LET c AS Integer = bits::band(1.5, 2)
+   7 |   LET d AS Integer = bits::band("x", 2)
+     | ^
+tests/func_bits_band_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `bits.band` do not match any overload.
 [exit 1]

@@ -35,4 +35,22 @@ tests/func_math_rand_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MIS
      | ^
 tests/func_math_rand_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+     | ^
+tests/func_math_rand_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `math.rand` do not match any overload.
+   3 | FUNC main AS Integer
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+   5 |   LET tooFew AS Integer = math::rand(1)
+     | ^
+tests/func_math_rand_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `math.rand` do not match any overload.
+   4 |   LET wrongType AS Integer = math::rand(1.5, 2.5)
+   5 |   LET tooFew AS Integer = math::rand(1)
+   6 |   LET tooMany AS Integer = math::rand(1, 2, 3)
+     | ^
+tests/func_math_rand_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `math.rand` do not match any overload.
 [exit 1]

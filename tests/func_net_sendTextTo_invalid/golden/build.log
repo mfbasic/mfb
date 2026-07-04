@@ -35,4 +35,22 @@ tests/func_net_sendTextTo_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARIT
      | ^
 tests/func_net_sendTextTo_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTextTo()
+     | ^
+tests/func_net_sendTextTo_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.sendTextTo` do not match any overload.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::sendTextTo()
+   5 |   LET wrongType = net::sendTextTo(1, 2, 3)
+     | ^
+tests/func_net_sendTextTo_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.sendTextTo` do not match any overload.
+   4 |   LET missing = net::sendTextTo()
+   5 |   LET wrongType = net::sendTextTo(1, 2, 3)
+   6 |   LET tooMany = net::sendTextTo(1, 2, 3, 4)
+     | ^
+tests/func_net_sendTextTo_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `net.sendTextTo` do not match any overload.
 [exit 1]

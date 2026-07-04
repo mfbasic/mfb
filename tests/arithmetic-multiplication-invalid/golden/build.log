@@ -3,12 +3,12 @@ $ mfb build -ast -ir tests/arithmetic-multiplication-invalid
    3 |   LET text AS String = "4"
    4 |   RETURN value * text
      | ^
-tests/arithmetic-multiplication-invalid/src/main.mfb:4 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
-               Operator `*` requires numeric operands, got Integer and String.
+tests/arithmetic-multiplication-invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
    2 |   LET value AS Integer = 3
    3 |   LET text AS String = "4"
    4 |   RETURN value * text
      | ^
-tests/arithmetic-multiplication-invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
-               RETURN value does not have a known type.
+tests/arithmetic-multiplication-invalid/src/main.mfb:4 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `*` requires numeric operands, got Integer and String.
 [exit 1]

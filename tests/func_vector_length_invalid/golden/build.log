@@ -23,4 +23,16 @@ tests/func_vector_length_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUM
      | ^
 tests/func_vector_length_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `b` does not have a known type.
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET a AS Float = vector::length(vector::Float3[1.0,2.0,3.0], vector::Float3[1.0,2.0,3.0])
+     | ^
+tests/func_vector_length_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `vector.length` do not match any overload.
+   5 | FUNC main AS Integer
+   6 |   LET a AS Float = vector::length(vector::Float3[1.0,2.0,3.0], vector::Float3[1.0,2.0,3.0])
+   7 |   LET b AS Float = vector::length(5.0)
+     | ^
+tests/func_vector_length_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `vector.length` do not match any overload.
 [exit 1]

@@ -65,4 +65,34 @@ tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0022 TYPE_CALL_ARITY_M
      | ^
 tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `badName` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   RES missing AS File = fs::openFile()
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `fs.openFile` do not match any overload.
+   3 | FUNC main AS Integer
+   4 |   RES missing AS File = fs::openFile()
+   5 |   RES wrongPath AS File = fs::openFile(1)
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `fs.openFile` do not match any overload.
+   4 |   RES missing AS File = fs::openFile()
+   5 |   RES wrongPath AS File = fs::openFile(1)
+   6 |   RES wrongMode AS File = fs::openFile("a", 1)
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `fs.openFile` do not match any overload.
+   5 |   RES wrongPath AS File = fs::openFile(1)
+   6 |   RES wrongMode AS File = fs::openFile("a", 1)
+   7 |   RES tooMany AS File = fs::openFile("a", "read", "x")
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `fs.openFile` do not match any overload.
+   6 |   RES wrongMode AS File = fs::openFile("a", 1)
+   7 |   RES tooMany AS File = fs::openFile("a", "read", "x")
+   8 |   RES badName AS File = fs::openFile(file := "a")
+     | ^
+tests/func_fs_openFile_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Arguments to `fs.openFile` do not match any overload.
 [exit 1]

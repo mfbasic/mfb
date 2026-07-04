@@ -23,4 +23,16 @@ tests/func_encoding_hexEncode_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_
      | ^
 tests/func_encoding_hexEncode_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `d` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET b AS String = encoding::hexEncode()
+     | ^
+tests/func_encoding_hexEncode_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `#encoding_hexEncode` has 0 argument(s), expected 1..=1.
+   3 | FUNC main AS Integer
+   4 |   LET b AS String = encoding::hexEncode()
+   5 |   LET d AS String = encoding::hexEncode("notbytes")
+     | ^
+tests/func_encoding_hexEncode_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Argument 1 for `#encoding_hexEncode` has type String, expected List OF Byte.
 [exit 1]
