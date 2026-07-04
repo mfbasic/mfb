@@ -1,0 +1,8 @@
+{
+  "name": "sec_confused_computed",
+  "ident": "sec#confused-computed",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [{ "root": "src" }]
+}

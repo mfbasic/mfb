@@ -14,7 +14,9 @@
 //! checker guarantees for source but that nothing re-checks on decoded IR:
 //!
 //! - **Member access** targets a record that actually declares the member; a
-//!   member access on a primitive is rejected.
+//!   member access on a primitive is rejected — including on a *computed*
+//!   primitive result (a call/operator/extract), since the typed IR (format v3,
+//!   plan-20-B) annotates every node with its result type.
 //! - **Closure captures** address a slot within the enclosing closure's
 //!   captured-slot count.
 //! - **Call / constructor arity** matches the callee signature / record shape.
@@ -24,8 +26,17 @@
 //! Soundness rule: the checker must accept *exactly* the IR the front end emits
 //! today (the byte-identical golden suite is the oracle). Every rule therefore
 //! only rejects when it can *prove* a violation; whenever a type cannot be
-//! resolved with certainty the node is skipped rather than rejected. Incomplete
+//! resolved with certainty (the node carries the explicit `"Unknown"` marker,
+//! or a name is unresolved) the node is skipped rather than rejected. Incomplete
 //! type reconstruction weakens the check, it never produces a false rejection.
+//!
+//! Because the decoded package IR is now fully typed, the member-confusion class
+//! is checked completely on the package path (plan-20-C): the checker no longer
+//! has to give up when a member access targets a computed value whose type it
+//! could not previously reconstruct. The remaining type-relational rules
+//! (operand/argument/return compatibility) land with the census port
+//! (plan-20-E..I), which relocates the front end's exact compatibility algebra
+//! rather than approximating it here.
 //!
 //! `check` runs on the fully merged project (`merge_packages`) before it is
 //! lowered, so every path that produces IR — the source front end and the
@@ -623,20 +634,30 @@ impl TypeEnv {
     /// Best-effort static type of a value. Returns `None` whenever the type
     /// cannot be determined with certainty; callers treat `None` as "unknown"
     /// and skip type-dependent rejections.
+    ///
+    /// Since format v3 (plan-20-B) every computed node carries its result type,
+    /// so this resolves `Call`/`CallResult`/`Binary`/`Unary`/`ResultValue`/… as
+    /// well — a member access on a *computed* primitive result is now caught,
+    /// not just one on a local or constructor. `Local`/`Global` resolve through
+    /// the binding environment (their type is not on the node); the `"Unknown"`
+    /// marker a node carries when lowering could not name its type is treated as
+    /// unresolved so it never forces a rejection (plan-20-C).
     fn infer_type(&self, value: &IrValue, locals: &HashMap<String, String>) -> Option<String> {
         match value {
-            IrValue::Const { type_, .. } => Some(type_.clone()),
-            IrValue::Local(name) => locals.get(name).cloned(),
-            IrValue::Global(name) => self.globals.get(name).cloned(),
-            IrValue::Constructor { type_, .. }
-            | IrValue::WithUpdate { type_, .. }
-            | IrValue::UnionExtract { type_, .. } => Some(type_.clone()),
+            IrValue::Local(name) => return locals.get(name).cloned(),
+            IrValue::Global(name) => return self.globals.get(name).cloned(),
             IrValue::MemberAccess { target, member, .. } => {
+                // Prefer the annotated member type; fall back to resolving the
+                // field through the target's record type for older shapes.
+                if let Some(annotated) = usable_type(value.annotated_type()) {
+                    return Some(annotated);
+                }
                 let target_type = self.infer_type(target, locals)?;
-                self.field_type(&target_type, member)
+                return self.field_type(&target_type, member);
             }
-            _ => None,
+            _ => {}
         }
+        usable_type(value.annotated_type())
     }
 
     /// The declared type of a record member, for chained member-access
@@ -653,6 +674,17 @@ impl TypeEnv {
         self.field_types
             .get(type_name)
             .and_then(|fields| fields.get(member).cloned())
+    }
+}
+
+/// A node's annotated result type, or `None` when it is absent, empty, or the
+/// explicit `"Unknown"` marker lowering stamps when it cannot name a type.
+/// Filtering `"Unknown"` here is what keeps the type-relational rules from
+/// rejecting a node whose type simply could not be reconstructed (plan-20-C).
+fn usable_type(annotated: Option<&str>) -> Option<String> {
+    match annotated {
+        Some(t) if !t.is_empty() && t != "Unknown" => Some(t.to_string()),
+        _ => None,
     }
 }
 

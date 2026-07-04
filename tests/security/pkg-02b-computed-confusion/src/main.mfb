@@ -1,0 +1,13 @@
+' Consumer for the PKG-02b security fixture: it imports the malicious
+' `sec_confused_computed` package whose compiled IR does a member access on a
+' *computed* Integer (a `Binary` result). Before the IR carried result types
+' the semantic checker skipped such a target; the typed IR (plan-20-B) lets
+' plan-20-C's verifier resolve the computed type and reject the confusion, so
+' the build must fail during IR semantic verification rather than lowering it.
+IMPORT io
+IMPORT sec_confused_computed AS sec_confused_computed
+
+FUNC main AS Integer
+  io::print(toString(sec_confused_computed::run()))
+  RETURN 0
+END FUNC

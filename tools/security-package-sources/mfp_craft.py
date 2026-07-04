@@ -390,6 +390,70 @@ def mutate_type_confusion(data: bytes) -> bytes:
     return container.to_bytes()
 
 
+def mutate_type_confusion_computed(data: bytes) -> bytes:
+    """PKG-02b: like `mutate_type_confusion`, but the member access targets a
+    *computed* Integer — a `Binary("+", 1, 2)` result — rather than an Integer
+    constant. Before the IR carried result types (format v2) the semantic
+    checker could not reconstruct a `Binary`'s type and skipped the access; the
+    typed IR (v3, plan-20-B) annotates it `Integer`, so plan-20-C's checker
+    resolves the target type and rejects the confusion. The crafted `Binary`
+    and `MemberAccess` both claim type "Integer" (the attacker's lie); the real
+    violation is the member access on that Integer result.
+
+    Body: `run() AS Integer` whose single op is
+    `Return(MemberAccess(target=Binary(+, Const 1, Const 2), member="x"))`.
+    """
+    container = parse_mfp(data)
+    mfpc = parse_mfpc(container.binary_repr)
+
+    def put_str(value: bytes) -> bytes:
+        return _u32(len(value)) + value
+
+    def put_loc(line: int = 0, column: int = 0) -> bytes:
+        return _u32(line) + _u32(column)
+
+    # `Const { type_: "Integer", value: "1"/"2" }` values (tag 0).
+    const_one = bytes([0]) + put_str(b"Integer") + put_str(b"1")
+    const_two = bytes([0]) + put_str(b"Integer") + put_str(b"2")
+    # `Binary { op: "+", left, right, type_: "Integer", loc }` value (tag 18):
+    # op string, left value, right value, then the result type and loc (v3).
+    binary_add = (
+        bytes([18])
+        + put_str(b"+")
+        + const_one
+        + const_two
+        + put_str(b"Integer")
+        + put_loc()
+    )
+    # `MemberAccess { target: binary_add, member: "x", type_: "Integer" }` (tag 17).
+    member_access = bytes([17]) + binary_add + put_str(b"x") + put_str(b"Integer")
+    # `Return { value: Some(member_access), loc }` op (tag 3, opt-value present).
+    return_op = bytes([3]) + bytes([1]) + member_access + put_loc()
+    # The exported `run` function.
+    function = bytearray()
+    function += put_str(b"run")  # name
+    function += put_str(b"export")  # visibility
+    function += put_str(b"func")  # kind
+    function += bytes([0])  # isolated = false
+    function += _u32(0)  # params: none
+    function += put_str(b"Integer")  # returns
+    function += _u32(1) + return_op  # body: one Return op
+    function += put_str(b"")  # source file
+    function += put_loc()  # declaration loc (v3)
+
+    body = bytearray()
+    body += b"MFBR"
+    body += _u16(3)  # BINARY_REPR_VERSION
+    body += put_str(b"sec_confused_computed")  # project name
+    body += bytes([0])  # entry: None
+    body += _u32(0)  # bindings: none
+    body += _u32(0)  # types: none
+    body += _u32(1) + bytes(function)  # functions: one
+    mfpc.set(SECTION_BINARY_REPR, bytes(body))
+    container.binary_repr = mfpc.to_bytes()
+    return container.to_bytes()
+
+
 def mutate_deep_body(data: bytes, depth: int = 300) -> bytes:
     """PKG-03: replace the MFBR body with a minimal project whose single binding
     value is `depth` nested `Unary` expressions, overflowing an unbounded

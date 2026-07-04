@@ -1,0 +1,9 @@
+' Benign base package for the PKG-02b security fixture. `generate.py` builds
+' this, then rewrites the compiled `.mfp` body into the malicious variant (a
+' `run` whose IR does a member access on a *computed* Integer — a `Binary`
+' result — exercising plan-20-C's completed member-confusion detection). The
+' structured signature tables stay valid so the consumer still resolves
+' `run() AS Integer`.
+EXPORT FUNC run() AS Integer
+  RETURN 42
+END FUNC

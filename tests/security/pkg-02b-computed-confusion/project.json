@@ -1,0 +1,12 @@
+{
+  "name": "pkg_02b_computed_confusion",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "executable",
+  "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+  "packages": [
+    { "name": "sec_confused_computed", "ident": "sec#confused-computed", "version": "=0.1.0", "source": "file:packages/sec_confused_computed.mfp" }
+  ],
+  "entry": "main",
+  "targets": ["native"]
+}

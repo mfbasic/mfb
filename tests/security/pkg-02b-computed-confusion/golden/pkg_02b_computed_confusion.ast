@@ -1,0 +1,27 @@
+{
+  "project": "pkg_02b_computed_confusion",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 7 },
+    { "module": "sec_confused_computed", "alias": "sec_confused_computed", "line": 8 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "sec_confused_computed.run", "arguments": [] }] }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

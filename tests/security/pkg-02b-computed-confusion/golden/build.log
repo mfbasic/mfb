@@ -1,0 +1,9 @@
+$ mfb build -ast -ir tests/security/pkg-02b-computed-confusion
+uses sec_confused_computed - [Unsigned]
+Wrote AST to tests/security/pkg-02b-computed-confusion/pkg_02b_computed_confusion.ast
+Wrote IR to tests/security/pkg-02b-computed-confusion/pkg_02b_computed_confusion.ir
+[exit 0]
+$ mfb build tests/security/pkg-02b-computed-confusion
+uses sec_confused_computed - [Unsigned]
+error: PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE: member `x` accessed on a `Integer` value
+[exit 1]
