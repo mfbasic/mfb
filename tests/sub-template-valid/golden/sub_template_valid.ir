@@ -12,23 +12,25 @@
   "functions": [
   {
     "name": "main",
+    "line": 6,
     "visibility": "private",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "consume$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "consume$String", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } }
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "consume$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "consume$String", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } }
     ]
   },
   {
     "name": "consume$Integer",
+    "line": 3,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 3, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
     "body": [
@@ -36,10 +38,11 @@
   },
   {
     "name": "consume$String",
+    "line": 3,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "value", "type": "String", "default": null }
+    { "name": "value", "line": 3, "type": "String", "default": null }
     ],
     "returns": "Nothing",
     "body": [

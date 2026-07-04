@@ -12,26 +12,28 @@
   "functions": [
   {
     "name": "toString$Integer",
+    "line": 6,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 6, "type": "Integer", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "custom:" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }] } } }
+    { "op": "return", "line": 7, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "custom:" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } }] } } }
     ]
   },
   {
     "name": "main",
+    "line": 10,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "const", "type": "Integer", "value": "42" }] }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

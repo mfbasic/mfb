@@ -12,19 +12,20 @@
   "functions": [
   {
     "name": "main",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "He" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "😀 Hello" }, { "kind": "const", "type": "String", "value": "😀" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "éclair" }, { "kind": "const", "type": "String", "value": "é" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "hello" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "Hi" }, { "kind": "const", "type": "String", "value": "Hello" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "" }] }] }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "He" }] }] }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "😀 Hello" }, { "kind": "const", "type": "String", "value": "😀" }] }] }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "éclair" }, { "kind": "const", "type": "String", "value": "é" }] }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "Hello" }, { "kind": "const", "type": "String", "value": "hello" }] }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "strings.startsWith", "args": [{ "kind": "const", "type": "String", "value": "Hi" }, { "kind": "const", "type": "String", "value": "Hello" }] }] }] } },
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "value", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.0" } },
-    { "op": "bind", "mutable": false, "name": "zero", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
-    { "op": "bind", "mutable": false, "name": "quotient", "type": "Float", "value": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "zero" } } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 2, "mutable": false, "name": "value", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.0" } },
+    { "op": "bind", "line": 3, "mutable": false, "name": "zero", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "0.0" } },
+    { "op": "bind", "line": 4, "mutable": false, "name": "quotient", "type": "Float", "value": { "kind": "binary", "type": "Float", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "zero" } } },
+    { "op": "return", "line": 5, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

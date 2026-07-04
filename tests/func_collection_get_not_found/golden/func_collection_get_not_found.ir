@@ -12,14 +12,15 @@
   "functions": [
   {
     "name": "main",
+    "line": 2,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }] } },
-    { "op": "return", "value": { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Grace" }] } }
+    { "op": "bind", "line": 3, "mutable": false, "name": "names", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }] } },
+    { "op": "return", "line": 4, "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "names" }, { "kind": "const", "type": "String", "value": "Grace" }] } }
     ]
   }
   ]

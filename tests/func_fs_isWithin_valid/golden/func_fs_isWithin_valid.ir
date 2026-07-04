@@ -12,21 +12,22 @@
   "functions": [
   {
     "name": "main",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base/nested" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base2" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base/nested/é日😀.txt" }, { "kind": "const", "type": "String", "value": "ok" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base2/other.txt" }, { "kind": "const", "type": "String", "value": "ok" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.isWithin", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base" }, { "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base/nested/é日😀.txt" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.isWithin", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base" }, { "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.isWithin", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base" }, { "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base2/other.txt" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.isWithin", "args": [{ "kind": "const", "type": "String", "value": "/" }, { "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base/nested/é日😀.txt" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base/nested" }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "fs.createDirectories", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base2" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base/nested/é日😀.txt" }, { "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeText", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base2/other.txt" }, { "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.isWithin", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base" }, { "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base/nested/é日😀.txt" }] }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.isWithin", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base" }, { "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base" }] }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.isWithin", "args": [{ "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base" }, { "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base2/other.txt" }] }] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.isWithin", "args": [{ "kind": "const", "type": "String", "value": "/" }, { "kind": "const", "type": "String", "value": "target/func_fs_isWithin_valid/base/nested/é日😀.txt" }] }] }] } },
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

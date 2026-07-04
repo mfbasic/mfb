@@ -12,25 +12,27 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "letValue", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
-    { "op": "bind", "mutable": true, "name": "mutValue", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
-    { "op": "assign", "name": "mutValue", "value": { "kind": "local", "name": "letValue" } },
+    { "op": "bind", "line": 2, "mutable": false, "name": "letValue", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "true" } },
+    { "op": "bind", "line": 3, "mutable": true, "name": "mutValue", "type": "Boolean", "value": { "kind": "const", "type": "Boolean", "value": "false" } },
+    { "op": "assign", "line": 4, "name": "mutValue", "value": { "kind": "local", "name": "letValue" } },
     {
       "op": "if",
+      "line": 5,
       "condition": { "kind": "local", "name": "mutValue" },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 5, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

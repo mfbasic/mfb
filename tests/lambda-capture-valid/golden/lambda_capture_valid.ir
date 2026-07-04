@@ -12,64 +12,68 @@
   "functions": [
   {
     "name": "makeAdder",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "base", "type": "Integer", "default": null }
+    { "name": "base", "line": 4, "type": "Integer", "default": null }
     ],
     "returns": "FUNC(Integer) AS Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "local", "name": "base" } },
-    { "op": "return", "value": { "kind": "closure", "name": "$lambda0", "type": "FUNC(Integer) AS Integer", "captures": [{ "kind": "local", "name": "captured" }] } }
+    { "op": "bind", "line": 5, "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "local", "name": "base" } },
+    { "op": "return", "line": 6, "value": { "kind": "closure", "name": "$lambda0", "type": "FUNC(Integer) AS Integer", "captures": [{ "kind": "local", "name": "captured" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 9,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "addTwo", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "target": "makeAdder", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "bind", "mutable": false, "name": "addTen", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "target": "makeAdder", "args": [{ "kind": "const", "type": "Integer", "value": "10" }] } },
-    { "op": "bind", "mutable": false, "name": "threshold", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
-    { "op": "bind", "mutable": false, "name": "aboveThreshold", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "closure", "name": "$lambda1", "type": "FUNC(Integer) AS Boolean", "captures": [{ "kind": "local", "name": "threshold" }] } },
-    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
-    { "op": "bind", "mutable": false, "name": "incremented", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "local", "name": "addTwo" }] } },
-    { "op": "bind", "mutable": false, "name": "elevated", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.transform", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }] }, { "kind": "local", "name": "addTen" }] } },
-    { "op": "bind", "mutable": false, "name": "filtered", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.filter", "args": [{ "kind": "local", "name": "incremented" }, { "kind": "local", "name": "aboveThreshold" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "elevated" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "incremented" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "incremented" }, { "kind": "const", "type": "Integer", "value": "3" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "filtered" }] }] }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "collections.sum", "args": [{ "kind": "local", "name": "incremented" }] }, "right": { "kind": "call", "target": "collections.sum", "args": [{ "kind": "local", "name": "elevated" }] } } }
+    { "op": "bind", "line": 10, "mutable": false, "name": "addTwo", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "type": "FUNC(Integer) AS Integer", "target": "makeAdder", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "addTen", "type": "FUNC(Integer) AS Integer", "value": { "kind": "call", "type": "FUNC(Integer) AS Integer", "target": "makeAdder", "args": [{ "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "threshold", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "aboveThreshold", "type": "FUNC(Integer) AS Boolean", "value": { "kind": "closure", "name": "$lambda1", "type": "FUNC(Integer) AS Boolean", "captures": [{ "kind": "local", "name": "threshold" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "incremented", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "local", "name": "addTwo" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "elevated", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }] }, { "kind": "local", "name": "addTen" }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "filtered", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.filter", "args": [{ "kind": "local", "name": "incremented" }, { "kind": "local", "name": "aboveThreshold" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "elevated" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "incremented" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "incremented" }, { "kind": "const", "type": "Integer", "value": "3" }] }] }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "filtered" }] }] }] } },
+    { "op": "return", "line": 24, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "collections.sum", "args": [{ "kind": "local", "name": "incremented" }] }, "right": { "kind": "call", "type": "Integer", "target": "collections.sum", "args": [{ "kind": "local", "name": "elevated" }] } } }
     ]
   },
   {
     "name": "$lambda0",
+    "line": 6,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 6, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "captured" } } }
+    { "op": "bind", "line": 6, "mutable": false, "name": "captured", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
+    { "op": "return", "line": 6, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "captured" } } }
     ]
   },
   {
     "name": "$lambda1",
+    "line": 13,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 13, "type": "Integer", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "bind", "mutable": false, "name": "threshold", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
-    { "op": "return", "value": { "kind": "binary", "op": ">", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "threshold" } } }
+    { "op": "bind", "line": 13, "mutable": false, "name": "threshold", "type": "Integer", "value": { "kind": "capture", "index": 0, "type": "Integer" } },
+    { "op": "return", "line": 13, "value": { "kind": "binary", "type": "Boolean", "op": ">", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "threshold" } } }
     ]
   }
   ]

@@ -12,57 +12,62 @@
   "functions": [
   {
     "name": "makeError",
+    "line": 6,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "code", "type": "Integer", "default": null },
-    { "name": "message", "type": "String", "default": null }
+    { "name": "code", "line": 6, "type": "Integer", "default": null },
+    { "name": "message", "line": 6, "type": "String", "default": null }
     ],
     "returns": "Error",
     "body": [
-    { "op": "return", "value": { "kind": "constructor", "type": "Error", "args": [{ "kind": "local", "name": "code" }, { "kind": "local", "name": "message" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+    { "op": "return", "line": 7, "value": { "kind": "constructor", "type": "Error", "args": [{ "kind": "local", "name": "code" }, { "kind": "local", "name": "message" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "7" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
     ]
   },
   {
     "name": "main",
+    "line": 10,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "value", "type": "Error", "value": { "kind": "call", "target": "makeError", "args": [{ "kind": "const", "type": "Integer", "value": "123" }, { "kind": "const", "type": "String", "value": "boom" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "value", "type": "Error", "value": { "kind": "call", "type": "Error", "target": "makeError", "args": [{ "kind": "const", "type": "Integer", "value": "123" }, { "kind": "const", "type": "String", "value": "boom" }] } },
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "123" } },
+      "line": 13,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "value" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "123" } },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
       ]
     },
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "message" }, "right": { "kind": "const", "type": "String", "value": "boom" } },
+      "line": 14,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "value" }, "member": "message" }, "right": { "kind": "const", "type": "String", "value": "boom" } },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+      { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "2" } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "mutable": false, "name": "where", "type": "ErrorLoc", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "source" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "where" }, "member": "filename" }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "where" }, "member": "line" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "where" }, "member": "char" }] } }] } },
-    { "op": "bind", "mutable": false, "name": "copy", "type": "Error", "value": { "kind": "local", "name": "value" } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "where", "type": "ErrorLoc", "value": { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "value" }, "member": "source" } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "where" }, "member": "filename" }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "where" }, "member": "line" }] } }, "right": { "kind": "const", "type": "String", "value": ":" } }, "right": { "kind": "call", "type": "Unknown", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Unknown", "target": { "kind": "local", "name": "where" }, "member": "char" }] } }] } },
+    { "op": "bind", "line": 20, "mutable": false, "name": "copy", "type": "Error", "value": { "kind": "local", "name": "value" } },
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": "<>", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "copy" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "123" } },
+      "line": 21,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "copy" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "123" } },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+      { "op": "return", "line": 21, "value": { "kind": "const", "type": "Integer", "value": "3" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

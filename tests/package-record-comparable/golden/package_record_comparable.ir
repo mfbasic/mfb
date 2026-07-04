@@ -6,52 +6,56 @@
   "types": [
   {
     "kind": "type",
+    "line": 1,
     "visibility": "export",
     "name": "Person",
     "fields": [
-    { "visibility": "export", "name": "name", "type": "String" },
-    { "visibility": "export", "name": "city", "type": "String" }
+    { "visibility": "export", "line": 2, "name": "name", "type": "String" },
+    { "visibility": "export", "line": 3, "name": "city", "type": "String" }
     ]
   }
   ],
   "functions": [
   {
     "name": "makePerson",
+    "line": 6,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "name", "type": "String", "default": null },
-    { "name": "city", "type": "String", "default": null }
+    { "name": "name", "line": 6, "type": "String", "default": null },
+    { "name": "city", "line": 6, "type": "String", "default": null }
     ],
     "returns": "Person",
     "body": [
-    { "op": "return", "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "local", "name": "name" }, { "kind": "local", "name": "city" }] } }
+    { "op": "return", "line": 7, "value": { "kind": "constructor", "type": "Person", "args": [{ "kind": "local", "name": "name" }, { "kind": "local", "name": "city" }] } }
     ]
   },
   {
     "name": "samePerson",
+    "line": 10,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "left", "type": "Person", "default": null },
-    { "name": "right", "type": "Person", "default": null }
+    { "name": "left", "line": 10, "type": "Person", "default": null },
+    { "name": "right", "line": 10, "type": "Person", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "=", "left": { "kind": "local", "name": "left" }, "right": { "kind": "local", "name": "right" } } }
+    { "op": "return", "line": 11, "value": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "left" }, "right": { "kind": "local", "name": "right" } } }
     ]
   },
   {
     "name": "differentPerson",
+    "line": 14,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "left", "type": "Person", "default": null },
-    { "name": "right", "type": "Person", "default": null }
+    { "name": "left", "line": 14, "type": "Person", "default": null },
+    { "name": "right", "line": 14, "type": "Person", "default": null }
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "<>", "left": { "kind": "local", "name": "left" }, "right": { "kind": "local", "name": "right" } } }
+    { "op": "return", "line": 15, "value": { "kind": "binary", "type": "Boolean", "op": "<>", "left": { "kind": "local", "name": "left" }, "right": { "kind": "local", "name": "right" } } }
     ]
   }
   ]

@@ -10,76 +10,82 @@
   "types": [
   {
     "kind": "type",
+    "line": 10,
     "visibility": "private",
     "name": "Bag",
     "fields": [
-    { "visibility": null, "name": "items", "type": "List OF Integer" },
-    { "visibility": null, "name": "labels", "type": "Map OF String TO Integer" }
+    { "visibility": null, "line": 11, "name": "items", "type": "List OF Integer" },
+    { "visibility": null, "line": 12, "name": "labels", "type": "Map OF String TO Integer" }
     ]
   },
   {
     "kind": "type",
+    "line": 15,
     "visibility": "private",
     "name": "Person",
     "fields": [
-    { "visibility": null, "name": "name", "type": "String" }
+    { "visibility": null, "line": 16, "name": "name", "type": "String" }
     ]
   },
   {
     "kind": "type",
+    "line": 19,
     "visibility": "private",
     "name": "Team",
     "fields": [
-    { "visibility": null, "name": "members", "type": "List OF Person" },
-    { "visibility": null, "name": "size", "type": "Integer" }
+    { "visibility": null, "line": 20, "name": "members", "type": "List OF Person" },
+    { "visibility": null, "line": 21, "name": "size", "type": "Integer" }
     ]
   }
   ],
   "functions": [
   {
     "name": "sumItems",
+    "line": 24,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "b", "type": "Bag", "default": null }
+    { "name": "b", "line": 24, "type": "Bag", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 25, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "forEach",
+      "line": 26,
       "name": "n",
       "type": "Integer",
-      "iterable": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "items" },
+      "iterable": { "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "b" }, "member": "items" },
       "body": [
-      { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "n" } } }
+      { "op": "assign", "line": 27, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "n" } } }
       ]
     },
-    { "op": "return", "value": { "kind": "local", "name": "total" } }
+    { "op": "return", "line": 29, "value": { "kind": "local", "name": "total" } }
     ]
   },
   {
     "name": "main",
+    "line": 32,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "b", "type": "Bag", "value": { "kind": "constructor", "type": "Bag", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] }, { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "const", "type": "Integer", "value": "1" } }, { "key": { "kind": "const", "type": "String", "value": "b" }, "value": { "kind": "const", "type": "Integer", "value": "2" } }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "sumItems", "args": [{ "kind": "local", "name": "b" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "items" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "labels" }, { "kind": "const", "type": "String", "value": "b" }] }] }] } },
-    { "op": "bind", "mutable": false, "name": "b2", "type": "Bag", "value": { "kind": "local", "name": "b" } },
-    { "op": "bind", "mutable": false, "name": "grown", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.append", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "items" }, { "kind": "const", "type": "Integer", "value": "40" }] } },
-    { "op": "bind", "mutable": false, "name": "b3", "type": "Bag", "value": { "kind": "with", "type": "Bag", "target": { "kind": "local", "name": "b" }, "updates": [{ "field": "items", "value": { "kind": "local", "name": "grown" } }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "sumItems", "args": [{ "kind": "local", "name": "b" }] }] }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "sumItems", "args": [{ "kind": "local", "name": "b2" }] }] } }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "sumItems", "args": [{ "kind": "local", "name": "b3" }] }] } }] } },
-    { "op": "bind", "mutable": false, "name": "t", "type": "Team", "value": { "kind": "constructor", "type": "Team", "args": [{ "kind": "list", "type": "List OF Person", "values": [{ "kind": "constructor", "type": "Person", "args": [{ "kind": "const", "type": "String", "value": "Ada" }] }, { "kind": "constructor", "type": "Person", "args": [{ "kind": "const", "type": "String", "value": "Grace" }] }] }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "memberAccess", "target": { "kind": "call", "target": "collections.get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "members" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "member": "name" }, "right": { "kind": "const", "type": "String", "value": "+" } }, "right": { "kind": "memberAccess", "target": { "kind": "call", "target": "collections.get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "members" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "member": "name" } }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "members" }] }] }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "size" }] } }] } },
-    { "op": "bind", "mutable": false, "name": "t2", "type": "Team", "value": { "kind": "local", "name": "t" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "call", "target": "collections.get", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "t2" }, "member": "members" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "member": "name" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 33, "mutable": false, "name": "b", "type": "Bag", "value": { "kind": "constructor", "type": "Bag", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] }, { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "const", "type": "Integer", "value": "1" } }, { "key": { "kind": "const", "type": "String", "value": "b" }, "value": { "kind": "const", "type": "Integer", "value": "2" } }] }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "sumItems", "args": [{ "kind": "local", "name": "b" }] }] }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "b" }, "member": "items" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "Map OF String TO Integer", "target": { "kind": "local", "name": "b" }, "member": "labels" }, { "kind": "const", "type": "String", "value": "b" }] }] }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "b2", "type": "Bag", "value": { "kind": "local", "name": "b" } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "grown", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.append", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "local", "name": "b" }, "member": "items" }, { "kind": "const", "type": "Integer", "value": "40" }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "b3", "type": "Bag", "value": { "kind": "with", "type": "Bag", "target": { "kind": "local", "name": "b" }, "updates": [{ "field": "items", "value": { "kind": "local", "name": "grown" } }] } },
+    { "op": "eval", "line": 42, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "sumItems", "args": [{ "kind": "local", "name": "b" }] }] }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "sumItems", "args": [{ "kind": "local", "name": "b2" }] }] } }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "sumItems", "args": [{ "kind": "local", "name": "b3" }] }] } }] } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "t", "type": "Team", "value": { "kind": "constructor", "type": "Team", "args": [{ "kind": "list", "type": "List OF Person", "values": [{ "kind": "constructor", "type": "Person", "args": [{ "kind": "const", "type": "String", "value": "Ada" }] }, { "kind": "constructor", "type": "Person", "args": [{ "kind": "const", "type": "String", "value": "Grace" }] }] }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "memberAccess", "type": "String", "target": { "kind": "call", "type": "Person", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Person", "target": { "kind": "local", "name": "t" }, "member": "members" }, { "kind": "const", "type": "Integer", "value": "0" }] }, "member": "name" }, "right": { "kind": "const", "type": "String", "value": "+" } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "call", "type": "Person", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Person", "target": { "kind": "local", "name": "t" }, "member": "members" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "member": "name" } }] } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Person", "target": { "kind": "local", "name": "t" }, "member": "members" }] }] }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "t" }, "member": "size" }] } }] } },
+    { "op": "bind", "line": 48, "mutable": false, "name": "t2", "type": "Team", "value": { "kind": "local", "name": "t" } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "call", "type": "Person", "target": "collections.get", "args": [{ "kind": "memberAccess", "type": "List OF Person", "target": { "kind": "local", "name": "t2" }, "member": "members" }, { "kind": "const", "type": "Integer", "value": "1" }] }, "member": "name" }] } },
+    { "op": "return", "line": 51, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

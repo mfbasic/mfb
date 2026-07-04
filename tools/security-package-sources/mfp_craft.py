@@ -338,10 +338,16 @@ def mutate_type_confusion(data: bytes) -> bytes:
     lowering. The IR semantic verifier must reject it before codegen turns the
     member access into an out-of-bounds field load in the victim's binary.
 
-    The body is hand-encoded to mirror `src/ir/binary.rs` (MFBR version 2):
-    `MFBR` + u16(2) + project{name, entry=None, bindings=[], types=[],
+    The body is hand-encoded to mirror `src/ir/binary.rs` (MFBR version 3):
+    `MFBR` + u16(3) + project{name, entry=None, bindings=[], types=[],
     functions=[run]}` where `run`'s single op is
-    `Return(MemberAccess(target=Const Integer "0", member="x"))`.
+    `Return(MemberAccess(target=Const Integer "0", member="x"))`. Format v3
+    (plan-20-A/B) appends a `loc` (u32 line + u32 column) to every op and to
+    the function declaration, and a result-type string to computed value nodes
+    (`MemberAccess` carries `type_` after `member`). The crafted node claims
+    type "Integer" — the lie a type-confusion attack would tell — while the
+    real violation (member access on an Integer target) is what the verifier
+    must catch.
     """
     container = parse_mfp(data)
     mfpc = parse_mfpc(container.binary_repr)
@@ -349,12 +355,15 @@ def mutate_type_confusion(data: bytes) -> bytes:
     def put_str(value: bytes) -> bytes:
         return _u32(len(value)) + value
 
+    def put_loc(line: int = 0, column: int = 0) -> bytes:
+        return _u32(line) + _u32(column)
+
     # A `Const { type_: "Integer", value: "0" }` value (tag 0).
     const_int = bytes([0]) + put_str(b"Integer") + put_str(b"0")
-    # A `MemberAccess { target: const_int, member: "x" }` value (tag 17).
-    member_access = bytes([17]) + const_int + put_str(b"x")
-    # A `Return { value: Some(member_access) }` op (tag 3, opt-value present).
-    return_op = bytes([3]) + bytes([1]) + member_access
+    # A `MemberAccess { target: const_int, member: "x", type_: "Integer" }` value (tag 17).
+    member_access = bytes([17]) + const_int + put_str(b"x") + put_str(b"Integer")
+    # A `Return { value: Some(member_access), loc }` op (tag 3, opt-value present).
+    return_op = bytes([3]) + bytes([1]) + member_access + put_loc()
     # The exported `run` function.
     function = bytearray()
     function += put_str(b"run")  # name
@@ -365,10 +374,11 @@ def mutate_type_confusion(data: bytes) -> bytes:
     function += put_str(b"Integer")  # returns
     function += _u32(1) + return_op  # body: one Return op
     function += put_str(b"")  # source file
+    function += put_loc()  # declaration loc (v3)
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(2)  # BINARY_REPR_VERSION
+    body += _u16(3)  # BINARY_REPR_VERSION
     body += put_str(b"sec_confused")  # project name
     body += bytes([0])  # entry: None
     body += _u32(0)  # bindings: none
@@ -394,7 +404,7 @@ def mutate_deep_body(data: bytes, depth: int = 300) -> bytes:
     body = bytearray()
     body += MFPC_MAGIC[:0]  # no-op to keep bytearray typed
     body += b"MFBR"
-    body += _u16(2)  # BINARY_REPR_VERSION
+    body += _u16(3)  # BINARY_REPR_VERSION
     body += put_str(b"x")  # project name
     body += bytes([0])  # entry: None
     body += _u32(1)  # bindings: one

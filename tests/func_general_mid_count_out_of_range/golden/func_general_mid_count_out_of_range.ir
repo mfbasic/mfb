@@ -12,13 +12,14 @@
   "functions": [
   {
     "name": "main",
+    "line": 2,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "strings.mid", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } }
+    { "op": "return", "line": 3, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "String", "target": "strings.mid", "args": [{ "kind": "const", "type": "String", "value": "hello" }, { "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "3" }] }] } }
     ]
   }
   ]

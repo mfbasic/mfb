@@ -12,30 +12,32 @@
   "functions": [
   {
     "name": "worker",
+    "line": 3,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "t", "type": "ThreadWorker OF String TO Integer", "default": null },
-    { "name": "seed", "type": "String", "default": null }
+    { "name": "t", "line": 3, "type": "ThreadWorker OF String TO Integer", "default": null },
+    { "name": "seed", "line": 3, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "first", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "bind", "mutable": false, "name": "immediate", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "mutable": false, "name": "timed", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "bind", "mutable": false, "name": "indefinite", "type": "String", "value": { "kind": "call", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "seed" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "first" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "immediate" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "timed" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "indefinite" }] } } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "first", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "immediate", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "timed", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "indefinite", "type": "String", "value": { "kind": "call", "type": "String", "target": "thread.receive", "args": [{ "kind": "local", "name": "t" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "return", "line": 8, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "seed" }] }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "first" }] } }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "immediate" }] } }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "timed" }] } }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "indefinite" }] } } }
     ]
   },
   {
     "name": "main",
+    "line": 11,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

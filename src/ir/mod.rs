@@ -101,6 +101,8 @@ pub(crate) struct IrFunction {
     // Source file (project-relative path) this function was lowered from. Used to
     // build `ErrorLoc.filename` for errors that originate inside this function.
     pub(crate) file: String,
+    // Source location of the function declaration.
+    pub(crate) loc: IrSourceLoc,
     // Resource ownership decisions (escape analysis, §15.6), keyed by `RES`
     // binding name. Drives where each resource's close obligation is discharged:
     // its own scope, an outer collection's scope (runtime owned-list), or out via
@@ -114,25 +116,25 @@ mod link;
 mod lower;
 mod op;
 mod package;
+#[cfg(test)]
+mod tests;
 mod types;
 mod value;
 mod verify;
-#[cfg(test)]
-mod tests;
 
-pub(crate) use link::{IrAbiSlot, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource};
-pub(crate) use op::IrOp;
+pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
 pub(crate) use json::visibility_name;
-pub(crate) use types::{
-    IrBinding, IrEnumMember, IrField, IrParam, IrRecordUpdate, IrSourceLoc, IrType, IrVariant,
-};
-pub use types::ExternalFunctionParam;
-pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
+pub(crate) use link::{IrAbiSlot, IrFree, IrLinkExpr, IrLinkFunction, IrNativeResource};
 pub(crate) use lower::collect_project_docs;
 pub use lower::{lower_project_with_external_functions, write_ir};
-pub use binary::{decode_binary_repr, encode_binary_repr, verify_package};
-pub use verify::check as verify_semantics;
+pub(crate) use op::IrOp;
 pub use package::{
     apply_package_identity, merge_package, package_qualified_reference_names,
     prefix_package_symbols,
 };
+pub use types::ExternalFunctionParam;
+pub(crate) use types::{
+    IrBinding, IrEnumMember, IrField, IrParam, IrRecordUpdate, IrSourceLoc, IrType, IrVariant,
+};
+pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
+pub use verify::check as verify_semantics;

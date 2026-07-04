@@ -6,15 +6,17 @@
   "types": [
   {
     "kind": "type",
+    "line": 3,
     "visibility": "export",
     "name": "WorkItem",
     "fields": [
-    { "visibility": null, "name": "id", "type": "Integer" },
-    { "visibility": null, "name": "payload", "type": "String" }
+    { "visibility": null, "line": 4, "name": "id", "type": "Integer" },
+    { "visibility": null, "line": 5, "name": "payload", "type": "String" }
     ]
   },
   {
     "kind": "enum",
+    "line": 8,
     "visibility": "export",
     "name": "WorkStatus",
     "members": [
@@ -24,36 +26,41 @@
   },
   {
     "kind": "type",
+    "line": 12,
     "visibility": "export",
     "name": "Success",
     "fields": [
-    { "visibility": null, "name": "value", "type": "Integer" }
+    { "visibility": null, "line": 13, "name": "value", "type": "Integer" }
     ]
   },
   {
     "kind": "type",
+    "line": 16,
     "visibility": "export",
     "name": "Failure",
     "fields": [
-    { "visibility": null, "name": "message", "type": "String" }
+    { "visibility": null, "line": 17, "name": "message", "type": "String" }
     ]
   },
   {
     "kind": "union",
+    "line": 20,
     "visibility": "export",
     "name": "WorkResult",
     "includes": [],
     "variants": [
     {
       "name": "Success",
+      "line": 21,
       "fields": [
-      { "visibility": null, "name": "value", "type": "Integer" }
+      { "visibility": null, "line": 13, "name": "value", "type": "Integer" }
       ]
     },
     {
       "name": "Failure",
+      "line": 22,
       "fields": [
-      { "visibility": null, "name": "message", "type": "String" }
+      { "visibility": null, "line": 17, "name": "message", "type": "String" }
       ]
     }
     ]
@@ -62,33 +69,36 @@
   "functions": [
   {
     "name": "worker",
+    "line": 25,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "seed", "type": "String", "default": null }
+    { "name": "seed", "line": 25, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    { "op": "return", "line": 26, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
     ]
   },
   {
     "name": "status",
+    "line": 29,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "done", "type": "Boolean", "default": null }
+    { "name": "done", "line": 29, "type": "Boolean", "default": null }
     ],
     "returns": "WorkStatus",
     "body": [
     {
       "op": "if",
+      "line": 30,
       "condition": { "kind": "local", "name": "done" },
       "then": [
-      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "WorkStatus" }, "member": "Complete" } }
+      { "op": "return", "line": 31, "value": { "kind": "memberAccess", "type": "WorkStatus", "target": { "kind": "local", "name": "WorkStatus" }, "member": "Complete" } }
       ],
       "else": [
-      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "WorkStatus" }, "member": "Pending" } }
+      { "op": "return", "line": 33, "value": { "kind": "memberAccess", "type": "WorkStatus", "target": { "kind": "local", "name": "WorkStatus" }, "member": "Pending" } }
       ]
     }
     ]

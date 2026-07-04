@@ -12,35 +12,38 @@
   "functions": [
   {
     "name": "main",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "middle", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.insert", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "3" }] }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "bind", "mutable": false, "name": "start", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.insert", "args": [{ "kind": "local", "name": "middle" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "mutable": false, "name": "finalValues", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.insert", "args": [{ "kind": "local", "name": "start" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
-    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "target": "collections.insert", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Katherine" }] }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "Grace" }] } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "middle", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.insert", "args": [{ "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "3" }] }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "start", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.insert", "args": [{ "kind": "local", "name": "middle" }, { "kind": "const", "type": "Integer", "value": "0" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "finalValues", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.insert", "args": [{ "kind": "local", "name": "start" }, { "kind": "const", "type": "Integer", "value": "4" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "collections.insert", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Katherine" }] }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "Grace" }] } },
     {
       "op": "forEach",
+      "line": 10,
       "name": "value",
       "type": "Integer",
       "iterable": { "kind": "local", "name": "finalValues" },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
+      { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
       ]
     },
     {
       "op": "forEach",
+      "line": 13,
       "name": "name",
       "type": "String",
       "iterable": { "kind": "local", "name": "names" },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "name" }] } }
+      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "name" }] } }
       ]
     },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "finalValues" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "names" }] } } }
+    { "op": "return", "line": 17, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "finalValues" }] }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "names" }] } } }
     ]
   }
   ]

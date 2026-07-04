@@ -3,27 +3,27 @@
 EXPORT RESOURCE Db CLOSE BY demoLink::close
 RESOURCE Stmt CLOSE BY demoLink::finalize
 
-LINK "demo" AS demoLink
+LINK "sqlite3" AS demoLink
   FUNC open(path AS String) AS RES Db
-    SYMBOL "demo_open"
+    SYMBOL "sqlite3_open"
     ABI (path CString, return OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
   FUNC close(RES db AS Db) AS Nothing
-    SYMBOL "demo_close"
+    SYMBOL "sqlite3_close"
     ABI (db CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
   FUNC prepare(RES db AS Db, sql AS String) AS RES Stmt
-    SYMBOL "demo_prepare"
+    SYMBOL "sqlite3_prepare_v2"
     ABI (db CPtr, sql CString, return OUT CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC
 
   FUNC finalize(RES stmt AS Stmt) AS Nothing
-    SYMBOL "demo_finalize"
+    SYMBOL "sqlite3_finalize"
     ABI (stmt CPtr) AS status CInt32
     SUCCESS_ON status = 0
   END FUNC

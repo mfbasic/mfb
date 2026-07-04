@@ -10,73 +10,79 @@
   "types": [
   {
     "kind": "type",
+    "line": 55,
     "visibility": "export",
     "name": "Point",
     "fields": [
-    { "visibility": null, "name": "x", "type": "Integer" },
-    { "visibility": null, "name": "y", "type": "Integer" }
+    { "visibility": null, "line": 56, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 57, "name": "y", "type": "Integer" }
     ]
   }
   ],
   "functions": [
   {
     "name": "add$Integer$Integer",
+    "line": 22,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "a", "type": "Integer", "default": null },
-    { "name": "b", "type": "Integer", "default": null }
+    { "name": "a", "line": 22, "type": "Integer", "default": null },
+    { "name": "b", "line": 22, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
+    { "op": "return", "line": 23, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
     ]
   },
   {
     "name": "add$Float$Float",
+    "line": 35,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "a", "type": "Float", "default": null },
-    { "name": "b", "type": "Float", "default": null }
+    { "name": "a", "line": 35, "type": "Float", "default": null },
+    { "name": "b", "line": 35, "type": "Float", "default": null }
     ],
     "returns": "Float",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
+    { "op": "return", "line": 36, "value": { "kind": "binary", "type": "Float", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
     ]
   },
   {
     "name": "logIt",
+    "line": 45,
     "visibility": "export",
     "kind": "sub",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 45, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "mutable": false, "name": "ignored", "type": "Integer", "value": { "kind": "local", "name": "value" } }
+    { "op": "bind", "line": 46, "mutable": false, "name": "ignored", "type": "Integer", "value": { "kind": "local", "name": "value" } }
     ]
   },
   {
     "name": "helper",
+    "line": 64,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "7" } }
+    { "op": "return", "line": 65, "value": { "kind": "const", "type": "Integer", "value": "7" } }
     ]
   },
   {
     "name": "main",
+    "line": 68,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "add$Integer$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } }
+    { "op": "return", "line": 69, "value": { "kind": "call", "type": "Integer", "target": "add$Integer$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } }
     ]
   }
   ]

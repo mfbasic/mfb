@@ -12,20 +12,22 @@
   "functions": [
   {
     "name": "useTerminalSize",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "a", "type": "TermSize", "value": { "kind": "call", "target": "term.terminalSize", "args": [] } },
-    { "op": "bind", "mutable": true, "name": "b", "type": "TermSize", "value": { "kind": "call", "target": "term.terminalSize", "args": [] } },
-    { "op": "assign", "name": "b", "value": { "kind": "local", "name": "a" } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "rows" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "a" }, "member": "columns" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "rows" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "b" }, "member": "columns" } } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "a", "type": "TermSize", "value": { "kind": "call", "type": "TermSize", "target": "term.terminalSize", "args": [] } },
+    { "op": "bind", "line": 5, "mutable": true, "name": "b", "type": "TermSize", "value": { "kind": "call", "type": "TermSize", "target": "term.terminalSize", "args": [] } },
+    { "op": "assign", "line": 7, "name": "b", "value": { "kind": "local", "name": "a" } },
+    { "op": "return", "line": 8, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "rows" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "a" }, "member": "columns" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "rows" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "b" }, "member": "columns" } } }
     ]
   },
   {
     "name": "main",
+    "line": 11,
     "visibility": "private",
     "kind": "func",
     "params": [
@@ -34,14 +36,15 @@
     "body": [
     {
       "op": "if",
+      "line": 12,
       "condition": { "kind": "const", "type": "Boolean", "value": "false" },
       "then": [
-      { "op": "return", "value": { "kind": "call", "target": "useTerminalSize", "args": [] } }
+      { "op": "return", "line": 13, "value": { "kind": "call", "type": "Integer", "target": "useTerminalSize", "args": [] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

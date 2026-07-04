@@ -12,48 +12,53 @@
   "functions": [
   {
     "name": "leaf",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "123" }, { "kind": "const", "type": "String", "value": "leaf failed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "line": 2, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "123" }, { "kind": "const", "type": "String", "value": "leaf failed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   },
   {
     "name": "relay",
+    "line": 5,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "leaf", "args": [] } },
+    { "op": "return", "line": 6, "value": { "kind": "call", "type": "Integer", "target": "leaf", "args": [] } },
     {
       "op": "trap",
+      "line": 7,
       "name": "err",
       "body": [
-      { "op": "fail", "error": { "kind": "local", "name": "err" } }
+      { "op": "fail", "line": 8, "error": { "kind": "local", "name": "err" } }
       ]
     }
     ]
   },
   {
     "name": "main",
+    "line": 12,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "target": "relay", "args": [] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "relay", "args": [] } },
+    { "op": "return", "line": 14, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
     {
       "op": "trap",
+      "line": 15,
       "name": "err",
       "body": [
-      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      { "op": "return", "line": 16, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
       ]
     }
     ]

@@ -12,18 +12,19 @@
   "functions": [
   {
     "name": "main",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/func_fs_readBytes_valid.txt" } },
-    { "op": "bind", "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "72" }, { "kind": "const", "type": "Byte", "value": "101" }, { "kind": "const", "type": "Byte", "value": "108" }, { "kind": "const", "type": "Byte", "value": "108" }, { "kind": "const", "type": "Byte", "value": "111" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.writeBytes", "args": [{ "kind": "local", "name": "path" }, { "kind": "local", "name": "bytes" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.readBytes", "args": [{ "kind": "local", "name": "path" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 5, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/func_fs_readBytes_valid.txt" } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "bytes", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "72" }, { "kind": "const", "type": "Byte", "value": "101" }, { "kind": "const", "type": "Byte", "value": "108" }, { "kind": "const", "type": "Byte", "value": "108" }, { "kind": "const", "type": "Byte", "value": "111" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeBytes", "args": [{ "kind": "local", "name": "path" }, { "kind": "local", "name": "bytes" }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "List OF Byte", "target": "fs.readBytes", "args": [{ "kind": "local", "name": "path" }] }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

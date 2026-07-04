@@ -12,13 +12,14 @@
   "functions": [
   {
     "name": "foobar",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 2, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

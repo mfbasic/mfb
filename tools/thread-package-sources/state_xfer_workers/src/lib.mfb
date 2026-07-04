@@ -1,0 +1,12 @@
+IMPORT thread
+
+TYPE Cursor
+  pos AS Integer
+END TYPE
+
+' Receives a File on the resource plane together with its STATE Cursor and
+' returns the transferred `pos` (the consumer set it to 99 before transfer).
+EXPORT ISOLATED FUNC takeCursor(t AS ThreadWorker OF RES File TO Integer, seed AS String) AS Integer
+  RES f AS File STATE Cursor = thread::accept(t, 1000)
+  RETURN f.state.pos
+END FUNC

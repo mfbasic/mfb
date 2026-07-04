@@ -10,61 +10,66 @@
   "types": [
   {
     "kind": "type",
+    "line": 4,
     "visibility": "private",
     "name": "Cursor",
     "fields": [
-    { "visibility": null, "name": "pos", "type": "Integer" }
+    { "visibility": null, "line": 5, "name": "pos", "type": "Integer" }
     ]
   }
   ],
   "functions": [
   {
     "name": "touch",
+    "line": 11,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "path", "type": "String", "default": null }
+    { "name": "path", "line": 11, "type": "String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
-    { "op": "stateAssign", "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "42" } }] } }
+    { "op": "bind", "line": 12, "mutable": false, "name": "f", "type": "File STATE Cursor", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "stateAssign", "line": 13, "resource": "f", "value": { "kind": "with", "type": "Cursor", "target": { "kind": "memberAccess", "type": "Cursor", "target": { "kind": "local", "name": "f" }, "member": "state" }, "updates": [{ "field": "pos", "value": { "kind": "const", "type": "Integer", "value": "42" } }] } }
     ]
   },
   {
     "name": "main",
+    "line": 16,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/resource_state_drop_valid.txt" } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "path", "type": "String", "value": { "kind": "const", "type": "String", "value": "target/resource_state_drop_valid.txt" } },
     {
       "op": "if",
-      "condition": { "kind": "call", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "path" }] },
+      "line": 18,
+      "condition": { "kind": "call", "type": "Boolean", "target": "fs.fileExists", "args": [{ "kind": "local", "name": "path" }] },
       "then": [
-      { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } }
+      { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } }
       ],
       "else": [
       ]
     },
-    { "op": "bind", "mutable": false, "name": "seed", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "seed" }, { "kind": "const", "type": "String", "value": "x" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "seed" }] } },
-    { "op": "bind", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 21, "mutable": false, "name": "seed", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "seed" }, { "kind": "const", "type": "String", "value": "x" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "seed" }] } },
+    { "op": "bind", "line": 24, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
+      "line": 25,
       "loop": "while",
-      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2000" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2000" } },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "touch", "args": [{ "kind": "local", "name": "path" }] } },
-      { "op": "assign", "name": "i", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "touch", "args": [{ "kind": "local", "name": "path" }] } },
+      { "op": "assign", "line": 27, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "eval", "line": 30, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "line": 31, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

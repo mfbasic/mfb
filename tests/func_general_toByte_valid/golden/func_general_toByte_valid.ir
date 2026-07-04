@@ -12,27 +12,29 @@
   "functions": [
   {
     "name": "byteText",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 3, "type": "Integer", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "toByte", "args": [{ "kind": "local", "name": "value" }] }] } }
+    { "op": "return", "line": 4, "value": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "local", "name": "value" }] }] } }
     ]
   },
   {
     "name": "main",
+    "line": 7,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "byteText", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "byteText", "args": [{ "kind": "const", "type": "Integer", "value": "255" }] }] } },
-    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] }] } }
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "byteText", "args": [{ "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "byteText", "args": [{ "kind": "const", "type": "Integer", "value": "255" }] }] } },
+    { "op": "return", "line": 10, "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Byte", "target": "toByte", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] }] } }
     ]
   }
   ]

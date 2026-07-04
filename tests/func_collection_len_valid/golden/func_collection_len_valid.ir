@@ -12,25 +12,26 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "emptyList", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
-    { "op": "bind", "mutable": false, "name": "emptyMap", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [] } },
-    { "op": "bind", "mutable": false, "name": "ages", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }, { "key": { "kind": "const", "type": "String", "value": "Grace" }, "value": { "kind": "const", "type": "Integer", "value": "85" } }] } },
-    { "op": "bind", "mutable": false, "name": "emptyListLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyList" }] } },
-    { "op": "bind", "mutable": false, "name": "numbersLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "numbers" }] } },
-    { "op": "bind", "mutable": false, "name": "emptyMapLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyMap" }] } },
-    { "op": "bind", "mutable": false, "name": "agesLen", "type": "Integer", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "ages" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "emptyListLen" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "numbersLen" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "emptyMapLen" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "agesLen" }] }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "emptyListLen" }, "right": { "kind": "local", "name": "numbersLen" } }, "right": { "kind": "local", "name": "emptyMapLen" } }, "right": { "kind": "local", "name": "agesLen" } } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "emptyList", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }, { "kind": "const", "type": "Integer", "value": "30" }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "emptyMap", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "ages", "type": "Map OF String TO Integer", "value": { "kind": "map", "type": "Map OF String TO Integer", "entries": [{ "key": { "kind": "const", "type": "String", "value": "Ada" }, "value": { "kind": "const", "type": "Integer", "value": "36" } }, { "key": { "kind": "const", "type": "String", "value": "Grace" }, "value": { "kind": "const", "type": "Integer", "value": "85" } }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "emptyListLen", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "emptyList" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "numbersLen", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "numbers" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "emptyMapLen", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "emptyMap" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "agesLen", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "ages" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "emptyListLen" }] }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "numbersLen" }] }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "emptyMapLen" }] }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "agesLen" }] }] } },
+    { "op": "return", "line": 19, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "emptyListLen" }, "right": { "kind": "local", "name": "numbersLen" } }, "right": { "kind": "local", "name": "emptyMapLen" } }, "right": { "kind": "local", "name": "agesLen" } } }
     ]
   }
   ]

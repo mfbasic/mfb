@@ -8,26 +8,28 @@
   "functions": [
   {
     "name": "byteLenAlias",
+    "line": 4,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "message", "type": "String", "default": null }
+    { "name": "message", "line": 4, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "message" }] } }
+    { "op": "return", "line": 5, "value": { "kind": "call", "type": "Integer", "target": "strings.byteLen", "args": [{ "kind": "local", "name": "message" }] } }
     ]
   },
   {
     "name": "flushStreams",
+    "line": 8,
     "visibility": "export",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.flush", "args": [] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.flushError", "args": [] } }
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.flush", "args": [] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.flushError", "args": [] } }
     ]
   }
   ]

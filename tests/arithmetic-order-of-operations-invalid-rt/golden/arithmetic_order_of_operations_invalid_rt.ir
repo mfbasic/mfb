@@ -12,14 +12,15 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "zero", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1" }, "right": { "kind": "binary", "op": "/", "left": { "kind": "binary", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "2" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, "right": { "kind": "local", "name": "zero" } } } }
+    { "op": "bind", "line": 2, "mutable": false, "name": "zero", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "return", "line": 3, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "const", "type": "Integer", "value": "1" }, "right": { "kind": "binary", "type": "Integer", "op": "/", "left": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "const", "type": "Integer", "value": "2" }, "right": { "kind": "const", "type": "Integer", "value": "3" } }, "right": { "kind": "local", "name": "zero" } } } }
     ]
   }
   ]

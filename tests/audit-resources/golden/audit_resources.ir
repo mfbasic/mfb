@@ -12,34 +12,37 @@
   "functions": [
   {
     "name": "readFirst",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "path", "type": "String", "default": null }
+    { "name": "path", "line": 4, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
-    { "op": "return", "value": { "kind": "call", "target": "fs.readLine", "args": [{ "kind": "local", "name": "file" }] } }
+    { "op": "bind", "line": 5, "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "line": 6, "value": { "kind": "call", "type": "String", "target": "fs.readLine", "args": [{ "kind": "local", "name": "file" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 9,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "target": "readFirst", "args": [{ "kind": "const", "type": "String", "value": "data.txt" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "line" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "line", "type": "String", "value": { "kind": "call", "type": "String", "target": "readFirst", "args": [{ "kind": "const", "type": "String", "value": "data.txt" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "line" }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "trap",
+      "line": 13,
       "name": "err",
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "failed" }] } },
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "failed" }] } },
+      { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ]
     }
     ]

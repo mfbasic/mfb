@@ -12,18 +12,19 @@
   "functions": [
   {
     "name": "main",
+    "line": 6,
     "visibility": "private",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "mutable": false, "name": "remembered", "type": "String", "value": { "kind": "const", "type": "String", "value": "ordinary rem identifier" } },
-    { "op": "bind", "mutable": false, "name": "premium", "type": "String", "value": { "kind": "local", "name": "remembered" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "premium" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "rem comment after colon" }] } },
-    { "op": "bind", "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
+    { "op": "bind", "line": 8, "mutable": false, "name": "remembered", "type": "String", "value": { "kind": "const", "type": "String", "value": "ordinary rem identifier" } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "premium", "type": "String", "value": { "kind": "local", "name": "remembered" } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "premium" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "rem comment after colon" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "value", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
     ]
   }
   ]

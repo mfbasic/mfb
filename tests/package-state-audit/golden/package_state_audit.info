@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 3d8a9c3a733a17178c9cb90b8b08e8fef7ca3b9bf3223e32d39e3b731019e520
-  binary representation length: 838
+  content hash: 76e4f6d6c301bf68b879fd19d1d2c0742c8f02170bf6bfab2f50edef2e396fc9
+  binary representation length: 889
 
 Manifest:
   name: package_state_audit

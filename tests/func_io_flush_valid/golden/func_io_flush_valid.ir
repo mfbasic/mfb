@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "before" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.flush", "args": [] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "-after" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "io.write", "args": [{ "kind": "const", "type": "String", "value": "before" }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.flush", "args": [] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "-after" }] } },
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

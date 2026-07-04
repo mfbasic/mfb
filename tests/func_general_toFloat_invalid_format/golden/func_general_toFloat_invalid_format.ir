@@ -12,14 +12,15 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "value", "type": "Float", "value": { "kind": "call", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1x" }] } },
-    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "local", "name": "value" }] } }
+    { "op": "bind", "line": 2, "mutable": false, "name": "value", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "toFloat", "args": [{ "kind": "const", "type": "String", "value": "1x" }] } },
+    { "op": "return", "line": 3, "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "value" }] } }
     ]
   }
   ]

@@ -12,40 +12,43 @@
   "functions": [
   {
     "name": "show",
+    "line": 7,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "xs", "type": "List OF Float", "default": null },
-    { "name": "p", "type": "Byte", "default": null }
+    { "name": "xs", "line": 7, "type": "List OF Float", "default": null },
+    { "name": "p", "line": 7, "type": "Byte", "default": null }
     ],
     "returns": "Nothing",
     "body": [
     {
       "op": "forEach",
+      "line": 8,
       "name": "x",
       "type": "Float",
       "iterable": { "kind": "local", "name": "xs" },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "p" }] }] } }
+      { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "x" }, { "kind": "local", "name": "p" }] }] } }
       ]
     }
     ]
   },
   {
     "name": "main",
+    "line": 13,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "15" } },
-    { "op": "bind", "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "10.0" }, { "kind": "const", "type": "Float", "value": "100.0" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "log:" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "show", "args": [{ "kind": "call", "target": "math.log", "args": [{ "kind": "local", "name": "xs" }] }, { "kind": "local", "name": "p" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "log10:" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "show", "args": [{ "kind": "call", "target": "math.log10", "args": [{ "kind": "local", "name": "xs" }] }, { "kind": "local", "name": "p" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 14, "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "15" } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "const", "type": "Float", "value": "2.0" }, { "kind": "const", "type": "Float", "value": "10.0" }, { "kind": "const", "type": "Float", "value": "100.0" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "log:" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "call", "type": "List OF Float", "target": "math.log", "args": [{ "kind": "local", "name": "xs" }] }, { "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "log10:" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "show", "args": [{ "kind": "call", "type": "List OF Float", "target": "math.log10", "args": [{ "kind": "local", "name": "xs" }] }, { "kind": "local", "name": "p" }] } },
+    { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

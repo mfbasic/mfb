@@ -1,6 +1,5 @@
 use super::*;
 
-
 /// Namespace a decoded package's own functions and globals by its deterministic
 /// identity prefix `<id>.<package>` (see `binary_repr::package_identity_id`),
 /// rewriting every internal reference to match. Types are left unqualified.
@@ -154,32 +153,33 @@ fn rewrite_op_targets(op: &mut IrOp, fns: &HashSet<String>, globals: &HashSet<St
         }
         IrOp::Assign { value, .. }
         | IrOp::StateAssign { value, .. }
-        | IrOp::Eval { value }
-        | IrOp::Fail { error: value } => rewrite_value_targets(value, fns, globals, pkg),
-        IrOp::AssignGlobal { name, value } => {
+        | IrOp::Eval { value, .. }
+        | IrOp::Fail { error: value, .. } => rewrite_value_targets(value, fns, globals, pkg),
+        IrOp::AssignGlobal { name, value, .. } => {
             if globals.contains(name) {
                 qualify_target(name, pkg);
             }
             rewrite_value_targets(value, fns, globals, pkg);
         }
-        IrOp::Return { value } => {
+        IrOp::Return { value, .. } => {
             if let Some(v) = value {
                 rewrite_value_targets(v, fns, globals, pkg);
             }
         }
         IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
-        IrOp::ExitProgram { code } => rewrite_value_targets(code, fns, globals, pkg),
+        IrOp::ExitProgram { code, .. } => rewrite_value_targets(code, fns, globals, pkg),
         IrOp::If {
             condition,
             then_body,
             else_body,
+            ..
         } => {
             rewrite_value_targets(condition, fns, globals, pkg);
             for op in then_body.iter_mut().chain(else_body.iter_mut()) {
                 rewrite_op_targets(op, fns, globals, pkg);
             }
         }
-        IrOp::Match { value, cases } => {
+        IrOp::Match { value, cases, .. } => {
             rewrite_value_targets(value, fns, globals, pkg);
             for case in cases {
                 match &mut case.pattern {
@@ -221,7 +221,9 @@ fn rewrite_op_targets(op: &mut IrOp, fns: &HashSet<String>, globals: &HashSet<St
                 rewrite_op_targets(op, fns, globals, pkg);
             }
         }
-        IrOp::DoUntil { body, condition } => {
+        IrOp::DoUntil {
+            body, condition, ..
+        } => {
             for op in body {
                 rewrite_op_targets(op, fns, globals, pkg);
             }
@@ -282,7 +284,7 @@ fn rewrite_value_targets(
         IrValue::UnionWrap { value, .. }
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value }
+        | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
@@ -317,4 +319,3 @@ fn rewrite_value_targets(
         | IrValue::Capture { .. } => {}
     }
 }
-

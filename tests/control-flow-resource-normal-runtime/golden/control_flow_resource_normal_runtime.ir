@@ -12,37 +12,40 @@
   "functions": [
   {
     "name": "useOnce",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "path", "type": "String", "default": null }
+    { "name": "path", "line": 4, "type": "String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    { "op": "bind", "line": 5, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "line": 6, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
     ]
   },
   {
     "name": "main",
+    "line": 9,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 10, "mutable": true, "name": "i", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "while",
+      "line": 11,
       "loop": "while",
-      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "4000" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "4000" } },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "useOnce", "args": [{ "kind": "const", "type": "String", "value": "tests/control-flow-resource-normal-runtime/src/main.mfb" }] } },
-      { "op": "assign", "name": "i", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+      { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "useOnce", "args": [{ "kind": "const", "type": "String", "value": "tests/control-flow-resource-normal-runtime/src/main.mfb" }] } },
+      { "op": "assign", "line": 13, "name": "i", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "normal" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "normal" }] } },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

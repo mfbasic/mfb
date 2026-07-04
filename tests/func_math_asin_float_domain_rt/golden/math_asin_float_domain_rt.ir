@@ -12,15 +12,16 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "outside", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "2.0" } },
-    { "op": "bind", "mutable": false, "name": "result", "type": "Float", "value": { "kind": "call", "target": "math.asin", "args": [{ "kind": "local", "name": "outside" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "outside", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "2.0" } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "result", "type": "Float", "value": { "kind": "call", "type": "Float", "target": "math.asin", "args": [{ "kind": "local", "name": "outside" }] } },
+    { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

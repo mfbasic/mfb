@@ -12,17 +12,18 @@
   "functions": [
   {
     "name": "main",
+    "line": 7,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "intMin", "type": "Integer", "value": { "kind": "binary", "op": "-", "left": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "const", "type": "Integer", "value": "9223372036854775807" } }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-    { "op": "bind", "mutable": false, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "local", "name": "intMin" }] } },
-    { "op": "bind", "mutable": false, "name": "ys", "type": "List OF Integer", "value": { "kind": "call", "target": "math.abs", "args": [{ "kind": "local", "name": "xs" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "ys" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 8, "mutable": false, "name": "intMin", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "const", "type": "Integer", "value": "9223372036854775807" } }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "local", "name": "intMin" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "ys", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "math.abs", "args": [{ "kind": "local", "name": "xs" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "ys" }] }] }] } },
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

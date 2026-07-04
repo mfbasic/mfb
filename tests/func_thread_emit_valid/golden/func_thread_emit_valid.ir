@@ -12,29 +12,31 @@
   "functions": [
   {
     "name": "worker",
+    "line": 3,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "t", "type": "ThreadWorker OF String TO Integer", "default": null },
-    { "name": "seed", "type": "String", "default": null }
+    { "name": "t", "line": 3, "type": "ThreadWorker OF String TO Integer", "default": null },
+    { "name": "seed", "line": 3, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "seed" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "immediate" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "timed" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
-    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "local", "name": "seed" }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "immediate" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "const", "type": "String", "value": "timed" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "return", "line": 7, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 10,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

@@ -12,13 +12,14 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "Hello World" }] } }
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "Hello World" }] } }
     ]
   }
   ]

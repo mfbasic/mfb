@@ -142,10 +142,12 @@ impl TypeEnv {
                     // Each variant is a record type in its own right; register
                     // its payload fields so `variant.field` accesses resolve.
                     for variant in &ty.variants {
-                        records.entry(variant.name.clone()).or_insert_with(|| RecordInfo {
-                            fields: variant.fields.iter().map(|f| f.name.clone()).collect(),
-                            includes: Vec::new(),
-                        });
+                        records
+                            .entry(variant.name.clone())
+                            .or_insert_with(|| RecordInfo {
+                                fields: variant.fields.iter().map(|f| f.name.clone()).collect(),
+                                includes: Vec::new(),
+                            });
                         field_types
                             .entry(variant.name.clone())
                             .or_insert_with(|| field_type_map(&variant.fields));
@@ -238,13 +240,13 @@ impl TypeEnv {
                 IrOp::Assign { value, .. }
                 | IrOp::AssignGlobal { value, .. }
                 | IrOp::StateAssign { value, .. }
-                | IrOp::Eval { value }
-                | IrOp::ExitProgram { code: value }
-                | IrOp::Fail { error: value } => {
+                | IrOp::Eval { value, .. }
+                | IrOp::ExitProgram { code: value, .. }
+                | IrOp::Fail { error: value, .. } => {
                     self.check_value_captures(value, closure_slots)?;
                     self.check_value(value, locals)?;
                 }
-                IrOp::Return { value } => {
+                IrOp::Return { value, .. } => {
                     if let Some(value) = value {
                         self.check_value_captures(value, closure_slots)?;
                         self.check_value(value, locals)?;
@@ -255,6 +257,7 @@ impl TypeEnv {
                     condition,
                     then_body,
                     else_body,
+                    ..
                 } => {
                     self.check_value_captures(condition, closure_slots)?;
                     self.check_value(condition, locals)?;
@@ -263,7 +266,7 @@ impl TypeEnv {
                     let mut branch = locals.clone();
                     self.check_ops(else_body, &mut branch, closure_slots, depth + 1)?;
                 }
-                IrOp::Match { value, cases } => {
+                IrOp::Match { value, cases, .. } => {
                     if cases.is_empty() {
                         return Err(format!(
                             "{VERIFY_MATCH}: MATCH has no cases (not exhaustive)"
@@ -324,7 +327,9 @@ impl TypeEnv {
                     branch.insert(name.clone(), type_.clone());
                     self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
                 }
-                IrOp::DoUntil { body, condition } => {
+                IrOp::DoUntil {
+                    body, condition, ..
+                } => {
                     let mut branch = locals.clone();
                     self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
                     self.check_value_captures(condition, closure_slots)?;
@@ -335,6 +340,7 @@ impl TypeEnv {
                     type_,
                     iterable,
                     body,
+                    ..
                 } => {
                     self.check_value_captures(iterable, closure_slots)?;
                     self.check_value(iterable, locals)?;
@@ -342,7 +348,7 @@ impl TypeEnv {
                     branch.insert(name.clone(), type_.clone());
                     self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
                 }
-                IrOp::Trap { name, body } => {
+                IrOp::Trap { name, body, .. } => {
                     let mut branch = locals.clone();
                     branch.insert(name.clone(), "Error".to_string());
                     self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
@@ -357,7 +363,7 @@ impl TypeEnv {
     /// rule so the innermost violation surfaces first.
     fn check_value(&self, value: &IrValue, locals: &HashMap<String, String>) -> Result<(), String> {
         match value {
-            IrValue::MemberAccess { target, member } => {
+            IrValue::MemberAccess { target, member, .. } => {
                 self.check_value(target, locals)?;
                 self.check_member_access(target, member, locals)?;
             }
@@ -388,7 +394,7 @@ impl TypeEnv {
             }
             IrValue::UnionExtract { value, .. }
             | IrValue::ResultIsOk { value }
-            | IrValue::ResultValue { value }
+            | IrValue::ResultValue { value, .. }
             | IrValue::ResultError { value }
             | IrValue::Unary { operand: value, .. } => {
                 self.check_value(value, locals)?;
@@ -625,7 +631,7 @@ impl TypeEnv {
             IrValue::Constructor { type_, .. }
             | IrValue::WithUpdate { type_, .. }
             | IrValue::UnionExtract { type_, .. } => Some(type_.clone()),
-            IrValue::MemberAccess { target, member } => {
+            IrValue::MemberAccess { target, member, .. } => {
                 let target_type = self.infer_type(target, locals)?;
                 self.field_type(&target_type, member)
             }
@@ -689,7 +695,7 @@ fn collect_closures(value: &IrValue, out: &mut HashMap<String, HashSet<usize>>) 
         IrValue::UnionWrap { value, .. }
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value }
+        | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => collect_closures(value, out),
@@ -733,22 +739,23 @@ fn collect_closures_ops(ops: &[IrOp], out: &mut HashMap<String, HashSet<usize>>)
             IrOp::Assign { value, .. }
             | IrOp::AssignGlobal { value, .. }
             | IrOp::StateAssign { value, .. }
-            | IrOp::Eval { value }
-            | IrOp::ExitProgram { code: value }
-            | IrOp::Fail { error: value } => collect_closures(value, out),
-            IrOp::Return { value: Some(v) } => collect_closures(v, out),
-            IrOp::Return { value: None } => {}
+            | IrOp::Eval { value, .. }
+            | IrOp::ExitProgram { code: value, .. }
+            | IrOp::Fail { error: value, .. } => collect_closures(value, out),
+            IrOp::Return { value: Some(v), .. } => collect_closures(v, out),
+            IrOp::Return { value: None, .. } => {}
             IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
             IrOp::If {
                 condition,
                 then_body,
                 else_body,
+                ..
             } => {
                 collect_closures(condition, out);
                 collect_closures_ops(then_body, out);
                 collect_closures_ops(else_body, out);
             }
-            IrOp::Match { value, cases } => {
+            IrOp::Match { value, cases, .. } => {
                 collect_closures(value, out);
                 for case in cases {
                     match &case.pattern {
@@ -784,7 +791,9 @@ fn collect_closures_ops(ops: &[IrOp], out: &mut HashMap<String, HashSet<usize>>)
                 collect_closures(step, out);
                 collect_closures_ops(body, out);
             }
-            IrOp::DoUntil { body, condition } => {
+            IrOp::DoUntil {
+                body, condition, ..
+            } => {
                 collect_closures_ops(body, out);
                 collect_closures(condition, out);
             }
@@ -820,7 +829,7 @@ fn walk_captures(value: &IrValue, visit: &mut impl FnMut(usize)) {
         IrValue::UnionWrap { value, .. }
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value }
+        | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => walk_captures(value, visit),

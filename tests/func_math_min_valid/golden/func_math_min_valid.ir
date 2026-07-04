@@ -12,22 +12,23 @@
   "functions": [
   {
     "name": "main",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
-    { "op": "bind", "mutable": false, "name": "fixedLow", "type": "Fixed", "value": { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "3.75" }] } } },
-    { "op": "bind", "mutable": false, "name": "fixedHigh", "type": "Fixed", "value": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.50" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.min", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "4" } }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.min", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "6" } }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.min", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "5" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.min", "args": [{ "kind": "const", "type": "Float", "value": "2.50" }, { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "4.25" } }] }, { "kind": "local", "name": "p" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.min", "args": [{ "kind": "const", "type": "Float", "value": "1.25" }, { "kind": "const", "type": "Float", "value": "1.25" }] }, { "kind": "local", "name": "p" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.min", "args": [{ "kind": "local", "name": "fixedLow" }, { "kind": "local", "name": "fixedHigh" }] }, { "kind": "local", "name": "p" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 5, "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "fixedLow", "type": "Fixed", "value": { "kind": "binary", "type": "Fixed", "op": "-", "left": { "kind": "const", "type": "Integer", "value": "0" }, "right": { "kind": "call", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "3.75" }] } } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "fixedHigh", "type": "Fixed", "value": { "kind": "call", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2.50" }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "math.min", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "4" } }] }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "math.min", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "6" } }] }] }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "math.min", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "5" }] }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.min", "args": [{ "kind": "const", "type": "Float", "value": "2.50" }, { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "4.25" } }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.min", "args": [{ "kind": "const", "type": "Float", "value": "1.25" }, { "kind": "const", "type": "Float", "value": "1.25" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "math.min", "args": [{ "kind": "local", "name": "fixedLow" }, { "kind": "local", "name": "fixedHigh" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

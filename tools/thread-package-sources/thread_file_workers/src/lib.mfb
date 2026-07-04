@@ -1,13 +1,17 @@
 IMPORT thread
 IMPORT fs
 
-EXPORT ISOLATED FUNC acceptFile(t AS ThreadWorker OF Nothing TO Integer, f AS File) AS Integer
-  fs::close(f)
+' Receives a File as a start argument. A resource parameter is a borrow (the
+' language grants ownership only via thread::accept), so the worker uses it
+' without closing; the handle is released when the process's owner side drops.
+EXPORT ISOLATED FUNC acceptFile(t AS ThreadWorker OF Nothing TO Integer, RES f AS File) AS Integer
   RETURN 1
 END FUNC
 
-EXPORT ISOLATED FUNC receiveFile(t AS ThreadWorker OF File TO Integer, path AS String) AS Integer
-  LET f AS File = thread::receive(t, 1000)
+' Receives a File on the resource plane and closes it explicitly (the accept
+' binding owns the resource).
+EXPORT ISOLATED FUNC receiveFile(t AS ThreadWorker OF RES File TO Integer, path AS String) AS Integer
+  RES f AS File = thread::accept(t, 1000)
   fs::close(f)
   RETURN 1
 END FUNC

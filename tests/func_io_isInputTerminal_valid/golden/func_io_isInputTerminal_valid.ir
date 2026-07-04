@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "a", "type": "Boolean", "value": { "kind": "call", "target": "io.isInputTerminal", "args": [] } },
-    { "op": "bind", "mutable": true, "name": "b", "type": "Boolean", "value": { "kind": "call", "target": "io.isInputTerminal", "args": [] } },
-    { "op": "assign", "name": "b", "value": { "kind": "local", "name": "a" } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "a", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "io.isInputTerminal", "args": [] } },
+    { "op": "bind", "line": 5, "mutable": true, "name": "b", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "io.isInputTerminal", "args": [] } },
+    { "op": "assign", "line": 6, "name": "b", "value": { "kind": "local", "name": "a" } },
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.writeError", "args": [{ "kind": "const", "type": "String", "value": "before" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.flushError", "args": [] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": "-after" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "io.writeError", "args": [{ "kind": "const", "type": "String", "value": "before" }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.flushError", "args": [] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": "-after" }] } },
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

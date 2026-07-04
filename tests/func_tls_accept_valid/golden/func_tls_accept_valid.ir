@@ -12,22 +12,23 @@
   "functions": [
   {
     "name": "main",
+    "line": 7,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "server", "type": "TlsListener", "value": { "kind": "call", "target": "tls.listen", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "8443" }, { "kind": "const", "type": "String", "value": "cert.pem" }, { "kind": "const", "type": "String", "value": "key.pem" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "mutable": false, "name": "blocking", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.accept", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
-    { "op": "bind", "mutable": false, "name": "timed", "type": "TlsSocket", "value": { "kind": "call", "target": "tls.accept", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "2500" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "tls.writeText", "args": [{ "kind": "local", "name": "blocking" }, { "kind": "const", "type": "String", "value": "one\n" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "tls.writeText", "args": [{ "kind": "local", "name": "timed" }, { "kind": "const", "type": "String", "value": "two\n" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "timed" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "tls.close", "args": [{ "kind": "local", "name": "blocking" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "tls.closeListener", "args": [{ "kind": "local", "name": "server" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 8, "mutable": false, "name": "server", "type": "TlsListener", "value": { "kind": "call", "type": "TlsListener", "target": "tls.listen", "args": [{ "kind": "const", "type": "String", "value": "127.0.0.1" }, { "kind": "const", "type": "Integer", "value": "8443" }, { "kind": "const", "type": "String", "value": "cert.pem" }, { "kind": "const", "type": "String", "value": "key.pem" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "blocking", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.accept", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "timed", "type": "TlsSocket", "value": { "kind": "call", "type": "TlsSocket", "target": "tls.accept", "args": [{ "kind": "local", "name": "server" }, { "kind": "const", "type": "Integer", "value": "2500" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "blocking" }, { "kind": "const", "type": "String", "value": "one\n" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "timed" }, { "kind": "const", "type": "String", "value": "two\n" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "timed" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "tls.close", "args": [{ "kind": "local", "name": "blocking" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "tls.closeListener", "args": [{ "kind": "local", "name": "server" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ok" }] } },
+    { "op": "return", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

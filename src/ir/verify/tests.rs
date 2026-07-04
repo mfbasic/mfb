@@ -30,6 +30,7 @@ fn func(name: &str, params: Vec<IrParam>, body: Vec<IrOp>) -> IrFunction {
         body,
         file: "src/main.mfb".to_string(),
         resource_owners: HashMap::new(),
+        loc: IrSourceLoc::default(),
     }
 }
 
@@ -38,6 +39,7 @@ fn param(name: &str, type_: &str, default: Option<IrValue>) -> IrParam {
         name: name.to_string(),
         type_: type_.to_string(),
         default,
+        loc: IrSourceLoc::default(),
     }
 }
 
@@ -52,11 +54,13 @@ fn record(name: &str, fields: &[&str]) -> IrType {
                 visibility: None,
                 name: (*f).to_string(),
                 type_: "Integer".to_string(),
+                loc: IrSourceLoc::default(),
             })
             .collect(),
         includes: vec![],
         variants: vec![],
         members: vec![],
+        loc: IrSourceLoc::default(),
     }
 }
 
@@ -75,7 +79,9 @@ fn accepts_member_access_on_known_record_field() {
         value: Some(IrValue::MemberAccess {
             target: Box::new(IrValue::Local("p".to_string())),
             member: "x".to_string(),
+            type_: "Unknown".to_string(),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![param("p", "Point", None)], body);
     check(&project(vec![f], vec![record("Point", &["x", "y"])])).expect("valid member access");
@@ -88,7 +94,9 @@ fn rejects_member_access_on_integer() {
         value: Some(IrValue::MemberAccess {
             target: Box::new(int_const("0")),
             member: "x".to_string(),
+            type_: "Unknown".to_string(),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![], body);
     let err = check(&project(vec![f], vec![])).expect_err("member on Integer must be rejected");
@@ -101,7 +109,9 @@ fn rejects_member_access_missing_field_on_record() {
         value: Some(IrValue::MemberAccess {
             target: Box::new(IrValue::Local("p".to_string())),
             member: "z".to_string(),
+            type_: "Unknown".to_string(),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![param("p", "Point", None)], body);
     let err = check(&project(vec![f], vec![record("Point", &["x", "y"])]))
@@ -117,7 +127,9 @@ fn skips_member_access_on_unknown_type() {
         value: Some(IrValue::MemberAccess {
             target: Box::new(IrValue::Local("w".to_string())),
             member: "anything".to_string(),
+            type_: "Unknown".to_string(),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![param("w", "Widget", None)], body);
     check(&project(vec![f], vec![])).expect("unknown target type is skipped");
@@ -133,7 +145,9 @@ fn rejects_call_with_too_many_arguments() {
             target: "helper".to_string(),
             args: vec![int_const("1"), int_const("2")],
             loc: IrSourceLoc::default(),
+            type_: "Unknown".to_string(),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let caller = func("run", vec![], body);
     let err = check(&project(vec![callee, caller], vec![]))
@@ -156,7 +170,9 @@ fn accepts_call_omitting_defaulted_argument() {
             target: "helper".to_string(),
             args: vec![int_const("1")],
             loc: IrSourceLoc::default(),
+            type_: "Unknown".to_string(),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let caller = func("run", vec![], body);
     check(&project(vec![callee, caller], vec![])).expect("omitting a default is valid");
@@ -170,7 +186,9 @@ fn skips_arity_for_unknown_call_targets() {
             target: "io.print".to_string(),
             args: vec![int_const("1"), int_const("2"), int_const("3")],
             loc: IrSourceLoc::default(),
+            type_: "Unknown".to_string(),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![], body);
     check(&project(vec![f], vec![])).expect("unknown call target is skipped");
@@ -185,6 +203,7 @@ fn rejects_constructor_with_extra_arguments() {
             type_: "Point".to_string(),
             args: vec![int_const("1"), int_const("2"), int_const("3")],
         }),
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![], body);
     let err = check(&project(vec![f], vec![record("Point", &["x", "y"])]))
@@ -206,6 +225,7 @@ fn rejects_capture_index_past_slot_count() {
                 type_: "Integer".to_string(),
                 by_ref: false,
             }),
+            loc: IrSourceLoc::default(),
         }],
     );
     let maker = func(
@@ -217,6 +237,7 @@ fn rejects_capture_index_past_slot_count() {
                 type_: "FUNC() AS Integer".to_string(),
                 captures: vec![int_const("7")],
             }),
+            loc: IrSourceLoc::default(),
         }],
     );
     let err = check(&project(vec![closure_body, maker], vec![]))
@@ -235,6 +256,7 @@ fn accepts_capture_index_within_slot_count() {
                 type_: "Integer".to_string(),
                 by_ref: false,
             }),
+            loc: IrSourceLoc::default(),
         }],
     );
     let maker = func(
@@ -246,6 +268,7 @@ fn accepts_capture_index_within_slot_count() {
                 type_: "FUNC() AS Integer".to_string(),
                 captures: vec![int_const("7")],
             }),
+            loc: IrSourceLoc::default(),
         }],
     );
     check(&project(vec![closure_body, maker], vec![])).expect("in-range capture is valid");
@@ -265,9 +288,11 @@ fn union(name: &str, variants: &[&str]) -> IrType {
             .map(|v| IrVariant {
                 name: (*v).to_string(),
                 fields: vec![],
+                loc: IrSourceLoc::default(),
             })
             .collect(),
         members: vec![],
+        loc: IrSourceLoc::default(),
     }
 }
 
@@ -279,10 +304,14 @@ fn rejects_union_wrap_of_foreign_variant() {
             member_type: "Ghost".to_string(),
             value: Box::new(int_const("0")),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![], body);
-    let err = check(&project(vec![f], vec![union("Shape", &["Circle", "Square"])]))
-        .expect_err("foreign variant must be rejected");
+    let err = check(&project(
+        vec![f],
+        vec![union("Shape", &["Circle", "Square"])],
+    ))
+    .expect_err("foreign variant must be rejected");
     assert!(err.contains("not a variant of union `Shape`"), "{err}");
 }
 
@@ -294,10 +323,14 @@ fn accepts_union_wrap_of_real_variant() {
             member_type: "Circle".to_string(),
             value: Box::new(int_const("0")),
         }),
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![], body);
-    check(&project(vec![f], vec![union("Shape", &["Circle", "Square"])]))
-        .expect("real variant is valid");
+    check(&project(
+        vec![f],
+        vec![union("Shape", &["Circle", "Square"])],
+    ))
+    .expect("real variant is valid");
 }
 
 // --- match -----------------------------------------------------------------
@@ -307,6 +340,7 @@ fn rejects_empty_match() {
     let body = vec![IrOp::Match {
         value: int_const("0"),
         cases: vec![],
+        loc: IrSourceLoc::default(),
     }];
     let f = func("run", vec![], body);
     let err = check(&project(vec![f], vec![])).expect_err("empty match must be rejected");
@@ -323,6 +357,7 @@ fn accepts_ordinary_function() {
             name: "n".to_string(),
             type_: "Integer".to_string(),
             value: Some(int_const("1")),
+            loc: IrSourceLoc::default(),
         },
         IrOp::Return {
             value: Some(IrValue::Binary {
@@ -330,7 +365,9 @@ fn accepts_ordinary_function() {
                 left: Box::new(IrValue::Local("n".to_string())),
                 right: Box::new(int_const("2")),
                 loc: IrSourceLoc::default(),
+                type_: "Unknown".to_string(),
             }),
+            loc: IrSourceLoc::default(),
         },
     ];
     let f = func("run", vec![], body);

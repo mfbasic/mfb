@@ -12,14 +12,15 @@
   "functions": [
   {
     "name": "main",
+    "line": 2,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "return", "value": { "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "3" }] } }
+    { "op": "bind", "line": 3, "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "return", "line": 4, "value": { "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "const", "type": "Integer", "value": "3" }] } }
     ]
   }
   ]

@@ -12,6 +12,7 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "sub",
     "params": [

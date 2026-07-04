@@ -15,8 +15,10 @@ mod binary_repr_tests {
                 op: "-".to_string(),
                 operand: Box::new(IrValue::Local("x".to_string())),
                 loc: IrSourceLoc::default(),
+                type_: "Unknown".to_string(),
             }),
             loc: IrSourceLoc::default(),
+            type_: "Unknown".to_string(),
         }
     }
 
@@ -51,11 +53,13 @@ mod binary_repr_tests {
                 target: "g".to_string(),
                 args: vec![sample_value()],
                 loc: IrSourceLoc::default(),
+                type_: "Unknown".to_string(),
             },
             IrValue::CallResult {
                 target: "toInt".to_string(),
                 args: vec![IrValue::Local("s".to_string())],
                 loc: IrSourceLoc::default(),
+                type_: "Unknown".to_string(),
             },
             IrValue::Constructor {
                 type_: "Point".to_string(),
@@ -75,6 +79,7 @@ mod binary_repr_tests {
             },
             IrValue::ResultValue {
                 value: Box::new(IrValue::Local("r".to_string())),
+                type_: "Unknown".to_string(),
             },
             IrValue::ResultError {
                 value: Box::new(IrValue::Local("r".to_string())),
@@ -104,12 +109,14 @@ mod binary_repr_tests {
             IrValue::MemberAccess {
                 target: Box::new(IrValue::Local("p".to_string())),
                 member: "x".to_string(),
+                type_: "Unknown".to_string(),
             },
             sample_value(),
             IrValue::Unary {
                 op: "NOT".to_string(),
                 operand: Box::new(IrValue::Local("b".to_string())),
                 loc: IrSourceLoc::default(),
+                type_: "Unknown".to_string(),
             },
         ];
 
@@ -119,35 +126,47 @@ mod binary_repr_tests {
                 name: "a".to_string(),
                 type_: "Integer".to_string(),
                 value: Some(sample_value()),
+                loc: IrSourceLoc::default(),
             },
             IrOp::Assign {
                 name: "a".to_string(),
                 value: sample_value(),
+                loc: IrSourceLoc::default(),
             },
             IrOp::AssignGlobal {
                 name: "g".to_string(),
                 value: sample_value(),
+                loc: IrSourceLoc::default(),
             },
             IrOp::Eval {
                 value: IrValue::Call {
                     target: "g".to_string(),
                     args: every_value.clone(),
                     loc: IrSourceLoc::default(),
+                    type_: "Unknown".to_string(),
                 },
+                loc: IrSourceLoc::default(),
             },
             IrOp::If {
                 condition: IrValue::Local("b".to_string()),
                 then_body: vec![IrOp::Return {
                     value: Some(IrValue::Local("a".to_string())),
+                    loc: IrSourceLoc::default(),
                 }],
-                else_body: vec![IrOp::Return { value: None }],
+                else_body: vec![IrOp::Return {
+                    value: None,
+                    loc: IrSourceLoc::default(),
+                }],
+                loc: IrSourceLoc::default(),
             },
             IrOp::While {
                 kind: LoopKind::While,
                 condition: IrValue::Local("b".to_string()),
                 body: vec![IrOp::Eval {
                     value: IrValue::Local("a".to_string()),
+                    loc: IrSourceLoc::default(),
                 }],
+                loc: IrSourceLoc::default(),
             },
             IrOp::ForEach {
                 name: "item".to_string(),
@@ -155,7 +174,9 @@ mod binary_repr_tests {
                 iterable: IrValue::Local("list".to_string()),
                 body: vec![IrOp::Eval {
                     value: IrValue::Local("item".to_string()),
+                    loc: IrSourceLoc::default(),
                 }],
+                loc: IrSourceLoc::default(),
             },
             IrOp::Match {
                 value: IrValue::Local("s".to_string()),
@@ -165,7 +186,9 @@ mod binary_repr_tests {
                         guard: Some(IrValue::Local("b".to_string())),
                         body: vec![IrOp::Eval {
                             value: IrValue::Local("p".to_string()),
+                            loc: IrSourceLoc::default(),
                         }],
+                        loc: IrSourceLoc::default(),
                     },
                     IrMatchCase {
                         pattern: IrMatchPattern::OneOf(vec![
@@ -174,15 +197,19 @@ mod binary_repr_tests {
                         ]),
                         guard: None,
                         body: vec![],
+                        loc: IrSourceLoc::default(),
                     },
                     IrMatchCase {
                         pattern: IrMatchPattern::Else,
                         guard: None,
                         body: vec![IrOp::Fail {
                             error: IrValue::Local("e".to_string()),
+                            loc: IrSourceLoc::default(),
                         }],
+                        loc: IrSourceLoc::default(),
                     },
                 ],
+                loc: IrSourceLoc::default(),
             },
             IrOp::Trap {
                 name: "err".to_string(),
@@ -191,8 +218,11 @@ mod binary_repr_tests {
                         target: "toInt".to_string(),
                         args: vec![IrValue::Local("s".to_string())],
                         loc: IrSourceLoc::default(),
+                        type_: "Unknown".to_string(),
                     },
+                    loc: IrSourceLoc::default(),
                 }],
+                loc: IrSourceLoc::default(),
             },
         ];
 
@@ -209,6 +239,7 @@ mod binary_repr_tests {
                 mutable: false,
                 type_: "Integer".to_string(),
                 value: Some(sample_value()),
+                loc: IrSourceLoc::default(),
             }],
             types: vec![
                 IrType {
@@ -220,16 +251,19 @@ mod binary_repr_tests {
                             visibility: Some("export".to_string()),
                             name: "x".to_string(),
                             type_: "Integer".to_string(),
+                            loc: IrSourceLoc::default(),
                         },
                         IrField {
                             visibility: None,
                             name: "y".to_string(),
                             type_: "Integer".to_string(),
+                            loc: IrSourceLoc::default(),
                         },
                     ],
                     includes: vec![],
                     variants: vec![],
                     members: vec![],
+                    loc: IrSourceLoc::default(),
                 },
                 IrType {
                     kind: "union".to_string(),
@@ -243,9 +277,12 @@ mod binary_repr_tests {
                             visibility: None,
                             name: "x".to_string(),
                             type_: "Integer".to_string(),
+                            loc: IrSourceLoc::default(),
                         }],
+                        loc: IrSourceLoc::default(),
                     }],
                     members: vec![],
+                    loc: IrSourceLoc::default(),
                 },
                 IrType {
                     kind: "enum".to_string(),
@@ -262,6 +299,7 @@ mod binary_repr_tests {
                             name: "Green".to_string(),
                         },
                     ],
+                    loc: IrSourceLoc::default(),
                 },
             ],
             functions: vec![IrFunction {
@@ -274,6 +312,7 @@ mod binary_repr_tests {
                         name: "x".to_string(),
                         type_: "Integer".to_string(),
                         default: None,
+                        loc: IrSourceLoc::default(),
                     },
                     IrParam {
                         name: "y".to_string(),
@@ -282,12 +321,14 @@ mod binary_repr_tests {
                             type_: "Integer".to_string(),
                             value: "0".to_string(),
                         }),
+                        loc: IrSourceLoc::default(),
                     },
                 ],
                 returns: "Integer".to_string(),
                 body,
                 file: "src/main.mfb".to_string(),
                 resource_owners: HashMap::new(),
+                loc: IrSourceLoc::default(),
             }],
             native_resources: vec![],
             link_functions: vec![],
@@ -335,6 +376,7 @@ mod binary_repr_tests {
             body,
             file: "src/main.mfb".to_string(),
             resource_owners: HashMap::new(),
+            loc: IrSourceLoc::default(),
         }
     }
 
@@ -368,7 +410,9 @@ mod binary_repr_tests {
                             target: "g".to_string(),
                             args: vec![],
                             loc: IrSourceLoc::default(),
+                            type_: "Unknown".to_string(),
                         },
+                        loc: IrSourceLoc::default(),
                     }],
                 ),
                 fn_named("g", vec![]),
@@ -390,6 +434,7 @@ mod binary_repr_tests {
         match &pkg.functions[0].body[0] {
             IrOp::Eval {
                 value: IrValue::Call { target, .. },
+                ..
             } => assert_eq!(target, "abcd1234.pkg.g"),
             _ => panic!("expected an Eval(Call) op"),
         }
@@ -405,7 +450,9 @@ mod binary_repr_tests {
                         target: "pkg.f".to_string(),
                         args: vec![],
                         loc: IrSourceLoc::default(),
+                        type_: "Unknown".to_string(),
                     },
+                    loc: IrSourceLoc::default(),
                 }],
             )],
         );
@@ -413,6 +460,7 @@ mod binary_repr_tests {
         match &consumer.functions[0].body[0] {
             IrOp::Eval {
                 value: IrValue::Call { target, .. },
+                ..
             } => assert_eq!(target, "abcd1234.pkg.f"),
             _ => panic!("expected an Eval(Call) op"),
         }
@@ -445,6 +493,7 @@ mod binary_repr_tests {
         let body = vec![IrOp::Match {
             value: IrValue::Local("x".to_string()),
             cases: vec![],
+            loc: IrSourceLoc::default(),
         }];
         let pir = project_named("pkg", vec![fn_named("f", body)]);
         let err = verify_package(&pir).expect_err("non-exhaustive MATCH must be rejected");

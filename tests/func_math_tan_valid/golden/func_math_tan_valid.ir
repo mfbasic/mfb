@@ -12,24 +12,25 @@
   "functions": [
   {
     "name": "main",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
-    { "op": "bind", "mutable": false, "name": "fixedPiQuarter", "type": "Fixed", "value": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.7853981634" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }, { "kind": "local", "name": "p" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "0.7853981634" }] }, { "kind": "local", "name": "p" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "local", "name": "fixedPiQuarter" }] }, { "kind": "local", "name": "p" }] }] } },
-    { "op": "bind", "mutable": false, "name": "q", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "15" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "0.7" }] }, { "kind": "local", "name": "q" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] }, { "kind": "local", "name": "q" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "4.0" }] }, { "kind": "local", "name": "q" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "5.0" }] }, { "kind": "local", "name": "q" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "math.tan", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2.0" } }] }, { "kind": "local", "name": "q" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 5, "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "2" } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "fixedPiQuarter", "type": "Fixed", "value": { "kind": "call", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "0.7853981634" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "0.0" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "0.7853981634" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Fixed", "target": "math.tan", "args": [{ "kind": "local", "name": "fixedPiQuarter" }] }, { "kind": "local", "name": "p" }] }] } },
+    { "op": "bind", "line": 13, "mutable": false, "name": "q", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "15" } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "0.7" }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "2.0" }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "4.0" }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.tan", "args": [{ "kind": "const", "type": "Float", "value": "5.0" }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Float", "target": "math.tan", "args": [{ "kind": "unary", "type": "Float", "op": "-", "operand": { "kind": "const", "type": "Float", "value": "2.0" } }] }, { "kind": "local", "name": "q" }] }] } },
+    { "op": "return", "line": 19, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

@@ -12,6 +12,7 @@
   "functions": [
   {
     "name": "foobar",
+    "line": 1,
     "visibility": "private",
     "kind": "sub",
     "params": [

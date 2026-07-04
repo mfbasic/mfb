@@ -12,19 +12,20 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "x", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "100" } },
-    { "op": "bind", "mutable": false, "name": "y", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "27" } },
-    { "op": "bind", "mutable": false, "name": "z", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "50" } },
-    { "op": "bind", "mutable": false, "name": "f", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.25" } },
-    { "op": "bind", "mutable": false, "name": "g", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "0.25" } },
-    { "op": "eval", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "f" }, "right": { "kind": "local", "name": "g" } } },
-    { "op": "return", "value": { "kind": "binary", "op": "-", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "y" } }, "right": { "kind": "local", "name": "z" } } }
+    { "op": "bind", "line": 2, "mutable": false, "name": "x", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "100" } },
+    { "op": "bind", "line": 3, "mutable": false, "name": "y", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "27" } },
+    { "op": "bind", "line": 4, "mutable": false, "name": "z", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "50" } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "f", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.25" } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "g", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "0.25" } },
+    { "op": "eval", "line": 7, "value": { "kind": "binary", "type": "Fixed", "op": "+", "left": { "kind": "local", "name": "f" }, "right": { "kind": "local", "name": "g" } } },
+    { "op": "return", "line": 8, "value": { "kind": "binary", "type": "Integer", "op": "-", "left": { "kind": "binary", "type": "Byte", "op": "+", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "y" } }, "right": { "kind": "local", "name": "z" } } }
     ]
   }
   ]

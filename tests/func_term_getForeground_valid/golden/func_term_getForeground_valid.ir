@@ -12,25 +12,27 @@
   "functions": [
   {
     "name": "usegetForeground",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "TermColor",
     "body": [
-    { "op": "bind", "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "target": "term.getForeground", "args": [] } },
-    { "op": "return", "value": { "kind": "local", "name": "c" } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "c", "type": "TermColor", "value": { "kind": "call", "type": "TermColor", "target": "term.getForeground", "args": [] } },
+    { "op": "return", "line": 5, "value": { "kind": "local", "name": "c" } }
     ]
   },
   {
     "name": "main",
+    "line": 8,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

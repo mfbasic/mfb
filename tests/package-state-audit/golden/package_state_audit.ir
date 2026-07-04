@@ -4,22 +4,23 @@
   "project": "package_state_audit",
   "entry": null,
   "bindings": [
-  { "name": "counter", "visibility": "export", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-  { "name": "label", "visibility": "export", "mutable": false, "type": "String", "value": { "kind": "const", "type": "String", "value": "audit" } }
+  { "name": "counter", "line": 1, "visibility": "export", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+  { "name": "label", "line": 2, "visibility": "export", "mutable": false, "type": "String", "value": { "kind": "const", "type": "String", "value": "audit" } }
   ],
   "types": [
   ],
   "functions": [
   {
     "name": "nextCounter",
+    "line": 4,
     "visibility": "export",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "assignGlobal", "name": "counter", "value": { "kind": "binary", "op": "+", "left": { "kind": "global", "name": "counter" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
-    { "op": "return", "value": { "kind": "global", "name": "counter" } }
+    { "op": "assignGlobal", "line": 5, "name": "counter", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "global", "name": "counter" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } },
+    { "op": "return", "line": 6, "value": { "kind": "global", "name": "counter" } }
     ]
   }
   ]

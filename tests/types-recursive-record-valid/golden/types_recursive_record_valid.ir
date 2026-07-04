@@ -10,101 +10,115 @@
   "types": [
   {
     "kind": "type",
+    "line": 1,
     "visibility": "private",
     "name": "Tree",
     "fields": [
-    { "visibility": null, "name": "value", "type": "Integer" },
-    { "visibility": null, "name": "children", "type": "List OF Tree" }
+    { "visibility": null, "line": 2, "name": "value", "type": "Integer" },
+    { "visibility": null, "line": 3, "name": "children", "type": "List OF Tree" }
     ]
   },
   {
     "kind": "type",
+    "line": 6,
     "visibility": "private",
     "name": "ConfigJsonNull",
     "fields": [
-    { "visibility": null, "name": "value", "type": "Nothing" }
+    { "visibility": null, "line": 7, "name": "value", "type": "Nothing" }
     ]
   },
   {
     "kind": "type",
+    "line": 10,
     "visibility": "private",
     "name": "ConfigJsonBool",
     "fields": [
-    { "visibility": null, "name": "value", "type": "Boolean" }
+    { "visibility": null, "line": 11, "name": "value", "type": "Boolean" }
     ]
   },
   {
     "kind": "type",
+    "line": 14,
     "visibility": "private",
     "name": "ConfigJsonNum",
     "fields": [
-    { "visibility": null, "name": "value", "type": "Float" }
+    { "visibility": null, "line": 15, "name": "value", "type": "Float" }
     ]
   },
   {
     "kind": "type",
+    "line": 18,
     "visibility": "private",
     "name": "ConfigJsonStr",
     "fields": [
-    { "visibility": null, "name": "value", "type": "String" }
+    { "visibility": null, "line": 19, "name": "value", "type": "String" }
     ]
   },
   {
     "kind": "type",
+    "line": 22,
     "visibility": "private",
     "name": "ConfigJsonArr",
     "fields": [
-    { "visibility": null, "name": "items", "type": "List OF ConfigJson" }
+    { "visibility": null, "line": 23, "name": "items", "type": "List OF ConfigJson" }
     ]
   },
   {
     "kind": "type",
+    "line": 26,
     "visibility": "private",
     "name": "ConfigJsonObj",
     "fields": [
-    { "visibility": null, "name": "fields", "type": "Map OF String TO ConfigJson" }
+    { "visibility": null, "line": 27, "name": "fields", "type": "Map OF String TO ConfigJson" }
     ]
   },
   {
     "kind": "union",
+    "line": 30,
     "visibility": "private",
     "name": "ConfigJson",
     "includes": [],
     "variants": [
     {
       "name": "ConfigJsonNull",
+      "line": 31,
       "fields": [
-      { "visibility": null, "name": "value", "type": "Nothing" }
+      { "visibility": null, "line": 7, "name": "value", "type": "Nothing" }
       ]
     },
     {
       "name": "ConfigJsonBool",
+      "line": 32,
       "fields": [
-      { "visibility": null, "name": "value", "type": "Boolean" }
+      { "visibility": null, "line": 11, "name": "value", "type": "Boolean" }
       ]
     },
     {
       "name": "ConfigJsonNum",
+      "line": 33,
       "fields": [
-      { "visibility": null, "name": "value", "type": "Float" }
+      { "visibility": null, "line": 15, "name": "value", "type": "Float" }
       ]
     },
     {
       "name": "ConfigJsonStr",
+      "line": 34,
       "fields": [
-      { "visibility": null, "name": "value", "type": "String" }
+      { "visibility": null, "line": 19, "name": "value", "type": "String" }
       ]
     },
     {
       "name": "ConfigJsonArr",
+      "line": 35,
       "fields": [
-      { "visibility": null, "name": "items", "type": "List OF ConfigJson" }
+      { "visibility": null, "line": 23, "name": "items", "type": "List OF ConfigJson" }
       ]
     },
     {
       "name": "ConfigJsonObj",
+      "line": 36,
       "fields": [
-      { "visibility": null, "name": "fields", "type": "Map OF String TO ConfigJson" }
+      { "visibility": null, "line": 27, "name": "fields", "type": "Map OF String TO ConfigJson" }
       ]
     }
     ]
@@ -113,16 +127,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 39,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "tree", "type": "Tree", "value": { "kind": "constructor", "type": "Tree", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "list", "type": "List OF Tree", "values": [] }] } },
-    { "op": "bind", "mutable": false, "name": "nullValue", "type": "ConfigJson", "value": { "kind": "unionWrap", "union": "ConfigJson", "member": "ConfigJsonNull", "value": { "kind": "constructor", "type": "ConfigJsonNull", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
-    { "op": "bind", "mutable": false, "name": "obj", "type": "ConfigJson", "value": { "kind": "unionWrap", "union": "ConfigJson", "member": "ConfigJsonObj", "value": { "kind": "constructor", "type": "ConfigJsonObj", "args": [{ "kind": "map", "type": "Map OF String TO ConfigJson", "entries": [{ "key": { "kind": "const", "type": "String", "value": "empty" }, "value": { "kind": "local", "name": "nullValue" } }] }] } } },
-    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "tree" }, "member": "value" } }
+    { "op": "bind", "line": 40, "mutable": false, "name": "tree", "type": "Tree", "value": { "kind": "constructor", "type": "Tree", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "list", "type": "List OF Tree", "values": [] }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "nullValue", "type": "ConfigJson", "value": { "kind": "unionWrap", "union": "ConfigJson", "member": "ConfigJsonNull", "value": { "kind": "constructor", "type": "ConfigJsonNull", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "obj", "type": "ConfigJson", "value": { "kind": "unionWrap", "union": "ConfigJson", "member": "ConfigJsonObj", "value": { "kind": "constructor", "type": "ConfigJsonObj", "args": [{ "kind": "map", "type": "Map OF String TO ConfigJson", "entries": [{ "key": { "kind": "const", "type": "String", "value": "empty" }, "value": { "kind": "local", "name": "nullValue" } }] }] } } },
+    { "op": "return", "line": 43, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "tree" }, "member": "value" } }
     ]
   }
   ]

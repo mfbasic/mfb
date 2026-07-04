@@ -12,24 +12,26 @@
   "functions": [
   {
     "name": "usegetBold",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Boolean",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "term.getBold", "args": [] } }
+    { "op": "return", "line": 4, "value": { "kind": "call", "type": "Boolean", "target": "term.getBold", "args": [] } }
     ]
   },
   {
     "name": "main",
+    "line": 7,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

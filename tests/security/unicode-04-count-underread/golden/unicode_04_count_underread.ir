@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 11,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "ab" }, { "kind": "const", "type": "String", "value": "abcdef" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "abcabcabc" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "aaaa" }, { "kind": "const", "type": "String", "value": "aa" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "ab" }, { "kind": "const", "type": "String", "value": "abcdef" }] }] }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "abcabcabc" }, { "kind": "const", "type": "String", "value": "abc" }] }] }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "strings.count", "args": [{ "kind": "const", "type": "String", "value": "aaaa" }, { "kind": "const", "type": "String", "value": "aa" }] }] }] } },
+    { "op": "return", "line": 17, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

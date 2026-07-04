@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "letValue", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.5" } },
-    { "op": "bind", "mutable": true, "name": "mutValue", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "3.5" } },
-    { "op": "assign", "name": "mutValue", "value": { "kind": "const", "type": "Float", "value": "2.5" } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 2, "mutable": false, "name": "letValue", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "1.5" } },
+    { "op": "bind", "line": 3, "mutable": true, "name": "mutValue", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "3.5" } },
+    { "op": "assign", "line": 4, "name": "mutValue", "value": { "kind": "const", "type": "Float", "value": "2.5" } },
+    { "op": "return", "line": 5, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

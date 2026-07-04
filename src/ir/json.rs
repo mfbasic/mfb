@@ -65,6 +65,7 @@ impl ToIrJson for IrType {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"line\": {},\n",
                     "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"fields\": [{}\n{}  ]\n",
@@ -73,6 +74,8 @@ impl ToIrJson for IrType {
                 pad,
                 pad,
                 json_string(&self.kind),
+                pad,
+                self.loc.line,
                 pad,
                 json_string(&self.visibility),
                 pad,
@@ -86,6 +89,7 @@ impl ToIrJson for IrType {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"line\": {},\n",
                     "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"includes\": [{}],\n",
@@ -95,6 +99,8 @@ impl ToIrJson for IrType {
                 pad,
                 pad,
                 json_string(&self.kind),
+                pad,
+                self.loc.line,
                 pad,
                 json_string(&self.visibility),
                 pad,
@@ -114,6 +120,7 @@ impl ToIrJson for IrType {
                 concat!(
                     "\n{}{{\n",
                     "{}  \"kind\": {},\n",
+                    "{}  \"line\": {},\n",
                     "{}  \"visibility\": {},\n",
                     "{}  \"name\": {},\n",
                     "{}  \"members\": [{}\n{}  ]\n",
@@ -122,6 +129,8 @@ impl ToIrJson for IrType {
                 pad,
                 pad,
                 json_string(&self.kind),
+                pad,
+                self.loc.line,
                 pad,
                 json_string(&self.visibility),
                 pad,
@@ -145,9 +154,10 @@ impl ToIrJson for IrBinding {
             .map(|value| value.to_json(indent))
             .unwrap_or_else(|| "null".to_string());
         format!(
-            "\n{}{{ \"name\": {}, \"visibility\": {}, \"mutable\": {}, \"type\": {}, \"value\": {} }}",
+            "\n{}{{ \"name\": {}, \"line\": {}, \"visibility\": {}, \"mutable\": {}, \"type\": {}, \"value\": {} }}",
             pad,
             json_string(&self.name),
+            self.loc.line,
             json_string(&self.visibility),
             self.mutable,
             json_string(&self.type_),
@@ -165,9 +175,10 @@ impl ToIrJson for IrField {
             .map(|value| json_string(value))
             .unwrap_or_else(|| "null".to_string());
         format!(
-            "\n{}{{ \"visibility\": {}, \"name\": {}, \"type\": {} }}",
+            "\n{}{{ \"visibility\": {}, \"line\": {}, \"name\": {}, \"type\": {} }}",
             pad,
             visibility,
+            self.loc.line,
             json_string(&self.name),
             json_string(&self.type_)
         )
@@ -181,12 +192,15 @@ impl ToIrJson for IrVariant {
             concat!(
                 "\n{}{{\n",
                 "{}  \"name\": {},\n",
+                "{}  \"line\": {},\n",
                 "{}  \"fields\": [{}\n{}  ]\n",
                 "{}}}"
             ),
             pad,
             pad,
             json_string(&self.name),
+            pad,
+            self.loc.line,
             pad,
             join_json(&self.fields, indent + 2),
             pad,
@@ -209,6 +223,7 @@ impl ToIrJson for IrFunction {
             concat!(
                 "\n{}{{\n",
                 "{}  \"name\": {},\n",
+                "{}  \"line\": {},\n",
                 "{}  \"visibility\": {},\n",
                 "{}  \"kind\": {},\n",
                 "{}  \"params\": [{}\n{}  ],\n",
@@ -219,6 +234,8 @@ impl ToIrJson for IrFunction {
             pad,
             pad,
             json_string(&self.name),
+            pad,
+            self.loc.line,
             pad,
             json_string(&self.visibility),
             pad,
@@ -245,9 +262,10 @@ impl ToIrJson for IrParam {
             .map(|value| value.to_json(indent))
             .unwrap_or_else(|| "null".to_string());
         format!(
-            "\n{}{{ \"name\": {}, \"type\": {}, \"default\": {} }}",
+            "\n{}{{ \"name\": {}, \"line\": {}, \"type\": {}, \"default\": {} }}",
             pad,
             json_string(&self.name),
+            self.loc.line,
             json_string(&self.type_),
             default
         )
@@ -263,83 +281,100 @@ impl ToIrJson for IrOp {
                 name,
                 type_,
                 value,
+                loc,
             } => {
                 let value = value
                     .as_ref()
                     .map(|value| value.to_json(indent))
                     .unwrap_or_else(|| "null".to_string());
                 format!(
-                    "\n{}{{ \"op\": \"bind\", \"mutable\": {}, \"name\": {}, \"type\": {}, \"value\": {} }}",
+                    "\n{}{{ \"op\": \"bind\", \"line\": {}, \"mutable\": {}, \"name\": {}, \"type\": {}, \"value\": {} }}",
                     pad,
+                    loc.line,
                     mutable,
                     json_string(name),
                     json_string(type_),
                     value
                 )
             }
-            IrOp::AssignGlobal { name, value } => {
+            IrOp::AssignGlobal { name, value, loc } => {
                 format!(
-                    "\n{}{{ \"op\": \"assignGlobal\", \"name\": {}, \"value\": {} }}",
+                    "\n{}{{ \"op\": \"assignGlobal\", \"line\": {}, \"name\": {}, \"value\": {} }}",
                     pad,
+                    loc.line,
                     json_string(name),
                     value.to_json(indent)
                 )
             }
-            IrOp::Return { value } => {
+            IrOp::Return { value, loc } => {
                 let value = value
                     .as_ref()
                     .map(|value| value.to_json(indent))
                     .unwrap_or_else(|| "null".to_string());
-                format!("\n{}{{ \"op\": \"return\", \"value\": {} }}", pad, value)
-            }
-            IrOp::ExitLoop { kind } => {
                 format!(
-                    "\n{}{{ \"op\": \"exitLoop\", \"loop\": {} }}",
+                    "\n{}{{ \"op\": \"return\", \"line\": {}, \"value\": {} }}",
+                    pad, loc.line, value
+                )
+            }
+            IrOp::ExitLoop { kind, loc } => {
+                format!(
+                    "\n{}{{ \"op\": \"exitLoop\", \"line\": {}, \"loop\": {} }}",
                     pad,
+                    loc.line,
                     json_string(loop_kind_name(*kind))
                 )
             }
-            IrOp::ContinueLoop { kind } => {
+            IrOp::ContinueLoop { kind, loc } => {
                 format!(
-                    "\n{}{{ \"op\": \"continueLoop\", \"loop\": {} }}",
+                    "\n{}{{ \"op\": \"continueLoop\", \"line\": {}, \"loop\": {} }}",
                     pad,
+                    loc.line,
                     json_string(loop_kind_name(*kind))
                 )
             }
-            IrOp::ExitProgram { code } => {
+            IrOp::ExitProgram { code, loc } => {
                 format!(
-                    "\n{}{{ \"op\": \"exitProgram\", \"code\": {} }}",
+                    "\n{}{{ \"op\": \"exitProgram\", \"line\": {}, \"code\": {} }}",
                     pad,
+                    loc.line,
                     code.to_json(indent)
                 )
             }
-            IrOp::Fail { error } => {
+            IrOp::Fail { error, loc } => {
                 format!(
-                    "\n{}{{ \"op\": \"fail\", \"error\": {} }}",
+                    "\n{}{{ \"op\": \"fail\", \"line\": {}, \"error\": {} }}",
                     pad,
+                    loc.line,
                     error.to_json(indent)
                 )
             }
-            IrOp::Assign { name, value } => {
+            IrOp::Assign { name, value, loc } => {
                 format!(
-                    "\n{}{{ \"op\": \"assign\", \"name\": {}, \"value\": {} }}",
+                    "\n{}{{ \"op\": \"assign\", \"line\": {}, \"name\": {}, \"value\": {} }}",
                     pad,
+                    loc.line,
                     json_string(name),
                     value.to_json(indent)
                 )
             }
-            IrOp::StateAssign { resource, value } => {
+            IrOp::StateAssign {
+                resource,
+                value,
+                loc,
+            } => {
                 format!(
-                    "\n{}{{ \"op\": \"stateAssign\", \"resource\": {}, \"value\": {} }}",
+                    "\n{}{{ \"op\": \"stateAssign\", \"line\": {}, \"resource\": {}, \"value\": {} }}",
                     pad,
+                    loc.line,
                     json_string(resource),
                     value.to_json(indent)
                 )
             }
-            IrOp::Eval { value } => {
+            IrOp::Eval { value, loc } => {
                 format!(
-                    "\n{}{{ \"op\": \"eval\", \"value\": {} }}",
+                    "\n{}{{ \"op\": \"eval\", \"line\": {}, \"value\": {} }}",
                     pad,
+                    loc.line,
                     value.to_json(indent)
                 )
             }
@@ -347,11 +382,13 @@ impl ToIrJson for IrOp {
                 condition,
                 then_body,
                 else_body,
+                loc,
             } => {
                 format!(
                     concat!(
                         "\n{}{{\n",
                         "{}  \"op\": \"if\",\n",
+                        "{}  \"line\": {},\n",
                         "{}  \"condition\": {},\n",
                         "{}  \"then\": [{}\n{}  ],\n",
                         "{}  \"else\": [{}\n{}  ]\n",
@@ -359,6 +396,8 @@ impl ToIrJson for IrOp {
                     ),
                     pad,
                     pad,
+                    pad,
+                    loc.line,
                     pad,
                     condition.to_json(indent),
                     pad,
@@ -370,17 +409,20 @@ impl ToIrJson for IrOp {
                     pad
                 )
             }
-            IrOp::Match { value, cases } => {
+            IrOp::Match { value, cases, loc } => {
                 format!(
                     concat!(
                         "\n{}{{\n",
                         "{}  \"op\": \"match\",\n",
+                        "{}  \"line\": {},\n",
                         "{}  \"value\": {},\n",
                         "{}  \"cases\": [{}\n{}  ]\n",
                         "{}}}"
                     ),
                     pad,
                     pad,
+                    pad,
+                    loc.line,
                     pad,
                     value.to_json(indent),
                     pad,
@@ -393,11 +435,13 @@ impl ToIrJson for IrOp {
                 kind,
                 condition,
                 body,
+                loc,
             } => {
                 format!(
                     concat!(
                         "\n{}{{\n",
                         "{}  \"op\": \"while\",\n",
+                        "{}  \"line\": {},\n",
                         "{}  \"loop\": {},\n",
                         "{}  \"condition\": {},\n",
                         "{}  \"body\": [{}\n{}  ]\n",
@@ -405,6 +449,8 @@ impl ToIrJson for IrOp {
                     ),
                     pad,
                     pad,
+                    pad,
+                    loc.line,
                     pad,
                     json_string(loop_kind_name(*kind)),
                     pad,
@@ -422,12 +468,13 @@ impl ToIrJson for IrOp {
                 end,
                 step,
                 body,
-                ..
+                loc,
             } => {
                 format!(
                     concat!(
                         "\n{}{{\n",
                         "{}  \"op\": \"for\",\n",
+                        "{}  \"line\": {},\n",
                         "{}  \"name\": {},\n",
                         "{}  \"type\": {},\n",
                         "{}  \"start\": {},\n",
@@ -438,6 +485,8 @@ impl ToIrJson for IrOp {
                     ),
                     pad,
                     pad,
+                    pad,
+                    loc.line,
                     pad,
                     json_string(name),
                     pad,
@@ -454,17 +503,24 @@ impl ToIrJson for IrOp {
                     pad
                 )
             }
-            IrOp::DoUntil { body, condition } => {
+            IrOp::DoUntil {
+                body,
+                condition,
+                loc,
+            } => {
                 format!(
                     concat!(
                         "\n{}{{\n",
                         "{}  \"op\": \"doUntil\",\n",
+                        "{}  \"line\": {},\n",
                         "{}  \"condition\": {},\n",
                         "{}  \"body\": [{}\n{}  ]\n",
                         "{}}}"
                     ),
                     pad,
                     pad,
+                    pad,
+                    loc.line,
                     pad,
                     condition.to_json(indent),
                     pad,
@@ -478,11 +534,13 @@ impl ToIrJson for IrOp {
                 type_,
                 iterable,
                 body,
+                loc,
             } => {
                 format!(
                     concat!(
                         "\n{}{{\n",
                         "{}  \"op\": \"forEach\",\n",
+                        "{}  \"line\": {},\n",
                         "{}  \"name\": {},\n",
                         "{}  \"type\": {},\n",
                         "{}  \"iterable\": {},\n",
@@ -491,6 +549,8 @@ impl ToIrJson for IrOp {
                     ),
                     pad,
                     pad,
+                    pad,
+                    loc.line,
                     pad,
                     json_string(name),
                     pad,
@@ -503,17 +563,20 @@ impl ToIrJson for IrOp {
                     pad
                 )
             }
-            IrOp::Trap { name, body } => {
+            IrOp::Trap { name, body, loc } => {
                 format!(
                     concat!(
                         "\n{}{{\n",
                         "{}  \"op\": \"trap\",\n",
+                        "{}  \"line\": {},\n",
                         "{}  \"name\": {},\n",
                         "{}  \"body\": [{}\n{}  ]\n",
                         "{}}}"
                     ),
                     pad,
                     pad,
+                    pad,
+                    loc.line,
                     pad,
                     json_string(name),
                     pad,
@@ -532,12 +595,15 @@ impl ToIrJson for IrMatchCase {
         format!(
             concat!(
                 "\n{}{{\n",
+                "{}  \"line\": {},\n",
                 "{}  \"pattern\": {},\n",
                 "{}  \"guard\": {},\n",
                 "{}  \"body\": [{}\n{}  ]\n",
                 "{}}}"
             ),
             pad,
+            pad,
+            self.loc.line,
             pad,
             self.pattern.to_json(indent),
             pad,
@@ -646,26 +712,38 @@ impl ToIrJson for IrValue {
                     )
                 }
             }
-            IrValue::Call { target, args, .. } => {
+            IrValue::Call {
+                target,
+                args,
+                type_,
+                ..
+            } => {
                 let args = args
                     .iter()
                     .map(|arg| arg.to_json(0))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!(
-                    "{{ \"kind\": \"call\", \"target\": {}, \"args\": [{}] }}",
+                    "{{ \"kind\": \"call\", \"type\": {}, \"target\": {}, \"args\": [{}] }}",
+                    json_string(type_),
                     json_string(target),
                     args
                 )
             }
-            IrValue::CallResult { target, args, .. } => {
+            IrValue::CallResult {
+                target,
+                args,
+                type_,
+                ..
+            } => {
                 let args = args
                     .iter()
                     .map(|arg| arg.to_json(0))
                     .collect::<Vec<_>>()
                     .join(", ");
                 format!(
-                    "{{ \"kind\": \"callResult\", \"target\": {}, \"args\": [{}] }}",
+                    "{{ \"kind\": \"callResult\", \"type\": {}, \"target\": {}, \"args\": [{}] }}",
+                    json_string(type_),
                     json_string(target),
                     args
                 )
@@ -698,15 +776,16 @@ impl ToIrJson for IrValue {
                 value.to_json(0)
             ),
             IrValue::ResultIsOk { value } => format!(
-                "{{ \"kind\": \"resultIsOk\", \"value\": {} }}",
+                "{{ \"kind\": \"resultIsOk\", \"type\": \"Boolean\", \"value\": {} }}",
                 value.to_json(0)
             ),
-            IrValue::ResultValue { value } => format!(
-                "{{ \"kind\": \"resultValue\", \"value\": {} }}",
+            IrValue::ResultValue { type_, value } => format!(
+                "{{ \"kind\": \"resultValue\", \"type\": {}, \"value\": {} }}",
+                json_string(type_),
                 value.to_json(0)
             ),
             IrValue::ResultError { value } => format!(
-                "{{ \"kind\": \"resultError\", \"value\": {} }}",
+                "{{ \"kind\": \"resultError\", \"type\": \"Error\", \"value\": {} }}",
                 value.to_json(0)
             ),
             IrValue::WithUpdate {
@@ -756,26 +835,39 @@ impl ToIrJson for IrValue {
                     entries
                 )
             }
-            IrValue::MemberAccess { target, member } => {
+            IrValue::MemberAccess {
+                target,
+                member,
+                type_,
+            } => {
                 format!(
-                    "{{ \"kind\": \"memberAccess\", \"target\": {}, \"member\": {} }}",
+                    "{{ \"kind\": \"memberAccess\", \"type\": {}, \"target\": {}, \"member\": {} }}",
+                    json_string(type_),
                     target.to_json(0),
                     json_string(member)
                 )
             }
             IrValue::Binary {
-                op, left, right, ..
+                op,
+                left,
+                right,
+                type_,
+                ..
             } => {
                 format!(
-                    "{{ \"kind\": \"binary\", \"op\": {}, \"left\": {}, \"right\": {} }}",
+                    "{{ \"kind\": \"binary\", \"type\": {}, \"op\": {}, \"left\": {}, \"right\": {} }}",
+                    json_string(type_),
                     json_string(op),
                     left.to_json(0),
                     right.to_json(0)
                 )
             }
-            IrValue::Unary { op, operand, .. } => {
+            IrValue::Unary {
+                op, operand, type_, ..
+            } => {
                 format!(
-                    "{{ \"kind\": \"unary\", \"op\": {}, \"operand\": {} }}",
+                    "{{ \"kind\": \"unary\", \"type\": {}, \"op\": {}, \"operand\": {} }}",
+                    json_string(type_),
                     json_string(op),
                     operand.to_json(0)
                 )
@@ -834,4 +926,3 @@ pub(crate) fn visibility_name(visibility: Visibility) -> &'static str {
 // container's tables (manifest/ABI/import/export) are kept and derived
 // alongside this payload by `binary_repr.rs`, but a function body is faithfully
 // reconstructable from this payload alone.
-

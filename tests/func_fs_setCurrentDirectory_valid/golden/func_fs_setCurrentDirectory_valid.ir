@@ -12,18 +12,19 @@
   "functions": [
   {
     "name": "main",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "original", "type": "String", "value": { "kind": "call", "target": "fs.currentDirectory", "args": [] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.setCurrentDirectory", "args": [{ "kind": "const", "type": "String", "value": "tests" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.directoryExists", "args": [{ "kind": "call", "target": "fs.currentDirectory", "args": [] }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.setCurrentDirectory", "args": [{ "kind": "local", "name": "original" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "fs.directoryExists", "args": [{ "kind": "const", "type": "String", "value": "tests" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 5, "mutable": false, "name": "original", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.currentDirectory", "args": [] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "fs.setCurrentDirectory", "args": [{ "kind": "const", "type": "String", "value": "tests" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.directoryExists", "args": [{ "kind": "call", "type": "String", "target": "fs.currentDirectory", "args": [] }] }] }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "fs.setCurrentDirectory", "args": [{ "kind": "local", "name": "original" }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Boolean", "target": "fs.directoryExists", "args": [{ "kind": "const", "type": "String", "value": "tests" }] }] }] } },
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

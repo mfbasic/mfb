@@ -12,73 +12,80 @@
   "functions": [
   {
     "name": "viaReturn",
+    "line": 1,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "flag", "type": "Boolean", "default": null }
+    { "name": "flag", "line": 1, "type": "Boolean", "default": null }
     ],
     "returns": "Nothing",
     "body": [
     {
       "op": "if",
+      "line": 2,
       "condition": { "kind": "local", "name": "flag" },
       "then": [
-      { "op": "return", "value": null }
+      { "op": "return", "line": 3, "value": null }
       ],
       "else": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "String", "value": "return path failed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 5, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "String", "value": "return path failed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ]
     },
     {
       "op": "trap",
+      "line": 7,
       "name": "err",
       "body": [
-      { "op": "return", "value": null }
+      { "op": "return", "line": 8, "value": null }
       ]
     }
     ]
   },
   {
     "name": "viaTrapReturn",
+    "line": 12,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "flag", "type": "Boolean", "default": null }
+    { "name": "flag", "line": 12, "type": "Boolean", "default": null }
     ],
     "returns": "Nothing",
     "body": [
     {
       "op": "if",
+      "line": 13,
       "condition": { "kind": "local", "name": "flag" },
       "then": [
-      { "op": "return", "value": null }
+      { "op": "return", "line": 14, "value": null }
       ],
       "else": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "11" }, { "kind": "const", "type": "String", "value": "trap path failed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "16" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 16, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "11" }, { "kind": "const", "type": "String", "value": "trap path failed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "16" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ]
     },
     {
       "op": "trap",
+      "line": 18,
       "name": "err",
       "body": [
-      { "op": "return", "value": null }
+      { "op": "return", "line": 19, "value": null }
       ]
     }
     ]
   },
   {
     "name": "main",
+    "line": 23,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "viaReturn", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "viaReturn", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "viaTrapReturn", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "viaTrapReturn", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "viaReturn", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "viaReturn", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "viaTrapReturn", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "viaTrapReturn", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "return", "line": 28, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

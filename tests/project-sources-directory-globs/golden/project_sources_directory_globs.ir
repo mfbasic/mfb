@@ -8,6 +8,7 @@
   "functions": [
   {
     "name": "rootMain",
+    "line": 1,
     "visibility": "export",
     "kind": "sub",
     "params": [
@@ -18,6 +19,7 @@
   },
   {
     "name": "keep",
+    "line": 1,
     "visibility": "export",
     "kind": "sub",
     "params": [

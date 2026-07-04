@@ -8,6 +8,7 @@
   "functions": [
   {
     "name": "onlyFile",
+    "line": 1,
     "visibility": "export",
     "kind": "sub",
     "params": [

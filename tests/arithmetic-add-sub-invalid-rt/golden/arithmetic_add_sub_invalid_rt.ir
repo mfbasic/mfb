@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "x", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "10" } },
-    { "op": "bind", "mutable": false, "name": "y", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "20" } },
-    { "op": "eval", "value": { "kind": "binary", "op": "-", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "y" } } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 2, "mutable": false, "name": "x", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "10" } },
+    { "op": "bind", "line": 3, "mutable": false, "name": "y", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "20" } },
+    { "op": "eval", "line": 4, "value": { "kind": "binary", "type": "Byte", "op": "-", "left": { "kind": "local", "name": "x" }, "right": { "kind": "local", "name": "y" } } },
+    { "op": "return", "line": 5, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

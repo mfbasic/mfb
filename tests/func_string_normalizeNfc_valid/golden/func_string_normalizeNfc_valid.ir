@@ -12,32 +12,34 @@
   "functions": [
   {
     "name": "nfcValue",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "String", "default": null }
+    { "name": "value", "line": 4, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "strings.normalizeNfc", "args": [{ "kind": "local", "name": "value" }] } }
+    { "op": "return", "line": 5, "value": { "kind": "call", "type": "String", "target": "strings.normalizeNfc", "args": [{ "kind": "local", "name": "value" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 8,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "cafe", "type": "String", "value": { "kind": "const", "type": "String", "value": "Café" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "nfcValue", "args": [{ "kind": "local", "name": "cafe" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "Å" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "Å" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "가" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "😀é" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 9, "mutable": false, "name": "cafe", "type": "String", "value": { "kind": "const", "type": "String", "value": "Café" } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "nfcValue", "args": [{ "kind": "local", "name": "cafe" }] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "Å" }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "Å" }] }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "가" }] }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "nfcValue", "args": [{ "kind": "const", "type": "String", "value": "😀é" }] }] } },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

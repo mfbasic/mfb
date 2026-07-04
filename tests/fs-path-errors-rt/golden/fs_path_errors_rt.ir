@@ -12,94 +12,101 @@
   "functions": [
   {
     "name": "readMissing",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "p", "type": "String", "default": null }
+    { "name": "p", "line": 4, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "fs.readText", "args": [{ "kind": "local", "name": "p" }] } }
+    { "op": "return", "line": 5, "value": { "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "local", "name": "p" }] } }
     ]
   },
   {
     "name": "openMissing",
+    "line": 7,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "p", "type": "String", "default": null }
+    { "name": "p", "line": 7, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    { "op": "bind", "line": 8, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "1" } }
     ]
   },
   {
     "name": "delMissing",
+    "line": 12,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "p", "type": "String", "default": null }
+    { "name": "p", "line": 12, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "p" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "p" }] } },
+    { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "main",
+    "line": 17,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "target": "readMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
+    { "op": "bind", "line": 18, "mutable": true, "name": "a", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "$trap_res0", "type": "Result OF String", "value": { "kind": "callResult", "type": "String", "target": "readMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
     {
       "op": "if",
-      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res0" } },
+      "line": 19,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
       "then": [
       ],
       "else": [
-      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res0" } } },
-      { "op": "assign", "name": "a", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } },
-      { "op": "eval", "value": { "kind": "const", "type": "String", "value": "" } }
+      { "op": "bind", "line": 19, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "assign", "line": 20, "name": "a", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 21, "value": { "kind": "const", "type": "String", "value": "" } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "a" }] }] } },
-    { "op": "bind", "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "openMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "a" }] }] } },
+    { "op": "bind", "line": 24, "mutable": true, "name": "b", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "$trap_res1", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "openMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
     {
       "op": "if",
-      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res1" } },
+      "line": 25,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res1" } },
       "then": [
       ],
       "else": [
-      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res1" } } },
-      { "op": "assign", "name": "b", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } },
-      { "op": "eval", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "bind", "line": 25, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res1" } } },
+      { "op": "assign", "line": 26, "name": "b", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 27, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "b" }] }] } },
-    { "op": "bind", "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "delMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
+    { "op": "eval", "line": 29, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "b" }] }] } },
+    { "op": "bind", "line": 30, "mutable": true, "name": "c", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "delMissing", "args": [{ "kind": "const", "type": "String", "value": "target/fs_path_errors_rt_missing.txt" }] } },
     {
       "op": "if",
-      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res2" } },
+      "line": 31,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
       "then": [
       ],
       "else": [
-      { "op": "bind", "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res2" } } },
-      { "op": "assign", "name": "c", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "e" }, "member": "code" } },
-      { "op": "eval", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "bind", "line": 31, "mutable": false, "name": "e", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "assign", "line": 32, "name": "c", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "e" }, "member": "code" } },
+      { "op": "eval", "line": 33, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "c" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "c" }] }] } },
+    { "op": "return", "line": 36, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

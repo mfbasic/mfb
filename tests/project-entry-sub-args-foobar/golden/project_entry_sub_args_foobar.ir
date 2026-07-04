@@ -12,10 +12,11 @@
   "functions": [
   {
     "name": "foobar",
+    "line": 1,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "args", "type": "List OF String", "default": null }
+    { "name": "args", "line": 1, "type": "List OF String", "default": null }
     ],
     "returns": "Nothing",
     "body": [

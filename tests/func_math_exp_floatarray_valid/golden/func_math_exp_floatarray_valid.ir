@@ -12,26 +12,28 @@
   "functions": [
   {
     "name": "main",
+    "line": 8,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "15" } },
-    { "op": "bind", "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "1.0" } }, { "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "2.0" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "p", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "15" } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "0.0" }, { "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "1.0" } }, { "kind": "const", "type": "Float", "value": "0.5" }, { "kind": "const", "type": "Float", "value": "2.0" }] } },
     {
       "op": "forEach",
+      "line": 11,
       "name": "y",
       "type": "Float",
-      "iterable": { "kind": "call", "target": "math.exp", "args": [{ "kind": "local", "name": "xs" }] },
+      "iterable": { "kind": "call", "type": "List OF Float", "target": "math.exp", "args": [{ "kind": "local", "name": "xs" }] },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "y" }, { "kind": "local", "name": "p" }] }] } }
+      { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "y" }, { "kind": "local", "name": "p" }] }] } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "zs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "800.0" } }, { "kind": "const", "type": "Float", "value": "3.0" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "underflow-ok len=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "math.exp", "args": [{ "kind": "local", "name": "zs" }] }] }] } }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 14, "mutable": false, "name": "zs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "800.0" } }, { "kind": "const", "type": "Float", "value": "3.0" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "underflow-ok len=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "List OF Float", "target": "math.exp", "args": [{ "kind": "local", "name": "zs" }] }] }] } }] } },
+    { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

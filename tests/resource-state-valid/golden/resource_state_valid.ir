@@ -10,28 +10,30 @@
   "types": [
   {
     "kind": "type",
+    "line": 4,
     "visibility": "private",
     "name": "FileState",
     "fields": [
-    { "visibility": null, "name": "pos", "type": "Integer" },
-    { "visibility": null, "name": "len", "type": "Integer" }
+    { "visibility": null, "line": 5, "name": "pos", "type": "Integer" },
+    { "visibility": null, "line": 6, "name": "len", "type": "Integer" }
     ]
   }
   ],
   "functions": [
   {
     "name": "main",
+    "line": 9,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "f", "type": "File STATE FileState", "value": { "kind": "call", "target": "fs.createTempFile", "args": [] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "data" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "stated" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 10, "mutable": false, "name": "f", "type": "File STATE FileState", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Unknown", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "data" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Unknown", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "stated" }] } },
+    { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

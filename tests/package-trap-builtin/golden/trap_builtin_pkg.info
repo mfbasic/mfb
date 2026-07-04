@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 93854632cb3cd8e4bc855e0ade312863cb971378c11579bf5c8b2958e29dce8c
-  binary representation length: 1164
+  content hash: 566a4302f4c5ed03a86dba40187aa729f272289f32dea020f2d0b7c0f45bd7b2
+  binary representation length: 1326
 
 Manifest:
   name: trap_builtin_pkg

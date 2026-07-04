@@ -12,25 +12,27 @@
   "functions": [
   {
     "name": "main",
+    "line": 5,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "t", "type": "Thread OF List OF String TO List OF String", "value": { "kind": "call", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.returnListOfString", "type": "ISOLATED FUNC(ThreadWorker OF List OF String TO List OF String, String) AS List OF String" }, { "kind": "const", "type": "String", "value": "seed" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "send-list-a" }, { "kind": "const", "type": "String", "value": "send-list-b" }] }, { "kind": "const", "type": "Integer", "value": "10" }] } },
-    { "op": "bind", "mutable": false, "name": "result", "type": "List OF String", "value": { "kind": "call", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "t", "type": "Thread OF List OF String TO List OF String", "value": { "kind": "call", "type": "Thread OF List OF String TO List OF String", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_runtime_workers.returnListOfString", "type": "ISOLATED FUNC(ThreadWorker OF List OF String TO List OF String, String) AS List OF String" }, { "kind": "const", "type": "String", "value": "seed" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t" }, { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "send-list-a" }, { "kind": "const", "type": "String", "value": "send-list-b" }] }, { "kind": "const", "type": "Integer", "value": "10" }] } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "result", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "thread.waitFor", "args": [{ "kind": "local", "name": "t" }] } },
     {
       "op": "forEach",
+      "line": 9,
       "name": "item",
       "type": "String",
       "iterable": { "kind": "local", "name": "result" },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "item" }] } }
+      { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "item" }] } }
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

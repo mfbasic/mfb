@@ -12,41 +12,44 @@
   "functions": [
   {
     "name": "printList",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "values", "type": "List OF String", "default": null }
+    { "name": "values", "line": 3, "type": "List OF String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
     {
       "op": "forEach",
+      "line": 4,
       "name": "item",
       "type": "String",
       "iterable": { "kind": "local", "name": "values" },
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "item" }] } }
+      { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "item" }] } }
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
     ]
   },
   {
     "name": "main",
+    "line": 10,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "letValues", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "let-a" }, { "kind": "const", "type": "String", "value": "let-b" }] } },
-    { "op": "bind", "mutable": true, "name": "mutValues", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "mut-a" }] } },
-    { "op": "assign", "name": "mutValues", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "mut-b" }, { "kind": "const", "type": "String", "value": "mut-c" }] } },
-    { "op": "bind", "mutable": false, "name": "copied", "type": "List OF String", "value": { "kind": "local", "name": "mutValues" } },
-    { "op": "eval", "value": { "kind": "call", "target": "printList", "args": [{ "kind": "local", "name": "letValues" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "printList", "args": [{ "kind": "local", "name": "mutValues" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "printList", "args": [{ "kind": "local", "name": "copied" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 11, "mutable": false, "name": "letValues", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "let-a" }, { "kind": "const", "type": "String", "value": "let-b" }] } },
+    { "op": "bind", "line": 12, "mutable": true, "name": "mutValues", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "mut-a" }] } },
+    { "op": "assign", "line": 13, "name": "mutValues", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "mut-b" }, { "kind": "const", "type": "String", "value": "mut-c" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "copied", "type": "List OF String", "value": { "kind": "local", "name": "mutValues" } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "printList", "args": [{ "kind": "local", "name": "letValues" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "printList", "args": [{ "kind": "local", "name": "mutValues" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "printList", "args": [{ "kind": "local", "name": "copied" }] } },
+    { "op": "return", "line": 19, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

@@ -12,26 +12,28 @@
   "functions": [
   {
     "name": "describe",
+    "line": 9,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "db", "type": "demo.Db", "default": null }
+    { "name": "db", "line": 9, "type": "demo.Db", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "has db" }] } }
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "has db" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 13,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "importer ok" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "importer ok" }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

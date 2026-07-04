@@ -10,38 +10,43 @@
   "types": [
   {
     "kind": "type",
+    "line": 1,
     "visibility": "private",
     "name": "Circle",
     "fields": [
-    { "visibility": null, "name": "radius", "type": "Integer" }
+    { "visibility": null, "line": 2, "name": "radius", "type": "Integer" }
     ]
   },
   {
     "kind": "type",
+    "line": 5,
     "visibility": "private",
     "name": "Rect",
     "fields": [
-    { "visibility": null, "name": "width", "type": "Integer" },
-    { "visibility": null, "name": "height", "type": "Integer" }
+    { "visibility": null, "line": 6, "name": "width", "type": "Integer" },
+    { "visibility": null, "line": 7, "name": "height", "type": "Integer" }
     ]
   },
   {
     "kind": "union",
+    "line": 10,
     "visibility": "private",
     "name": "Shape",
     "includes": [],
     "variants": [
     {
       "name": "Circle",
+      "line": 11,
       "fields": [
-      { "visibility": null, "name": "radius", "type": "Integer" }
+      { "visibility": null, "line": 2, "name": "radius", "type": "Integer" }
       ]
     },
     {
       "name": "Rect",
+      "line": 12,
       "fields": [
-      { "visibility": null, "name": "width", "type": "Integer" },
-      { "visibility": null, "name": "height", "type": "Integer" }
+      { "visibility": null, "line": 6, "name": "width", "type": "Integer" },
+      { "visibility": null, "line": 7, "name": "height", "type": "Integer" }
       ]
     }
     ]
@@ -50,113 +55,124 @@
   "functions": [
   {
     "name": "parsePositive",
+    "line": 15,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 15, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
-      "condition": { "kind": "binary", "op": "<", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
+      "line": 16,
+      "condition": { "kind": "binary", "type": "Boolean", "op": "<", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "0" } },
       "then": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "100" }, { "kind": "const", "type": "String", "value": "negative" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "16" }, { "kind": "const", "type": "Integer", "value": "26" }] }] } }
+      { "op": "fail", "line": 16, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "100" }, { "kind": "const", "type": "String", "value": "negative" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "16" }, { "kind": "const", "type": "Integer", "value": "26" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
+    { "op": "return", "line": 17, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "const", "type": "Integer", "value": "1" } } }
     ]
   },
   {
     "name": "main",
+    "line": 20,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
-    { "op": "bind", "mutable": false, "name": "firstShape", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } } },
-    { "op": "bind", "mutable": false, "name": "secondShape", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Rect", "value": { "kind": "constructor", "type": "Rect", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }] } } },
-    { "op": "bind", "mutable": false, "name": "$match0", "type": "Shape", "value": { "kind": "local", "name": "firstShape" } },
+    { "op": "bind", "line": 21, "mutable": true, "name": "total", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 22, "mutable": false, "name": "firstShape", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "secondShape", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Rect", "value": { "kind": "constructor", "type": "Rect", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "Integer", "value": "20" }] } } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "$match0", "type": "Shape", "value": { "kind": "local", "name": "firstShape" } },
     {
       "op": "match",
+      "line": 25,
       "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
+        "line": 26,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "circle" }, "member": "radius" } } }
+        { "op": "bind", "line": 26, "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "assign", "line": 27, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "circle" }, "member": "radius" } } }
         ]
       },
       {
+        "line": 28,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Rect" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "rect", "type": "Rect", "value": { "kind": "unionExtract", "type": "Rect", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "rect" }, "member": "width" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "rect" }, "member": "height" } } }
+        { "op": "bind", "line": 28, "mutable": false, "name": "rect", "type": "Rect", "value": { "kind": "unionExtract", "type": "Rect", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "assign", "line": 29, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rect" }, "member": "width" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rect" }, "member": "height" } } }
         ]
       }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "$match1", "type": "Shape", "value": { "kind": "local", "name": "secondShape" } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "$match1", "type": "Shape", "value": { "kind": "local", "name": "secondShape" } },
     {
       "op": "match",
+      "line": 32,
       "value": { "kind": "local", "name": "$match1" },
       "cases": [
       {
+        "line": 33,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match1" } } },
-        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "circle" }, "member": "radius" } } }
+        { "op": "bind", "line": 33, "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "assign", "line": 34, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "circle" }, "member": "radius" } } }
         ]
       },
       {
+        "line": 35,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Rect" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "rect", "type": "Rect", "value": { "kind": "unionExtract", "type": "Rect", "value": { "kind": "local", "name": "$match1" } } },
-        { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "rect" }, "member": "width" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "rect" }, "member": "height" } } }
+        { "op": "bind", "line": 35, "mutable": false, "name": "rect", "type": "Rect", "value": { "kind": "unionExtract", "type": "Rect", "value": { "kind": "local", "name": "$match1" } } },
+        { "op": "assign", "line": 36, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rect" }, "member": "width" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "rect" }, "member": "height" } } }
         ]
       }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "parsePositive", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } },
-    { "op": "bind", "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
+    { "op": "bind", "line": 39, "mutable": false, "name": "$trap_res2", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "bind", "line": 39, "mutable": true, "name": "$trap_val3", "type": "Integer", "value": null },
     {
       "op": "if",
-      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res2" } },
+      "line": 39,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res2" } },
       "then": [
-      { "op": "assign", "name": "$trap_val3", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res2" } } }
+      { "op": "assign", "line": 39, "name": "$trap_val3", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res2" } } }
       ],
       "else": [
-      { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res2" } } },
-      { "op": "assign", "name": "$trap_val3", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      { "op": "bind", "line": 39, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res2" } } },
+      { "op": "assign", "line": 40, "name": "$trap_val3", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "parsedOk", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
-    { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "parsedOk" } } },
-    { "op": "bind", "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "target": "parsePositive", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
-    { "op": "bind", "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
+    { "op": "bind", "line": 39, "mutable": false, "name": "parsedOk", "type": "Integer", "value": { "kind": "local", "name": "$trap_val3" } },
+    { "op": "assign", "line": 42, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "parsedOk" } } },
+    { "op": "bind", "line": 44, "mutable": false, "name": "$trap_res4", "type": "Result OF Integer", "value": { "kind": "callResult", "type": "Integer", "target": "parsePositive", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "bind", "line": 44, "mutable": true, "name": "$trap_val5", "type": "Integer", "value": null },
     {
       "op": "if",
-      "condition": { "kind": "resultIsOk", "value": { "kind": "local", "name": "$trap_res4" } },
+      "line": 44,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res4" } },
       "then": [
-      { "op": "assign", "name": "$trap_val5", "value": { "kind": "resultValue", "value": { "kind": "local", "name": "$trap_res4" } } }
+      { "op": "assign", "line": 44, "name": "$trap_val5", "value": { "kind": "resultValue", "type": "Integer", "value": { "kind": "local", "name": "$trap_res4" } } }
       ],
       "else": [
-      { "op": "bind", "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "value": { "kind": "local", "name": "$trap_res4" } } },
-      { "op": "assign", "name": "$trap_val5", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      { "op": "bind", "line": 44, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res4" } } },
+      { "op": "assign", "line": 45, "name": "$trap_val5", "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
       ]
     },
-    { "op": "bind", "mutable": false, "name": "parsedErr", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
-    { "op": "assign", "name": "total", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "parsedErr" } } },
-    { "op": "return", "value": { "kind": "local", "name": "total" } }
+    { "op": "bind", "line": 44, "mutable": false, "name": "parsedErr", "type": "Integer", "value": { "kind": "local", "name": "$trap_val5" } },
+    { "op": "assign", "line": 47, "name": "total", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "total" }, "right": { "kind": "local", "name": "parsedErr" } } },
+    { "op": "return", "line": 49, "value": { "kind": "local", "name": "total" } }
     ]
   }
   ]

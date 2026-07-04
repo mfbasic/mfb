@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": true, "name": "mutValue", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "100" } },
-    { "op": "bind", "mutable": false, "name": "addend", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "100" } },
-    { "op": "assign", "name": "mutValue", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "mutValue" }, "right": { "kind": "local", "name": "addend" } }, "right": { "kind": "local", "name": "addend" } } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 2, "mutable": true, "name": "mutValue", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "100" } },
+    { "op": "bind", "line": 3, "mutable": false, "name": "addend", "type": "Byte", "value": { "kind": "const", "type": "Byte", "value": "100" } },
+    { "op": "assign", "line": 4, "name": "mutValue", "value": { "kind": "binary", "type": "Byte", "op": "+", "left": { "kind": "binary", "type": "Byte", "op": "+", "left": { "kind": "local", "name": "mutValue" }, "right": { "kind": "local", "name": "addend" } }, "right": { "kind": "local", "name": "addend" } } },
+    { "op": "return", "line": 5, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

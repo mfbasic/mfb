@@ -12,78 +12,86 @@
   "functions": [
   {
     "name": "leaf",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "boom" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "line": 2, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "String", "value": "boom" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   },
   {
     "name": "propagates",
+    "line": 5,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "leaf", "args": [] } },
+    { "op": "return", "line": 6, "value": { "kind": "call", "type": "Integer", "target": "leaf", "args": [] } },
     {
       "op": "trap",
+      "line": 7,
       "name": "err",
       "body": [
-      { "op": "fail", "error": { "kind": "local", "name": "err" } }
+      { "op": "fail", "line": 8, "error": { "kind": "local", "name": "err" } }
       ]
     }
     ]
   },
   {
     "name": "reraises",
+    "line": 12,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "leaf", "args": [] } },
+    { "op": "return", "line": 13, "value": { "kind": "call", "type": "Integer", "target": "leaf", "args": [] } },
     {
       "op": "trap",
+      "line": 14,
       "name": "err",
       "body": [
-      { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "String", "value": "wrapped" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "15" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
+      { "op": "fail", "line": 15, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "String", "value": "wrapped" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "15" }, { "kind": "const", "type": "Integer", "value": "10" }] }] } }
       ]
     }
     ]
   },
   {
     "name": "recovers",
+    "line": 19,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "leaf", "args": [] } },
+    { "op": "return", "line": 20, "value": { "kind": "call", "type": "Integer", "target": "leaf", "args": [] } },
     {
       "op": "trap",
+      "line": 21,
       "name": "err",
       "body": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+      { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "0" } }
       ]
     }
     ]
   },
   {
     "name": "main",
+    "line": 26,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "recovers", "args": [] } }
+    { "op": "return", "line": 27, "value": { "kind": "call", "type": "Integer", "target": "recovers", "args": [] } }
     ]
   }
   ]

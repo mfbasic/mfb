@@ -12,16 +12,17 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "value", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.0" } },
-    { "op": "bind", "mutable": false, "name": "zero", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "0.0" } },
-    { "op": "eval", "value": { "kind": "binary", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "zero" } } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 2, "mutable": false, "name": "value", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "1.0" } },
+    { "op": "bind", "line": 3, "mutable": false, "name": "zero", "type": "Fixed", "value": { "kind": "const", "type": "Fixed", "value": "0.0" } },
+    { "op": "eval", "line": 4, "value": { "kind": "binary", "type": "Fixed", "op": "/", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "zero" } } },
+    { "op": "return", "line": 5, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

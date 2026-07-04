@@ -12,31 +12,33 @@
   "functions": [
   {
     "name": "upperValue",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "String", "default": null }
+    { "name": "value", "line": 4, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "strings.upper", "args": [{ "kind": "local", "name": "value" }] } }
+    { "op": "return", "line": 5, "value": { "kind": "call", "type": "String", "target": "strings.upper", "args": [{ "kind": "local", "name": "value" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 8,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "german", "type": "String", "value": { "kind": "const", "type": "String", "value": "straße" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "upperValue", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "upperValue", "args": [{ "kind": "const", "type": "String", "value": "hello" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "upperValue", "args": [{ "kind": "local", "name": "german" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "upperValue", "args": [{ "kind": "const", "type": "String", "value": "é日😀" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "upperValue", "args": [{ "kind": "const", "type": "String", "value": "i̇" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 9, "mutable": false, "name": "german", "type": "String", "value": { "kind": "const", "type": "String", "value": "straße" } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "upperValue", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "upperValue", "args": [{ "kind": "const", "type": "String", "value": "hello" }] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "upperValue", "args": [{ "kind": "local", "name": "german" }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "upperValue", "args": [{ "kind": "const", "type": "String", "value": "é日😀" }] }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "upperValue", "args": [{ "kind": "const", "type": "String", "value": "i̇" }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

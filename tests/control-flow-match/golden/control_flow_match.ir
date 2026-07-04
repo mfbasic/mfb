@@ -10,6 +10,7 @@
   "types": [
   {
     "kind": "enum",
+    "line": 1,
     "visibility": "private",
     "name": "Color",
     "members": [
@@ -19,36 +20,41 @@
   },
   {
     "kind": "type",
+    "line": 5,
     "visibility": "private",
     "name": "Circle",
     "fields": [
-    { "visibility": null, "name": "radius", "type": "Integer" }
+    { "visibility": null, "line": 6, "name": "radius", "type": "Integer" }
     ]
   },
   {
     "kind": "type",
+    "line": 9,
     "visibility": "private",
     "name": "Point",
     "fields": [
-    { "visibility": null, "name": "value", "type": "Nothing" }
+    { "visibility": null, "line": 10, "name": "value", "type": "Nothing" }
     ]
   },
   {
     "kind": "union",
+    "line": 13,
     "visibility": "private",
     "name": "Shape",
     "includes": [],
     "variants": [
     {
       "name": "Circle",
+      "line": 14,
       "fields": [
-      { "visibility": null, "name": "radius", "type": "Integer" }
+      { "visibility": null, "line": 6, "name": "radius", "type": "Integer" }
       ]
     },
     {
       "name": "Point",
+      "line": 15,
       "fields": [
-      { "visibility": null, "name": "value", "type": "Nothing" }
+      { "visibility": null, "line": 10, "name": "value", "type": "Nothing" }
       ]
     }
     ]
@@ -57,30 +63,34 @@
   "functions": [
   {
     "name": "enumAll",
+    "line": 18,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "color", "type": "Color", "default": null }
+    { "name": "color", "line": 18, "type": "Color", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match0", "type": "Color", "value": { "kind": "local", "name": "color" } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "$match0", "type": "Color", "value": { "kind": "local", "name": "color" } },
     {
       "op": "match",
+      "line": 19,
       "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "line": 20,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        { "op": "return", "line": 21, "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]
       },
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
+        "line": 22,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        { "op": "return", "line": 23, "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ]
       }
       ]
@@ -89,30 +99,34 @@
   },
   {
     "name": "enumPartialWithElse",
+    "line": 27,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "color", "type": "Color", "default": null }
+    { "name": "color", "line": 27, "type": "Color", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match1", "type": "Color", "value": { "kind": "local", "name": "color" } },
+    { "op": "bind", "line": 28, "mutable": false, "name": "$match1", "type": "Color", "value": { "kind": "local", "name": "color" } },
     {
       "op": "match",
+      "line": 28,
       "value": { "kind": "local", "name": "$match1" },
       "cases": [
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "line": 29,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        { "op": "return", "line": 30, "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]
       },
       {
+        "line": 31,
         "pattern": { "kind": "else" },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        { "op": "return", "line": 32, "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ]
       }
       ]
@@ -121,32 +135,36 @@
   },
   {
     "name": "unionAll",
+    "line": 36,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "shape", "type": "Shape", "default": null }
+    { "name": "shape", "line": 36, "type": "Shape", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match2", "type": "Shape", "value": { "kind": "local", "name": "shape" } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "$match2", "type": "Shape", "value": { "kind": "local", "name": "shape" } },
     {
       "op": "match",
+      "line": 37,
       "value": { "kind": "local", "name": "$match2" },
       "cases": [
       {
+        "line": 38,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match2" } } },
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+        { "op": "bind", "line": 38, "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "return", "line": 39, "value": { "kind": "const", "type": "Integer", "value": "10" } }
         ]
       },
       {
+        "line": 40,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Point" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "point", "type": "Point", "value": { "kind": "unionExtract", "type": "Point", "value": { "kind": "local", "name": "$match2" } } },
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
+        { "op": "bind", "line": 40, "mutable": false, "name": "point", "type": "Point", "value": { "kind": "unionExtract", "type": "Point", "value": { "kind": "local", "name": "$match2" } } },
+        { "op": "return", "line": 41, "value": { "kind": "const", "type": "Integer", "value": "20" } }
         ]
       }
       ]
@@ -155,31 +173,35 @@
   },
   {
     "name": "unionPartialWithElse",
+    "line": 45,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "shape", "type": "Shape", "default": null }
+    { "name": "shape", "line": 45, "type": "Shape", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match3", "type": "Shape", "value": { "kind": "local", "name": "shape" } },
+    { "op": "bind", "line": 46, "mutable": false, "name": "$match3", "type": "Shape", "value": { "kind": "local", "name": "shape" } },
     {
       "op": "match",
+      "line": 46,
       "value": { "kind": "local", "name": "$match3" },
       "cases": [
       {
+        "line": 47,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Circle" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match3" } } },
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+        { "op": "bind", "line": 47, "mutable": false, "name": "circle", "type": "Circle", "value": { "kind": "unionExtract", "type": "Circle", "value": { "kind": "local", "name": "$match3" } } },
+        { "op": "return", "line": 48, "value": { "kind": "const", "type": "Integer", "value": "10" } }
         ]
       },
       {
+        "line": 49,
         "pattern": { "kind": "else" },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
+        { "op": "return", "line": 50, "value": { "kind": "const", "type": "Integer", "value": "20" } }
         ]
       }
       ]
@@ -188,13 +210,14 @@
   },
   {
     "name": "main",
+    "line": 54,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "enumAll", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }, "right": { "kind": "call", "target": "enumPartialWithElse", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] } }, "right": { "kind": "call", "target": "unionAll", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } }] } }, "right": { "kind": "call", "target": "unionPartialWithElse", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } }] } } }
+    { "op": "return", "line": 55, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "enumAll", "args": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] }, "right": { "kind": "call", "type": "Integer", "target": "enumPartialWithElse", "args": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] } }, "right": { "kind": "call", "type": "Integer", "target": "unionAll", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Nothing", "value": "NOTHING" }] } }] } }, "right": { "kind": "call", "type": "Integer", "target": "unionPartialWithElse", "args": [{ "kind": "unionWrap", "union": "Shape", "member": "Circle", "value": { "kind": "constructor", "type": "Circle", "args": [{ "kind": "const", "type": "Integer", "value": "1" }] } }] } } }
     ]
   }
   ]

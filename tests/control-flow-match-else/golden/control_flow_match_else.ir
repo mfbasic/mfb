@@ -12,37 +12,42 @@
   "functions": [
   {
     "name": "bucket",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 1, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match0", "type": "Integer", "value": { "kind": "local", "name": "value" } },
+    { "op": "bind", "line": 2, "mutable": false, "name": "$match0", "type": "Integer", "value": { "kind": "local", "name": "value" } },
     {
       "op": "match",
+      "line": 2,
       "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
+        "line": 3,
         "pattern": { "kind": "oneOf", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+        { "op": "return", "line": 4, "value": { "kind": "const", "type": "Integer", "value": "10" } }
         ]
       },
       {
+        "line": 5,
         "pattern": { "kind": "oneOf", "values": [{ "kind": "const", "type": "Integer", "value": "8" }, { "kind": "const", "type": "Integer", "value": "9" }] },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
+        { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "20" } }
         ]
       },
       {
+        "line": 7,
         "pattern": { "kind": "else" },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "30" } }
+        { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "30" } }
         ]
       }
       ]
@@ -51,13 +56,14 @@
   },
   {
     "name": "main",
+    "line": 12,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }, "right": { "kind": "call", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } }, "right": { "kind": "call", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "99" }] } } }
+    { "op": "return", "line": 13, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "2" }] }, "right": { "kind": "call", "type": "Integer", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } }, "right": { "kind": "call", "type": "Integer", "target": "bucket", "args": [{ "kind": "const", "type": "Integer", "value": "99" }] } } }
     ]
   }
   ]

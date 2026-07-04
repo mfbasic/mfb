@@ -12,42 +12,45 @@
   "functions": [
   {
     "name": "printInteger",
+    "line": 4,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 4, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
     ]
   },
   {
     "name": "printString",
+    "line": 8,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "value", "type": "String", "default": null }
+    { "name": "value", "line": 8, "type": "String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "value" }] } }
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "value" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 12,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Grace" }] } },
-    { "op": "bind", "mutable": false, "name": "printName", "type": "FUNC(String) AS Nothing", "value": { "kind": "functionRef", "name": "printString", "type": "FUNC(String) AS Nothing" } },
-    { "op": "eval", "value": { "kind": "call", "target": "collections.forEach", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "printInteger", "type": "FUNC(Integer) AS Nothing" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "collections.forEach", "args": [{ "kind": "local", "name": "names" }, { "kind": "local", "name": "printName" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "numbers" }] }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "names" }] } } }
+    { "op": "bind", "line": 13, "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "names", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Grace" }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "printName", "type": "FUNC(String) AS Nothing", "value": { "kind": "functionRef", "name": "printString", "type": "FUNC(String) AS Nothing" } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "collections.forEach", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "printInteger", "type": "FUNC(Integer) AS Nothing" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "collections.forEach", "args": [{ "kind": "local", "name": "names" }, { "kind": "local", "name": "printName" }] } },
+    { "op": "return", "line": 20, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "numbers" }] }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "names" }] } } }
     ]
   }
   ]

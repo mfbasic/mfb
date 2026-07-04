@@ -220,49 +220,53 @@ fn lower_op(op: &IrOp) -> NirOp {
             name,
             type_,
             value,
+            ..
         } => NirOp::Bind {
             mutable: *mutable,
             name: name.clone(),
             type_: type_.clone(),
             value: value.as_ref().map(lower_value),
         },
-        IrOp::Assign { name, value } => NirOp::Assign {
+        IrOp::Assign { name, value, .. } => NirOp::Assign {
             name: name.clone(),
             value: lower_value(value),
         },
-        IrOp::StateAssign { resource, value } => NirOp::StateAssign {
+        IrOp::StateAssign {
+            resource, value, ..
+        } => NirOp::StateAssign {
             resource: resource.clone(),
             value: lower_value(value),
         },
-        IrOp::AssignGlobal { name, value } => NirOp::StoreGlobal {
+        IrOp::AssignGlobal { name, value, .. } => NirOp::StoreGlobal {
             name: name.clone(),
             type_: String::new(),
             value: Some(lower_value(value)),
         },
-        IrOp::Return { value } => NirOp::Return {
+        IrOp::Return { value, .. } => NirOp::Return {
             value: value.as_ref().map(lower_value),
         },
-        IrOp::ExitLoop { kind } => NirOp::ExitLoop { kind: *kind },
-        IrOp::ContinueLoop { kind } => NirOp::ContinueLoop { kind: *kind },
-        IrOp::ExitProgram { code } => NirOp::ExitProgram {
+        IrOp::ExitLoop { kind, .. } => NirOp::ExitLoop { kind: *kind },
+        IrOp::ContinueLoop { kind, .. } => NirOp::ContinueLoop { kind: *kind },
+        IrOp::ExitProgram { code, .. } => NirOp::ExitProgram {
             code: lower_value(code),
         },
-        IrOp::Fail { error } => NirOp::Fail {
+        IrOp::Fail { error, .. } => NirOp::Fail {
             error: lower_value(error),
         },
-        IrOp::Eval { value } => NirOp::Eval {
+        IrOp::Eval { value, .. } => NirOp::Eval {
             value: lower_value(value),
         },
         IrOp::If {
             condition,
             then_body,
             else_body,
+            ..
         } => NirOp::If {
             condition: lower_value(condition),
             then_body: lower_ops(then_body),
             else_body: lower_ops(else_body),
         },
-        IrOp::Match { value, cases } => NirOp::Match {
+        IrOp::Match { value, cases, .. } => NirOp::Match {
             value: lower_value(value),
             cases: cases.iter().map(lower_match_case).collect(),
         },
@@ -270,6 +274,7 @@ fn lower_op(op: &IrOp) -> NirOp {
             kind,
             condition,
             body,
+            ..
         } => NirOp::While {
             kind: *kind,
             condition: lower_value(condition),
@@ -292,7 +297,9 @@ fn lower_op(op: &IrOp) -> NirOp {
             body: lower_ops(body),
             loc: lower_loc(*loc),
         },
-        IrOp::DoUntil { body, condition } => NirOp::DoUntil {
+        IrOp::DoUntil {
+            body, condition, ..
+        } => NirOp::DoUntil {
             body: lower_ops(body),
             condition: lower_value(condition),
         },
@@ -301,13 +308,14 @@ fn lower_op(op: &IrOp) -> NirOp {
             type_,
             iterable,
             body,
+            ..
         } => NirOp::ForEach {
             name: name.clone(),
             type_: type_.clone(),
             iterable: lower_value(iterable),
             body: lower_ops(body),
         },
-        IrOp::Trap { name, body } => NirOp::Trap {
+        IrOp::Trap { name, body, .. } => NirOp::Trap {
             name: name.clone(),
             body: lower_ops(body),
         },
@@ -369,7 +377,9 @@ fn lower_value(value: &IrValue) -> NirValue {
             type_: type_.clone(),
             by_ref: *by_ref,
         },
-        IrValue::Call { target, args, loc } => {
+        IrValue::Call {
+            target, args, loc, ..
+        } => {
             let loc = lower_loc(*loc);
             let mut args = args.iter().map(lower_value).collect::<Vec<_>>();
             match (target.as_str(), args.len()) {
@@ -410,7 +420,9 @@ fn lower_value(value: &IrValue) -> NirValue {
                 }
             }
         }
-        IrValue::CallResult { target, args, loc } => NirValue::CallResult {
+        IrValue::CallResult {
+            target, args, loc, ..
+        } => NirValue::CallResult {
             target: target.clone(),
             args: args.iter().map(lower_value).collect(),
             loc: lower_loc(*loc),
@@ -435,7 +447,7 @@ fn lower_value(value: &IrValue) -> NirValue {
         IrValue::ResultIsOk { value } => NirValue::ResultIsOk {
             value: Box::new(lower_value(value)),
         },
-        IrValue::ResultValue { value } => NirValue::ResultValue {
+        IrValue::ResultValue { value, .. } => NirValue::ResultValue {
             value: Box::new(lower_value(value)),
         },
         IrValue::ResultError { value } => NirValue::ResultError {
@@ -461,7 +473,7 @@ fn lower_value(value: &IrValue) -> NirValue {
                 .map(|(key, value)| (lower_value(key), lower_value(value)))
                 .collect(),
         },
-        IrValue::MemberAccess { target, member } => NirValue::MemberAccess {
+        IrValue::MemberAccess { target, member, .. } => NirValue::MemberAccess {
             target: Box::new(lower_value(target)),
             member: member.clone(),
         },
@@ -470,13 +482,16 @@ fn lower_value(value: &IrValue) -> NirValue {
             left,
             right,
             loc,
+            ..
         } => NirValue::Binary {
             op: op.clone(),
             left: Box::new(lower_value(left)),
             right: Box::new(lower_value(right)),
             loc: lower_loc(*loc),
         },
-        IrValue::Unary { op, operand, loc } => NirValue::Unary {
+        IrValue::Unary {
+            op, operand, loc, ..
+        } => NirValue::Unary {
             op: op.clone(),
             operand: Box::new(lower_value(operand)),
             loc: lower_loc(*loc),

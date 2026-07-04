@@ -12,31 +12,33 @@
   "functions": [
   {
     "name": "greet",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "name", "type": "String", "default": null },
-    { "name": "greeting", "type": "String", "default": { "kind": "const", "type": "String", "value": "Hello" } },
-    { "name": "punctuation", "type": "String", "default": { "kind": "const", "type": "String", "value": "!" } }
+    { "name": "name", "line": 4, "type": "String", "default": null },
+    { "name": "greeting", "line": 4, "type": "String", "default": { "kind": "const", "type": "String", "value": "Hello" } },
+    { "name": "punctuation", "line": 4, "type": "String", "default": { "kind": "const", "type": "String", "value": "!" } }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "greeting" }, "right": { "kind": "const", "type": "String", "value": ", " } }, "right": { "kind": "local", "name": "name" } }, "right": { "kind": "local", "name": "punctuation" } } }
+    { "op": "return", "line": 5, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "greeting" }, "right": { "kind": "const", "type": "String", "value": ", " } }, "right": { "kind": "local", "name": "name" } }, "right": { "kind": "local", "name": "punctuation" } } }
     ]
   },
   {
     "name": "main",
+    "line": 8,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "first", "type": "String", "value": { "kind": "call", "target": "greet", "args": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Hi" }, { "kind": "const", "type": "String", "value": "!" }] } },
-    { "op": "bind", "mutable": false, "name": "second", "type": "String", "value": { "kind": "call", "target": "greet", "args": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Welcome" }, { "kind": "const", "type": "String", "value": "?" }] } },
-    { "op": "bind", "mutable": false, "name": "combined", "type": "String", "value": { "kind": "call", "target": "strings.join", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "first" }, { "kind": "local", "name": "second" }] }, { "kind": "const", "type": "String", "value": " | " }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "combined" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 9, "mutable": false, "name": "first", "type": "String", "value": { "kind": "call", "type": "String", "target": "greet", "args": [{ "kind": "const", "type": "String", "value": "Ada" }, { "kind": "const", "type": "String", "value": "Hi" }, { "kind": "const", "type": "String", "value": "!" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "second", "type": "String", "value": { "kind": "call", "type": "String", "target": "greet", "args": [{ "kind": "const", "type": "String", "value": "Grace" }, { "kind": "const", "type": "String", "value": "Welcome" }, { "kind": "const", "type": "String", "value": "?" }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "combined", "type": "String", "value": { "kind": "call", "type": "String", "target": "strings.join", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "local", "name": "first" }, { "kind": "local", "name": "second" }] }, { "kind": "const", "type": "String", "value": " | " }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "combined" }] } },
+    { "op": "return", "line": 13, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

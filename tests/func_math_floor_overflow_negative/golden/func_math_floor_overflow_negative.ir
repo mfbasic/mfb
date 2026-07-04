@@ -12,13 +12,14 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "math.floor", "args": [{ "kind": "binary", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "9223372036854777856.0" } }] } }
+    { "op": "return", "line": 4, "value": { "kind": "call", "type": "Integer", "target": "math.floor", "args": [{ "kind": "binary", "type": "Float", "op": "-", "left": { "kind": "const", "type": "Float", "value": "0.0" }, "right": { "kind": "const", "type": "Float", "value": "9223372036854777856.0" } }] } }
     ]
   }
   ]

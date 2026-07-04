@@ -8,31 +8,33 @@
   "functions": [
   {
     "name": "createDefaultTemp",
+    "line": 3,
     "visibility": "export",
     "kind": "func",
     "params": [
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "target": "fs.createTempFile", "args": [] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "default" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "file" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "String", "value": "default" } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "default" }] } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "file" }] } },
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "String", "value": "default" } }
     ]
   },
   {
     "name": "createInDirectory",
+    "line": 10,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "directory", "type": "String", "default": null }
+    { "name": "directory", "line": 10, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "target": "fs.createTempFile", "args": [{ "kind": "local", "name": "directory" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "directory" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "file" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "String", "value": "directory" } }
+    { "op": "bind", "line": 11, "mutable": false, "name": "file", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [{ "kind": "local", "name": "directory" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "file" }, { "kind": "const", "type": "String", "value": "directory" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "file" }] } },
+    { "op": "return", "line": 14, "value": { "kind": "const", "type": "String", "value": "directory" } }
     ]
   }
   ]

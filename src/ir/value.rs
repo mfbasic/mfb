@@ -6,6 +6,8 @@ pub(crate) struct IrMatchCase {
     pub(crate) pattern: IrMatchPattern,
     pub(crate) guard: Option<IrValue>,
     pub(crate) body: Vec<IrOp>,
+    // Source location of the case arm.
+    pub(crate) loc: IrSourceLoc,
 }
 #[derive(Clone)]
 
@@ -52,12 +54,16 @@ pub(crate) enum IrValue {
     Call {
         target: String,
         args: Vec<IrValue>,
+        // Result type of the call (the callee's return type; plan-20-B).
+        type_: String,
         // Source location of the call expression (origin for helper-generated errors).
         loc: IrSourceLoc,
     },
     CallResult {
         target: String,
         args: Vec<IrValue>,
+        // Success type of the fallible call (the `T` of `Result OF T`; plan-20-B).
+        type_: String,
         // Source location of the call expression (origin for helper-generated errors).
         loc: IrSourceLoc,
     },
@@ -78,6 +84,8 @@ pub(crate) enum IrValue {
         value: Box<IrValue>,
     },
     ResultValue {
+        // Success type extracted from the `Result` (plan-20-B).
+        type_: String,
         value: Box<IrValue>,
     },
     ResultError {
@@ -99,18 +107,55 @@ pub(crate) enum IrValue {
     MemberAccess {
         target: Box<IrValue>,
         member: String,
+        // Type of the accessed field/member (plan-20-B).
+        type_: String,
     },
     Binary {
         op: String,
         left: Box<IrValue>,
         right: Box<IrValue>,
+        // Result type of the operation (plan-20-B).
+        type_: String,
         // Source location of the operator (origin for arithmetic-generated errors).
         loc: IrSourceLoc,
     },
     Unary {
         op: String,
         operand: Box<IrValue>,
+        // Result type of the operation (plan-20-B).
+        type_: String,
         // Source location of the operator (origin for arithmetic-generated errors).
         loc: IrSourceLoc,
     },
+}
+
+impl IrValue {
+    /// The node's result type, when it is annotated on the node itself.
+    /// `ResultIsOk` is always `Boolean` and `ResultError` always `Error`;
+    /// `Local`/`Global` resolve through the enclosing binding environment
+    /// (master plan §4.1) and yield `None` here.
+    pub(crate) fn annotated_type(&self) -> Option<&str> {
+        match self {
+            IrValue::Const { type_, .. }
+            | IrValue::LocalRef { type_, .. }
+            | IrValue::FunctionRef { type_, .. }
+            | IrValue::Closure { type_, .. }
+            | IrValue::Capture { type_, .. }
+            | IrValue::Call { type_, .. }
+            | IrValue::CallResult { type_, .. }
+            | IrValue::Constructor { type_, .. }
+            | IrValue::UnionExtract { type_, .. }
+            | IrValue::ResultValue { type_, .. }
+            | IrValue::WithUpdate { type_, .. }
+            | IrValue::ListLiteral { type_, .. }
+            | IrValue::MapLiteral { type_, .. }
+            | IrValue::MemberAccess { type_, .. }
+            | IrValue::Binary { type_, .. }
+            | IrValue::Unary { type_, .. } => Some(type_),
+            IrValue::UnionWrap { union_type, .. } => Some(union_type),
+            IrValue::ResultIsOk { .. } => Some("Boolean"),
+            IrValue::ResultError { .. } => Some("Error"),
+            IrValue::Local(_) | IrValue::Global(_) => None,
+        }
+    }
 }

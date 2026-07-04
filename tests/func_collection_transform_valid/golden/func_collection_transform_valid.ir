@@ -12,63 +12,67 @@
   "functions": [
   {
     "name": "double",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 4, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "value" } } }
+    { "op": "return", "line": 5, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "value" } } }
     ]
   },
   {
     "name": "label",
+    "line": 8,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 8, "type": "Integer", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "n=" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } } }
+    { "op": "return", "line": 9, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "n=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } } }
     ]
   },
   {
     "name": "main",
+    "line": 12,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "bind", "mutable": false, "name": "empty", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
-    { "op": "bind", "mutable": false, "name": "labeler", "type": "FUNC(Integer) AS String", "value": { "kind": "functionRef", "name": "label", "type": "FUNC(Integer) AS String" } },
-    { "op": "bind", "mutable": false, "name": "doubled", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "double", "type": "FUNC(Integer) AS Integer" }] } },
-    { "op": "bind", "mutable": false, "name": "labels", "type": "List OF String", "value": { "kind": "call", "target": "collections.transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "local", "name": "labeler" }] } },
-    { "op": "bind", "mutable": false, "name": "tripled", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Integer) AS Integer" }] } },
-    { "op": "bind", "mutable": false, "name": "emptyDoubled", "type": "List OF Integer", "value": { "kind": "call", "target": "collections.transform", "args": [{ "kind": "local", "name": "empty" }, { "kind": "functionRef", "name": "double", "type": "FUNC(Integer) AS Integer" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "labels" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "labels" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "collections.get", "args": [{ "kind": "local", "name": "tripled" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyDoubled" }] }] }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "collections.sum", "args": [{ "kind": "local", "name": "doubled" }] }, "right": { "kind": "call", "target": "collections.sum", "args": [{ "kind": "local", "name": "tripled" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "labels" }] } }, "right": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "emptyDoubled" }] } } }
+    { "op": "bind", "line": 13, "mutable": false, "name": "numbers", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "empty", "type": "List OF Integer", "value": { "kind": "list", "type": "List OF Integer", "values": [] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "labeler", "type": "FUNC(Integer) AS String", "value": { "kind": "functionRef", "name": "label", "type": "FUNC(Integer) AS String" } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "doubled", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "double", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "labels", "type": "List OF String", "value": { "kind": "call", "type": "List OF String", "target": "collections.transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "local", "name": "labeler" }] } },
+    { "op": "bind", "line": 18, "mutable": false, "name": "tripled", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "numbers" }, { "kind": "functionRef", "name": "$lambda0", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "bind", "line": 19, "mutable": false, "name": "emptyDoubled", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "collections.transform", "args": [{ "kind": "local", "name": "empty" }, { "kind": "functionRef", "name": "double", "type": "FUNC(Integer) AS Integer" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "const", "type": "Integer", "value": "0" }] }] }] } },
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "doubled" }, { "kind": "const", "type": "Integer", "value": "2" }] }] }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "labels" }, { "kind": "const", "type": "Integer", "value": "0" }] }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "collections.get", "args": [{ "kind": "local", "name": "labels" }, { "kind": "const", "type": "Integer", "value": "2" }] }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "collections.get", "args": [{ "kind": "local", "name": "tripled" }, { "kind": "const", "type": "Integer", "value": "1" }] }] }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "emptyDoubled" }] }] }] } },
+    { "op": "return", "line": 29, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "collections.sum", "args": [{ "kind": "local", "name": "doubled" }] }, "right": { "kind": "call", "type": "Integer", "target": "collections.sum", "args": [{ "kind": "local", "name": "tripled" }] } }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "labels" }] } }, "right": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "emptyDoubled" }] } } }
     ]
   },
   {
     "name": "$lambda0",
+    "line": 18,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 18, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "value" } }, "right": { "kind": "local", "name": "value" } } }
+    { "op": "return", "line": 18, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "value" }, "right": { "kind": "local", "name": "value" } }, "right": { "kind": "local", "name": "value" } } }
     ]
   }
   ]

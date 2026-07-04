@@ -12,6 +12,7 @@
   "functions": [
   {
     "name": "compileReadByte",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
@@ -20,26 +21,28 @@
     "body": [
     {
       "op": "if",
+      "line": 4,
       "condition": { "kind": "const", "type": "Boolean", "value": "false" },
       "then": [
-      { "op": "bind", "mutable": false, "name": "value", "type": "Byte", "value": { "kind": "call", "target": "io.readByte", "args": [] } },
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
+      { "op": "bind", "line": 5, "mutable": false, "name": "value", "type": "Byte", "value": { "kind": "call", "type": "Byte", "target": "io.readByte", "args": [] } },
+      { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "main",
+    "line": 12,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "compileReadByte", "args": [] } }
+    { "op": "return", "line": 13, "value": { "kind": "call", "type": "Integer", "target": "compileReadByte", "args": [] } }
     ]
   }
   ]

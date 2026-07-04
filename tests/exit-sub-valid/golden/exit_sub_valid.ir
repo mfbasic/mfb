@@ -12,65 +12,71 @@
   "functions": [
   {
     "name": "guard",
+    "line": 1,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "flag", "type": "Boolean", "default": null }
+    { "name": "flag", "line": 1, "type": "Boolean", "default": null }
     ],
     "returns": "Nothing",
     "body": [
     {
       "op": "if",
+      "line": 2,
       "condition": { "kind": "local", "name": "flag" },
       "then": [
-      { "op": "return", "value": null }
+      { "op": "return", "line": 3, "value": null }
       ],
       "else": [
       ]
     },
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "String", "value": "guard failed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "line": 5, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "10" }, { "kind": "const", "type": "String", "value": "guard failed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   },
   {
     "name": "swallow",
+    "line": 8,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "flag", "type": "Boolean", "default": null }
+    { "name": "flag", "line": 8, "type": "Boolean", "default": null }
     ],
     "returns": "Nothing",
     "body": [
     {
       "op": "if",
+      "line": 9,
       "condition": { "kind": "local", "name": "flag" },
       "then": [
-      { "op": "return", "value": null }
+      { "op": "return", "line": 10, "value": null }
       ],
       "else": [
       ]
     },
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "11" }, { "kind": "const", "type": "String", "value": "swallowed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "12" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } },
+    { "op": "fail", "line": 12, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "11" }, { "kind": "const", "type": "String", "value": "swallowed" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "12" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } },
     {
       "op": "trap",
+      "line": 13,
       "name": "err",
       "body": [
-      { "op": "return", "value": null }
+      { "op": "return", "line": 14, "value": null }
       ]
     }
     ]
   },
   {
     "name": "main",
+    "line": 18,
     "visibility": "private",
     "kind": "sub",
     "params": [
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "guard", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "swallow", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "swallow", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
-    { "op": "return", "value": null }
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "guard", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 20, "value": { "kind": "call", "type": "Nothing", "target": "swallow", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 21, "value": { "kind": "call", "type": "Nothing", "target": "swallow", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } },
+    { "op": "return", "line": 22, "value": null }
     ]
   }
   ]

@@ -12,31 +12,33 @@
   "functions": [
   {
     "name": "lowerValue",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "String", "default": null }
+    { "name": "value", "line": 4, "type": "String", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "strings.lower", "args": [{ "kind": "local", "name": "value" }] } }
+    { "op": "return", "line": 5, "value": { "kind": "call", "type": "String", "target": "strings.lower", "args": [{ "kind": "local", "name": "value" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 8,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "mixed", "type": "String", "value": { "kind": "const", "type": "String", "value": "CAFÉ" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "lowerValue", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "lowerValue", "args": [{ "kind": "const", "type": "String", "value": "HELLO" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "lowerValue", "args": [{ "kind": "local", "name": "mixed" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "lowerValue", "args": [{ "kind": "const", "type": "String", "value": "İ" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "lowerValue", "args": [{ "kind": "const", "type": "String", "value": "É日😀" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 9, "mutable": false, "name": "mixed", "type": "String", "value": { "kind": "const", "type": "String", "value": "CAFÉ" } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "lowerValue", "args": [{ "kind": "const", "type": "String", "value": "" }] }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "lowerValue", "args": [{ "kind": "const", "type": "String", "value": "HELLO" }] }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "lowerValue", "args": [{ "kind": "local", "name": "mixed" }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "lowerValue", "args": [{ "kind": "const", "type": "String", "value": "İ" }] }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "lowerValue", "args": [{ "kind": "const", "type": "String", "value": "É日😀" }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

@@ -10,37 +10,40 @@
   "types": [
   {
     "kind": "type",
+    "line": 3,
     "visibility": "private",
     "name": "Inner",
     "fields": [
-    { "visibility": null, "name": "name", "type": "String" },
-    { "visibility": null, "name": "values", "type": "List OF Integer" }
+    { "visibility": null, "line": 4, "name": "name", "type": "String" },
+    { "visibility": null, "line": 5, "name": "values", "type": "List OF Integer" }
     ]
   },
   {
     "kind": "type",
+    "line": 8,
     "visibility": "private",
     "name": "Outer",
     "fields": [
-    { "visibility": null, "name": "inner", "type": "Inner" },
-    { "visibility": null, "name": "ready", "type": "Boolean" }
+    { "visibility": null, "line": 9, "name": "inner", "type": "Inner" },
+    { "visibility": null, "line": 10, "name": "ready", "type": "Boolean" }
     ]
   }
   ],
   "functions": [
   {
     "name": "main",
+    "line": 13,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": true, "name": "state", "type": "Outer", "value": null },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "state" }, "member": "inner" }, "member": "name" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "state" }, "member": "inner" }, "member": "values" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "state" }, "member": "ready" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 14, "mutable": true, "name": "state", "type": "Outer", "value": null },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "memberAccess", "type": "Inner", "target": { "kind": "local", "name": "state" }, "member": "inner" }, "member": "name" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "memberAccess", "type": "List OF Integer", "target": { "kind": "memberAccess", "type": "Inner", "target": { "kind": "local", "name": "state" }, "member": "inner" }, "member": "values" }] }] }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Boolean", "target": { "kind": "local", "name": "state" }, "member": "ready" }] }] } },
+    { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

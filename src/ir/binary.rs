@@ -5,7 +5,11 @@ pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// Binary Representation format version. Bump on any incompatible change to the encoding.
 /// Version 2 adds per-node source locations (`loc` on Call/CallResult/Binary/Unary/For)
 /// and a per-function source `file`, backing read-only `Error.source` / `ErrorLoc`.
-pub const BINARY_REPR_VERSION: u16 = 2;
+/// Version 3 (plan-20-A) extends spans to the full diagnostic vocabulary: every
+/// op, match case, and declaration (function/param/type/field/variant/binding)
+/// carries a trailing `loc`, so the IR-level semantic checker can report at the
+/// same source line the AST checker does.
+pub const BINARY_REPR_VERSION: u16 = 3;
 
 // --- low-level writers -----------------------------------------------------
 
@@ -473,6 +477,7 @@ fn encode_binding(out: &mut Vec<u8>, b: &IrBinding) {
     put_bool(out, b.mutable);
     put_str(out, &b.type_);
     put_opt_value(out, &b.value);
+    put_loc(out, b.loc);
 }
 
 fn decode_binding(r: &mut IrReader) -> Result<IrBinding, String> {
@@ -482,6 +487,7 @@ fn decode_binding(r: &mut IrReader) -> Result<IrBinding, String> {
         mutable: r.bool()?,
         type_: r.string()?,
         value: r.opt_value()?,
+        loc: get_loc(r)?,
     })
 }
 
@@ -491,6 +497,7 @@ fn encode_field(out: &mut Vec<u8>, f: &IrField) {
     put_opt_str(out, &f.visibility);
     put_str(out, &f.name);
     put_str(out, &f.type_);
+    put_loc(out, f.loc);
 }
 
 fn decode_field(r: &mut IrReader) -> Result<IrField, String> {
@@ -498,18 +505,21 @@ fn decode_field(r: &mut IrReader) -> Result<IrField, String> {
         visibility: r.opt_string()?,
         name: r.string()?,
         type_: r.string()?,
+        loc: get_loc(r)?,
     })
 }
 
 fn encode_variant(out: &mut Vec<u8>, v: &IrVariant) {
     put_str(out, &v.name);
     put_vec(out, &v.fields, encode_field);
+    put_loc(out, v.loc);
 }
 
 fn decode_variant(r: &mut IrReader) -> Result<IrVariant, String> {
     Ok(IrVariant {
         name: r.string()?,
         fields: decode_vec(r, decode_field)?,
+        loc: get_loc(r)?,
     })
 }
 
@@ -521,6 +531,7 @@ fn encode_type(out: &mut Vec<u8>, t: &IrType) {
     put_vec(out, &t.includes, |o, s| put_str(o, s));
     put_vec(out, &t.variants, encode_variant);
     put_vec(out, &t.members, |o, m| put_str(o, &m.name));
+    put_loc(out, t.loc);
 }
 
 fn decode_type(r: &mut IrReader) -> Result<IrType, String> {
@@ -532,6 +543,7 @@ fn decode_type(r: &mut IrReader) -> Result<IrType, String> {
         includes: decode_vec(r, |r| r.string())?,
         variants: decode_vec(r, decode_variant)?,
         members: decode_vec(r, |r| Ok(IrEnumMember { name: r.string()? }))?,
+        loc: get_loc(r)?,
     })
 }
 
@@ -541,6 +553,7 @@ fn encode_param(out: &mut Vec<u8>, p: &IrParam) {
     put_str(out, &p.name);
     put_str(out, &p.type_);
     put_opt_value(out, &p.default);
+    put_loc(out, p.loc);
 }
 
 fn decode_param(r: &mut IrReader) -> Result<IrParam, String> {
@@ -548,6 +561,7 @@ fn decode_param(r: &mut IrReader) -> Result<IrParam, String> {
         name: r.string()?,
         type_: r.string()?,
         default: r.opt_value()?,
+        loc: get_loc(r)?,
     })
 }
 
@@ -560,6 +574,7 @@ fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
     put_str(out, &f.returns);
     put_vec(out, &f.body, encode_op);
     put_str(out, &f.file);
+    put_loc(out, f.loc);
 }
 
 fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
@@ -572,6 +587,7 @@ fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
         returns: r.string()?,
         body: decode_vec(r, decode_op)?,
         file: r.string()?,
+        loc: get_loc(r)?,
         // Recomputed by codegen from the in-memory IR; not part of the binary
         // representation, so a decoded function carries an empty map.
         resource_owners: HashMap::new(),
@@ -587,71 +603,90 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             name,
             type_,
             value,
+            loc,
         } => {
             put_u8(out, 0);
             put_bool(out, *mutable);
             put_str(out, name);
             put_str(out, type_);
             put_opt_value(out, value);
+            put_loc(out, *loc);
         }
-        IrOp::Assign { name, value } => {
+        IrOp::Assign { name, value, loc } => {
             put_u8(out, 1);
             put_str(out, name);
             encode_value(out, value);
+            put_loc(out, *loc);
         }
-        IrOp::AssignGlobal { name, value } => {
+        IrOp::AssignGlobal { name, value, loc } => {
             put_u8(out, 2);
             put_str(out, name);
             encode_value(out, value);
+            put_loc(out, *loc);
         }
-        IrOp::StateAssign { resource, value } => {
+        IrOp::StateAssign {
+            resource,
+            value,
+            loc,
+        } => {
             put_u8(out, 17);
             put_str(out, resource);
             encode_value(out, value);
+            put_loc(out, *loc);
         }
-        IrOp::Return { value } => {
+        IrOp::Return { value, loc } => {
             put_u8(out, 3);
             put_opt_value(out, value);
+            put_loc(out, *loc);
         }
-        IrOp::ExitLoop { kind } => {
+        IrOp::ExitLoop { kind, loc } => {
             put_u8(out, 11);
             put_loop_kind(out, *kind);
+            put_loc(out, *loc);
         }
-        IrOp::ContinueLoop { kind } => {
+        IrOp::ContinueLoop { kind, loc } => {
             put_u8(out, 12);
             put_loop_kind(out, *kind);
+            put_loc(out, *loc);
         }
-        IrOp::ExitProgram { code } => {
+        IrOp::ExitProgram { code, loc } => {
             put_u8(out, 13);
             encode_value(out, code);
+            put_loc(out, *loc);
         }
-        IrOp::Fail { error } => {
+        IrOp::Fail { error, loc } => {
             put_u8(out, 4);
             encode_value(out, error);
+            put_loc(out, *loc);
         }
-        IrOp::Eval { value } => {
+        IrOp::Eval { value, loc } => {
             put_u8(out, 5);
             encode_value(out, value);
+            put_loc(out, *loc);
         }
         IrOp::If {
             condition,
             then_body,
             else_body,
+            loc,
         } => {
             put_u8(out, 6);
             encode_value(out, condition);
             put_vec(out, then_body, encode_op);
             put_vec(out, else_body, encode_op);
+            put_loc(out, *loc);
         }
-        IrOp::Match { value, cases } => {
+        IrOp::Match { value, cases, loc } => {
             put_u8(out, 7);
             encode_value(out, value);
             put_vec(out, cases, encode_match_case);
+            put_loc(out, *loc);
         }
         IrOp::While {
             kind,
             condition,
             body,
+            loc,
         } => {
             if matches!(kind, LoopKind::While) {
                 put_u8(out, 8);
@@ -661,6 +696,7 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             }
             encode_value(out, condition);
             put_vec(out, body, encode_op);
+            put_loc(out, *loc);
         }
         IrOp::For {
             name,
@@ -680,27 +716,35 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             put_vec(out, body, encode_op);
             put_loc(out, *loc);
         }
-        IrOp::DoUntil { body, condition } => {
+        IrOp::DoUntil {
+            body,
+            condition,
+            loc,
+        } => {
             put_u8(out, 15);
             put_vec(out, body, encode_op);
             encode_value(out, condition);
+            put_loc(out, *loc);
         }
         IrOp::ForEach {
             name,
             type_,
             iterable,
             body,
+            loc,
         } => {
             put_u8(out, 9);
             put_str(out, name);
             put_str(out, type_);
             encode_value(out, iterable);
             put_vec(out, body, encode_op);
+            put_loc(out, *loc);
         }
-        IrOp::Trap { name, body } => {
+        IrOp::Trap { name, body, loc } => {
             put_u8(out, 10);
             put_str(out, name);
             put_vec(out, body, encode_op);
+            put_loc(out, *loc);
         }
     }
 }
@@ -720,60 +764,75 @@ fn decode_op_body(r: &mut IrReader) -> Result<IrOp, String> {
             name: r.string()?,
             type_: r.string()?,
             value: r.opt_value()?,
+            loc: get_loc(r)?,
         },
         1 => IrOp::Assign {
             name: r.string()?,
             value: decode_value(r)?,
+            loc: get_loc(r)?,
         },
         2 => IrOp::AssignGlobal {
             name: r.string()?,
             value: decode_value(r)?,
+            loc: get_loc(r)?,
         },
         17 => IrOp::StateAssign {
             resource: r.string()?,
             value: decode_value(r)?,
+            loc: get_loc(r)?,
         },
         3 => IrOp::Return {
             value: r.opt_value()?,
+            loc: get_loc(r)?,
         },
         11 => IrOp::ExitLoop {
             kind: decode_loop_kind(r)?,
+            loc: get_loc(r)?,
         },
         12 => IrOp::ContinueLoop {
             kind: decode_loop_kind(r)?,
+            loc: get_loc(r)?,
         },
         13 => IrOp::ExitProgram {
             code: decode_value(r)?,
+            loc: get_loc(r)?,
         },
         4 => IrOp::Fail {
             error: decode_value(r)?,
+            loc: get_loc(r)?,
         },
         5 => IrOp::Eval {
             value: decode_value(r)?,
+            loc: get_loc(r)?,
         },
         6 => IrOp::If {
             condition: decode_value(r)?,
             then_body: decode_vec(r, decode_op)?,
             else_body: decode_vec(r, decode_op)?,
+            loc: get_loc(r)?,
         },
         7 => IrOp::Match {
             value: decode_value(r)?,
             cases: decode_vec(r, decode_match_case)?,
+            loc: get_loc(r)?,
         },
         8 => IrOp::While {
             kind: LoopKind::While,
             condition: decode_value(r)?,
             body: decode_vec(r, decode_op)?,
+            loc: get_loc(r)?,
         },
         9 => IrOp::ForEach {
             name: r.string()?,
             type_: r.string()?,
             iterable: decode_value(r)?,
             body: decode_vec(r, decode_op)?,
+            loc: get_loc(r)?,
         },
         10 => IrOp::Trap {
             name: r.string()?,
             body: decode_vec(r, decode_op)?,
+            loc: get_loc(r)?,
         },
         14 => IrOp::For {
             name: r.string()?,
@@ -787,11 +846,13 @@ fn decode_op_body(r: &mut IrReader) -> Result<IrOp, String> {
         15 => IrOp::DoUntil {
             body: decode_vec(r, decode_op)?,
             condition: decode_value(r)?,
+            loc: get_loc(r)?,
         },
         16 => IrOp::While {
             kind: decode_loop_kind(r)?,
             condition: decode_value(r)?,
             body: decode_vec(r, decode_op)?,
+            loc: get_loc(r)?,
         },
         other => return Err(format!("Binary Representation: unknown IrOp tag {other}")),
     })
@@ -814,6 +875,7 @@ fn encode_match_case(out: &mut Vec<u8>, c: &IrMatchCase) {
     encode_match_pattern(out, &c.pattern);
     put_opt_value(out, &c.guard);
     put_vec(out, &c.body, encode_op);
+    put_loc(out, c.loc);
 }
 
 fn decode_match_case(r: &mut IrReader) -> Result<IrMatchCase, String> {
@@ -821,6 +883,7 @@ fn decode_match_case(r: &mut IrReader) -> Result<IrMatchCase, String> {
         pattern: decode_match_pattern(r)?,
         guard: r.opt_value()?,
         body: decode_vec(r, decode_op)?,
+        loc: get_loc(r)?,
     })
 }
 
@@ -899,16 +962,28 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_str(out, name);
             put_str(out, type_);
         }
-        IrValue::Call { target, args, loc } => {
+        IrValue::Call {
+            target,
+            args,
+            type_,
+            loc,
+        } => {
             put_u8(out, 6);
             put_str(out, target);
             put_vec(out, args, encode_value);
+            put_str(out, type_);
             put_loc(out, *loc);
         }
-        IrValue::CallResult { target, args, loc } => {
+        IrValue::CallResult {
+            target,
+            args,
+            type_,
+            loc,
+        } => {
             put_u8(out, 7);
             put_str(out, target);
             put_vec(out, args, encode_value);
+            put_str(out, type_);
             put_loc(out, *loc);
         }
         IrValue::Constructor { type_, args } => {
@@ -935,8 +1010,9 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
             put_u8(out, 11);
             encode_value(out, value);
         }
-        IrValue::ResultValue { value } => {
+        IrValue::ResultValue { type_, value } => {
             put_u8(out, 12);
+            put_str(out, type_);
             encode_value(out, value);
         }
         IrValue::ResultError { value } => {
@@ -969,27 +1045,40 @@ fn encode_value(out: &mut Vec<u8>, v: &IrValue) {
                 encode_value(o, val);
             });
         }
-        IrValue::MemberAccess { target, member } => {
+        IrValue::MemberAccess {
+            target,
+            member,
+            type_,
+        } => {
             put_u8(out, 17);
             encode_value(out, target);
             put_str(out, member);
+            put_str(out, type_);
         }
         IrValue::Binary {
             op,
             left,
             right,
+            type_,
             loc,
         } => {
             put_u8(out, 18);
             put_str(out, op);
             encode_value(out, left);
             encode_value(out, right);
+            put_str(out, type_);
             put_loc(out, *loc);
         }
-        IrValue::Unary { op, operand, loc } => {
+        IrValue::Unary {
+            op,
+            operand,
+            type_,
+            loc,
+        } => {
             put_u8(out, 19);
             put_str(out, op);
             encode_value(out, operand);
+            put_str(out, type_);
             put_loc(out, *loc);
         }
     }
@@ -1039,11 +1128,13 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
         6 => IrValue::Call {
             target: r.string()?,
             args: decode_vec(r, decode_value)?,
+            type_: r.string()?,
             loc: get_loc(r)?,
         },
         7 => IrValue::CallResult {
             target: r.string()?,
             args: decode_vec(r, decode_value)?,
+            type_: r.string()?,
             loc: get_loc(r)?,
         },
         8 => IrValue::Constructor {
@@ -1063,6 +1154,7 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
             value: Box::new(decode_value(r)?),
         },
         12 => IrValue::ResultValue {
+            type_: r.string()?,
             value: Box::new(decode_value(r)?),
         },
         13 => IrValue::ResultError {
@@ -1093,16 +1185,19 @@ fn decode_value_body(r: &mut IrReader) -> Result<IrValue, String> {
         17 => IrValue::MemberAccess {
             target: Box::new(decode_value(r)?),
             member: r.string()?,
+            type_: r.string()?,
         },
         18 => IrValue::Binary {
             op: r.string()?,
             left: Box::new(decode_value(r)?),
             right: Box::new(decode_value(r)?),
+            type_: r.string()?,
             loc: get_loc(r)?,
         },
         19 => IrValue::Unary {
             op: r.string()?,
             operand: Box::new(decode_value(r)?),
+            type_: r.string()?,
             loc: get_loc(r)?,
         },
         20 => IrValue::LocalRef {

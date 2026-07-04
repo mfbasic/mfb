@@ -12,28 +12,30 @@
   "functions": [
   {
     "name": "worker",
+    "line": 3,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "t", "type": "ThreadWorker OF Nothing TO Integer", "default": null },
-    { "name": "seed", "type": "Integer", "default": null }
+    { "name": "t", "line": 3, "type": "ThreadWorker OF Nothing TO Integer", "default": null },
+    { "name": "seed", "line": 3, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "bind", "mutable": false, "name": "second", "type": "Boolean", "value": { "kind": "call", "target": "thread.isCancelled", "args": [{ "kind": "local", "name": "t" }] } },
-    { "op": "return", "value": { "kind": "local", "name": "seed" } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "first", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "thread.isCancelled", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "second", "type": "Boolean", "value": { "kind": "call", "type": "Boolean", "target": "thread.isCancelled", "args": [{ "kind": "local", "name": "t" }] } },
+    { "op": "return", "line": 6, "value": { "kind": "local", "name": "seed" } }
     ]
   },
   {
     "name": "main",
+    "line": 9,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 10, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

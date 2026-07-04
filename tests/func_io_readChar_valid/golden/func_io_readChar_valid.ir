@@ -12,6 +12,7 @@
   "functions": [
   {
     "name": "compileReadChar",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
@@ -20,25 +21,27 @@
     "body": [
     {
       "op": "if",
+      "line": 4,
       "condition": { "kind": "const", "type": "Boolean", "value": "false" },
       "then": [
-      { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "call", "target": "io.readChar", "args": [] }] } }
+      { "op": "return", "line": 5, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "call", "type": "String", "target": "io.readChar", "args": [] }] } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "main",
+    "line": 11,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "compileReadChar", "args": [] } }
+    { "op": "return", "line": 12, "value": { "kind": "call", "type": "Integer", "target": "compileReadChar", "args": [] } }
     ]
   }
   ]

@@ -12,34 +12,37 @@
   "functions": [
   {
     "name": "leave",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "code", "type": "Integer", "default": null }
+    { "name": "code", "line": 3, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "exitProgram", "code": { "kind": "local", "name": "code" } }
+    { "op": "exitProgram", "line": 4, "code": { "kind": "local", "name": "code" } }
     ]
   },
   {
     "name": "main",
+    "line": 7,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
-    { "op": "eval", "value": { "kind": "call", "target": "leave", "args": [{ "kind": "local", "name": "code" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "caught" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "99" } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "code", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "3" } },
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "leave", "args": [{ "kind": "local", "name": "code" }] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "caught" }] } },
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Integer", "value": "99" } },
     {
       "op": "trap",
+      "line": 12,
       "name": "err",
       "body": [
-      { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "trap" }] } },
-      { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" } }
+      { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "trap" }] } },
+      { "op": "return", "line": 14, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" } }
       ]
     }
     ]

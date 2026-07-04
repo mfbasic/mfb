@@ -6,15 +6,17 @@
   "types": [
   {
     "kind": "type",
+    "line": 3,
     "visibility": "export",
     "name": "Vec2",
     "fields": [
-    { "visibility": null, "name": "x", "type": "Integer" },
-    { "visibility": null, "name": "y", "type": "Integer" }
+    { "visibility": null, "line": 4, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 5, "name": "y", "type": "Integer" }
     ]
   },
   {
     "kind": "enum",
+    "line": 8,
     "visibility": "export",
     "name": "Color",
     "members": [
@@ -25,36 +27,41 @@
   },
   {
     "kind": "type",
+    "line": 12,
     "visibility": "export",
     "name": "Number",
     "fields": [
-    { "visibility": null, "name": "value", "type": "Integer" }
+    { "visibility": null, "line": 13, "name": "value", "type": "Integer" }
     ]
   },
   {
     "kind": "type",
+    "line": 16,
     "visibility": "export",
     "name": "Missing",
     "fields": [
-    { "visibility": null, "name": "value", "type": "Nothing" }
+    { "visibility": null, "line": 17, "name": "value", "type": "Nothing" }
     ]
   },
   {
     "kind": "union",
+    "line": 20,
     "visibility": "export",
     "name": "MaybeNumber",
     "includes": [],
     "variants": [
     {
       "name": "Number",
+      "line": 21,
       "fields": [
-      { "visibility": null, "name": "value", "type": "Integer" }
+      { "visibility": null, "line": 13, "name": "value", "type": "Integer" }
       ]
     },
     {
       "name": "Missing",
+      "line": 22,
       "fields": [
-      { "visibility": null, "name": "value", "type": "Nothing" }
+      { "visibility": null, "line": 17, "name": "value", "type": "Nothing" }
       ]
     }
     ]
@@ -63,29 +70,32 @@
   "functions": [
   {
     "name": "score$",
+    "line": 25,
     "visibility": "export",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+    { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "1" } }
     ]
   },
   {
     "name": "score$Vec2",
+    "line": 29,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "v", "type": "Vec2", "default": null }
+    { "name": "v", "line": 29, "type": "Vec2", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "v" }, "member": "x" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "v" }, "member": "y" } } }
+    { "op": "return", "line": 30, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "v" }, "member": "x" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "v" }, "member": "y" } } }
     ]
   },
   {
     "name": "mark$",
+    "line": 33,
     "visibility": "export",
     "kind": "sub",
     "params": [
@@ -96,26 +106,28 @@
   },
   {
     "name": "mark$Vec2",
+    "line": 36,
     "visibility": "export",
     "kind": "sub",
     "params": [
-    { "name": "v", "type": "Vec2", "default": null }
+    { "name": "v", "line": 36, "type": "Vec2", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "bind", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "v" }, "member": "x" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "v" }, "member": "y" } } }
+    { "op": "bind", "line": 37, "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "v" }, "member": "x" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "v" }, "member": "y" } } }
     ]
   },
   {
     "name": "worker",
+    "line": 40,
     "visibility": "export",
     "kind": "func",
     "params": [
-    { "name": "seed", "type": "String", "default": null }
+    { "name": "seed", "line": 40, "type": "String", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
+    { "op": "return", "line": 41, "value": { "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "seed" }] } }
     ]
   }
   ]

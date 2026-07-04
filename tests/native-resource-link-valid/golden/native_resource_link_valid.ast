@@ -10,14 +10,14 @@
     { "kind": "resource", "visibility": "private", "name": "Stmt", "closeFn": "demoLink.finalize", "threadSendable": false, "line": 4 },
     {
       "kind": "link",
-      "library": "demo",
+      "library": "sqlite3",
       "alias": "demoLink",
       "line": 6,
       "functions": [
       {
         "kind": "linkFunc",
         "name": "open",
-        "symbol": "demo_open",
+        "symbol": "sqlite3_open",
         "returnResource": true,
         "returnType": "Db",
         "line": 7,
@@ -41,7 +41,7 @@
       {
         "kind": "linkFunc",
         "name": "close",
-        "symbol": "demo_close",
+        "symbol": "sqlite3_close",
         "returnResource": false,
         "returnType": "Nothing",
         "line": 13,
@@ -64,7 +64,7 @@
       {
         "kind": "linkFunc",
         "name": "prepare",
-        "symbol": "demo_prepare",
+        "symbol": "sqlite3_prepare_v2",
         "returnResource": true,
         "returnType": "Stmt",
         "line": 19,
@@ -90,7 +90,7 @@
       {
         "kind": "linkFunc",
         "name": "finalize",
-        "symbol": "demo_finalize",
+        "symbol": "sqlite3_finalize",
         "returnResource": false,
         "returnType": "Nothing",
         "line": 25,

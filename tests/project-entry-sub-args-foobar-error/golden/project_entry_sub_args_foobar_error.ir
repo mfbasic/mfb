@@ -12,14 +12,15 @@
   "functions": [
   {
     "name": "foobar",
+    "line": 1,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "args", "type": "List OF String", "default": null }
+    { "name": "args", "line": 1, "type": "List OF String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "fail", "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "100" }, { "kind": "const", "type": "String", "value": "This is a message" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
+    { "op": "fail", "line": 2, "error": { "kind": "constructor", "type": "Error", "args": [{ "kind": "const", "type": "Integer", "value": "100" }, { "kind": "const", "type": "String", "value": "This is a message" }, { "kind": "constructor", "type": "ErrorLoc", "args": [{ "kind": "const", "type": "String", "value": "src/main.mfb" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "8" }] }] } }
     ]
   }
   ]

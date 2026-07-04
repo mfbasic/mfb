@@ -19,7 +19,10 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
         for item in &file.items {
             match item {
                 Item::Function(function) => {
-                    funcs.entry(function.name.as_str()).or_default().push(function);
+                    funcs
+                        .entry(function.name.as_str())
+                        .or_default()
+                        .push(function);
                 }
                 Item::Type(type_decl) => {
                     types.entry(type_decl.name.as_str()).or_insert((
@@ -53,7 +56,11 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
         kind,
         name: doc.header_name.clone(),
         signature,
-        group: doc.groups.first().map(|(name, _)| name.clone()).unwrap_or_default(),
+        group: doc
+            .groups
+            .first()
+            .map(|(name, _)| name.clone())
+            .unwrap_or_default(),
         desc: doc_prose(&doc.desc),
         args: doc
             .args
@@ -65,7 +72,11 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
             .iter()
             .map(|prop| (prop.name.clone(), prop.desc.clone()))
             .collect(),
-        ret: doc.rets.first().map(|(text, _)| text.clone()).unwrap_or_default(),
+        ret: doc
+            .rets
+            .first()
+            .map(|(text, _)| text.clone())
+            .unwrap_or_default(),
         errors: doc
             .errors
             .iter()
@@ -76,7 +87,10 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
             .first()
             .map(|(text, _)| text.clone())
             .unwrap_or_default(),
-        internal: doc.attrs.iter().any(|attr| attr.eq_ignore_ascii_case("INTERNAL")),
+        internal: doc
+            .attrs
+            .iter()
+            .any(|attr| attr.eq_ignore_ascii_case("INTERNAL")),
         deprecated: doc.deprecated.first().map(|(message, _)| message.clone()),
     };
 
@@ -106,7 +120,11 @@ pub(crate) fn collect_project_docs(ast: &crate::ast::AstProject) -> ProjectDocs 
                     if function.visibility != Visibility::Export {
                         continue;
                     }
-                    let kind = if want_sub { IrDocKind::Sub } else { IrDocKind::Func };
+                    let kind = if want_sub {
+                        IrDocKind::Sub
+                    } else {
+                        IrDocKind::Func
+                    };
                     decls.push(make_decl(doc, kind, function.signature_line()));
                 }
                 DocHeaderKind::Type | DocHeaderKind::Union | DocHeaderKind::Enum => {
@@ -213,6 +231,7 @@ pub fn lower_project_with_external_functions(
         recover_targets: Vec::new(),
         mutable_locals: HashSet::new(),
         nonescaping_callback: false,
+        current_loc: IrSourceLoc::default(),
     };
     infer_binding_types(ast, &mut context);
     let bindings = lower_bindings(ast, &mut context);
@@ -495,6 +514,10 @@ fn lower_type(type_decl: &TypeDecl, type_index: &TypeIndex) -> IrType {
             .map(|variant| lower_variant(variant, type_index))
             .collect(),
         members: type_decl.members.iter().map(lower_enum_member).collect(),
+        loc: IrSourceLoc {
+            line: type_decl.line as u32,
+            column: 1,
+        },
     }
 }
 
@@ -502,6 +525,11 @@ fn lower_binding(
     binding: &crate::ast::TopLevelBinding,
     context: &mut LowerContext<'_>,
 ) -> IrBinding {
+    let loc = IrSourceLoc {
+        line: binding.line as u32,
+        column: 1,
+    };
+    context.current_loc = loc;
     let locals = context.binding_types.clone();
     let type_ = binding.type_name.clone().unwrap_or_else(|| {
         binding
@@ -519,6 +547,7 @@ fn lower_binding(
             .value
             .as_ref()
             .map(|value| lower_expression_with_expected(value, Some(&type_), &locals, context)),
+        loc,
     }
 }
 
@@ -541,6 +570,10 @@ fn lower_field(field: &TypeField) -> IrField {
         visibility: field.visibility.map(visibility_name).map(str::to_string),
         name: field.name.clone(),
         type_: field.type_name.clone(),
+        loc: IrSourceLoc {
+            line: field.line as u32,
+            column: 1,
+        },
     }
 }
 
@@ -552,6 +585,10 @@ fn lower_variant(variant: &UnionVariant, type_index: &TypeIndex) -> IrVariant {
             .get(&variant.name)
             .cloned()
             .unwrap_or_default(),
+        loc: IrSourceLoc {
+            line: variant.line as u32,
+            column: 1,
+        },
     }
 }
 
@@ -605,6 +642,10 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
         returns,
         body,
         file: context.current_file.clone(),
+        loc: IrSourceLoc {
+            line: function.line as u32,
+            column: 1,
+        },
         resource_owners: crate::escape::analyze_function(function).owners().clone(),
     }
 }
@@ -626,6 +667,10 @@ fn lower_function_body(
                 context,
                 Some(trap.name.as_str()),
             ),
+            loc: IrSourceLoc {
+                line: trap.line as u32,
+                column: 1,
+            },
         });
     }
     body
@@ -653,6 +698,10 @@ fn lower_param(
             .default
             .as_ref()
             .map(|value| lower_expression(value, locals, context)),
+        loc: IrSourceLoc {
+            line: param.line as u32,
+            column: 1,
+        },
     }
 }
 
@@ -688,6 +737,38 @@ struct LowerContext<'a> {
     /// non-escaping callback position (e.g. `forEach`'s action). The lambda
     /// lowering consumes it to license `MUT` slot-borrow captures.
     nonescaping_callback: bool,
+    /// Source location of the statement (or match case / declaration) currently
+    /// being lowered. Stamped onto every `IrOp` so relocated diagnostics report
+    /// at the same line the AST checker did (plan-20-A). Column is always 1,
+    /// matching `show_diagnostic`'s statement-level reporting.
+    current_loc: IrSourceLoc,
+}
+
+/// The source line of a statement, as `IrSourceLoc` (column 1 — diagnostics
+/// report statement-level positions).
+fn statement_loc(statement: &Statement) -> IrSourceLoc {
+    let line = match statement {
+        Statement::Let { line, .. }
+        | Statement::Return { line, .. }
+        | Statement::Exit { line, .. }
+        | Statement::Continue { line, .. }
+        | Statement::Fail { line, .. }
+        | Statement::Propagate { line }
+        | Statement::Recover { line, .. }
+        | Statement::Assign { line, .. }
+        | Statement::StateAssign { line, .. }
+        | Statement::Expression { line, .. }
+        | Statement::If { line, .. }
+        | Statement::Match { line, .. }
+        | Statement::For { line, .. }
+        | Statement::ForEach { line, .. }
+        | Statement::While { line, .. }
+        | Statement::DoUntil { line, .. } => *line,
+    };
+    IrSourceLoc {
+        line: line as u32,
+        column: 1,
+    }
 }
 
 #[derive(Clone)]
@@ -715,6 +796,12 @@ fn lower_statement(
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
 ) -> Vec<IrOp> {
+    // The statement's own span: captured locally (nested blocks re-set
+    // `context.current_loc`, so the context copy cannot be reread after
+    // lowering a child block) and published for expression-lowering helpers
+    // that synthesize ops mid-expression.
+    let loc = statement_loc(statement);
+    context.current_loc = loc;
     match statement {
         Statement::Let {
             mutable,
@@ -780,6 +867,7 @@ fn lower_statement(
                 name: name.clone(),
                 type_: lowered_type,
                 value: lowered_value,
+                loc,
             }]
         }
         Statement::Return { value, .. } => vec![IrOp::Return {
@@ -792,16 +880,22 @@ fn lower_statement(
                 let expected = context.current_return_type.clone();
                 wrap_union_value(base, value, expected.as_deref(), locals, context)
             }),
+            loc,
         }],
         Statement::Exit { target, code, .. } => match target {
             ExitTarget::For => vec![IrOp::ExitLoop {
                 kind: LoopKind::For,
+                loc,
             }],
-            ExitTarget::Do => vec![IrOp::ExitLoop { kind: LoopKind::Do }],
+            ExitTarget::Do => vec![IrOp::ExitLoop {
+                kind: LoopKind::Do,
+                loc,
+            }],
             ExitTarget::While => vec![IrOp::ExitLoop {
                 kind: LoopKind::While,
+                loc,
             }],
-            ExitTarget::Sub => vec![IrOp::Return { value: None }],
+            ExitTarget::Sub => vec![IrOp::Return { value: None, loc }],
             ExitTarget::Func => Vec::new(),
             ExitTarget::Program => vec![IrOp::ExitProgram {
                 code: lower_expression(
@@ -810,11 +904,13 @@ fn lower_statement(
                     locals,
                     context,
                 ),
+                loc,
             }],
         },
-        Statement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind }],
+        Statement::Continue { kind, .. } => vec![IrOp::ContinueLoop { kind: *kind, loc }],
         Statement::Fail { error, .. } => vec![IrOp::Fail {
             error: lower_expression(error, locals, context),
+            loc,
         }],
         Statement::Propagate { .. } => vec![IrOp::Fail {
             error: IrValue::Local(
@@ -822,6 +918,7 @@ fn lower_statement(
                     .expect("typecheck requires PROPAGATE to appear only in trap bodies")
                     .to_string(),
             ),
+            loc,
         }],
         Statement::Recover { value, .. } => {
             let target = context
@@ -836,6 +933,7 @@ fn lower_statement(
                     vec![IrOp::Assign {
                         name: slot,
                         value: lowered,
+                        loc,
                     }]
                 }
                 (None, Some(value)) => vec![IrOp::Eval {
@@ -845,6 +943,7 @@ fn lower_statement(
                         locals,
                         context,
                     ),
+                    loc,
                 }],
                 (_, None) => Vec::new(),
             }
@@ -876,11 +975,13 @@ fn lower_statement(
                 vec![IrOp::Assign {
                     name: name.clone(),
                     value: lowered,
+                    loc,
                 }]
             } else {
                 vec![IrOp::AssignGlobal {
                     name: name.clone(),
                     value: lowered,
+                    loc,
                 }]
             }
         }
@@ -900,6 +1001,7 @@ fn lower_statement(
             vec![IrOp::StateAssign {
                 resource: resource.clone(),
                 value: lowered,
+                loc,
             }]
         }
         Statement::Expression { expression, .. } => {
@@ -921,6 +1023,7 @@ fn lower_statement(
             }
             vec![IrOp::Eval {
                 value: lower_expression(expression, locals, context),
+                loc,
             }]
         }
         Statement::If {
@@ -932,6 +1035,7 @@ fn lower_statement(
             condition: lower_expression(condition, locals, context),
             then_body: lower_statement_block(then_body, locals, context, trap_name),
             else_body: lower_statement_block(else_body, locals, context, trap_name),
+            loc,
         }],
         Statement::Match {
             expression, cases, ..
@@ -949,6 +1053,7 @@ fn lower_statement(
                     locals,
                     context,
                 )),
+                loc,
             }];
             let mut match_locals = locals.clone();
             match_locals.insert(matched_name.clone(), matched_type);
@@ -961,6 +1066,7 @@ fn lower_statement(
                     value: Some(IrValue::ResultIsOk {
                         value: Box::new(IrValue::Local(matched_name.clone())),
                     }),
+                    loc,
                 });
                 match_locals.insert(match_flag_name.clone(), "Boolean".to_string());
                 IrValue::Local(match_flag_name)
@@ -975,6 +1081,7 @@ fn lower_statement(
                         lower_match_case(case, &matched_name, &match_locals, context, trap_name)
                     })
                     .collect(),
+                loc,
             });
             ops
         }
@@ -1024,6 +1131,7 @@ fn lower_statement(
                 name: name.clone(),
                 type_: loop_type.clone(),
                 value: Some(iter_local.clone()),
+                loc,
             }];
             loop_body.extend(lower_statement_block(body, &nested, context, trap_name));
 
@@ -1033,12 +1141,14 @@ fn lower_statement(
                     name: end_name,
                     type_: loop_type.clone(),
                     value: Some(end_value),
+                    loc,
                 },
                 IrOp::Bind {
                     mutable: false,
                     name: step_name,
                     type_: loop_type.clone(),
                     value: Some(step_value),
+                    loc,
                 },
                 IrOp::For {
                     name: iter_name,
@@ -1071,6 +1181,7 @@ fn lower_statement(
                 type_: element_type,
                 iterable: lower_expression(iterable, locals, context),
                 body: lower_statement_block(body, &nested, context, trap_name),
+                loc,
             }]
         }
         Statement::While {
@@ -1082,13 +1193,22 @@ fn lower_statement(
             kind: *kind,
             condition: lower_expression(condition, locals, context),
             body: lower_statement_block(body, locals, context, trap_name),
+            loc,
         }],
         Statement::DoUntil {
             body, condition, ..
-        } => vec![IrOp::DoUntil {
-            body: lower_statement_block(body, locals, context, trap_name),
-            condition: lower_expression(condition, locals, context),
-        }],
+        } => {
+            let body = lower_statement_block(body, locals, context, trap_name);
+            // The trailing condition belongs to this statement, not the last
+            // body statement: restore the loop's own span for any ops the
+            // condition lowering synthesizes.
+            context.current_loc = loc;
+            vec![IrOp::DoUntil {
+                body,
+                condition: lower_expression(condition, locals, context),
+                loc,
+            }]
+        }
     }
 }
 
@@ -1133,12 +1253,24 @@ fn lower_inline_trap(
     locals: &mut HashMap<String, String>,
     context: &mut LowerContext<'_>,
 ) -> Vec<IrOp> {
+    // The inline-TRAP statement's span: the handler block below re-sets
+    // `context.current_loc` per handler statement, so ops synthesized after it
+    // must use this captured copy.
+    let stmt_loc = context.current_loc;
     let success_type = expression_type(inner, locals, context)
         .expect("typecheck requires inline TRAP expression type before IR lowering");
     let result_type = format!("Result OF {success_type}");
     let raw = lower_expression(inner, locals, context);
     let call_result = match raw {
-        IrValue::Call { target, args, loc } => IrValue::CallResult { target, args, loc },
+        IrValue::Call {
+            target, args, loc, ..
+        } => IrValue::CallResult {
+            target,
+            args,
+            // The fallible form's success type is the call's own result type.
+            type_: success_type.clone(),
+            loc,
+        },
         other => other,
     };
 
@@ -1148,6 +1280,7 @@ fn lower_inline_trap(
         name: res_name.clone(),
         type_: result_type.clone(),
         value: Some(call_result),
+        loc: stmt_loc,
     }];
     locals.insert(res_name.clone(), result_type);
 
@@ -1161,6 +1294,7 @@ fn lower_inline_trap(
                 name: val_name.clone(),
                 type_: success_type.clone(),
                 value: None,
+                loc: stmt_loc,
             });
             locals.insert(val_name.clone(), success_type.clone());
             Some(val_name)
@@ -1172,8 +1306,10 @@ fn lower_inline_trap(
         Some(val_name) => vec![IrOp::Assign {
             name: val_name.clone(),
             value: IrValue::ResultValue {
+                type_: success_type.clone(),
                 value: Box::new(IrValue::Local(res_name.clone())),
             },
+            loc: stmt_loc,
         }],
         None => Vec::new(),
     };
@@ -1187,6 +1323,7 @@ fn lower_inline_trap(
         value: Some(IrValue::ResultError {
             value: Box::new(IrValue::Local(res_name.clone())),
         }),
+        loc: stmt_loc,
     }];
     context.recover_targets.push(RecoverTarget {
         slot: slot.clone(),
@@ -1207,6 +1344,7 @@ fn lower_inline_trap(
         },
         then_body,
         else_body,
+        loc: stmt_loc,
     });
 
     match target {
@@ -1220,6 +1358,7 @@ fn lower_inline_trap(
                 name: name.clone(),
                 type_: type_.clone(),
                 value: Some(IrValue::Local(slot.expect("bind target has a value slot"))),
+                loc: stmt_loc,
             });
             if mutable {
                 context.mutable_locals.insert(name.clone());
@@ -1229,9 +1368,17 @@ fn lower_inline_trap(
         InlineTrapTarget::Assign { name } => {
             let value = IrValue::Local(slot.expect("assign target has a value slot"));
             if locals.contains_key(&name) {
-                ops.push(IrOp::Assign { name, value });
+                ops.push(IrOp::Assign {
+                    name,
+                    value,
+                    loc: stmt_loc,
+                });
             } else {
-                ops.push(IrOp::AssignGlobal { name, value });
+                ops.push(IrOp::AssignGlobal {
+                    name,
+                    value,
+                    loc: stmt_loc,
+                });
             }
         }
         InlineTrapTarget::Discard => {}
@@ -1495,6 +1642,13 @@ fn lower_match_case(
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
 ) -> IrMatchCase {
+    // The case arm's own span (typecheck reports match-arm rules at the case
+    // line); captured locally since the body block re-sets the context copy.
+    let loc = IrSourceLoc {
+        line: case.line as u32,
+        column: 1,
+    };
+    context.current_loc = loc;
     let matched_type = locals
         .get(matched_local)
         .cloned()
@@ -1536,6 +1690,7 @@ fn lower_match_case(
             name: binding,
             type_: binding_type,
             value: Some(value),
+            loc,
         });
     }
     body.extend(lower_statement_block(
@@ -1544,6 +1699,9 @@ fn lower_match_case(
         context,
         trap_name,
     ));
+    // The guard belongs to the case arm, not the last body statement: restore
+    // the arm's span for any ops the guard lowering synthesizes.
+    context.current_loc = loc;
     IrMatchCase {
         pattern,
         guard: case
@@ -1551,6 +1709,7 @@ fn lower_match_case(
             .as_ref()
             .map(|guard| lower_expression(guard, &case_locals, context)),
         body,
+        loc,
     }
 }
 
@@ -1567,6 +1726,7 @@ fn match_case_binding(
                         binding.clone(),
                         success.to_string(),
                         IrValue::ResultValue {
+                            type_: success.to_string(),
                             value: Box::new(IrValue::Local(matched_local.to_string())),
                         },
                     )),
@@ -2633,9 +2793,7 @@ fn lower_expression_with_expected(
                     .first()
                     .map(call_arg_value)
                     .and_then(|argument| expression_type(argument, locals, context))
-                    .and_then(|type_| {
-                        builtins::general_override_target(&canonical_callee, &type_)
-                    })
+                    .and_then(|type_| builtins::general_override_target(&canonical_callee, &type_))
                     .map(crate::internal_name::internalize)
             } else {
                 None
@@ -2708,12 +2866,15 @@ fn lower_expression_with_expected(
                         .map(crate::internal_name::internalize)
                 })
                 .unwrap_or_else(|| canonical_callee.clone());
+            let result_type = expression_type(expression, locals, context)
+                .unwrap_or_else(|| "Unknown".to_string());
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`
                 // (typecheck already enforced their resource semantics).
                 target: thread_resource_plane_target(&resolved_target).to_string(),
                 args,
+                type_: result_type,
                 loc,
             }
         }
@@ -2754,6 +2915,9 @@ fn lower_expression_with_expected(
                 .iter()
                 .map(|capture| nonescaping && context.mutable_locals.contains(&capture.name))
                 .collect::<Vec<_>>();
+            // Lambdas carry the enclosing statement's span (typecheck reports
+            // lambda rules at the threaded statement line).
+            let loc = context.current_loc;
             let mut lambda_locals = HashMap::new();
             let ir_params = params
                 .iter()
@@ -2767,6 +2931,7 @@ fn lower_expression_with_expected(
                         name: param.name.clone(),
                         type_,
                         default: None,
+                        loc,
                     }
                 })
                 .collect::<Vec<_>>();
@@ -2783,6 +2948,7 @@ fn lower_expression_with_expected(
                         type_: capture.type_.clone(),
                         by_ref,
                     }),
+                    loc,
                 })
                 .collect::<Vec<_>>();
             for capture in &captures {
@@ -2797,15 +2963,19 @@ fn lower_expression_with_expected(
                     body_ops.push(IrOp::Assign {
                         name: target.clone(),
                         value,
+                        loc,
                     });
-                    body_ops.push(IrOp::Return { value: None });
+                    body_ops.push(IrOp::Return { value: None, loc });
                     "Nothing".to_string()
                 }
                 None => {
                     let returns = expression_type(body, &lambda_locals, context)
                         .expect("typecheck requires lambda return type before IR lowering");
                     let value = lower_expression(body, &lambda_locals, context);
-                    body_ops.push(IrOp::Return { value: Some(value) });
+                    body_ops.push(IrOp::Return {
+                        value: Some(value),
+                        loc,
+                    });
                     returns
                 }
             };
@@ -2818,6 +2988,7 @@ fn lower_expression_with_expected(
                 returns: returns.clone(),
                 body: body_ops,
                 file: context.current_file.clone(),
+                loc,
                 resource_owners: HashMap::new(),
             });
             let params = params
@@ -2933,10 +3104,15 @@ fn lower_expression_with_expected(
                     .collect(),
             }
         }
-        Expression::MemberAccess { target, member } => IrValue::MemberAccess {
-            target: Box::new(lower_expression(target, locals, context)),
-            member: member.clone(),
-        },
+        Expression::MemberAccess { target, member } => {
+            let member_type = expression_type(expression, locals, context)
+                .unwrap_or_else(|| "Unknown".to_string());
+            IrValue::MemberAccess {
+                target: Box::new(lower_expression(target, locals, context)),
+                member: member.clone(),
+                type_: member_type,
+            }
+        }
         Expression::Trapped { .. } => {
             // Inline traps are only constructed as the value of a binding,
             // assignment, or bare-expression statement, where `lower_statement`
@@ -2949,28 +3125,38 @@ fn lower_expression_with_expected(
             right,
             line,
             column,
-        } => IrValue::Binary {
-            op: operator.clone(),
-            left: Box::new(lower_expression(left, locals, context)),
-            right: Box::new(lower_expression(right, locals, context)),
-            loc: IrSourceLoc {
-                line: *line as u32,
-                column: *column as u32,
-            },
-        },
+        } => {
+            let result_type = expression_type(expression, locals, context)
+                .unwrap_or_else(|| "Unknown".to_string());
+            IrValue::Binary {
+                op: operator.clone(),
+                left: Box::new(lower_expression(left, locals, context)),
+                right: Box::new(lower_expression(right, locals, context)),
+                type_: result_type,
+                loc: IrSourceLoc {
+                    line: *line as u32,
+                    column: *column as u32,
+                },
+            }
+        }
         Expression::Unary {
             operator,
             operand,
             line,
             column,
-        } => IrValue::Unary {
-            op: operator.clone(),
-            operand: Box::new(lower_expression(operand, locals, context)),
-            loc: IrSourceLoc {
-                line: *line as u32,
-                column: *column as u32,
-            },
-        },
+        } => {
+            let result_type = expression_type(expression, locals, context)
+                .unwrap_or_else(|| "Unknown".to_string());
+            IrValue::Unary {
+                op: operator.clone(),
+                operand: Box::new(lower_expression(operand, locals, context)),
+                type_: result_type,
+                loc: IrSourceLoc {
+                    line: *line as u32,
+                    column: *column as u32,
+                },
+            }
+        }
     }
 }
 
@@ -3334,4 +3520,3 @@ fn expanded_union_variants<'a>(
     variants.extend(type_decl.variants.iter());
     variants
 }
-

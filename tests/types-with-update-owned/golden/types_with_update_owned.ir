@@ -10,88 +10,94 @@
   "types": [
   {
     "kind": "type",
+    "line": 3,
     "visibility": "private",
     "name": "Payload",
     "fields": [
-    { "visibility": null, "name": "label", "type": "String" },
-    { "visibility": null, "name": "first", "type": "Integer" },
-    { "visibility": null, "name": "second", "type": "Integer" }
+    { "visibility": null, "line": 4, "name": "label", "type": "String" },
+    { "visibility": null, "line": 5, "name": "first", "type": "Integer" },
+    { "visibility": null, "line": 6, "name": "second", "type": "Integer" }
     ]
   }
   ],
   "functions": [
   {
     "name": "promote",
+    "line": 9,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "seed", "type": "Integer", "default": null }
+    { "name": "seed", "line": 9, "type": "Integer", "default": null }
     ],
     "returns": "Payload",
     "body": [
-    { "op": "bind", "mutable": false, "name": "base", "type": "Payload", "value": { "kind": "constructor", "type": "Payload", "args": [{ "kind": "const", "type": "String", "value": "base" }, { "kind": "local", "name": "seed" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }] } },
-    { "op": "return", "value": { "kind": "with", "type": "Payload", "target": { "kind": "local", "name": "base" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "owned" } }] } }
+    { "op": "bind", "line": 10, "mutable": false, "name": "base", "type": "Payload", "value": { "kind": "constructor", "type": "Payload", "args": [{ "kind": "const", "type": "String", "value": "base" }, { "kind": "local", "name": "seed" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "10" } }] } },
+    { "op": "return", "line": 11, "value": { "kind": "with", "type": "Payload", "target": { "kind": "local", "name": "base" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "owned" } }] } }
     ]
   },
   {
     "name": "rewrite",
+    "line": 14,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Payload", "default": null },
-    { "name": "delta", "type": "Integer", "default": null }
+    { "name": "value", "line": 14, "type": "Payload", "default": null },
+    { "name": "delta", "line": 14, "type": "Integer", "default": null }
     ],
     "returns": "Payload",
     "body": [
-    { "op": "return", "value": { "kind": "with", "type": "Payload", "target": { "kind": "local", "name": "value" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "rewritten" } }, { "field": "first", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "first" }, "right": { "kind": "local", "name": "delta" } } }] } }
+    { "op": "return", "line": 15, "value": { "kind": "with", "type": "Payload", "target": { "kind": "local", "name": "value" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "rewritten" } }, { "field": "first", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "value" }, "member": "first" }, "right": { "kind": "local", "name": "delta" } } }] } }
     ]
   },
   {
     "name": "occupy",
+    "line": 18,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "seed", "type": "Integer", "default": null }
+    { "name": "seed", "line": 18, "type": "Integer", "default": null }
     ],
     "returns": "Payload",
     "body": [
-    { "op": "bind", "mutable": false, "name": "base", "type": "Payload", "value": { "kind": "constructor", "type": "Payload", "args": [{ "kind": "const", "type": "String", "value": "noise-base" }, { "kind": "local", "name": "seed" }, { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
-    { "op": "return", "value": { "kind": "with", "type": "Payload", "target": { "kind": "local", "name": "base" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "noise" } }, { "field": "first", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }, { "field": "second", "value": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "20" } } }] } }
+    { "op": "bind", "line": 19, "mutable": false, "name": "base", "type": "Payload", "value": { "kind": "constructor", "type": "Payload", "args": [{ "kind": "const", "type": "String", "value": "noise-base" }, { "kind": "local", "name": "seed" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "return", "line": 20, "value": { "kind": "with", "type": "Payload", "target": { "kind": "local", "name": "base" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "noise" } }, { "field": "first", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }, { "field": "second", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "seed" }, "right": { "kind": "const", "type": "Integer", "value": "20" } } }] } }
     ]
   },
   {
     "name": "readAfterCalls",
+    "line": 23,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Payload", "default": null }
+    { "name": "value", "line": 23, "type": "Payload", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "firstNoise", "type": "Payload", "value": { "kind": "call", "target": "occupy", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
-    { "op": "bind", "mutable": false, "name": "secondNoise", "type": "Payload", "value": { "kind": "call", "target": "occupy", "args": [{ "kind": "const", "type": "Integer", "value": "8" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "firstNoise" }, "member": "label" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "secondNoise" }, "member": "label" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "first" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "second" } } }
+    { "op": "bind", "line": 24, "mutable": false, "name": "firstNoise", "type": "Payload", "value": { "kind": "call", "type": "Payload", "target": "occupy", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "secondNoise", "type": "Payload", "value": { "kind": "call", "type": "Payload", "target": "occupy", "args": [{ "kind": "const", "type": "Integer", "value": "8" }] } },
+    { "op": "eval", "line": 26, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "firstNoise" }, "member": "label" }] } },
+    { "op": "eval", "line": 27, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "secondNoise" }, "member": "label" }] } },
+    { "op": "return", "line": 28, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "value" }, "member": "first" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "value" }, "member": "second" } } }
     ]
   },
   {
     "name": "main",
+    "line": 31,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "kept", "type": "Payload", "value": { "kind": "call", "target": "promote", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } },
-    { "op": "bind", "mutable": false, "name": "changed", "type": "Payload", "value": { "kind": "call", "target": "rewrite", "args": [{ "kind": "local", "name": "kept" }, { "kind": "const", "type": "Integer", "value": "20" }] } },
-    { "op": "bind", "mutable": false, "name": "noise", "type": "Payload", "value": { "kind": "call", "target": "occupy", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "kept" }, "member": "label" }] } },
-    { "op": "bind", "mutable": false, "name": "after", "type": "Integer", "value": { "kind": "call", "target": "readAfterCalls", "args": [{ "kind": "local", "name": "kept" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "kept" }, "member": "label" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "changed" }, "member": "label" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "noise" }, "member": "label" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "after" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "changed" }, "member": "first" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "changed" }, "member": "second" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "noise" }, "member": "first" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "noise" }, "member": "second" } } }
+    { "op": "bind", "line": 32, "mutable": false, "name": "kept", "type": "Payload", "value": { "kind": "call", "type": "Payload", "target": "promote", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] } },
+    { "op": "bind", "line": 33, "mutable": false, "name": "changed", "type": "Payload", "value": { "kind": "call", "type": "Payload", "target": "rewrite", "args": [{ "kind": "local", "name": "kept" }, { "kind": "const", "type": "Integer", "value": "20" }] } },
+    { "op": "bind", "line": 34, "mutable": false, "name": "noise", "type": "Payload", "value": { "kind": "call", "type": "Payload", "target": "occupy", "args": [{ "kind": "const", "type": "Integer", "value": "9" }] } },
+    { "op": "eval", "line": 36, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "kept" }, "member": "label" }] } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "after", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "readAfterCalls", "args": [{ "kind": "local", "name": "kept" }] } },
+    { "op": "eval", "line": 38, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "kept" }, "member": "label" }] } },
+    { "op": "eval", "line": 39, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "changed" }, "member": "label" }] } },
+    { "op": "eval", "line": 40, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "noise" }, "member": "label" }] } },
+    { "op": "return", "line": 42, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "after" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "changed" }, "member": "first" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "changed" }, "member": "second" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "noise" }, "member": "first" } }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "noise" }, "member": "second" } } }
     ]
   }
   ]

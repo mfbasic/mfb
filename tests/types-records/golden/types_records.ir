@@ -10,76 +10,81 @@
   "types": [
   {
     "kind": "type",
+    "line": 3,
     "visibility": "private",
     "name": "Point",
     "fields": [
-    { "visibility": null, "name": "x", "type": "Integer" },
-    { "visibility": null, "name": "y", "type": "Integer" }
+    { "visibility": null, "line": 4, "name": "x", "type": "Integer" },
+    { "visibility": null, "line": 5, "name": "y", "type": "Integer" }
     ]
   },
   {
     "kind": "type",
+    "line": 8,
     "visibility": "private",
     "name": "Flags",
     "fields": [
-    { "visibility": null, "name": "label", "type": "String" },
-    { "visibility": null, "name": "active", "type": "Boolean" },
-    { "visibility": null, "name": "count", "type": "Byte" }
+    { "visibility": null, "line": 9, "name": "label", "type": "String" },
+    { "visibility": null, "line": 10, "name": "active", "type": "Boolean" },
+    { "visibility": null, "line": 11, "name": "count", "type": "Byte" }
     ]
   }
   ],
   "functions": [
   {
     "name": "sumPoint",
+    "line": 14,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "p", "type": "Point", "default": null }
+    { "name": "p", "line": 14, "type": "Point", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "x" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "y" } } }
+    { "op": "return", "line": 15, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "x" }, "right": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "p" }, "member": "y" } } }
     ]
   },
   {
     "name": "describeFlags",
+    "line": 18,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Flags", "default": null }
+    { "name": "value", "line": 18, "type": "Flags", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "value" }, "member": "label" } }
+    { "op": "return", "line": 19, "value": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "value" }, "member": "label" } }
     ]
   },
   {
     "name": "main",
+    "line": 22,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "positional", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
-    { "op": "bind", "mutable": false, "name": "named", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
-    { "op": "bind", "mutable": false, "name": "updated", "type": "Point", "value": { "kind": "with", "type": "Point", "target": { "kind": "local", "name": "positional" }, "updates": [{ "field": "y", "value": { "kind": "const", "type": "Integer", "value": "10" } }] } },
-    { "op": "bind", "mutable": true, "name": "current", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "6" }] } },
-    { "op": "assign", "name": "current", "value": { "kind": "with", "type": "Point", "target": { "kind": "local", "name": "current" }, "updates": [{ "field": "x", "value": { "kind": "const", "type": "Integer", "value": "7" } }, { "field": "y", "value": { "kind": "const", "type": "Integer", "value": "8" } }] } },
-    { "op": "bind", "mutable": true, "name": "defaults", "type": "Point", "value": null },
-    { "op": "bind", "mutable": false, "name": "flags", "type": "Flags", "value": { "kind": "constructor", "type": "Flags", "args": [{ "kind": "const", "type": "String", "value": "ready" }, { "kind": "const", "type": "Boolean", "value": "true" }, { "kind": "const", "type": "Byte", "value": "9" }] } },
-    { "op": "bind", "mutable": false, "name": "renamed", "type": "Flags", "value": { "kind": "with", "type": "Flags", "target": { "kind": "local", "name": "flags" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "done" } }, { "field": "active", "value": { "kind": "const", "type": "Boolean", "value": "false" } }, { "field": "count", "value": { "kind": "const", "type": "Integer", "value": "10" } }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "typeName", "args": [{ "kind": "local", "name": "positional" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "describeFlags", "args": [{ "kind": "local", "name": "flags" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "describeFlags", "args": [{ "kind": "local", "name": "renamed" }] }] } },
-    { "op": "bind", "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "target": "sumPoint", "args": [{ "kind": "local", "name": "positional" }] } },
-    { "op": "bind", "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "target": "sumPoint", "args": [{ "kind": "local", "name": "named" }] } },
-    { "op": "bind", "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "target": "sumPoint", "args": [{ "kind": "local", "name": "updated" }] } },
-    { "op": "bind", "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "target": "sumPoint", "args": [{ "kind": "local", "name": "current" }] } },
-    { "op": "bind", "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "target": "sumPoint", "args": [{ "kind": "local", "name": "defaults" }] } },
-    { "op": "bind", "mutable": false, "name": "f", "type": "Integer", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "flags" }, "member": "count" }] } },
-    { "op": "bind", "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "renamed" }, "member": "count" }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "c" } }, "right": { "kind": "local", "name": "d" } }, "right": { "kind": "local", "name": "e" } }, "right": { "kind": "local", "name": "f" } }, "right": { "kind": "local", "name": "g" } } }
+    { "op": "bind", "line": 23, "mutable": false, "name": "positional", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "2" }] } },
+    { "op": "bind", "line": 24, "mutable": false, "name": "named", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "3" }, { "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "bind", "line": 25, "mutable": false, "name": "updated", "type": "Point", "value": { "kind": "with", "type": "Point", "target": { "kind": "local", "name": "positional" }, "updates": [{ "field": "y", "value": { "kind": "const", "type": "Integer", "value": "10" } }] } },
+    { "op": "bind", "line": 26, "mutable": true, "name": "current", "type": "Point", "value": { "kind": "constructor", "type": "Point", "args": [{ "kind": "const", "type": "Integer", "value": "5" }, { "kind": "const", "type": "Integer", "value": "6" }] } },
+    { "op": "assign", "line": 27, "name": "current", "value": { "kind": "with", "type": "Point", "target": { "kind": "local", "name": "current" }, "updates": [{ "field": "x", "value": { "kind": "const", "type": "Integer", "value": "7" } }, { "field": "y", "value": { "kind": "const", "type": "Integer", "value": "8" } }] } },
+    { "op": "bind", "line": 28, "mutable": true, "name": "defaults", "type": "Point", "value": null },
+    { "op": "bind", "line": 30, "mutable": false, "name": "flags", "type": "Flags", "value": { "kind": "constructor", "type": "Flags", "args": [{ "kind": "const", "type": "String", "value": "ready" }, { "kind": "const", "type": "Boolean", "value": "true" }, { "kind": "const", "type": "Byte", "value": "9" }] } },
+    { "op": "bind", "line": 31, "mutable": false, "name": "renamed", "type": "Flags", "value": { "kind": "with", "type": "Flags", "target": { "kind": "local", "name": "flags" }, "updates": [{ "field": "label", "value": { "kind": "const", "type": "String", "value": "done" } }, { "field": "active", "value": { "kind": "const", "type": "Boolean", "value": "false" } }, { "field": "count", "value": { "kind": "const", "type": "Integer", "value": "10" } }] } },
+    { "op": "eval", "line": 33, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "local", "name": "positional" }] }] } },
+    { "op": "eval", "line": 34, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describeFlags", "args": [{ "kind": "local", "name": "flags" }] }] } },
+    { "op": "eval", "line": 35, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describeFlags", "args": [{ "kind": "local", "name": "renamed" }] }] } },
+    { "op": "bind", "line": 36, "mutable": false, "name": "a", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "sumPoint", "args": [{ "kind": "local", "name": "positional" }] } },
+    { "op": "bind", "line": 37, "mutable": false, "name": "b", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "sumPoint", "args": [{ "kind": "local", "name": "named" }] } },
+    { "op": "bind", "line": 38, "mutable": false, "name": "c", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "sumPoint", "args": [{ "kind": "local", "name": "updated" }] } },
+    { "op": "bind", "line": 39, "mutable": false, "name": "d", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "sumPoint", "args": [{ "kind": "local", "name": "current" }] } },
+    { "op": "bind", "line": 40, "mutable": false, "name": "e", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "sumPoint", "args": [{ "kind": "local", "name": "defaults" }] } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "f", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "flags" }, "member": "count" }] } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "g", "type": "Integer", "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "memberAccess", "type": "Byte", "target": { "kind": "local", "name": "renamed" }, "member": "count" }] } },
+    { "op": "return", "line": 43, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } }, "right": { "kind": "local", "name": "c" } }, "right": { "kind": "local", "name": "d" } }, "right": { "kind": "local", "name": "e" } }, "right": { "kind": "local", "name": "f" } }, "right": { "kind": "local", "name": "g" } } }
     ]
   }
   ]

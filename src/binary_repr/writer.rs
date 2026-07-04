@@ -264,21 +264,22 @@ pub(super) fn ops_use_resource_type(ops: &[IrOp]) -> bool {
         IrOp::Assign { value, .. }
         | IrOp::AssignGlobal { value, .. }
         | IrOp::StateAssign { value, .. }
-        | IrOp::Eval { value } => value_uses_resource_type(value),
-        IrOp::Return { value } => value.as_ref().is_some_and(value_uses_resource_type),
+        | IrOp::Eval { value, .. } => value_uses_resource_type(value),
+        IrOp::Return { value, .. } => value.as_ref().is_some_and(value_uses_resource_type),
         IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => false,
-        IrOp::ExitProgram { code } => value_uses_resource_type(code),
-        IrOp::Fail { error } => value_uses_resource_type(error),
+        IrOp::ExitProgram { code, .. } => value_uses_resource_type(code),
+        IrOp::Fail { error, .. } => value_uses_resource_type(error),
         IrOp::If {
             condition,
             then_body,
             else_body,
+            ..
         } => {
             value_uses_resource_type(condition)
                 || ops_use_resource_type(then_body)
                 || ops_use_resource_type(else_body)
         }
-        IrOp::Match { value, cases } => {
+        IrOp::Match { value, cases, .. } => {
             value_uses_resource_type(value)
                 || cases.iter().any(|case| ops_use_resource_type(&case.body))
         }
@@ -297,9 +298,9 @@ pub(super) fn ops_use_resource_type(ops: &[IrOp]) -> bool {
                 || value_uses_resource_type(step)
                 || ops_use_resource_type(body)
         }
-        IrOp::DoUntil { body, condition } => {
-            ops_use_resource_type(body) || value_uses_resource_type(condition)
-        }
+        IrOp::DoUntil {
+            body, condition, ..
+        } => ops_use_resource_type(body) || value_uses_resource_type(condition),
         IrOp::ForEach {
             type_,
             iterable,
@@ -331,7 +332,7 @@ pub(super) fn value_uses_resource_type(value: &IrValue) -> bool {
         IrValue::UnionWrap { value, .. }
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value }
+        | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value } => value_uses_resource_type(value),
         IrValue::MemberAccess { target, .. } => value_uses_resource_type(target),
         IrValue::WithUpdate {
@@ -389,25 +390,26 @@ pub(super) fn collect_resource_names_in_ops(
             IrOp::Assign { value, .. }
             | IrOp::AssignGlobal { value, .. }
             | IrOp::StateAssign { value, .. }
-            | IrOp::Eval { value } => collect_resource_names_in_value(value, names, record),
-            IrOp::Return { value } => {
+            | IrOp::Eval { value, .. } => collect_resource_names_in_value(value, names, record),
+            IrOp::Return { value, .. } => {
                 if let Some(value) = value {
                     collect_resource_names_in_value(value, names, record);
                 }
             }
             IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
-            IrOp::ExitProgram { code } => collect_resource_names_in_value(code, names, record),
-            IrOp::Fail { error } => collect_resource_names_in_value(error, names, record),
+            IrOp::ExitProgram { code, .. } => collect_resource_names_in_value(code, names, record),
+            IrOp::Fail { error, .. } => collect_resource_names_in_value(error, names, record),
             IrOp::If {
                 condition,
                 then_body,
                 else_body,
+                ..
             } => {
                 collect_resource_names_in_value(condition, names, record);
                 collect_resource_names_in_ops(then_body, names, record);
                 collect_resource_names_in_ops(else_body, names, record);
             }
-            IrOp::Match { value, cases } => {
+            IrOp::Match { value, cases, .. } => {
                 collect_resource_names_in_value(value, names, record);
                 for case in cases {
                     collect_resource_names_in_ops(&case.body, names, record);
@@ -431,7 +433,9 @@ pub(super) fn collect_resource_names_in_ops(
                 collect_resource_names_in_value(step, names, record);
                 collect_resource_names_in_ops(body, names, record);
             }
-            IrOp::DoUntil { body, condition } => {
+            IrOp::DoUntil {
+                body, condition, ..
+            } => {
                 collect_resource_names_in_ops(body, names, record);
                 collect_resource_names_in_value(condition, names, record);
             }
@@ -475,7 +479,7 @@ pub(super) fn collect_resource_names_in_value(
         IrValue::UnionWrap { value, .. }
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value }
+        | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value } => collect_resource_names_in_value(value, names, record),
         IrValue::MemberAccess { target, .. } => {
             collect_resource_names_in_value(target, names, record)
@@ -574,26 +578,27 @@ pub(super) fn collect_imported_calls_op(
         IrOp::Assign { value, .. }
         | IrOp::AssignGlobal { value, .. }
         | IrOp::StateAssign { value, .. }
-        | IrOp::Eval { value }
-        | IrOp::Fail { error: value } => collect_imported_calls_value(value, imported, used),
-        IrOp::Return { value } => {
+        | IrOp::Eval { value, .. }
+        | IrOp::Fail { error: value, .. } => collect_imported_calls_value(value, imported, used),
+        IrOp::Return { value, .. } => {
             if let Some(v) = value {
                 collect_imported_calls_value(v, imported, used);
             }
         }
         IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
-        IrOp::ExitProgram { code } => collect_imported_calls_value(code, imported, used),
+        IrOp::ExitProgram { code, .. } => collect_imported_calls_value(code, imported, used),
         IrOp::If {
             condition,
             then_body,
             else_body,
+            ..
         } => {
             collect_imported_calls_value(condition, imported, used);
             for op in then_body.iter().chain(else_body) {
                 collect_imported_calls_op(op, imported, used);
             }
         }
-        IrOp::Match { value, cases } => {
+        IrOp::Match { value, cases, .. } => {
             collect_imported_calls_value(value, imported, used);
             for case in cases {
                 if let Some(guard) = &case.guard {
@@ -626,7 +631,9 @@ pub(super) fn collect_imported_calls_op(
                 collect_imported_calls_op(op, imported, used);
             }
         }
-        IrOp::DoUntil { body, condition } => {
+        IrOp::DoUntil {
+            body, condition, ..
+        } => {
             for op in body {
                 collect_imported_calls_op(op, imported, used);
             }
@@ -679,7 +686,7 @@ pub(super) fn collect_imported_calls_value(
         IrValue::UnionWrap { value, .. }
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value }
+        | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value }
         | IrValue::Unary { operand: value, .. }
         | IrValue::MemberAccess { target: value, .. } => {
@@ -942,7 +949,10 @@ impl BinaryReprProject {
         // The doc section is emitted only when the package has documentation
         // (plan-09-doc.md §5); it does not affect execution or the ABI.
         if !self.docs.is_empty() {
-            sections.push(Section::new(SECTION_DOC_TABLE, encode_doc_table(&self.docs)));
+            sections.push(Section::new(
+                SECTION_DOC_TABLE,
+                encode_doc_table(&self.docs),
+            ));
         }
 
         encode_sections(&sections)

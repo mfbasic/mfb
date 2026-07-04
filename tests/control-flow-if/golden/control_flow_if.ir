@@ -12,102 +12,112 @@
   "functions": [
   {
     "name": "ifOnly",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "flag", "type": "Boolean", "default": null }
+    { "name": "flag", "line": 3, "type": "Boolean", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
+      "line": 4,
       "condition": { "kind": "local", "name": "flag" },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 5, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 7, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "ifElse",
+    "line": 10,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "flag", "type": "Boolean", "default": null }
+    { "name": "flag", "line": 10, "type": "Boolean", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
+      "line": 11,
       "condition": { "kind": "local", "name": "flag" },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 12, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+      { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "2" } }
       ]
     }
     ]
   },
   {
     "name": "ifElseIf",
+    "line": 18,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "first", "type": "Boolean", "default": null },
-    { "name": "second", "type": "Boolean", "default": null }
+    { "name": "first", "line": 18, "type": "Boolean", "default": null },
+    { "name": "second", "line": 18, "type": "Boolean", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
+      "line": 19,
       "condition": { "kind": "local", "name": "first" },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
       {
         "op": "if",
+        "line": 21,
         "condition": { "kind": "local", "name": "second" },
         "then": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        { "op": "return", "line": 22, "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ],
         "else": [
         ]
       }
       ]
     },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "return", "line": 24, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   },
   {
     "name": "ifElseIfElse",
+    "line": 27,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "first", "type": "Boolean", "default": null },
-    { "name": "second", "type": "Boolean", "default": null }
+    { "name": "first", "line": 27, "type": "Boolean", "default": null },
+    { "name": "second", "line": 27, "type": "Boolean", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
+      "line": 28,
       "condition": { "kind": "local", "name": "first" },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+      { "op": "return", "line": 29, "value": { "kind": "const", "type": "Integer", "value": "1" } }
       ],
       "else": [
       {
         "op": "if",
+        "line": 30,
         "condition": { "kind": "local", "name": "second" },
         "then": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        { "op": "return", "line": 31, "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ],
         "else": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+        { "op": "return", "line": 33, "value": { "kind": "const", "type": "Integer", "value": "3" } }
         ]
       }
       ]
@@ -116,59 +126,64 @@
   },
   {
     "name": "inlineIfElse",
+    "line": 37,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "flag", "type": "Boolean", "default": null }
+    { "name": "flag", "line": 37, "type": "Boolean", "default": null }
     ],
     "returns": "Integer",
     "body": [
     {
       "op": "if",
+      "line": 38,
       "condition": { "kind": "local", "name": "flag" },
       "then": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "4" } }
+      { "op": "return", "line": 38, "value": { "kind": "const", "type": "Integer", "value": "4" } }
       ],
       "else": [
-      { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "5" } }
+      { "op": "return", "line": 38, "value": { "kind": "const", "type": "Integer", "value": "5" } }
       ]
     }
     ]
   },
   {
     "name": "inlineIfAssign",
+    "line": 41,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "flag", "type": "Boolean", "default": null }
+    { "name": "flag", "line": 41, "type": "Boolean", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": true, "name": "result", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
+    { "op": "bind", "line": 42, "mutable": true, "name": "result", "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } },
     {
       "op": "if",
+      "line": 43,
       "condition": { "kind": "local", "name": "flag" },
       "then": [
-      { "op": "assign", "name": "result", "value": { "kind": "const", "type": "Integer", "value": "6" } }
+      { "op": "assign", "line": 43, "name": "result", "value": { "kind": "const", "type": "Integer", "value": "6" } }
       ],
       "else": [
-      { "op": "assign", "name": "result", "value": { "kind": "const", "type": "Integer", "value": "7" } }
+      { "op": "assign", "line": 43, "name": "result", "value": { "kind": "const", "type": "Integer", "value": "7" } }
       ]
     },
-    { "op": "return", "value": { "kind": "local", "name": "result" } }
+    { "op": "return", "line": 44, "value": { "kind": "local", "name": "result" } }
     ]
   },
   {
     "name": "main",
+    "line": 47,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "ifOnly", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] }, "right": { "kind": "call", "target": "ifElse", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "target": "ifElseIf", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }, { "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "target": "ifElseIfElse", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }, { "kind": "const", "type": "Boolean", "value": "false" }] } }, "right": { "kind": "call", "target": "inlineIfElse", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "target": "inlineIfElse", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } }, "right": { "kind": "call", "target": "inlineIfAssign", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "target": "inlineIfAssign", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "total" }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 48, "mutable": false, "name": "total", "type": "Integer", "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "ifOnly", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] }, "right": { "kind": "call", "type": "Integer", "target": "ifElse", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "type": "Integer", "target": "ifElseIf", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }, { "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "type": "Integer", "target": "ifElseIfElse", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }, { "kind": "const", "type": "Boolean", "value": "false" }] } }, "right": { "kind": "call", "type": "Integer", "target": "inlineIfElse", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "type": "Integer", "target": "inlineIfElse", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } }, "right": { "kind": "call", "type": "Integer", "target": "inlineIfAssign", "args": [{ "kind": "const", "type": "Boolean", "value": "true" }] } }, "right": { "kind": "call", "type": "Integer", "target": "inlineIfAssign", "args": [{ "kind": "const", "type": "Boolean", "value": "false" }] } } },
+    { "op": "eval", "line": 49, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "total" }] }] } },
+    { "op": "return", "line": 50, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

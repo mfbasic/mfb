@@ -12,15 +12,16 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "big", "type": "Fixed", "value": { "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "30.0" }] } },
-    { "op": "bind", "mutable": false, "name": "result", "type": "Fixed", "value": { "kind": "call", "target": "math.exp", "args": [{ "kind": "local", "name": "big" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "big", "type": "Fixed", "value": { "kind": "call", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "30.0" }] } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "result", "type": "Fixed", "value": { "kind": "call", "type": "Fixed", "target": "math.exp", "args": [{ "kind": "local", "name": "big" }] } },
+    { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

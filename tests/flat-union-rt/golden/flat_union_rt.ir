@@ -10,52 +10,59 @@
   "types": [
   {
     "kind": "type",
+    "line": 10,
     "visibility": "private",
     "name": "Dot",
     "fields": [
-    { "visibility": null, "name": "x", "type": "Integer" }
+    { "visibility": null, "line": 11, "name": "x", "type": "Integer" }
     ]
   },
   {
     "kind": "type",
+    "line": 14,
     "visibility": "private",
     "name": "Tag",
     "fields": [
-    { "visibility": null, "name": "name", "type": "String" }
+    { "visibility": null, "line": 15, "name": "name", "type": "String" }
     ]
   },
   {
     "kind": "type",
+    "line": 18,
     "visibility": "private",
     "name": "Boxed",
     "fields": [
-    { "visibility": null, "name": "dot", "type": "Dot" },
-    { "visibility": null, "name": "label", "type": "String" }
+    { "visibility": null, "line": 19, "name": "dot", "type": "Dot" },
+    { "visibility": null, "line": 20, "name": "label", "type": "String" }
     ]
   },
   {
     "kind": "union",
+    "line": 23,
     "visibility": "private",
     "name": "Shape",
     "includes": [],
     "variants": [
     {
       "name": "Dot",
+      "line": 24,
       "fields": [
-      { "visibility": null, "name": "x", "type": "Integer" }
+      { "visibility": null, "line": 11, "name": "x", "type": "Integer" }
       ]
     },
     {
       "name": "Tag",
+      "line": 25,
       "fields": [
-      { "visibility": null, "name": "name", "type": "String" }
+      { "visibility": null, "line": 15, "name": "name", "type": "String" }
       ]
     },
     {
       "name": "Boxed",
+      "line": 26,
       "fields": [
-      { "visibility": null, "name": "dot", "type": "Dot" },
-      { "visibility": null, "name": "label", "type": "String" }
+      { "visibility": null, "line": 19, "name": "dot", "type": "Dot" },
+      { "visibility": null, "line": 20, "name": "label", "type": "String" }
       ]
     }
     ]
@@ -64,40 +71,45 @@
   "functions": [
   {
     "name": "describe",
+    "line": 29,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "s", "type": "Shape", "default": null }
+    { "name": "s", "line": 29, "type": "Shape", "default": null }
     ],
     "returns": "String",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match0", "type": "Shape", "value": { "kind": "local", "name": "s" } },
+    { "op": "bind", "line": 30, "mutable": false, "name": "$match0", "type": "Shape", "value": { "kind": "local", "name": "s" } },
     {
       "op": "match",
+      "line": 30,
       "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
+        "line": 31,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Dot" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "d", "type": "Dot", "value": { "kind": "unionExtract", "type": "Dot", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "dot:" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "d" }, "member": "x" }] } } }
+        { "op": "bind", "line": 31, "mutable": false, "name": "d", "type": "Dot", "value": { "kind": "unionExtract", "type": "Dot", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 32, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "dot:" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "d" }, "member": "x" }] } } }
         ]
       },
       {
+        "line": 33,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Tag" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "t", "type": "Tag", "value": { "kind": "unionExtract", "type": "Tag", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "tag:" }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "t" }, "member": "name" } } }
+        { "op": "bind", "line": 33, "mutable": false, "name": "t", "type": "Tag", "value": { "kind": "unionExtract", "type": "Tag", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 34, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "tag:" }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "t" }, "member": "name" } } }
         ]
       },
       {
+        "line": 35,
         "pattern": { "kind": "value", "value": { "kind": "local", "name": "Boxed" } },
         "guard": null,
         "body": [
-        { "op": "bind", "mutable": false, "name": "p", "type": "Boxed", "value": { "kind": "unionExtract", "type": "Boxed", "value": { "kind": "local", "name": "$match0" } } },
-        { "op": "return", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "pair:" }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "memberAccess", "target": { "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "dot" }, "member": "x" }] } }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "memberAccess", "target": { "kind": "local", "name": "p" }, "member": "label" } } }
+        { "op": "bind", "line": 35, "mutable": false, "name": "p", "type": "Boxed", "value": { "kind": "unionExtract", "type": "Boxed", "value": { "kind": "local", "name": "$match0" } } },
+        { "op": "return", "line": 36, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pair:" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "memberAccess", "type": "Integer", "target": { "kind": "memberAccess", "type": "Dot", "target": { "kind": "local", "name": "p" }, "member": "dot" }, "member": "x" }] } }, "right": { "kind": "const", "type": "String", "value": "/" } }, "right": { "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "p" }, "member": "label" } } }
         ]
       }
       ]
@@ -106,35 +118,37 @@
   },
   {
     "name": "main",
+    "line": 40,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "a", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Dot", "value": { "kind": "constructor", "type": "Dot", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } } },
-    { "op": "bind", "mutable": false, "name": "b", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Tag", "value": { "kind": "constructor", "type": "Tag", "args": [{ "kind": "const", "type": "String", "value": "hello" }] } } },
-    { "op": "bind", "mutable": false, "name": "c", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Boxed", "value": { "kind": "constructor", "type": "Boxed", "args": [{ "kind": "constructor", "type": "Dot", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] }, { "kind": "const", "type": "String", "value": "boxed-and-longer" }] } } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "describe", "args": [{ "kind": "local", "name": "a" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "describe", "args": [{ "kind": "local", "name": "b" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "describe", "args": [{ "kind": "local", "name": "c" }] }] } },
-    { "op": "bind", "mutable": false, "name": "d", "type": "Shape", "value": { "kind": "local", "name": "c" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "describe", "args": [{ "kind": "local", "name": "d" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "call", "target": "describe", "args": [{ "kind": "local", "name": "a" }] }, "right": { "kind": "const", "type": "String", "value": "|" } }, "right": { "kind": "call", "target": "describe", "args": [{ "kind": "local", "name": "b" }] } }] } },
-    { "op": "bind", "mutable": false, "name": "xs", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }, { "kind": "local", "name": "c" }] } },
-    { "op": "bind", "mutable": true, "name": "joined", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
+    { "op": "bind", "line": 41, "mutable": false, "name": "a", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Dot", "value": { "kind": "constructor", "type": "Dot", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "b", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Tag", "value": { "kind": "constructor", "type": "Tag", "args": [{ "kind": "const", "type": "String", "value": "hello" }] } } },
+    { "op": "bind", "line": 43, "mutable": false, "name": "c", "type": "Shape", "value": { "kind": "unionWrap", "union": "Shape", "member": "Boxed", "value": { "kind": "constructor", "type": "Boxed", "args": [{ "kind": "constructor", "type": "Dot", "args": [{ "kind": "const", "type": "Integer", "value": "3" }] }, { "kind": "const", "type": "String", "value": "boxed-and-longer" }] } } },
+    { "op": "eval", "line": 44, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "a" }] }] } },
+    { "op": "eval", "line": 45, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "b" }] }] } },
+    { "op": "eval", "line": 46, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "c" }] }] } },
+    { "op": "bind", "line": 49, "mutable": false, "name": "d", "type": "Shape", "value": { "kind": "local", "name": "c" } },
+    { "op": "eval", "line": 50, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "d" }] }] } },
+    { "op": "eval", "line": 51, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "a" }] }, "right": { "kind": "const", "type": "String", "value": "|" } }, "right": { "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "b" }] } }] } },
+    { "op": "bind", "line": 54, "mutable": false, "name": "xs", "type": "List OF Shape", "value": { "kind": "list", "type": "List OF Shape", "values": [{ "kind": "local", "name": "a" }, { "kind": "local", "name": "b" }, { "kind": "local", "name": "c" }] } },
+    { "op": "bind", "line": 55, "mutable": true, "name": "joined", "type": "String", "value": { "kind": "const", "type": "String", "value": "" } },
     {
       "op": "forEach",
+      "line": 56,
       "name": "s",
       "type": "Shape",
       "iterable": { "kind": "local", "name": "xs" },
       "body": [
-      { "op": "assign", "name": "joined", "value": { "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "joined" }, "right": { "kind": "call", "target": "describe", "args": [{ "kind": "local", "name": "s" }] } }, "right": { "kind": "const", "type": "String", "value": ";" } } }
+      { "op": "assign", "line": 57, "name": "joined", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "joined" }, "right": { "kind": "call", "type": "String", "target": "describe", "args": [{ "kind": "local", "name": "s" }] } }, "right": { "kind": "const", "type": "String", "value": ";" } } }
       ]
     },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "joined" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 59, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "joined" }] } },
+    { "op": "eval", "line": 60, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "xs" }] }] }] } },
+    { "op": "return", "line": 61, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

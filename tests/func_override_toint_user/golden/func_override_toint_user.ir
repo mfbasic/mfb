@@ -10,38 +10,41 @@
   "types": [
   {
     "kind": "type",
+    "line": 3,
     "visibility": "private",
     "name": "Money",
     "fields": [
-    { "visibility": null, "name": "cents", "type": "Integer" }
+    { "visibility": null, "line": 4, "name": "cents", "type": "Integer" }
     ]
   }
   ],
   "functions": [
   {
     "name": "toInt$Money",
+    "line": 7,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "m", "type": "Money", "default": null }
+    { "name": "m", "line": 7, "type": "Money", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "m" }, "member": "cents" } }
+    { "op": "return", "line": 8, "value": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "m" }, "member": "cents" } }
     ]
   },
   {
     "name": "main",
+    "line": 11,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "m", "type": "Money", "value": { "kind": "constructor", "type": "Money", "args": [{ "kind": "const", "type": "Integer", "value": "1995" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "toInt$Money", "args": [{ "kind": "local", "name": "m" }] }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "7" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 12, "mutable": false, "name": "m", "type": "Money", "value": { "kind": "constructor", "type": "Money", "args": [{ "kind": "const", "type": "Integer", "value": "1995" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt$Money", "args": [{ "kind": "local", "name": "m" }] }] }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "const", "type": "String", "value": "7" }] }] }] } },
+    { "op": "return", "line": 15, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

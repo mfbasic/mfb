@@ -12,53 +12,57 @@
   "functions": [
   {
     "name": "log$Integer",
+    "line": 8,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "value", "line": 8, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "int " }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } }
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "int " }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } }
     ]
   },
   {
     "name": "log$String",
+    "line": 12,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "value", "type": "String", "default": null }
+    { "name": "value", "line": 12, "type": "String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "const", "type": "String", "value": "str " }, "right": { "kind": "local", "name": "value" } }] } }
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "str " }, "right": { "kind": "local", "name": "value" } }] } }
     ]
   },
   {
     "name": "log$String$Integer",
+    "line": 17,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "label", "type": "String", "default": null },
-    { "name": "value", "type": "Integer", "default": null }
+    { "name": "label", "line": 17, "type": "String", "default": null },
+    { "name": "value", "line": 17, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "binary", "op": "&", "left": { "kind": "binary", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } }
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "label" }, "right": { "kind": "const", "type": "String", "value": "=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "local", "name": "value" }] } }] } }
     ]
   },
   {
     "name": "main",
+    "line": 21,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "log$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "log$String", "args": [{ "kind": "const", "type": "String", "value": "hi" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "log$String$Integer", "args": [{ "kind": "const", "type": "String", "value": "count" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 22, "value": { "kind": "call", "type": "Nothing", "target": "log$Integer", "args": [{ "kind": "const", "type": "Integer", "value": "7" }] } },
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "log$String", "args": [{ "kind": "const", "type": "String", "value": "hi" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "log$String$Integer", "args": [{ "kind": "const", "type": "String", "value": "count" }, { "kind": "const", "type": "Integer", "value": "3" }] } },
+    { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

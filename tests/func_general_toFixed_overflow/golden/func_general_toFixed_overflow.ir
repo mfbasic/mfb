@@ -12,13 +12,14 @@
   "functions": [
   {
     "name": "main",
+    "line": 1,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "toInt", "args": [{ "kind": "call", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2147483648" }] }] } }
+    { "op": "return", "line": 2, "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "call", "type": "Fixed", "target": "toFixed", "args": [{ "kind": "const", "type": "String", "value": "2147483648" }] }] } }
     ]
   }
   ]

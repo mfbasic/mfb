@@ -151,32 +151,33 @@ fn push_op_helpers(
                     push_value_helpers(value, helpers);
                 }
             }
-            IrOp::Fail { error } => {
+            IrOp::Fail { error, .. } => {
                 push_value_helpers(error, helpers);
             }
             IrOp::Assign { value, .. }
             | IrOp::AssignGlobal { value, .. }
             | IrOp::StateAssign { value, .. }
-            | IrOp::Eval { value } => {
+            | IrOp::Eval { value, .. } => {
                 push_value_helpers(value, helpers);
             }
-            IrOp::Return { value } => {
+            IrOp::Return { value, .. } => {
                 if let Some(value) = value {
                     push_value_helpers(value, helpers);
                 }
             }
             IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
-            IrOp::ExitProgram { code } => push_value_helpers(code, helpers),
+            IrOp::ExitProgram { code, .. } => push_value_helpers(code, helpers),
             IrOp::If {
                 condition,
                 then_body,
                 else_body,
+                ..
             } => {
                 push_value_helpers(condition, helpers);
                 push_op_helpers(then_body, resource_union_closes, helpers);
                 push_op_helpers(else_body, resource_union_closes, helpers);
             }
-            IrOp::Match { value, cases } => {
+            IrOp::Match { value, cases, .. } => {
                 push_value_helpers(value, helpers);
                 for case in cases {
                     push_op_helpers(&case.body, resource_union_closes, helpers);
@@ -200,7 +201,9 @@ fn push_op_helpers(
                 push_value_helpers(step, helpers);
                 push_op_helpers(body, resource_union_closes, helpers);
             }
-            IrOp::DoUntil { body, condition } => {
+            IrOp::DoUntil {
+                body, condition, ..
+            } => {
                 push_op_helpers(body, resource_union_closes, helpers);
                 push_value_helpers(condition, helpers);
             }
@@ -227,7 +230,7 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
                 push_value_helpers(arg, helpers);
             }
         }
-        IrValue::MemberAccess { target, member } => {
+        IrValue::MemberAccess { target, member, .. } => {
             if member == "result" {
                 push_unique(helpers, RuntimeHelper::Thread);
             }
@@ -246,7 +249,7 @@ fn push_value_helpers(value: &IrValue, helpers: &mut Vec<RuntimeHelper>) {
         IrValue::UnionWrap { value, .. }
         | IrValue::UnionExtract { value, .. }
         | IrValue::ResultIsOk { value }
-        | IrValue::ResultValue { value }
+        | IrValue::ResultValue { value, .. }
         | IrValue::ResultError { value } => {
             push_value_helpers(value, helpers);
         }

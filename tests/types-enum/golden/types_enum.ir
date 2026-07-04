@@ -10,6 +10,7 @@
   "types": [
   {
     "kind": "enum",
+    "line": 3,
     "visibility": "private",
     "name": "Color",
     "members": [
@@ -20,6 +21,7 @@
   },
   {
     "kind": "enum",
+    "line": 7,
     "visibility": "private",
     "name": "Mode",
     "members": [
@@ -31,37 +33,42 @@
   "functions": [
   {
     "name": "colorScore",
+    "line": 11,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "color", "type": "Color", "default": null }
+    { "name": "color", "line": 11, "type": "Color", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match0", "type": "Color", "value": { "kind": "local", "name": "color" } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "$match0", "type": "Color", "value": { "kind": "local", "name": "color" } },
     {
       "op": "match",
+      "line": 12,
       "value": { "kind": "local", "name": "$match0" },
       "cases": [
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "line": 13,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "1" } }
+        { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "1" } }
         ]
       },
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Green" } },
+        "line": 15,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "2" } }
+        { "op": "return", "line": 16, "value": { "kind": "const", "type": "Integer", "value": "2" } }
         ]
       },
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
+        "line": 17,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "3" } }
+        { "op": "return", "line": 18, "value": { "kind": "const", "type": "Integer", "value": "3" } }
         ]
       }
       ]
@@ -70,30 +77,34 @@
   },
   {
     "name": "colorFallback",
+    "line": 22,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "color", "type": "Color", "default": null }
+    { "name": "color", "line": 22, "type": "Color", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match1", "type": "Color", "value": { "kind": "local", "name": "color" } },
+    { "op": "bind", "line": 23, "mutable": false, "name": "$match1", "type": "Color", "value": { "kind": "local", "name": "color" } },
     {
       "op": "match",
+      "line": 23,
       "value": { "kind": "local", "name": "$match1" },
       "cases": [
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+        "line": 24,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "10" } }
+        { "op": "return", "line": 25, "value": { "kind": "const", "type": "Integer", "value": "10" } }
         ]
       },
       {
+        "line": 26,
         "pattern": { "kind": "else" },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "20" } }
+        { "op": "return", "line": 27, "value": { "kind": "const", "type": "Integer", "value": "20" } }
         ]
       }
       ]
@@ -102,30 +113,34 @@
   },
   {
     "name": "modeScore",
+    "line": 31,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "mode", "type": "Mode", "default": null }
+    { "name": "mode", "line": 31, "type": "Mode", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "$match2", "type": "Mode", "value": { "kind": "local", "name": "mode" } },
+    { "op": "bind", "line": 32, "mutable": false, "name": "$match2", "type": "Mode", "value": { "kind": "local", "name": "mode" } },
     {
       "op": "match",
+      "line": 32,
       "value": { "kind": "local", "name": "$match2" },
       "cases": [
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Mode" }, "member": "Idle" } },
+        "line": 33,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Idle" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "30" } }
+        { "op": "return", "line": 34, "value": { "kind": "const", "type": "Integer", "value": "30" } }
         ]
       },
       {
-        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Mode" }, "member": "Running" } },
+        "line": 35,
+        "pattern": { "kind": "value", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Running" } },
         "guard": null,
         "body": [
-        { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "40" } }
+        { "op": "return", "line": 36, "value": { "kind": "const", "type": "Integer", "value": "40" } }
         ]
       }
       ]
@@ -134,20 +149,21 @@
   },
   {
     "name": "main",
+    "line": 40,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "inferred", "type": "Color", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
-    { "op": "bind", "mutable": false, "name": "annotated", "type": "Color", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Green" } },
-    { "op": "bind", "mutable": true, "name": "current", "type": "Color", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
-    { "op": "assign", "name": "current", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
-    { "op": "bind", "mutable": false, "name": "mode", "type": "Mode", "value": { "kind": "memberAccess", "target": { "kind": "local", "name": "Mode" }, "member": "Running" } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "typeName", "args": [{ "kind": "local", "name": "inferred" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "typeName", "args": [{ "kind": "local", "name": "mode" }] }] } },
-    { "op": "return", "value": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "binary", "op": "+", "left": { "kind": "call", "target": "colorScore", "args": [{ "kind": "local", "name": "inferred" }] }, "right": { "kind": "call", "target": "colorScore", "args": [{ "kind": "local", "name": "annotated" }] } }, "right": { "kind": "call", "target": "colorScore", "args": [{ "kind": "local", "name": "current" }] } }, "right": { "kind": "call", "target": "colorFallback", "args": [{ "kind": "memberAccess", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] } }, "right": { "kind": "call", "target": "modeScore", "args": [{ "kind": "local", "name": "mode" }] } } }
+    { "op": "bind", "line": 41, "mutable": false, "name": "inferred", "type": "Color", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+    { "op": "bind", "line": 42, "mutable": false, "name": "annotated", "type": "Color", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Green" } },
+    { "op": "bind", "line": 43, "mutable": true, "name": "current", "type": "Color", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" } },
+    { "op": "assign", "line": 44, "name": "current", "value": { "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Red" } },
+    { "op": "bind", "line": 45, "mutable": false, "name": "mode", "type": "Mode", "value": { "kind": "memberAccess", "type": "Mode", "target": { "kind": "local", "name": "Mode" }, "member": "Running" } },
+    { "op": "eval", "line": 47, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "local", "name": "inferred" }] }] } },
+    { "op": "eval", "line": 48, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "typeName", "args": [{ "kind": "local", "name": "mode" }] }] } },
+    { "op": "return", "line": 49, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "call", "type": "Integer", "target": "colorScore", "args": [{ "kind": "local", "name": "inferred" }] }, "right": { "kind": "call", "type": "Integer", "target": "colorScore", "args": [{ "kind": "local", "name": "annotated" }] } }, "right": { "kind": "call", "type": "Integer", "target": "colorScore", "args": [{ "kind": "local", "name": "current" }] } }, "right": { "kind": "call", "type": "Integer", "target": "colorFallback", "args": [{ "kind": "memberAccess", "type": "Color", "target": { "kind": "local", "name": "Color" }, "member": "Blue" }] } }, "right": { "kind": "call", "type": "Integer", "target": "modeScore", "args": [{ "kind": "local", "name": "mode" }] } } }
     ]
   }
   ]

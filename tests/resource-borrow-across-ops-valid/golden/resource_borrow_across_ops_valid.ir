@@ -12,31 +12,33 @@
   "functions": [
   {
     "name": "logLine",
+    "line": 4,
     "visibility": "private",
     "kind": "sub",
     "params": [
-    { "name": "f", "type": "File", "default": null },
-    { "name": "msg", "type": "String", "default": null }
+    { "name": "f", "line": 4, "type": "File", "default": null },
+    { "name": "msg", "line": 4, "type": "String", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "local", "name": "msg" }] } }
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "local", "name": "msg" }] } }
     ]
   },
   {
     "name": "main",
+    "line": 8,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "target": "fs.createTempFile", "args": [] } },
-    { "op": "eval", "value": { "kind": "call", "target": "logLine", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "first" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "logLine", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "second" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "borrowed" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 9, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.createTempFile", "args": [] } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "logLine", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "first" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "logLine", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "second" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "borrowed" }] } },
+    { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

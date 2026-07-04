@@ -12,17 +12,18 @@
   "functions": [
   {
     "name": "main",
+    "line": 3,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "big", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "10000000000000000000.0" } },
-    { "op": "bind", "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "local", "name": "big" }, { "kind": "const", "type": "Float", "value": "3.0" }] } },
-    { "op": "bind", "mutable": false, "name": "ys", "type": "List OF Integer", "value": { "kind": "call", "target": "math.floor", "args": [{ "kind": "local", "name": "xs" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "len", "args": [{ "kind": "local", "name": "ys" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 4, "mutable": false, "name": "big", "type": "Float", "value": { "kind": "const", "type": "Float", "value": "10000000000000000000.0" } },
+    { "op": "bind", "line": 5, "mutable": false, "name": "xs", "type": "List OF Float", "value": { "kind": "list", "type": "List OF Float", "values": [{ "kind": "const", "type": "Float", "value": "1.0" }, { "kind": "local", "name": "big" }, { "kind": "const", "type": "Float", "value": "3.0" }] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "ys", "type": "List OF Integer", "value": { "kind": "call", "type": "List OF Integer", "target": "math.floor", "args": [{ "kind": "local", "name": "xs" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len", "args": [{ "kind": "local", "name": "ys" }] }] }] } },
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

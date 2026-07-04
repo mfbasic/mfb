@@ -12,28 +12,29 @@
   "functions": [
   {
     "name": "main",
+    "line": 4,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "bind", "mutable": false, "name": "empty", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
-    { "op": "bind", "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "String", "value": "c" }] }] } },
-    { "op": "bind", "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a/" }, { "kind": "const", "type": "String", "value": "b" }] }] } },
-    { "op": "bind", "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "b" }] }] } },
-    { "op": "bind", "mutable": false, "name": "d", "type": "String", "value": { "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "/etc" }, { "kind": "const", "type": "String", "value": "x" }] }] } },
-    { "op": "bind", "mutable": false, "name": "e", "type": "String", "value": { "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "/root" }, { "kind": "const", "type": "String", "value": "sub" }] }] } },
-    { "op": "bind", "mutable": false, "name": "f", "type": "String", "value": { "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "local", "name": "empty" }] } },
-    { "op": "bind", "mutable": false, "name": "g", "type": "String", "value": { "kind": "call", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "one" }] }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "a" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "b" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "c" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "d" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "e" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "f" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "local", "name": "g" }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "bind", "line": 5, "mutable": false, "name": "empty", "type": "List OF String", "value": { "kind": "list", "type": "List OF String", "values": [] } },
+    { "op": "bind", "line": 6, "mutable": false, "name": "a", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "String", "value": "c" }] }] } },
+    { "op": "bind", "line": 7, "mutable": false, "name": "b", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a/" }, { "kind": "const", "type": "String", "value": "b" }] }] } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "c", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "" }, { "kind": "const", "type": "String", "value": "b" }] }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "d", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "String", "value": "/etc" }, { "kind": "const", "type": "String", "value": "x" }] }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "e", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "/root" }, { "kind": "const", "type": "String", "value": "sub" }] }] } },
+    { "op": "bind", "line": 11, "mutable": false, "name": "f", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "local", "name": "empty" }] } },
+    { "op": "bind", "line": 12, "mutable": false, "name": "g", "type": "String", "value": { "kind": "call", "type": "String", "target": "fs.pathJoin", "args": [{ "kind": "list", "type": "List OF String", "values": [{ "kind": "const", "type": "String", "value": "one" }] }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "a" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "b" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "c" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "d" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "e" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "local", "name": "g" }] } },
+    { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]

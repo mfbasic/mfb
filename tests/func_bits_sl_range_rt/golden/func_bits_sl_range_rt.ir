@@ -12,59 +12,64 @@
   "functions": [
   {
     "name": "doShift",
+    "line": 5,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "value", "type": "Integer", "default": null },
-    { "name": "count", "type": "Integer", "default": null }
+    { "name": "value", "line": 5, "type": "Integer", "default": null },
+    { "name": "count", "line": 5, "type": "Integer", "default": null }
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "value": { "kind": "call", "target": "bits.sl", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "count" }] } }
+    { "op": "return", "line": 6, "value": { "kind": "call", "type": "Integer", "target": "bits.sl", "args": [{ "kind": "local", "name": "value" }, { "kind": "local", "name": "count" }] } }
     ]
   },
   {
     "name": "attempt",
+    "line": 9,
     "visibility": "private",
     "kind": "func",
     "params": [
-    { "name": "count", "type": "Integer", "default": null }
+    { "name": "count", "line": 9, "type": "Integer", "default": null }
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "call", "target": "toString", "args": [{ "kind": "call", "target": "doShift", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "local", "name": "count" }] }] }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
+    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "doShift", "args": [{ "kind": "const", "type": "Integer", "value": "1" }, { "kind": "local", "name": "count" }] }] }] } },
+    { "op": "return", "line": 11, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } },
     {
       "op": "trap",
+      "line": 12,
       "name": "err",
       "body": [
       {
         "op": "if",
-        "condition": { "kind": "binary", "op": "=", "left": { "kind": "memberAccess", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
+        "line": 13,
+        "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "memberAccess", "type": "Integer", "target": { "kind": "local", "name": "err" }, "member": "code" }, "right": { "kind": "const", "type": "Integer", "value": "77050002" } },
         "then": [
-        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ErrInvalidArgument" }] } }
+        { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "ErrInvalidArgument" }] } }
         ],
         "else": [
-        { "op": "eval", "value": { "kind": "call", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "other" }] } }
+        { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "other" }] } }
         ]
       },
-      { "op": "return", "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+      { "op": "return", "line": 18, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
       ]
     }
     ]
   },
   {
     "name": "main",
+    "line": 22,
     "visibility": "private",
     "kind": "func",
     "params": [
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "value": { "kind": "call", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "4" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "64" }] } },
-    { "op": "eval", "value": { "kind": "call", "target": "attempt", "args": [{ "kind": "unary", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
-    { "op": "return", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    { "op": "eval", "line": 23, "value": { "kind": "call", "type": "Nothing", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "4" }] } },
+    { "op": "eval", "line": 24, "value": { "kind": "call", "type": "Nothing", "target": "attempt", "args": [{ "kind": "const", "type": "Integer", "value": "64" }] } },
+    { "op": "eval", "line": 25, "value": { "kind": "call", "type": "Nothing", "target": "attempt", "args": [{ "kind": "unary", "type": "Integer", "op": "-", "operand": { "kind": "const", "type": "Integer", "value": "1" } }] } },
+    { "op": "return", "line": 26, "value": { "kind": "const", "type": "Integer", "value": "0" } }
     ]
   }
   ]
