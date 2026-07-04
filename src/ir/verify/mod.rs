@@ -871,6 +871,20 @@ impl TypeEnv {
                 }
                 _ => return None,
             };
+            // thread::transfer(handle, res, ...) moves the resource at arg 1 to
+            // the other side (invalidation event #2, §15).
+            if target == "thread.transferResource" || target == "thread.transfer" {
+                if let Some(IrValue::Local(name)) = args.get(1) {
+                    if locals
+                        .get(name)
+                        .is_some_and(|t| is_resource_name(resource_base_type(t)))
+                    {
+                        return Some(name.clone());
+                    }
+                }
+                return None;
+            }
+            // A registered close op consumes the resource at arg 0.
             let IrValue::Local(name) = args.first()? else {
                 return None;
             };
