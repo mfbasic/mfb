@@ -29,10 +29,4 @@ tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0074 TYPE_SUB_HAS_NO_VA
      | ^
 tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Argument 1 for `takesInt` has type Nothing, expected Integer.
-  18 |   doThing(TRUE)
-  19 |   LET captured = doThing(TRUE)
-  20 |   LET nested = takesInt(doThing(FALSE))
-     | ^
-tests/sub-value-less-invalid/src/main.mfb:20 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Argument 1 for `takesInt` has type Nothing, expected Integer.
 [exit 1]

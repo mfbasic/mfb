@@ -11,10 +11,4 @@ tests/func_io_isOutputTerminal_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL
      | ^
 tests/func_io_isOutputTerminal_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET wrongType AS Boolean = io::isOutputTerminal(1)
-     | ^
-tests/func_io_isOutputTerminal_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `io.isOutputTerminal` do not match any overload.
 [exit 1]

@@ -47,28 +47,4 @@ tests/func_net_connectTcp_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARIT
      | ^
 tests/func_net_connectTcp_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   RES missing = net::connectTcp()
-     | ^
-tests/func_net_connectTcp_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `net.connectTcp` do not match any overload.
-   3 | FUNC main AS Integer
-   4 |   RES missing = net::connectTcp()
-   5 |   RES wrongHost = net::connectTcp(1, 80)
-     | ^
-tests/func_net_connectTcp_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `net.connectTcp` do not match any overload.
-   4 |   RES missing = net::connectTcp()
-   5 |   RES wrongHost = net::connectTcp(1, 80)
-   6 |   RES wrongPort = net::connectTcp("h", "p")
-     | ^
-tests/func_net_connectTcp_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `net.connectTcp` do not match any overload.
-   5 |   RES wrongHost = net::connectTcp(1, 80)
-   6 |   RES wrongPort = net::connectTcp("h", "p")
-   7 |   RES tooMany = net::connectTcp("h", 80, 0, 0)
-     | ^
-tests/func_net_connectTcp_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `net.connectTcp` do not match any overload.
 [exit 1]

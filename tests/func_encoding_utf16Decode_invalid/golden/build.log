@@ -23,16 +23,4 @@ tests/func_encoding_utf16Decode_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CAL
      | ^
 tests/func_encoding_utf16Decode_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `d` does not have a known type.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET b AS String = encoding::utf16Decode()
-     | ^
-tests/func_encoding_utf16Decode_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `#encoding_utf16Decode` has 0 argument(s), expected 1..=1.
-   3 | FUNC main AS Integer
-   4 |   LET b AS String = encoding::utf16Decode()
-   5 |   LET d AS String = encoding::utf16Decode("x")
-     | ^
-tests/func_encoding_utf16Decode_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Argument 1 for `#encoding_utf16Decode` has type String, expected List OF Integer.
 [exit 1]

@@ -11,10 +11,4 @@ tests/ownership-resource-double-close-invalid/src/main.mfb:6 error[2-203-0055 TY
      | ^
 tests/ownership-resource-double-close-invalid/src/main.mfb:6 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
                Binding `file` was moved and cannot be used again.
-   4 |   RES file = fs::openFile("tests/ownership-resource-double-close-invalid/src/main.mfb")
-   5 |   fs::close(file)
-   6 |   fs::close(file)
-     | ^
-tests/ownership-resource-double-close-invalid/src/main.mfb:6 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
-               Binding `file` was moved and cannot be used again.
 [exit 1]

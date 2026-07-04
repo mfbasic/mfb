@@ -60,6 +60,27 @@ pub(crate) struct Diagnostic {
     pub(crate) line: u32,
 }
 
+/// Rules for which `ir::verify` is the sole rejecter (plan-20-Z). On the
+/// **source** path `ir::verify` emits ONLY these (typecheck still owns every
+/// other rule, so emitting a non-relocated rule here would duplicate it); on
+/// the **package** path there is no typecheck, so `ir::verify` emits all of its
+/// checks regardless. `typecheck::report` skips this same set. A rule appears
+/// here only once `ir::verify` reproduces it completely (verified against every
+/// `*-invalid` fixture).
+pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
+    "TYPE_BINARY_OPERATOR_MISMATCH",
+    "TYPE_UNARY_OPERATOR_MISMATCH",
+    "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+    "TYPE_UNKNOWN_FIELD",
+    "TYPE_RETURN_MISMATCH",
+    "TYPE_LIST_ELEMENT_MISMATCH",
+    "TYPE_MAP_KEY_MISMATCH",
+    "TYPE_MAP_VALUE_MISMATCH",
+    "TYPE_RESOURCE_FIELD_FORBIDDEN",
+    "TYPE_MIXED_RESOURCE_UNION",
+    "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
+];
+
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
 /// rejection surfaces as a `PACKAGE_BINARY_REPRESENTATION_*` diagnostic.
 const VERIFY_TYPE: &str = "PACKAGE_BINARY_REPRESENTATION_VERIFY_TYPE";
@@ -126,18 +147,26 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 /// absolute path for the source-context display.
 pub fn check_and_emit(project: &IrProject, project_dir: &Path) -> Result<(), ()> {
     let diagnostics = collect_diagnostics(project);
+    let mut emitted = false;
     for d in &diagnostics {
+        // Source path: only the relocated rules are ir::verify's to emit;
+        // typecheck still emits everything else, so emitting a non-relocated
+        // rule here would duplicate it.
+        if !RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()) {
+            continue;
+        }
         let path = if d.file.is_empty() {
             project_dir.join("<generated>")
         } else {
             project_dir.join(&d.file)
         };
         crate::rules::show_diagnostic(&d.rule, &d.detail, &path, d.line as usize, 1, 1);
+        emitted = true;
     }
-    if diagnostics.is_empty() {
-        Ok(())
-    } else {
+    if emitted {
         Err(())
+    } else {
+        Ok(())
     }
 }
 
@@ -1142,6 +1171,45 @@ impl TypeEnv {
         let Some(arg_types) = arg_types else {
             return;
         };
+        // `term` exposes its per-name signatures (`arity`, `param_types`)
+        // rather than an arg-typed `resolve_call`, so check against those with
+        // the ported `expression_compatible` — the same data typecheck's
+        // `check_term_builtin_call` uses, so term's signature is single-source.
+        if builtins::term::is_term_call(target) {
+            if let Some((min, max)) = builtins::term::arity(target) {
+                if arg_types.len() < min || arg_types.len() > max {
+                    let expected = if min == max {
+                        min.to_string()
+                    } else {
+                        format!("{min} to {max}")
+                    };
+                    self.emit(
+                        "TYPE_CALL_ARITY_MISMATCH",
+                        format!(
+                            "Call to `{target}` has {} argument(s), expected {expected}.",
+                            arg_types.len()
+                        ),
+                    );
+                    return;
+                }
+            }
+            let params = builtins::term::param_types(target).unwrap_or(&[]);
+            let mut mismatch = false;
+            for (i, param) in params.iter().enumerate() {
+                if let (Some(actual), Some(arg)) = (arg_types.get(i), args.get(i)) {
+                    if !self.expression_compatible(param, actual, arg) {
+                        mismatch = true;
+                    }
+                }
+            }
+            if mismatch {
+                self.emit(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    format!("Call to `{target}` has argument type(s) that do not match its signature."),
+                );
+            }
+            return;
+        }
         let unresolved = if builtins::math::is_math_call(target) {
             builtins::math::resolve_call(target, &arg_types).is_none()
         } else if builtins::bits::is_bits_call(target) {

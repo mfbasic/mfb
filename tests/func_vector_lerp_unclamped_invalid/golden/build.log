@@ -23,16 +23,4 @@ tests/func_vector_lerp_unclamped_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CA
      | ^
 tests/func_vector_lerp_unclamped_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `b` does not have a known type.
-   4 | 
-   5 | FUNC main AS Integer
-   6 |   LET a AS vector::Float2 = vector::lerp_unclamped(vector::Float2[1.0,2.0], vector::Float2[3.0,4.0])
-     | ^
-tests/func_vector_lerp_unclamped_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `vector.lerp_unclamped` do not match any overload.
-   5 | FUNC main AS Integer
-   6 |   LET a AS vector::Float2 = vector::lerp_unclamped(vector::Float2[1.0,2.0], vector::Float2[3.0,4.0])
-   7 |   LET b AS vector::Float2 = vector::lerp_unclamped(vector::Float2[1.0,2.0], vector::Float2[3.0,4.0], 1)
-     | ^
-tests/func_vector_lerp_unclamped_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `vector.lerp_unclamped` do not match any overload.
 [exit 1]

@@ -47,28 +47,4 @@ tests/func_math_ceil_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MIS
      | ^
 tests/func_math_ceil_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
-   2 | 
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Integer = math::ceil()
-     | ^
-tests/func_math_ceil_invalid/src/main.mfb:4 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `math.ceil` do not match any overload.
-   3 | FUNC main AS Integer
-   4 |   LET missing AS Integer = math::ceil()
-   5 |   LET integerArg AS Integer = math::ceil(1)
-     | ^
-tests/func_math_ceil_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `math.ceil` do not match any overload.
-   4 |   LET missing AS Integer = math::ceil()
-   5 |   LET integerArg AS Integer = math::ceil(1)
-   6 |   LET wrongType AS Integer = math::ceil(TRUE)
-     | ^
-tests/func_math_ceil_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `math.ceil` do not match any overload.
-   5 |   LET integerArg AS Integer = math::ceil(1)
-   6 |   LET wrongType AS Integer = math::ceil(TRUE)
-   7 |   LET tooMany AS Integer = math::ceil(1.0, 2.0)
-     | ^
-tests/func_math_ceil_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
-               Arguments to `math.ceil` do not match any overload.
 [exit 1]

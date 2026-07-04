@@ -139,3 +139,4 @@ pub(crate) use types::{
 pub(crate) use value::{IrMatchCase, IrMatchPattern, IrValue};
 pub use verify::check as verify_semantics;
 pub use verify::check_and_emit as verify_source_and_emit;
+pub use verify::RELOCATED_TO_IR_VERIFY;
