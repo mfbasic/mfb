@@ -536,7 +536,7 @@ fn lower_binding(
             .value
             .as_ref()
             .and_then(|value| expression_type(value, &locals, context))
-            .expect("typecheck requires inferred binding type before IR lowering")
+            .unwrap_or_else(|| "Unknown".to_string())
     });
     IrBinding {
         name: binding.name.clone(),
@@ -607,7 +607,7 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
         FunctionKind::Func => function
             .return_type
             .clone()
-            .expect("typecheck requires FUNC return type before IR lowering"),
+            .unwrap_or_else(|| "Unknown".to_string()),
         FunctionKind::Sub => "Nothing".to_string(),
     };
     let mut locals = HashMap::new();
@@ -615,7 +615,7 @@ fn lower_function(function: &Function, context: &mut LowerContext<'_>) -> IrFunc
         let type_ = param
             .type_name
             .clone()
-            .expect("typecheck requires parameter type before IR lowering");
+            .unwrap_or_else(|| "Unknown".to_string());
         // Carry a `RES` parameter's `STATE T` in the local type string so
         // `s.state` resolves inside the callee, matching `lower_param`.
         let type_ = match &param.state_type {
@@ -684,7 +684,7 @@ fn lower_param(
     let type_ = param
         .type_name
         .clone()
-        .expect("typecheck requires parameter type before IR lowering");
+        .unwrap_or_else(|| "Unknown".to_string());
     // A `RES` parameter's `STATE T` rides in the type string so the callee can
     // address the borrowed resource's shared state payload.
     let type_ = match &param.state_type {
@@ -821,7 +821,7 @@ fn lower_statement(
                 let success_type = type_name
                     .clone()
                     .or_else(|| expression_type(expression, locals, context))
-                    .expect("typecheck requires inferred binding type before IR lowering");
+                    .unwrap_or_else(|| "Unknown".to_string());
                 return lower_inline_trap(
                     expression,
                     binding,
@@ -839,7 +839,7 @@ fn lower_statement(
                 value
                     .as_ref()
                     .and_then(|value| expression_type(value, locals, context))
-                    .expect("typecheck requires inferred binding type before IR lowering")
+                    .unwrap_or_else(|| "Unknown".to_string())
             });
             let lowered_value = value.as_ref().map(|value| {
                 let base =
@@ -913,19 +913,24 @@ fn lower_statement(
             loc,
         }],
         Statement::Propagate { .. } => vec![IrOp::Fail {
-            error: IrValue::Local(
-                trap_name
-                    .expect("typecheck requires PROPAGATE to appear only in trap bodies")
-                    .to_string(),
-            ),
+            // Typecheck rejects PROPAGATE outside a trap body; total lowering
+            // (plan-20-D) stamps a sentinel error local when the guard is
+            // absent so it never panics on ill-typed input.
+            error: IrValue::Local(trap_name.unwrap_or("$error").to_string()),
             loc,
         }],
         Statement::Recover { value, .. } => {
-            let target = context
-                .recover_targets
-                .last()
-                .cloned()
-                .expect("typecheck requires RECOVER to appear only in inline TRAP handlers");
+            // Typecheck rejects RECOVER outside an inline-TRAP handler; total
+            // lowering falls back to a discard target rather than panicking.
+            let target =
+                context
+                    .recover_targets
+                    .last()
+                    .cloned()
+                    .unwrap_or_else(|| RecoverTarget {
+                        slot: None,
+                        type_: "Unknown".to_string(),
+                    });
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
                     let lowered =
@@ -1041,7 +1046,7 @@ fn lower_statement(
             expression, cases, ..
         } => {
             let matched_type = match_expression_type(expression, locals, context)
-                .expect("typecheck requires MATCH scrutinee type before IR lowering");
+                .unwrap_or_else(|| "Unknown".to_string());
             let matched_name = make_temp_local_name(context, "match");
             let mut ops = vec![IrOp::Bind {
                 mutable: false,
@@ -1094,9 +1099,9 @@ fn lower_statement(
             line,
         } => {
             let start_type = expression_type(start, locals, context)
-                .expect("typecheck requires FOR start type before IR lowering");
+                .unwrap_or_else(|| "Unknown".to_string());
             let end_type = expression_type(end, locals, context)
-                .expect("typecheck requires FOR end type before IR lowering");
+                .unwrap_or_else(|| "Unknown".to_string());
             let step_type = step
                 .as_ref()
                 .and_then(|value| expression_type(value, locals, context))
@@ -1171,9 +1176,9 @@ fn lower_statement(
             ..
         } => {
             let iterable_type = expression_type(iterable, locals, context)
-                .expect("typecheck requires FOR EACH iterable type before IR lowering");
+                .unwrap_or_else(|| "Unknown".to_string());
             let element_type = collection_iteration_type(&iterable_type)
-                .expect("typecheck requires FOR EACH collection before IR lowering");
+                .unwrap_or_else(|| "Unknown".to_string());
             let mut nested = locals.clone();
             nested.insert(name.clone(), element_type.clone());
             vec![IrOp::ForEach {
@@ -1258,7 +1263,7 @@ fn lower_inline_trap(
     // must use this captured copy.
     let stmt_loc = context.current_loc;
     let success_type = expression_type(inner, locals, context)
-        .expect("typecheck requires inline TRAP expression type before IR lowering");
+        .unwrap_or_else(|| "Unknown".to_string());
     let result_type = format!("Result OF {success_type}");
     let raw = lower_expression(inner, locals, context);
     let call_result = match raw {
@@ -1652,7 +1657,7 @@ fn lower_match_case(
     let matched_type = locals
         .get(matched_local)
         .cloned()
-        .expect("typecheck requires MATCH local type before IR lowering");
+        .unwrap_or_else(|| "Unknown".to_string());
     let pattern = match &case.pattern {
         MatchPattern::Else => IrMatchPattern::Else,
         MatchPattern::Literal(expression) => {
@@ -1789,7 +1794,7 @@ fn function_returns(ast: &AstProject) -> HashMap<String, String> {
                         FunctionKind::Func => function
                             .return_type
                             .clone()
-                            .expect("typecheck requires FUNC return type before IR lowering"),
+                            .unwrap_or_else(|| "Unknown".to_string()),
                         FunctionKind::Sub => "Nothing".to_string(),
                     };
                     returns.insert(function.name.clone(), return_type);
@@ -1834,7 +1839,7 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
                         param
                             .type_name
                             .clone()
-                            .expect("typecheck requires parameter type before IR lowering")
+                            .unwrap_or_else(|| "Unknown".to_string())
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
@@ -1842,7 +1847,7 @@ fn function_types(ast: &AstProject) -> HashMap<String, String> {
                     FunctionKind::Func => function
                         .return_type
                         .clone()
-                        .expect("typecheck requires FUNC return type before IR lowering"),
+                        .unwrap_or_else(|| "Unknown".to_string()),
                     FunctionKind::Sub => "Nothing".to_string(),
                 };
                 types.insert(
@@ -1902,7 +1907,7 @@ fn function_params(ast: &AstProject) -> HashMap<String, Vec<CallParam>> {
                             type_: param
                                 .type_name
                                 .clone()
-                                .expect("typecheck requires parameter type before IR lowering"),
+                                .unwrap_or_else(|| "Unknown".to_string()),
                             default: param.default.clone(),
                         })
                         .collect(),
@@ -2635,12 +2640,15 @@ fn lower_expression_with_expected(
                 let mut lowered = arguments
                     .iter()
                     .map(|argument| lower_expression(call_arg_value(argument), locals, context));
-                let code = lowered
-                    .next()
-                    .expect("typecheck requires error() code argument before IR lowering");
-                let message = lowered
-                    .next()
-                    .expect("typecheck requires error() message argument before IR lowering");
+                // Typecheck guarantees error(code, message) has both args;
+                // total lowering (plan-20-D) substitutes Unknown-typed const
+                // placeholders when they are absent rather than panicking.
+                let placeholder = || IrValue::Const {
+                    type_: "Unknown".to_string(),
+                    value: String::new(),
+                };
+                let code = lowered.next().unwrap_or_else(placeholder);
+                let message = lowered.next().unwrap_or_else(placeholder);
                 return build_error_value(code, message, &context.current_file, loc);
             }
             let normalized_builtin =
@@ -2925,7 +2933,7 @@ fn lower_expression_with_expected(
                     let type_ = param
                         .type_name
                         .clone()
-                        .expect("typecheck requires lambda parameter type before IR lowering");
+                        .unwrap_or_else(|| "Unknown".to_string());
                     lambda_locals.insert(param.name.clone(), type_.clone());
                     IrParam {
                         name: param.name.clone(),
@@ -2970,7 +2978,7 @@ fn lower_expression_with_expected(
                 }
                 None => {
                     let returns = expression_type(body, &lambda_locals, context)
-                        .expect("typecheck requires lambda return type before IR lowering");
+                        .unwrap_or_else(|| "Unknown".to_string());
                     let value = lower_expression(body, &lambda_locals, context);
                     body_ops.push(IrOp::Return {
                         value: Some(value),
@@ -2997,7 +3005,7 @@ fn lower_expression_with_expected(
                     param
                         .type_name
                         .clone()
-                        .expect("typecheck requires lambda parameter type before IR lowering")
+                        .unwrap_or_else(|| "Unknown".to_string())
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
@@ -3051,7 +3059,7 @@ fn lower_expression_with_expected(
         }
         Expression::WithUpdate { target, updates } => {
             let type_ = expression_type(target, locals, context)
-                .expect("typecheck requires WITH target type before IR lowering");
+                .unwrap_or_else(|| "Unknown".to_string());
             IrValue::WithUpdate {
                 type_: type_,
                 target: Box::new(lower_expression(target, locals, context)),

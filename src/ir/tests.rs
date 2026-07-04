@@ -1,5 +1,102 @@
 use super::*;
 
+/// plan-20-D: IR lowering must be **total** — it never panics on ill-typed but
+/// parse/resolve-clean input. The 371 `*-invalid` fixtures are exactly such
+/// programs (they parse and resolve but fail a semantic rule). Today the AST
+/// type checker rejects them before lowering; once the checker moves onto the
+/// IR (plan-20-Z) lowering runs first, so it must survive them. This test
+/// drives every `*-invalid` fixture through parse → resolve → monomorph →
+/// **lower** (skipping typecheck) and asserts lowering does not panic. Fixtures
+/// that fail before lowering (parse/resolve/monomorph errors — also pre-lowering
+/// rejections) are skipped; the assertion is purely "if it reaches lowering, it
+/// does not panic".
+#[cfg(test)]
+mod lowering_totality_tests {
+    use crate::ast;
+    use crate::manifest::validate_project_manifest;
+    use crate::monomorph;
+    use crate::resolver;
+    use std::path::{Path, PathBuf};
+
+    fn invalid_fixture_dirs() -> Vec<PathBuf> {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+        let mut dirs = Vec::new();
+        let Ok(entries) = std::fs::read_dir(&root) else {
+            return dirs;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            // Compile-time-invalid fixtures reach lowering only if they parse
+            // and resolve; runtime-invalid (`*-invalid-rt`) fixtures are valid
+            // programs that fail at run time, so they lower normally too.
+            if name.ends_with("-invalid") && path.join("project.json").is_file() {
+                dirs.push(path);
+            }
+        }
+        dirs.sort();
+        dirs
+    }
+
+    /// Silence the diagnostics the front end prints for invalid fixtures so the
+    /// test output stays readable; we only care whether lowering panics.
+    fn lower_fixture_without_panic(dir: &Path) -> Result<bool, ()> {
+        let manifest = validate_project_manifest(&dir.join("project.json"))?;
+        let name = manifest
+            .get("name")
+            .and_then(|v| v.get::<String>())
+            .cloned()
+            .ok_or(())?;
+        let ast = ast::parse_project(&name, dir, &manifest)?;
+        resolver::resolve_project(dir, &manifest, &ast)?;
+        let concrete = monomorph::monomorphize_project(dir, &ast)?;
+        resolver::resolve_project_with(dir, &manifest, &concrete, false)?;
+        // Reached lowering: it must not panic. Entry + external package
+        // functions are irrelevant to totality, so pass the minimal inputs.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            super::lower_project_with_external_functions(
+                &concrete,
+                None,
+                &std::collections::HashMap::new(),
+                &std::collections::HashMap::new(),
+            );
+        }));
+        Ok(result.is_ok())
+    }
+
+    #[test]
+    fn lowering_is_total_over_invalid_fixtures() {
+        // Suppress the front end's diagnostic noise (invalid fixtures print
+        // many errors on the way to the resolve/monomorph gate).
+        let prev_hook = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let mut reached = 0usize;
+        let mut panicked = Vec::new();
+        for dir in invalid_fixture_dirs() {
+            match lower_fixture_without_panic(&dir) {
+                Ok(true) => reached += 1,
+                Ok(false) => panicked.push(dir.display().to_string()),
+                Err(()) => {} // rejected before lowering — not our concern
+            }
+        }
+        std::panic::set_hook(prev_hook);
+        assert!(
+            panicked.is_empty(),
+            "IR lowering panicked on {} fixture(s) (not total): {:?}",
+            panicked.len(),
+            panicked
+        );
+        // Sanity: a meaningful number of fixtures actually reached lowering,
+        // so the test is exercising the total paths, not vacuously passing.
+        assert!(
+            reached > 50,
+            "only {reached} invalid fixtures reached lowering; expected the \
+             typecheck-invalid majority — the pipeline wiring may be broken"
+        );
+    }
+}
+
 #[cfg(test)]
 mod binary_repr_tests {
     use super::*;
