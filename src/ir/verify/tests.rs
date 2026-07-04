@@ -20,13 +20,17 @@ fn project(functions: Vec<IrFunction>, types: Vec<IrType>) -> IrProject {
 }
 
 fn func(name: &str, params: Vec<IrParam>, body: Vec<IrOp>) -> IrFunction {
+    func_returns(name, "Integer", params, body)
+}
+
+fn func_returns(name: &str, returns: &str, params: Vec<IrParam>, body: Vec<IrOp>) -> IrFunction {
     IrFunction {
         name: name.to_string(),
         visibility: "export".to_string(),
         kind: "func".to_string(),
         isolated: false,
         params,
-        returns: "Integer".to_string(),
+        returns: returns.to_string(),
         body,
         file: "src/main.mfb".to_string(),
         resource_owners: HashMap::new(),
@@ -228,8 +232,9 @@ fn rejects_capture_index_past_slot_count() {
             loc: IrSourceLoc::default(),
         }],
     );
-    let maker = func(
+    let maker = func_returns(
         "make",
+        "FUNC() AS Integer",
         vec![],
         vec![IrOp::Return {
             value: Some(IrValue::Closure {
@@ -259,8 +264,9 @@ fn accepts_capture_index_within_slot_count() {
             loc: IrSourceLoc::default(),
         }],
     );
-    let maker = func(
+    let maker = func_returns(
         "make",
+        "FUNC() AS Integer",
         vec![],
         vec![IrOp::Return {
             value: Some(IrValue::Closure {
@@ -306,7 +312,7 @@ fn rejects_union_wrap_of_foreign_variant() {
         }),
         loc: IrSourceLoc::default(),
     }];
-    let f = func("run", vec![], body);
+    let f = func_returns("run", "Shape", vec![], body);
     let err = check(&project(
         vec![f],
         vec![union("Shape", &["Circle", "Square"])],
@@ -325,7 +331,7 @@ fn accepts_union_wrap_of_real_variant() {
         }),
         loc: IrSourceLoc::default(),
     }];
-    let f = func("run", vec![], body);
+    let f = func_returns("run", "Shape", vec![], body);
     check(&project(
         vec![f],
         vec![union("Shape", &["Circle", "Square"])],
