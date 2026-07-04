@@ -1144,6 +1144,10 @@ impl TypeEnv {
             builtins::math::resolve_call(target, &arg_types).is_none()
         } else if builtins::bits::is_bits_call(target) {
             builtins::bits::resolve_call(target, &arg_types).is_none()
+        } else if builtins::vector::is_vector_call(target) {
+            builtins::vector::resolve_call(target, &arg_types).is_none()
+        } else if builtins::strings::is_strings_call(target) {
+            builtins::strings::resolve_call(target, &arg_types).is_none()
         } else {
             return;
         };
