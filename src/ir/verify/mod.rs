@@ -42,7 +42,7 @@
 //! lowered, so every path that produces IR — the source front end and the
 //! package decoder — is verified before any native code is emitted.
 
-use super::{IrField, IrOp, IrProject, IrValue};
+use super::{IrField, IrOp, IrProject, IrType, IrValue};
 use crate::builtins;
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
@@ -90,6 +90,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_UNION_INCLUDE_REQUIRES_UNION",
     "TYPE_UNION_MEMBER_REQUIRES_TYPE",
     "TYPE_ENUM_REQUIRES_MEMBER",
+    "TYPE_DUPLICATE_VARIANT",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -988,6 +989,8 @@ impl TypeEnv {
                             self.current_line.set(ty.loc.line);
                         }
                     }
+                    self.check_union_include_conflicts(ty);
+                    self.current_line.set(ty.loc.line);
                     let resource_variants = ty
                         .variants
                         .iter()
@@ -1012,6 +1015,68 @@ impl TypeEnv {
                     }
                 }
                 _ => {}
+            }
+        }
+    }
+
+    /// The full member-name set of `union_name`, expanding every `INCLUDES`d
+    /// union transitively (cycle-guarded). Mirrors `typecheck`'s
+    /// `expanded_union_variants`, but names only — dup detection needs no fields.
+    fn expanded_union_variant_names(
+        &self,
+        union_name: &str,
+        visiting: &mut HashSet<String>,
+    ) -> Vec<String> {
+        if !visiting.insert(union_name.to_string()) {
+            return Vec::new();
+        }
+        let mut names = Vec::new();
+        if let Some(info) = self.unions.get(union_name) {
+            for include in &info.includes {
+                names.extend(self.expanded_union_variant_names(include, visiting));
+            }
+            names.extend(info.variants.iter().cloned());
+        }
+        visiting.remove(union_name);
+        names
+    }
+
+    /// `typecheck::report_expanded_union_member_conflicts` on the IR: a union
+    /// member may not be provided by two different includes, nor by both an
+    /// include and a local declaration. On decoded package IR a duplicated
+    /// variant is an ambiguous tag → mis-dispatch, so this must run here too.
+    fn check_union_include_conflicts(&self, ty: &IrType) {
+        let Some(info) = self.unions.get(&ty.name) else {
+            return;
+        };
+        // A member provided by two distinct includes.
+        let mut included_members: HashMap<String, String> = HashMap::new();
+        for include in &info.includes {
+            let mut visiting = HashSet::new();
+            for name in self.expanded_union_variant_names(include, &mut visiting) {
+                if let Some(previous) = included_members.insert(name.clone(), include.clone()) {
+                    self.current_line.set(ty.loc.line);
+                    self.emit(
+                        "TYPE_DUPLICATE_VARIANT",
+                        format!(
+                            "Member type `{}` in UNION `{}` is provided by both included UNION `{}` and included UNION `{}`.",
+                            name, ty.name, previous, include
+                        ),
+                    );
+                }
+            }
+        }
+        // A local variant that collides with an included member.
+        for variant in &ty.variants {
+            if let Some(include) = included_members.get(&variant.name) {
+                self.current_line.set(variant.loc.line);
+                self.emit(
+                    "TYPE_DUPLICATE_VARIANT",
+                    format!(
+                        "Member type `{}` in UNION `{}` conflicts with a member included from UNION `{}`.",
+                        variant.name, ty.name, include
+                    ),
+                );
             }
         }
     }
