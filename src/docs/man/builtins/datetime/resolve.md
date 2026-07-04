@@ -1,0 +1,95 @@
+# resolve
+
+Collapse a civil `DateTime` back to the absolute `Instant` it names.
+
+## Synopsis
+
+```
+datetime::resolve(dt AS DateTime) AS Instant
+```
+
+## Package
+
+datetime
+
+## Imports
+
+```
+IMPORT datetime
+```
+
+`datetime` is a built-in package, so no manifest dependency is required.
+[[src/builtins/datetime.rs:augmented_project]]
+
+## Description
+
+`datetime::resolve` is the inverse of `datetime::inZone`: where `inZone` projects
+an absolute instant onto the wall-clock fields an observer in a zone reads,
+`resolve` collapses those wall-clock fields — together with the UTC offset already
+pinned on `dt` — back onto the single point on the UTC timeline they denote.
+
+The computation is total and needs no zone lookup. `resolve` first converts the
+civil date (`dt.date.year`, `dt.date.month`, `dt.date.day`) to a day count with
+the proleptic Gregorian calendar, multiplies by `86400` to get seconds, and adds
+the time-of-day contribution (`dt.time.hour * 3600 + dt.time.minute * 60 +
+dt.time.second`). That sum is the local second count: the seconds-since-epoch the
+wall-clock fields would name if they were UTC. It then subtracts `dt.offset` — the
+resolved UTC offset in seconds carried on the `DateTime` — to shift the local
+count back onto the UTC timeline, and pairs the result with `dt.time.nanos`.
+[[src/builtins/datetime_package.mfb:__datetime_resolve]]
+
+Because the offset is read directly from `dt` rather than re-derived from the
+zone, `resolve` is unambiguous even across daylight-saving transitions: it
+reproduces exactly the instant a `DateTime` was built from. For any instant `at`
+and zone `z`, `datetime::resolve(datetime::inZone(at, z))` returns `at` unchanged.
+The `seconds` field participates in the date/time arithmetic; the `nanos` field is
+copied through verbatim. `resolve` is pure and reads no host state.
+[[src/builtins/datetime_package.mfb:__datetime_resolve]]
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `dt` | `DateTime` | The civil date-time to collapse to an instant. Its `date` and `time` fields supply the wall-clock value, and its `offset` field (the UTC offset in seconds pinned when the `DateTime` was produced) is subtracted to reach the UTC timeline. The `zone` field is not consulted; only the stored offset is used. The `nanos` of `dt.time` are carried into the result unchanged. [[src/builtins/datetime.rs:RESOLVE]] |
+
+## Return value
+
+| Type | Description |
+| --- | --- |
+| `Instant` | The absolute point on the UTC timeline named by `dt`. Its `seconds` field equals the local second count of `dt`'s wall-clock fields minus `dt.offset`; its `nanos` field equals `dt.time.nanos`. May name an instant before the Unix epoch (negative `seconds`). [[src/builtins/datetime.rs:call_return_type_name]] |
+
+## Errors
+
+| Code | Name | Raised when |
+| --- | --- | --- |
+| `77050010` | `ErrOverflow` | The civil-to-seconds arithmetic or the offset subtraction (`localSeconds - dt.offset`) produces a value outside the signed `Integer` range, which can occur only for a `DateTime` at the extreme edge of the representable timeline. [[src/builtins/datetime_package.mfb:__datetime_resolve]] |
+
+## Examples
+
+Round-trip an instant through a civil `DateTime` and back:
+
+```
+IMPORT datetime
+
+LET at AS Instant = datetime::now()
+LET dt AS DateTime = datetime::inZone(at, datetime::utc())
+LET back AS Instant = datetime::resolve(dt)
+```
+
+Resolve a civil `DateTime` built in a fixed +05:30 zone:
+
+```
+IMPORT datetime
+
+LET z AS Zone = datetime::fixedOffset(5, 30)
+LET dt AS DateTime = datetime::inZone(datetime::now(), z)
+LET at AS Instant = datetime::resolve(dt)
+```
+
+## See also
+
+- `mfb man datetime inZone`
+- `mfb man datetime civil`
+- `mfb man datetime withZone`
+- `mfb man datetime toUtc`
+- `mfb man datetime between`

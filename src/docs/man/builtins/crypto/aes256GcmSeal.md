@@ -1,0 +1,120 @@
+# aes256GcmSeal
+
+Encrypt and authenticate a message with AES-256 in Galois/Counter Mode (NIST SP 800-38D).
+
+## Synopsis
+
+```
+crypto::aes256GcmSeal(key AS List OF Byte, nonce AS List OF Byte, plaintext AS List OF Byte) AS crypto::Sealed
+crypto::aes256GcmSeal(key AS List OF Byte, nonce AS List OF Byte, plaintext AS List OF Byte, aad AS List OF Byte) AS crypto::Sealed
+```
+
+## Package
+
+crypto
+
+## Imports
+
+```
+IMPORT crypto
+```
+
+`crypto` is a built-in package, so no manifest dependency is required.
+[[src/builtins/crypto.rs:augmented_project]]
+
+## Description
+
+`crypto::aes256GcmSeal` encrypts and authenticates `plaintext` with AES-256 in
+Galois/Counter Mode (GCM), as specified by NIST SP 800-38D. It returns a
+`crypto::Sealed` record holding the ciphertext (the same length as `plaintext`)
+and a 16-byte authentication tag that binds the ciphertext together with any
+additional authenticated data. The tag is later checked by
+`crypto::aes256GcmOpen`, which fails closed on any mismatch.
+[[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]]
+
+`key` must be exactly 32 bytes (a 256-bit key) and `nonce` must be exactly 12
+bytes (the standard 96-bit GCM nonce); any other length raises
+`ErrInvalidArgument`. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]]
+The optional `aad` (additional authenticated data) is authenticated but not
+encrypted: it is covered by the tag yet absent from the ciphertext, so a receiver
+must supply the identical `aad` to `crypto::aes256GcmOpen`. `aad` defaults to the
+empty list when omitted. [[src/builtins/crypto.rs:default_argument_padding]]
+`plaintext` may be empty, in which case the result carries an empty ciphertext
+and a tag over the `aad` alone.
+
+The cipher is a portable software core computed over the `bits` package, so its
+output is **byte-identical on every target** (macOS/Linux, aarch64/x86-64) and
+uses no platform crypto library. [[src/builtins/crypto.rs:implementation_name]]
+
+Nonce uniqueness is mandatory. AES-256-GCM is catastrophically insecure if a
+`(key, nonce)` pair is ever reused: repeating a nonce under the same key leaks
+the XOR of the plaintexts and can expose the authentication key, breaking both
+confidentiality and integrity. Never reuse a `(key, nonce)` pair — generate a
+fresh nonce for every message with `crypto::randomBytes(12)` and store or
+transmit it alongside the ciphertext (the nonce is not secret).
+
+## Overloads
+
+**`crypto::aes256GcmSeal(key AS List OF Byte, nonce AS List OF Byte, plaintext AS List OF Byte) AS crypto::Sealed`**
+
+Seals `plaintext` with no additional authenticated data; `aad` defaults to the
+empty list. [[src/builtins/crypto.rs:default_argument_padding]]
+
+**`crypto::aes256GcmSeal(key AS List OF Byte, nonce AS List OF Byte, plaintext AS List OF Byte, aad AS List OF Byte) AS crypto::Sealed`**
+
+Seals `plaintext` and additionally authenticates (but does not encrypt) `aad`.
+The same `aad` must be supplied to `crypto::aes256GcmOpen` for verification to
+succeed. [[src/builtins/crypto.rs:call_param_names]]
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `key` | `List OF Byte` | The 256-bit AES key. Must be exactly 32 bytes. This value is secret. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] |
+| `nonce` | `List OF Byte` | The 96-bit GCM nonce. Must be exactly 12 bytes and unique for every message encrypted under a given key. Not secret; normally transmitted with the ciphertext. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] |
+| `plaintext` | `List OF Byte` | The message bytes to encrypt. May be empty. |
+| `aad` | `List OF Byte` | Optional additional authenticated data: authenticated but not encrypted. Defaults to the empty list. The same `aad` must be passed to `crypto::aes256GcmOpen`. [[src/builtins/crypto.rs:default_argument_padding]] |
+
+## Return value
+
+| Type | Description |
+| --- | --- |
+| `crypto::Sealed` | A record with two fields: `ciphertext` (a `List OF Byte` the same length as `plaintext`) and `tag` (the 16-byte authentication tag). [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] |
+
+## Errors
+
+| Code | Name | Raised when |
+| --- | --- | --- |
+| `77050002` | `ErrInvalidArgument` | `key` is not exactly 32 bytes, or `nonce` is not exactly 12 bytes. [[src/builtins/crypto_package.mfb:__crypto_aes256GcmSeal]] |
+
+## Examples
+
+Seal a message with a fresh random nonce:
+
+```
+IMPORT crypto
+IMPORT encoding
+
+LET key AS List OF Byte = crypto::randomBytes(32)
+LET nonce AS List OF Byte = crypto::randomBytes(12)
+LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, plaintext)
+
+PRINT encoding::hexEncode(box.ciphertext)
+PRINT encoding::hexEncode(box.tag)
+```
+
+Seal with additional authenticated data (a header), then open it:
+
+```
+IMPORT crypto
+
+LET box AS crypto::Sealed = crypto::aes256GcmSeal(key, nonce, plaintext, header)
+LET clear AS List OF Byte = crypto::aes256GcmOpen(key, nonce, box.ciphertext, box.tag, header)
+```
+
+## See also
+
+- `mfb man crypto aes256GcmOpen`
+- `mfb man crypto chacha20Poly1305Seal`
+- `mfb man crypto randomBytes`
+- `mfb man encoding hexEncode`

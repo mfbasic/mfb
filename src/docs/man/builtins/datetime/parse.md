@@ -1,0 +1,149 @@
+# parse
+
+Parse text into a `DateTime` using the format pattern mini-language.
+
+## Synopsis
+
+```
+datetime::parse(value AS String, pattern AS String) AS DateTime
+datetime::parse(value AS String, pattern AS String, zone AS Zone) AS DateTime
+```
+
+## Package
+
+datetime
+
+## Imports
+
+```
+IMPORT datetime
+```
+
+`datetime` is a built-in package, so `IMPORT datetime` needs no manifest
+dependency. [[src/builtins/datetime.rs:uses_package]]
+
+## Description
+
+`datetime::parse` reads `value` against `pattern` and returns the `DateTime` it
+describes. `pattern` uses the same token mini-language as `datetime::format`, and
+`parse` is the approximate inverse of `format`: it walks `pattern` and `value`
+together from left to right, consuming characters of `value` as each `pattern`
+position is matched. A token (a run of one or more of the same formatting letter)
+consumes and decodes the corresponding field from `value`; any other `pattern`
+character is a literal that must appear verbatim at the current position in
+`value`. Single quotes escape literal text exactly as in `datetime::format` (`'T'`
+matches a literal `T`, `''` matches a single apostrophe). [[src/builtins/datetime_package.mfb:__datetime_parseFields]]
+
+Fields not named by any token take defaults: year `1970`, month `1`, day `1`, and
+the time `00:00:00.000000000`. The recognized tokens are:
+
+- `yyyy` / `yy` — year; `yyyy` reads up to 4 digits, `yy` reads 2 digits and adds
+  2000 (so `26` becomes `2026`)
+- `M` / `MM` — month number, 1-2 digits
+- `MMM` / `MMMM` — month name, short or full, case-insensitive (English)
+- `d` / `dd` — day of month, 1-2 digits
+- `H` / `HH` — hour on a 24-hour clock, 1-2 digits
+- `h` / `hh` — hour on a 12-hour clock, 1-2 digits (combine with `a`)
+- `m` / `mm` — minute, 1-2 digits
+- `s` / `ss` — second, 1-2 digits
+- `fff`..`fffffffff` — fractional second; reads run-length digits and scales them
+  to nanoseconds (`fff` = milliseconds, `fffffffff` = nanoseconds)
+- `a` — AM/PM marker, case-insensitive
+- `EEE` / `EEEE` — weekday name; the letters are consumed but not validated
+- `Z` / `ZZ` / `ZZZ` — offset: the letter `Z` (or `z`) for UTC, else `+/-HH:MM` or
+  `+/-HHMM` (the colon between offset hours and minutes is optional)
+
+Numeric tokens are greedy up to their stated width but accept fewer digits, so the
+minimal forms (`M`, `d`, `H`, `h`, `m`, `s`) read one or two digits and the padded
+forms accept the same. Name tokens (month names, AM/PM) are matched without regard
+to case. The weekday token only skips over the run of letters in `value`; it does
+not check that the named weekday agrees with the parsed date. [[src/builtins/datetime_package.mfb:__datetime_parseFields]]
+
+`parse` does not range-check the decoded calendar fields the way `datetime::date`
+and `datetime::time` do: an out-of-range component in `value` (for example month
+13) is carried into the resulting `DateTime` rather than rejected. The one
+validated numeric range is the offset token, whose magnitude must be under 24
+hours. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]]
+
+An offset token sets the `DateTime`'s offset directly and makes the result a
+fixed-offset moment, overriding `zone`. When `pattern` contains no offset token,
+the `zone` argument supplies the offset: the two-argument overload defaults it to
+`datetime::utc()`, and the three-argument overload resolves `value`'s civil fields
+against the given `zone`. `parse` is pure: it reads no host state and has no side
+effects. [[src/builtins/datetime_package.mfb:__datetime_buildFromFields]]
+
+## Overloads
+
+**`datetime::parse(value AS String, pattern AS String) AS DateTime`**
+
+Parses `value` with `pattern` and, when `pattern` carries no offset token, treats
+the civil fields as UTC (the zone defaults to `datetime::utc()`). [[src/builtins/datetime_package.mfb:__datetime_parse2]]
+
+**`datetime::parse(value AS String, pattern AS String, zone AS Zone) AS DateTime`**
+
+Parses `value` with `pattern` and, when `pattern` carries no offset token,
+resolves the civil fields against `zone`. An offset token in `pattern` still
+overrides `zone`. [[src/builtins/datetime_package.mfb:__datetime_parse3]]
+
+## Parameters
+
+| Parameter | Type | Description |
+| --- | --- | --- |
+| `value` | `String` | The text to parse. It must match `pattern` position for position: every literal in `pattern` must appear verbatim, and every token must find the digits or name it expects at the current position. |
+| `pattern` | `String` | The format string: a mix of literal characters and token runs from the table above, with single quotes escaping literal text. Tokens select which fields are read from `value`; absent fields keep their defaults. |
+| `zone` | `Zone` | The zone whose offset is applied when `pattern` has no offset token. Present only in the three-argument overload; the two-argument overload uses `datetime::utc()`. A `pattern` offset token overrides this argument either way. [[src/builtins/datetime.rs:call_param_names]] |
+
+## Return value
+
+| Type | Description |
+| --- | --- |
+| `DateTime` | A `DateTime` built from the fields decoded from `value`, with unmatched fields left at their defaults. The offset comes from the `pattern`'s offset token when present, otherwise from `zone`. [[src/builtins/datetime.rs:call_return_type_name]] |
+
+## Errors
+
+| Code | Name | Raised when |
+| --- | --- | --- |
+| `77050003` | `ErrInvalidFormat` | `value` does not match `pattern`: a literal character or quoted literal is absent, a numeric token finds no digit, a month-name or AM/PM token is unrecognized, an offset token is malformed, or `pattern` contains a run of letters that is not a recognized token. [[src/builtins/datetime_package.mfb:__datetime_parseFields]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_FORMAT_CODE]] |
+| `77050002` | `ErrInvalidArgument` | An offset token in `value` decodes to a magnitude of 24 hours (86400 seconds) or more, which is out of range for a fixed-offset zone. [[src/builtins/datetime_package.mfb:__datetime_fixedOffset1]] [[src/target/shared/code/error_constants.rs:ERR_INVALID_ARGUMENT_CODE]] |
+
+## Examples
+
+Parse a date and time, interpreted as UTC:
+
+```
+IMPORT datetime
+
+LET dt AS DateTime = datetime::parse("2026-06-26 09:30:00", "yyyy-MM-dd HH:mm:ss")
+```
+
+Parse civil fields against an explicit zone:
+
+```
+IMPORT datetime
+
+LET z AS Zone = datetime::fixedOffset(-5, 0)
+LET dt AS DateTime = datetime::parse("2026-06-26 09:30", "yyyy-MM-dd HH:mm", z)
+```
+
+An offset token in the value overrides the zone argument:
+
+```
+IMPORT datetime
+
+LET dt AS DateTime = datetime::parse("2026-06-26T09:30:00+05:30", "yyyy-MM-dd'T'HH:mm:ssZZ")
+```
+
+Text that does not match the pattern raises `ErrInvalidFormat`:
+
+```
+IMPORT datetime
+
+LET bad AS DateTime = datetime::parse("not-a-date", "yyyy-MM-dd")
+```
+
+## See also
+
+- `mfb man datetime format`
+- `mfb man datetime parseIso`
+- `mfb man datetime toIso`
+- `mfb man datetime civil`
