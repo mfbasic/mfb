@@ -94,6 +94,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_BINDING_MISMATCH",
     "TYPE_ASSIGN_REQUIRES_MUT",
     "TYPE_ASSIGNMENT_MISMATCH",
+    "TYPE_FOR_STEP_ZERO",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -417,6 +418,10 @@ impl TypeEnv {
             );
             return;
         }
+        // `$`-temp name → its numeric-literal bind value, for rules that read a
+        // literal through a synthesized temp (a FOR loop's STEP is always bound
+        // to a `$for` temp immediately before its For op in the same op list).
+        let mut temp_consts: HashMap<&str, &IrValue> = HashMap::new();
         for op in ops {
             let line = op.loc().line;
             self.current_line.set(line);
@@ -450,6 +455,11 @@ impl TypeEnv {
                     // the capture's mutability unknown here.
                     if !matches!(value, Some(IrValue::Capture { .. })) {
                         muts.insert(name.clone(), *mutable);
+                    }
+                    if name.starts_with('$') {
+                        if let Some(value) = value {
+                            temp_consts.insert(name.as_str(), value);
+                        }
                     }
                 }
                 IrOp::Assign { name, value, .. } => {
@@ -632,6 +642,20 @@ impl TypeEnv {
                     for value in [start, end, step] {
                         self.check_value_captures(value, closure_slots);
                         self.check_value(value, locals);
+                    }
+                    // A literal STEP of zero never advances the counter. The
+                    // step is bound to a `$for` temp just before this op, so
+                    // resolve it through `temp_consts` (a non-literal step is
+                    // left alone, matching typecheck).
+                    let step_value = match step {
+                        IrValue::Local(n) => temp_consts.get(n.as_str()).copied(),
+                        other => Some(other),
+                    };
+                    if step_value.is_some_and(numeric_literal_is_zero) {
+                        self.emit(
+                            "TYPE_FOR_STEP_ZERO",
+                            "FOR loop STEP must not be zero.".to_string(),
+                        );
                     }
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
@@ -2004,6 +2028,20 @@ fn usable_type(annotated: Option<&str>) -> Option<String> {
     match annotated {
         Some(t) if !t.is_empty() && t != "Unknown" => Some(t.to_string()),
         _ => None,
+    }
+}
+
+/// Whether an IR value is a numeric literal equal to zero (possibly negated) —
+/// mirrors `typecheck::helpers::numeric_literal_is_zero` on the IR shape.
+fn numeric_literal_is_zero(value: &IrValue) -> bool {
+    match value {
+        IrValue::Const { type_, value }
+            if matches!(type_.as_str(), "Integer" | "Float" | "Byte" | "Fixed") =>
+        {
+            value.parse::<f64>().is_ok_and(|n| n == 0.0)
+        }
+        IrValue::Unary { op, operand, .. } if op == "-" => numeric_literal_is_zero(operand),
+        _ => false,
     }
 }
 
