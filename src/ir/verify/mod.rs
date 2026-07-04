@@ -92,6 +92,8 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_ENUM_REQUIRES_MEMBER",
     "TYPE_DUPLICATE_VARIANT",
     "TYPE_BINDING_MISMATCH",
+    "TYPE_ASSIGN_REQUIRES_MUT",
+    "TYPE_ASSIGNMENT_MISMATCH",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -117,15 +119,25 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         env.current_return.replace(function.returns.clone());
         env.current_kind.replace(function.kind.clone());
         let mut locals: HashMap<String, String> = HashMap::new();
+        let mut muts: HashMap<String, bool> = HashMap::new();
         for param in &function.params {
             env.current_line.set(param.loc.line);
             locals.insert(param.name.clone(), param.type_.clone());
+            // Parameters are immutable (typecheck registers them
+            // `mutable: false`), so assigning one is TYPE_ASSIGN_REQUIRES_MUT.
+            muts.insert(param.name.clone(), false);
             if let Some(default) = &param.default {
                 env.check_value(default, &locals);
             }
         }
         let closure_slots = env.closure_slot_count(&function.name);
-        env.check_ops(&function.body, &mut locals.clone(), closure_slots, 0);
+        env.check_ops(
+            &function.body,
+            &mut locals.clone(),
+            &mut muts,
+            closure_slots,
+            0,
+        );
         // Resource use-after-move is a separate straight-line dataflow pass.
         env.check_resource_moves(&function.body, &mut locals, &mut HashSet::new());
     }
@@ -233,6 +245,8 @@ struct TypeEnv {
     functions: HashMap<String, FnSig>,
     /// Global binding name → declared type.
     globals: HashMap<String, String>,
+    /// Global binding name → whether it was declared `MUT` (assignable).
+    global_muts: HashMap<String, bool>,
     /// Function name → the distinct captured-slot counts observed at the
     /// `Closure` sites that target it. A single count means the closure shape is
     /// known; zero or multiple distinct counts leaves it ambiguous (skip).
@@ -329,6 +343,11 @@ impl TypeEnv {
             .iter()
             .map(|b| (b.name.clone(), b.type_.clone()))
             .collect();
+        let global_muts = project
+            .bindings
+            .iter()
+            .map(|b| (b.name.clone(), b.mutable))
+            .collect();
 
         let mut closure_counts: HashMap<String, HashSet<usize>> = HashMap::new();
         for function in &project.functions {
@@ -350,6 +369,7 @@ impl TypeEnv {
             unions,
             functions,
             globals,
+            global_muts,
             closure_counts,
             field_types,
             enums,
@@ -386,6 +406,7 @@ impl TypeEnv {
         &self,
         ops: &[IrOp],
         locals: &mut HashMap<String, String>,
+        muts: &mut HashMap<String, bool>,
         closure_slots: Option<usize>,
         depth: usize,
     ) {
@@ -401,6 +422,7 @@ impl TypeEnv {
             self.current_line.set(line);
             match op {
                 IrOp::Bind {
+                    mutable,
                     name,
                     type_,
                     value,
@@ -421,23 +443,83 @@ impl TypeEnv {
                         }
                     }
                     locals.insert(name.clone(), type_.clone());
+                    // A capture bind's `mutable` reflects the by-ref/non-escaping
+                    // proof, not the outer binding's MUTness — typecheck judges
+                    // assignments to captures at the lambda site (as
+                    // TYPE_LAMBDA_CAPTURE_UNSUPPORTED when escaping), so leave
+                    // the capture's mutability unknown here.
+                    if !matches!(value, Some(IrValue::Capture { .. })) {
+                        muts.insert(name.clone(), *mutable);
+                    }
                 }
                 IrOp::Assign { name, value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
-                    if let Some(t) = locals.get(name) {
-                        self.check_literal_range(&resource_base_type(t).to_string(), value);
+                    // Skip synthesized `$`-temp targets (user identifiers cannot
+                    // start with `$`): e.g. the RECOVER slot, whose value/type
+                    // agreement is TYPE_RECOVER_TYPE_MISMATCH's rule, not this
+                    // one. An undeclared target (a lambda writing its captured
+                    // outer binding) is skipped the same way — no local info.
+                    if name.starts_with('$') {
+                        continue;
+                    }
+                    if muts.get(name) == Some(&false) {
+                        self.emit(
+                            "TYPE_ASSIGN_REQUIRES_MUT",
+                            format!("Binding `{name}` is immutable and cannot be assigned."),
+                        );
+                    }
+                    if let Some(t) = locals.get(name).cloned() {
+                        let before = self.diags.borrow().len();
+                        self.check_literal_range(resource_base_type(&t), value);
+                        let range_errored = self.diags.borrow().len() > before;
+                        if !range_errored {
+                            self.check_assignment_type(name, &t, value, locals);
+                        }
                     }
                 }
                 IrOp::AssignGlobal { name, value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
-                    if let Some(t) = self.globals.get(name) {
-                        self.check_literal_range(&resource_base_type(t).to_string(), value);
+                    if self.global_muts.get(name) == Some(&false) {
+                        self.emit(
+                            "TYPE_ASSIGN_REQUIRES_MUT",
+                            format!("Binding `{name}` is immutable and cannot be assigned."),
+                        );
+                    }
+                    if let Some(t) = self.globals.get(name).cloned() {
+                        let before = self.diags.borrow().len();
+                        self.check_literal_range(resource_base_type(&t), value);
+                        let range_errored = self.diags.borrow().len() > before;
+                        if !range_errored {
+                            self.check_assignment_type(name, &t, value, locals);
+                        }
                     }
                 }
-                IrOp::StateAssign { value, .. }
-                | IrOp::Eval { value, .. }
+                IrOp::StateAssign {
+                    resource, value, ..
+                } => {
+                    self.check_value_captures(value, closure_slots);
+                    self.check_value(value, locals);
+                    // `res.state = value` must match the declared `STATE T` type,
+                    // carried in the local's type string (`File STATE T`).
+                    if let Some(t) = locals.get(resource) {
+                        if let Some(idx) = t.find(" STATE ") {
+                            let state_type = t[idx + " STATE ".len()..].to_string();
+                            if let Some(actual) = self.infer_type(value, locals) {
+                                if !self.expression_compatible(&state_type, &actual, value) {
+                                    self.emit(
+                                        "TYPE_ASSIGNMENT_MISMATCH",
+                                        format!(
+                                            "State assignment to `{resource}.state` has type {actual}, expected {state_type}."
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+                IrOp::Eval { value, .. }
                 | IrOp::ExitProgram { code: value, .. }
                 | IrOp::Fail { error: value, .. } => {
                     self.check_value_captures(value, closure_slots);
@@ -462,9 +544,23 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     let mut branch = locals.clone();
-                    self.check_ops(then_body, &mut branch, closure_slots, depth + 1);
+                    let mut branch_muts = muts.clone();
+                    self.check_ops(
+                        then_body,
+                        &mut branch,
+                        &mut branch_muts,
+                        closure_slots,
+                        depth + 1,
+                    );
                     let mut branch = locals.clone();
-                    self.check_ops(else_body, &mut branch, closure_slots, depth + 1);
+                    let mut branch_muts = muts.clone();
+                    self.check_ops(
+                        else_body,
+                        &mut branch,
+                        &mut branch_muts,
+                        closure_slots,
+                        depth + 1,
+                    );
                 }
                 IrOp::Match { value, cases, .. } => {
                     if cases.is_empty() {
@@ -486,6 +582,7 @@ impl TypeEnv {
                             }
                         }
                         let mut case_locals = locals.clone();
+                        let mut case_muts = muts.clone();
                         if let Some(guard) = &case.guard {
                             // A guard may reference the leading union-extract
                             // binds; register those first (mirrors validate.rs).
@@ -498,7 +595,13 @@ impl TypeEnv {
                             self.check_value(guard, &case_locals);
                             case_locals = locals.clone();
                         }
-                        self.check_ops(&case.body, &mut case_locals, closure_slots, depth + 1);
+                        self.check_ops(
+                            &case.body,
+                            &mut case_locals,
+                            &mut case_muts,
+                            closure_slots,
+                            depth + 1,
+                        );
                         self.current_line.set(line);
                     }
                 }
@@ -508,7 +611,14 @@ impl TypeEnv {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     let mut branch = locals.clone();
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
+                    let mut branch_muts = muts.clone();
+                    self.check_ops(
+                        body,
+                        &mut branch,
+                        &mut branch_muts,
+                        closure_slots,
+                        depth + 1,
+                    );
                 }
                 IrOp::For {
                     name,
@@ -524,14 +634,31 @@ impl TypeEnv {
                         self.check_value(value, locals);
                     }
                     let mut branch = locals.clone();
+                    let mut branch_muts = muts.clone();
                     branch.insert(name.clone(), type_.clone());
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
+                    // The loop counter is immutable inside the body (typecheck
+                    // registers it `mutable: false`).
+                    branch_muts.insert(name.clone(), false);
+                    self.check_ops(
+                        body,
+                        &mut branch,
+                        &mut branch_muts,
+                        closure_slots,
+                        depth + 1,
+                    );
                 }
                 IrOp::DoUntil {
                     body, condition, ..
                 } => {
                     let mut branch = locals.clone();
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
+                    let mut branch_muts = muts.clone();
+                    self.check_ops(
+                        body,
+                        &mut branch,
+                        &mut branch_muts,
+                        closure_slots,
+                        depth + 1,
+                    );
                     // The trailing condition is reported at the loop's own line.
                     self.current_line.set(line);
                     self.check_value_captures(condition, closure_slots);
@@ -547,13 +674,30 @@ impl TypeEnv {
                     self.check_value_captures(iterable, closure_slots);
                     self.check_value(iterable, locals);
                     let mut branch = locals.clone();
+                    let mut branch_muts = muts.clone();
                     branch.insert(name.clone(), type_.clone());
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
+                    // The element binding is an immutable (borrowed) view.
+                    branch_muts.insert(name.clone(), false);
+                    self.check_ops(
+                        body,
+                        &mut branch,
+                        &mut branch_muts,
+                        closure_slots,
+                        depth + 1,
+                    );
                 }
                 IrOp::Trap { name, body, .. } => {
                     let mut branch = locals.clone();
+                    let mut branch_muts = muts.clone();
                     branch.insert(name.clone(), "Error".to_string());
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
+                    branch_muts.insert(name.clone(), false);
+                    self.check_ops(
+                        body,
+                        &mut branch,
+                        &mut branch_muts,
+                        closure_slots,
+                        depth + 1,
+                    );
                 }
             }
         }
@@ -1642,6 +1786,34 @@ impl TypeEnv {
             self.emit(
                 "TYPE_BINDING_MISMATCH",
                 format!("Binding `{name}` has initializer type {actual}, expected {expected}."),
+            );
+        }
+    }
+
+    /// Reject an assignment whose value type is incompatible with the target
+    /// binding's settled type — `typecheck`'s `TYPE_ASSIGNMENT_MISMATCH`. The
+    /// caller suppresses this when a literal-range error already fired
+    /// (typecheck's `!reported_range_error` guard). Unlike `TYPE_BINDING_MISMATCH`
+    /// no explicit-annotation gate applies: by assignment time the binding's
+    /// type is settled regardless of how it was declared.
+    fn check_assignment_type(
+        &self,
+        name: &str,
+        declared: &str,
+        value: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
+        let expected = resource_base_type(declared);
+        if expected.is_empty() || expected == "Nothing" || expected == "Unknown" {
+            return;
+        }
+        let Some(actual) = self.infer_type(value, locals) else {
+            return;
+        };
+        if !self.expression_compatible(expected, &actual, value) {
+            self.emit(
+                "TYPE_ASSIGNMENT_MISMATCH",
+                format!("Assignment to `{name}` has type {actual}, expected {expected}."),
             );
         }
     }

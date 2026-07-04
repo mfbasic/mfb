@@ -1,0 +1,17 @@
+MUT counter AS Integer = 1
+
+SUB reset(seed AS Integer)
+  seed = 0
+END SUB
+
+FUNC main AS Integer
+  LET fixed AS Integer = 5
+  fixed = 6
+
+  MUT label AS String = "a"
+  label = 3
+
+  counter = "bad"
+
+  RETURN 0
+END FUNC
