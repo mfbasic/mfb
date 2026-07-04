@@ -907,19 +907,12 @@ impl TypeEnv {
                 }
                 _ => return None,
             };
-            // thread::transfer(handle, res, ...) moves the resource at arg 1 to
-            // the other side (invalidation event #2, §15).
-            if target == "thread.transferResource" || target == "thread.transfer" {
-                if let Some(IrValue::Local(name)) = args.get(1) {
-                    if locals
-                        .get(name)
-                        .is_some_and(|t| is_resource_name(resource_base_type(t)))
-                    {
-                        return Some(name.clone());
-                    }
-                }
-                return None;
-            }
+            // NOTE: thread::transfer is intentionally NOT treated as a move
+            // here. On the failure path of `transfer(...) TRAP(e)` ownership
+            // returns to the sender so the handler may close the resource — a
+            // straight-line detector cannot see that and would false-reject the
+            // valid recover pattern. typecheck models the restore explicitly;
+            // the IR checker stays conservative and only tracks close/return.
             // A registered close op consumes the resource at arg 0.
             let IrValue::Local(name) = args.first()? else {
                 return None;
@@ -1106,6 +1099,10 @@ impl TypeEnv {
             let Some(actual) = self.infer_type(arg, locals) else {
                 continue;
             };
+            // Strip a resource argument's `STATE T` clause; the parameter type
+            // is the bare resource type.
+            let actual = resource_base_type(&actual).to_string();
+            let param_type = resource_base_type(param_type);
             if !self.expression_compatible(param_type, &actual, arg) {
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
@@ -1135,8 +1132,13 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, String>,
     ) {
-        let arg_types: Option<Vec<String>> =
-            args.iter().map(|a| self.infer_type(a, locals)).collect();
+        // Strip the `STATE T` clause a resource argument carries in its type
+        // string (`File STATE FileState` → `File`); resolve_call and the
+        // parameter tables use the bare resource type.
+        let arg_types: Option<Vec<String>> = args
+            .iter()
+            .map(|a| self.infer_type(a, locals).map(|t| resource_base_type(&t).to_string()))
+            .collect();
         let Some(arg_types) = arg_types else {
             return;
         };

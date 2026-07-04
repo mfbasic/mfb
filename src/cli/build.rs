@@ -191,7 +191,28 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // unresolved. The original-AST pass above already validated them.
     resolver::resolve_project_with(&options.location, &manifest, &concrete_ast, false)?;
     let entry = validate_entry_point(&options.location, &manifest, &concrete_ast)?;
-    typecheck::check_project(&options.location, &concrete_ast)?;
+    // plan-20-Z cutover: the semantic rules are split across two passes that
+    // both run to completion (neither short-circuits the other) so a program
+    // with errors of both kinds reports all of them:
+    //   - `typecheck` elaborates (annotates the AST that lowering consumes) and
+    //     still rejects the rules that have not been relocated;
+    //   - `ir::verify` runs on the source-lowered IR and is the sole rejecter
+    //     for every rule ported off `typecheck` — the same implementation that
+    //     guards decoded package IR, so source and package are checked once.
+    // Lowering is total (plan-20-D), so it is safe to run even when typecheck
+    // found errors. External package signatures are resolved on the package
+    // path, so an empty external map suffices for the source functions here.
+    let typecheck_result = typecheck::check_project(&options.location, &concrete_ast);
+    let source_ir = ir::lower_project_with_external_functions(
+        &concrete_ast,
+        entry.clone(),
+        &HashMap::new(),
+        &HashMap::new(),
+    );
+    let verify_result = ir::verify_source_and_emit(&source_ir, &options.location);
+    if typecheck_result.is_err() || verify_result.is_err() {
+        return Err(());
+    }
     let signing = match &options.sign_owner {
         Some(owner) if options.outputs.is_empty() => {
             Some(load_build_signing_info(owner).map_err(|err| {
