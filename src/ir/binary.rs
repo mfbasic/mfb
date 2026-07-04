@@ -478,6 +478,8 @@ fn encode_binding(out: &mut Vec<u8>, b: &IrBinding) {
     put_str(out, &b.type_);
     put_opt_value(out, &b.value);
     put_loc(out, b.loc);
+    put_str(out, &b.file);
+    put_bool(out, b.explicit_type);
 }
 
 fn decode_binding(r: &mut IrReader) -> Result<IrBinding, String> {
@@ -488,6 +490,8 @@ fn decode_binding(r: &mut IrReader) -> Result<IrBinding, String> {
         type_: r.string()?,
         value: r.opt_value()?,
         loc: get_loc(r)?,
+        file: r.string()?,
+        explicit_type: r.bool()?,
     })
 }
 
@@ -605,6 +609,7 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             name,
             type_,
             value,
+            explicit_type,
             loc,
         } => {
             put_u8(out, 0);
@@ -612,6 +617,7 @@ fn encode_op(out: &mut Vec<u8>, op: &IrOp) {
             put_str(out, name);
             put_str(out, type_);
             put_opt_value(out, value);
+            put_bool(out, *explicit_type);
             put_loc(out, *loc);
         }
         IrOp::Assign { name, value, loc } => {
@@ -766,6 +772,7 @@ fn decode_op_body(r: &mut IrReader) -> Result<IrOp, String> {
             name: r.string()?,
             type_: r.string()?,
             value: r.opt_value()?,
+            explicit_type: r.bool()?,
             loc: get_loc(r)?,
         },
         1 => IrOp::Assign {

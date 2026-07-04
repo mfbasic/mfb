@@ -1,6 +1,29 @@
 use std::fmt;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+/// A rejection collected but not yet rendered. The source-path checkers
+/// (`typecheck` for not-yet-relocated rules, `ir::verify` for relocated ones)
+/// each return these so the caller can merge both streams and render them in a
+/// single source-order pass — otherwise a relocated rule would print after all
+/// of typecheck's, breaking the line-ordered diagnostic sequence (plan-20-Z).
+pub struct PendingDiagnostic {
+    pub rule: String,
+    pub detail: String,
+    pub path: PathBuf,
+    pub line: usize,
+}
+
+/// Render `diagnostics` in the order given. The caller concatenates
+/// `typecheck`'s stream (not-yet-relocated rules, in its traversal order) with
+/// `ir::verify`'s relocated stream, matching the sequence the goldens record
+/// and the eventual single-checker (ir::verify traversal) end state — not a
+/// line sort, which neither checker produces (plan-20-Z).
+pub fn render_pending(diagnostics: Vec<PendingDiagnostic>) {
+    for d in &diagnostics {
+        show_diagnostic(&d.rule, &d.detail, &d.path, d.line, 1, 1);
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Severity {

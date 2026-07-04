@@ -26,6 +26,12 @@ pub(crate) struct IrBinding {
     pub(crate) value: Option<IrValue>,
     // Source location of the binding declaration.
     pub(crate) loc: IrSourceLoc,
+    // Project-relative source file this binding was declared in, for
+    // diagnostics (plan-20-Z relocated binding rules report against it).
+    pub(crate) file: String,
+    // Whether `type_` came from an explicit `AS T` annotation; only then is the
+    // binding subject to `TYPE_BINDING_MISMATCH` (plan-20-Z).
+    pub(crate) explicit_type: bool,
 }
 
 #[derive(Clone)]

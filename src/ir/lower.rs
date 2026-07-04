@@ -551,6 +551,8 @@ fn lower_binding(
             .as_ref()
             .map(|value| lower_expression_with_expected(value, Some(&type_), &locals, context)),
         loc,
+        file: context.current_file.clone(),
+        explicit_type: binding.type_name.is_some(),
     }
 }
 
@@ -833,6 +835,7 @@ fn lower_statement(
                         mutable: *mutable,
                         name: name.clone(),
                         type_: success_type,
+                        explicit_type: type_name.is_some(),
                     },
                     locals,
                     context,
@@ -870,6 +873,7 @@ fn lower_statement(
                 name: name.clone(),
                 type_: lowered_type,
                 value: lowered_value,
+                explicit_type: type_name.is_some(),
                 loc,
             }]
         }
@@ -1062,6 +1066,7 @@ fn lower_statement(
                     context,
                 )),
                 loc,
+                explicit_type: false,
             }];
             let mut match_locals = locals.clone();
             match_locals.insert(matched_name.clone(), matched_type);
@@ -1075,6 +1080,7 @@ fn lower_statement(
                         value: Box::new(IrValue::Local(matched_name.clone())),
                     }),
                     loc,
+                    explicit_type: false,
                 });
                 match_locals.insert(match_flag_name.clone(), "Boolean".to_string());
                 IrValue::Local(match_flag_name)
@@ -1140,6 +1146,7 @@ fn lower_statement(
                 type_: loop_type.clone(),
                 value: Some(iter_local.clone()),
                 loc,
+                explicit_type: false,
             }];
             loop_body.extend(lower_statement_block(body, &nested, context, trap_name));
 
@@ -1150,6 +1157,7 @@ fn lower_statement(
                     type_: loop_type.clone(),
                     value: Some(end_value),
                     loc,
+                    explicit_type: false,
                 },
                 IrOp::Bind {
                     mutable: false,
@@ -1157,6 +1165,7 @@ fn lower_statement(
                     type_: loop_type.clone(),
                     value: Some(step_value),
                     loc,
+                    explicit_type: false,
                 },
                 IrOp::For {
                     name: iter_name,
@@ -1239,6 +1248,7 @@ enum InlineTrapTarget {
         mutable: bool,
         name: String,
         type_: String,
+        explicit_type: bool,
     },
     /// `name = <call> TRAP(e) …`
     Assign { name: String },
@@ -1289,6 +1299,7 @@ fn lower_inline_trap(
         type_: result_type.clone(),
         value: Some(call_result),
         loc: stmt_loc,
+        explicit_type: false,
     }];
     locals.insert(res_name.clone(), result_type);
 
@@ -1303,6 +1314,7 @@ fn lower_inline_trap(
                 type_: success_type.clone(),
                 value: None,
                 loc: stmt_loc,
+                explicit_type: false,
             });
             locals.insert(val_name.clone(), success_type.clone());
             Some(val_name)
@@ -1332,6 +1344,7 @@ fn lower_inline_trap(
             value: Box::new(IrValue::Local(res_name.clone())),
         }),
         loc: stmt_loc,
+        explicit_type: false,
     }];
     context.recover_targets.push(RecoverTarget {
         slot: slot.clone(),
@@ -1360,12 +1373,14 @@ fn lower_inline_trap(
             mutable,
             name,
             type_,
+            explicit_type,
         } => {
             ops.push(IrOp::Bind {
                 mutable,
                 name: name.clone(),
                 type_: type_.clone(),
                 value: Some(IrValue::Local(slot.expect("bind target has a value slot"))),
+                explicit_type,
                 loc: stmt_loc,
             });
             if mutable {
@@ -1699,6 +1714,7 @@ fn lower_match_case(
             type_: binding_type,
             value: Some(value),
             loc,
+            explicit_type: false,
         });
     }
     body.extend(lower_statement_block(
@@ -2960,6 +2976,7 @@ fn lower_expression_with_expected(
                         by_ref,
                     }),
                     loc,
+                    explicit_type: false,
                 })
                 .collect::<Vec<_>>();
             for capture in &captures {

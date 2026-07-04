@@ -202,15 +202,25 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // Lowering is total (plan-20-D), so it is safe to run even when typecheck
     // found errors. External package signatures are resolved on the package
     // path, so an empty external map suffices for the source functions here.
-    let typecheck_result = typecheck::check_project(&options.location, &concrete_ast);
+    // Both checkers collect (rather than print) so their diagnostics can be
+    // merged and rendered in a single line-ordered pass; otherwise every
+    // relocated `ir::verify` rule would print after all of typecheck's,
+    // scrambling the source-order sequence the goldens record (plan-20-Z).
+    let typecheck_diagnostics = typecheck::check_project_collect(&options.location, &concrete_ast);
     let source_ir = ir::lower_project_with_external_functions(
         &concrete_ast,
         entry.clone(),
         &HashMap::new(),
         &HashMap::new(),
     );
-    let verify_result = ir::verify_source_and_emit(&source_ir, &options.location);
-    if typecheck_result.is_err() || verify_result.is_err() {
+    let verify_diagnostics = ir::verify_source_diagnostics(&source_ir, &options.location);
+    let Ok(mut diagnostics) = typecheck_diagnostics else {
+        return Err(());
+    };
+    diagnostics.extend(verify_diagnostics);
+    let had_error = !diagnostics.is_empty();
+    crate::rules::render_pending(diagnostics);
+    if had_error {
         return Err(());
     }
     let signing = match &options.sign_owner {

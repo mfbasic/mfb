@@ -281,6 +281,7 @@ impl ToIrJson for IrOp {
                 name,
                 type_,
                 value,
+                explicit_type: _,
                 loc,
             } => {
                 let value = value

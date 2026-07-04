@@ -370,6 +370,7 @@ fn accepts_ordinary_function() {
             type_: "Integer".to_string(),
             value: Some(int_const("1")),
             loc: IrSourceLoc::default(),
+            explicit_type: false,
         },
         IrOp::Return {
             value: Some(IrValue::Binary {

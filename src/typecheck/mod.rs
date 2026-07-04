@@ -127,7 +127,15 @@ enum ExprMode {
     Borrow,
 }
 
-pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
+/// Elaborate and check `ast`, returning the rejections collected in source
+/// order **without rendering them**. The caller merges these with
+/// `ir::verify`'s relocated diagnostics and renders both in one line-ordered
+/// pass (plan-20-Z). An `Err` is a pre-check augmentation failure that already
+/// reported itself.
+pub fn check_project_collect(
+    project_dir: &Path,
+    ast: &AstProject,
+) -> Result<Vec<crate::rules::PendingDiagnostic>, ()> {
     let augmented = builtins::json::augmented_project(ast)?;
     let augmented = builtins::csv::augmented_project(&augmented)?;
     let augmented = builtins::regex::augmented_project(&augmented)?;
@@ -143,7 +151,17 @@ pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
     let augmented = builtins::encoding::augmented_project(&augmented)?;
     let mut checker = TypeChecker::new(project_dir, &augmented);
     checker.check();
-    if checker.had_error {
+    Ok(checker.diagnostics)
+}
+
+/// Check `ast` and render any rejections directly (standalone callers that do
+/// not run `ir::verify`, e.g. `mfb audit`). `build` uses `check_project_collect`
+/// instead so it can merge the two diagnostic streams.
+pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
+    let diagnostics = check_project_collect(project_dir, ast)?;
+    let had_error = !diagnostics.is_empty();
+    crate::rules::render_pending(diagnostics);
+    if had_error {
         Err(())
     } else {
         Ok(())
@@ -159,6 +177,9 @@ struct TypeChecker<'a> {
     user_type_kinds: HashMap<String, TypeDeclKind>,
     type_infos: HashMap<String, TypeInfo>,
     had_error: bool,
+    /// Rejections collected in traversal (source) order, rendered by the caller
+    /// after merging with `ir::verify`'s relocated diagnostics (plan-20-Z).
+    diagnostics: Vec<crate::rules::PendingDiagnostic>,
     /// Return type of the function currently being checked. Used to validate
     /// `RETURN` inside an inline-`TRAP` handler, which is reached from
     /// `infer_expression` where the function context is otherwise unavailable.
@@ -233,6 +254,7 @@ impl<'a> TypeChecker<'a> {
             user_type_kinds: HashMap::new(),
             type_infos: HashMap::new(),
             had_error: false,
+            diagnostics: Vec::new(),
             current_return: Type::Nothing,
             current_is_sub: false,
             allow_value_less_call: false,
@@ -2054,7 +2076,12 @@ impl<'a> TypeChecker<'a> {
             return;
         }
         self.had_error = true;
-        rules::show_diagnostic(rule, detail, &self.project_dir.join(&file.path), line, 1, 1);
+        self.diagnostics.push(crate::rules::PendingDiagnostic {
+            rule: rule.to_string(),
+            detail: detail.to_string(),
+            path: self.project_dir.join(&file.path),
+            line,
+        });
     }
 
     pub(super) fn report_primitive_literal_range_error(

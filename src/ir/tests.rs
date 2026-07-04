@@ -340,6 +340,7 @@ mod binary_repr_tests {
                 type_: "Integer".to_string(),
                 value: Some(sample_value()),
                 loc: IrSourceLoc::default(),
+                explicit_type: false,
             },
             IrOp::Assign {
                 name: "a".to_string(),
@@ -453,6 +454,8 @@ mod binary_repr_tests {
                 type_: "Integer".to_string(),
                 value: Some(sample_value()),
                 loc: IrSourceLoc::default(),
+                file: String::new(),
+                explicit_type: false,
             }],
             types: vec![
                 IrType {

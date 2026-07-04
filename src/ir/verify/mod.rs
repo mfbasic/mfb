@@ -91,6 +91,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_UNION_MEMBER_REQUIRES_TYPE",
     "TYPE_ENUM_REQUIRES_MEMBER",
     "TYPE_DUPLICATE_VARIANT",
+    "TYPE_BINDING_MISMATCH",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -131,10 +132,16 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     // Global initializers are lowered into a synthetic function later; verify
     // their initializer expressions here with an empty local scope.
     for binding in &project.bindings {
-        env.current_file.replace(String::new());
+        env.current_file.replace(binding.file.clone());
         env.current_line.set(binding.loc.line);
         if let Some(value) = &binding.value {
             env.check_value(value, &HashMap::new());
+            let before = env.diags.borrow().len();
+            env.check_literal_range(resource_base_type(&binding.type_), value);
+            let range_errored = env.diags.borrow().len() > before;
+            if !range_errored && binding.explicit_type {
+                env.check_binding_type(&binding.name, &binding.type_, value, &HashMap::new());
+            }
         }
     }
     env.check_type_declarations(project);
@@ -158,28 +165,38 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 /// diagnostic was emitted. `project_dir` resolves each `Diagnostic::file` to an
 /// absolute path for the source-context display.
 pub fn check_and_emit(project: &IrProject, project_dir: &Path) -> Result<(), ()> {
-    let diagnostics = collect_diagnostics(project);
-    let mut emitted = false;
-    for d in &diagnostics {
-        // Source path: only the relocated rules are ir::verify's to emit;
-        // typecheck still emits everything else, so emitting a non-relocated
-        // rule here would duplicate it.
-        if !RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()) {
-            continue;
-        }
-        let path = if d.file.is_empty() {
-            project_dir.join("<generated>")
-        } else {
-            project_dir.join(&d.file)
-        };
-        crate::rules::show_diagnostic(&d.rule, &d.detail, &path, d.line as usize, 1, 1);
-        emitted = true;
-    }
-    if emitted {
+    let pending = collect_source_diagnostics(project, project_dir);
+    let had_error = !pending.is_empty();
+    crate::rules::render_pending(pending);
+    if had_error {
         Err(())
     } else {
         Ok(())
     }
+}
+
+/// The relocated source-path diagnostics as unrendered `PendingDiagnostic`s, so
+/// `build` can merge them with `typecheck`'s stream and render both in one
+/// line-ordered pass (plan-20-Z). Only rules in `RELOCATED_TO_IR_VERIFY` are
+/// ir::verify's to emit on the source path; the rest are still typecheck's.
+pub fn collect_source_diagnostics(
+    project: &IrProject,
+    project_dir: &Path,
+) -> Vec<crate::rules::PendingDiagnostic> {
+    collect_diagnostics(project)
+        .into_iter()
+        .filter(|d| RELOCATED_TO_IR_VERIFY.contains(&d.rule.as_str()))
+        .map(|d| crate::rules::PendingDiagnostic {
+            rule: d.rule,
+            detail: d.detail,
+            path: if d.file.is_empty() {
+                project_dir.join("<generated>")
+            } else {
+                project_dir.join(&d.file)
+            },
+            line: d.line as usize,
+        })
+        .collect()
 }
 
 /// Depth cap mirroring the decoder (`MAX_DECODE_DEPTH`). `check` may run on
@@ -384,12 +401,24 @@ impl TypeEnv {
             self.current_line.set(line);
             match op {
                 IrOp::Bind {
-                    name, type_, value, ..
+                    name,
+                    type_,
+                    value,
+                    explicit_type,
+                    ..
                 } => {
                     if let Some(value) = value {
                         self.check_value_captures(value, closure_slots);
                         self.check_value(value, locals);
+                        let before = self.diags.borrow().len();
                         self.check_literal_range(resource_base_type(type_), value);
+                        let range_errored = self.diags.borrow().len() > before;
+                        // Only an explicit `AS T` annotation can disagree with
+                        // the initializer; an inferred type is the initializer's
+                        // type by construction (matches typecheck).
+                        if !range_errored && *explicit_type {
+                            self.check_binding_type(name, type_, value, locals);
+                        }
                     }
                     locals.insert(name.clone(), type_.clone());
                 }
@@ -1586,6 +1615,33 @@ impl TypeEnv {
             self.emit(
                 "TYPE_RETURN_MISMATCH",
                 format!("RETURN value has type {actual}, expected {expected}."),
+            );
+        }
+    }
+
+    /// Reject a binding whose initializer type is incompatible with its declared
+    /// type — `typecheck`'s `TYPE_BINDING_MISMATCH`. The caller suppresses this
+    /// when a literal-range error already fired for the same binding (matching
+    /// typecheck's `!reported_range_error` guard), so a single out-of-range
+    /// literal is reported once, as the more specific range error.
+    fn check_binding_type(
+        &self,
+        name: &str,
+        declared: &str,
+        value: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
+        let expected = resource_base_type(declared);
+        if expected.is_empty() || expected == "Nothing" || expected == "Unknown" {
+            return;
+        }
+        let Some(actual) = self.infer_type(value, locals) else {
+            return;
+        };
+        if !self.expression_compatible(expected, &actual, value) {
+            self.emit(
+                "TYPE_BINDING_MISMATCH",
+                format!("Binding `{name}` has initializer type {actual}, expected {expected}."),
             );
         }
     }
