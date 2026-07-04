@@ -44,7 +44,21 @@
 
 use super::{IrField, IrOp, IrProject, IrValue};
 use crate::builtins;
+use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
+
+/// One semantic-verification diagnostic: the rule id, the human-readable detail,
+/// the project-relative source file it originated in, and the 1-based line. The
+/// checker accumulates these (plan-20-E..I) so it can reproduce the AST type
+/// checker's full diagnostic sequence for a program, not just its first error.
+#[derive(Clone)]
+pub(crate) struct Diagnostic {
+    pub(crate) rule: String,
+    pub(crate) detail: String,
+    pub(crate) file: String,
+    pub(crate) line: u32,
+}
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
 /// rejection surfaces as a `PACKAGE_BINARY_REPRESENTATION_*` diagnostic.
@@ -57,31 +71,71 @@ const PRIMITIVE_TYPES: &[&str] = &[
     "Integer", "Float", "String", "Boolean", "Byte", "Fixed", "Nothing",
 ];
 
-/// Verify the semantic invariants of a merged `IrProject` before it is lowered.
-/// Returns `Ok(())` when the IR is well formed, or a
-/// `PACKAGE_BINARY_REPRESENTATION_VERIFY_*` diagnostic describing the first
-/// violation found.
-pub fn check(project: &IrProject) -> Result<(), String> {
+/// Collect every semantic-verification diagnostic for a merged `IrProject`, in
+/// the traversal order the AST type checker uses (functions in declaration
+/// order; each body's ops in order; each op's sub-values innermost-first). The
+/// checker never short-circuits, so a program with several violations yields
+/// them all.
+pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     let env = TypeEnv::build(project);
     for function in &project.functions {
+        env.current_file.replace(function.file.clone());
+        env.current_return.replace(function.returns.clone());
+        env.current_kind.replace(function.kind.clone());
         let mut locals: HashMap<String, String> = HashMap::new();
         for param in &function.params {
+            env.current_line.set(param.loc.line);
             locals.insert(param.name.clone(), param.type_.clone());
             if let Some(default) = &param.default {
-                env.check_value(default, &locals)?;
+                env.check_value(default, &locals);
             }
         }
         let closure_slots = env.closure_slot_count(&function.name);
-        env.check_ops(&function.body, &mut locals, closure_slots, 0)?;
+        env.check_ops(&function.body, &mut locals, closure_slots, 0);
     }
     // Global initializers are lowered into a synthetic function later; verify
     // their initializer expressions here with an empty local scope.
     for binding in &project.bindings {
+        env.current_file.replace(String::new());
+        env.current_line.set(binding.loc.line);
         if let Some(value) = &binding.value {
-            env.check_value(value, &HashMap::new())?;
+            env.check_value(value, &HashMap::new());
         }
     }
-    Ok(())
+    env.diags.take()
+}
+
+/// Verify the merged `IrProject` on the **package path** (`merge_packages`).
+/// Returns `Ok(())` when the IR is well formed, or the first violation as an
+/// error string. Package-path diagnostics carry no source context (the decoded
+/// `.mfp` has no source file), so first-error is sufficient here.
+pub fn check(project: &IrProject) -> Result<(), String> {
+    match collect_diagnostics(project).into_iter().next() {
+        Some(d) => Err(format!("{}: {}", d.rule, d.detail)),
+        None => Ok(()),
+    }
+}
+
+/// Verify the freshly elaborated **source-path** IR, emitting every diagnostic
+/// through the shared diagnostics machinery (so the rule id, span, and source
+/// context match what the AST type checker prints). Returns `Err(())` when any
+/// diagnostic was emitted. `project_dir` resolves each `Diagnostic::file` to an
+/// absolute path for the source-context display.
+pub fn check_and_emit(project: &IrProject, project_dir: &Path) -> Result<(), ()> {
+    let diagnostics = collect_diagnostics(project);
+    for d in &diagnostics {
+        let path = if d.file.is_empty() {
+            project_dir.join("<generated>")
+        } else {
+            project_dir.join(&d.file)
+        };
+        crate::rules::show_diagnostic(&d.rule, &d.detail, &path, d.line as usize, 1, 1);
+    }
+    if diagnostics.is_empty() {
+        Ok(())
+    } else {
+        Err(())
+    }
 }
 
 /// Depth cap mirroring the decoder (`MAX_DECODE_DEPTH`). `check` may run on
@@ -123,6 +177,20 @@ struct TypeEnv {
     /// Record type name → (member name → declared member type), for chained
     /// member-access type inference.
     field_types: HashMap<String, HashMap<String, String>>,
+    /// Accumulated diagnostics (plan-20-E..I); the checker pushes here instead
+    /// of short-circuiting, so it reproduces the full diagnostic sequence.
+    diags: RefCell<Vec<Diagnostic>>,
+    /// Source line of the op/declaration currently being checked — the line a
+    /// diagnostic emitted from a nested value is attributed to (matching the AST
+    /// checker, which reports at the enclosing statement line).
+    current_line: Cell<u32>,
+    /// Project-relative file of the function currently being checked.
+    current_file: RefCell<String>,
+    /// Declared return type of the function currently being checked (for
+    /// RETURN-type rules).
+    current_return: RefCell<String>,
+    /// `kind` (`func`/`sub`) of the function currently being checked.
+    current_kind: RefCell<String>,
 }
 
 impl TypeEnv {
@@ -211,7 +279,22 @@ impl TypeEnv {
             globals,
             closure_counts,
             field_types,
+            diags: RefCell::new(Vec::new()),
+            current_line: Cell::new(0),
+            current_file: RefCell::new(String::new()),
+            current_return: RefCell::new(String::new()),
+            current_kind: RefCell::new(String::new()),
         }
+    }
+
+    /// Record one diagnostic at the current line/file.
+    fn emit(&self, rule: &str, detail: String) {
+        self.diags.borrow_mut().push(Diagnostic {
+            rule: rule.to_string(),
+            detail,
+            file: self.current_file.borrow().clone(),
+            line: self.current_line.get(),
+        });
     }
 
     /// The unique captured-slot count for a closure-body function, or `None`
@@ -231,20 +314,24 @@ impl TypeEnv {
         locals: &mut HashMap<String, String>,
         closure_slots: Option<usize>,
         depth: usize,
-    ) -> Result<(), String> {
+    ) {
         if depth > MAX_DEPTH {
-            return Err(format!(
-                "{VERIFY_TYPE}: statement nesting exceeds the {MAX_DEPTH} level limit"
-            ));
+            self.emit(
+                VERIFY_TYPE,
+                format!("statement nesting exceeds the {MAX_DEPTH} level limit"),
+            );
+            return;
         }
         for op in ops {
+            let line = op.loc().line;
+            self.current_line.set(line);
             match op {
                 IrOp::Bind {
                     name, type_, value, ..
                 } => {
                     if let Some(value) = value {
-                        self.check_value_captures(value, closure_slots)?;
-                        self.check_value(value, locals)?;
+                        self.check_value_captures(value, closure_slots);
+                        self.check_value(value, locals);
                     }
                     locals.insert(name.clone(), type_.clone());
                 }
@@ -254,13 +341,13 @@ impl TypeEnv {
                 | IrOp::Eval { value, .. }
                 | IrOp::ExitProgram { code: value, .. }
                 | IrOp::Fail { error: value, .. } => {
-                    self.check_value_captures(value, closure_slots)?;
-                    self.check_value(value, locals)?;
+                    self.check_value_captures(value, closure_slots);
+                    self.check_value(value, locals);
                 }
                 IrOp::Return { value, .. } => {
                     if let Some(value) = value {
-                        self.check_value_captures(value, closure_slots)?;
-                        self.check_value(value, locals)?;
+                        self.check_value_captures(value, closure_slots);
+                        self.check_value(value, locals);
                     }
                 }
                 IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
@@ -270,30 +357,28 @@ impl TypeEnv {
                     else_body,
                     ..
                 } => {
-                    self.check_value_captures(condition, closure_slots)?;
-                    self.check_value(condition, locals)?;
+                    self.check_value_captures(condition, closure_slots);
+                    self.check_value(condition, locals);
                     let mut branch = locals.clone();
-                    self.check_ops(then_body, &mut branch, closure_slots, depth + 1)?;
+                    self.check_ops(then_body, &mut branch, closure_slots, depth + 1);
                     let mut branch = locals.clone();
-                    self.check_ops(else_body, &mut branch, closure_slots, depth + 1)?;
+                    self.check_ops(else_body, &mut branch, closure_slots, depth + 1);
                 }
                 IrOp::Match { value, cases, .. } => {
                     if cases.is_empty() {
-                        return Err(format!(
-                            "{VERIFY_MATCH}: MATCH has no cases (not exhaustive)"
-                        ));
+                        self.emit(VERIFY_MATCH, "MATCH has no cases (not exhaustive)".to_string());
                     }
-                    self.check_value_captures(value, closure_slots)?;
-                    self.check_value(value, locals)?;
+                    self.check_value_captures(value, closure_slots);
+                    self.check_value(value, locals);
                     for case in cases {
                         match &case.pattern {
                             super::IrMatchPattern::Else => {}
                             super::IrMatchPattern::Value(v) => {
-                                self.check_value(v, locals)?;
+                                self.check_value(v, locals);
                             }
                             super::IrMatchPattern::OneOf(vs) => {
                                 for v in vs {
-                                    self.check_value(v, locals)?;
+                                    self.check_value(v, locals);
                                 }
                             }
                         }
@@ -307,19 +392,20 @@ impl TypeEnv {
                                 };
                                 case_locals.insert(name.clone(), type_.clone());
                             }
-                            self.check_value(guard, &case_locals)?;
+                            self.check_value(guard, &case_locals);
                             case_locals = locals.clone();
                         }
-                        self.check_ops(&case.body, &mut case_locals, closure_slots, depth + 1)?;
+                        self.check_ops(&case.body, &mut case_locals, closure_slots, depth + 1);
+                        self.current_line.set(line);
                     }
                 }
                 IrOp::While {
                     condition, body, ..
                 } => {
-                    self.check_value_captures(condition, closure_slots)?;
-                    self.check_value(condition, locals)?;
+                    self.check_value_captures(condition, closure_slots);
+                    self.check_value(condition, locals);
                     let mut branch = locals.clone();
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
+                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
                 }
                 IrOp::For {
                     name,
@@ -331,20 +417,22 @@ impl TypeEnv {
                     ..
                 } => {
                     for value in [start, end, step] {
-                        self.check_value_captures(value, closure_slots)?;
-                        self.check_value(value, locals)?;
+                        self.check_value_captures(value, closure_slots);
+                        self.check_value(value, locals);
                     }
                     let mut branch = locals.clone();
                     branch.insert(name.clone(), type_.clone());
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
+                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
                 }
                 IrOp::DoUntil {
                     body, condition, ..
                 } => {
                     let mut branch = locals.clone();
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
-                    self.check_value_captures(condition, closure_slots)?;
-                    self.check_value(condition, locals)?;
+                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
+                    // The trailing condition is reported at the loop's own line.
+                    self.current_line.set(line);
+                    self.check_value_captures(condition, closure_slots);
+                    self.check_value(condition, locals);
                 }
                 IrOp::ForEach {
                     name,
@@ -353,54 +441,53 @@ impl TypeEnv {
                     body,
                     ..
                 } => {
-                    self.check_value_captures(iterable, closure_slots)?;
-                    self.check_value(iterable, locals)?;
+                    self.check_value_captures(iterable, closure_slots);
+                    self.check_value(iterable, locals);
                     let mut branch = locals.clone();
                     branch.insert(name.clone(), type_.clone());
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
+                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
                 }
                 IrOp::Trap { name, body, .. } => {
                     let mut branch = locals.clone();
                     branch.insert(name.clone(), "Error".to_string());
-                    self.check_ops(body, &mut branch, closure_slots, depth + 1)?;
+                    self.check_ops(body, &mut branch, closure_slots, depth + 1);
                 }
             }
         }
-        Ok(())
     }
 
     /// Enforce the semantic rules on a value expression and recurse into its
     /// sub-values. Argument and sub-expression checks run before the node's own
     /// rule so the innermost violation surfaces first.
-    fn check_value(&self, value: &IrValue, locals: &HashMap<String, String>) -> Result<(), String> {
+    fn check_value(&self, value: &IrValue, locals: &HashMap<String, String>) {
         match value {
             IrValue::MemberAccess { target, member, .. } => {
-                self.check_value(target, locals)?;
-                self.check_member_access(target, member, locals)?;
+                self.check_value(target, locals);
+                self.check_member_access(target, member, locals);
             }
             IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
                 for arg in args {
-                    self.check_value(arg, locals)?;
+                    self.check_value(arg, locals);
                 }
-                self.check_call_arity(target, args.len(), locals)?;
+                self.check_call_arity(target, args.len(), locals);
             }
             IrValue::Constructor { type_, args } => {
                 for arg in args {
-                    self.check_value(arg, locals)?;
+                    self.check_value(arg, locals);
                 }
-                self.check_constructor_arity(type_, args.len())?;
+                self.check_constructor_arity(type_, args.len());
             }
             IrValue::UnionWrap {
                 union_type,
                 member_type,
                 value,
             } => {
-                self.check_value(value, locals)?;
-                self.check_union_wrap(union_type, member_type)?;
+                self.check_value(value, locals);
+                self.check_union_wrap(union_type, member_type);
             }
             IrValue::Closure { captures, .. } => {
                 for capture in captures {
-                    self.check_value(capture, locals)?;
+                    self.check_value(capture, locals);
                 }
             }
             IrValue::UnionExtract { value, .. }
@@ -408,29 +495,29 @@ impl TypeEnv {
             | IrValue::ResultValue { value, .. }
             | IrValue::ResultError { value }
             | IrValue::Unary { operand: value, .. } => {
-                self.check_value(value, locals)?;
+                self.check_value(value, locals);
             }
             IrValue::Binary { left, right, .. } => {
-                self.check_value(left, locals)?;
-                self.check_value(right, locals)?;
+                self.check_value(left, locals);
+                self.check_value(right, locals);
             }
             IrValue::WithUpdate {
                 target, updates, ..
             } => {
-                self.check_value(target, locals)?;
+                self.check_value(target, locals);
                 for update in updates {
-                    self.check_value(&update.value, locals)?;
+                    self.check_value(&update.value, locals);
                 }
             }
             IrValue::ListLiteral { values, .. } => {
                 for v in values {
-                    self.check_value(v, locals)?;
+                    self.check_value(v, locals);
                 }
             }
             IrValue::MapLiteral { entries, .. } => {
                 for (k, v) in entries {
-                    self.check_value(k, locals)?;
-                    self.check_value(v, locals)?;
+                    self.check_value(k, locals);
+                    self.check_value(v, locals);
                 }
             }
             IrValue::Const { .. }
@@ -440,7 +527,6 @@ impl TypeEnv {
             | IrValue::FunctionRef { .. }
             | IrValue::Capture { .. } => {}
         }
-        Ok(())
     }
 
     /// Reject a `MemberAccess` whose target provably cannot carry the member: a
@@ -450,14 +536,16 @@ impl TypeEnv {
         target: &IrValue,
         member: &str,
         locals: &HashMap<String, String>,
-    ) -> Result<(), String> {
+    ) {
         let Some(type_name) = self.infer_type(target, locals) else {
-            return Ok(());
+            return;
         };
         if PRIMITIVE_TYPES.contains(&type_name.as_str()) {
-            return Err(format!(
-                "{VERIFY_TYPE}: member `{member}` accessed on a `{type_name}` value"
-            ));
+            self.emit(
+                VERIFY_TYPE,
+                format!("member `{member}` accessed on a `{type_name}` value"),
+            );
+            return;
         }
         // Only a record can be member-accessed. When the target resolves to a
         // record whose complete field set is known, the member must be present;
@@ -465,79 +553,78 @@ impl TypeEnv {
         // the access is left unchecked.
         if let Some(fields) = self.record_fields(&type_name) {
             if !fields.contains(member) {
-                return Err(format!(
-                    "{VERIFY_TYPE}: record `{type_name}` has no member `{member}`"
-                ));
+                self.emit(
+                    VERIFY_TYPE,
+                    format!("record `{type_name}` has no member `{member}`"),
+                );
             }
         }
-        Ok(())
     }
 
     /// Reject a direct call whose argument count cannot match the callee's
     /// signature. Only internal functions have a known signature; builtins,
     /// runtime helpers, imports and indirect (function-typed local) calls are
     /// skipped.
-    fn check_call_arity(
-        &self,
-        target: &str,
-        argc: usize,
-        locals: &HashMap<String, String>,
-    ) -> Result<(), String> {
+    fn check_call_arity(&self, target: &str, argc: usize, locals: &HashMap<String, String>) {
         if locals.contains_key(target) {
             // A local of function type — an indirect call; its arity is the
             // function type's, not a named signature.
-            return Ok(());
+            return;
         }
         let Some(sig) = self.functions.get(target) else {
-            return Ok(());
+            return;
         };
         let required = sig.total.saturating_sub(sig.optional);
         if argc < required || argc > sig.total {
-            return Err(format!(
-                "{VERIFY_TYPE}: call to `{target}` passes {argc} argument(s), expected {required}..={}",
-                sig.total
-            ));
+            self.emit(
+                VERIFY_TYPE,
+                format!(
+                    "call to `{target}` passes {argc} argument(s), expected {required}..={}",
+                    sig.total
+                ),
+            );
         }
-        Ok(())
     }
 
     /// Reject a record constructor supplied with more arguments than the record
     /// has fields (an overflow of the record's positional slots). Under-supply
     /// is left unchecked: `IrField` carries no default marker, so the minimum
     /// arity cannot be reconstructed soundly.
-    fn check_constructor_arity(&self, type_name: &str, argc: usize) -> Result<(), String> {
+    fn check_constructor_arity(&self, type_name: &str, argc: usize) {
         if let Some(fields) = self.record_fields(type_name) {
             if argc > fields.len() {
-                return Err(format!(
-                    "{VERIFY_TYPE}: constructor `{type_name}` passes {argc} argument(s) but the record has {} field(s)",
-                    fields.len()
-                ));
+                self.emit(
+                    VERIFY_TYPE,
+                    format!(
+                        "constructor `{type_name}` passes {argc} argument(s) but the record has {} field(s)",
+                        fields.len()
+                    ),
+                );
             }
         }
-        Ok(())
     }
 
     /// Reject a `UnionWrap` whose `member_type` is not a variant of the named
     /// union (a value smuggled under a tag the union does not define).
-    fn check_union_wrap(&self, union_type: &str, member_type: &str) -> Result<(), String> {
+    fn check_union_wrap(&self, union_type: &str, member_type: &str) {
         if member_type.is_empty() {
-            return Ok(());
+            return;
         }
         if let Some(variants) = self.union_variants(union_type) {
             if !variants.contains(member_type) {
-                return Err(format!(
-                    "{VERIFY_TYPE}: `{member_type}` is not a variant of union `{union_type}`"
-                ));
+                self.emit(
+                    VERIFY_TYPE,
+                    format!("`{member_type}` is not a variant of union `{union_type}`"),
+                );
             }
         }
-        Ok(())
     }
 
     /// Verify every `Capture` in a value addresses a slot within the enclosing
     /// closure's captured-slot count. Skipped when the closure shape is unknown.
-    fn check_value_captures(&self, value: &IrValue, slots: Option<usize>) -> Result<(), String> {
+    fn check_value_captures(&self, value: &IrValue, slots: Option<usize>) {
         let Some(slots) = slots else {
-            return Ok(());
+            return;
         };
         let mut violation = None;
         walk_captures(value, &mut |index| {
@@ -546,11 +633,11 @@ impl TypeEnv {
             }
         });
         if let Some(index) = violation {
-            return Err(format!(
-                "{VERIFY_TYPE}: closure capture index {index} is out of range ({slots} slot(s))"
-            ));
+            self.emit(
+                VERIFY_TYPE,
+                format!("closure capture index {index} is out of range ({slots} slot(s))"),
+            );
         }
-        Ok(())
     }
 
     /// The complete set of field names for a record type, expanding `includes`
