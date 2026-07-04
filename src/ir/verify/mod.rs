@@ -79,6 +79,14 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RESOURCE_FIELD_FORBIDDEN",
     "TYPE_MIXED_RESOURCE_UNION",
     "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
+    "TYPE_BYTE_LITERAL_OVERFLOW",
+    "TYPE_BYTE_LITERAL_UNDERFLOW",
+    "TYPE_INTEGER_LITERAL_OVERFLOW",
+    "TYPE_FLOAT_LITERAL_OVERFLOW",
+    "TYPE_FLOAT_LITERAL_UNDERFLOW",
+    "TYPE_FIXED_LITERAL_OVERFLOW",
+    "TYPE_FIXED_LITERAL_UNDERFLOW",
+    "TYPE_UNARY_OPERATOR_UNKNOWN",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -377,12 +385,25 @@ impl TypeEnv {
                     if let Some(value) = value {
                         self.check_value_captures(value, closure_slots);
                         self.check_value(value, locals);
+                        self.check_literal_range(resource_base_type(type_), value);
                     }
                     locals.insert(name.clone(), type_.clone());
                 }
-                IrOp::Assign { value, .. }
-                | IrOp::AssignGlobal { value, .. }
-                | IrOp::StateAssign { value, .. }
+                IrOp::Assign { name, value, .. } => {
+                    self.check_value_captures(value, closure_slots);
+                    self.check_value(value, locals);
+                    if let Some(t) = locals.get(name) {
+                        self.check_literal_range(&resource_base_type(t).to_string(), value);
+                    }
+                }
+                IrOp::AssignGlobal { name, value, .. } => {
+                    self.check_value_captures(value, closure_slots);
+                    self.check_value(value, locals);
+                    if let Some(t) = self.globals.get(name) {
+                        self.check_literal_range(&resource_base_type(t).to_string(), value);
+                    }
+                }
+                IrOp::StateAssign { value, .. }
                 | IrOp::Eval { value, .. }
                 | IrOp::ExitProgram { code: value, .. }
                 | IrOp::Fail { error: value, .. } => {
@@ -394,6 +415,8 @@ impl TypeEnv {
                         self.check_value_captures(value, closure_slots);
                         self.check_value(value, locals);
                         self.check_return_type(value, locals);
+                        let ret = self.current_return.borrow().clone();
+                        self.check_literal_range(&ret, value);
                     }
                 }
                 IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
@@ -573,6 +596,7 @@ impl TypeEnv {
                 // uniformly by the declared element type.
                 if let Some(element) = type_.strip_prefix("List OF ") {
                     for v in values {
+                        self.check_literal_range(element, v);
                         if let Some(actual) = self.infer_type(v, locals) {
                             if !self.expression_compatible(element, &actual, v) {
                                 self.emit(
@@ -591,6 +615,8 @@ impl TypeEnv {
                 }
                 if let Some((key_type, value_type)) = parse_map(type_) {
                     for (k, v) in entries {
+                        self.check_literal_range(key_type, k);
+                        self.check_literal_range(value_type, v);
                         if let Some(actual) = self.infer_type(k, locals) {
                             if !self.expression_compatible(key_type, &actual, k) {
                                 self.emit(
@@ -616,6 +642,117 @@ impl TypeEnv {
             | IrValue::LocalRef { .. }
             | IrValue::FunctionRef { .. }
             | IrValue::Capture { .. } => {}
+        }
+    }
+
+    /// Check a numeric literal in a position that expects `expected` against
+    /// that type's range (`typecheck`'s TYPE_*_LITERAL_OVERFLOW/UNDERFLOW).
+    /// The check is contextual — keyed on the *expected* type, not the literal
+    /// node's own type — because lowering does not push the expected type
+    /// through a `-` negation (`-1` into `Byte` lowers to `Unary("-",
+    /// Const{Integer,"1"})`, with `Byte` only on the enclosing bind). Matches
+    /// the AST checker, which validates the literal against the expected type.
+    fn check_literal_range(&self, expected: &str, value: &IrValue) {
+        // Only a *numeric* literal can overflow a numeric range; a non-numeric
+        // Const in a numeric position (e.g. a String arg where Integer is
+        // expected) is an argument/assignment mismatch, not a literal overflow.
+        let numeric = |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed");
+        match value {
+            IrValue::Const { type_, value } if numeric(type_) => {
+                self.check_const_literal(expected, value)
+            }
+            IrValue::Unary { op, operand, .. } if op == "-" => {
+                if let IrValue::Const { type_, value } = operand.as_ref() {
+                    if numeric(type_) {
+                        self.check_negated_const_literal(expected, value);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The positive/overflow direction of the literal-range check.
+    fn check_const_literal(&self, type_: &str, value: &str) {
+        match type_ {
+            "Byte" if !value.contains('.') => {
+                if value.parse::<u16>().map_or(true, |n| n > u8::MAX as u16) {
+                    self.emit(
+                        "TYPE_BYTE_LITERAL_OVERFLOW",
+                        format!("Integer literal `{value}` is outside the Byte range 0..255."),
+                    );
+                }
+            }
+            "Integer" if !value.contains('.') => {
+                if value.parse::<i64>().is_err() {
+                    self.emit(
+                        "TYPE_INTEGER_LITERAL_OVERFLOW",
+                        format!("Integer literal `{value}` is outside the Integer range."),
+                    );
+                }
+            }
+            "Float" => {
+                if let Ok(f) = value.parse::<f64>() {
+                    if !f.is_finite() {
+                        self.emit(
+                            "TYPE_FLOAT_LITERAL_OVERFLOW",
+                            format!("Numeric literal `{value}` is outside the Float range."),
+                        );
+                    }
+                }
+            }
+            "Fixed" => {
+                if let Ok(f) = value.parse::<f64>() {
+                    if f >= 2147483648.0 {
+                        self.emit(
+                            "TYPE_FIXED_LITERAL_OVERFLOW",
+                            format!("Numeric literal `{value}` is outside the Fixed range."),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// The underflow direction of the literal-range check for a `-<literal>`.
+    fn check_negated_const_literal(&self, type_: &str, value: &str) {
+        match type_ {
+            "Byte" if !value.contains('.') && value != "0" => {
+                self.emit(
+                    "TYPE_BYTE_LITERAL_UNDERFLOW",
+                    format!("Integer literal `-{value}` is outside the Byte range 0..255."),
+                );
+            }
+            "Integer" if !value.contains('.') => {
+                if format!("-{value}").parse::<i64>().is_err() {
+                    self.emit(
+                        "TYPE_INTEGER_LITERAL_OVERFLOW",
+                        format!("Integer literal `-{value}` is outside the Integer range."),
+                    );
+                }
+            }
+            "Fixed" => {
+                if let Ok(f) = value.parse::<f64>() {
+                    if -f < -2147483648.0 {
+                        self.emit(
+                            "TYPE_FIXED_LITERAL_UNDERFLOW",
+                            format!("Numeric literal `-{value}` is outside the Fixed range."),
+                        );
+                    }
+                }
+            }
+            "Float" => {
+                if let Ok(f) = value.parse::<f64>() {
+                    if !(-f).is_finite() {
+                        self.emit(
+                            "TYPE_FLOAT_LITERAL_UNDERFLOW",
+                            format!("Numeric literal `-{value}` is outside the Float range."),
+                        );
+                    }
+                }
+            }
+            _ => {}
         }
     }
 
@@ -1072,7 +1209,12 @@ impl TypeEnv {
                     );
                 }
             }
-            _ => {}
+            other => {
+                self.emit(
+                    "TYPE_UNARY_OPERATOR_UNKNOWN",
+                    format!("Unknown unary operator `{other}`."),
+                );
+            }
         }
     }
 
@@ -1132,6 +1274,7 @@ impl TypeEnv {
             // is the bare resource type.
             let actual = resource_base_type(&actual).to_string();
             let param_type = resource_base_type(param_type);
+            self.check_literal_range(param_type, arg);
             if !self.expression_compatible(param_type, &actual, arg) {
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
