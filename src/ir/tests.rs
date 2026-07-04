@@ -95,6 +95,119 @@ mod lowering_totality_tests {
              typecheck-invalid majority — the pipeline wiring may be broken"
         );
     }
+
+    /// The `(line, rule_id)` diagnostic sequence the golden build.log records —
+    /// the AST type checker's output for this invalid fixture, our porting
+    /// oracle. Parses lines of the form `<file>:<line> error[<code> <RULE>]:`.
+    fn golden_diagnostics(dir: &Path) -> Vec<(u32, String)> {
+        let Ok(log) = std::fs::read_to_string(dir.join("golden").join("build.log")) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        for line in log.lines() {
+            // `...main.mfb:4 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: ...`
+            let Some(err_at) = line.find(" error[") else {
+                continue;
+            };
+            let before = &line[..err_at];
+            let Some(colon) = before.rfind(':') else {
+                continue;
+            };
+            let Ok(lineno) = before[colon + 1..].parse::<u32>() else {
+                continue;
+            };
+            let bracket = &line[err_at + " error[".len()..];
+            let Some(close) = bracket.find(']') else {
+                continue;
+            };
+            let inner = &bracket[..close];
+            let Some(rule) = inner.split_whitespace().nth(1) else {
+                continue;
+            };
+            out.push((lineno, rule.to_string()));
+        }
+        out
+    }
+
+    /// The `(line, rule_id)` sequence `ir::verify` produces for the lowered IR.
+    /// Returns `None` if the fixture is rejected before lowering.
+    fn verify_diagnostics(dir: &Path) -> Option<Vec<(u32, String)>> {
+        let manifest = validate_project_manifest(&dir.join("project.json")).ok()?;
+        let name = manifest.get("name").and_then(|v| v.get::<String>()).cloned()?;
+        let ast = ast::parse_project(&name, dir, &manifest).ok()?;
+        resolver::resolve_project(dir, &manifest, &ast).ok()?;
+        let concrete = monomorph::monomorphize_project(dir, &ast).ok()?;
+        resolver::resolve_project_with(dir, &manifest, &concrete, false).ok()?;
+        let ir = super::lower_project_with_external_functions(
+            &concrete,
+            None,
+            &std::collections::HashMap::new(),
+            &std::collections::HashMap::new(),
+        );
+        // No packages here, so the lowered project IR is what the checker sees.
+        Some(
+            super::verify::collect_diagnostics(&ir)
+                .into_iter()
+                .map(|d| (d.line, d.rule))
+                .collect(),
+        )
+    }
+
+    /// Porting-progress report (plan-20-E..I): for every invalid fixture that
+    /// reaches lowering, compare the rule ids `ir::verify` produces against the
+    /// golden (the AST checker). Not an assertion — a census that names which
+    /// rules are still only in `typecheck` (MISSING) so the port can drive them
+    /// to zero. Run with `--nocapture`.
+    #[test]
+    #[ignore = "porting census (plan-20-E..I); run with --ignored --nocapture"]
+    fn verify_vs_typecheck_diagnostic_parity() {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        use std::collections::BTreeMap;
+        let mut missing: BTreeMap<String, usize> = BTreeMap::new();
+        let mut matched: BTreeMap<String, usize> = BTreeMap::new();
+        let mut extra: BTreeMap<String, usize> = BTreeMap::new();
+        let mut fixtures = 0usize;
+        for dir in invalid_fixture_dirs() {
+            let expected = golden_diagnostics(&dir);
+            let Some(actual) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                verify_diagnostics(&dir)
+            }))
+            .ok()
+            .flatten() else {
+                continue;
+            };
+            fixtures += 1;
+            // Count expected rule ids not produced by verify (per fixture, as a
+            // multiset of rule ids — line-agnostic for the census).
+            let mut act_rules: Vec<String> = actual.iter().map(|(_, r)| r.clone()).collect();
+            for (_, rule) in &expected {
+                if let Some(pos) = act_rules.iter().position(|r| r == rule) {
+                    act_rules.remove(pos);
+                    *matched.entry(rule.clone()).or_default() += 1;
+                } else {
+                    *missing.entry(rule.clone()).or_default() += 1;
+                }
+            }
+            for rule in act_rules {
+                *extra.entry(rule).or_default() += 1;
+            }
+        }
+        std::panic::set_hook(prev);
+        eprintln!("\n=== verify-vs-typecheck census ({fixtures} fixtures reached lowering) ===");
+        eprintln!("MISSING (typecheck emits, ir::verify does not) — port these:");
+        for (rule, n) in &missing {
+            eprintln!("  {n:3}  {rule}");
+        }
+        eprintln!("MATCHED (ir::verify already emits):");
+        for (rule, n) in &matched {
+            eprintln!("  {n:3}  {rule}");
+        }
+        eprintln!("EXTRA (ir::verify emits, typecheck did not — over-rejection risk):");
+        for (rule, n) in &extra {
+            eprintln!("  {n:3}  {rule}");
+        }
+    }
 }
 
 #[cfg(test)]
