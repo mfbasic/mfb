@@ -26,6 +26,21 @@ floor = float(os.environ["FLOOR"])
 with open("target/coverage/coverage.json") as f:
     data = json.load(f)
 
+cwd = os.getcwd() + "/"
+def rel(p):
+    return p[len(cwd):] if p.startswith(cwd) else p
+
+# Documented exceptions: files exempt from the per-file gate (Tier-C/D lines
+# covered only by the integration harness). Parsed from coverage-exceptions.txt.
+exceptions = set()
+exc_path = "scripts/coverage-exceptions.txt"
+if os.path.exists(exc_path):
+    with open(exc_path) as f:
+        for line in f:
+            line = line.split("#", 1)[0].strip()
+            if line:
+                exceptions.add(line)
+
 files = data["data"][0]["files"]
 # Optional trailing args: only report files whose path contains one of them.
 filters = sys.argv[1:]
@@ -36,29 +51,28 @@ for entry in files:
     if filters and not any(g in name for g in filters):
         continue
     lines = entry["summary"]["lines"]
-    pct = lines["percent"]
-    covered = lines["covered"]
-    total = lines["count"]
-    rows.append((pct, name, covered, total))
+    rows.append((lines["percent"], name, lines["covered"], lines["count"]))
 
 rows.sort()
-below = [r for r in rows if r[0] < floor and r[3] > 0]
-
-# Repo-relative display paths.
-cwd = os.getcwd() + "/"
-def rel(p):
-    return p[len(cwd):] if p.startswith(cwd) else p
+below = [r for r in rows if r[0] < floor and r[3] > 0 and rel(r[1]) not in exceptions]
+excused = [r for r in rows if r[0] < floor and r[3] > 0 and rel(r[1]) in exceptions]
 
 if below:
-    print(f"Files below {floor:.0f}% line coverage:")
+    print(f"Files below {floor:.0f}% line coverage (GATE FAILURE):")
     for pct, name, covered, total in below:
         print(f"  {pct:6.2f}%  ({covered}/{total})  {rel(name)}")
 else:
-    print(f"All in-scope files >= {floor:.0f}% line coverage.")
+    print(f"All non-excepted files >= {floor:.0f}% line coverage.")
+
+if excused:
+    print(f"\nDocumented exceptions below {floor:.0f}% (integration-covered):")
+    for pct, name, covered, total in excused:
+        print(f"  {pct:6.2f}%  ({covered}/{total})  {rel(name)}")
 
 overall = data["data"][0]["totals"]["lines"]["percent"]
 print(f"\nOverall line coverage: {overall:.2f}%  ({len(rows)} files"
-      + (f", {len(filters)} filter(s)" if filters else "") + ")")
+      + (f", {len(filters)} filter(s)" if filters else "")
+      + f", {len(excused)} excepted)")
 
 sys.exit(1 if below else 0)
 PY

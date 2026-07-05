@@ -1,0 +1,14 @@
+# Per-file coverage exceptions (plan-12).
+#
+# Files listed here are exempt from the per-file 95% gate because their
+# uncovered remainder is genuinely not reachable from a unit test — live
+# network I/O, socket/TTY syscalls, subprocess (linker/codesign) invocation, or
+# GUI event loops — and is instead covered by the tests/ integration harness.
+# cargo-llvm-cov 0.8.7 does not honor inline `// coverage:off` markers, so the
+# exclusion is tracked here (auditable in review) rather than in-source.
+#
+# Format: one repo-relative path per line, optional `# reason` after the path.
+# Blank lines and lines starting with # are ignored.
+#
+# This list is populated as Tier-C/D files are triaged; each entry must name the
+# specific syscall/network/subprocess boundary that blocks unit coverage.
