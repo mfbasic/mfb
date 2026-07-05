@@ -102,6 +102,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
     "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
     "TYPE_DEFAULT_VALUE_MISMATCH",
+    "TYPE_READ_ONLY_RECORD_UPDATE",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -886,6 +887,30 @@ impl TypeEnv {
                 updates,
             } => {
                 self.check_value(target, locals);
+                // Compiler/runtime-owned records may never be updated —
+                // typecheck's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
+                // the Error pair vs the compiler-owned handle records). When
+                // lowering could not stamp the update's type (e.g. the target
+                // is a member access it didn't resolve), infer the target here.
+                let inferred;
+                let mut base = resource_base_type(type_);
+                if base.is_empty() || base == "Unknown" {
+                    inferred = self.infer_type(target, locals);
+                    if let Some(t) = &inferred {
+                        base = resource_base_type(t);
+                    }
+                }
+                if matches!(base, "Error" | "ErrorLoc") {
+                    self.emit(
+                        "TYPE_READ_ONLY_RECORD_UPDATE",
+                        format!("`{base}` is a read-only built-in record and cannot be updated."),
+                    );
+                } else if read_only_record_type(base) {
+                    self.emit(
+                        "TYPE_READ_ONLY_RECORD_UPDATE",
+                        format!("TYPE `{base}` is read-only and cannot be updated."),
+                    );
+                }
                 // Each WITH update must match its field's declared type —
                 // typecheck's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
                 let fields = self.field_types.get(resource_base_type(type_));
@@ -1996,6 +2021,18 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, String>,
     ) {
+        // Compiler-owned records may never be user-constructed (typecheck's
+        // TYPE_READ_ONLY_RECORD_CONSTRUCTOR). The Error/ErrorLoc arm of that
+        // rule stays in typecheck: lowering itself emits `Constructor{Error}`
+        // for the `error()` builtin and trap machinery, so on the IR a user
+        // `Error[..]` is indistinguishable from a legitimate synthesized one.
+        if read_only_record_type(type_name) {
+            self.emit(
+                "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+                format!("TYPE `{type_name}` is compiler-owned and cannot be constructed."),
+            );
+            return;
+        }
         if !self.records.contains_key(type_name) {
             // A constructor naming a declared non-record type is malformed; an
             // unknown name is left alone (could be a builtin record).
@@ -2231,6 +2268,15 @@ fn numeric_literal_is_zero(value: &IrValue) -> bool {
     }
 }
 
+/// Compiler-owned record types users may neither construct nor WITH-update —
+/// mirrors `typecheck::helpers::read_only_record_type`.
+fn read_only_record_type(type_name: &str) -> bool {
+    type_name == builtins::term::TERM_COLOR_TYPE
+        || type_name == builtins::term::TERM_SIZE_TYPE
+        || type_name == builtins::net::ADDRESS_TYPE
+        || type_name.starts_with("MapEntry OF ")
+}
+
 /// Whether `name` is a built-in resource type (has a registered close op).
 fn is_resource_name(name: &str) -> bool {
     builtins::resource::builtin_resource_close_function(name).is_some()
@@ -2352,6 +2398,26 @@ fn field_type_map(fields: &[IrField]) -> HashMap<String, String> {
 /// Builtin record types (io/net/term) expose their fields through the builtins
 /// tables. Consolidated here so the checker consults one accessor.
 fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
+    // The runtime error records (typecheck types their members inline in
+    // `infer_member`); listed here so member-access inference resolves
+    // `err.source.line` chains and the read-only WITH check sees ErrorLoc.
+    match name {
+        "Error" => {
+            return Some(&[
+                ("code", "Integer"),
+                ("message", "String"),
+                ("source", "ErrorLoc"),
+            ]);
+        }
+        "ErrorLoc" => {
+            return Some(&[
+                ("filename", "String"),
+                ("line", "Integer"),
+                ("char", "Integer"),
+            ]);
+        }
+        _ => {}
+    }
     builtins::io::builtin_type_fields(name)
         .or_else(|| builtins::net::builtin_type_fields(name))
         .or_else(|| builtins::term::builtin_type_fields(name))

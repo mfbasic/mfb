@@ -3,12 +3,6 @@ $ mfb build -ast -ir tests/func_term_terminalSize_invalid
    3 | FUNC resize(size AS TermSize) AS TermSize
    4 |   RETURN WITH size { columns := 80 }
      | ^
-tests/func_term_terminalSize_invalid/src/main.mfb:4 error[2-203-0038 TYPE_READ_ONLY_RECORD_UPDATE]: read-only record cannot be updated
-               TYPE `TermSize` is read-only and cannot be updated.
-   2 | 
-   3 | FUNC resize(size AS TermSize) AS TermSize
-   4 |   RETURN WITH size { columns := 80 }
-     | ^
 tests/func_term_terminalSize_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                RETURN value does not have a known type.
    6 | 
@@ -35,4 +29,10 @@ tests/func_term_terminalSize_invalid/src/main.mfb:13 error[2-203-0039 TYPE_READ_
      | ^
 tests/func_term_terminalSize_invalid/src/main.mfb:13 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `b` does not have a known type.
+   2 | 
+   3 | FUNC resize(size AS TermSize) AS TermSize
+   4 |   RETURN WITH size { columns := 80 }
+     | ^
+tests/func_term_terminalSize_invalid/src/main.mfb:4 error[2-203-0038 TYPE_READ_ONLY_RECORD_UPDATE]: read-only record cannot be updated
+               TYPE `TermSize` is read-only and cannot be updated.
 [exit 1]
