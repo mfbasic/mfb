@@ -279,9 +279,9 @@ impl<'a> TypeChecker<'a> {
 
     pub(super) fn require_comparable_type(
         &mut self,
-        file: &AstFile,
-        line: usize,
-        context: &str,
+        _file: &AstFile,
+        _line: usize,
+        _context: &str,
         type_: &Type,
     ) {
         if self.is_comparable(type_) {

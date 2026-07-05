@@ -146,9 +146,9 @@ impl<'a> TypeChecker<'a> {
     /// parameter. `role` is "element" or "value".
     pub(super) fn check_collection_element_axis(
         &mut self,
-        file: &AstFile,
-        line: usize,
-        role: &str,
+        _file: &AstFile,
+        _line: usize,
+        _role: &str,
         element: &Type,
     ) {
         let is_res_marked = matches!(element, Type::Res(_));
@@ -165,9 +165,9 @@ impl<'a> TypeChecker<'a> {
     /// stored (§15.6).
     pub(super) fn check_collection_resource_element(
         &mut self,
-        file: &AstFile,
-        line: usize,
-        role: &str,
+        _file: &AstFile,
+        _line: usize,
+        _role: &str,
         value: &Expression,
         type_: &Type,
         locals: &HashMap<String, LocalInfo>,

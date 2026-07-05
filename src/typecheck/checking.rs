@@ -57,96 +57,32 @@ impl<'a> TypeChecker<'a> {
     }
 
     pub(super) fn merge_local_info(&self, left: LocalInfo, right: &LocalInfo) -> LocalInfo {
-        let ownership = match (left.ownership, right.ownership) {
-            (OwnershipState::Available, OwnershipState::Available) => OwnershipState::Available,
-            (OwnershipState::Moved, OwnershipState::Moved) => OwnershipState::Moved,
-            (OwnershipState::MaybeMoved, _) | (_, OwnershipState::MaybeMoved) => {
-                OwnershipState::MaybeMoved
-            }
-            (OwnershipState::Available, OwnershipState::Moved)
-            | (OwnershipState::Moved, OwnershipState::Available) => OwnershipState::MaybeMoved,
-        };
+        // Ownership/borrow dataflow moved to `ir::verify` (TYPE_USE_AFTER_MOVE /
+        // TYPE_RESOURCE_BORROW_INVALIDATE, plan-20-Z); only the type shape is
+        // merged here now.
+        let _ = right;
         LocalInfo {
             type_: left.type_,
             mutable: left.mutable,
-            ownership,
-            borrowed: left.borrowed,
             state_type: left.state_type,
         }
     }
 
-    pub(super) fn require_local_owned(
-        &mut self,
-        file: &AstFile,
-        line: usize,
-        name: &str,
-        info: &LocalInfo,
-    ) -> bool {
-        match info.ownership {
-            OwnershipState::Available => true,
-            OwnershipState::Moved => false,
-            OwnershipState::MaybeMoved => false,
-        }
-    }
-
-    pub(super) fn consume_local_if_needed(
-        &mut self,
-        file: &AstFile,
-        line: usize,
-        name: &str,
-        locals: &mut HashMap<String, LocalInfo>,
-    ) {
-        let Some(info) = locals.get(name).cloned() else {
-            return;
-        };
-        if !self.require_local_owned(file, line, name, &info) {
-            return;
-        }
-        // A borrowed resource cannot be invalidated: close, `RETURN`, and
-        // `thread::transfer` all require ownership, which a borrow does not grant.
-        if info.borrowed && self.is_resource_type(&info.type_) {
-            return;
-        }
-        if !self.is_copyable_type(&info.type_) {
-            if let Some(local) = locals.get_mut(name) {
-                local.ownership = OwnershipState::Moved;
-            }
-        }
-    }
-
-    /// Enforce the `RES` ownership axis: the `RES` keyword must be present
-    /// exactly when the declared type is a resource, and any `STATE T` must be a
-    /// copyable, defaultable data type. `context` labels the declaration site.
+    /// The `RES`/`STATE` ownership-axis rejections live in `ir::verify`
+    /// (plan-20-Z); only the `STATE T` type-reference walk remains here (it
+    /// feeds the surviving type-visibility/thread-sendability arms).
     pub(super) fn check_resource_declaration(
         &mut self,
         file: &AstFile,
         line: usize,
-        resource: bool,
+        _resource: bool,
         state_type: Option<&str>,
-        declared: Option<&Type>,
-        context: &str,
+        _declared: Option<&Type>,
+        _context: &str,
     ) {
-        let is_resource = declared.is_some_and(|type_| self.is_resource_type(type_));
-        if is_resource && !resource {
-            let type_name = declared.map(|t| self.type_name(t)).unwrap_or_default();
-        } else if resource && declared.is_some() && !is_resource {
-            let type_name = self.type_name(declared.unwrap());
-        }
-
         if let Some(state) = state_type {
-            // A resource union abstracts over *which* resource it holds, so a
-            // union-level STATE is undefined — it would vary by tag and be absent
-            // for stateless variants. STATE belongs to one concrete resource.
-            let on_resource_union =
-                matches!(declared, Some(Type::User(name)) if self.is_resource_union(name));
-            if on_resource_union {
-                let type_name = self.type_name(declared.unwrap());
-            }
             let state_resolved = self.parse_type(state);
             self.check_type_reference(file, &state_resolved, line);
-            if !self.is_copyable_type(&state_resolved) || !self.is_defaultable_type(&state_resolved)
-            {
-            }
         }
     }
 
@@ -238,18 +174,11 @@ impl<'a> TypeChecker<'a> {
                 {}
                 // A `RES` binding whose ownership floats into an outer-scope
                 // collection (or out via a returned collection) becomes
-                // borrow-only: it may not close, `RETURN`, or transfer the
-                // resource — the owning scope does that (§15.6).
-                let borrowed = *resource
-                    && self.is_resource_type(&binding_type)
-                    && self.current_resource_owners.floats(name);
                 locals.insert(
                     name.clone(),
                     LocalInfo {
                         type_: binding_type,
                         mutable: *mutable,
-                        ownership: OwnershipState::Available,
-                        borrowed,
                         state_type: state_type.clone(),
                     },
                 );
@@ -348,7 +277,7 @@ impl<'a> TypeChecker<'a> {
                 }
                 Flow::AlwaysReturns
             }
-            Statement::Continue { kind, line } => {
+            Statement::Continue { kind, line: _ } => {
                 if !self.loop_stack.iter().rev().any(|item| *item == *kind) {}
                 Flow::AlwaysReturns
             }
@@ -357,7 +286,7 @@ impl<'a> TypeChecker<'a> {
                 if !self.compatible(&Type::Error, &actual) {}
                 Flow::AlwaysReturns
             }
-            Statement::Propagate { line } => {
+            Statement::Propagate { line: _ } => {
                 if trap_name.is_none() {}
                 Flow::AlwaysReturns
             }
@@ -424,7 +353,7 @@ impl<'a> TypeChecker<'a> {
             }
             Statement::Assign { name, value, line } => {
                 let Some(local) = locals.get(name).cloned() else {
-                    if let Some(binding) = self.lookup_visible_binding(file, name).cloned() {
+                    if let Some(_binding) = self.lookup_visible_binding(file, name).cloned() {
                         // Mutability/type/range rejections for global
                         // assignment targets live in `ir::verify` (plan-20-Z);
                         // inference still runs for elaboration.
@@ -442,9 +371,7 @@ impl<'a> TypeChecker<'a> {
                 // Mutability/type/range rejections for local assignment
                 // targets live in `ir::verify` (plan-20-Z).
                 self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
-                if !self.require_local_owned(file, *line, name, &local) {
-                    return Flow::FallsThrough;
-                }
+                let _ = local;
                 Flow::FallsThrough
             }
             Statement::StateAssign {
@@ -466,11 +393,6 @@ impl<'a> TypeChecker<'a> {
                     self.infer_expression(file, value, locals, *line, ExprMode::Read);
                     return Flow::FallsThrough;
                 };
-                // Both the owner and a borrower may mutate STATE; only liveness
-                // (not ownership) is required.
-                if !self.require_local_owned(file, *line, resource, &local) {
-                    return Flow::FallsThrough;
-                }
                 let state_type = self.parse_type(&state_name);
                 let actual = self.infer_expression_with_expected(
                     file,
@@ -634,7 +556,7 @@ impl<'a> TypeChecker<'a> {
                 let loop_type = if all_numeric {
                     promote_loop_numeric_type(&start_type, &end_type, &step_type)
                 } else {
-                    for (label, type_) in [
+                    for (_label, type_) in [
                         ("start", &start_type),
                         ("end", &end_type),
                         ("step", &step_type),
@@ -652,8 +574,6 @@ impl<'a> TypeChecker<'a> {
                     LocalInfo {
                         type_: loop_type,
                         mutable: false,
-                        ownership: OwnershipState::Available,
-                        borrowed: false,
                         state_type: None,
                     },
                 );
@@ -683,20 +603,18 @@ impl<'a> TypeChecker<'a> {
                         self.type_name(&key),
                         self.type_name(strip_res(&value))
                     )),
-                    other => Type::Unknown,
+                    _other => Type::Unknown,
                 };
                 // Iterating a resource collection yields a *borrow* of each
                 // element; the loop variable may not close, `RETURN`, or transfer
                 // the resource (§15.6).
-                let element_borrowed = self.is_resource_type(&element_type);
+                let _element_borrowed = self.is_resource_type(&element_type);
                 let mut nested = locals.clone();
                 nested.insert(
                     name.clone(),
                     LocalInfo {
                         type_: element_type,
                         mutable: false,
-                        ownership: OwnershipState::Available,
-                        borrowed: element_borrowed,
                         state_type: None,
                     },
                 );

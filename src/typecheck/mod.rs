@@ -9,7 +9,6 @@ use crate::binary_repr::{
 };
 use crate::builtins;
 use crate::numeric;
-use crate::rules;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
@@ -60,21 +59,9 @@ enum Type {
 struct LocalInfo {
     type_: Type,
     mutable: bool,
-    ownership: OwnershipState,
-    /// A borrowed resource (a `RES` parameter): the caller retains ownership, so
-    /// the callee may use it and mutate its `STATE` but may not invalidate it
-    /// (close, `RETURN`, or `thread::transfer` require ownership).
-    borrowed: bool,
     /// The `STATE T` type attached to a `RES` binding/parameter, if any. Drives
     /// `s.state` member access typing.
     state_type: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum OwnershipState {
-    Available,
-    Moved,
-    MaybeMoved,
 }
 
 #[derive(Clone)]
@@ -1122,20 +1109,20 @@ impl<'a> TypeChecker<'a> {
 
     pub(super) fn report_expanded_union_member_conflicts(
         &mut self,
-        file: &AstFile,
+        _file: &AstFile,
         type_decl: &TypeDecl,
     ) {
         let mut included_members: HashMap<String, String> = HashMap::new();
         for include in &type_decl.includes {
             for variant in self.expanded_union_variants(include, &mut HashSet::new()) {
-                if let Some(previous_include) =
+                if let Some(_previous_include) =
                     included_members.insert(variant.name.clone(), include.clone())
                 {}
             }
         }
 
         for variant in &type_decl.variants {
-            if let Some(include) = included_members.get(&variant.name) {}
+            if let Some(_include) = included_members.get(&variant.name) {}
         }
     }
 
@@ -1691,15 +1678,13 @@ impl<'a> TypeChecker<'a> {
                 if !self.expression_compatible(&param_type, &default_type, Some(default)) {}
             }
 
-            let borrowed = self.is_resource_type(&param_type);
+            let _borrowed = self.is_resource_type(&param_type);
             let state_type = param.state_type.clone();
             locals.insert(
                 param.name.clone(),
                 LocalInfo {
                     type_: param_type,
                     mutable: false,
-                    ownership: OwnershipState::Available,
-                    borrowed,
                     state_type,
                 },
             );
@@ -1716,8 +1701,6 @@ impl<'a> TypeChecker<'a> {
                 LocalInfo {
                     type_: Type::Error,
                     mutable: false,
-                    ownership: OwnershipState::Available,
-                    borrowed: false,
                     state_type: None,
                 },
             );

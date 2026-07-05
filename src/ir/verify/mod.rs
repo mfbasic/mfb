@@ -2103,7 +2103,7 @@ impl TypeEnv {
         // Run `body` as a branch: fresh scope, then merge the new moves of a
         // fall-through branch back into the outer set (typecheck's MaybeMoved —
         // moved on *some* path means unusable after the join).
-        let mut run_branch = |body: &[IrOp],
+        let run_branch = |body: &[IrOp],
                               locals: &HashMap<String, String>,
                               moved: &mut HashSet<String>| {
             let mut branch_moved = moved.clone();
@@ -2354,7 +2354,7 @@ impl TypeEnv {
             if case.guard.is_some() {
                 continue;
             }
-            let mut name_of = |v: &IrValue| match v {
+            let name_of = |v: &IrValue| match v {
                 IrValue::Local(name) => Some(name.clone()),
                 IrValue::MemberAccess { member, .. } => Some(member.clone()),
                 _ => None,
@@ -3750,7 +3750,7 @@ fn resource_base_type(type_: &str) -> &str {
 /// Collect the names of every `Local` read anywhere in an op's value positions
 /// (not its nested bodies — those are traversed separately).
 fn collect_local_reads_op(op: &IrOp, out: &mut Vec<String>) {
-    let mut v = |value: &IrValue, out: &mut Vec<String>| collect_local_reads_value(value, out);
+    let v = |value: &IrValue, out: &mut Vec<String>| collect_local_reads_value(value, out);
     match op {
         IrOp::Bind {
             value: Some(value), ..

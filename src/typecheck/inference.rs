@@ -51,10 +51,6 @@ impl<'a> TypeChecker<'a> {
                     )
                 } else {
                     if let Some(local) = locals.get(name).cloned() {
-                        self.require_local_owned(file, line, name, &local);
-                        if matches!(mode, ExprMode::Transfer) {
-                            self.consume_local_if_needed(file, line, name, locals);
-                        }
                         local.type_
                     } else {
                         self.lookup_visible_function(file, name)
@@ -143,8 +139,6 @@ impl<'a> TypeChecker<'a> {
                     LocalInfo {
                         type_: Type::Error,
                         mutable: false,
-                        ownership: OwnershipState::Available,
-                        borrowed: false,
                         state_type: None,
                     },
                 );
@@ -182,7 +176,7 @@ impl<'a> TypeChecker<'a> {
                 operator, operand, ..
             } => {
                 if operator == "-" && !integer_literal_in_range(expression) {
-                    if let Expression::Number(value) = operand.as_ref() {}
+                    if let Expression::Number(_value) = operand.as_ref() {}
                     return Type::Integer;
                 }
                 if operator == "-"
@@ -321,7 +315,7 @@ impl<'a> TypeChecker<'a> {
             return None;
         };
         let info = locals.get(name)?;
-        if info.ownership != OwnershipState::Available || self.is_copyable_type(&info.type_) {
+        if self.is_copyable_type(&info.type_) {
             return None;
         }
         Some((name.clone(), info.clone()))
@@ -378,8 +372,6 @@ impl<'a> TypeChecker<'a> {
                             LocalInfo {
                                 type_: Type::User(type_name.clone()),
                                 mutable: false,
-                                ownership: OwnershipState::Available,
-                                borrowed: false,
                                 state_type: None,
                             },
                         );
@@ -432,12 +424,12 @@ impl<'a> TypeChecker<'a> {
 
     pub(super) fn report_match_not_exhaustive(
         &mut self,
-        file: &AstFile,
-        line: usize,
+        _file: &AstFile,
+        _line: usize,
         matched_type: &Type,
         covered_cases: &HashSet<String>,
     ) {
-        let detail = match matched_type {
+        let _detail = match matched_type {
             Type::User(type_name) => {
                 let Some(info) = self.type_infos.get(type_name) else {
                     return;
@@ -752,11 +744,6 @@ impl<'a> TypeChecker<'a> {
         if member == "state" {
             if let Expression::Identifier(name) = target {
                 if let Some(state) = locals.get(name).and_then(|info| info.state_type.clone()) {
-                    if let Some(info) = locals.get(name).cloned() {
-                        if !self.require_local_owned(file, line, name, &info) {
-                            return Type::Unknown;
-                        }
-                    }
                     return self.parse_type(&state);
                 }
             }
@@ -901,7 +888,7 @@ impl<'a> TypeChecker<'a> {
                 )
             };
             let Some(field) = field else {
-                if let ConstructorArg::Named { name, .. } = argument {}
+                if let ConstructorArg::Named { name: _, .. } = argument {}
                 continue;
             };
             if !self.expression_compatible(&field.type_, &actual, Some(argument_value)) {}
@@ -910,11 +897,11 @@ impl<'a> TypeChecker<'a> {
 
     pub(super) fn infer_binary(
         &mut self,
-        file: &AstFile,
+        _file: &AstFile,
         operator: &str,
         left: &Type,
         right: &Type,
-        line: usize,
+        _line: usize,
     ) -> Type {
         if matches!(operator, "AND" | "OR" | "XOR") {
             if self.compatible(&Type::Boolean, left) && self.compatible(&Type::Boolean, right) {
@@ -965,10 +952,10 @@ impl<'a> TypeChecker<'a> {
 
     pub(super) fn infer_unary(
         &mut self,
-        file: &AstFile,
+        _file: &AstFile,
         operator: &str,
         operand: &Type,
-        line: usize,
+        _line: usize,
     ) -> Type {
         match operator {
             "NOT" => {
@@ -1133,8 +1120,6 @@ impl<'a> TypeChecker<'a> {
                 LocalInfo {
                     type_: type_.clone(),
                     mutable: false,
-                    ownership: OwnershipState::Available,
-                    borrowed: false,
                     state_type: None,
                 },
             );
@@ -1240,7 +1225,7 @@ impl<'a> TypeChecker<'a> {
                         None
                     }
                 };
-                let actual =
+                let _actual =
                     self.infer_expression(file, body, &mut locals, line, ExprMode::Transfer);
                 if let Some(target_type) = target_type {
                     // Assignment mismatch/range rejections live in
