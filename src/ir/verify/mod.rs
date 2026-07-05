@@ -1094,8 +1094,16 @@ impl TypeEnv {
                 // Each WITH update must match its field's declared type —
                 // typecheck's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
                 let fields = self.field_types.get(resource_base_type(type_));
+                let mut seen_fields: HashSet<&str> = HashSet::new();
                 for update in updates {
                     self.check_value(&update.value, locals);
+                    // A WITH block may set each field at most once.
+                    if !seen_fields.insert(update.field.as_str()) {
+                        self.emit(
+                            "TYPE_DUPLICATE_FIELD",
+                            format!("WITH update sets field `{}` more than once.", update.field),
+                        );
+                    }
                     let Some(expected) = fields.and_then(|f| f.get(&update.field)) else {
                         continue;
                     };
