@@ -120,6 +120,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
     "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
     "TYPE_SUB_HAS_NO_VALUE",
+    "TYPE_FUNC_MISSING_RETURN",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -155,6 +156,31 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
             env.emit(
                 "TYPE_FUNC_REQUIRES_RETURN_TYPE",
                 format!("FUNC `{}` must declare an `AS` return type.", function.name),
+            );
+        }
+        // A value-producing FUNC must return on every path (`AS Nothing`
+        // FUNCs, like SUBs, may fall through). Synthesized `$lambda` bodies
+        // always end in a lowered Return.
+        if function.kind == "func"
+            && function.returns != "Nothing"
+            && function.returns != "Unknown"
+            && !function.name.starts_with('$')
+            && !env.block_always_returns(
+                &function.body,
+                &function
+                    .params
+                    .iter()
+                    .map(|p| (p.name.clone(), p.type_.clone()))
+                    .collect(),
+            )
+        {
+            env.current_line.set(function.loc.line);
+            env.emit(
+                "TYPE_FUNC_MISSING_RETURN",
+                format!(
+                    "FUNC `{}` must return a {} value.",
+                    function.name, function.returns
+                ),
             );
         }
         let mut locals: HashMap<String, String> = HashMap::new();
@@ -1971,6 +1997,106 @@ impl TypeEnv {
         };
         seen.remove(type_);
         result
+    }
+
+    /// Whether every path through `ops` leaves the function (mirrors
+    /// typecheck's `Flow::AlwaysReturns`): a Return/Fail/ExitProgram op, an If
+    /// whose both branches return, a MATCH with an unguarded CASE ELSE whose
+    /// every arm returns, or a TRAP whose body returns. Loops never count
+    /// (they may run zero times).
+    fn block_always_returns(&self, ops: &[IrOp], locals: &HashMap<String, String>) -> bool {
+        let mut locals = locals.clone();
+        for op in ops {
+            match op {
+                IrOp::Return { .. } | IrOp::Fail { .. } | IrOp::ExitProgram { .. } => return true,
+                IrOp::If {
+                    then_body,
+                    else_body,
+                    ..
+                } => {
+                    if self.block_always_returns(then_body, &locals)
+                        && self.block_always_returns(else_body, &locals)
+                    {
+                        return true;
+                    }
+                }
+                IrOp::Match { value, cases, .. } => {
+                    // Exhaustive = an unguarded CASE ELSE, or full enum/union
+                    // coverage by unguarded arms (mirroring the relocated
+                    // exhaustiveness rule, which rejects anything else).
+                    let has_else = cases.iter().any(|case| {
+                        case.guard.is_none()
+                            && matches!(case.pattern, super::IrMatchPattern::Else)
+                    });
+                    let exhaustive = has_else || self.match_covers_all(value, cases, &locals);
+                    if exhaustive
+                        && cases
+                            .iter()
+                            .all(|case| self.block_always_returns(&case.body, &locals))
+                    {
+                        return true;
+                    }
+                }
+                IrOp::Trap { body, .. } => {
+                    if self.block_always_returns(body, &locals) {
+                        return true;
+                    }
+                }
+                IrOp::Bind { name, type_, .. } => {
+                    locals.insert(name.clone(), type_.clone());
+                }
+                _ => {}
+            }
+        }
+        false
+    }
+
+    /// Whether the unguarded arms of a MATCH cover every member/variant of its
+    /// enum/union scrutinee (the coverage half of `check_match_exhaustive`).
+    fn match_covers_all(
+        &self,
+        value: &IrValue,
+        cases: &[super::IrMatchCase],
+        locals: &HashMap<String, String>,
+    ) -> bool {
+        let Some(ty) = self.infer_type(value, locals) else {
+            return false;
+        };
+        let ty = resource_base_type(&ty).to_string();
+        let all = if let Some(variants) = self.union_variants(&ty) {
+            variants
+        } else if let Some(members) = self.enums.get(&ty) {
+            members.clone()
+        } else {
+            return false;
+        };
+        let mut covered: HashSet<String> = HashSet::new();
+        for case in cases {
+            if case.guard.is_some() {
+                continue;
+            }
+            let mut name_of = |v: &IrValue| match v {
+                IrValue::Local(name) => Some(name.clone()),
+                IrValue::MemberAccess { member, .. } => Some(member.clone()),
+                _ => None,
+            };
+            match &case.pattern {
+                super::IrMatchPattern::Else => return true,
+                super::IrMatchPattern::Value(v) => {
+                    if let Some(n) = name_of(v) {
+                        covered.insert(n);
+                    }
+                }
+                super::IrMatchPattern::OneOf(vs) => {
+                    for v in vs {
+                        if let Some(n) = name_of(v) {
+                            covered.insert(n);
+                        }
+                    }
+                }
+            }
+        }
+        all.difference(&covered).next().is_none()
     }
 
     /// The registered close op for a resource type: user-declared native
