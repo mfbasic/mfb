@@ -1293,12 +1293,6 @@ impl<'a> SyntaxChecker<'a> {
     ) -> Type {
         let arguments =
             self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
-        // Legacy pre-migration paths. `check_general_builtin_call` is only entered
-        // for bare general callees (`len`, `toString`, `isOdd`, …); `filter` and
-        // the `collections.*` update members are no longer general calls
-        // (`is_general_call` excludes them), so the `filter` block and the
-        // `collections.*` resource-element block below are unreachable here. Their
-        // live equivalents run in `check_collections_builtin_call`.
         if callee == "filter" && arguments.len() == 2 {
             if let Expression::Identifier(predicate) = &arguments[1] {
                 if builtins::general::builtin_function_id(predicate).is_some() {
@@ -1811,912 +1805,778 @@ impl<'a> SyntaxChecker<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::testutil::*;
+mod builtins_tests {
+    use crate::syntaxcheck::testutil::*;
 
-    /// Wrap a builtin-call expression inside a runnable `main` with the given
-    /// import lines, binding the result so the call is actually type-checked.
-    fn prog(imports: &[&str], body: &str) -> String {
-        let mut src = String::new();
-        for import in imports {
-            src.push_str("IMPORT ");
-            src.push_str(import);
-            src.push('\n');
-        }
-        src.push_str("FUNC main AS Integer\n");
-        src.push_str(body);
-        src.push_str("\n  RETURN 0\nEND FUNC\n");
-        src
-    }
-
-    const ARITY: &str = "TYPE_CALL_ARITY_MISMATCH";
-    const ARGTYPE: &str = "TYPE_CALL_ARGUMENT_MISMATCH";
-    const DUP_NAME: &str = "TYPE_DUPLICATE_ARGUMENT_NAME";
-    const UNKNOWN_NAME: &str = "TYPE_UNKNOWN_ARGUMENT_NAME";
-
-    // ---- vector ---------------------------------------------------------
-
-    #[test]
-    fn vector_valid() {
-        assert!(accepts(&prog(
-            &["vector"],
-            "  LET d AS Float = vector::dot(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])",
-        )));
-    }
-
-    #[test]
-    fn vector_wrong_arity() {
-        assert!(rejects_with(
-            &prog(
-                &["vector"],
-                "  LET d AS Float = vector::dot(vector::Float2[3.0, 4.0])",
-            ),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn vector_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(
-                &["vector"],
-                "  LET d AS Float = vector::dot(vector::Float2[3.0, 4.0], vector::Float3[1.0, 2.0, 3.0])",
-            ),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- fs --------------------------------------------------------------
-
-    #[test]
-    fn fs_valid() {
-        assert!(accepts(&prog(
-            &["fs"],
-            "  LET ok AS Boolean = fs::exists(\"path\")",
-        )));
-    }
-
-    #[test]
-    fn fs_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["fs"], "  LET ok AS Boolean = fs::exists()"),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn fs_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["fs"], "  LET ok AS Boolean = fs::exists(1)"),
-            ARGTYPE,
-        ));
-    }
-
-    #[test]
-    fn fs_close_transfers_handle() {
-        // Exercises the fs.close Transfer-mode branch on argument 0.
-        assert!(accepts(&prog(
-            &["fs"],
-            "  RES f AS File = fs::openFile(\"path\")\n  fs::close(f)",
-        )));
-    }
-
-    // ---- net -------------------------------------------------------------
-
-    #[test]
-    fn net_valid() {
-        assert!(accepts(&prog(
-            &["net"],
-            "  RES s AS UdpSocket = net::bindUdp(\"127.0.0.1\", 0)",
-        )));
-    }
-
-    #[test]
-    fn net_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["net"], "  RES s AS UdpSocket = net::bindUdp()"),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn net_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["net"], "  RES s AS UdpSocket = net::bindUdp(1, 2)"),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- tls -------------------------------------------------------------
-
-    #[test]
-    fn tls_wrong_arity() {
-        assert!(rejects_with(&prog(&["tls"], "  tls::writeText()"), ARITY));
-    }
-
-    #[test]
-    fn tls_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["tls"], "  tls::writeText(1, 2)"),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- json ------------------------------------------------------------
-
-    #[test]
-    fn json_valid() {
-        assert!(accepts(&prog(
-            &["json"],
-            "  LET j AS Json = json::parse(\"{}\")",
-        )));
-    }
-
-    #[test]
-    fn json_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["json"], "  LET j AS Json = json::parse()"),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn json_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["json"], "  LET j AS Json = json::parse(TRUE)"),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- csv -------------------------------------------------------------
-
-    #[test]
-    fn csv_valid() {
-        assert!(accepts(&prog(
-            &["csv"],
-            "  LET rows AS List OF List OF String = csv::parse(\"a,b\")",
-        )));
-    }
-
-    #[test]
-    fn csv_wrong_arity() {
-        assert!(rejects_with(
-            &prog(
-                &["csv"],
-                "  LET rows AS List OF List OF String = csv::parse()",
-            ),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn csv_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(
-                &["csv"],
-                "  LET rows AS List OF List OF String = csv::parse(TRUE)",
-            ),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- http ------------------------------------------------------------
-
-    #[test]
-    fn http_valid() {
-        assert!(accepts(&prog(
-            &["http", "net"],
-            "  LET u AS Url = net::toUrl(\"http://x/\")\n  LET r AS http::Response = http::read(u)",
-        )));
-    }
-
-    #[test]
-    fn http_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["http"], "  LET r AS http::Response = http::read()"),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn http_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["http"], "  LET r AS http::Response = http::read(123)"),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- regex -----------------------------------------------------------
-
-    #[test]
-    fn regex_valid() {
-        assert!(accepts(&prog(
-            &["regex"],
-            "  LET m AS Integer = regex::find(\"hello\", \"l\")",
-        )));
-    }
-
-    #[test]
-    fn regex_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["regex"], "  LET m AS Integer = regex::find(\"a\")"),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn regex_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(
-                &["regex"],
-                "  LET m AS Integer = regex::find(\"a\", \"b\", \"c\")",
-            ),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- datetime --------------------------------------------------------
-
-    #[test]
-    fn datetime_valid() {
-        assert!(accepts(&prog(
-            &["datetime"],
-            "  LET i AS Instant = datetime::instant(100)",
-        )));
-    }
-
-    #[test]
-    fn datetime_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["datetime"], "  LET i AS Instant = datetime::instant()"),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn datetime_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(
-                &["datetime"],
-                "  LET i AS Instant = datetime::instant(\"100\")",
-            ),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- io --------------------------------------------------------------
-
-    #[test]
-    fn io_valid() {
-        assert!(accepts(&prog(&["io"], "  io::print(\"hello\")")));
-    }
-
-    #[test]
-    fn io_wrong_arity() {
-        assert!(rejects_with(&prog(&["io"], "  io::print()"), ARITY));
-    }
-
-    #[test]
-    fn io_wrong_argtype() {
-        assert!(rejects_with(&prog(&["io"], "  io::print(1)"), ARGTYPE));
-    }
-
-    // ---- term ------------------------------------------------------------
-
-    #[test]
-    fn term_valid_zero_args() {
-        assert!(accepts(&prog(&["term"], "  term::clear()")));
-    }
-
-    #[test]
-    fn term_valid_typed_arg() {
-        assert!(accepts(&prog(&["term"], "  term::setUnderline(FALSE)")));
-    }
-
-    #[test]
-    fn term_wrong_arity() {
-        assert!(rejects_with(&prog(&["term"], "  term::clear(1)"), ARITY));
-    }
-
-    #[test]
-    fn term_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["term"], "  term::setUnderline(\"x\")"),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- thread ----------------------------------------------------------
-
-    #[test]
-    fn thread_start_bad_entry() {
-        // A non-identifier entry point fails the `valid_entry` check and is
-        // rejected with the dedicated entry-point message. (A valid thread.start
-        // requires an imported ISOLATED-FUNC package, which the single-file test
-        // harness cannot provide.)
-        assert!(rejects_with(
-            &prog(
-                &["thread"],
-                "  LET t AS Thread OF String TO Integer = thread::start(42, \"a\")",
-            ),
-            ARGTYPE,
-        ));
-    }
-
-    #[test]
-    fn thread_wrong_arity() {
-        // thread.isRunning has arity (1, 1); zero args is an arity mismatch.
-        assert!(rejects_with(
-            &prog(&["thread"], "  LET r AS Boolean = thread::isRunning()",),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn thread_wrong_argtype() {
-        // An Integer is not a Thread, so resolve_call rejects the argument type.
-        assert!(rejects_with(
-            &prog(&["thread"], "  LET r AS Boolean = thread::isRunning(42)",),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- strings ---------------------------------------------------------
-
-    #[test]
-    fn strings_valid() {
-        assert!(accepts(&prog(
-            &["strings"],
-            "  LET s AS String = strings::trim(\"  hi  \")",
-        )));
-    }
-
-    #[test]
-    fn strings_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["strings"], "  LET s AS String = strings::trim()"),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn strings_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["strings"], "  LET s AS String = strings::trim(42)"),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- math ------------------------------------------------------------
-
-    #[test]
-    fn math_valid() {
-        assert!(accepts(&prog(
-            &["math"],
-            "  LET n AS Integer = math::abs(-7)",
-        )));
-    }
-
-    #[test]
-    fn math_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["math"], "  LET n AS Integer = math::floor()"),
-            ARITY,
-        ));
-    }
-
-    #[test]
-    fn math_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["math"], "  LET n AS Integer = math::floor(\"x\")"),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- bits ------------------------------------------------------------
+    // ---- per-package accept paths (resolved return type) -------------------
 
     #[test]
     fn bits_valid() {
-        assert!(accepts(&prog(
-            &["bits"],
-            "  LET n AS Integer = bits::band(65280, 4080)",
-        )));
-    }
-
-    #[test]
-    fn bits_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["bits"], "  LET n AS Integer = bits::band(1)"),
-            ARITY,
+        assert!(accepts(
+            "IMPORT io\nIMPORT bits\nFUNC main AS Integer\n  io::print(toString(bits::band(255, 15)))\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn bits_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["bits"], "  LET n AS Integer = bits::band(1.5, 2)"),
-            ARGTYPE,
-        ));
-    }
-
-    // ---- crypto ----------------------------------------------------------
-
-    #[test]
-    fn crypto_valid() {
-        assert!(accepts(&prog(
-            &["crypto"],
-            "  LET h AS List OF Byte = crypto::sha256(\"data\")",
-        )));
-    }
-
-    #[test]
-    fn crypto_wrong_arity() {
-        // crypto.uuid4 takes 0 args; passing one is an arity mismatch.
-        assert!(rejects_with(
-            &prog(&["crypto"], "  LET s AS String = crypto::uuid4(42)"),
-            ARITY,
+    fn math_valid() {
+        assert!(accepts(
+            "IMPORT io\nIMPORT math\nFUNC main AS Integer\n  io::print(toString(math::abs(-7)))\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn crypto_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["crypto"], "  LET h AS List OF Byte = crypto::sha256(42)"),
-            ARGTYPE,
+    fn strings_valid() {
+        assert!(accepts(
+            "IMPORT io\nIMPORT strings\nFUNC main AS Integer\n  LET b = strings::toBytes(\"hi\")\n  RETURN 0\nEND FUNC\n"
         ));
     }
-
-    // ---- encoding --------------------------------------------------------
 
     #[test]
     fn encoding_valid() {
-        assert!(accepts(&prog(
-            &["encoding"],
-            "  LET h AS String = encoding::hexEncode(encoding::utf8Encode(\"hi\"))",
-        )));
-    }
-
-    #[test]
-    fn encoding_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&["encoding"], "  LET h AS String = encoding::hexEncode()"),
-            ARITY,
+        assert!(accepts(
+            "IMPORT io\nIMPORT encoding\nFUNC main AS Integer\n  io::print(encoding::base64Encode([toByte(102)]))\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn encoding_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&["encoding"], "  LET h AS String = encoding::hexEncode(42)"),
-            ARGTYPE,
+    fn term_valid() {
+        assert!(accepts(
+            "IMPORT term\nFUNC main AS Integer\n  term::clear()\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn encoding_utf8encode_adopts_expected_bytes() {
-        // Expected type `List OF Byte` is adopted by the return-type overload.
-        assert!(accepts(&prog(
-            &["encoding"],
-            "  LET b AS List OF Byte = encoding::utf8Encode(\"hi\")",
-        )));
-    }
-
-    #[test]
-    fn encoding_utf8encode_adopts_expected_ints() {
-        // Expected type `List OF Integer` is adopted by the return-type overload.
-        assert!(accepts(&prog(
-            &["encoding"],
-            "  LET b AS List OF Integer = encoding::utf8Encode(\"hi\")",
-        )));
-    }
-
-    // ---- general ---------------------------------------------------------
-
-    #[test]
-    fn general_valid() {
-        assert!(accepts(&prog(&[], "  LET n AS Integer = len(\"hello\")")));
-    }
-
-    #[test]
-    fn general_wrong_arity() {
-        assert!(rejects_with(
-            &prog(&[], "  LET n AS Integer = len()"),
-            ARITY
+    fn datetime_valid() {
+        assert!(accepts(
+            "IMPORT io\nIMPORT datetime\nFUNC main AS Integer\n  LET i = datetime::instant(100)\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn general_wrong_argtype() {
-        assert!(rejects_with(
-            &prog(&[], "  LET n AS Integer = len(42)"),
-            ARGTYPE,
+    fn regex_valid() {
+        assert!(accepts(
+            "IMPORT regex\nFUNC main AS Integer\n  LET hits AS List OF Integer = regex::findAll(\"a\", \"abc\")\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn general_to_string_valid() {
-        assert!(accepts(&prog(&[], "  LET s AS String = toString(42)")));
-    }
-
-    #[test]
-    fn general_to_string_package_override() {
-        // `toString(net::Url)` is not a built-in overload; it resolves through the
-        // package-provided override registry (the `is_overridable` + override-target
-        // path), yielding the built-in's conventional String result.
-        assert!(accepts(&prog(
-            &["net"],
-            "  LET u AS Url = net::toUrl(\"http://x/\")\n  LET s AS String = toString(u)",
-        )));
-    }
-
-    // ---- collections (native member calls) -------------------------------
-
-    #[test]
-    fn collections_valid() {
-        assert!(accepts(&prog(
-            &["collections"],
-            "  LET xs AS List OF Integer = [1, 2, 3]\n  LET x AS Integer = collections::get(xs, 0)",
-        )));
-    }
-
-    #[test]
-    fn collections_wrong_arity() {
-        assert!(rejects_with(
-            &prog(
-                &["collections"],
-                "  LET xs AS List OF Integer = [1, 2, 3]\n  LET x AS Integer = collections::get(xs)",
-            ),
-            ARITY,
+    fn vector_valid() {
+        assert!(accepts(
+            "IMPORT vector\nIMPORT io\nFUNC main AS Integer\n  io::print(toString(vector::abs(vector::Integer2[-3, 4])))\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn collections_wrong_argtype() {
+    fn net_valid() {
+        assert!(accepts(
+            "IMPORT net\nIMPORT io\nFUNC main AS Integer\n  RES server = net::listenTcp(\"127.0.0.1\", 0)\n  net::close(server)\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn tls_valid() {
+        assert!(accepts(
+            "IMPORT tls\nIMPORT io\nFUNC main AS Integer\n  RES c = tls::connect(\"example.com\", 443)\n  tls::close(c)\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn fs_valid() {
+        assert!(accepts(
+            "IMPORT fs\nIMPORT io\nFUNC main AS Integer\n  fs::writeText(\"t.txt\", \"hi\")\n  io::print(fs::readText(\"t.txt\"))\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn crypto_valid() {
+        assert!(accepts(
+            "IMPORT crypto\nFUNC main AS Integer\n  LET kp = crypto::generateP256()\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn json_valid() {
+        assert!(accepts(
+            "IMPORT io\nIMPORT json\nFUNC main AS Integer\n  io::print(json::stringify(json::parse(\"null\")))\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    // ---- arity mismatch on each dispatch family ----------------------------
+
+    #[test]
+    fn bits_arity_mismatch() {
         assert!(rejects_with(
-            &prog(
-                &["collections"],
-                "  LET xs AS List OF Integer = [1, 2, 3]\n  LET x AS Integer = collections::get(xs, \"k\")",
-            ),
-            ARGTYPE,
+            "IMPORT io\nIMPORT bits\nFUNC main AS Integer\n  io::print(toString(bits::band(1)))\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn math_argument_mismatch() {
+        assert!(rejects_with(
+            "IMPORT io\nIMPORT math\nFUNC main AS Integer\n  io::print(toString(math::abs(\"x\")))\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn strings_argument_mismatch() {
+        assert!(rejects_with(
+            "IMPORT io\nIMPORT strings\nFUNC main AS Integer\n  io::print(strings::toUpper(42))\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn fs_argument_mismatch() {
+        assert!(rejects_with(
+            "IMPORT fs\nFUNC main AS Integer\n  fs::writeText(42, 7)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn vector_arity_mismatch() {
+        assert!(rejects_with(
+            "IMPORT vector\nFUNC main AS Integer\n  LET x = vector::abs()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn vector_argument_mismatch() {
+        assert!(rejects_with(
+            "IMPORT vector\nFUNC main AS Integer\n  LET x = vector::abs(\"nope\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn encoding_argument_mismatch() {
+        assert!(rejects_with(
+            "IMPORT encoding\nFUNC main AS Integer\n  LET x = encoding::base64Encode(\"str\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- general / collections builtins ------------------------------------
+
+    #[test]
+    fn general_len_valid() {
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET xs AS List OF Integer = [1, 2, 3]\n  LET n = len(xs)\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn general_argument_mismatch() {
+        assert!(rejects_with(
+            "FUNC main AS Integer\n  LET n = toByte(\"nope\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn collections_contains_valid() {
+        assert!(accepts(
+            "IMPORT collections\nIMPORT io\nFUNC main AS Integer\n  LET xs AS List OF Integer = [1, 2, 3]\n  io::print(toString(collections::contains(xs, 2)))\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
     fn collections_filter_builtin_predicate_valid() {
-        assert!(accepts(&prog(
-            &["collections"],
-            "  LET xs AS List OF Integer = [1, 2, 3]\n  LET odds AS List OF Integer = collections::filter(xs, isOdd)",
-        )));
+        // Exercises the `filter` + builtin-predicate branch (collections path).
+        assert!(accepts(
+            "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF Integer = [1, 2, 3]\n  LET ys AS List OF Integer = collections::filter(xs, isPositive)\n  RETURN 0\nEND FUNC\n"
+        ));
     }
 
     #[test]
-    fn collections_filter_builtin_predicate_type_mismatch() {
+    fn collections_filter_predicate_type_mismatch() {
+        // A builtin predicate that cannot resolve for the element type walks the
+        // `predicate_type` None arm.
+        let src = "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF String = [\"a\"]\n  LET ys AS List OF String = collections::filter(xs, isEven)\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
+    }
+
+    #[test]
+    fn general_filter_builtin_predicate() {
+        // `filter` with a builtin function id as predicate (general path).
+        let src = "FUNC main AS Integer\n  LET xs AS List OF Integer = [1, 2, 3]\n  LET ys AS List OF Integer = filter(xs, isPositive)\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn collections_arity_mismatch() {
         assert!(rejects_with(
-            &prog(
-                &["collections"],
-                "  LET xs AS List OF String = [\"a\"]\n  LET r AS List OF String = collections::filter(xs, isOdd)",
-            ),
-            ARGTYPE,
+            "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF Integer = [1, 2, 3]\n  LET y = collections::get(xs)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
         ));
     }
 
     #[test]
-    fn collections_append_valid() {
-        // Exercises the append/prepend/insert/set resource-element check path.
-        assert!(accepts(&prog(
-            &["collections"],
-            "  MUT xs AS List OF Integer = [1, 2]\n  collections::append(xs, 3)",
-        )));
-    }
-
-    #[test]
-    fn collections_contains_comparable_valid() {
-        // Exercises check_general_builtin_comparability via the `contains` member.
-        assert!(accepts(&prog(
-            &["collections"],
-            "  LET xs AS List OF Integer = [1, 2, 3]\n  LET yes AS Boolean = collections::contains(xs, 2)",
-        )));
-    }
-
-    #[test]
-    fn collections_find_comparable_valid() {
-        assert!(accepts(&prog(
-            &["collections"],
-            "  LET xs AS List OF Integer = [1, 2, 3]\n  LET i AS Integer = collections::find(xs, 2)",
-        )));
-    }
-
-    #[test]
-    fn collections_replace_comparable_valid() {
-        assert!(accepts(&prog(
-            &["collections"],
-            "  MUT xs AS List OF Integer = [1, 2, 3]\n  collections::replace(xs, 2, 9)",
-        )));
-    }
-
-    // ---- named-argument normalization -----------------------------------
-
-    #[test]
-    fn named_args_valid() {
-        // strings.split has named params value / delimiter.
-        assert!(accepts(&prog(
-            &["strings"],
-            "  LET parts AS List OF String = strings::split(value := \"a,b\", delimiter := \",\")",
-        )));
-    }
-
-    #[test]
-    fn named_args_duplicate_name() {
+    fn collections_argument_mismatch() {
         assert!(rejects_with(
-            &prog(
-                &["strings"],
-                "  LET parts AS List OF String = strings::split(value := \"a\", value := \"b\")",
-            ),
-            DUP_NAME,
+            "IMPORT collections\nFUNC main AS Integer\n  LET y = collections::get(42, 0)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- named argument normalization --------------------------------------
+
+    #[test]
+    fn named_argument_valid() {
+        // A builtin with named args that resolve to its parameter names.
+        assert!(accepts(
+            "IMPORT json\nIMPORT io\nFUNC main AS Integer\n  io::print(json::stringify(json::parse(value := \"null\")))\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn named_args_unknown_name() {
+    fn named_argument_unknown_name() {
         assert!(rejects_with(
-            &prog(
-                &["strings"],
-                "  LET parts AS List OF String = strings::split(value := \"a\", nope := \",\")",
-            ),
-            UNKNOWN_NAME,
+            "IMPORT json\nFUNC main AS Integer\n  LET x = json::parse(nope := \"null\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_UNKNOWN_ARGUMENT_NAME"
         ));
     }
 
     #[test]
-    fn named_args_mixed_positional_and_named() {
-        // First positional fills `value`; named `delimiter` fills the rest.
-        assert!(accepts(&prog(
-            &["strings"],
-            "  LET parts AS List OF String = strings::split(\"a,b\", delimiter := \",\")",
-        )));
-    }
-
-    #[test]
-    fn named_args_omit_before_later_supplied() {
-        // Omitting an earlier parameter while supplying a later named one hits
-        // the "omits parameter before a later supplied argument" arity branch.
+    fn named_argument_duplicate() {
         assert!(rejects_with(
-            &prog(
-                &["strings"],
-                "  LET s AS String = strings::padLeft(value := \"a\", padChar := \"x\")",
-            ),
-            ARITY,
+            "IMPORT json\nFUNC main AS Integer\n  LET x = json::parse(\"a\", value := \"b\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_DUPLICATE_ARGUMENT_NAME"
+        ));
+    }
+
+    // ---- general comparability (contains/find on non-comparable element) ---
+
+    #[test]
+    fn contains_valid_on_comparable() {
+        assert!(accepts(
+            "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF String = [\"a\"]\n  LET b = collections::contains(xs, \"a\")\n  RETURN 0\nEND FUNC\n"
         ));
     }
 
     #[test]
-    fn named_args_general_to_string_duplicate() {
+    fn find_valid_on_list() {
+        assert!(accepts(
+            "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF Integer = [1]\n  LET i = collections::find(xs, 1)\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    // ---- io / term valid + reject ------------------------------------------
+
+    #[test]
+    fn io_valid_and_rejects() {
+        assert!(accepts(
+            "IMPORT io\nFUNC main AS Integer\n  io::print(\"a\")\n  io::printError(\"b\")\n  RETURN 0\nEND FUNC\n"
+        ));
         assert!(rejects_with(
-            &prog(
-                &[],
-                "  LET s AS String = toString(value := 42, value := 43)"
-            ),
-            DUP_NAME,
+            "IMPORT io\nFUNC main AS Integer\n  io::print()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
         ));
-    }
-
-    #[test]
-    fn named_args_unknown_on_general() {
         assert!(rejects_with(
-            &prog(&[], "  LET s AS String = toString(bogus := 42)"),
-            UNKNOWN_NAME,
+            "IMPORT io\nFUNC main AS Integer\n  io::print(42)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }
 
     #[test]
-    fn named_args_no_param_names_fallback() {
-        // A named argument on a callee without registered param names falls
-        // through to positional passthrough (no crash, no duplicate-name error).
-        let codes = check_src(&prog(&["io"], "  io::print(msg := \"hi\")"));
-        assert!(!codes.contains(&DUP_NAME.to_string()));
-    }
-
-    // ---- normalize_named_arguments (user FUNC/SUB call path) --------------
-
-    /// Build a program that declares a user `greet(name, greeting = "Hello")`
-    /// FUNC and calls it in `main` with the given argument list text.
-    fn greet_call(call: &str) -> String {
-        format!(
-            "FUNC greet(name AS String, greeting AS String = \"Hello\") AS String\n  RETURN greeting & \", \" & name\nEND FUNC\nFUNC main AS Integer\n  LET s AS String = {call}\n  RETURN len(s)\nEND FUNC\n"
-        )
-    }
-
-    #[test]
-    fn user_named_args_valid() {
-        assert!(accepts(&greet_call(
-            "greet(greeting := \"Hi\", name := \"Ada\")"
-        )));
-    }
-
-    #[test]
-    fn user_named_args_mixed_positional() {
-        assert!(accepts(&greet_call(
-            "greet(\"Grace\", greeting := \"Welcome\")"
-        )));
-    }
-
-    #[test]
-    fn user_named_args_all_defaults_omitted() {
-        // Only the required parameter supplied; the defaulted one is omitted.
-        assert!(accepts(&greet_call("greet(\"Ada\")")));
-    }
-
-    #[test]
-    fn user_named_args_duplicate() {
+    fn term_valid_and_rejects() {
+        assert!(accepts(
+            "IMPORT term\nFUNC main AS Integer\n  term::moveTo(1, 1)\n  RETURN 0\nEND FUNC\n"
+        ));
         assert!(rejects_with(
-            &greet_call("greet(name := \"Ada\", name := \"Grace\")"),
-            DUP_NAME,
+            "IMPORT term\nFUNC main AS Integer\n  term::moveTo(1)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
         ));
-    }
-
-    #[test]
-    fn user_named_args_unknown() {
-        // Unknown name plus a missing required parameter: exercises the
-        // unknown-name report and the missing-required arity branch.
-        let codes = check_src(&greet_call("greet(person := \"Ada\")"));
-        assert!(codes.iter().any(|c| c == UNKNOWN_NAME));
-        assert!(codes.iter().any(|c| c == ARITY));
-    }
-
-    #[test]
-    fn user_named_args_too_many_positional() {
-        // More positional arguments than parameters trips the positional-overflow
-        // arity path (next_positional >= ordered.len()).
         assert!(rejects_with(
-            &greet_call("greet(\"Ada\", \"Hi\", \"extra\")"),
-            ARITY,
+            "IMPORT term\nFUNC main AS Integer\n  term::moveTo(\"a\", \"b\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }
 
+    // ---- json / csv / http reject paths ------------------------------------
+
     #[test]
-    fn user_named_args_missing_required() {
-        // Supplying only the defaulted parameter leaves the required one unset.
+    fn json_rejects() {
         assert!(rejects_with(
-            &greet_call("greet(greeting := \"Hi\")"),
-            ARITY,
+            "IMPORT json\nFUNC main AS Integer\n  LET x = json::parse()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
         ));
-    }
-
-    #[test]
-    fn user_named_args_named_then_positional() {
-        // A named arg fills slot 0, then a positional must skip that filled slot
-        // (the `while ordered[next_positional].is_some()` advance).
-        assert!(accepts(&greet_call("greet(name := \"Ada\", \"Hi\")")));
-    }
-
-    // ---- range-form arity messages (`expected M to N`) -------------------
-    //
-    // Each module's arity report formats the expectation as `min to max` when
-    // `min != max`. The per-module valid/wrong-arity tests above already exercise
-    // the `min == max` branch; these hit the range branch on a variadic builtin.
-
-    #[test]
-    fn regex_arity_range_message() {
-        // regex.find has arity (2, 3); zero args reports "expected 2 to 3".
         assert!(rejects_with(
-            &prog(&["regex"], "  LET m AS Integer = regex::find()"),
-            ARITY,
+            "IMPORT json\nFUNC main AS Integer\n  LET x = json::parse(42)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }
 
     #[test]
-    fn datetime_arity_range_message() {
-        // datetime.instant has arity (1, 5).
+    fn csv_valid_and_rejects() {
+        assert!(accepts(
+            "IMPORT csv\nFUNC main AS Integer\n  LET doc AS List OF List OF String = csv::parse(\"a,b\")\n  RETURN 0\nEND FUNC\n"
+        ));
         assert!(rejects_with(
-            &prog(
-                &["datetime"],
-                "  LET i AS Instant = datetime::instant(1, 2, 3, 4, 5, 6)",
-            ),
-            ARITY,
+            "IMPORT csv\nFUNC main AS Integer\n  LET doc AS List OF List OF String = csv::parse()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
         ));
-    }
-
-    #[test]
-    fn http_arity_range_message() {
-        // http.read has arity (1, 3).
         assert!(rejects_with(
-            &prog(&["http"], "  LET r AS http::Response = http::read()"),
-            ARITY,
+            "IMPORT csv\nFUNC main AS Integer\n  LET doc AS List OF List OF String = csv::parse(42)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }
 
+    // ---- net / tls reject paths --------------------------------------------
+
     #[test]
-    fn net_arity_range_message() {
-        // net.lookup has arity (1, 2); passing three args reports "expected 1 to 2".
+    fn net_rejects() {
         assert!(rejects_with(
-            &prog(
-                &["net"],
-                "  LET a AS List OF Address = net::lookup(\"h\", 1, 2)",
-            ),
-            ARITY,
+            "IMPORT net\nFUNC main AS Integer\n  RES s = net::listenTcp(\"127.0.0.1\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
         ));
-    }
-
-    #[test]
-    fn thread_arity_range_message() {
-        // thread.send has arity (2, 3); too many args reports "expected 2 to 3".
         assert!(rejects_with(
-            &prog(
-                &["thread"],
-                "  LET ok AS Boolean = thread::send(1, 2, 3, 4)",
-            ),
-            ARITY,
+            "IMPORT net\nFUNC main AS Integer\n  RES s = net::listenTcp(1, \"x\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }
 
     #[test]
-    fn collections_arity_range_message() {
-        // collections.find has arity (2, 3); a single arg reports "expected 2 to 3".
+    fn tls_rejects() {
         assert!(rejects_with(
-            &prog(
-                &["collections"],
-                "  LET xs AS List OF Integer = [1, 2]\n  LET i AS Integer = collections::find(xs)",
-            ),
-            ARITY,
+            "IMPORT tls\nFUNC main AS Integer\n  RES c = tls::connect(\"h\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
         ));
-    }
-
-    #[test]
-    fn fs_arity_range_message() {
-        // fs.openFile has arity (1, 2); zero args reports "expected 1 to 2".
         assert!(rejects_with(
-            &prog(&["fs"], "  RES f AS File = fs::openFile()"),
-            ARITY,
+            "IMPORT tls\nFUNC main AS Integer\n  RES c = tls::connect(1, \"x\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }
 
+    // ---- regex / datetime reject paths -------------------------------------
+
     #[test]
-    fn io_arity_range_message() {
-        // io.input has arity (0, 1); two args reports "expected 0 to 1".
+    fn regex_rejects() {
         assert!(rejects_with(
-            &prog(&["io"], "  LET s AS String = io::input(\"a\", \"b\")"),
-            ARITY,
+            "IMPORT regex\nFUNC main AS Integer\n  LET x AS List OF Integer = regex::findAll()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
         ));
-    }
-
-    #[test]
-    fn strings_arity_range_message() {
-        // strings.padLeft has arity (2, 3); one arg reports "expected 2 to 3".
         assert!(rejects_with(
-            &prog(&["strings"], "  LET s AS String = strings::padLeft(\"a\")"),
-            ARITY,
+            "IMPORT regex\nFUNC main AS Integer\n  LET x AS List OF Integer = regex::findAll(1, 2)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }
 
     #[test]
-    fn tls_arity_range_message() {
-        // tls.connect has arity (2, 4); zero args reports "expected 2 to 4".
-        assert!(rejects_with(&prog(&["tls"], "  tls::connect()"), ARITY));
-    }
-
-    // ---- named-arg normalization corners --------------------------------
-
-    #[test]
-    fn named_args_positional_skips_filled_slot() {
-        // A named arg fills slot 0 of `strings.split`, then a positional must skip
-        // that filled slot (the `while ordered[next_positional].is_some()` advance
-        // inside normalize_builtin_call_arguments).
-        assert!(accepts(&prog(
-            &["strings"],
-            "  LET parts AS List OF String = strings::split(value := \"a,b\", \",\")",
-        )));
-    }
-
-    #[test]
-    fn named_args_extra_positional_overflow() {
-        // A named arg plus more positionals than parameters pushes the surplus
-        // onto the `extras` path in normalize_builtin_call_arguments.
-        let codes = check_src(&prog(
-            &["strings"],
-            "  LET parts AS List OF String = strings::split(value := \"a\", \",\", \"x\")",
+    fn datetime_rejects() {
+        assert!(rejects_with(
+            "IMPORT datetime\nFUNC main AS Integer\n  LET i = datetime::instant(\"nope\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
-        // Surplus arguments still surface as an arity mismatch downstream; the
-        // point is that normalization does not panic on the extras branch.
-        assert!(codes.iter().any(|c| c == ARITY));
+    }
+
+    // ---- bits / crypto / strings reject paths ------------------------------
+
+    #[test]
+    fn bits_argument_mismatch() {
+        assert!(rejects_with(
+            "IMPORT bits\nFUNC main AS Integer\n  LET x = bits::band(\"a\", \"b\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn crypto_rejects() {
+        assert!(rejects_with(
+            "IMPORT crypto\nFUNC main AS Integer\n  LET kp = crypto::generateP256(\"extra\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn strings_arity_mismatch() {
+        assert!(rejects_with(
+            "IMPORT strings\nFUNC main AS Integer\n  LET b = strings::toBytes()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn math_arity_mismatch() {
+        assert!(rejects_with(
+            "IMPORT math\nFUNC main AS Integer\n  LET x = math::abs()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn encoding_arity_mismatch() {
+        assert!(rejects_with(
+            "IMPORT encoding\nFUNC main AS Integer\n  LET x = encoding::base64Encode()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    // ---- unknown / non-builtin dotted call falls through -------------------
+
+    #[test]
+    fn unknown_dotted_call_infers_unknown() {
+        // A dotted call with no matching builtin/user function walks the
+        // fall-through arm in check_builtin_call's dispatch tail.
+        let _ = check_src(
+            "FUNC main AS Integer\n  LET x = mystery::doThing(1, 2)\n  RETURN 0\nEND FUNC\n",
+        );
+    }
+
+    // ---- thread arity / argument mismatch ----------------------------------
+
+    #[test]
+    fn thread_start_bad_entry_rejected() {
+        // thread.start whose first arg is not an exported ISOLATED FUNC.
+        assert!(rejects_with(
+            "IMPORT thread\nFUNC main AS Integer\n  LET t = thread::start(main, \"x\", 1, 1)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- general override target (toString on a package/builtin type) ------
+
+    #[test]
+    fn tostring_override_on_net_url() {
+        // toString(net::Url) resolves via the package override registry branch.
+        assert!(accepts(
+            "IMPORT net\nIMPORT io\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  io::print(toString(u))\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    // ---- http builtin call -------------------------------------------------
+
+    #[test]
+    fn http_read_valid() {
+        assert!(accepts(
+            "IMPORT http\nIMPORT net\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  LET r AS http::Response = http::read(u)\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn http_read_rejects() {
+        assert!(rejects_with(
+            "IMPORT http\nFUNC main AS Integer\n  LET r = http::read()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+        assert!(rejects_with(
+            "IMPORT http\nFUNC main AS Integer\n  LET r = http::read(42)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- regex builtin call reject interior --------------------------------
+
+    #[test]
+    fn regex_match_and_replace_valid() {
+        assert!(accepts(
+            "IMPORT regex\nIMPORT io\nFUNC main AS Integer\n  LET out AS String = regex::replace(\"a\", \"b\", \"c\")\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    // ---- range-arity ({min} to {max}) messages -----------------------------
+
+    #[test]
+    fn fs_range_arity_too_few() {
+        assert!(rejects_with(
+            "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFileNoFollow()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn io_range_arity_too_many() {
+        assert!(rejects_with(
+            "IMPORT io\nFUNC main AS Integer\n  LET x = io::pollInput(1, 2)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn strings_range_arity_too_few() {
+        assert!(rejects_with(
+            "IMPORT strings\nFUNC main AS Integer\n  LET i = strings::find(\"a\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn net_range_arity_too_few() {
+        assert!(rejects_with(
+            "IMPORT net\nFUNC main AS Integer\n  LET a = net::lookup()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn datetime_range_arity_too_many() {
+        assert!(rejects_with(
+            "IMPORT datetime\nFUNC main AS Integer\n  LET i = datetime::instant(1, 2, 3, 4, 5, 6, 7, 8)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn thread_range_arity_via_start() {
+        // thread.start arity (2,4): calling with 5 args walks the thread checker
+        // (the bad-entry check fires first, but the checker body runs).
+        let _ = check_src(
+            "IMPORT thread\nFUNC main AS Integer\n  LET t = thread::start(main, \"x\", 1, 1, 1)\n  RETURN 0\nEND FUNC\n",
+        );
+    }
+
+    #[test]
+    fn regex_range_arity_too_many() {
+        assert!(rejects_with(
+            "IMPORT regex\nFUNC main AS Integer\n  LET x AS List OF Integer = regex::findAll(\"a\", \"b\", 0, 1, 2)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    // ---- unknown builtin-namespace member falls through --------------------
+
+    #[test]
+    fn unknown_math_member_falls_through() {
+        // `math::nonexistent` is not a known builtin; it walks the dotted-call
+        // fall-through in the inference dispatcher.
+        let _ = check_src(
+            "IMPORT math\nFUNC main AS Integer\n  LET x = math::nonexistent(1)\n  RETURN 0\nEND FUNC\n",
+        );
+    }
+
+    // ---- collection resource-element check on append -----------------------
+
+    #[test]
+    fn append_resource_binding_valid() {
+        // Appending a RES binding to a `List OF RES File` stores a borrow (valid).
+        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  MUT xs AS List OF RES File = []\n  xs = collections::append(xs, f)\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    // ---- fixed-arity ({min}) arity messages per package --------------------
+
+    #[test]
+    fn fs_fixed_arity_message() {
+        assert!(rejects_with(
+            "IMPORT fs\nFUNC main AS Integer\n  fs::setCurrentDirectory()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn net_fixed_arity_message() {
+        assert!(rejects_with(
+            "IMPORT net\nFUNC main AS Integer\n  LET x = net::receiveTextFrom()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn tls_fixed_arity_message() {
+        assert!(rejects_with(
+            "IMPORT tls\nFUNC main AS Integer\n  tls::writeText()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn regex_fixed_arity_message() {
+        assert!(rejects_with(
+            "IMPORT regex\nFUNC main AS Integer\n  LET b = regex::match()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    // ---- general builtin arity / argument mismatch (check_general_*) -------
+
+    #[test]
+    fn general_len_arity_fixed() {
+        assert!(rejects_with(
+            "FUNC main AS Integer\n  LET n = len()\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn general_tostring_range_arity() {
+        // toString has arity (1,2); calling with 3 args hits the range message.
+        assert!(rejects_with(
+            "FUNC main AS Integer\n  LET s = toString(1, 2, 3)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn general_toint_argument_mismatch() {
+        assert!(rejects_with(
+            "FUNC main AS Integer\n  LET n = toInt(TRUE)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- thread checker arity / argument mismatch (non-start) --------------
+
+    #[test]
+    fn thread_receive_arity_mismatch() {
+        // thread.receive on a worker with too many args hits the thread arity arm.
+        assert!(rejects_with(
+            "IMPORT thread\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  LET m AS String = thread::receive(t, 1, 2, 3)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn thread_argument_mismatch() {
+        // thread.send with a wrong-typed message hits the thread resolve-None arm.
+        assert!(rejects_with(
+            "IMPORT thread\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  thread::send(t, 42)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- strings / encoding resolve-None argument mismatch -----------------
+
+    #[test]
+    fn strings_startswith_argument_mismatch() {
+        assert!(rejects_with(
+            "IMPORT strings\nFUNC main AS Integer\n  LET b = strings::startsWith(42, 7)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn strings_startswith_valid() {
+        assert!(accepts(
+            "IMPORT strings\nFUNC main AS Integer\n  LET b = strings::startsWith(\"abc\", \"a\")\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn encoding_base64_decode_argument_mismatch() {
+        assert!(rejects_with(
+            "IMPORT encoding\nFUNC main AS Integer\n  LET x AS List OF Byte = encoding::base64Decode(42)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- encoding utf8Encode return-type overload by expected type ---------
+
+    #[test]
+    fn encoding_utf8encode_return_overload_by_expected() {
+        // An expected `List OF Integer` selects that overload of utf8Encode.
+        let src = "IMPORT encoding\nFUNC main AS Integer\n  LET x AS List OF Integer = encoding::utf8Encode(\"hi\")\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn collections_find_range_arity() {
+        // collections::find has arity (2,3); calling with 4 hits the range arm.
+        assert!(rejects_with(
+            "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF Integer = [1]\n  LET i = collections::find(xs, 1, 0, 9)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn io_zero_arity_message() {
+        // io::isErrorTerminal has arity (0,0); supplying an argument hits the "0"
+        // expected-count message.
+        assert!(rejects_with(
+            "IMPORT io\nFUNC main AS Integer\n  LET b = io::isErrorTerminal(1)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn term_no_arguments_message() {
+        // term::clear expects no arguments; supplying one hits the term argument
+        // mismatch "no arguments" fallback.
+        assert!(rejects_with(
+            "IMPORT term\nFUNC main AS Integer\n  term::clear(1)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn term_argument_type_mismatch() {
+        // A term call with a wrong-typed argument walks the term argument-type
+        // compatibility check + "no arguments" / expected-args formatting.
+        assert!(rejects_with(
+            "IMPORT term\nFUNC main AS Integer\n  term::moveTo(\"a\", \"b\")\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    #[test]
+    fn crypto_sign_argument_mismatch() {
+        // p256Sign with wrong-typed arguments passes arity but fails resolve.
+        assert!(rejects_with(
+            "IMPORT crypto\nFUNC main AS Integer\n  LET s = crypto::p256Sign(1, 2)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARGUMENT_MISMATCH"
+        ));
+    }
+
+    // ---- named-argument normalization on builtins --------------------------
+
+    #[test]
+    fn builtin_named_argument_without_param_names() {
+        // math::abs has no call_param_names; a named call walks the fallback
+        // that returns the arguments in source order.
+        let _ = check_src(
+            "IMPORT math\nFUNC main AS Integer\n  LET x = math::abs(value := -1)\n  RETURN 0\nEND FUNC\n",
+        );
+    }
+
+    #[test]
+    fn builtin_named_then_positional_reorders() {
+        // strings::startsWith(prefix := "a", "abc"): a named arg fills a later
+        // slot, then a positional fills the earlier one — walks the positional
+        // slot-skipping loop.
+        assert!(accepts(
+            "IMPORT strings\nFUNC main AS Integer\n  LET b = strings::startsWith(prefix := \"a\", \"abc\")\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn builtin_named_with_extra_positional() {
+        // A named call supplying more positionals than parameters pushes to the
+        // `extras` overflow branch.
+        let _ = check_src(
+            "IMPORT strings\nFUNC main AS Integer\n  LET b = strings::startsWith(value := \"abc\", \"a\", \"extra\")\n  RETURN 0\nEND FUNC\n",
+        );
+    }
+
+    #[test]
+    fn thread_fixed_arity_message() {
+        // thread.waitFor has fixed arity; supplying extra args hits the thread
+        // arity min==max message.
+        let _ = check_src(
+            "IMPORT thread\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer\n  LET r = thread::isRunning(t, 1)\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+    }
+
+    #[test]
+    fn datetime_fixed_arity_message() {
+        // datetime::date has fixed arity (3,3); a wrong count hits the min==max
+        // arity message.
+        assert!(rejects_with(
+            "IMPORT datetime\nFUNC main AS Integer\n  LET d = datetime::date(1)\n  RETURN 0\nEND FUNC\n",
+            "TYPE_CALL_ARITY_MISMATCH"
+        ));
+    }
+
+    // ---- collections source-generic (falls through builtin dispatch) -------
+
+    #[test]
+    fn collections_source_generic_falls_through() {
+        // `collections::sort` is a source-generic function (is_builtin_call true
+        // but no native-member sub-checker), so it reaches check_builtin_call's
+        // fall-through arm that infers each argument and yields Unknown.
+        let _ = check_src(
+            "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF Integer = [3, 1, 2]\n  LET ys = collections::sort(xs)\n  RETURN 0\nEND FUNC\n",
+        );
     }
 }

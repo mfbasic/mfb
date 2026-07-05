@@ -14,16 +14,11 @@ impl<'a> SyntaxChecker<'a> {
 
     pub(super) fn parse_type(&self, name: &str) -> Type {
         let name = builtins::thread::strip_type_group(name);
-        // coverage:off — reachable only for a dotted `pkg.Type` spelling produced
-        // by name resolution; a single-file source seen by the syntax checker
-        // still carries the `pkg::Type` form, so this branch is exercised only in
-        // the fixture-based e2e suite.
         // A package-qualified built-in type (`net.Url`, `http.Result`) resolves to
         // its bare internal id (plan-03-http.md §A.1/§B.2).
         if let Some(bare) = builtins::qualified_builtin_type(name) {
             return Type::User(bare);
         }
-        // coverage:on
         if let Some(rest) = name.strip_prefix("ISOLATED FUNC(") {
             return self.parse_function_type(rest, true);
         }
@@ -33,13 +28,9 @@ impl<'a> SyntaxChecker<'a> {
         if let Some(element) = name.strip_prefix("List OF ") {
             return Type::List(Box::new(self.parse_collection_element_type(element)));
         }
-        // coverage:off — `Result` is an internal type, never written in a user
-        // type-annotation position, so a `Result OF …` spelling never reaches the
-        // checker's parse_type from source.
         if let Some(success) = name.strip_prefix("Result OF ") {
             return Type::Result(Box::new(self.parse_type(success)));
         }
-        // coverage:on
         if let Some((kind, message, resource, output)) = builtins::thread::thread_parts_full(name) {
             let resource = resource.map(|resource| Box::new(self.parse_type(resource)));
             if kind == builtins::thread::THREAD_WORKER_TYPE {
@@ -83,13 +74,9 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn parse_function_type(&self, rest: &str, isolated: bool) -> Type {
-        // coverage:off — defensive: a `FUNC(`/`ISOLATED FUNC(` prefix only reaches
-        // here after the parser accepted a complete `FUNC(…) AS …` type, so the
-        // `) AS ` separator is always present.
         let Some((params, return_type)) = rest.split_once(") AS ") else {
             return Type::Unknown;
         };
-        // coverage:on
         let params = if params.trim().is_empty() {
             Vec::new()
         } else {
@@ -119,11 +106,7 @@ impl<'a> SyntaxChecker<'a> {
                 self.compatible(expected_key, actual_key)
                     && self.compatible(expected_value, actual_value)
             }
-            // coverage:off — `Result` is an internal type, never in a user
-            // type-annotation position, so two `Result` types are never compared
-            // through this predicate from source.
             (Type::Result(expected), Type::Result(actual)) => self.compatible(expected, actual),
-            // coverage:on
             (
                 Type::Thread(expected_message, expected_resource, expected_output),
                 Type::Thread(actual_message, actual_resource, actual_output),
@@ -222,10 +205,6 @@ impl<'a> SyntaxChecker<'a> {
                     operator, operand, ..
                 }),
             ) if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => true,
-            // coverage:off — unreachable via the checker: every caller that could
-            // reach this arm (`infer_list_literal`) already coerces numeric list
-            // literals against the expected element type, so `compatible` succeeds
-            // above (line ~193) before this element-wise re-check is needed.
             (
                 Type::List(expected_element),
                 Type::List(_),
@@ -236,7 +215,6 @@ impl<'a> SyntaxChecker<'a> {
                 };
                 self.expression_compatible(expected_element, &actual_element, Some(value))
             }),
-            // coverage:on
             _ => false,
         }
     }
@@ -402,824 +380,233 @@ impl<'a> SyntaxChecker<'a> {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::testutil::*;
+mod types_tests {
+    use crate::syntaxcheck::testutil::*;
 
-    // ---- parse_type: builtin scalar types ----------------------------------
+    // ---- parse_type arms exercised through type annotations ----------------
 
     #[test]
-    fn all_builtin_scalar_types_parse_and_accept() {
-        // Names each builtin scalar in a parameter position so parse_type maps
-        // each match arm (Boolean/Byte/Error/ErrorLoc/Fixed/Float/Integer/
-        // Nothing/String/Unknown).
-        let src = "\
-FUNC use(a AS Boolean, b AS Byte, c AS Error, d AS ErrorLoc, e AS Fixed, f AS Float, g AS Integer, h AS Nothing, i AS String) AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn scalar_type_annotations_accept() {
+        // Boolean, Byte, Fixed, Float, Integer, String, Nothing.
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET a AS Boolean = TRUE\n  LET b AS Byte = toByte(1)\n  LET c AS Fixed = toFixed(\"1.5\")\n  LET d AS Float = 1.0\n  LET e AS Integer = 1\n  LET f AS String = \"x\"\n  RETURN 0\nEND FUNC\n"
+        ));
     }
 
     #[test]
-    fn list_and_map_and_result_types_parse() {
-        // Drives the List/Map strip_prefix arms and the collection element type.
-        let src = "\
-FUNC use(xs AS List OF Integer, m AS Map OF String TO Integer) AS Integer
-  RETURN len(xs) + len(m)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn list_map_result_annotations_accept() {
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET xs AS List OF Integer = [1]\n  LET m AS Map OF String TO Integer = Map OF String TO Integer {}\n  RETURN 0\nEND FUNC\n"
+        ));
     }
 
     #[test]
-    fn user_type_parses() {
-        // A declared record name resolves via the `user_types.contains` arm.
-        let src = "\
-TYPE Point
-  x AS Integer
-END TYPE
-FUNC use(p AS Point) AS Integer
-  RETURN p.x
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn function_type_annotation_accepts() {
+        // FUNC(...) AS ... and ISOLATED FUNC(...) AS ... parse arms.
+        assert!(accepts(
+            "FUNC apply(f AS FUNC(Integer) AS Integer, x AS Integer) AS Integer\n  RETURN f(x)\nEND FUNC\nFUNC dbl(n AS Integer) AS Integer\n  RETURN n * 2\nEND FUNC\nFUNC main AS Integer\n  RETURN apply(dbl, 3)\nEND FUNC\n"
+        ));
     }
 
     #[test]
-    fn unknown_user_type_parses_as_user() {
-        // An undeclared name still parses to Type::User (the final `other` arm).
-        let src = "\
-FUNC use(p AS Widget) AS Integer
-  RETURN 0
-END FUNC
-";
-        // Not a resource/thread violation; parse_type produces Type::User.
-        assert!(
-            !rejects_with(src, "TYPE_COLLECTION_OWNERSHIP_VIOLATION"),
-            "diags: {:?}",
-            check_src(src)
-        );
-    }
-
-    // ---- parse_function_type -----------------------------------------------
-
-    #[test]
-    fn function_type_with_params_parses() {
-        let src = "\
-FUNC add(a AS Integer, b AS Integer) AS Integer
-  RETURN a + b
-END FUNC
-FUNC use() AS Integer
-  LET f AS FUNC(Integer, Integer) AS Integer = add
-  RETURN f(1, 2)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn nested_function_type_empty_params() {
+        // FUNC() AS Integer — empty parameter list arm.
+        assert!(accepts(
+            "FUNC run(f AS FUNC() AS Integer) AS Integer\n  RETURN f()\nEND FUNC\nFUNC zero AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN run(zero)\nEND FUNC\n"
+        ));
     }
 
     #[test]
-    fn function_type_with_no_params_parses() {
-        // The empty-params branch of parse_function_type.
-        let src = "\
-FUNC zero() AS Integer
-  RETURN 0
-END FUNC
-FUNC use() AS Integer
-  LET f AS FUNC() AS Integer = zero
-  RETURN f()
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn isolated_function_type_parses() {
-        // The `ISOLATED FUNC(` prefix branch.
-        let src = "\
-EXPORT ISOLATED FUNC pure(n AS Integer) AS Integer
-  RETURN n
-END FUNC
-FUNC use() AS Integer
-  LET f AS ISOLATED FUNC(Integer) AS Integer = pure
-  RETURN f(1)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    // ---- compatible / expression_compatible: numeric coercions ------------
-
-    #[test]
-    fn byte_literal_in_range_is_compatible() {
-        // expression_compatible: Integer literal → Byte within 0..=255, checked
-        // in RETURN position (where compatibility is enforced).
-        let src = "\
-FUNC produce() AS Byte
-  RETURN 200
-END FUNC
-FUNC use() AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn fixed_from_integer_and_float_literal_is_compatible() {
-        let src = "\
-FUNC fromInt() AS Fixed
-  RETURN 5
-END FUNC
-FUNC fromFloat() AS Fixed
-  RETURN 1.5
-END FUNC
-FUNC use() AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn fixed_from_negative_literal_is_compatible() {
-        // The unary-minus numeric-literal branch of expression_compatible.
-        let src = "\
-FUNC produce() AS Fixed
-  RETURN -3
-END FUNC
-FUNC use() AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn list_literal_of_numeric_literals_coerces_elements() {
-        // The ListLiteral branch of expression_compatible: each numeric literal
-        // element is checked against the expected element type.
-        let src = "\
-FUNC produce() AS List OF Fixed
-  RETURN [1, 2, 3]
-END FUNC
-FUNC use() AS Integer
-  RETURN len(produce())
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    // ---- compatible: nested composite types --------------------------------
-
-    #[test]
-    fn nested_list_map_result_compatibility() {
-        // Assigning through matching List/Map structures drives the recursive
-        // compatible arms.
-        let src = "\
-FUNC use() AS Integer
-  LET a AS List OF List OF Integer = [[1], [2]]
-  LET m AS Map OF String TO List OF Integer = Map OF String TO List OF Integer { \"k\" := [1] }
-  RETURN len(a) + len(m)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn function_type_compatibility_isolated_and_params() {
-        // Drives the Function compatibility arm (isolated flag + params + return)
-        // by assigning a matching ISOLATED function to an ISOLATED slot.
-        let src = "\
-EXPORT ISOLATED FUNC pureAdd(a AS Integer, b AS Integer) AS Integer
-  RETURN a + b
-END FUNC
-FUNC use() AS Integer
-  LET f AS ISOLATED FUNC(Integer, Integer) AS Integer = pureAdd
-  RETURN f(1, 2)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn union_variant_is_compatible_with_union() {
-        // The Union-variant compatibility arm: a concrete variant value fits its
-        // union-typed slot.
-        let src = "\
-TYPE Circle
-  r AS Integer
-END TYPE
-TYPE Rect
-  w AS Integer
-END TYPE
-UNION Shape
-  Circle
-  Rect
-END UNION
-FUNC use() AS Integer
-  LET s AS Shape = Circle[5]
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    // ---- is_comparable / is_orderable_string -------------------------------
-
-    #[test]
-    fn integer_and_string_comparisons_accepted() {
-        // Numeric and string ordering comparisons drive is_numeric /
-        // is_orderable_string / is_comparable.
-        let src = "\
-FUNC use() AS Integer
-  IF 1 < 2 THEN
-    RETURN 1
-  END IF
-  IF \"a\" < \"b\" THEN
-    RETURN 2
-  END IF
-  IF 1 = 1 THEN
-    RETURN 3
-  END IF
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn record_of_comparable_fields_is_comparable() {
-        // A record whose fields are all comparable is comparable (used as a Map
-        // key drives is_comparable_with_seen through the Type arm).
-        let src = "\
-TYPE Point
-  x AS Integer
-  y AS String
-END TYPE
-FUNC use(m AS Map OF Point TO Integer) AS Integer
-  RETURN len(m)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn enum_is_comparable_as_map_key() {
-        // The Enum arm of is_comparable_with_seen returns true.
-        let src = "\
-ENUM Color
-  Red
-  Green
-END ENUM
-FUNC use(m AS Map OF Color TO Integer) AS Integer
-  RETURN len(m)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn union_is_not_comparable_as_map_key() {
-        // The Union arm of is_comparable_with_seen returns false → a union is not
-        // a valid Map key.
-        let src = "\
-TYPE A
-  x AS Integer
-END TYPE
-TYPE B
-  y AS Integer
-END TYPE
-UNION AB
-  A
-  B
-END UNION
-FUNC use(m AS Map OF AB TO Integer) AS Integer
-  RETURN len(m)
-END FUNC
-";
-        // A non-comparable Map key is reported (the require_comparable path is a
-        // no-op today, but a union key is separately rejected by the checker; we
-        // assert the comparable predicate is exercised without panicking).
+    fn thread_type_annotation_accepts() {
+        // Thread OF ... TO ... parse arm (message/output).
+        let src = "IMPORT thread\nFUNC main AS Integer\n  LET t AS Thread OF Integer TO Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
     #[test]
-    fn list_and_map_are_not_comparable_as_map_key() {
-        // The List/Map/... false arm of is_comparable_with_seen.
-        let src = "\
-FUNC use(m AS Map OF List OF Integer TO Integer) AS Integer
-  RETURN len(m)
-END FUNC
-";
-        let _ = check_src(src);
+    fn user_type_annotation_accepts() {
+        assert!(accepts(
+            "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\nFUNC main AS Integer\n  LET p AS Point = Point[1, 2]\n  RETURN 0\nEND FUNC\n"
+        ));
     }
 
-    // ---- call_argument_mode / argument_mode_for_type -----------------------
+    // ---- compatible / expression_compatible --------------------------------
 
     #[test]
-    fn close_op_consumes_its_resource_argument() {
-        // The registered close op transfers (consumes) its single resource
-        // argument — call_argument_mode's is_close_op branch.
-        let src = "\
-EXPORT RESOURCE Db CLOSE BY demoLink::close
-LINK \"demo\" AS demoLink
-  FUNC open(path AS String) AS RES Db
-    SYMBOL \"demo_open\"
-    ABI (path CString, return OUT CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-  FUNC close(RES db AS Db) AS Nothing
-    SYMBOL \"demo_close\"
-    ABI (db CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-END LINK
-FUNC useDb(path AS String) AS Integer
-  RES db AS Db = demoLink::open(path)
-  demoLink::close(db)
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn byte_literal_fits_byte() {
+        // (Byte, Integer, Number) special case in expression_compatible.
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET b AS Byte = 200\n  RETURN 0\nEND FUNC\n"
+        ));
     }
 
     #[test]
-    fn non_close_resource_argument_borrows() {
-        // A non-close op with a resource argument borrows (argument_mode_for_type
-        // is_resource_type → Borrow).
-        let src = "\
-EXPORT RESOURCE Db CLOSE BY demoLink::close
-LINK \"demo\" AS demoLink
-  FUNC open(path AS String) AS RES Db
-    SYMBOL \"demo_open\"
-    ABI (path CString, return OUT CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-  FUNC close(RES db AS Db) AS Nothing
-    SYMBOL \"demo_close\"
-    ABI (db CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-  FUNC busy(RES db AS Db, ms AS Integer) AS Nothing
-    SYMBOL \"demo_busy\"
-    ABI (db CPtr, ms CInt32) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-END LINK
-FUNC useDb(path AS String) AS Integer
-  RES db AS Db = demoLink::open(path)
-  demoLink::busy(db, 5)
-  demoLink::close(db)
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn byte_literal_overflow_walks_false_branch() {
+        // The `<= u8::MAX` guard's false arm runs here even though the actual
+        // rejection for an out-of-range Byte is relocated to ir::verify.
+        let _ = check_src("FUNC main AS Integer\n  LET b AS Byte = 300\n  RETURN 0\nEND FUNC\n");
     }
 
     #[test]
-    fn read_mode_for_copyable_argument() {
-        // A plain copyable argument takes Read mode (argument_mode_for_type's
-        // final arm).
-        let src = "\
-FUNC take(n AS Integer) AS Integer
-  RETURN n
-END FUNC
-FUNC use() AS Integer
-  RETURN take(5)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    // ---- general_argument_mode (builtin collection ops) --------------------
-
-    #[test]
-    fn collection_read_ops_use_read_mode() {
-        // Drives general_argument_mode's read-op set (len/get/contains/...).
-        let src = "\
-IMPORT collections
-FUNC use() AS Integer
-  LET xs AS List OF Integer = [1, 2, 3]
-  LET n AS Integer = len(xs)
-  LET has AS Boolean = collections::contains(xs, 2)
-  RETURN n
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn fixed_from_integer_literal() {
+        // (Fixed, Integer|Float, Number) arm.
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET f AS Fixed = 5\n  RETURN 0\nEND FUNC\n"
+        ));
     }
 
     #[test]
-    fn collection_mutating_ops_transfer_receiver() {
-        // Drives general_argument_mode's mutating-op set (append/set/... → index
-        // 0 Transfer, others Read).
-        let src = "\
-IMPORT collections
-FUNC use() AS Integer
-  MUT xs AS List OF Integer = [1]
-  xs = collections::append(xs, 2)
-  RETURN len(xs)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    // ---- thread_argument_mode ----------------------------------------------
-
-    #[test]
-    fn thread_transfer_consumes_resource_argument() {
-        // thread_argument_mode: `thread.transfer` index 1 → Transfer.
-        let src = "\
-EXPORT RESOURCE Db CLOSE BY demoLink::close THREAD_SENDABLE
-LINK \"demo\" AS demoLink
-  FUNC open(path AS String) AS RES Db
-    SYMBOL \"demo_open\"
-    ABI (path CString, return OUT CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-  FUNC close(RES db AS Db) AS Nothing
-    SYMBOL \"demo_close\"
-    ABI (db CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-END LINK
-IMPORT thread
-FUNC use(t AS Thread OF String RES Db TO Integer, d AS Db) AS Integer
-  thread::transfer(t, d)
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    // ---- compatible: Unknown short-circuits --------------------------------
-
-    #[test]
-    fn unknown_type_is_compatible_with_anything() {
-        // The Unknown short-circuit at the top of compatible: calling an unknown
-        // function yields Unknown, which is compatible with the declared type.
-        let src = "\
-FUNC use() AS Integer
-  LET x AS Integer = mysteryValue()
-  RETURN x
-END FUNC
-";
-        // `mysteryValue` is undeclared → its result type is Unknown, compatible
-        // with Integer (no type-mismatch diagnostic even though the call is
-        // otherwise flagged).
-        assert!(
-            !rejects_with(src, "TYPE_ASSIGNMENT_MISMATCH"),
-            "diags: {:?}",
-            check_src(src)
-        );
+    fn fixed_from_negative_literal() {
+        // (Fixed, Integer|Float, Unary '-') arm.
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET f AS Fixed = -5\n  RETURN 0\nEND FUNC\n"
+        ));
     }
 
     #[test]
-    fn thread_type_compatibility_via_assignment() {
-        // Drives the Thread compatible arm (message/optional-resource/output) by
-        // assigning a thread-typed value to a matching annotation.
-        let src = "\
-IMPORT thread
-FUNC produce() AS Thread OF String TO Integer
-  RETURN produce()
-END FUNC
-FUNC use() AS Integer
-  LET t AS Thread OF String TO Integer = produce()
-  RETURN thread::waitFor(t)
-END FUNC
-";
-        let _ = check_src(src);
+    fn list_literal_element_compat() {
+        // (List, List, ListLiteral) numeric-widening arm.
+        assert!(accepts(
+            "FUNC main AS Integer\n  LET xs AS List OF Fixed = [1, 2, 3]\n  RETURN 0\nEND FUNC\n"
+        ));
     }
 
-    // ---- compatible: recursive arms via composite-typed values -------------
+    // ---- comparability (list element in contains/find) ---------------------
 
     #[test]
-    fn list_return_value_drives_list_compatible_arm() {
-        // Returning a `List OF Integer` *variable* (not a literal) drives the
-        // RETURN-value compatibility check through compatible's List arm.
-        let src = "\
-FUNC produce() AS List OF Integer
-  LET xs AS List OF Integer = [1, 2, 3]
-  RETURN xs
-END FUNC
-FUNC use() AS Integer
-  RETURN len(produce())
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn map_return_value_drives_map_compatible_arm() {
-        let src = "\
-FUNC produce() AS Map OF String TO Integer
-  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }
-  RETURN m
-END FUNC
-FUNC use() AS Integer
-  RETURN len(produce())
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn function_return_value_drives_function_compatible_arm() {
-        // Returning a FUNC-typed variable drives the Function compatibility arm
-        // (isolated flag + params + return recursion).
-        let src = "\
-FUNC add(a AS Integer, b AS Integer) AS Integer
-  RETURN a + b
-END FUNC
-FUNC produce() AS FUNC(Integer, Integer) AS Integer
-  LET g AS FUNC(Integer, Integer) AS Integer = add
-  RETURN g
-END FUNC
-FUNC use() AS Integer
-  LET f AS FUNC(Integer, Integer) AS Integer = produce()
-  RETURN f(1, 2)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn thread_return_value_assignment_drives_thread_compatible_arm() {
-        // A function returning a `Thread OF … RES … TO …` assigned to a matching
-        // annotation drives the Thread arm and compatible_optional (Some/Some).
-        let src = "\
-EXPORT RESOURCE Db CLOSE BY demoLink::close THREAD_SENDABLE
-LINK \"demo\" AS demoLink
-  FUNC open(path AS String) AS RES Db
-    SYMBOL \"demo_open\"
-    ABI (path CString, return OUT CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-  FUNC close(RES db AS Db) AS Nothing
-    SYMBOL \"demo_close\"
-    ABI (db CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-END LINK
-IMPORT thread
-FUNC produce(t AS Thread OF String RES Db TO Integer) AS Thread OF String RES Db TO Integer
-  RETURN t
-END FUNC
-FUNC use(t AS Thread OF String RES Db TO Integer) AS Integer
-  RETURN thread::waitFor(produce(t))
-END FUNC
-";
+    fn contains_on_list_of_record_is_walked() {
+        // Exercises is_comparable_with_seen over a user Type record.
+        let src = "IMPORT collections\nTYPE P\n  x AS Integer\nEND TYPE\nFUNC main AS Integer\n  LET xs AS List OF P = [P[1]]\n  LET b = collections::contains(xs, P[1])\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
     #[test]
-    fn worker_thread_type_annotation_parses_and_checks() {
-        // A `ThreadWorker OF …` parameter annotation drives parse_type's
-        // ThreadWorker construction and the ThreadWorker compatible arm.
-        let src = "\
-FUNC use(w AS ThreadWorker OF String TO Integer) AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn enum_comparable() {
+        let src = "IMPORT collections\nENUM Color\n  Red\n  Green\nEND ENUM\nFUNC main AS Integer\n  LET xs AS List OF Color = [Color.Red]\n  LET b = collections::contains(xs, Color.Green)\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
     }
 
-    #[test]
-    fn qualified_builtin_type_resolves() {
-        // A package-qualified builtin type (`net::Url`) resolves via
-        // qualified_builtin_type to its bare id.
-        let src = "\
-IMPORT net
-FUNC use(u AS net::Url) AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
+    // ---- string ordering comparison (is_orderable_string) ------------------
 
     #[test]
-    fn imported_type_matches_qualified_and_bare_name() {
-        // The User-name compatibility arm treats a qualified name as equal to its
-        // bare form: a `net::Url` return value assigned to a `net::Url` slot.
-        let src = "\
-IMPORT net
-FUNC produce(s AS String) AS net::Url
-  RETURN net::toUrl(s)
-END FUNC
-FUNC use(s AS String) AS Integer
-  LET u AS net::Url = produce(s)
-  RETURN 0
-END FUNC
-";
+    fn string_ordering_comparison_accepts() {
+        assert!(accepts(
+            "FUNC main AS Boolean\n  RETURN \"a\" < \"b\"\nEND FUNC\n"
+        ));
+    }
+
+    // ---- RES-marked collection element (parse_collection_element_type) ------
+
+    #[test]
+    fn res_marked_list_element_parses() {
+        let src = "IMPORT fs\nFUNC take(xs AS List OF RES File) AS Integer\n  RETURN len(xs)\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
     #[test]
-    fn byte_literal_out_of_range_is_incompatible() {
-        // expression_compatible: an Integer literal above 255 does NOT fit Byte
-        // (the `is_ok_and(<=255)` branch returns false).
-        let src = "\
-FUNC produce() AS Byte
-  RETURN 300
-END FUNC
-FUNC use() AS Integer
-  RETURN 0
-END FUNC
-";
-        // The out-of-range branch of expression_compatible (returns false) is
-        // exercised; the mismatch report lives in ir::verify, so we only assert
-        // the path runs without panicking.
+    fn res_marked_map_value_parses() {
+        let src = "IMPORT fs\nFUNC take(m AS Map OF String TO RES File) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
-    #[test]
-    fn fixed_from_negative_float_literal_is_compatible() {
-        // The unary-minus arm of expression_compatible with a Float operand.
-        let src = "\
-FUNC produce() AS Fixed
-  RETURN -2.5
-END FUNC
-FUNC use() AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
+    // ---- qualified builtin type reference (net.Url) ------------------------
 
     #[test]
-    fn worker_thread_return_value_drives_threadworker_compatible_arm() {
-        // Returning a `ThreadWorker OF …` variable drives the ThreadWorker
-        // compatibility arm.
-        let src = "\
-FUNC produce(w AS ThreadWorker OF String TO Integer) AS ThreadWorker OF String TO Integer
-  RETURN w
-END FUNC
-FUNC use(w AS ThreadWorker OF String TO Integer) AS Integer
-  RETURN 0
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn user_type_return_value_drives_user_name_compatible_arm() {
-        // Returning a record variable of the declared return type drives the
-        // User-name compatibility arm (exact name match).
-        let src = "\
-TYPE Point
-  x AS Integer
-END TYPE
-FUNC produce(p AS Point) AS Point
-  RETURN p
-END FUNC
-FUNC use(p AS Point) AS Integer
-  RETURN produce(p).x
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
-
-    #[test]
-    fn union_variant_value_is_compatible_via_return() {
-        // The union-variant clause of the User-name compatibility arm: returning
-        // a concrete variant value where the declared return type is the union.
-        let src = "\
-TYPE Circle
-  r AS Integer
-END TYPE
-TYPE Rect
-  w AS Integer
-END TYPE
-UNION Shape
-  Circle
-  Rect
-END UNION
-FUNC produce() AS Shape
-  LET c AS Circle = Circle[5]
-  RETURN c
-END FUNC
-FUNC use() AS Integer
-  LET s AS Shape = produce()
-  RETURN 0
-END FUNC
-";
+    fn qualified_builtin_type_annotation() {
+        let src = "IMPORT net\nFUNC main AS Integer\n  LET u AS net::Url = net::toUrl(\"http://x/\")\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
-    #[test]
-    fn list_of_res_collection_element_parses() {
-        // parse_collection_element_type's `RES ` prefix branch: a `List OF RES Db`
-        // annotation wraps the element in Type::Res.
-        let src = "\
-EXPORT RESOURCE Db CLOSE BY demoLink::close
-LINK \"demo\" AS demoLink
-  FUNC open(path AS String) AS RES Db
-    SYMBOL \"demo_open\"
-    ABI (path CString, return OUT CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-  FUNC close(RES db AS Db) AS Nothing
-    SYMBOL \"demo_close\"
-    ABI (db CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-END LINK
-FUNC use(xs AS List OF RES Db) AS Integer
-  RETURN len(xs)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
-    }
+    // ---- isolated function type annotation ---------------------------------
 
     #[test]
-    fn resource_type_is_not_comparable_as_map_key() {
-        // is_comparable_with_seen's resource-User short-circuit (returns false):
-        // a bare resource named as a Map key is not comparable.
-        let src = "\
-EXPORT RESOURCE Db CLOSE BY demoLink::close
-LINK \"demo\" AS demoLink
-  FUNC open(path AS String) AS RES Db
-    SYMBOL \"demo_open\"
-    ABI (path CString, return OUT CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-  FUNC close(RES db AS Db) AS Nothing
-    SYMBOL \"demo_close\"
-    ABI (db CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-END LINK
-FUNC use(m AS Map OF Db TO Integer) AS Integer
-  RETURN len(m)
-END FUNC
-";
-        // A resource Map key is rejected as an ownership violation; the
-        // is_comparable resource branch is exercised en route.
+    fn isolated_function_type_annotation() {
+        let src = "FUNC run(f AS ISOLATED FUNC(Integer) AS Integer) AS Integer\n  RETURN f(1)\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
+    // ---- compatible over Result / Thread / nested Map ----------------------
+
     #[test]
-    fn return_list_literal_of_bytes_drives_listliteral_branch() {
-        // Returning a bare `[1, 2, 3]` against a `List OF Byte` return type: the
-        // element literals are Integer, so compatible() fails on the element and
-        // control reaches expression_compatible's ListLiteral branch, which
-        // re-checks each numeric literal against `Byte`.
-        let src = "\
-FUNC ok() AS List OF Byte
-  RETURN [1, 2, 3]
-END FUNC
-FUNC bad() AS List OF Byte
-  RETURN [1, 2, 300]
-END FUNC
-FUNC use() AS Integer
-  RETURN len(ok())
-END FUNC
-";
+    fn result_and_thread_compatibility_walk() {
+        // A worker whose message type is a nested Map exercises the Map arm of
+        // compatible, and returning a Result-typed value walks Result compat.
+        let src = "IMPORT thread\nEXPORT ISOLATED FUNC worker(t AS ThreadWorker OF (Map OF String TO Integer) TO Integer, seed AS Map OF String TO Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
+    // ---- union-variant compatibility (a variant fits its union) ------------
+
     #[test]
-    fn thread_with_and_without_resource_plane_are_incompatible() {
-        // compatible_optional's mismatch arm (`_ => false`): comparing a thread
-        // that declares a resource plane against one that does not.
-        let src = "\
-EXPORT RESOURCE Db CLOSE BY demoLink::close THREAD_SENDABLE
-LINK \"demo\" AS demoLink
-  FUNC open(path AS String) AS RES Db
-    SYMBOL \"demo_open\"
-    ABI (path CString, return OUT CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-  FUNC close(RES db AS Db) AS Nothing
-    SYMBOL \"demo_close\"
-    ABI (db CPtr) AS status CInt32
-    SUCCESS_ON status = 0
-  END FUNC
-END LINK
-FUNC produce(t AS Thread OF String TO Integer) AS Thread OF String RES Db TO Integer
-  RETURN t
-END FUNC
-FUNC use(t AS Thread OF String TO Integer) AS Integer
-  RETURN 0
-END FUNC
-";
-        // The return value's thread type lacks the resource plane the return type
-        // declares → compatible_optional returns false. The report lives in
-        // ir::verify; we assert the path runs.
+    fn union_variant_fits_union() {
+        // Assigning a variant value to a union-typed binding walks the
+        // User/User union-variant arm of compatible.
+        let src = "TYPE A\n  x AS Integer\nEND TYPE\nTYPE B\n  y AS Integer\nEND TYPE\nUNION AB\n  A\n  B\nEND UNION\nFUNC pick AS AB\n  RETURN A[1]\nEND FUNC\nFUNC main AS Integer\n  LET v AS AB = pick()\n  RETURN 0\nEND FUNC\n";
         let _ = check_src(src);
     }
 
+    // ---- non-comparable list element (union) rejected in contains ----------
+
     #[test]
-    fn recursive_record_is_comparable() {
-        // is_comparable_with_seen's seen-set cycle guard: a self-referential
-        // record used as a Map key terminates.
-        let src = "\
-TYPE Node
-  children AS List OF Node
-END TYPE
-FUNC use(m AS Map OF Node TO Integer) AS Integer
-  RETURN len(m)
-END FUNC
-";
-        assert!(accepts(src), "diags: {:?}", check_src(src));
+    fn contains_on_union_list_walks_noncomparable() {
+        let src = "IMPORT collections\nTYPE A\n  x AS Integer\nEND TYPE\nTYPE B\n  y AS Integer\nEND TYPE\nUNION AB\n  A\n  B\nEND UNION\nFUNC main AS Integer\n  LET xs AS List OF AB = [A[1]]\n  LET b = collections::contains(xs, A[1])\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    // ---- close-op argument mode (call_argument_mode Transfer arm) ----------
+
+    #[test]
+    fn close_op_consumes_resource() {
+        // fs::close is the registered close op for File; calling it consumes the
+        // handle (call_argument_mode Transfer arm).
+        assert!(accepts(
+            "IMPORT fs\nFUNC main AS Integer\n  RES f AS File = fs::openFile(\"x\")\n  fs::close(f)\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    // ---- expression_compatible via default parameter values ----------------
+
+    #[test]
+    fn default_byte_from_int_literal() {
+        // Byte param with an in-range Integer-literal default (Byte/Integer/Number).
+        assert!(accepts(
+            "FUNC g(a AS Byte = 200) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN g()\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn default_fixed_from_int_literal() {
+        assert!(accepts(
+            "FUNC g(a AS Fixed = 5) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN g()\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn default_fixed_from_negative_literal() {
+        // Fixed param with a negated numeric literal default (Unary '-' arm).
+        assert!(accepts(
+            "FUNC g(a AS Fixed = -5) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN g()\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn default_list_of_fixed_literal() {
+        // List-literal default numeric-widening arm.
+        assert!(accepts(
+            "FUNC g(a AS List OF Fixed = [1, 2]) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN g()\nEND FUNC\n"
+        ));
+    }
+
+    // ---- compatible_optional (thread resource plane both present) ----------
+
+    #[test]
+    fn thread_resource_plane_optional_compat() {
+        // A worker whose declared and inferred thread types both carry a resource
+        // plane exercises compatible_optional Some/Some.
+        assert!(check_project_dir(std::path::Path::new(&format!(
+            "{}/tests/func_thread_transfer_valid",
+            env!("CARGO_MANIFEST_DIR")
+        )))
+        .is_empty());
     }
 }

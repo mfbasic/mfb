@@ -1,0 +1,1559 @@
+IMPORT io
+IMPORT math
+IMPORT collections
+IMPORT datetime
+IMPORT bits
+IMPORT fs
+IMPORT csv
+IMPORT json
+IMPORT regex
+IMPORT vector
+IMPORT thread
+IMPORT bench_workers
+
+' Unified MFBASIC benchmark. One function per micro-benchmark; each times its
+' workload `run` times (default 10, override with `--run N`) using the monotonic
+' clock, then records median / average / min / max in milliseconds. Results are
+' grouped and printed as:
+'
+'   GROUP:
+'     NAME: MED, AVG, MIN, MAX
+'
+' Every test prints its checksum to stderr so the compiler cannot eliminate the
+' workload and the three language implementations can be cross-checked.
+
+TYPE BenchResult
+  group AS String
+  name AS String
+  med AS Float
+  avg AS Float
+  min AS Float
+  max AS Float
+END TYPE
+
+' ---------------------------------------------------------------------------
+' Statistics + formatting helpers
+' ---------------------------------------------------------------------------
+
+' Build a BenchResult from a group, a name and a list of per-run elapsed nanoseconds.
+FUNC makeResult(grp AS String, nm AS String, times AS List OF Integer) AS BenchResult
+  io::flushError()
+  LET sorted AS List OF Integer = collections::sort(times)
+  LET n AS Integer = len(sorted)
+  MUT medNs AS Float = 0.0
+  IF n MOD 2 = 1 THEN
+    medNs = toFloat(collections::get(sorted, n / 2))
+  ELSE
+    LET lo AS Integer = collections::get(sorted, n / 2 - 1)
+    LET hi AS Integer = collections::get(sorted, n / 2)
+    medNs = (toFloat(lo) + toFloat(hi)) / 2.0
+  END IF
+  MUT sum AS Integer = 0
+  MUT mn AS Integer = collections::get(sorted, 0)
+  MUT mx AS Integer = collections::get(sorted, 0)
+  FOR i = 0 TO n - 1
+    LET v AS Integer = collections::get(sorted, i)
+    sum = sum + v
+    IF v < mn THEN mn = v
+    IF v > mx THEN mx = v
+  NEXT
+  LET perMs AS Float = 1000000.0
+  LET avgNs AS Float = toFloat(sum) / toFloat(n)
+  RETURN BenchResult[grp, nm, medNs / perMs, avgNs / perMs, toFloat(mn) / perMs, toFloat(mx) / perMs]
+END FUNC
+
+FUNC padLeft(s AS String, w AS Integer) AS String
+  MUT r AS String = s
+  WHILE len(r) < w
+    r = " " & r
+  WEND
+  RETURN r
+END FUNC
+
+FUNC padRight(s AS String, w AS Integer) AS String
+  MUT r AS String = s
+  WHILE len(r) < w
+    r = r & " "
+  WEND
+  RETURN r
+END FUNC
+
+FUNC fmtMs(v AS Float) AS String
+  RETURN padLeft(toString(v, toByte(3)), 10)
+END FUNC
+
+SUB printResults(tests AS List OF BenchResult)
+  io::print("# columns: median, average, min, max (milliseconds)")
+  MUT lastGroup AS String = ""
+  FOR i = 0 TO len(tests) - 1
+    LET r AS BenchResult = collections::get(tests, i)
+    IF r.group <> lastGroup THEN
+      io::print("")
+      io::print(r.group & ":")
+      lastGroup = r.group
+    END IF
+    io::print("  " & padRight(r.name, 12) & ": " & fmtMs(r.med) & ", " & fmtMs(r.avg) & ", " & fmtMs(r.min) & ", " & fmtMs(r.max))
+  NEXT
+END SUB
+
+FUNC tmpPath(name AS String) AS String
+  RETURN fs::pathJoin([fs::tempDirectory(), name])
+END FUNC
+
+' File helpers. Each opens its File in this function's scope so the handle is
+' closed by lexical drop on return — never call fs::close explicitly alongside a
+' RES binding (that double-closes the handle).
+
+FUNC writeLinesFile(path AS String, count AS Integer) AS Integer
+  RES f AS File = fs::open(path, "write")
+  FOR i = 0 TO count - 1
+    fs::writeAll(f, toString(i) & "\n")
+  NEXT
+  RETURN count
+END FUNC
+
+FUNC readLinesFile(path AS String) AS Integer
+  RES f AS File = fs::open(path, "read")
+  MUT lines AS Integer = 0
+  WHILE NOT fs::eof(f)
+    LET line AS String = fs::readLine(f)
+    lines = lines + 1
+  WEND
+  RETURN lines
+END FUNC
+
+SUB writeCsvInput(path AS String)
+  RES f AS File = fs::open(path, "write")
+  FOR i = 0 TO 1999
+    fs::writeAll(f, toString(i) & "," & toString(i + 1) & "," & toString(i + 2) & "\n")
+  NEXT
+END SUB
+
+SUB writeJsonInput(path AS String)
+  RES f AS File = fs::open(path, "write")
+  fs::writeAll(f, "{\"nums\":[")
+  MUT i AS Integer = 0
+  WHILE i < 5000
+    IF i > 0 THEN
+      fs::writeAll(f, ",")
+    END IF
+    fs::writeAll(f, toString(i))
+    i = i + 1
+  WEND
+  fs::writeAll(f, "],\"tail\":5000}")
+END SUB
+
+SUB writeRegexInput(path AS String)
+  RES f AS File = fs::open(path, "write")
+  MUT i AS Integer = 0
+  WHILE i < 200
+    IF i > 0 THEN
+      fs::writeAll(f, " ")
+    END IF
+    fs::writeAll(f, toString(i))
+    i = i + 1
+  WEND
+END SUB
+
+' ===========================================================================
+' GROUP: recurse
+' ===========================================================================
+
+FUNC fib(n AS Integer) AS Integer
+  IF n < 2 THEN RETURN n
+  RETURN fib(n - 1) + fib(n - 2)
+END FUNC
+
+FUNC test_fib(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = fib(35)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("fib = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("recurse", "fib", times))
+END FUNC
+
+FUNC ack(m AS Integer, n AS Integer) AS Integer
+  IF m = 0 THEN RETURN n + 1
+  IF n = 0 THEN RETURN ack(m - 1, 1)
+  RETURN ack(m - 1, ack(m, n - 1))
+END FUNC
+
+FUNC test_ackermann(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = ack(3, 7)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("ackermann = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("recurse", "ackermann", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: float
+' ===========================================================================
+
+FUNC test_leibniz(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT sum AS Float = 0.0
+    MUT sign AS Float = 1.0
+    FOR k = 0 TO 999999
+      LET denom AS Float = toFloat(2 * k + 1)
+      sum = sum + sign / denom
+      sign = sign * -1.0
+    NEXT
+    checksum = 4.0 * sum
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("leibniz = " & toString(checksum, toByte(5)))
+  RETURN collections::append(tests, makeResult("float", "leibniz", times))
+END FUNC
+
+FUNC energyDist(ax AS Float, ay AS Float, az AS Float, bx AS Float, by AS Float, bz AS Float) AS Float
+  LET dx AS Float = ax - bx
+  LET dy AS Float = ay - by
+  LET dz AS Float = az - bz
+  RETURN math::sqrt(dx * dx + dy * dy + dz * dz)
+END FUNC
+
+FUNC test_nbody(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET pi AS Float = 3.141592653589793
+  LET solarMass AS Float = 4.0 * pi * pi
+  LET daysPerYear AS Float = 365.24
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+
+    MUT x0 AS Float = 0.0
+    MUT y0 AS Float = 0.0
+    MUT z0 AS Float = 0.0
+    MUT x1 AS Float = 4.84143144246472090
+    MUT y1 AS Float = -1.16032004402742839
+    MUT z1 AS Float = -0.103622044471123109
+    MUT x2 AS Float = 8.34336671824457987
+    MUT y2 AS Float = 4.12479856412430479
+    MUT z2 AS Float = -0.403523417114321381
+    MUT x3 AS Float = 12.8943695621391310
+    MUT y3 AS Float = -15.1111514016986312
+    MUT z3 AS Float = -0.223307578892655734
+    MUT x4 AS Float = 15.3796971148509165
+    MUT y4 AS Float = -25.9193146099879641
+    MUT z4 AS Float = 0.179258772950371181
+
+    MUT vx0 AS Float = 0.0
+    MUT vy0 AS Float = 0.0
+    MUT vz0 AS Float = 0.0
+    MUT vx1 AS Float = 0.00166007664274403694 * daysPerYear
+    MUT vy1 AS Float = 0.00769901118419740425 * daysPerYear
+    MUT vz1 AS Float = -0.0000690460016972063023 * daysPerYear
+    MUT vx2 AS Float = -0.00276742510726862411 * daysPerYear
+    MUT vy2 AS Float = 0.00499852801234917238 * daysPerYear
+    MUT vz2 AS Float = 0.0000230417297573763929 * daysPerYear
+    MUT vx3 AS Float = 0.00296460137564761618 * daysPerYear
+    MUT vy3 AS Float = 0.00237847173959480950 * daysPerYear
+    MUT vz3 AS Float = -0.0000296589568540237556 * daysPerYear
+    MUT vx4 AS Float = 0.00268067772490389322 * daysPerYear
+    MUT vy4 AS Float = 0.00162824170038242295 * daysPerYear
+    MUT vz4 AS Float = -0.0000951592254519715870 * daysPerYear
+
+    LET m0 AS Float = solarMass
+    LET m1 AS Float = 0.000954791938424326609 * solarMass
+    LET m2 AS Float = 0.000285885980666130812 * solarMass
+    LET m3 AS Float = 0.0000436624404335156298 * solarMass
+    LET m4 AS Float = 0.0000515138902046611451 * solarMass
+
+    MUT px AS Float = 0.0
+    MUT py AS Float = 0.0
+    MUT pz AS Float = 0.0
+    px = px + vx1 * m1
+    py = py + vy1 * m1
+    pz = pz + vz1 * m1
+    px = px + vx2 * m2
+    py = py + vy2 * m2
+    pz = pz + vz2 * m2
+    px = px + vx3 * m3
+    py = py + vy3 * m3
+    pz = pz + vz3 * m3
+    px = px + vx4 * m4
+    py = py + vy4 * m4
+    pz = pz + vz4 * m4
+    vx0 = -px / solarMass
+    vy0 = -py / solarMass
+    vz0 = -pz / solarMass
+
+    LET dt AS Float = 0.01
+
+    FOR s = 0 TO 99999
+      LET dx01 AS Float = x0 - x1
+      LET dy01 AS Float = y0 - y1
+      LET dz01 AS Float = z0 - z1
+      LET d2_01 AS Float = dx01 * dx01 + dy01 * dy01 + dz01 * dz01
+      LET mag01 AS Float = dt / (d2_01 * math::sqrt(d2_01))
+      vx0 = vx0 - dx01 * m1 * mag01
+      vy0 = vy0 - dy01 * m1 * mag01
+      vz0 = vz0 - dz01 * m1 * mag01
+      vx1 = vx1 + dx01 * m0 * mag01
+      vy1 = vy1 + dy01 * m0 * mag01
+      vz1 = vz1 + dz01 * m0 * mag01
+      LET dx02 AS Float = x0 - x2
+      LET dy02 AS Float = y0 - y2
+      LET dz02 AS Float = z0 - z2
+      LET d2_02 AS Float = dx02 * dx02 + dy02 * dy02 + dz02 * dz02
+      LET mag02 AS Float = dt / (d2_02 * math::sqrt(d2_02))
+      vx0 = vx0 - dx02 * m2 * mag02
+      vy0 = vy0 - dy02 * m2 * mag02
+      vz0 = vz0 - dz02 * m2 * mag02
+      vx2 = vx2 + dx02 * m0 * mag02
+      vy2 = vy2 + dy02 * m0 * mag02
+      vz2 = vz2 + dz02 * m0 * mag02
+      LET dx03 AS Float = x0 - x3
+      LET dy03 AS Float = y0 - y3
+      LET dz03 AS Float = z0 - z3
+      LET d2_03 AS Float = dx03 * dx03 + dy03 * dy03 + dz03 * dz03
+      LET mag03 AS Float = dt / (d2_03 * math::sqrt(d2_03))
+      vx0 = vx0 - dx03 * m3 * mag03
+      vy0 = vy0 - dy03 * m3 * mag03
+      vz0 = vz0 - dz03 * m3 * mag03
+      vx3 = vx3 + dx03 * m0 * mag03
+      vy3 = vy3 + dy03 * m0 * mag03
+      vz3 = vz3 + dz03 * m0 * mag03
+      LET dx04 AS Float = x0 - x4
+      LET dy04 AS Float = y0 - y4
+      LET dz04 AS Float = z0 - z4
+      LET d2_04 AS Float = dx04 * dx04 + dy04 * dy04 + dz04 * dz04
+      LET mag04 AS Float = dt / (d2_04 * math::sqrt(d2_04))
+      vx0 = vx0 - dx04 * m4 * mag04
+      vy0 = vy0 - dy04 * m4 * mag04
+      vz0 = vz0 - dz04 * m4 * mag04
+      vx4 = vx4 + dx04 * m0 * mag04
+      vy4 = vy4 + dy04 * m0 * mag04
+      vz4 = vz4 + dz04 * m0 * mag04
+      LET dx12 AS Float = x1 - x2
+      LET dy12 AS Float = y1 - y2
+      LET dz12 AS Float = z1 - z2
+      LET d2_12 AS Float = dx12 * dx12 + dy12 * dy12 + dz12 * dz12
+      LET mag12 AS Float = dt / (d2_12 * math::sqrt(d2_12))
+      vx1 = vx1 - dx12 * m2 * mag12
+      vy1 = vy1 - dy12 * m2 * mag12
+      vz1 = vz1 - dz12 * m2 * mag12
+      vx2 = vx2 + dx12 * m1 * mag12
+      vy2 = vy2 + dy12 * m1 * mag12
+      vz2 = vz2 + dz12 * m1 * mag12
+      LET dx13 AS Float = x1 - x3
+      LET dy13 AS Float = y1 - y3
+      LET dz13 AS Float = z1 - z3
+      LET d2_13 AS Float = dx13 * dx13 + dy13 * dy13 + dz13 * dz13
+      LET mag13 AS Float = dt / (d2_13 * math::sqrt(d2_13))
+      vx1 = vx1 - dx13 * m3 * mag13
+      vy1 = vy1 - dy13 * m3 * mag13
+      vz1 = vz1 - dz13 * m3 * mag13
+      vx3 = vx3 + dx13 * m1 * mag13
+      vy3 = vy3 + dy13 * m1 * mag13
+      vz3 = vz3 + dz13 * m1 * mag13
+      LET dx14 AS Float = x1 - x4
+      LET dy14 AS Float = y1 - y4
+      LET dz14 AS Float = z1 - z4
+      LET d2_14 AS Float = dx14 * dx14 + dy14 * dy14 + dz14 * dz14
+      LET mag14 AS Float = dt / (d2_14 * math::sqrt(d2_14))
+      vx1 = vx1 - dx14 * m4 * mag14
+      vy1 = vy1 - dy14 * m4 * mag14
+      vz1 = vz1 - dz14 * m4 * mag14
+      vx4 = vx4 + dx14 * m1 * mag14
+      vy4 = vy4 + dy14 * m1 * mag14
+      vz4 = vz4 + dz14 * m1 * mag14
+      LET dx23 AS Float = x2 - x3
+      LET dy23 AS Float = y2 - y3
+      LET dz23 AS Float = z2 - z3
+      LET d2_23 AS Float = dx23 * dx23 + dy23 * dy23 + dz23 * dz23
+      LET mag23 AS Float = dt / (d2_23 * math::sqrt(d2_23))
+      vx2 = vx2 - dx23 * m3 * mag23
+      vy2 = vy2 - dy23 * m3 * mag23
+      vz2 = vz2 - dz23 * m3 * mag23
+      vx3 = vx3 + dx23 * m2 * mag23
+      vy3 = vy3 + dy23 * m2 * mag23
+      vz3 = vz3 + dz23 * m2 * mag23
+      LET dx24 AS Float = x2 - x4
+      LET dy24 AS Float = y2 - y4
+      LET dz24 AS Float = z2 - z4
+      LET d2_24 AS Float = dx24 * dx24 + dy24 * dy24 + dz24 * dz24
+      LET mag24 AS Float = dt / (d2_24 * math::sqrt(d2_24))
+      vx2 = vx2 - dx24 * m4 * mag24
+      vy2 = vy2 - dy24 * m4 * mag24
+      vz2 = vz2 - dz24 * m4 * mag24
+      vx4 = vx4 + dx24 * m2 * mag24
+      vy4 = vy4 + dy24 * m2 * mag24
+      vz4 = vz4 + dz24 * m2 * mag24
+      LET dx34 AS Float = x3 - x4
+      LET dy34 AS Float = y3 - y4
+      LET dz34 AS Float = z3 - z4
+      LET d2_34 AS Float = dx34 * dx34 + dy34 * dy34 + dz34 * dz34
+      LET mag34 AS Float = dt / (d2_34 * math::sqrt(d2_34))
+      vx3 = vx3 - dx34 * m4 * mag34
+      vy3 = vy3 - dy34 * m4 * mag34
+      vz3 = vz3 - dz34 * m4 * mag34
+      vx4 = vx4 + dx34 * m3 * mag34
+      vy4 = vy4 + dy34 * m3 * mag34
+      vz4 = vz4 + dz34 * m3 * mag34
+
+      x0 = x0 + dt * vx0
+      y0 = y0 + dt * vy0
+      z0 = z0 + dt * vz0
+      x1 = x1 + dt * vx1
+      y1 = y1 + dt * vy1
+      z1 = z1 + dt * vz1
+      x2 = x2 + dt * vx2
+      y2 = y2 + dt * vy2
+      z2 = z2 + dt * vz2
+      x3 = x3 + dt * vx3
+      y3 = y3 + dt * vy3
+      z3 = z3 + dt * vz3
+      x4 = x4 + dt * vx4
+      y4 = y4 + dt * vy4
+      z4 = z4 + dt * vz4
+    NEXT
+
+    MUT e AS Float = 0.0
+    e = e + 0.5 * m0 * (vx0 * vx0 + vy0 * vy0 + vz0 * vz0)
+    e = e - m0 * m1 / energyDist(x0, y0, z0, x1, y1, z1)
+    e = e - m0 * m2 / energyDist(x0, y0, z0, x2, y2, z2)
+    e = e - m0 * m3 / energyDist(x0, y0, z0, x3, y3, z3)
+    e = e - m0 * m4 / energyDist(x0, y0, z0, x4, y4, z4)
+    e = e + 0.5 * m1 * (vx1 * vx1 + vy1 * vy1 + vz1 * vz1)
+    e = e - m1 * m2 / energyDist(x1, y1, z1, x2, y2, z2)
+    e = e - m1 * m3 / energyDist(x1, y1, z1, x3, y3, z3)
+    e = e - m1 * m4 / energyDist(x1, y1, z1, x4, y4, z4)
+    e = e + 0.5 * m2 * (vx2 * vx2 + vy2 * vy2 + vz2 * vz2)
+    e = e - m2 * m3 / energyDist(x2, y2, z2, x3, y3, z3)
+    e = e - m2 * m4 / energyDist(x2, y2, z2, x4, y4, z4)
+    e = e + 0.5 * m3 * (vx3 * vx3 + vy3 * vy3 + vz3 * vz3)
+    e = e - m3 * m4 / energyDist(x3, y3, z3, x4, y4, z4)
+    e = e + 0.5 * m4 * (vx4 * vx4 + vy4 * vy4 + vz4 * vz4)
+    checksum = e
+
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("nbody = " & toString(checksum, toByte(9)))
+  RETURN collections::append(tests, makeResult("float", "nbody", times))
+END FUNC
+
+FUNC test_mandelbrot(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET w AS Integer = 600
+  LET h AS Integer = 600
+  LET maxiter AS Integer = 100
+  LET wf AS Float = toFloat(w)
+  LET hf AS Float = toFloat(h)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT inset AS Integer = 0
+    FOR y = 0 TO h - 1
+      LET im AS Float = -1.5 + 3.0 * (toFloat(y) + 0.5) / hf
+      FOR x = 0 TO w - 1
+        LET re AS Float = -2.0 + 3.0 * (toFloat(x) + 0.5) / wf
+        MUT zr AS Float = 0.0
+        MUT zi AS Float = 0.0
+        MUT escaped AS Boolean = FALSE
+        MUT i AS Integer = 0
+        DO WHILE i < maxiter
+          LET nzr AS Float = zr * zr - zi * zi + re
+          LET nzi AS Float = 2.0 * zr * zi + im
+          zr = nzr
+          zi = nzi
+          IF zr * zr + zi * zi > 4.0 THEN
+            escaped = TRUE
+            i = maxiter
+          ELSE
+            i = i + 1
+          END IF
+        LOOP
+        IF NOT escaped THEN
+          inset = inset + 1
+        END IF
+      NEXT
+    NEXT
+    checksum = inset
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("mandelbrot = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("float", "mandelbrot", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: math (individual libm-severed kernels; 2000 x 1000 calls each)
+' ===========================================================================
+
+FUNC test_sin(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT x AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::sin(x)
+        x = x + 0.0015
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("sin = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "sin", times))
+END FUNC
+
+FUNC test_cos(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT x AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::cos(x)
+        x = x + 0.0015
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("cos = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "cos", times))
+END FUNC
+
+FUNC test_tan(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT x AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::tan(x)
+        x = x + 0.0015
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("tan = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "tan", times))
+END FUNC
+
+FUNC test_atan2(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT x AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::atan2(x, 1.0 + x)
+        x = x + 0.0015
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("atan2 = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "atan2", times))
+END FUNC
+
+FUNC test_asin(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT t AS Float = -0.999
+      FOR i = 0 TO 999
+        acc = acc + math::asin(t)
+        t = t + 0.001998
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("asin = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "asin", times))
+END FUNC
+
+FUNC test_acos(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT t AS Float = -0.999
+      FOR i = 0 TO 999
+        acc = acc + math::acos(t)
+        t = t + 0.001998
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("acos = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "acos", times))
+END FUNC
+
+FUNC test_atan(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT t AS Float = -0.999
+      FOR i = 0 TO 999
+        acc = acc + math::atan(t)
+        t = t + 0.001998
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("atan = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "atan", times))
+END FUNC
+
+FUNC test_exp(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::exp(v * 0.1)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("exp = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "exp", times))
+END FUNC
+
+FUNC test_log(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::log(v)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("log = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "log", times))
+END FUNC
+
+FUNC test_log10(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::log10(v)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("log10 = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "log10", times))
+END FUNC
+
+FUNC test_pow(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::pow(v, 1.5)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("pow = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "pow", times))
+END FUNC
+
+FUNC test_sqrt(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR rep = 0 TO 1999
+      MUT v AS Float = 0.001
+      FOR i = 0 TO 999
+        acc = acc + math::sqrt(v)
+        v = v + 0.005
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("sqrt = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("math", "sqrt", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: list
+' ===========================================================================
+
+FUNC test_list_append(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 999
+      nums = collections::append(nums, i)
+    NEXT
+    checksum = len(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_append = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "append", times))
+END FUNC
+
+FUNC test_list_append_batch(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET ten AS List OF Integer = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 99
+      nums = collections::append(nums, ten)
+    NEXT
+    checksum = len(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_append_batch = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "append_batch", times))
+END FUNC
+
+FUNC test_list_prepend(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 999
+      nums = collections::prepend(nums, i)
+    NEXT
+    checksum = len(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_prepend = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "prepend", times))
+END FUNC
+
+TYPE CopyRec
+  n AS Integer
+  s AS String
+END TYPE
+
+FUNC copyStrings(xs AS List OF String) AS List OF String
+  RETURN xs
+END FUNC
+
+FUNC copyRecs(xs AS List OF CopyRec) AS List OF CopyRec
+  RETURN xs
+END FUNC
+
+FUNC test_list_copy(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT strs AS List OF String = []
+  MUT recs AS List OF CopyRec = []
+  FOR i = 0 TO 999
+    strs = collections::append(strs, toString(i))
+    recs = collections::append(recs, CopyRec[i, toString(i)])
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 999
+      LET c AS List OF String = copyStrings(strs)
+      acc = acc + len(c)
+    NEXT
+    FOR i = 0 TO 999
+      LET cr AS List OF CopyRec = copyRecs(recs)
+      acc = acc + len(cr)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_copy = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "copy", times))
+END FUNC
+
+FUNC test_list_distinct(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 4999
+      nums = collections::append(nums, i - (i / 1000) * 1000)
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET unique AS List OF Integer = collections::distinct(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = len(unique)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_distinct = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "distinct", times))
+END FUNC
+
+FUNC bucketKey(n AS Integer) AS Integer
+  RETURN n - (n / 100) * 100
+END FUNC
+
+FUNC identity(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC test_list_groupby(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 1999
+      nums = collections::append(nums, i)
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(nums, bucketKey, identity)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = len(groups)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_groupby = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "groupby", times))
+END FUNC
+
+FUNC test_list_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 199
+      nums = collections::append(nums, i)
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    FOR pass = 0 TO 9
+      FOR j = 0 TO 199
+        LET v AS Integer = collections::get(nums, j)
+        nums = collections::set(nums, j, v + 1)
+      NEXT
+    NEXT
+    LET t1 AS Integer = datetime::monotonicNanos()
+    MUT sumv AS Integer = 0
+    FOR j = 0 TO 199
+      sumv = sumv + collections::get(nums, j)
+    NEXT
+    checksum = sumv
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_set = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "set", times))
+END FUNC
+
+FUNC test_list_sort(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT base AS List OF Integer = []
+    FOR i = 0 TO 49
+      base = collections::append(base, math::rand(0, 1000000))
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET sorted AS List OF Integer = collections::sort(base)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = collections::get(sorted, 0)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_sort = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "sort", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: map
+' ===========================================================================
+
+FUNC test_map_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF String TO Integer = Map OF String TO Integer {}
+    FOR i = 0 TO 999
+      m = collections::set(m, toString(i), i)
+    NEXT
+    MUT sumv AS Integer = 0
+    FOR i = 0 TO 999
+      sumv = sumv + collections::get(m, toString(i))
+    NEXT
+    checksum = sumv
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_set = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "set", times))
+END FUNC
+
+FUNC test_map_lookup(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT m AS Map OF Integer TO Integer = Map OF Integer TO Integer {}
+    FOR i = 0 TO 19999
+      m = collections::set(m, i, i)
+    NEXT
+    MUT sumv AS Integer = 0
+    FOR i = 0 TO 19999
+      sumv = sumv + collections::get(m, i)
+    NEXT
+    checksum = sumv
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("map_lookup = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("map", "lookup", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: string
+' ===========================================================================
+
+FUNC test_string_concat(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT s AS String = ""
+    FOR i = 0 TO 999
+      s = s & "x"
+    NEXT
+    checksum = len(s)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("string_concat = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("string", "concat", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: record
+' ===========================================================================
+
+TYPE URec
+  n AS Integer
+  label AS String
+END TYPE
+
+FUNC test_record_update(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT recs AS List OF URec = []
+    FOR i = 0 TO 99
+      recs = collections::append(recs, URec[i, "p" & toString(i)])
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    FOR pass = 0 TO 9
+      FOR j = 0 TO 99
+        LET rec AS URec = collections::get(recs, j)
+        LET updated AS URec = WITH rec { n := rec.n + 1 }
+        recs = collections::set(recs, j, updated)
+      NEXT
+    NEXT
+    LET t1 AS Integer = datetime::monotonicNanos()
+    MUT sumv AS Integer = 0
+    FOR j = 0 TO 99
+      LET rec AS URec = collections::get(recs, j)
+      sumv = sumv + rec.n
+    NEXT
+    checksum = sumv
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("record_update = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("record", "update", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: bignum (base-2^28 limb lists; schoolbook mul + bit-serial mod)
+' ===========================================================================
+
+FUNC bnNorm(a AS List OF Integer) AS List OF Integer
+  MUT n AS Integer = len(a)
+  WHILE n > 1 AND collections::get(a, n - 1) = 0
+    n = n - 1
+  WEND
+  MUT r AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    r = collections::append(r, collections::get(a, i))
+    i = i + 1
+  WEND
+  RETURN r
+END FUNC
+
+FUNC bnCmp(a AS List OF Integer, b AS List OF Integer) AS Integer
+  LET la AS Integer = len(a)
+  LET lb AS Integer = len(b)
+  MUT n AS Integer = la
+  IF lb > n THEN
+    n = lb
+  END IF
+  MUT i AS Integer = n - 1
+  WHILE i >= 0
+    MUT ai AS Integer = 0
+    IF i < la THEN
+      ai = collections::get(a, i)
+    END IF
+    MUT bi AS Integer = 0
+    IF i < lb THEN
+      bi = collections::get(b, i)
+    END IF
+    IF ai < bi THEN
+      RETURN 0 - 1
+    END IF
+    IF ai > bi THEN
+      RETURN 1
+    END IF
+    i = i - 1
+  WEND
+  RETURN 0
+END FUNC
+
+FUNC bnAdd(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  LET la AS Integer = len(a)
+  LET lb AS Integer = len(b)
+  MUT n AS Integer = la
+  IF lb > n THEN
+    n = lb
+  END IF
+  MUT r AS List OF Integer = []
+  MUT c AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < n
+    MUT ai AS Integer = 0
+    IF i < la THEN
+      ai = collections::get(a, i)
+    END IF
+    MUT bi AS Integer = 0
+    IF i < lb THEN
+      bi = collections::get(b, i)
+    END IF
+    LET s AS Integer = ai + bi + c
+    r = collections::append(r, bits::band(s, 268435455))
+    c = bits::sr(s, 28)
+    i = i + 1
+  WEND
+  IF c <> 0 THEN
+    r = collections::append(r, c)
+  END IF
+  RETURN r
+END FUNC
+
+FUNC bnSub(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  LET la AS Integer = len(a)
+  LET lb AS Integer = len(b)
+  MUT r AS List OF Integer = []
+  MUT brw AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < la
+    MUT bi AS Integer = 0
+    IF i < lb THEN
+      bi = collections::get(b, i)
+    END IF
+    MUT s AS Integer = collections::get(a, i) - bi - brw
+    IF s < 0 THEN
+      s = s + 268435456
+      brw = 1
+    ELSE
+      brw = 0
+    END IF
+    r = collections::append(r, s)
+    i = i + 1
+  WEND
+  RETURN bnNorm(r)
+END FUNC
+
+FUNC bnMul(a AS List OF Integer, b AS List OF Integer) AS List OF Integer
+  LET la AS Integer = len(a)
+  LET lb AS Integer = len(b)
+  MUT r AS List OF Integer = []
+  MUT z AS Integer = 0
+  WHILE z < la + lb
+    r = collections::append(r, 0)
+    z = z + 1
+  WEND
+  MUT i AS Integer = 0
+  WHILE i < la
+    MUT c AS Integer = 0
+    LET ai AS Integer = collections::get(a, i)
+    MUT j AS Integer = 0
+    WHILE j < lb
+      LET idx AS Integer = i + j
+      LET t AS Integer = collections::get(r, idx) + ai * collections::get(b, j) + c
+      r = collections::set(r, idx, bits::band(t, 268435455))
+      c = bits::sr(t, 28)
+      j = j + 1
+    WEND
+    LET hidx AS Integer = i + lb
+    r = collections::set(r, hidx, collections::get(r, hidx) + c)
+    i = i + 1
+  WEND
+  RETURN bnNorm(r)
+END FUNC
+
+FUNC bnShl1(a AS List OF Integer) AS List OF Integer
+  MUT r AS List OF Integer = []
+  MUT c AS Integer = 0
+  MUT i AS Integer = 0
+  WHILE i < len(a)
+    LET t AS Integer = bits::bor(bits::sl(collections::get(a, i), 1), c)
+    r = collections::append(r, bits::band(t, 268435455))
+    c = bits::sr(t, 28)
+    i = i + 1
+  WEND
+  IF c <> 0 THEN
+    r = collections::append(r, c)
+  END IF
+  RETURN r
+END FUNC
+
+FUNC bnMod(x AS List OF Integer, m AS List OF Integer) AS List OF Integer
+  IF bnCmp(x, m) < 0 THEN
+    RETURN x
+  END IF
+  LET nbits AS Integer = len(x) * 28
+  MUT r AS List OF Integer = [0]
+  MUT i AS Integer = nbits - 1
+  WHILE i >= 0
+    LET limb AS Integer = i / 28
+    LET off AS Integer = i - limb * 28
+    LET bit AS Integer = bits::band(bits::sr(collections::get(x, limb), off), 1)
+    r = bnShl1(r)
+    IF bit <> 0 THEN
+      LET one AS List OF Integer = [1]
+      r = bnAdd(r, one)
+    END IF
+    IF bnCmp(r, m) >= 0 THEN
+      r = bnSub(r, m)
+    END IF
+    i = i - 1
+  WEND
+  RETURN r
+END FUNC
+
+FUNC bnModmul(a AS List OF Integer, b AS List OF Integer, m AS List OF Integer) AS List OF Integer
+  LET prod AS List OF Integer = bnMul(a, b)
+  RETURN bnMod(prod, m)
+END FUNC
+
+FUNC test_bignum_modmul(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET p AS List OF Integer = [268435455, 268435455, 268435455, 4095, 0, 0, 16777216, 0, 268435455, 15]
+  LET g AS List OF Integer = [220077856, 27374017, 102176793, 20005201, 252711186, 12636384, 134810123, 5267568, 16909060]
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT b AS List OF Integer = g
+    MUT i AS Integer = 0
+    WHILE i < 200
+      b = bnModmul(b, g, p)
+      i = i + 1
+    WEND
+    MUT acc AS Integer = 0
+    MUT j AS Integer = 0
+    WHILE j < len(b)
+      acc = acc + collections::get(b, j)
+      j = j + 1
+    WEND
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("bignum_modmul = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("bignum", "modmul", times))
+END FUNC
+
+FUNC test_bignum_modexp(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET p AS List OF Integer = [268435455, 268435455, 268435455, 4095, 0, 0, 16777216, 0, 268435455, 15]
+  LET g AS List OF Integer = [220077856, 27374017, 102176793, 20005201, 252711186, 12636384, 134810123, 5267568, 16909060]
+  LET e AS Integer = 6822318947648322238
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR run_i = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT r AS List OF Integer = [1]
+    MUT b AS List OF Integer = g
+    MUT i AS Integer = 0
+    WHILE i < 63
+      IF bits::band(bits::sr(e, i), 1) <> 0 THEN
+        r = bnModmul(r, b, p)
+      END IF
+      b = bnModmul(b, b, p)
+      i = i + 1
+    WEND
+    MUT acc AS Integer = 0
+    MUT j AS Integer = 0
+    WHILE j < len(r)
+      acc = acc + collections::get(r, j)
+      j = j + 1
+    WEND
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("bignum_modexp = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("bignum", "modexp", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: parse (input generated to a temp file first, then timed)
+' ===========================================================================
+
+FUNC test_parse_csv(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-parse-csv.csv")
+  writeCsvInput(path)
+
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET text AS String = fs::readText(path)
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET grid AS List OF List OF String = csv::parse(text)
+    MUT sumv AS Integer = 0
+    FOR row_i = 0 TO len(grid) - 1
+      LET row AS List OF String = collections::get(grid, row_i)
+      FOR c = 0 TO len(row) - 1
+        sumv = sumv + toInt(collections::get(row, c))
+      NEXT
+    NEXT
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = sumv
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("parse_csv = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("parse", "csv", times))
+END FUNC
+
+FUNC test_parse_json(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-parse-json.json")
+  writeJsonInput(path)
+
+  MUT times AS List OF Integer = []
+  MUT checksum AS String = ""
+  FOR r = 0 TO run - 1
+    LET text AS String = fs::readText(path)
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET value AS Json = json::parse(text)
+    LET tail AS String = json::stringify(json::get(value, ["tail"]))
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = tail
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("parse_json = " & checksum)
+  RETURN collections::append(tests, makeResult("parse", "json", times))
+END FUNC
+
+FUNC test_parse_regex(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-parse-regex.txt")
+  writeRegexInput(path)
+
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET text AS String = fs::readText(path)
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET matches AS List OF Integer = regex::findAll(text, "[0-9]+")
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = len(matches)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("parse_regex = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("parse", "regex", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: io (file-based; setup writes the input once)
+' ===========================================================================
+
+FUNC test_io_write(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-io-write.txt")
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = writeLinesFile(path, 20000)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("io_write = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("io", "write", times))
+END FUNC
+
+FUNC test_io_read(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET path AS String = tmpPath("mfb-bench-io-read.txt")
+  LET wrote AS Integer = writeLinesFile(path, 20000)
+
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    checksum = readLinesFile(path)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  fs::deleteFile(path)
+  io::printError("io_read = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("io", "read", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: vector (vector:: package geometry surface)
+' ===========================================================================
+
+FUNC test_vector_math(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Float = 0.0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Float = 0.0
+    FOR k = 0 TO 199999
+      LET fk AS Float = toFloat(k)
+      LET a AS vector::Float3 = vector::Float3[fk + 1.0, fk * 0.5 + 2.0, 3.0 - fk * 0.25]
+      LET b AS vector::Float3 = vector::Float3[2.0 - fk * 0.125, fk + 0.5, fk * 0.75 + 1.0]
+      LET na AS vector::Float3 = vector::normalize(a)
+      LET nb AS vector::Float3 = vector::normalize(b)
+      LET c AS vector::Float3 = vector::cross(na, nb)
+      LET m AS vector::Float3 = vector::lerp(a, b, 0.5)
+      LET s AS vector::Float3 = vector::scale(na, nb)
+      acc = acc + vector::dot(c, m) + vector::length(s) + vector::distance(a, b)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("vector_math = " & toString(checksum, toByte(6)))
+  RETURN collections::append(tests, makeResult("vector", "math", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: primes
+' ===========================================================================
+
+FUNC isPrime(n AS Integer) AS Boolean
+  IF n < 2 THEN
+    RETURN FALSE
+  END IF
+  MUT i AS Integer = 2
+  DO WHILE i * i <= n
+    IF n MOD i = 0 THEN
+      RETURN FALSE
+    END IF
+    i = i + 1
+  LOOP
+  RETURN TRUE
+END FUNC
+
+FUNC test_primes(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT primes AS List OF Integer = []
+    MUT candidate AS Integer = 2
+    DO WHILE len(primes) < 1000
+      IF isPrime(candidate) THEN
+        primes = collections::append(primes, candidate)
+      END IF
+      candidate = candidate + 1
+    LOOP
+    checksum = collections::get(primes, len(primes) - 1)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("primes = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("primes", "primes", times))
+END FUNC
+
+' ===========================================================================
+' GROUP: thread (4 workers x 10,000,000, real OS threads)
+' ===========================================================================
+
+FUNC test_thread_sum(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET chunk AS Integer = 10000000
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET t0w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, 0)
+    LET t1w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk)
+    LET t2w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk * 2)
+    LET t3w AS Thread OF Nothing TO Integer = thread::start(bench_workers::sumChunk, chunk * 3)
+    LET s0 AS Integer = thread::waitFor(t0w)
+    LET s1 AS Integer = thread::waitFor(t1w)
+    LET s2 AS Integer = thread::waitFor(t2w)
+    LET s3 AS Integer = thread::waitFor(t3w)
+    checksum = s0 + s1 + s2 + s3
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("thread_sum = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("thread", "sum", times))
+END FUNC
+
+' ===========================================================================
+' Driver
+' ===========================================================================
+
+FUNC parseRun(args AS List OF String) AS Integer
+  MUT run AS Integer = 10
+  MUT i AS Integer = 0
+  WHILE i < len(args)
+    IF collections::get(args, i) = "--run" THEN
+      IF i + 1 < len(args) THEN
+        LET raw AS String = collections::get(args, i + 1)
+        MUT parsed AS Integer = toInt(raw) TRAP(err)
+          RECOVER 0 - 1
+        END TRAP
+        IF parsed >= 1 THEN
+          run = parsed
+        END IF
+      END IF
+    END IF
+    i = i + 1
+  WEND
+  RETURN run
+END FUNC
+
+FUNC main(args AS List OF String) AS Integer
+  LET run AS Integer = parseRun(args)
+  io::printError("running each test " & toString(run) & " time(s)")
+  io::flushError()
+
+  MUT tests AS List OF BenchResult = []
+
+  tests = test_fib(run, tests)
+  tests = test_ackermann(run, tests)
+
+  tests = test_leibniz(run, tests)
+  tests = test_nbody(run, tests)
+  tests = test_mandelbrot(run, tests)
+
+  tests = test_sin(run, tests)
+  tests = test_cos(run, tests)
+  tests = test_tan(run, tests)
+  tests = test_atan2(run, tests)
+  tests = test_asin(run, tests)
+  tests = test_acos(run, tests)
+  tests = test_atan(run, tests)
+  tests = test_exp(run, tests)
+  tests = test_log(run, tests)
+  tests = test_log10(run, tests)
+  tests = test_pow(run, tests)
+  tests = test_sqrt(run, tests)
+
+  tests = test_list_append(run, tests)
+  tests = test_list_append_batch(run, tests)
+  tests = test_list_prepend(run, tests)
+  tests = test_list_copy(run, tests)
+  tests = test_list_distinct(run, tests)
+  tests = test_list_groupby(run, tests)
+  tests = test_list_set(run, tests)
+  tests = test_list_sort(run, tests)
+
+  tests = test_map_set(run, tests)
+  tests = test_map_lookup(run, tests)
+
+  tests = test_string_concat(run, tests)
+
+  tests = test_record_update(run, tests)
+
+  tests = test_bignum_modmul(run, tests)
+  tests = test_bignum_modexp(run, tests)
+
+  tests = test_parse_csv(run, tests)
+  tests = test_parse_json(run, tests)
+  tests = test_parse_regex(run, tests)
+
+  tests = test_io_write(run, tests)
+  tests = test_io_read(run, tests)
+
+  tests = test_vector_math(run, tests)
+
+  tests = test_primes(run, tests)
+
+  tests = test_thread_sum(run, tests)
+
+  printResults(tests)
+  RETURN 0
+END FUNC

@@ -1,0 +1,7 @@
+{
+  "name": "bench_workers",
+  "version": "0.1.0",
+  "mfb": "1.0",
+  "kind": "package",
+  "sources": [{ "root": "src", "role": "lib", "include": ["**/*.mfb"] }]
+}

@@ -1,0 +1,15 @@
+IMPORT thread
+
+' Worker for the thread-sum benchmark: sums the 10,000,000 integers starting at
+' `start`. Each worker runs on its own native OS thread, so K workers sum K
+' chunks in parallel. Returned to the parent via thread::waitFor.
+EXPORT ISOLATED FUNC sumChunk(t AS ThreadWorker OF Nothing TO Integer, start AS Integer) AS Integer
+  MUT total AS Integer = 0
+  MUT i AS Integer = start
+  LET stop AS Integer = start + 10000000
+  WHILE i < stop
+    total = total + i
+    i = i + 1
+  WEND
+  RETURN total
+END FUNC

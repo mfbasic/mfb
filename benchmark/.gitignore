@@ -1,2 +1,4 @@
 *.log
 *.out
+*.mfp
+mfb/packages/
