@@ -882,4 +882,120 @@ mod tests {
             ]
         );
     }
+
+    // Every keyword lexeme round-trips: lookup_keyword recognizes it (case-
+    // insensitively) and keyword_lexeme maps the variant back to that lexeme.
+    // Drives all arms of both big match statements.
+    #[test]
+    fn keyword_lookup_and_lexeme_round_trip_for_all_keywords() {
+        const LEXEMES: &[&str] = &[
+            "as",
+            "case",
+            "continue",
+            "do",
+            "else",
+            "elseif",
+            "false",
+            "fail",
+            "exit",
+            "for",
+            "each",
+            "func",
+            "if",
+            "in",
+            "import",
+            "isolated",
+            "let",
+            "lambda",
+            "loop",
+            "div",
+            "mod",
+            "match",
+            "mut",
+            "nothing",
+            "and",
+            "or",
+            "not",
+            "next",
+            "xor",
+            "return",
+            "sub",
+            "then",
+            "true",
+            "end",
+            "enum",
+            "export",
+            "package",
+            "program",
+            "private",
+            "propagate",
+            "recover",
+            "res",
+            "step",
+            "to",
+            "type",
+            "trap",
+            "until",
+            "union",
+            "when",
+            "while",
+            "wend",
+            "with",
+        ];
+        for lexeme in LEXEMES {
+            let keyword =
+                lookup_keyword(lexeme).unwrap_or_else(|| panic!("`{lexeme}` should be a keyword"));
+            assert_eq!(keyword_lexeme(keyword), *lexeme, "round-trip for {lexeme}");
+            // Case-insensitive recognition.
+            assert_eq!(lookup_keyword(&lexeme.to_uppercase()), Some(keyword));
+        }
+        assert_eq!(lookup_keyword("notakeyword"), None);
+    }
+
+    #[test]
+    fn string_escapes_are_decoded_including_unknown_escapes() {
+        // Source: "a\"b\\c\nd\te\zf" — decodes \" \\ \n \t and passes an unknown
+        // escape (\z) through as the bare character.
+        let tokens =
+            lex(Path::new("main.mfb"), "\"a\\\"b\\\\c\\nd\\te\\zf\"\n").expect("lex source");
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::String("a\"b\\c\nd\tezf".to_string())
+        );
+    }
+
+    #[test]
+    fn unterminated_string_on_line_is_an_error() {
+        // Newline before the closing quote.
+        assert!(lex(Path::new("main.mfb"), "\"abc\ndef\n").is_err());
+    }
+
+    #[test]
+    fn unterminated_string_at_eof_is_an_error() {
+        // End-of-file before the closing quote (no trailing newline).
+        assert!(lex(Path::new("main.mfb"), "\"abc").is_err());
+        // A trailing backslash at EOF (escape with nothing after it) also fails.
+        assert!(lex(Path::new("main.mfb"), "\"abc\\").is_err());
+    }
+
+    #[test]
+    fn unexpected_character_is_reported_as_an_error() {
+        assert!(lex(Path::new("main.mfb"), "LET x = @\n").is_err());
+        // A lone `|` (not `|>`) is unexpected.
+        assert!(lex(Path::new("main.mfb"), "LET x = 1 | 2\n").is_err());
+    }
+
+    #[test]
+    fn pipe_greater_is_a_single_operator_token() {
+        let tokens = lex(Path::new("main.mfb"), "x |> f\n").expect("lex source");
+        assert!(tokens.iter().any(|t| t.kind == TokenKind::PipeGreater));
+    }
+
+    #[test]
+    fn decimal_numbers_lex_as_a_single_number_token() {
+        let tokens = lex(Path::new("main.mfb"), "LET pi = 3.14\n").expect("lex source");
+        assert!(tokens
+            .iter()
+            .any(|t| t.kind == TokenKind::Number("3.14".to_string())));
+    }
 }
