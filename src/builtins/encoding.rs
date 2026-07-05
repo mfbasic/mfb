@@ -95,8 +95,10 @@ pub(crate) fn is_encoding_call(name: &str) -> bool {
 
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
-        UTF8_ENCODE | UTF16_ENCODE | UTF32_ENCODE | PERCENT_ENCODE | PERCENT_DECODE | HTML_ESCAPE
-        | HTML_UNESCAPE | FORM_URL_ENCODE | FORM_URL_DECODE => Some(&[&["value", "text"]]),
+        UTF8_ENCODE | UTF16_ENCODE | UTF32_ENCODE | PERCENT_ENCODE | PERCENT_DECODE
+        | HTML_ESCAPE | HTML_UNESCAPE | FORM_URL_ENCODE | FORM_URL_DECODE => {
+            Some(&[&["value", "text"]])
+        }
         UTF8_DECODE | UTF16_DECODE | UTF32_DECODE => Some(&[&["value"]]),
         HEX_ENCODE | BASE32_ENCODE | BASE64_ENCODE | BASE64URL_ENCODE => Some(&[&["data"]]),
         HEX_DECODE | BASE32_DECODE | BASE64_DECODE | BASE64URL_DECODE => Some(&[&["text"]]),
@@ -275,4 +277,306 @@ pub(crate) fn augmented_project(
     let mut augmented = ast.clone();
     augmented.files.push(source_file()?);
     Ok(augmented)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn project(src: &str) -> crate::ast::AstProject {
+        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+            .expect("parse source");
+        crate::ast::AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        }
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    const ALL_PUBLIC: &[&str] = &[
+        UTF8_ENCODE,
+        UTF8_DECODE,
+        UTF16_ENCODE,
+        UTF16_DECODE,
+        UTF32_ENCODE,
+        UTF32_DECODE,
+        HEX_ENCODE,
+        HEX_DECODE,
+        BASE32_ENCODE,
+        BASE32_DECODE,
+        BASE64_ENCODE,
+        BASE64_DECODE,
+        BASE64URL_ENCODE,
+        BASE64URL_DECODE,
+        PERCENT_ENCODE,
+        PERCENT_DECODE,
+        HTML_ESCAPE,
+        HTML_UNESCAPE,
+        FORM_URL_ENCODE,
+        FORM_URL_DECODE,
+        PUNYCODE_ENCODE,
+        PUNYCODE_DECODE,
+        ULEB128_ENCODE,
+        ULEB128_DECODE,
+        SLEB128_ENCODE,
+        SLEB128_DECODE,
+        VARINT_ENCODE,
+        VARINT_DECODE,
+    ];
+
+    #[test]
+    fn is_call_recognizes_and_rejects() {
+        for n in ALL_PUBLIC {
+            assert!(is_encoding_call(n), "{n}");
+        }
+        for n in [
+            UTF8_ENCODE_BYTES,
+            UTF8_ENCODE_INTS,
+            UTF8_DECODE_BYTES,
+            UTF8_DECODE_INTS,
+        ] {
+            assert!(is_encoding_call(n), "{n}");
+        }
+        assert!(!is_encoding_call("encoding.nope"));
+        assert!(!is_encoding_call("other.utf8Encode"));
+    }
+
+    #[test]
+    fn param_names_branches() {
+        assert_eq!(
+            call_param_names(UTF8_ENCODE),
+            Some(&[&["value", "text"][..]][..])
+        );
+        assert_eq!(call_param_names(UTF8_DECODE), Some(&[&["value"][..]][..]));
+        assert_eq!(call_param_names(HEX_ENCODE), Some(&[&["data"][..]][..]));
+        assert_eq!(call_param_names(HEX_DECODE), Some(&[&["text"][..]][..]));
+        assert_eq!(
+            call_param_names(PUNYCODE_ENCODE),
+            Some(&[&["domain"][..]][..])
+        );
+        assert_eq!(
+            call_param_names(PUNYCODE_DECODE),
+            Some(&[&["asciiDomain"][..]][..])
+        );
+        assert_eq!(
+            call_param_names(ULEB128_ENCODE),
+            Some(&[&["value"][..]][..])
+        );
+        assert_eq!(call_param_names(ULEB128_DECODE), Some(&[&["data"][..]][..]));
+        assert!(call_param_names("encoding.nope").is_none());
+    }
+
+    #[test]
+    fn return_type_name_branches() {
+        assert_eq!(call_return_type_name(UTF8_ENCODE), Some(BYTES));
+        assert_eq!(call_return_type_name(UTF8_ENCODE_BYTES), Some(BYTES));
+        assert_eq!(call_return_type_name(HEX_DECODE), Some(BYTES));
+        assert_eq!(call_return_type_name(ULEB128_ENCODE), Some(BYTES));
+        assert_eq!(call_return_type_name(UTF16_ENCODE), Some(INTS));
+        assert_eq!(call_return_type_name(UTF8_ENCODE_INTS), Some(INTS));
+        assert_eq!(call_return_type_name(UTF8_DECODE), Some("String"));
+        assert_eq!(call_return_type_name(HEX_ENCODE), Some("String"));
+        assert_eq!(call_return_type_name(PERCENT_ENCODE), Some("String"));
+        assert_eq!(call_return_type_name(PUNYCODE_DECODE), Some("String"));
+        assert_eq!(call_return_type_name(ULEB128_DECODE), Some("Integer"));
+        assert_eq!(call_return_type_name(VARINT_DECODE), Some("Integer"));
+        assert!(call_return_type_name("encoding.nope").is_none());
+    }
+
+    #[test]
+    fn arity_is_unary_for_all() {
+        for n in ALL_PUBLIC {
+            assert_eq!(arity(n), Some((1, 1)), "{n}");
+        }
+        assert!(arity("encoding.nope").is_none());
+    }
+
+    #[test]
+    fn expected_arguments_branches() {
+        assert_eq!(expected_arguments(UTF8_ENCODE), Some("String"));
+        assert_eq!(expected_arguments(HEX_DECODE), Some("String"));
+        assert_eq!(
+            expected_arguments(UTF8_DECODE),
+            Some("List OF Byte or List OF Integer")
+        );
+        assert_eq!(expected_arguments(UTF8_DECODE_BYTES), Some(BYTES));
+        assert_eq!(expected_arguments(UTF8_DECODE_INTS), Some(INTS));
+        assert_eq!(expected_arguments(UTF16_DECODE), Some(INTS));
+        assert_eq!(expected_arguments(HEX_ENCODE), Some(BYTES));
+        assert_eq!(expected_arguments(ULEB128_DECODE), Some(BYTES));
+        assert_eq!(expected_arguments(ULEB128_ENCODE), Some("Integer"));
+        assert!(expected_arguments("encoding.nope").is_none());
+    }
+
+    #[test]
+    fn resolve_wrong_arity_none() {
+        assert_eq!(rt(HEX_ENCODE, &[]), None);
+        assert_eq!(rt(HEX_ENCODE, &[BYTES, BYTES]), None);
+    }
+
+    #[test]
+    fn resolve_each_branch() {
+        assert_eq!(rt(UTF8_ENCODE, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(UTF8_ENCODE_BYTES, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(UTF8_ENCODE_INTS, &["String"]), Some(INTS.to_string()));
+        assert_eq!(rt(UTF8_DECODE, &[BYTES]), Some("String".to_string()));
+        assert_eq!(rt(UTF8_DECODE, &[INTS]), Some("String".to_string()));
+        assert_eq!(rt(UTF8_DECODE_BYTES, &[BYTES]), Some("String".to_string()));
+        assert_eq!(rt(UTF8_DECODE_INTS, &[INTS]), Some("String".to_string()));
+        assert_eq!(rt(UTF16_ENCODE, &["String"]), Some(INTS.to_string()));
+        assert_eq!(rt(UTF32_ENCODE, &["String"]), Some(INTS.to_string()));
+        assert_eq!(rt(UTF16_DECODE, &[INTS]), Some("String".to_string()));
+        assert_eq!(rt(UTF32_DECODE, &[INTS]), Some("String".to_string()));
+        assert_eq!(rt(HEX_ENCODE, &[BYTES]), Some("String".to_string()));
+        assert_eq!(rt(BASE32_ENCODE, &[BYTES]), Some("String".to_string()));
+        assert_eq!(rt(BASE64_ENCODE, &[BYTES]), Some("String".to_string()));
+        assert_eq!(rt(BASE64URL_ENCODE, &[BYTES]), Some("String".to_string()));
+        assert_eq!(rt(HEX_DECODE, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(BASE32_DECODE, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(BASE64_DECODE, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(BASE64URL_DECODE, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(rt(PERCENT_ENCODE, &["String"]), Some("String".to_string()));
+        assert_eq!(rt(PERCENT_DECODE, &["String"]), Some("String".to_string()));
+        assert_eq!(rt(HTML_ESCAPE, &["String"]), Some("String".to_string()));
+        assert_eq!(rt(HTML_UNESCAPE, &["String"]), Some("String".to_string()));
+        assert_eq!(rt(FORM_URL_ENCODE, &["String"]), Some("String".to_string()));
+        assert_eq!(rt(FORM_URL_DECODE, &["String"]), Some("String".to_string()));
+        assert_eq!(rt(PUNYCODE_ENCODE, &["String"]), Some("String".to_string()));
+        assert_eq!(rt(PUNYCODE_DECODE, &["String"]), Some("String".to_string()));
+        assert_eq!(rt(ULEB128_ENCODE, &["Integer"]), Some(BYTES.to_string()));
+        assert_eq!(rt(SLEB128_ENCODE, &["Integer"]), Some(BYTES.to_string()));
+        assert_eq!(rt(VARINT_ENCODE, &["Integer"]), Some(BYTES.to_string()));
+        assert_eq!(rt(ULEB128_DECODE, &[BYTES]), Some("Integer".to_string()));
+        assert_eq!(rt(SLEB128_DECODE, &[BYTES]), Some("Integer".to_string()));
+        assert_eq!(rt(VARINT_DECODE, &[BYTES]), Some("Integer".to_string()));
+    }
+
+    #[test]
+    fn resolve_wrong_types_none() {
+        assert_eq!(rt(UTF8_ENCODE, &["Integer"]), None);
+        assert_eq!(rt(UTF8_DECODE, &["String"]), None);
+        assert_eq!(rt(HEX_ENCODE, &["String"]), None);
+        assert_eq!(rt(HEX_DECODE, &[BYTES]), None);
+        assert_eq!(rt(ULEB128_ENCODE, &[BYTES]), None);
+        assert_eq!(rt("encoding.nope", &["String"]), None);
+    }
+
+    #[test]
+    fn implementation_name_flat_map() {
+        assert_eq!(
+            implementation_name(UTF8_ENCODE_BYTES),
+            Some("__encoding_utf8EncodeBytes")
+        );
+        assert_eq!(
+            implementation_name(UTF8_ENCODE_INTS),
+            Some("__encoding_utf8EncodeInts")
+        );
+        assert_eq!(
+            implementation_name(UTF8_DECODE_BYTES),
+            Some("__encoding_utf8DecodeBytes")
+        );
+        assert_eq!(
+            implementation_name(UTF8_DECODE_INTS),
+            Some("__encoding_utf8DecodeInts")
+        );
+        assert_eq!(
+            implementation_name(HEX_ENCODE),
+            Some("__encoding_hexEncode")
+        );
+        assert_eq!(
+            implementation_name(VARINT_DECODE),
+            Some("__encoding_varintDecode")
+        );
+        assert_eq!(
+            implementation_name(PUNYCODE_ENCODE),
+            Some("__encoding_punycodeEncode")
+        );
+        assert_eq!(
+            implementation_name(FORM_URL_DECODE),
+            Some("__encoding_formUrlDecode")
+        );
+        // overloaded names are not in the flat map
+        assert_eq!(implementation_name(UTF8_ENCODE), None);
+        assert_eq!(implementation_name(UTF8_DECODE), None);
+        assert_eq!(implementation_name("encoding.nope"), None);
+    }
+
+    #[test]
+    fn resolve_overload_target_all_paths() {
+        assert_eq!(
+            resolve_overload_target(UTF8_ENCODE, &strings(&["String"]), Some(BYTES)),
+            Ok(Some(UTF8_ENCODE_BYTES))
+        );
+        assert_eq!(
+            resolve_overload_target(UTF8_ENCODE, &strings(&["String"]), Some(INTS)),
+            Ok(Some(UTF8_ENCODE_INTS))
+        );
+        // no expected type -> Err
+        assert_eq!(
+            resolve_overload_target(UTF8_ENCODE, &strings(&["String"]), None),
+            Err(())
+        );
+        assert_eq!(
+            resolve_overload_target(UTF8_ENCODE, &strings(&["String"]), Some("String")),
+            Err(())
+        );
+        // utf8Encode with wrong arg types is not the overload arm -> Ok(None)
+        assert_eq!(
+            resolve_overload_target(UTF8_ENCODE, &strings(&["Integer"]), Some(BYTES)),
+            Ok(None)
+        );
+        assert_eq!(
+            resolve_overload_target(UTF8_DECODE, &strings(&[BYTES]), None),
+            Ok(Some(UTF8_DECODE_BYTES))
+        );
+        assert_eq!(
+            resolve_overload_target(UTF8_DECODE, &strings(&[INTS]), None),
+            Ok(Some(UTF8_DECODE_INTS))
+        );
+        // non-overloaded callee -> Ok(None)
+        assert_eq!(
+            resolve_overload_target(HEX_ENCODE, &strings(&[BYTES]), None),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn is_overloaded_only_utf8() {
+        assert!(is_overloaded(UTF8_ENCODE));
+        assert!(is_overloaded(UTF8_DECODE));
+        assert!(!is_overloaded(UTF16_ENCODE));
+        assert!(!is_overloaded(HEX_ENCODE));
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    #[test]
+    fn augmented_project_injects_when_imported() {
+        let ast = project("IMPORT encoding\nSUB main\nEND SUB\n");
+        assert!(uses_package(&ast));
+        assert_eq!(
+            augmented_project(&ast).expect("a").files.len(),
+            ast.files.len() + 1
+        );
+    }
+
+    #[test]
+    fn augmented_project_noop_without_import() {
+        let ast = project("SUB main\nEND SUB\n");
+        assert!(!uses_package(&ast));
+        assert_eq!(
+            augmented_project(&ast).expect("a").files.len(),
+            ast.files.len()
+        );
+    }
 }

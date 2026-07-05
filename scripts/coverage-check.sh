@@ -12,7 +12,7 @@ set -eu
 cd "$(dirname "$0")/.."
 
 FLOOR="${FLOOR:-95}"
-IGNORE='(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/private/unicode\.rs$'
+IGNORE='(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$'
 
 # Regenerate the JSON summary from the cached profile (no test re-run).
 cargo llvm-cov report \

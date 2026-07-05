@@ -364,3 +364,189 @@ fn findings(report: &AuditReport) -> Json {
             .collect(),
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::report::testsupport::*;
+    use super::super::report::*;
+    use super::*;
+    use std::collections::HashMap;
+    use tinyjson::JsonValue;
+
+    fn parse(text: &str) -> HashMap<String, JsonValue> {
+        let value: JsonValue = text.parse().expect("valid json");
+        value
+            .get::<HashMap<String, JsonValue>>()
+            .expect("object root")
+            .clone()
+    }
+
+    fn obj(value: &JsonValue) -> &HashMap<String, JsonValue> {
+        value.get::<HashMap<String, JsonValue>>().expect("object")
+    }
+
+    fn arr(value: &JsonValue) -> &Vec<JsonValue> {
+        value.get::<Vec<JsonValue>>().expect("array")
+    }
+
+    fn s(value: &JsonValue) -> &str {
+        value.get::<String>().expect("string")
+    }
+
+    #[test]
+    fn full_report_roundtrips_and_is_parseable() {
+        let out = render(&full_report());
+        assert!(out.ends_with('\n'));
+        let root = parse(&out);
+
+        assert_eq!(s(&root["schema"]), SCHEMA);
+        assert_eq!(s(&obj(&root["tool"])["name"]), "mfb");
+        assert_eq!(s(&obj(&root["tool"])["version"]), env!("CARGO_PKG_VERSION"));
+
+        let project = obj(&root["project"]);
+        assert_eq!(s(&project["name"]), "demo");
+        assert_eq!(s(&project["ident"]), "demo.ident");
+        assert_eq!(s(&project["entry"]), "main");
+        assert_eq!(s(&project["languageVersion"]), "1");
+
+        let summary = obj(&root["summary"]);
+        assert_eq!(*summary["errors"].get::<f64>().unwrap() as i64, 1);
+        assert_eq!(*summary["warnings"].get::<f64>().unwrap() as i64, 1);
+        assert_eq!(*summary["infos"].get::<f64>().unwrap() as i64, 1);
+
+        let lockfile = obj(&root["lockfile"]);
+        assert!(*lockfile["present"].get::<bool>().unwrap());
+        assert!(*lockfile["locked"].get::<bool>().unwrap());
+        assert_eq!(*lockfile["lockfileVersion"].get::<f64>().unwrap() as i64, 1);
+        assert!(!*lockfile["projectHashMatches"].get::<bool>().unwrap());
+
+        let deps = arr(&root["dependencies"]);
+        assert_eq!(deps.len(), 2);
+        let alpha = obj(&deps[0]);
+        assert_eq!(s(&alpha["name"]), "alpha");
+        assert_eq!(s(&alpha["resolvedVersion"]), "1.2.3");
+        assert!(*alpha["pin"].get::<bool>().unwrap());
+        assert_eq!(s(&alpha["signature"]), "signed");
+        let beta = obj(&deps[1]);
+        // opt_str None -> JSON null
+        assert!(matches!(beta["resolvedVersion"], JsonValue::Null));
+        assert!(matches!(beta["signature"], JsonValue::Null));
+        assert!(matches!(beta["contentHash"], JsonValue::Null));
+
+        let packages = arr(&root["packages"]);
+        assert_eq!(s(&obj(&packages[0])["verifier"]), "ok");
+        assert_eq!(
+            *obj(&packages[0])["exports"].get::<f64>().unwrap() as i64,
+            3
+        );
+
+        let flow = arr(&root["sourceFlow"]);
+        assert_eq!(flow.len(), 2);
+        let work = obj(&flow[0]);
+        assert!(*work["fallible"].get::<bool>().unwrap());
+        let trap = obj(&work["trap"]);
+        assert_eq!(s(&trap["classification"]), "recovers");
+        let call = obj(&arr(&work["calls"])[0]);
+        assert_eq!(s(&call["callee"]), "fs.open");
+        assert_eq!(s(&call["capability"]), "filesystem");
+        // second flow fn has null trap
+        assert!(matches!(obj(&flow[1])["trap"], JsonValue::Null));
+
+        let resources = arr(&root["resources"]);
+        assert_eq!(resources.len(), 2);
+        assert!(*obj(&resources[0])["closeMayFail"].get::<bool>().unwrap());
+
+        let native_links = arr(&root["nativeLinks"]);
+        assert_eq!(s(&obj(&native_links[0])["symbol"]), "sym");
+
+        let native_resources = arr(&root["nativeResources"]);
+        assert_eq!(s(&obj(&native_resources[0])["kind"]), "native");
+        assert!(*obj(&native_resources[0])["threadSendable"]
+            .get::<bool>()
+            .unwrap());
+
+        let permissions = arr(&root["permissions"]);
+        assert_eq!(permissions.len(), 3);
+
+        let findings = arr(&root["findings"]);
+        assert_eq!(findings.len(), 3);
+        // finding with path+line -> location object with both
+        let loc0 = obj(&obj(&findings[0])["location"]);
+        assert_eq!(s(&loc0["path"]), "mfb.lock");
+        // AUDIT-LOCK-STALE has path but no line
+        assert!(!loc0.contains_key("line"));
+        let loc1 = obj(&obj(&findings[1])["location"]);
+        assert_eq!(*loc1["line"].get::<f64>().unwrap() as i64, 11);
+        // finding with neither path nor line -> null location
+        assert!(matches!(obj(&findings[2])["location"], JsonValue::Null));
+    }
+
+    #[test]
+    fn empty_report_emits_empty_arrays_and_objects() {
+        let out = render(&empty_report());
+        let root = parse(&out);
+        assert!(arr(&root["dependencies"]).is_empty());
+        assert!(arr(&root["findings"]).is_empty());
+        // an empty entry is null via opt_str
+        let project = obj(&root["project"]);
+        assert_eq!(s(&project["entry"]), "main");
+    }
+
+    #[test]
+    fn empty_report_without_entry_serializes_null() {
+        let mut report = empty_report();
+        report.project.entry = None;
+        let out = render(&report);
+        let root = parse(&out);
+        assert!(matches!(obj(&root["project"])["entry"], JsonValue::Null));
+    }
+
+    #[test]
+    fn write_string_escapes_control_and_special_characters() {
+        let mut out = String::new();
+        write_string(&mut out, "a\"b\\c\nd\re\tf\u{0001}g");
+        assert_eq!(out, "\"a\\\"b\\\\c\\nd\\re\\tf\\u0001g\"");
+    }
+
+    #[test]
+    fn json_escaping_survives_roundtrip_in_message() {
+        let mut report = empty_report();
+        report.findings.push(Finding {
+            code: "X".to_string(),
+            category: "lint".to_string(),
+            severity: Severity::Info,
+            message: "quote\"and\\slash\tand\nnewline".to_string(),
+            path: None,
+            line: None,
+            package: None,
+        });
+        let out = render(&report);
+        let root = parse(&out);
+        let finding = obj(&arr(&root["findings"])[0]);
+        assert_eq!(s(&finding["message"]), "quote\"and\\slash\tand\nnewline");
+    }
+
+    #[test]
+    fn opt_helpers_map_none_to_null_and_some_to_value() {
+        let mut int_holder = String::new();
+        Json::Null.write(&mut int_holder, 0);
+        assert_eq!(int_holder, "null");
+
+        // opt_int / opt_bool via a small object
+        let obj = Json::Obj(vec![
+            ("a", opt_int(Some(7))),
+            ("b", opt_int(None)),
+            ("c", opt_bool(Some(true))),
+            ("d", opt_bool(None)),
+            ("e", opt_str(&Some("hi".to_string()))),
+        ]);
+        let mut out = String::new();
+        obj.write(&mut out, 0);
+        let parsed = parse(&out);
+        assert_eq!(*parsed["a"].get::<f64>().unwrap() as i64, 7);
+        assert!(matches!(parsed["b"], JsonValue::Null));
+        assert!(*parsed["c"].get::<bool>().unwrap());
+        assert!(matches!(parsed["d"], JsonValue::Null));
+        assert_eq!(parsed["e"].get::<String>().unwrap(), "hi");
+    }
+}

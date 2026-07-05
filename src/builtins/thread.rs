@@ -435,3 +435,298 @@ fn split_top_level_types(params: &str) -> Vec<String> {
     parts.push(params[start..].trim().to_string());
     parts
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    #[test]
+    fn is_thread_call_covers_every_name() {
+        for name in [
+            START,
+            IS_RUNNING,
+            WAIT_FOR,
+            CANCEL,
+            SEND,
+            POLL,
+            RECEIVE,
+            IS_CANCELLED,
+            TRANSFER,
+            ACCEPT,
+            TRANSFER_RESOURCE,
+            ACCEPT_RESOURCE,
+            EMIT_RESOURCE,
+            READ_RESOURCE,
+        ] {
+            assert!(is_thread_call(name), "{name}");
+        }
+        assert!(!is_thread_call("thread.nope"));
+        assert!(!is_thread_call("foo"));
+    }
+
+    #[test]
+    fn is_builtin_type_variants() {
+        assert!(is_builtin_type(THREAD_TYPE));
+        assert!(is_builtin_type(THREAD_WORKER_TYPE));
+        assert!(is_builtin_type("Thread OF Integer TO String"));
+        assert!(is_builtin_type("ThreadWorker OF Integer TO String"));
+        assert!(!is_builtin_type("Integer"));
+        assert!(!is_builtin_type("List OF Integer"));
+    }
+
+    #[test]
+    fn call_param_names_all_arms() {
+        assert_eq!(call_param_names(START).unwrap().len(), 4);
+        assert_eq!(call_param_names(IS_RUNNING).unwrap().len(), 1);
+        assert_eq!(call_param_names(WAIT_FOR).unwrap().len(), 1);
+        assert_eq!(call_param_names(CANCEL).unwrap().len(), 1);
+        assert_eq!(call_param_names(IS_CANCELLED).unwrap().len(), 1);
+        assert_eq!(call_param_names(SEND).unwrap().len(), 3);
+        assert_eq!(call_param_names(POLL).unwrap().len(), 2);
+        assert_eq!(call_param_names(RECEIVE).unwrap().len(), 2);
+        assert!(call_param_names(TRANSFER).is_none());
+        assert!(call_param_names("thread.nope").is_none());
+    }
+
+    #[test]
+    fn expected_arguments_all_arms() {
+        assert!(expected_arguments(START).unwrap().starts_with("ISOLATED"));
+        assert!(expected_arguments(IS_RUNNING).is_some());
+        assert!(expected_arguments(WAIT_FOR).is_some());
+        assert!(expected_arguments(CANCEL).is_some());
+        assert!(expected_arguments(SEND).is_some());
+        assert!(expected_arguments(POLL).is_some());
+        assert!(expected_arguments(RECEIVE).is_some());
+        assert!(expected_arguments(IS_CANCELLED).is_some());
+        assert!(expected_arguments(TRANSFER).is_some());
+        assert!(expected_arguments(ACCEPT).is_some());
+        assert!(expected_arguments("thread.nope").is_none());
+    }
+
+    #[test]
+    fn arity_all_arms() {
+        assert_eq!(arity(START), Some((2, 4)));
+        assert_eq!(arity(IS_RUNNING), Some((1, 1)));
+        assert_eq!(arity(WAIT_FOR), Some((1, 1)));
+        assert_eq!(arity(CANCEL), Some((1, 1)));
+        assert_eq!(arity(IS_CANCELLED), Some((1, 1)));
+        assert_eq!(arity(SEND), Some((2, 3)));
+        assert_eq!(arity(POLL), Some((2, 2)));
+        assert_eq!(arity(RECEIVE), Some((1, 2)));
+        assert_eq!(arity(TRANSFER), Some((2, 3)));
+        assert_eq!(arity(ACCEPT), Some((1, 2)));
+        assert!(arity("thread.nope").is_none());
+    }
+
+    #[test]
+    fn thread_parts_full_shapes() {
+        assert_eq!(
+            thread_parts_full("Thread OF Integer TO String"),
+            Some((THREAD_TYPE, "Integer", None, "String"))
+        );
+        assert_eq!(
+            thread_parts_full("Thread OF Integer RES File TO String"),
+            Some((THREAD_TYPE, "Integer", Some("File"), "String"))
+        );
+        assert_eq!(
+            thread_parts_full("Thread OF RES File TO String"),
+            Some((THREAD_TYPE, "Nothing", Some("File"), "String"))
+        );
+        assert_eq!(
+            thread_parts_full("ThreadWorker OF Integer TO String"),
+            Some((THREAD_WORKER_TYPE, "Integer", None, "String"))
+        );
+        assert!(thread_parts_full("Integer").is_none());
+        assert!(thread_parts_full("Thread OF Integer").is_none());
+    }
+
+    #[test]
+    fn thread_accessors() {
+        let t = "Thread OF Integer RES File TO String";
+        assert!(is_thread_type(t));
+        assert!(is_parent_thread_type(t));
+        assert!(!is_worker_thread_type(t));
+        assert_eq!(thread_message(t), Some("Integer"));
+        assert_eq!(thread_output(t), Some("String"));
+        assert_eq!(thread_resource(t), Some("File"));
+        assert_eq!(parent_thread_output(t), Some("String"));
+        assert_eq!(thread_parts(t), Some((THREAD_TYPE, "Integer", "String")));
+
+        let w = "ThreadWorker OF Integer TO String";
+        assert!(is_worker_thread_type(w));
+        assert!(!is_parent_thread_type(w));
+        assert_eq!(parent_thread_output(w), None);
+        assert_eq!(thread_resource(w), None);
+
+        assert!(!is_thread_type("Integer"));
+        assert_eq!(thread_message("Integer"), None);
+        assert_eq!(thread_output("Integer"), None);
+    }
+
+    #[test]
+    fn format_thread_type_shapes() {
+        assert_eq!(
+            format_thread_type(THREAD_TYPE, "Integer", None, "String"),
+            "Thread OF Integer TO String"
+        );
+        assert_eq!(
+            format_thread_type(THREAD_TYPE, "Integer", Some("File"), "String"),
+            "Thread OF Integer RES File TO String"
+        );
+        assert_eq!(
+            format_thread_type(THREAD_TYPE, "Nothing", Some("File"), "String"),
+            "Thread OF RES File TO String"
+        );
+    }
+
+    #[test]
+    fn resolve_start() {
+        let f = "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS String";
+        assert_eq!(
+            rt(START, &[f, "Integer"]),
+            Some("Thread OF Integer TO String".to_string())
+        );
+        assert_eq!(
+            rt(START, &[f, "Integer", "Integer"]),
+            Some("Thread OF Integer TO String".to_string())
+        );
+        assert_eq!(
+            rt(START, &[f, "Integer", "Integer", "Integer"]),
+            Some("Thread OF Integer TO String".to_string())
+        );
+        // wrong data-arg type
+        assert_eq!(rt(START, &[f, "String"]), None);
+        // wrong limit type
+        assert_eq!(rt(START, &[f, "Integer", "String"]), None);
+        // not a function
+        assert_eq!(rt(START, &["Integer", "Integer"]), None);
+        // wrong arity
+        assert_eq!(rt(START, &[f]), None);
+    }
+
+    #[test]
+    fn resolve_start_output_mismatch() {
+        // worker output != function output
+        let f = "ISOLATED FUNC(ThreadWorker OF Integer TO String, Integer) AS Boolean";
+        assert_eq!(rt(START, &[f, "Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_running_waitfor_cancel_cancelled() {
+        let t = "Thread OF Integer TO String";
+        assert_eq!(rt(IS_RUNNING, &[t]), Some("Boolean".to_string()));
+        assert_eq!(rt(WAIT_FOR, &[t]), Some("String".to_string()));
+        assert_eq!(rt(CANCEL, &[t]), Some("Nothing".to_string()));
+        // worker not valid for parent-only ops
+        let w = "ThreadWorker OF Integer TO String";
+        assert_eq!(rt(IS_RUNNING, &[w]), None);
+        assert_eq!(rt(IS_CANCELLED, &[w]), Some("Boolean".to_string()));
+        assert_eq!(rt(IS_CANCELLED, &[t]), None);
+        // wrong arity
+        assert_eq!(rt(IS_RUNNING, &[t, t]), None);
+    }
+
+    #[test]
+    fn resolve_send_poll_receive() {
+        let t = "Thread OF Integer TO String";
+        assert_eq!(rt(SEND, &[t, "Integer"]), Some("Nothing".to_string()));
+        assert_eq!(
+            rt(SEND, &[t, "Integer", "Integer"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(rt(SEND, &[t, "String"]), None); // message mismatch
+        assert_eq!(rt(SEND, &[t, "Integer", "String"]), None); // bad timeout
+        assert_eq!(rt(POLL, &[t, "Integer"]), Some("Boolean".to_string()));
+        assert_eq!(rt(POLL, &[t, "String"]), None);
+        assert_eq!(rt(RECEIVE, &[t]), Some("Integer".to_string()));
+        assert_eq!(rt(RECEIVE, &[t, "Integer"]), Some("Integer".to_string()));
+        assert_eq!(rt(RECEIVE, &[t, "String"]), None);
+    }
+
+    #[test]
+    fn resolve_send_unknown_message() {
+        let t = "Thread OF Unknown TO String";
+        assert_eq!(rt(SEND, &[t, "Integer"]), Some("Nothing".to_string()));
+    }
+
+    #[test]
+    fn resolve_transfer_accept() {
+        let t = "Thread OF Integer RES File TO String";
+        assert_eq!(rt(TRANSFER, &[t, "File"]), Some("Nothing".to_string()));
+        assert_eq!(
+            rt(TRANSFER, &[t, "File", "Integer"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(rt(TRANSFER, &[t, "Socket"]), None); // resource mismatch
+        assert_eq!(rt(ACCEPT, &[t]), Some("File".to_string()));
+        assert_eq!(rt(ACCEPT, &[t, "Integer"]), Some("File".to_string()));
+        assert_eq!(rt(ACCEPT, &[t, "String"]), None);
+        // data-only thread has no resource plane
+        let d = "Thread OF Integer TO String";
+        assert_eq!(rt(ACCEPT, &[d]), None);
+    }
+
+    #[test]
+    fn resolve_unknown_name() {
+        assert_eq!(rt("thread.nope", &["Integer"]), None);
+    }
+
+    #[test]
+    fn strip_type_group_cases() {
+        assert_eq!(strip_type_group("Integer"), "Integer");
+        assert_eq!(strip_type_group("(Integer)"), "Integer");
+        assert_eq!(strip_type_group("  (Integer)  "), "Integer");
+        // not a full-span group: leading token before matching close
+        assert_eq!(strip_type_group("(a), b"), "(a), b");
+        assert_eq!(strip_type_group("no group"), "no group");
+    }
+
+    #[test]
+    fn type_prefix_len_nested() {
+        // Nested List/Map/Thread parse through type_prefix_len via thread_parts_full.
+        assert_eq!(
+            thread_parts_full("Thread OF List OF Integer TO Map OF String TO Integer"),
+            Some((
+                THREAD_TYPE,
+                "List OF Integer",
+                None,
+                "Map OF String TO Integer"
+            ))
+        );
+        // Nested thread type as message.
+        assert_eq!(
+            thread_parts_full("Thread OF Thread OF Integer TO String TO Boolean"),
+            Some((THREAD_TYPE, "Thread OF Integer TO String", None, "Boolean"))
+        );
+        // Parenthesized group message.
+        assert_eq!(
+            thread_parts_full("Thread OF (Integer) TO String"),
+            Some((THREAD_TYPE, "Integer", None, "String"))
+        );
+    }
+
+    #[test]
+    fn nested_thread_with_res() {
+        assert_eq!(
+            thread_parts_full("Thread OF Thread OF Integer RES File TO String TO Boolean"),
+            Some((
+                THREAD_TYPE,
+                "Thread OF Integer RES File TO String",
+                None,
+                "Boolean"
+            ))
+        );
+        assert_eq!(
+            thread_parts_full("Thread OF Thread OF RES File TO String TO Boolean"),
+            Some((THREAD_TYPE, "Thread OF RES File TO String", None, "Boolean"))
+        );
+    }
+}

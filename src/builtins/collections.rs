@@ -269,3 +269,265 @@ pub(crate) fn collections_bindings(ast: &AstProject) -> HashMap<String, ()> {
     }
     bindings
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn project(src: &str) -> AstProject {
+        let file =
+            crate::ast::parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse source");
+        AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        }
+    }
+
+    #[test]
+    fn function_and_native_membership() {
+        assert!(is_collections_function("sort"));
+        assert!(is_collections_function("partition"));
+        assert!(!is_collections_function("get"));
+        assert!(!is_collections_function("nope"));
+
+        assert!(is_native_member("get"));
+        assert!(is_native_member("replace"));
+        assert!(!is_native_member("sort"));
+        assert!(!is_native_member("nope"));
+    }
+
+    #[test]
+    fn is_collections_call_cases() {
+        assert!(is_collections_call("collections.sort")); // source generic
+        assert!(is_collections_call("collections.get")); // native member
+        assert!(!is_collections_call("collections.nope"));
+        assert!(!is_collections_call("strings.find"));
+        assert!(!is_collections_call("sort"));
+    }
+
+    #[test]
+    fn native_member_call_and_bare() {
+        assert!(is_native_member_call("collections.get"));
+        assert!(!is_native_member_call("collections.sort"));
+        assert!(!is_native_member_call("get"));
+        assert_eq!(native_member_bare("collections.get"), Some("get"));
+        assert_eq!(native_member_bare("collections.sort"), None);
+        assert_eq!(native_member_bare("get"), None);
+    }
+
+    #[test]
+    fn internal_name_shape() {
+        let name = internal_name("sort");
+        assert!(name.contains("collections_sort"), "{name}");
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    #[test]
+    fn resolve_call_delegates_every_member() {
+        assert_eq!(
+            rt("collections.get", &["List OF Integer", "Integer"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.getOr",
+                &["List OF Integer", "Integer", "Integer"]
+            ),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.set",
+                &["List OF Integer", "Integer", "Integer"]
+            ),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt("collections.append", &["List OF Integer", "Integer"]),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt("collections.prepend", &["List OF Integer", "Integer"]),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.insert",
+                &["List OF Integer", "Integer", "Integer"]
+            ),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt("collections.removeAt", &["List OF Integer", "Integer"]),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.removeKey",
+                &["Map OF String TO Integer", "String"]
+            ),
+            Some("Map OF String TO Integer".to_string())
+        );
+        assert_eq!(
+            rt("collections.keys", &["Map OF String TO Integer"]),
+            Some("List OF String".to_string())
+        );
+        assert_eq!(
+            rt("collections.values", &["Map OF String TO Integer"]),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.hasKey",
+                &["Map OF String TO Integer", "String"]
+            ),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            rt("collections.contains", &["List OF Integer", "Integer"]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.forEach",
+                &["List OF Integer", "FUNC(Integer) AS Nothing"]
+            ),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.transform",
+                &["List OF Integer", "FUNC(Integer) AS String"]
+            ),
+            Some("List OF String".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.filter",
+                &["List OF Integer", "FUNC(Integer) AS Boolean"]
+            ),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.reduce",
+                &[
+                    "List OF Integer",
+                    "String",
+                    "FUNC(String, Integer) AS String"
+                ]
+            ),
+            Some("String".to_string())
+        );
+        assert_eq!(
+            rt("collections.sum", &["List OF Integer"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rt("collections.find", &["List OF Integer", "Integer"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.mid",
+                &["List OF Integer", "Integer", "Integer"]
+            ),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt(
+                "collections.replace",
+                &["List OF Integer", "Integer", "Integer"]
+            ),
+            Some("List OF Integer".to_string())
+        );
+        // Non-native member and unknown name.
+        assert!(resolve_call("collections.sort", &strings(&["List OF Integer"])).is_none());
+        assert!(resolve_call("get", &strings(&["List OF Integer", "Integer"])).is_none());
+        // Wrong types -> None.
+        assert_eq!(rt("collections.get", &["List OF Integer", "String"]), None);
+    }
+
+    #[test]
+    fn call_param_names_all_members() {
+        for member in NATIVE_MEMBERS {
+            let name = format!("collections.{member}");
+            assert!(call_param_names(&name).is_some(), "{member}");
+        }
+        assert!(call_param_names("collections.sort").is_none());
+        assert!(call_param_names("get").is_none());
+    }
+
+    #[test]
+    fn call_return_type_name_delegates() {
+        // Delegates to general::call_return_type_name(bare), which returns Some only
+        // for the conversion builtins (toInt/...) — none of which are native members,
+        // so every collections member resolves to None here.
+        assert_eq!(call_return_type_name("collections.find"), None);
+        assert_eq!(call_return_type_name("collections.get"), None);
+        assert_eq!(call_return_type_name("collections.sort"), None);
+        assert_eq!(call_return_type_name("nope"), None);
+    }
+
+    #[test]
+    fn expected_arguments_all_members() {
+        for member in NATIVE_MEMBERS {
+            let name = format!("collections.{member}");
+            assert!(expected_arguments(&name).is_some(), "{member}");
+        }
+        assert!(expected_arguments("collections.sort").is_none());
+    }
+
+    #[test]
+    fn arity_all_members() {
+        assert_eq!(arity("collections.get"), Some((2, 2)));
+        assert_eq!(arity("collections.getOr"), Some((3, 3)));
+        assert_eq!(arity("collections.keys"), Some((1, 1)));
+        assert_eq!(arity("collections.find"), Some((2, 3)));
+        assert_eq!(arity("collections.set"), Some((3, 3)));
+        assert_eq!(arity("collections.forEach"), Some((2, 2)));
+        for member in NATIVE_MEMBERS {
+            let name = format!("collections.{member}");
+            assert!(arity(&name).is_some(), "{member}");
+        }
+        assert!(arity("collections.sort").is_none());
+    }
+
+    #[test]
+    fn uses_package_and_bindings() {
+        let ast = project("IMPORT collections\nSUB main\nEND SUB\n");
+        assert!(uses_package(&ast));
+        assert!(collections_bindings(&ast).contains_key("collections"));
+
+        let bare = project("SUB main\nEND SUB\n");
+        assert!(!uses_package(&bare));
+        assert!(collections_bindings(&bare).is_empty());
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    #[test]
+    fn augmented_project_injects_when_imported() {
+        let ast = project("IMPORT collections\nSUB main\nEND SUB\n");
+        let before = ast.files.len();
+        let augmented = augmented_project(ast).expect("augment");
+        assert_eq!(augmented.files.len(), before + 1);
+    }
+
+    #[test]
+    fn augmented_project_noop_without_import() {
+        let ast = project("SUB main\nEND SUB\n");
+        let before = ast.files.len();
+        assert_eq!(augmented_project(ast).expect("a").files.len(), before);
+    }
+}

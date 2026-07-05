@@ -275,3 +275,160 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         .or_else(|| thread::call_param_names(name))
         .or_else(|| vector::call_param_names(name))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_builtin_import_cases() {
+        for pkg in [
+            "bits",
+            "collections",
+            "crypto",
+            "csv",
+            "datetime",
+            "encoding",
+            "errorCode",
+            "fs",
+            "http",
+            "io",
+            "json",
+            "math",
+            "net",
+            "regex",
+            "strings",
+            "term",
+            "thread",
+            "tls",
+            "vector",
+        ] {
+            assert!(is_builtin_import(pkg), "{pkg}");
+        }
+        assert!(!is_builtin_import("nope"));
+        assert!(!is_builtin_import("resource"));
+    }
+
+    #[test]
+    fn is_builtin_type_aggregates() {
+        // A thread type routes through thread::is_builtin_type.
+        assert!(is_builtin_type("Thread"));
+        assert!(!is_builtin_type("Integer"));
+        assert!(!is_builtin_type("List OF Integer"));
+    }
+
+    #[test]
+    fn general_override_target_cases() {
+        assert_eq!(
+            general_override_target("toString", net::URL_TYPE),
+            Some("__net_urlToString")
+        );
+        assert_eq!(general_override_target("toString", "Integer"), None);
+        assert_eq!(general_override_target("len", net::URL_TYPE), None);
+    }
+
+    #[test]
+    fn qualified_builtin_type_cases() {
+        // net.Url -> bare Url type id.
+        let url = qualified_builtin_type("net.Url");
+        assert_eq!(url.as_deref(), Some(net::URL_TYPE));
+        // Not a builtin package.
+        assert_eq!(qualified_builtin_type("mymod.Thing"), None);
+        // Builtin package, non-type member.
+        assert_eq!(qualified_builtin_type("net.notAType"), None);
+        // No dot at all.
+        assert_eq!(qualified_builtin_type("Url"), None);
+    }
+
+    #[test]
+    fn resource_helpers() {
+        // File is a builtin resource type.
+        assert!(is_resource_type("File"));
+        assert!(!is_resource_type("Integer"));
+        assert!(resource_close_function("File").is_some());
+        assert!(resource_close_function("Integer").is_none());
+        // is_thread_sendable_resource_type routes to resource module.
+        let _ = is_thread_sendable_resource_type("File");
+    }
+
+    #[test]
+    fn native_builtin_target_cases() {
+        assert_eq!(native_builtin_target("strings.find"), Some("find"));
+        assert_eq!(native_builtin_target("strings.mid"), Some("mid"));
+        assert_eq!(native_builtin_target("strings.replace"), Some("replace"));
+        assert_eq!(native_builtin_target("strings.other"), None);
+        assert_eq!(native_builtin_target("collections.get"), Some("get"));
+        assert_eq!(
+            native_builtin_target("collections.transform"),
+            Some("transform")
+        );
+        assert_eq!(native_builtin_target("collections.sum"), Some("sum"));
+        assert_eq!(native_builtin_target("collections.sort"), None);
+        assert_eq!(native_builtin_target("nope"), None);
+    }
+
+    #[test]
+    fn inline_trap_unsupported_cases() {
+        assert!(inline_trap_unsupported("bits.sl"));
+        assert!(inline_trap_unsupported("collections.get"));
+        assert!(inline_trap_unsupported("len"));
+        assert!(inline_trap_unsupported("toString"));
+        assert!(inline_trap_unsupported("typeName"));
+        assert!(!inline_trap_unsupported("toInt"));
+        assert!(!inline_trap_unsupported("nope"));
+    }
+
+    #[test]
+    fn call_return_type_name_aggregates() {
+        // general
+        assert_eq!(call_return_type_name("toInt"), Some("Integer"));
+        // strings::find contributes a return type through the aggregate.
+        assert_eq!(call_return_type_name("strings.find"), Some("Integer"));
+        assert_eq!(call_return_type_name("nope"), None);
+    }
+
+    #[test]
+    fn is_nonescaping_callback_arg_cases() {
+        assert!(is_nonescaping_callback_arg("forEach", 1));
+        assert!(is_nonescaping_callback_arg("collections.forEach", 1));
+        assert!(!is_nonescaping_callback_arg("forEach", 0));
+        assert!(!is_nonescaping_callback_arg("transform", 1));
+    }
+
+    #[test]
+    fn is_builtin_call_aggregates() {
+        assert!(is_builtin_call("collections.get")); // collections
+        assert!(is_builtin_call("len")); // general
+        assert!(is_builtin_call("thread.start")); // thread
+        assert!(is_builtin_call("toInt")); // via call_return_type_name
+        assert!(!is_builtin_call("nope"));
+    }
+
+    #[test]
+    fn is_builtin_member_and_package_constant() {
+        assert!(is_package_constant("math.pi"));
+        assert!(is_builtin_member("math.pi"));
+        assert!(is_builtin_member("len"));
+        assert!(!is_builtin_member("nope"));
+        assert!(!is_package_constant("nope"));
+    }
+
+    #[test]
+    fn package_constant_type_and_value() {
+        assert!(package_constant_type_name("math.pi").is_some());
+        assert!(package_constant_type_name("nope").is_none());
+        assert!(package_constant_value("math.pi").is_some());
+        assert!(package_constant_value("nope").is_none());
+    }
+
+    #[test]
+    fn call_param_names_aggregates() {
+        // general
+        assert!(call_param_names("len").is_some());
+        // collections
+        assert!(call_param_names("collections.get").is_some());
+        // thread
+        assert!(call_param_names("thread.start").is_some());
+        assert!(call_param_names("nope").is_none());
+    }
+}

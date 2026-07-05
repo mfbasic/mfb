@@ -126,3 +126,201 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
     let count = param_types(name)?.len();
     Some((count, count))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const ALL: &[&str] = &[
+        ON,
+        OFF,
+        IS_ON,
+        SET_FOREGROUND,
+        SET_BACKGROUND,
+        SET_BOLD,
+        SET_UNDERLINE,
+        SHOW_CURSOR,
+        HIDE_CURSOR,
+        CLEAR,
+        MOVE_TO,
+        GET_FOREGROUND,
+        GET_BACKGROUND,
+        GET_BOLD,
+        GET_UNDERLINE,
+        TERMINAL_SIZE,
+    ];
+
+    const NO_ARG: &[&str] = &[
+        ON,
+        OFF,
+        IS_ON,
+        SHOW_CURSOR,
+        HIDE_CURSOR,
+        CLEAR,
+        GET_FOREGROUND,
+        GET_BACKGROUND,
+        GET_BOLD,
+        GET_UNDERLINE,
+        TERMINAL_SIZE,
+    ];
+
+    #[test]
+    fn is_term_call_recognizes_all_and_rejects_others() {
+        for name in ALL {
+            assert!(is_term_call(name), "{name}");
+        }
+        assert!(!is_term_call("term.unknown"));
+        assert!(!is_term_call("strings.trim"));
+        assert!(!is_term_call(""));
+    }
+
+    #[test]
+    fn builtin_types() {
+        assert!(is_builtin_type(TERM_COLOR_TYPE));
+        assert!(is_builtin_type(TERM_SIZE_TYPE));
+        assert!(!is_builtin_type("String"));
+        assert!(!is_builtin_type("File"));
+        assert_eq!(
+            builtin_type_fields(TERM_COLOR_TYPE),
+            Some(&[("r", "Byte"), ("g", "Byte"), ("b", "Byte")][..])
+        );
+        assert_eq!(
+            builtin_type_fields(TERM_SIZE_TYPE),
+            Some(&[("columns", "Integer"), ("rows", "Integer")][..])
+        );
+        assert_eq!(builtin_type_fields("String"), None);
+    }
+
+    #[test]
+    fn every_name_has_consistent_metadata() {
+        for name in ALL {
+            assert!(call_param_names(name).is_some(), "param_names {name}");
+            assert!(param_types(name).is_some(), "param_types {name}");
+            assert!(call_return_type_name(name).is_some(), "return_type {name}");
+            assert!(resolve_call(name).is_some(), "resolve {name}");
+            assert!(expected_arguments(name).is_some(), "expected {name}");
+            assert!(arity(name).is_some(), "arity {name}");
+            let (min, max) = arity(name).unwrap();
+            assert_eq!(min, max, "term arities are fixed for {name}");
+            assert_eq!(
+                param_types(name).unwrap().len(),
+                min,
+                "arity vs types {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn metadata_returns_none_for_unknown() {
+        assert_eq!(call_param_names("term.nope"), None);
+        assert_eq!(param_types("term.nope"), None);
+        assert_eq!(call_return_type_name("term.nope"), None);
+        assert!(resolve_call("term.nope").is_none());
+        assert_eq!(expected_arguments("term.nope"), None);
+        assert_eq!(arity("term.nope"), None);
+    }
+
+    #[test]
+    fn param_names_and_types_by_group() {
+        for name in NO_ARG {
+            assert_eq!(call_param_names(name), Some(&[][..]), "{name}");
+            assert_eq!(param_types(name), Some(&[][..]), "{name}");
+        }
+        for name in [SET_FOREGROUND, SET_BACKGROUND] {
+            assert_eq!(
+                call_param_names(name),
+                Some(&[&["r"][..], &["g"][..], &["b"][..]][..]),
+                "{name}"
+            );
+            assert_eq!(
+                param_types(name),
+                Some(&["Byte", "Byte", "Byte"][..]),
+                "{name}"
+            );
+        }
+        for name in [SET_BOLD, SET_UNDERLINE] {
+            assert_eq!(
+                call_param_names(name),
+                Some(&[&["enabled"][..]][..]),
+                "{name}"
+            );
+            assert_eq!(param_types(name), Some(&["Boolean"][..]), "{name}");
+        }
+        assert_eq!(
+            call_param_names(MOVE_TO),
+            Some(&[&["row"][..], &["column"][..]][..])
+        );
+        assert_eq!(param_types(MOVE_TO), Some(&["Integer", "Integer"][..]));
+    }
+
+    #[test]
+    fn return_types_by_group() {
+        for name in [
+            ON,
+            OFF,
+            SET_FOREGROUND,
+            SET_BACKGROUND,
+            SET_BOLD,
+            SET_UNDERLINE,
+            SHOW_CURSOR,
+            HIDE_CURSOR,
+            CLEAR,
+            MOVE_TO,
+        ] {
+            assert_eq!(call_return_type_name(name), Some("Nothing"), "{name}");
+        }
+        for name in [IS_ON, GET_BOLD, GET_UNDERLINE] {
+            assert_eq!(call_return_type_name(name), Some("Boolean"), "{name}");
+        }
+        for name in [GET_FOREGROUND, GET_BACKGROUND] {
+            assert_eq!(call_return_type_name(name), Some(TERM_COLOR_TYPE), "{name}");
+        }
+        assert_eq!(call_return_type_name(TERMINAL_SIZE), Some(TERM_SIZE_TYPE));
+    }
+
+    #[test]
+    fn resolve_call_mirrors_return_type() {
+        for name in ALL {
+            let resolved = resolve_call(name).unwrap();
+            assert_eq!(
+                resolved.return_type.into_owned(),
+                call_return_type_name(name).unwrap().to_string(),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
+    fn expected_arguments_formatting() {
+        for name in NO_ARG {
+            assert_eq!(
+                expected_arguments(name).as_deref(),
+                Some("no arguments"),
+                "{name}"
+            );
+        }
+        assert_eq!(
+            expected_arguments(SET_FOREGROUND).as_deref(),
+            Some("Byte, Byte, Byte")
+        );
+        assert_eq!(expected_arguments(SET_BOLD).as_deref(), Some("Boolean"));
+        assert_eq!(
+            expected_arguments(MOVE_TO).as_deref(),
+            Some("Integer, Integer")
+        );
+    }
+
+    #[test]
+    fn arity_by_group() {
+        for name in NO_ARG {
+            assert_eq!(arity(name), Some((0, 0)), "{name}");
+        }
+        for name in [SET_FOREGROUND, SET_BACKGROUND] {
+            assert_eq!(arity(name), Some((3, 3)), "{name}");
+        }
+        for name in [SET_BOLD, SET_UNDERLINE] {
+            assert_eq!(arity(name), Some((1, 1)), "{name}");
+        }
+        assert_eq!(arity(MOVE_TO), Some((2, 2)));
+    }
+}

@@ -108,3 +108,79 @@ pub fn project_hash(manifest: &HashMap<String, JsonValue>) -> String {
     }
     crate::cli::pkg::hex_bytes(hasher.finalize().as_slice())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn package_entry(name: &str, version: &str) -> JsonValue {
+        let mut map = HashMap::new();
+        map.insert("name".to_string(), JsonValue::String(name.to_string()));
+        map.insert(
+            "version".to_string(),
+            JsonValue::String(version.to_string()),
+        );
+        JsonValue::Object(map)
+    }
+
+    #[test]
+    fn manifest_string_reads_present_and_missing_keys() {
+        let mut manifest = HashMap::new();
+        manifest.insert("name".to_string(), JsonValue::String("demo".to_string()));
+        manifest.insert("version".to_string(), JsonValue::Number(1.0));
+        assert_eq!(manifest_string(&manifest, "name"), Some("demo".to_string()));
+        // present but wrong type -> None
+        assert_eq!(manifest_string(&manifest, "version"), None);
+        // missing key -> None
+        assert_eq!(manifest_string(&manifest, "absent"), None);
+    }
+
+    #[test]
+    fn project_hash_empty_is_stable_and_lowercase_hex() {
+        let manifest = HashMap::new();
+        let hash = project_hash(&manifest);
+        // SHA-256 hex is 64 chars.
+        assert_eq!(hash.len(), 64);
+        assert!(hash.chars().all(|c| c.is_ascii_hexdigit()));
+        // deterministic
+        assert_eq!(hash, project_hash(&HashMap::new()));
+    }
+
+    #[test]
+    fn project_hash_is_order_independent() {
+        let mut a = HashMap::new();
+        a.insert(
+            "packages".to_string(),
+            JsonValue::Array(vec![
+                package_entry("alpha", "1.0.0"),
+                package_entry("beta", "2.0.0"),
+            ]),
+        );
+        let mut b = HashMap::new();
+        b.insert(
+            "packages".to_string(),
+            JsonValue::Array(vec![
+                package_entry("beta", "2.0.0"),
+                package_entry("alpha", "1.0.0"),
+            ]),
+        );
+        assert_eq!(project_hash(&a), project_hash(&b));
+    }
+
+    #[test]
+    fn project_hash_differs_when_packages_change() {
+        let mut a = HashMap::new();
+        a.insert(
+            "packages".to_string(),
+            JsonValue::Array(vec![package_entry("alpha", "1.0.0")]),
+        );
+        let mut b = HashMap::new();
+        b.insert(
+            "packages".to_string(),
+            JsonValue::Array(vec![package_entry("alpha", "2.0.0")]),
+        );
+        assert_ne!(project_hash(&a), project_hash(&b));
+        // empty vs populated also differ
+        assert_ne!(project_hash(&a), project_hash(&HashMap::new()));
+    }
+}

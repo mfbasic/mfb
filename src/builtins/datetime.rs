@@ -360,3 +360,414 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn project(src: &str) -> crate::ast::AstProject {
+        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+            .expect("parse source");
+        crate::ast::AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        }
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    #[test]
+    fn builtin_types() {
+        for t in [
+            "Instant", "Duration", "Date", "Time", "Zone", "DateTime", "ZoneKind", "Weekday",
+            "Month",
+        ] {
+            assert!(is_builtin_type(t), "{t}");
+        }
+        assert!(!is_builtin_type("Nope"));
+        assert!(!is_builtin_type("Integer"));
+    }
+
+    #[test]
+    fn is_call_recognizes_all_and_rejects_unknown() {
+        for n in [
+            NOW,
+            MONOTONIC,
+            INSTANT,
+            DATE,
+            TIME,
+            DURATION,
+            UTC,
+            LOCAL,
+            FIXED_OFFSET,
+            OFFSET_AT,
+            IN_ZONE,
+            TO_UTC,
+            TO_LOCAL,
+            RESOLVE,
+            CIVIL,
+            WITH_ZONE,
+            ADD,
+            SUBTRACT,
+            BETWEEN,
+            ADD_DAYS,
+            ADD_MONTHS,
+            COMPARE,
+            IS_BEFORE,
+            IS_AFTER,
+            EQUALS,
+            NEGATE,
+            PLUS,
+            MINUS,
+            WEEKDAY,
+            DAY_OF_YEAR,
+            IS_LEAP_YEAR,
+            DAYS_IN_MONTH,
+            START_OF_DAY,
+            TO_MILLIS,
+            TO_NANOS,
+            FROM_MILLIS,
+            FORMAT,
+            PARSE,
+            TO_ISO,
+            PARSE_ISO,
+            FORMAT_DURATION,
+            NOW_NANOS,
+            MONOTONIC_NANOS,
+            LOCAL_OFFSET,
+        ] {
+            assert!(is_datetime_call(n), "{n}");
+        }
+        assert!(!is_datetime_call("datetime.nope"));
+        assert!(!is_datetime_call("other.now"));
+    }
+
+    #[test]
+    fn param_names_present_and_unknown_none() {
+        assert_eq!(call_param_names(NOW), Some(&[][..] as &[&[&str]]));
+        assert_eq!(
+            call_param_names(INSTANT),
+            Some(
+                &[
+                    &["days"][..],
+                    &["hours"],
+                    &["mins"],
+                    &["seconds"],
+                    &["nanos"]
+                ][..]
+            )
+        );
+        assert_eq!(call_param_names(DATE).unwrap().len(), 3);
+        assert_eq!(
+            call_param_names(FIXED_OFFSET).unwrap()[0],
+            &["hours", "offsetSeconds"]
+        );
+        assert_eq!(call_param_names(NOW_NANOS), Some(&[][..] as &[&[&str]]));
+        assert!(call_param_names("datetime.nope").is_none());
+    }
+
+    #[test]
+    fn return_type_name_table() {
+        assert_eq!(call_return_type_name(NOW), Some("Instant"));
+        assert_eq!(call_return_type_name(MONOTONIC), Some("Duration"));
+        assert_eq!(call_return_type_name(DATE), Some("Date"));
+        assert_eq!(call_return_type_name(TIME), Some("Time"));
+        assert_eq!(call_return_type_name(UTC), Some("Zone"));
+        assert_eq!(call_return_type_name(IN_ZONE), Some("DateTime"));
+        assert_eq!(call_return_type_name(ADD), Some("Instant"));
+        assert_eq!(call_return_type_name(OFFSET_AT), Some("Integer"));
+        assert_eq!(call_return_type_name(IS_BEFORE), Some("Boolean"));
+        assert_eq!(call_return_type_name(WEEKDAY), Some("Weekday"));
+        assert_eq!(call_return_type_name(FORMAT), Some("String"));
+        assert_eq!(call_return_type_name(PARSE), Some("DateTime"));
+        assert_eq!(call_return_type_name(NOW_NANOS), Some("Integer"));
+        assert!(call_return_type_name("datetime.nope").is_none());
+    }
+
+    #[test]
+    fn resolve_zero_arg_forms() {
+        assert_eq!(rt(NOW, &[]), Some("Instant".to_string()));
+        assert_eq!(rt(MONOTONIC, &[]), Some("Duration".to_string()));
+        assert_eq!(rt(UTC, &[]), Some("Zone".to_string()));
+        assert_eq!(rt(LOCAL, &[]), Some("Zone".to_string()));
+        assert_eq!(rt(NOW_NANOS, &[]), Some("Integer".to_string()));
+        assert_eq!(rt(MONOTONIC_NANOS, &[]), Some("Integer".to_string()));
+        // wrong arity
+        assert_eq!(rt(NOW, &["Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_component_builders() {
+        assert_eq!(rt(INSTANT, &["Integer"]), Some("Instant".to_string()));
+        assert_eq!(
+            rt(
+                INSTANT,
+                &["Integer", "Integer", "Integer", "Integer", "Integer"]
+            ),
+            Some("Instant".to_string())
+        );
+        assert_eq!(rt(INSTANT, &[]), None); // below min
+        assert_eq!(
+            rt(
+                INSTANT,
+                &["Integer", "Integer", "Integer", "Integer", "Integer", "Integer"]
+            ),
+            None
+        ); // above max
+        assert_eq!(rt(INSTANT, &["String"]), None); // wrong type
+        assert_eq!(
+            rt(DURATION, &["Integer", "Integer"]),
+            Some("Duration".to_string())
+        );
+        assert_eq!(rt(FIXED_OFFSET, &["Integer"]), Some("Zone".to_string()));
+        assert_eq!(
+            rt(FIXED_OFFSET, &["Integer", "Integer"]),
+            Some("Zone".to_string())
+        );
+        assert_eq!(rt(FIXED_OFFSET, &["Integer", "Integer", "Integer"]), None);
+        assert_eq!(
+            rt(DATE, &["Integer", "Integer", "Integer"]),
+            Some("Date".to_string())
+        );
+        assert_eq!(rt(DATE, &["Integer", "Integer"]), None);
+        assert_eq!(rt(TIME, &["Integer", "Integer"]), Some("Time".to_string()));
+        assert_eq!(
+            rt(TIME, &["Integer", "Integer", "Integer", "Integer"]),
+            Some("Time".to_string())
+        );
+        assert_eq!(rt(TIME, &["Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_typed_forms() {
+        assert_eq!(
+            rt(OFFSET_AT, &["Zone", "Instant"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rt(IN_ZONE, &["Instant", "Zone"]),
+            Some("DateTime".to_string())
+        );
+        assert_eq!(rt(TO_UTC, &["Instant"]), Some("DateTime".to_string()));
+        assert_eq!(rt(TO_LOCAL, &["Instant"]), Some("DateTime".to_string()));
+        assert_eq!(rt(RESOLVE, &["DateTime"]), Some("Instant".to_string()));
+        assert_eq!(
+            rt(CIVIL, &["Date", "Time", "Zone"]),
+            Some("DateTime".to_string())
+        );
+        assert_eq!(
+            rt(WITH_ZONE, &["DateTime", "Zone"]),
+            Some("DateTime".to_string())
+        );
+        assert_eq!(
+            rt(ADD, &["Instant", "Duration"]),
+            Some("Instant".to_string())
+        );
+        assert_eq!(
+            rt(SUBTRACT, &["Instant", "Duration"]),
+            Some("Instant".to_string())
+        );
+        assert_eq!(
+            rt(BETWEEN, &["Instant", "Instant"]),
+            Some("Duration".to_string())
+        );
+        assert_eq!(
+            rt(ADD_DAYS, &["DateTime", "Integer"]),
+            Some("DateTime".to_string())
+        );
+        assert_eq!(
+            rt(ADD_MONTHS, &["DateTime", "Integer"]),
+            Some("DateTime".to_string())
+        );
+        assert_eq!(
+            rt(COMPARE, &["Instant", "Instant"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rt(IS_BEFORE, &["Instant", "Instant"]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            rt(IS_AFTER, &["Instant", "Instant"]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            rt(EQUALS, &["Instant", "Instant"]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(rt(NEGATE, &["Duration"]), Some("Duration".to_string()));
+        assert_eq!(
+            rt(PLUS, &["Duration", "Duration"]),
+            Some("Duration".to_string())
+        );
+        assert_eq!(
+            rt(MINUS, &["Duration", "Duration"]),
+            Some("Duration".to_string())
+        );
+        assert_eq!(rt(WEEKDAY, &["DateTime"]), Some("Weekday".to_string()));
+        assert_eq!(rt(DAY_OF_YEAR, &["DateTime"]), Some("Integer".to_string()));
+        assert_eq!(rt(IS_LEAP_YEAR, &["Integer"]), Some("Boolean".to_string()));
+        assert_eq!(
+            rt(DAYS_IN_MONTH, &["Integer", "Integer"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rt(START_OF_DAY, &["DateTime"]),
+            Some("DateTime".to_string())
+        );
+        assert_eq!(rt(TO_MILLIS, &["Instant"]), Some("Integer".to_string()));
+        assert_eq!(rt(TO_NANOS, &["Instant"]), Some("Integer".to_string()));
+        assert_eq!(rt(FROM_MILLIS, &["Integer"]), Some("Instant".to_string()));
+        assert_eq!(
+            rt(FORMAT, &["DateTime", "String"]),
+            Some("String".to_string())
+        );
+        assert_eq!(
+            rt(PARSE, &["String", "String"]),
+            Some("DateTime".to_string())
+        );
+        assert_eq!(
+            rt(PARSE, &["String", "String", "Zone"]),
+            Some("DateTime".to_string())
+        );
+        assert_eq!(rt(TO_ISO, &["DateTime"]), Some("String".to_string()));
+        assert_eq!(rt(PARSE_ISO, &["String"]), Some("DateTime".to_string()));
+        assert_eq!(
+            rt(FORMAT_DURATION, &["Duration"]),
+            Some("String".to_string())
+        );
+        assert_eq!(rt(LOCAL_OFFSET, &["Integer"]), Some("Integer".to_string()));
+    }
+
+    #[test]
+    fn resolve_rejects_wrong_types_and_unknown() {
+        assert_eq!(rt(OFFSET_AT, &["Instant", "Zone"]), None);
+        assert_eq!(rt(ADD, &["Instant", "Instant"]), None);
+        assert_eq!(rt(PARSE, &["String"]), None);
+        assert_eq!(rt(FROM_MILLIS, &["String"]), None);
+        assert_eq!(rt("datetime.nope", &[]), None);
+    }
+
+    #[test]
+    fn expected_arguments_table() {
+        assert_eq!(expected_arguments(NOW), Some("()"));
+        assert_eq!(expected_arguments(INSTANT), Some("1 to 5 Integer"));
+        assert_eq!(expected_arguments(DATE), Some("Integer, Integer, Integer"));
+        assert_eq!(
+            expected_arguments(TIME),
+            Some("Integer, Integer[, Integer[, Integer]]")
+        );
+        assert_eq!(expected_arguments(FIXED_OFFSET), Some("Integer[, Integer]"));
+        assert_eq!(expected_arguments(OFFSET_AT), Some("Zone, Instant"));
+        assert_eq!(expected_arguments(IN_ZONE), Some("Instant, Zone"));
+        assert_eq!(expected_arguments(TO_UTC), Some("Instant"));
+        assert_eq!(expected_arguments(RESOLVE), Some("DateTime"));
+        assert_eq!(expected_arguments(CIVIL), Some("Date, Time, Zone"));
+        assert_eq!(expected_arguments(WITH_ZONE), Some("DateTime, Zone"));
+        assert_eq!(expected_arguments(ADD), Some("Instant, Duration"));
+        assert_eq!(expected_arguments(BETWEEN), Some("Instant, Instant"));
+        assert_eq!(expected_arguments(ADD_DAYS), Some("DateTime, Integer"));
+        assert_eq!(expected_arguments(NEGATE), Some("Duration"));
+        assert_eq!(expected_arguments(PLUS), Some("Duration, Duration"));
+        assert_eq!(expected_arguments(IS_LEAP_YEAR), Some("Integer"));
+        assert_eq!(expected_arguments(DAYS_IN_MONTH), Some("Integer, Integer"));
+        assert_eq!(expected_arguments(TO_MILLIS), Some("Instant"));
+        assert_eq!(expected_arguments(FORMAT), Some("DateTime, String"));
+        assert_eq!(expected_arguments(PARSE), Some("String, String[, Zone]"));
+        assert_eq!(expected_arguments(PARSE_ISO), Some("String"));
+        assert_eq!(expected_arguments(FORMAT_DURATION), Some("Duration"));
+        // NOW_NANOS/MONOTONIC_NANOS map to "()"; LOCAL_OFFSET to "Integer".
+        assert_eq!(expected_arguments(NOW_NANOS), Some("()"));
+        assert_eq!(expected_arguments(LOCAL_OFFSET), Some("Integer"));
+        assert!(expected_arguments("datetime.nope").is_none());
+    }
+
+    #[test]
+    fn arity_table() {
+        assert_eq!(arity(NOW), Some((0, 0)));
+        assert_eq!(arity(INSTANT), Some((1, 5)));
+        assert_eq!(arity(FIXED_OFFSET), Some((1, 2)));
+        assert_eq!(arity(TIME), Some((2, 4)));
+        assert_eq!(arity(PARSE), Some((2, 3)));
+        assert_eq!(arity(DATE), Some((3, 3)));
+        assert_eq!(arity(CIVIL), Some((3, 3)));
+        assert_eq!(arity(DAYS_IN_MONTH), Some((2, 2)));
+        assert_eq!(arity(FORMAT), Some((2, 2)));
+        assert_eq!(arity(TO_UTC), Some((1, 1)));
+        assert_eq!(arity(NEGATE), Some((1, 1)));
+        assert_eq!(arity(NOW_NANOS), Some((0, 0)));
+        assert_eq!(arity(LOCAL_OFFSET), Some((1, 1)));
+        assert!(arity("datetime.nope").is_none());
+    }
+
+    #[test]
+    fn implementation_name_mapping() {
+        assert_eq!(
+            implementation_name(INSTANT, 3),
+            Some("__datetime_instant3".to_string())
+        );
+        assert_eq!(
+            implementation_name(DURATION, 2),
+            Some("__datetime_duration2".to_string())
+        );
+        assert_eq!(
+            implementation_name(FIXED_OFFSET, 1),
+            Some("__datetime_fixedOffset1".to_string())
+        );
+        assert_eq!(
+            implementation_name(PARSE, 3),
+            Some("__datetime_parse3".to_string())
+        );
+        assert_eq!(
+            implementation_name(NOW, 0),
+            Some("__datetime_now".to_string())
+        );
+        assert_eq!(
+            implementation_name(FORMAT_DURATION, 1),
+            Some("__datetime_formatDuration".to_string())
+        );
+        // OS-seam intrinsics stay as runtime helpers -> None
+        assert_eq!(implementation_name(NOW_NANOS, 0), None);
+        assert_eq!(implementation_name(MONOTONIC_NANOS, 0), None);
+        assert_eq!(implementation_name(LOCAL_OFFSET, 1), None);
+    }
+
+    #[test]
+    fn default_padding_time_only() {
+        // TIME with 2 provided -> two defaults; 3 -> one; 4 -> none.
+        assert_eq!(default_argument_padding(TIME, 2).len(), 2);
+        assert_eq!(default_argument_padding(TIME, 3).len(), 1);
+        assert_eq!(default_argument_padding(TIME, 4).len(), 0);
+        assert_eq!(default_argument_padding(TIME, 5).len(), 0);
+        assert_eq!(default_argument_padding(NOW, 0), &[]);
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    #[test]
+    fn augmented_project_injects_when_imported() {
+        let ast = project("IMPORT datetime\nSUB main\nEND SUB\n");
+        assert!(uses_package(&ast));
+        let augmented = augmented_project(&ast).expect("augment");
+        assert_eq!(augmented.files.len(), ast.files.len() + 1);
+    }
+
+    #[test]
+    fn augmented_project_noop_without_import() {
+        let ast = project("SUB main\nEND SUB\n");
+        assert!(!uses_package(&ast));
+        assert_eq!(
+            augmented_project(&ast).expect("a").files.len(),
+            ast.files.len()
+        );
+    }
+}

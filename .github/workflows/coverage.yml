@@ -17,8 +17,8 @@ jobs:
         run: sh scripts/coverage-check.sh
       - name: Global floor gate
         run: |
-          cargo llvm-cov report --workspace \
-            --ignore-filename-regex '(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/private/unicode\.rs$' \
+          cargo llvm-cov report \
+            --ignore-filename-regex '(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$' \
             --fail-under-lines 95
       - uses: actions/upload-artifact@v4
         with:

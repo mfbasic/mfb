@@ -147,3 +147,158 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn project(src: &str) -> crate::ast::AstProject {
+        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+            .expect("parse source");
+        crate::ast::AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        }
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    #[test]
+    fn is_call_and_reject() {
+        for n in [MATCH, FIND, FIND_ALL, REPLACE] {
+            assert!(is_regex_call(n), "{n}");
+        }
+        assert!(!is_regex_call("regex.nope"));
+        assert!(!is_regex_call(INTERNAL_MATCH));
+    }
+
+    #[test]
+    fn param_names_branches() {
+        assert_eq!(
+            call_param_names(MATCH),
+            Some(&[&["value"][..], &["pattern"]][..])
+        );
+        assert_eq!(
+            call_param_names(FIND),
+            Some(&[&["value"][..], &["pattern"], &["start"]][..])
+        );
+        assert_eq!(call_param_names(FIND), call_param_names(FIND_ALL));
+        assert_eq!(
+            call_param_names(REPLACE),
+            Some(&[&["value"][..], &["pattern"], &["replacement"]][..])
+        );
+        assert!(call_param_names("regex.nope").is_none());
+    }
+
+    #[test]
+    fn return_type_name_branches() {
+        assert_eq!(call_return_type_name(MATCH), Some("Boolean"));
+        assert_eq!(call_return_type_name(FIND), Some("Integer"));
+        assert_eq!(call_return_type_name(FIND_ALL), Some("List OF Integer"));
+        assert_eq!(call_return_type_name(REPLACE), Some("String"));
+        assert!(call_return_type_name("regex.nope").is_none());
+    }
+
+    #[test]
+    fn resolve_branches() {
+        assert_eq!(
+            rt(MATCH, &["String", "String"]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(rt(FIND, &["String", "String"]), Some("Integer".to_string()));
+        assert_eq!(
+            rt(FIND, &["String", "String", "Integer"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            rt(FIND_ALL, &["String", "String"]),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt(FIND_ALL, &["String", "String", "Integer"]),
+            Some("List OF Integer".to_string())
+        );
+        assert_eq!(
+            rt(REPLACE, &["String", "String", "String"]),
+            Some("String".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_wrong_arity_or_type_none() {
+        assert_eq!(rt(MATCH, &["String"]), None);
+        assert_eq!(rt(MATCH, &["String", "Integer"]), None);
+        assert_eq!(rt(FIND, &["String"]), None);
+        assert_eq!(rt(REPLACE, &["String", "String"]), None);
+        assert_eq!(rt("regex.nope", &["String", "String"]), None);
+    }
+
+    #[test]
+    fn expected_arguments_branches() {
+        assert_eq!(expected_arguments(MATCH), Some("String, String"));
+        assert_eq!(expected_arguments(FIND), Some("String, String[, Integer]"));
+        assert_eq!(
+            expected_arguments(FIND_ALL),
+            Some("String, String[, Integer]")
+        );
+        assert_eq!(expected_arguments(REPLACE), Some("String, String, String"));
+        assert!(expected_arguments("regex.nope").is_none());
+    }
+
+    #[test]
+    fn arity_branches() {
+        assert_eq!(arity(MATCH), Some((2, 2)));
+        assert_eq!(arity(FIND), Some((2, 3)));
+        assert_eq!(arity(FIND_ALL), Some((2, 3)));
+        assert_eq!(arity(REPLACE), Some((3, 3)));
+        assert!(arity("regex.nope").is_none());
+    }
+
+    #[test]
+    fn implementation_name_branches() {
+        assert_eq!(implementation_name(MATCH), Some(INTERNAL_MATCH));
+        assert_eq!(implementation_name(FIND), Some(INTERNAL_FIND));
+        assert_eq!(implementation_name(FIND_ALL), Some(INTERNAL_FIND_ALL));
+        assert_eq!(implementation_name(REPLACE), Some(INTERNAL_REPLACE));
+        assert!(implementation_name("regex.nope").is_none());
+    }
+
+    #[test]
+    fn default_padding_branches() {
+        assert_eq!(default_argument_padding(FIND, 2).len(), 1);
+        assert_eq!(default_argument_padding(FIND, 3).len(), 0);
+        assert_eq!(default_argument_padding(FIND_ALL, 2).len(), 1);
+        assert_eq!(default_argument_padding(MATCH, 2), &[]);
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    #[test]
+    fn augmented_project_injects_when_imported() {
+        let ast = project("IMPORT regex\nSUB main\nEND SUB\n");
+        assert!(uses_package(&ast));
+        assert_eq!(
+            augmented_project(&ast).expect("a").files.len(),
+            ast.files.len() + 1
+        );
+    }
+
+    #[test]
+    fn augmented_project_noop_without_import() {
+        let ast = project("SUB main\nEND SUB\n");
+        assert!(!uses_package(&ast));
+        assert_eq!(
+            augmented_project(&ast).expect("a").files.len(),
+            ast.files.len()
+        );
+    }
+}

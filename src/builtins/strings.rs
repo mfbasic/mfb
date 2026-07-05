@@ -207,3 +207,311 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn types(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn ret(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &types(args)).map(|r| r.return_type.into_owned())
+    }
+
+    // Every builtin name in this module, for exhaustive iteration.
+    const ALL: &[&str] = &[
+        TRIM,
+        TRIM_START,
+        TRIM_END,
+        UPPER,
+        LOWER,
+        CASE_FOLD,
+        NORMALIZE_NFC,
+        GRAPHEMES,
+        STARTS_WITH,
+        ENDS_WITH,
+        CONTAINS,
+        SPLIT,
+        JOIN,
+        BYTE_LEN,
+        STARTS_WITH_ANY,
+        ENDS_WITH_ANY,
+        STRIP_PREFIX,
+        STRIP_SUFFIX,
+        COUNT,
+        LEFT,
+        RIGHT,
+        REPEAT,
+        PAD_LEFT,
+        PAD_RIGHT,
+        GRAPHEME_AT,
+        GRAPHEMES_COUNT,
+        TRIM_CHARS,
+        TO_BYTES,
+        FIND,
+        MID,
+        REPLACE,
+    ];
+
+    #[test]
+    fn is_strings_call_recognizes_all_and_rejects_others() {
+        for name in ALL {
+            assert!(is_strings_call(name), "{name} should be a strings call");
+        }
+        assert!(!is_strings_call("strings.unknown"));
+        assert!(!is_strings_call("collections.find"));
+        assert!(!is_strings_call(""));
+    }
+
+    #[test]
+    fn every_name_has_consistent_metadata() {
+        for name in ALL {
+            assert!(call_param_names(name).is_some(), "param_names {name}");
+            assert!(call_return_type_name(name).is_some(), "return_type {name}");
+            assert!(expected_arguments(name).is_some(), "expected_args {name}");
+            assert!(arity(name).is_some(), "arity {name}");
+            // Param-name group count must match the max arity.
+            let (_, max) = arity(name).unwrap();
+            assert_eq!(
+                call_param_names(name).unwrap().len(),
+                max,
+                "param-name group count vs arity for {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn metadata_returns_none_for_unknown() {
+        assert_eq!(call_param_names("nope"), None);
+        assert_eq!(call_return_type_name("nope"), None);
+        assert_eq!(expected_arguments("nope"), None);
+        assert_eq!(arity("nope"), None);
+        assert!(resolve_call("nope", &types(&["String"])).is_none());
+    }
+
+    #[test]
+    fn param_names_specific() {
+        assert_eq!(call_param_names(TRIM), Some(&[&["value"][..]][..]));
+        assert_eq!(
+            call_param_names(SPLIT),
+            Some(&[&["value"][..], &["delimiter", "separator"][..]][..])
+        );
+        assert_eq!(
+            call_param_names(JOIN),
+            Some(&[&["parts", "values"][..], &["delimiter", "separator"][..]][..])
+        );
+        assert_eq!(
+            call_param_names(PAD_LEFT),
+            Some(&[&["value"][..], &["width"][..], &["padChar"][..]][..])
+        );
+        assert_eq!(
+            call_param_names(REPLACE),
+            Some(
+                &[
+                    &["value"][..],
+                    &["old", "needle"][..],
+                    &["new", "replacement"][..]
+                ][..]
+            )
+        );
+    }
+
+    #[test]
+    fn return_type_names_cover_all_categories() {
+        assert_eq!(call_return_type_name(TRIM), Some("String"));
+        assert_eq!(call_return_type_name(JOIN), Some("String"));
+        assert_eq!(call_return_type_name(GRAPHEMES), Some("List OF String"));
+        assert_eq!(call_return_type_name(SPLIT), Some("List OF String"));
+        assert_eq!(call_return_type_name(TO_BYTES), Some("List OF Byte"));
+        assert_eq!(call_return_type_name(STARTS_WITH), Some("Boolean"));
+        assert_eq!(call_return_type_name(STARTS_WITH_ANY), Some("Boolean"));
+        assert_eq!(call_return_type_name(BYTE_LEN), Some("Integer"));
+        assert_eq!(call_return_type_name(COUNT), Some("Integer"));
+        assert_eq!(call_return_type_name(GRAPHEMES_COUNT), Some("Integer"));
+        assert_eq!(call_return_type_name(STRIP_PREFIX), Some("String"));
+        assert_eq!(call_return_type_name(MID), Some("String"));
+        assert_eq!(call_return_type_name(REPLACE), Some("String"));
+        assert_eq!(call_return_type_name(FIND), Some("Integer"));
+    }
+
+    #[test]
+    fn expected_arguments_specific() {
+        assert_eq!(expected_arguments(TRIM), Some("String"));
+        assert_eq!(expected_arguments(STARTS_WITH), Some("String, String"));
+        assert_eq!(expected_arguments(JOIN), Some("List OF String, String"));
+        assert_eq!(
+            expected_arguments(STARTS_WITH_ANY),
+            Some("String, List OF String")
+        );
+        assert_eq!(expected_arguments(STRIP_PREFIX), Some("String, String"));
+        assert_eq!(expected_arguments(LEFT), Some("String, Integer"));
+        assert_eq!(
+            expected_arguments(PAD_LEFT),
+            Some("String, Integer[, String]")
+        );
+        assert_eq!(expected_arguments(GRAPHEMES_COUNT), Some("String"));
+        assert_eq!(expected_arguments(FIND), Some("String, String[, Integer]"));
+        assert_eq!(expected_arguments(MID), Some("String, Integer, Integer"));
+        assert_eq!(expected_arguments(REPLACE), Some("String, String, String"));
+    }
+
+    #[test]
+    fn arity_specific() {
+        assert_eq!(arity(TRIM), Some((1, 1)));
+        assert_eq!(arity(GRAPHEMES_COUNT), Some((1, 1)));
+        assert_eq!(arity(STARTS_WITH), Some((2, 2)));
+        assert_eq!(arity(TRIM_CHARS), Some((2, 2)));
+        assert_eq!(arity(PAD_LEFT), Some((2, 3)));
+        assert_eq!(arity(FIND), Some((2, 3)));
+        assert_eq!(arity(MID), Some((3, 3)));
+        assert_eq!(arity(REPLACE), Some((3, 3)));
+    }
+
+    #[test]
+    fn resolve_single_string_arg_family() {
+        for name in [
+            TRIM,
+            TRIM_START,
+            TRIM_END,
+            UPPER,
+            LOWER,
+            CASE_FOLD,
+            NORMALIZE_NFC,
+        ] {
+            assert_eq!(ret(name, &["String"]), Some("String".to_string()));
+            assert_eq!(ret(name, &["Integer"]), None);
+            assert_eq!(ret(name, &["String", "String"]), None);
+            assert_eq!(ret(name, &[]), None);
+        }
+        assert_eq!(
+            ret(GRAPHEMES, &["String"]),
+            Some("List OF String".to_string())
+        );
+        assert_eq!(ret(GRAPHEMES, &["Integer"]), None);
+        assert_eq!(ret(TO_BYTES, &["String"]), Some("List OF Byte".to_string()));
+        assert_eq!(ret(TO_BYTES, &["Integer"]), None);
+        assert_eq!(ret(BYTE_LEN, &["String"]), Some("Integer".to_string()));
+        assert_eq!(
+            ret(GRAPHEMES_COUNT, &["String"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(ret(GRAPHEMES_COUNT, &["Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_two_string_families() {
+        for name in [STARTS_WITH, ENDS_WITH, CONTAINS] {
+            assert_eq!(
+                ret(name, &["String", "String"]),
+                Some("Boolean".to_string())
+            );
+            assert_eq!(ret(name, &["String", "Integer"]), None);
+            assert_eq!(ret(name, &["String"]), None);
+        }
+        assert_eq!(
+            ret(SPLIT, &["String", "String"]),
+            Some("List OF String".to_string())
+        );
+        assert_eq!(ret(SPLIT, &["String", "Integer"]), None);
+        assert_eq!(
+            ret(JOIN, &["List OF String", "String"]),
+            Some("String".to_string())
+        );
+        assert_eq!(ret(JOIN, &["String", "String"]), None);
+        for name in [STARTS_WITH_ANY, ENDS_WITH_ANY] {
+            assert_eq!(
+                ret(name, &["String", "List OF String"]),
+                Some("Boolean".to_string())
+            );
+            assert_eq!(ret(name, &["String", "String"]), None);
+        }
+        for name in [STRIP_PREFIX, STRIP_SUFFIX, TRIM_CHARS] {
+            assert_eq!(ret(name, &["String", "String"]), Some("String".to_string()));
+            assert_eq!(ret(name, &["String", "Integer"]), None);
+        }
+        assert_eq!(
+            ret(COUNT, &["String", "String"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(ret(COUNT, &["String", "Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_string_integer_families() {
+        for name in [LEFT, RIGHT, REPEAT] {
+            assert_eq!(
+                ret(name, &["String", "Integer"]),
+                Some("String".to_string())
+            );
+            assert_eq!(ret(name, &["String", "String"]), None);
+        }
+        assert_eq!(
+            ret(GRAPHEME_AT, &["String", "Integer"]),
+            Some("String".to_string())
+        );
+        assert_eq!(ret(GRAPHEME_AT, &["String", "String"]), None);
+    }
+
+    #[test]
+    fn resolve_pad_overloads() {
+        for name in [PAD_LEFT, PAD_RIGHT] {
+            assert_eq!(
+                ret(name, &["String", "Integer"]),
+                Some("String".to_string())
+            );
+            assert_eq!(
+                ret(name, &["String", "Integer", "String"]),
+                Some("String".to_string())
+            );
+            assert_eq!(ret(name, &["String"]), None);
+            assert_eq!(ret(name, &["String", "String"]), None);
+            assert_eq!(ret(name, &["String", "Integer", "Integer"]), None);
+        }
+    }
+
+    #[test]
+    fn resolve_find_overloads() {
+        assert_eq!(
+            ret(FIND, &["String", "String"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(
+            ret(FIND, &["String", "String", "Integer"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(ret(FIND, &["String", "Integer"]), None);
+        assert_eq!(ret(FIND, &["String", "String", "String"]), None);
+    }
+
+    #[test]
+    fn resolve_mid_and_replace() {
+        assert_eq!(
+            ret(MID, &["String", "Integer", "Integer"]),
+            Some("String".to_string())
+        );
+        assert_eq!(ret(MID, &["String", "Integer"]), None);
+        assert_eq!(
+            ret(REPLACE, &["String", "String", "String"]),
+            Some("String".to_string())
+        );
+        assert_eq!(ret(REPLACE, &["String", "String", "Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_rejects_unknown_name() {
+        assert_eq!(ret("strings.bogus", &["String"]), None);
+    }
+
+    #[test]
+    fn exact_helper() {
+        assert!(exact(
+            &types(&["String", "Integer"]),
+            &["String", "Integer"]
+        ));
+        assert!(!exact(&types(&["String"]), &["String", "Integer"]));
+        assert!(!exact(&types(&["Integer"]), &["String"]));
+        assert!(exact(&types(&[]), &[]));
+    }
+}

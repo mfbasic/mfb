@@ -140,9 +140,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         SHA256 | SHA224 | SHA512 | SHA384 => &[&["data"]],
         HMAC_SHA256 | HMAC_SHA512 => &[&["key"], &["data"]],
         HKDF_SHA256 | HKDF_SHA512 => &[&["ikm"], &["salt"], &["info"], &["length"]],
-        PBKDF2_SHA256 | PBKDF2_SHA512 => {
-            &[&["password"], &["salt"], &["iterations"], &["length"]]
-        }
+        PBKDF2_SHA256 | PBKDF2_SHA512 => &[&["password"], &["salt"], &["iterations"], &["length"]],
         AES256_GCM_SEAL | CHACHA20_POLY1305_SEAL => {
             &[&["key"], &["nonce"], &["plaintext"], &["aad"]]
         }
@@ -165,17 +163,31 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     let type_ = match name {
-        SHA256 | SHA224 | SHA512 | SHA384 | HMAC_SHA256 | HMAC_SHA512 | HKDF_SHA256
-        | HKDF_SHA512 | PBKDF2_SHA256 | PBKDF2_SHA512 | AES256_GCM_OPEN
-        | CHACHA20_POLY1305_OPEN | RANDOM_BYTES | ED25519_SIGN | P256_SIGN | P384_SIGN
-        | P521_SIGN | GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW => BYTES,
+        SHA256
+        | SHA224
+        | SHA512
+        | SHA384
+        | HMAC_SHA256
+        | HMAC_SHA512
+        | HKDF_SHA256
+        | HKDF_SHA512
+        | PBKDF2_SHA256
+        | PBKDF2_SHA512
+        | AES256_GCM_OPEN
+        | CHACHA20_POLY1305_OPEN
+        | RANDOM_BYTES
+        | ED25519_SIGN
+        | P256_SIGN
+        | P384_SIGN
+        | P521_SIGN
+        | GENERATE_P256_RAW
+        | GENERATE_P384_RAW
+        | GENERATE_P521_RAW => BYTES,
         AES256_GCM_SEAL | CHACHA20_POLY1305_SEAL => SEALED_TYPE,
         GENERATE_ED25519 | GENERATE_P256 | GENERATE_P384 | GENERATE_P521 => KEYPAIR_TYPE,
         RANDOM_INT => "Integer",
         UUID4 => "String",
-        ED25519_VERIFY | P256_VERIFY | P384_VERIFY | P521_VERIFY | CONSTANT_TIME_EQUAL => {
-            "Boolean"
-        }
+        ED25519_VERIFY | P256_VERIFY | P384_VERIFY | P521_VERIFY | CONSTANT_TIME_EQUAL => "Boolean",
         _ => return None,
     };
     Some(type_)
@@ -187,8 +199,8 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         | GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW => (0, 0),
         RANDOM_BYTES => (1, 1),
         SHA256 | SHA224 | SHA512 | SHA384 => (1, 1),
-        RANDOM_INT | HMAC_SHA256 | HMAC_SHA512 | CONSTANT_TIME_EQUAL | ED25519_SIGN
-        | P256_SIGN | P384_SIGN | P521_SIGN => (2, 2),
+        RANDOM_INT | HMAC_SHA256 | HMAC_SHA512 | CONSTANT_TIME_EQUAL | ED25519_SIGN | P256_SIGN
+        | P384_SIGN | P521_SIGN => (2, 2),
         ED25519_VERIFY | P256_VERIFY | P384_VERIFY | P521_VERIFY => (3, 3),
         AES256_GCM_SEAL | CHACHA20_POLY1305_SEAL => (3, 4),
         HKDF_SHA256 | HKDF_SHA512 | PBKDF2_SHA256 | PBKDF2_SHA512 => (4, 4),
@@ -202,12 +214,8 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
     let text = match name {
         SHA256 | SHA224 | SHA512 | SHA384 => "List OF Byte or String",
         HMAC_SHA256 | HMAC_SHA512 => "List OF Byte, (List OF Byte or String)",
-        HKDF_SHA256 | HKDF_SHA512 => {
-            "List OF Byte, List OF Byte, List OF Byte, Integer"
-        }
-        PBKDF2_SHA256 | PBKDF2_SHA512 => {
-            "(List OF Byte or String), List OF Byte, Integer, Integer"
-        }
+        HKDF_SHA256 | HKDF_SHA512 => "List OF Byte, List OF Byte, List OF Byte, Integer",
+        PBKDF2_SHA256 | PBKDF2_SHA512 => "(List OF Byte or String), List OF Byte, Integer, Integer",
         AES256_GCM_SEAL | CHACHA20_POLY1305_SEAL => {
             "List OF Byte, List OF Byte, List OF Byte[, List OF Byte]"
         }
@@ -241,11 +249,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             BYTES
         }
-        HKDF_SHA256 | HKDF_SHA512
-            if exact(arg_types, &[BYTES, BYTES, BYTES, "Integer"]) =>
-        {
-            BYTES
-        }
+        HKDF_SHA256 | HKDF_SHA512 if exact(arg_types, &[BYTES, BYTES, BYTES, "Integer"]) => BYTES,
         PBKDF2_SHA256 | PBKDF2_SHA512
             if arg_types.len() == 4
                 && bytes_or_text(&arg_types[0])
@@ -275,12 +279,8 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         {
             KEYPAIR_TYPE
         }
-        GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW if arg_types.is_empty() => {
-            BYTES
-        }
-        ED25519_SIGN | P256_SIGN | P384_SIGN | P521_SIGN
-            if exact(arg_types, &[BYTES, BYTES]) =>
-        {
+        GENERATE_P256_RAW | GENERATE_P384_RAW | GENERATE_P521_RAW if arg_types.is_empty() => BYTES,
+        ED25519_SIGN | P256_SIGN | P384_SIGN | P521_SIGN if exact(arg_types, &[BYTES, BYTES]) => {
             BYTES
         }
         ED25519_VERIFY | P256_VERIFY | P384_VERIFY | P521_VERIFY
@@ -392,4 +392,423 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .iter()
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn ret(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    fn project(src: &str) -> crate::ast::AstProject {
+        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+            .expect("parse source");
+        crate::ast::AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        }
+    }
+
+    #[test]
+    fn is_native_crypto_call_flags() {
+        for f in [
+            RANDOM_BYTES,
+            GENERATE_P256_RAW,
+            GENERATE_P384_RAW,
+            GENERATE_P521_RAW,
+            P256_SIGN,
+            P256_VERIFY,
+            P384_SIGN,
+            P384_VERIFY,
+            P521_SIGN,
+            P521_VERIFY,
+        ] {
+            assert!(is_native_crypto_call(f), "{f}");
+        }
+        assert!(!is_native_crypto_call(SHA256));
+        assert!(!is_native_crypto_call(ED25519_SIGN));
+        assert!(!is_native_crypto_call("crypto.bogus"));
+    }
+
+    #[test]
+    fn builtin_types() {
+        assert!(is_builtin_type(SEALED_TYPE));
+        assert!(is_builtin_type(KEYPAIR_TYPE));
+        assert!(!is_builtin_type("Nope"));
+    }
+
+    #[test]
+    fn is_crypto_call_flags() {
+        for f in [
+            SHA256,
+            SHA224,
+            SHA512,
+            SHA384,
+            HMAC_SHA256,
+            HMAC_SHA512,
+            HKDF_SHA256,
+            HKDF_SHA512,
+            PBKDF2_SHA256,
+            PBKDF2_SHA512,
+            AES256_GCM_SEAL,
+            AES256_GCM_OPEN,
+            CHACHA20_POLY1305_SEAL,
+            CHACHA20_POLY1305_OPEN,
+            RANDOM_BYTES,
+            RANDOM_INT,
+            UUID4,
+            GENERATE_ED25519,
+            GENERATE_P256,
+            GENERATE_P384,
+            GENERATE_P521,
+            GENERATE_P256_RAW,
+            GENERATE_P384_RAW,
+            GENERATE_P521_RAW,
+            ED25519_SIGN,
+            ED25519_VERIFY,
+            P256_SIGN,
+            P256_VERIFY,
+            P384_SIGN,
+            P384_VERIFY,
+            P521_SIGN,
+            P521_VERIFY,
+            CONSTANT_TIME_EQUAL,
+        ] {
+            assert!(is_crypto_call(f), "{f}");
+        }
+        assert!(!is_crypto_call("crypto.bogus"));
+    }
+
+    #[test]
+    fn call_param_names_shapes() {
+        assert_eq!(call_param_names(SHA256), Some(&[&["data"][..]][..]));
+        assert!(call_param_names(HMAC_SHA256).is_some());
+        assert!(call_param_names(HKDF_SHA256).is_some());
+        assert!(call_param_names(PBKDF2_SHA256).is_some());
+        assert!(call_param_names(AES256_GCM_SEAL).is_some());
+        assert!(call_param_names(AES256_GCM_OPEN).is_some());
+        assert!(call_param_names(RANDOM_BYTES).is_some());
+        assert!(call_param_names(RANDOM_INT).is_some());
+        assert_eq!(call_param_names(UUID4), Some(&[][..]));
+        assert_eq!(call_param_names(GENERATE_P256_RAW), Some(&[][..]));
+        assert!(call_param_names(ED25519_SIGN).is_some());
+        assert!(call_param_names(ED25519_VERIFY).is_some());
+        assert!(call_param_names(CONSTANT_TIME_EQUAL).is_some());
+        assert_eq!(call_param_names("crypto.bogus"), None);
+    }
+
+    #[test]
+    fn call_return_type_names() {
+        assert_eq!(call_return_type_name(SHA256), Some(BYTES));
+        assert_eq!(call_return_type_name(HMAC_SHA512), Some(BYTES));
+        assert_eq!(call_return_type_name(HKDF_SHA256), Some(BYTES));
+        assert_eq!(call_return_type_name(PBKDF2_SHA256), Some(BYTES));
+        assert_eq!(call_return_type_name(AES256_GCM_OPEN), Some(BYTES));
+        assert_eq!(call_return_type_name(RANDOM_BYTES), Some(BYTES));
+        assert_eq!(call_return_type_name(ED25519_SIGN), Some(BYTES));
+        assert_eq!(call_return_type_name(GENERATE_P256_RAW), Some(BYTES));
+        assert_eq!(call_return_type_name(AES256_GCM_SEAL), Some(SEALED_TYPE));
+        assert_eq!(
+            call_return_type_name(CHACHA20_POLY1305_SEAL),
+            Some(SEALED_TYPE)
+        );
+        assert_eq!(call_return_type_name(GENERATE_ED25519), Some(KEYPAIR_TYPE));
+        assert_eq!(call_return_type_name(GENERATE_P521), Some(KEYPAIR_TYPE));
+        assert_eq!(call_return_type_name(RANDOM_INT), Some("Integer"));
+        assert_eq!(call_return_type_name(UUID4), Some("String"));
+        assert_eq!(call_return_type_name(ED25519_VERIFY), Some("Boolean"));
+        assert_eq!(call_return_type_name(CONSTANT_TIME_EQUAL), Some("Boolean"));
+        assert_eq!(call_return_type_name("crypto.bogus"), None);
+    }
+
+    #[test]
+    fn arity_spans() {
+        assert_eq!(arity(UUID4), Some((0, 0)));
+        assert_eq!(arity(GENERATE_ED25519), Some((0, 0)));
+        assert_eq!(arity(GENERATE_P256_RAW), Some((0, 0)));
+        assert_eq!(arity(RANDOM_BYTES), Some((1, 1)));
+        assert_eq!(arity(SHA256), Some((1, 1)));
+        assert_eq!(arity(RANDOM_INT), Some((2, 2)));
+        assert_eq!(arity(HMAC_SHA256), Some((2, 2)));
+        assert_eq!(arity(ED25519_SIGN), Some((2, 2)));
+        assert_eq!(arity(CONSTANT_TIME_EQUAL), Some((2, 2)));
+        assert_eq!(arity(ED25519_VERIFY), Some((3, 3)));
+        assert_eq!(arity(AES256_GCM_SEAL), Some((3, 4)));
+        assert_eq!(arity(HKDF_SHA256), Some((4, 4)));
+        assert_eq!(arity(PBKDF2_SHA256), Some((4, 4)));
+        assert_eq!(arity(AES256_GCM_OPEN), Some((4, 5)));
+        assert_eq!(arity("crypto.bogus"), None);
+    }
+
+    #[test]
+    fn expected_arguments_present() {
+        assert!(expected_arguments(SHA256).unwrap().contains("String"));
+        assert!(expected_arguments(HMAC_SHA256).is_some());
+        assert!(expected_arguments(HKDF_SHA256).is_some());
+        assert!(expected_arguments(PBKDF2_SHA256).is_some());
+        assert!(expected_arguments(AES256_GCM_SEAL).is_some());
+        assert!(expected_arguments(AES256_GCM_OPEN).is_some());
+        assert_eq!(expected_arguments(RANDOM_BYTES), Some("Integer"));
+        assert_eq!(expected_arguments(RANDOM_INT), Some("Integer, Integer"));
+        assert_eq!(expected_arguments(UUID4), Some("()"));
+        assert!(expected_arguments(ED25519_SIGN).is_some());
+        assert!(expected_arguments(ED25519_VERIFY).is_some());
+        assert!(expected_arguments(CONSTANT_TIME_EQUAL).is_some());
+        assert_eq!(expected_arguments("crypto.bogus"), None);
+    }
+
+    #[test]
+    fn resolve_hashes_overloaded() {
+        assert_eq!(ret(SHA256, &[BYTES]), Some(BYTES.to_string()));
+        assert_eq!(ret(SHA256, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(ret(SHA224, &[BYTES]), Some(BYTES.to_string()));
+        assert_eq!(ret(SHA512, &["String"]), Some(BYTES.to_string()));
+        assert_eq!(ret(SHA384, &[BYTES]), Some(BYTES.to_string()));
+        assert_eq!(ret(SHA256, &["Integer"]), None);
+        assert_eq!(ret(SHA256, &[]), None);
+        assert_eq!(ret(SHA256, &[BYTES, BYTES]), None);
+    }
+
+    #[test]
+    fn resolve_hmac() {
+        assert_eq!(ret(HMAC_SHA256, &[BYTES, BYTES]), Some(BYTES.to_string()));
+        assert_eq!(
+            ret(HMAC_SHA512, &[BYTES, "String"]),
+            Some(BYTES.to_string())
+        );
+        // key must be bytes
+        assert_eq!(ret(HMAC_SHA256, &["String", BYTES]), None);
+    }
+
+    #[test]
+    fn resolve_hkdf_and_pbkdf2() {
+        assert_eq!(
+            ret(HKDF_SHA256, &[BYTES, BYTES, BYTES, "Integer"]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(ret(HKDF_SHA512, &[BYTES, BYTES, BYTES]), None);
+        assert_eq!(
+            ret(PBKDF2_SHA256, &[BYTES, BYTES, "Integer", "Integer"]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(
+            ret(PBKDF2_SHA512, &["String", BYTES, "Integer", "Integer"]),
+            Some(BYTES.to_string())
+        );
+        // salt must be bytes
+        assert_eq!(
+            ret(PBKDF2_SHA256, &[BYTES, "String", "Integer", "Integer"]),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_aead() {
+        assert_eq!(
+            ret(AES256_GCM_SEAL, &[BYTES, BYTES, BYTES]),
+            Some(SEALED_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(AES256_GCM_SEAL, &[BYTES, BYTES, BYTES, BYTES]),
+            Some(SEALED_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(CHACHA20_POLY1305_SEAL, &[BYTES, BYTES, BYTES]),
+            Some(SEALED_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(AES256_GCM_OPEN, &[BYTES, BYTES, BYTES, BYTES]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(
+            ret(AES256_GCM_OPEN, &[BYTES, BYTES, BYTES, BYTES, BYTES]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(
+            ret(CHACHA20_POLY1305_OPEN, &[BYTES, BYTES, BYTES, BYTES]),
+            Some(BYTES.to_string())
+        );
+        assert_eq!(ret(AES256_GCM_SEAL, &[BYTES, BYTES]), None);
+        assert_eq!(ret(AES256_GCM_OPEN, &[BYTES, BYTES, BYTES]), None);
+    }
+
+    #[test]
+    fn resolve_random_and_uuid() {
+        assert_eq!(ret(RANDOM_BYTES, &["Integer"]), Some(BYTES.to_string()));
+        assert_eq!(ret(RANDOM_BYTES, &[BYTES]), None);
+        assert_eq!(
+            ret(RANDOM_INT, &["Integer", "Integer"]),
+            Some("Integer".to_string())
+        );
+        assert_eq!(ret(UUID4, &[]), Some("String".to_string()));
+        assert_eq!(ret(UUID4, &["Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_keygen() {
+        assert_eq!(ret(GENERATE_ED25519, &[]), Some(KEYPAIR_TYPE.to_string()));
+        assert_eq!(ret(GENERATE_P256, &[]), Some(KEYPAIR_TYPE.to_string()));
+        assert_eq!(ret(GENERATE_P384, &[]), Some(KEYPAIR_TYPE.to_string()));
+        assert_eq!(ret(GENERATE_P521, &[]), Some(KEYPAIR_TYPE.to_string()));
+        assert_eq!(ret(GENERATE_P256_RAW, &[]), Some(BYTES.to_string()));
+        assert_eq!(ret(GENERATE_P384_RAW, &[]), Some(BYTES.to_string()));
+        assert_eq!(ret(GENERATE_P521_RAW, &[]), Some(BYTES.to_string()));
+        assert_eq!(ret(GENERATE_ED25519, &["Integer"]), None);
+        assert_eq!(ret(GENERATE_P256_RAW, &["Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_sign_verify_and_ct_equal() {
+        assert_eq!(ret(ED25519_SIGN, &[BYTES, BYTES]), Some(BYTES.to_string()));
+        assert_eq!(ret(P256_SIGN, &[BYTES, BYTES]), Some(BYTES.to_string()));
+        assert_eq!(ret(P521_SIGN, &[BYTES, BYTES]), Some(BYTES.to_string()));
+        assert_eq!(
+            ret(ED25519_VERIFY, &[BYTES, BYTES, BYTES]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            ret(P384_VERIFY, &[BYTES, BYTES, BYTES]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(
+            ret(CONSTANT_TIME_EQUAL, &[BYTES, BYTES]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(ret(ED25519_SIGN, &[BYTES]), None);
+        assert_eq!(ret(CONSTANT_TIME_EQUAL, &[BYTES, "String"]), None);
+        assert_eq!(ret("crypto.bogus", &[BYTES]), None);
+    }
+
+    #[test]
+    fn argument_types_present_and_none() {
+        assert_eq!(
+            argument_types(HKDF_SHA256),
+            Some("List OF Byte, List OF Byte, List OF Byte, Integer")
+        );
+        assert_eq!(argument_types(RANDOM_BYTES), Some("Integer"));
+        assert_eq!(argument_types(RANDOM_INT), Some("Integer, Integer"));
+        assert_eq!(
+            argument_types(CONSTANT_TIME_EQUAL),
+            Some("List OF Byte, List OF Byte")
+        );
+        assert_eq!(
+            argument_types(ED25519_SIGN),
+            Some("List OF Byte, List OF Byte")
+        );
+        assert_eq!(
+            argument_types(ED25519_VERIFY),
+            Some("List OF Byte, List OF Byte, List OF Byte")
+        );
+        // overloaded / source calls -> None
+        assert_eq!(argument_types(SHA256), None);
+        assert_eq!(argument_types(HMAC_SHA256), None);
+        assert_eq!(argument_types("crypto.bogus"), None);
+    }
+
+    #[test]
+    fn default_argument_padding_variants() {
+        // seal: with 3 provided, one default; with 4 provided, none
+        assert_eq!(default_argument_padding(AES256_GCM_SEAL, 3).len(), 1);
+        assert_eq!(default_argument_padding(AES256_GCM_SEAL, 4).len(), 0);
+        assert_eq!(default_argument_padding(CHACHA20_POLY1305_SEAL, 3).len(), 1);
+        // open: with 4 provided, one default; with 5 provided, none
+        assert_eq!(default_argument_padding(AES256_GCM_OPEN, 4).len(), 1);
+        assert_eq!(default_argument_padding(AES256_GCM_OPEN, 5).len(), 0);
+        assert_eq!(default_argument_padding(CHACHA20_POLY1305_OPEN, 4).len(), 1);
+        assert_eq!(default_argument_padding(SHA256, 1).len(), 0);
+    }
+
+    #[test]
+    fn implementation_name_native_and_source() {
+        // native -> None
+        assert_eq!(implementation_name(RANDOM_BYTES, &[]), None);
+        assert_eq!(
+            implementation_name(P256_SIGN, &strings(&[BYTES, BYTES])),
+            None
+        );
+        // hash bytes vs text
+        assert_eq!(
+            implementation_name(SHA256, &strings(&[BYTES])),
+            Some("__crypto_sha256_bytes".to_string())
+        );
+        assert_eq!(
+            implementation_name(SHA256, &strings(&["String"])),
+            Some("__crypto_sha256_text".to_string())
+        );
+        assert_eq!(
+            implementation_name(SHA224, &strings(&["String"])),
+            Some("__crypto_sha224_text".to_string())
+        );
+        assert_eq!(
+            implementation_name(SHA512, &strings(&[BYTES])),
+            Some("__crypto_sha512_bytes".to_string())
+        );
+        assert_eq!(
+            implementation_name(SHA384, &strings(&["String"])),
+            Some("__crypto_sha384_text".to_string())
+        );
+        // hmac selects on arg index 1
+        assert_eq!(
+            implementation_name(HMAC_SHA256, &strings(&[BYTES, "String"])),
+            Some("__crypto_hmacSha256_text".to_string())
+        );
+        assert_eq!(
+            implementation_name(HMAC_SHA512, &strings(&[BYTES, BYTES])),
+            Some("__crypto_hmacSha512_bytes".to_string())
+        );
+        // pbkdf2 selects on arg index 0
+        assert_eq!(
+            implementation_name(PBKDF2_SHA256, &strings(&["String", BYTES])),
+            Some("__crypto_pbkdf2Sha256_text".to_string())
+        );
+        assert_eq!(
+            implementation_name(PBKDF2_SHA512, &strings(&[BYTES, BYTES])),
+            Some("__crypto_pbkdf2Sha512_bytes".to_string())
+        );
+        // default arm: strips crypto. prefix
+        assert_eq!(
+            implementation_name(UUID4, &[]),
+            Some("__crypto_uuid4".to_string())
+        );
+        assert_eq!(
+            implementation_name(GENERATE_ED25519, &[]),
+            Some("__crypto_generateEd25519".to_string())
+        );
+    }
+
+    #[test]
+    fn exact_helper() {
+        assert!(exact(&strings(&[BYTES, BYTES]), &[BYTES, BYTES]));
+        assert!(!exact(&strings(&[BYTES]), &[BYTES, BYTES]));
+        assert!(!exact(&strings(&["String"]), &[BYTES]));
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    #[test]
+    fn augmented_project_injects_when_imported() {
+        let ast = project("IMPORT crypto\nSUB main\nEND SUB\n");
+        assert!(uses_package(&ast));
+        let augmented = augmented_project(&ast).expect("augment");
+        assert_eq!(augmented.files.len(), ast.files.len() + 1);
+    }
+
+    #[test]
+    fn augmented_project_noop_without_import() {
+        let ast = project("SUB main\nEND SUB\n");
+        assert!(!uses_package(&ast));
+        assert_eq!(
+            augmented_project(&ast).expect("a").files.len(),
+            ast.files.len()
+        );
+    }
 }

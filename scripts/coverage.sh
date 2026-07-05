@@ -16,7 +16,7 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
-IGNORE='(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/private/unicode\.rs$'
+IGNORE='(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/private/unicode\.rs$|/src/testutil\.rs$'
 
 # Instrument + run the suite, holding the profile for later report passes.
 # --no-fail-fast: keep running (and collecting coverage from) every test binary

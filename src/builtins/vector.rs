@@ -321,7 +321,7 @@ pub(crate) fn constant_type_name(name: &str) -> Option<&'static str> {
     let member = name.strip_prefix("vector.")?;
     let (_, type_name) = parse_constant(member)?;
     vector_shape(&type_name)?; // confirm it is a real vector type
-    // Re-borrow as the &'static type id.
+                               // Re-borrow as the &'static type id.
     match type_name.as_str() {
         FLOAT2_TYPE => Some(FLOAT2_TYPE),
         FLOAT3_TYPE => Some(FLOAT3_TYPE),
@@ -394,4 +394,398 @@ pub(crate) fn augmented_project(
     let mut augmented = ast.clone();
     augmented.files.push(source_file()?);
     Ok(augmented)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn ret(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    fn project(src: &str) -> crate::ast::AstProject {
+        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+            .expect("parse source");
+        crate::ast::AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        }
+    }
+
+    #[test]
+    fn builtin_types_recognized() {
+        for t in [
+            FLOAT2_TYPE,
+            FLOAT3_TYPE,
+            FLOAT4_TYPE,
+            FIXED2_TYPE,
+            FIXED3_TYPE,
+            FIXED4_TYPE,
+            INTEGER2_TYPE,
+            INTEGER3_TYPE,
+            INTEGER4_TYPE,
+        ] {
+            assert!(is_builtin_type(t), "{t}");
+        }
+        assert!(!is_builtin_type("Float5"));
+        assert!(!is_builtin_type("Float"));
+        assert!(!is_builtin_type(""));
+    }
+
+    #[test]
+    fn vector_shape_splits() {
+        assert_eq!(vector_shape("Float3"), Some(("Float", 3)));
+        assert_eq!(vector_shape("Fixed2"), Some(("Fixed", 2)));
+        assert_eq!(vector_shape("Integer4"), Some(("Integer", 4)));
+        assert_eq!(vector_shape("Nope"), None);
+    }
+
+    #[test]
+    fn is_vector_call_covers_functions_and_constants() {
+        assert!(is_vector_call(LENGTH));
+        assert!(is_vector_call(ROTATE_2D));
+        assert!(is_vector_call("vector.zeroFloat3"));
+        assert!(!is_vector_call("vector.bogus"));
+        assert!(!is_vector_call("length"));
+    }
+
+    #[test]
+    fn is_vector_function_flags() {
+        for f in [
+            LENGTH,
+            NORMALIZE,
+            DISTANCE,
+            DOT,
+            CROSS,
+            REFLECT,
+            PROJECT,
+            REJECT,
+            ANGLE,
+            LERP,
+            LERP_UNCLAMPED,
+            SLERP,
+            CLAMP_LENGTH,
+            SCALE,
+            MIN,
+            MAX,
+            ABS,
+            PERPENDICULAR,
+            ROTATE_2D,
+        ] {
+            assert!(is_vector_function(f), "{f}");
+        }
+        assert!(!is_vector_function("vector.zeroFloat3"));
+        assert!(!is_vector_function("vector.bogus"));
+    }
+
+    #[test]
+    fn arity_spans() {
+        assert_eq!(arity(LENGTH), Some((1, 1)));
+        assert_eq!(arity(NORMALIZE), Some((1, 1)));
+        assert_eq!(arity(ABS), Some((1, 1)));
+        assert_eq!(arity(PERPENDICULAR), Some((1, 1)));
+        assert_eq!(arity(DISTANCE), Some((2, 2)));
+        assert_eq!(arity(ROTATE_2D), Some((2, 2)));
+        assert_eq!(arity(CROSS), Some((1, 3)));
+        assert_eq!(arity(LERP), Some((3, 3)));
+        assert_eq!(arity(SLERP), Some((3, 3)));
+        assert_eq!(arity("vector.zeroFloat3"), Some((0, 0)));
+        assert_eq!(arity("vector.bogus"), None);
+    }
+
+    #[test]
+    fn same_vector_helper() {
+        assert!(same_vector("Float3", "Float3"));
+        assert!(!same_vector("Float3", "Float2"));
+        assert!(!same_vector("Nope", "Nope"));
+    }
+
+    #[test]
+    fn resolve_scalar_returns() {
+        assert_eq!(ret(LENGTH, &["Float3"]), Some("Float".to_string()));
+        assert_eq!(ret(LENGTH, &["Integer2"]), Some("Integer".to_string()));
+        assert_eq!(
+            ret(DISTANCE, &["Float3", "Float3"]),
+            Some("Float".to_string())
+        );
+        assert_eq!(ret(DOT, &["Fixed4", "Fixed4"]), Some("Fixed".to_string()));
+        assert_eq!(
+            ret(ANGLE, &["Integer2", "Integer2"]),
+            Some("Integer".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_vector_returns() {
+        assert_eq!(ret(NORMALIZE, &["Float3"]), Some("Float3".to_string()));
+        assert_eq!(ret(ABS, &["Integer4"]), Some("Integer4".to_string()));
+        assert_eq!(
+            ret(REFLECT, &["Float3", "Float3"]),
+            Some("Float3".to_string())
+        );
+        assert_eq!(
+            ret(SCALE, &["Fixed2", "Fixed2"]),
+            Some("Fixed2".to_string())
+        );
+        assert_eq!(ret(MIN, &["Float2", "Float2"]), Some("Float2".to_string()));
+        assert_eq!(ret(MAX, &["Float2", "Float2"]), Some("Float2".to_string()));
+        assert_eq!(
+            ret(PROJECT, &["Float3", "Float3"]),
+            Some("Float3".to_string())
+        );
+        assert_eq!(
+            ret(REJECT, &["Float3", "Float3"]),
+            Some("Float3".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_cross_by_dimension() {
+        assert_eq!(ret(CROSS, &["Float2"]), Some("Float2".to_string()));
+        assert_eq!(
+            ret(CROSS, &["Float3", "Float3"]),
+            Some("Float3".to_string())
+        );
+        assert_eq!(
+            ret(CROSS, &["Float4", "Float4", "Float4"]),
+            Some("Float4".to_string())
+        );
+        // wrong arity for the dimension
+        assert_eq!(ret(CROSS, &["Float3"]), None);
+        assert_eq!(ret(CROSS, &["Float2", "Float2"]), None);
+        assert_eq!(ret(CROSS, &["Float4", "Float4"]), None);
+    }
+
+    #[test]
+    fn resolve_lerp_family() {
+        assert_eq!(
+            ret(LERP, &["Float3", "Float3", "Float"]),
+            Some("Float3".to_string())
+        );
+        assert_eq!(
+            ret(LERP_UNCLAMPED, &["Fixed2", "Fixed2", "Float"]),
+            Some("Fixed2".to_string())
+        );
+        assert_eq!(
+            ret(SLERP, &["Float4", "Float4", "Float"]),
+            Some("Float4".to_string())
+        );
+        // t must be Float
+        assert_eq!(ret(LERP, &["Float3", "Float3", "Integer"]), None);
+        assert_eq!(ret(LERP, &["Float3", "Float2", "Float"]), None);
+    }
+
+    #[test]
+    fn resolve_clamp_length_and_2d() {
+        assert_eq!(
+            ret(CLAMP_LENGTH, &["Float3", "Float"]),
+            Some("Float3".to_string())
+        );
+        assert_eq!(ret(CLAMP_LENGTH, &["Float3", "Integer"]), None);
+        assert_eq!(ret(PERPENDICULAR, &["Float2"]), Some("Float2".to_string()));
+        assert_eq!(ret(PERPENDICULAR, &["Float3"]), None);
+        assert_eq!(
+            ret(ROTATE_2D, &["Float2", "Float"]),
+            Some("Float2".to_string())
+        );
+        assert_eq!(ret(ROTATE_2D, &["Float3", "Float"]), None);
+        assert_eq!(ret(ROTATE_2D, &["Float2", "Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_constant_and_rejections() {
+        assert_eq!(ret("vector.zeroFloat3", &[]), Some("Float3".to_string()));
+        // constant with args -> None
+        assert_eq!(ret("vector.zeroFloat3", &["Float3"]), None);
+        // unknown name
+        assert_eq!(ret("vector.bogus", &["Float3"]), None);
+        // non-vector first arg
+        assert_eq!(ret(LENGTH, &["Float"]), None);
+        // wrong arity
+        assert_eq!(ret(LENGTH, &["Float3", "Float3"]), None);
+        assert_eq!(ret(DISTANCE, &["Float3"]), None);
+        // mismatched vector types
+        assert_eq!(ret(DISTANCE, &["Float3", "Float2"]), None);
+    }
+
+    #[test]
+    fn expected_arguments_text() {
+        assert!(expected_arguments(LENGTH).unwrap().contains("vector"));
+        assert!(expected_arguments(DISTANCE).unwrap().contains("two"));
+        assert!(expected_arguments(CROSS).unwrap().contains("T2"));
+        assert!(expected_arguments(LERP).unwrap().contains("Float"));
+        assert!(expected_arguments(CLAMP_LENGTH).unwrap().contains("scalar"));
+        assert!(expected_arguments(PERPENDICULAR).unwrap().contains("2D"));
+        assert!(expected_arguments(ROTATE_2D).unwrap().contains("angle"));
+        assert_eq!(expected_arguments("vector.zeroFloat3"), Some("()"));
+        assert_eq!(expected_arguments("vector.bogus"), None);
+    }
+
+    #[test]
+    fn call_param_names_shapes() {
+        assert_eq!(call_param_names(LENGTH), Some(&[&["v"][..]][..]));
+        assert!(call_param_names(DISTANCE).is_some());
+        assert!(call_param_names(CROSS).is_some());
+        assert!(call_param_names(LERP).is_some());
+        assert!(call_param_names(CLAMP_LENGTH).is_some());
+        assert!(call_param_names(ROTATE_2D).is_some());
+        assert_eq!(call_param_names("vector.zeroFloat3"), Some(&[][..]));
+        assert_eq!(call_param_names("vector.bogus"), None);
+    }
+
+    #[test]
+    fn implementation_name_function_and_constant() {
+        assert_eq!(
+            implementation_name(LENGTH, &strings(&["Float3"])),
+            Some("__vector_length_float3".to_string())
+        );
+        assert_eq!(
+            implementation_name(CROSS, &strings(&["Float2"])),
+            Some("__vector_cross_float2".to_string())
+        );
+        assert_eq!(
+            implementation_name("vector.zeroFloat3", &[]),
+            Some("__vector_zeroFloat3".to_string())
+        );
+        // unresolved overload
+        assert_eq!(implementation_name(LENGTH, &strings(&["Float"])), None);
+        assert_eq!(implementation_name("vector.bogus", &[]), None);
+    }
+
+    #[test]
+    fn constant_axis_variants() {
+        assert_eq!(
+            constant_axis("zero", "Float", 3),
+            Some(strings(&["0.0", "0.0", "0.0"]))
+        );
+        assert_eq!(
+            constant_axis("one", "Integer", 2),
+            Some(strings(&["1", "1"]))
+        );
+        assert_eq!(
+            constant_axis("up", "Float", 3),
+            Some(strings(&["0.0", "1.0", "0.0"]))
+        );
+        assert_eq!(
+            constant_axis("right", "Float", 2),
+            Some(strings(&["1.0", "0.0"]))
+        );
+        assert_eq!(
+            constant_axis("forward", "Float", 3),
+            Some(strings(&["0.0", "0.0", "1.0"]))
+        );
+        // forward undefined in 2D
+        assert_eq!(constant_axis("forward", "Float", 2), None);
+        assert_eq!(constant_axis("bogus", "Float", 3), None);
+    }
+
+    #[test]
+    fn parse_constant_variants() {
+        assert_eq!(
+            parse_constant("zeroFloat3"),
+            Some(("zero", "Float3".to_string()))
+        );
+        assert_eq!(
+            parse_constant("upInteger2"),
+            Some(("up", "Integer2".to_string()))
+        );
+        assert_eq!(parse_constant("bogus"), None);
+        assert_eq!(parse_constant("zeroFloat5"), None);
+    }
+
+    #[test]
+    fn is_vector_constant_variants() {
+        assert!(is_vector_constant("vector.zeroFloat3"));
+        assert!(is_vector_constant("vector.forwardFloat3"));
+        // forward is undefined in 2D
+        assert!(!is_vector_constant("vector.forwardFloat2"));
+        // not a vector.* name
+        assert!(!is_vector_constant("zeroFloat3"));
+        assert!(!is_vector_constant("vector.bogus"));
+    }
+
+    #[test]
+    fn constant_type_name_maps_all() {
+        assert_eq!(constant_type_name("vector.zeroFloat2"), Some(FLOAT2_TYPE));
+        assert_eq!(constant_type_name("vector.zeroFloat3"), Some(FLOAT3_TYPE));
+        assert_eq!(constant_type_name("vector.zeroFloat4"), Some(FLOAT4_TYPE));
+        assert_eq!(constant_type_name("vector.zeroFixed2"), Some(FIXED2_TYPE));
+        assert_eq!(constant_type_name("vector.zeroFixed3"), Some(FIXED3_TYPE));
+        assert_eq!(constant_type_name("vector.zeroFixed4"), Some(FIXED4_TYPE));
+        assert_eq!(
+            constant_type_name("vector.zeroInteger2"),
+            Some(INTEGER2_TYPE)
+        );
+        assert_eq!(
+            constant_type_name("vector.zeroInteger3"),
+            Some(INTEGER3_TYPE)
+        );
+        assert_eq!(
+            constant_type_name("vector.zeroInteger4"),
+            Some(INTEGER4_TYPE)
+        );
+        assert_eq!(constant_type_name("vector.bogus"), None);
+        assert_eq!(constant_type_name("notvector"), None);
+    }
+
+    #[test]
+    fn constant_components_builds() {
+        let (ty, comps) = constant_components("vector.upFloat3").expect("upFloat3");
+        assert_eq!(ty, "Float3");
+        assert_eq!(
+            comps,
+            vec![
+                ("Float".to_string(), "0.0".to_string()),
+                ("Float".to_string(), "1.0".to_string()),
+                ("Float".to_string(), "0.0".to_string()),
+            ]
+        );
+        assert_eq!(constant_components("vector.forwardFloat2"), None);
+        assert_eq!(constant_components("vector.bogus"), None);
+    }
+
+    #[test]
+    fn tostring_override_targets() {
+        assert_eq!(
+            tostring_override_target(FLOAT2_TYPE),
+            Some("__vector_toString_float2")
+        );
+        assert_eq!(
+            tostring_override_target(INTEGER4_TYPE),
+            Some("__vector_toString_integer4")
+        );
+        assert_eq!(
+            tostring_override_target(FIXED3_TYPE),
+            Some("__vector_toString_fixed3")
+        );
+        assert_eq!(tostring_override_target("Nope"), None);
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    #[test]
+    fn augmented_project_injects_when_imported() {
+        let ast = project("IMPORT vector\nSUB main\nEND SUB\n");
+        assert!(uses_package(&ast));
+        let augmented = augmented_project(&ast).expect("augment");
+        assert_eq!(augmented.files.len(), ast.files.len() + 1);
+    }
+
+    #[test]
+    fn augmented_project_noop_without_import() {
+        let ast = project("SUB main\nEND SUB\n");
+        assert!(!uses_package(&ast));
+        assert_eq!(
+            augmented_project(&ast).expect("a").files.len(),
+            ast.files.len()
+        );
+    }
 }

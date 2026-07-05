@@ -56,7 +56,13 @@ pub(crate) fn resource_close_function(type_name: &str) -> Option<&'static str> {
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         CONNECT => Some(&[&["host"], &["port"], &["timeoutMs"], &["serverName"]]),
-        LISTEN => Some(&[&["host"], &["port"], &["certPath"], &["keyPath"], &["backlog"]]),
+        LISTEN => Some(&[
+            &["host"],
+            &["port"],
+            &["certPath"],
+            &["keyPath"],
+            &["backlog"],
+        ]),
         ACCEPT => Some(&[&["listener"], &["timeoutMs"]]),
         READ | READ_TEXT => Some(&[&["sock"], &["maxBytes"]]),
         WRITE => Some(&[&["sock"], &["bytes"]]),
@@ -92,7 +98,10 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         // listen(host, port, certPath, keyPath, backlog = 0)
         LISTEN
             if exact(arg_types, &["String", "Integer", "String", "String"])
-                || exact(arg_types, &["String", "Integer", "String", "String", "Integer"]) =>
+                || exact(
+                    arg_types,
+                    &["String", "Integer", "String", "String", "Integer"],
+                ) =>
         {
             Cow::Borrowed(TLS_LISTENER_TYPE)
         }
@@ -107,9 +116,7 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
         READ_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE, "Integer"]) => Cow::Borrowed("String"),
         WRITE if exact(arg_types, &[TLS_SOCKET_TYPE, "List OF Byte"]) => Cow::Borrowed("Nothing"),
         WRITE_TEXT if exact(arg_types, &[TLS_SOCKET_TYPE, "String"]) => Cow::Borrowed("Nothing"),
-        CLOSE
-            if exact(arg_types, &[TLS_SOCKET_TYPE]) || exact(arg_types, &[TLS_LISTENER_TYPE]) =>
-        {
+        CLOSE if exact(arg_types, &[TLS_SOCKET_TYPE]) || exact(arg_types, &[TLS_LISTENER_TYPE]) => {
             Cow::Borrowed("Nothing")
         }
         _ => return None,
@@ -190,4 +197,228 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .iter()
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn rt(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    #[test]
+    fn is_call_and_reject() {
+        for n in [
+            CONNECT,
+            LISTEN,
+            ACCEPT,
+            READ,
+            READ_TEXT,
+            WRITE,
+            WRITE_TEXT,
+            CLOSE,
+            CLOSE_LISTENER,
+        ] {
+            assert!(is_tls_call(n), "{n}");
+        }
+        assert!(!is_tls_call("tls.nope"));
+    }
+
+    #[test]
+    fn builtin_types_and_close_functions() {
+        assert!(is_builtin_type(TLS_SOCKET_TYPE));
+        assert!(is_builtin_type(TLS_LISTENER_TYPE));
+        assert!(!is_builtin_type("String"));
+        assert_eq!(resource_close_function(TLS_SOCKET_TYPE), Some(CLOSE));
+        assert_eq!(
+            resource_close_function(TLS_LISTENER_TYPE),
+            Some(CLOSE_LISTENER)
+        );
+        assert_eq!(resource_close_function("Other"), None);
+    }
+
+    #[test]
+    fn param_names_branches() {
+        assert_eq!(call_param_names(CONNECT).unwrap().len(), 4);
+        assert_eq!(call_param_names(LISTEN).unwrap().len(), 5);
+        assert_eq!(call_param_names(ACCEPT).unwrap().len(), 2);
+        assert_eq!(call_param_names(READ), call_param_names(READ_TEXT));
+        assert_eq!(
+            call_param_names(WRITE),
+            Some(&[&["sock"][..], &["bytes"]][..])
+        );
+        assert_eq!(
+            call_param_names(WRITE_TEXT),
+            Some(&[&["sock"][..], &["value"]][..])
+        );
+        assert_eq!(
+            call_param_names(CLOSE),
+            Some(&[&["resource", "sock", "listener"][..]][..])
+        );
+        assert_eq!(
+            call_param_names(CLOSE_LISTENER),
+            Some(&[&["listener"][..]][..])
+        );
+        assert!(call_param_names("tls.nope").is_none());
+    }
+
+    #[test]
+    fn return_type_name_branches() {
+        assert_eq!(call_return_type_name(CONNECT), Some(TLS_SOCKET_TYPE));
+        assert_eq!(call_return_type_name(LISTEN), Some(TLS_LISTENER_TYPE));
+        assert_eq!(call_return_type_name(ACCEPT), Some(TLS_SOCKET_TYPE));
+        assert_eq!(call_return_type_name(READ), Some("List OF Byte"));
+        assert_eq!(call_return_type_name(READ_TEXT), Some("String"));
+        assert_eq!(call_return_type_name(WRITE), Some("Nothing"));
+        assert_eq!(call_return_type_name(WRITE_TEXT), Some("Nothing"));
+        assert_eq!(call_return_type_name(CLOSE), Some("Nothing"));
+        assert_eq!(call_return_type_name(CLOSE_LISTENER), Some("Nothing"));
+        assert!(call_return_type_name("tls.nope").is_none());
+    }
+
+    #[test]
+    fn resolve_connect_overloads() {
+        assert_eq!(
+            rt(CONNECT, &["String", "Integer"]),
+            Some(TLS_SOCKET_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(CONNECT, &["String", "Integer", "Integer"]),
+            Some(TLS_SOCKET_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(CONNECT, &["String", "Integer", "Integer", "String"]),
+            Some(TLS_SOCKET_TYPE.to_string())
+        );
+        assert_eq!(rt(CONNECT, &["String"]), None);
+        assert_eq!(rt(CONNECT, &["Integer", "Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_listen_accept() {
+        assert_eq!(
+            rt(LISTEN, &["String", "Integer", "String", "String"]),
+            Some(TLS_LISTENER_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(
+                LISTEN,
+                &["String", "Integer", "String", "String", "Integer"]
+            ),
+            Some(TLS_LISTENER_TYPE.to_string())
+        );
+        assert_eq!(rt(LISTEN, &["String", "Integer", "String"]), None);
+        assert_eq!(
+            rt(ACCEPT, &[TLS_LISTENER_TYPE]),
+            Some(TLS_SOCKET_TYPE.to_string())
+        );
+        assert_eq!(
+            rt(ACCEPT, &[TLS_LISTENER_TYPE, "Integer"]),
+            Some(TLS_SOCKET_TYPE.to_string())
+        );
+        assert_eq!(rt(ACCEPT, &[TLS_SOCKET_TYPE]), None);
+    }
+
+    #[test]
+    fn resolve_read_write_close() {
+        assert_eq!(
+            rt(READ, &[TLS_SOCKET_TYPE, "Integer"]),
+            Some("List OF Byte".to_string())
+        );
+        assert_eq!(
+            rt(READ_TEXT, &[TLS_SOCKET_TYPE, "Integer"]),
+            Some("String".to_string())
+        );
+        assert_eq!(
+            rt(WRITE, &[TLS_SOCKET_TYPE, "List OF Byte"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            rt(WRITE_TEXT, &[TLS_SOCKET_TYPE, "String"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(rt(CLOSE, &[TLS_SOCKET_TYPE]), Some("Nothing".to_string()));
+        assert_eq!(rt(CLOSE, &[TLS_LISTENER_TYPE]), Some("Nothing".to_string()));
+        assert_eq!(rt(READ, &[TLS_SOCKET_TYPE]), None);
+        assert_eq!(rt(WRITE, &[TLS_SOCKET_TYPE, "String"]), None);
+        assert_eq!(rt(CLOSE, &["String"]), None);
+        assert_eq!(rt("tls.nope", &[]), None);
+        // CLOSE_LISTENER is not user-callable through resolve_call
+        assert_eq!(rt(CLOSE_LISTENER, &[TLS_LISTENER_TYPE]), None);
+    }
+
+    #[test]
+    fn expected_arguments_branches() {
+        assert_eq!(
+            expected_arguments(CONNECT),
+            Some("String, Integer, Integer, String")
+        );
+        assert_eq!(
+            expected_arguments(LISTEN),
+            Some("String, Integer, String, String, Integer")
+        );
+        assert_eq!(expected_arguments(ACCEPT), Some("TlsListener, Integer"));
+        assert_eq!(expected_arguments(READ), Some("TlsSocket, Integer"));
+        assert_eq!(expected_arguments(READ_TEXT), Some("TlsSocket, Integer"));
+        assert_eq!(expected_arguments(WRITE), Some("TlsSocket, List OF Byte"));
+        assert_eq!(expected_arguments(WRITE_TEXT), Some("TlsSocket, String"));
+        assert_eq!(expected_arguments(CLOSE), Some("TlsSocket or TlsListener"));
+        assert!(expected_arguments(CLOSE_LISTENER).is_none());
+        assert!(expected_arguments("tls.nope").is_none());
+    }
+
+    #[test]
+    fn argument_types_branches() {
+        assert_eq!(
+            argument_types(LISTEN),
+            Some("String, Integer, String, String, Integer")
+        );
+        assert_eq!(argument_types(ACCEPT), Some("TlsListener, Integer"));
+        assert_eq!(argument_types(READ), Some("TlsSocket, Integer"));
+        assert_eq!(argument_types(READ_TEXT), Some("TlsSocket, Integer"));
+        assert_eq!(argument_types(WRITE), Some("TlsSocket, List OF Byte"));
+        assert_eq!(argument_types(WRITE_TEXT), Some("TlsSocket, String"));
+        // CONNECT is overloaded/defaulted -> None
+        assert!(argument_types(CONNECT).is_none());
+        assert!(argument_types("tls.nope").is_none());
+    }
+
+    #[test]
+    fn arity_branches() {
+        assert_eq!(arity(CONNECT), Some((2, 4)));
+        assert_eq!(arity(LISTEN), Some((4, 5)));
+        assert_eq!(arity(ACCEPT), Some((1, 2)));
+        assert_eq!(arity(READ), Some((2, 2)));
+        assert_eq!(arity(WRITE_TEXT), Some((2, 2)));
+        assert_eq!(arity(CLOSE), Some((1, 1)));
+        assert_eq!(arity(CLOSE_LISTENER), Some((1, 1)));
+        assert!(arity("tls.nope").is_none());
+    }
+
+    #[test]
+    fn default_padding_branches() {
+        // connect(host, port, [timeoutMs=0], [serverName=""])
+        assert_eq!(default_argument_padding(CONNECT, 2).len(), 2);
+        assert_eq!(default_argument_padding(CONNECT, 3).len(), 1);
+        assert_eq!(default_argument_padding(CONNECT, 4).len(), 0);
+        assert_eq!(default_argument_padding(LISTEN, 4).len(), 1);
+        assert_eq!(default_argument_padding(LISTEN, 5).len(), 0);
+        assert_eq!(default_argument_padding(ACCEPT, 1).len(), 1);
+        assert_eq!(default_argument_padding(ACCEPT, 2).len(), 0);
+        assert_eq!(default_argument_padding(READ, 2), &[]);
+    }
+
+    #[test]
+    fn consumes_argument_branches() {
+        assert!(consumes_argument(CLOSE, 0));
+        assert!(consumes_argument(CLOSE_LISTENER, 0));
+        assert!(!consumes_argument(CLOSE, 1));
+        assert!(!consumes_argument(ACCEPT, 0));
+        assert!(!consumes_argument(WRITE, 0));
+    }
 }

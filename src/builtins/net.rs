@@ -318,3 +318,383 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn ret(name: &str, args: &[&str]) -> Option<String> {
+        resolve_call(name, &strings(args)).map(|r| r.return_type.into_owned())
+    }
+
+    fn project(src: &str) -> crate::ast::AstProject {
+        let file = crate::ast::parse_source(std::path::Path::new("main.mfb"), "main.mfb", src)
+            .expect("parse source");
+        crate::ast::AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        }
+    }
+
+    #[test]
+    fn is_net_call_flags() {
+        for f in [
+            LOOKUP,
+            CONNECT_TCP,
+            LISTEN_TCP,
+            ACCEPT,
+            POLL,
+            READ,
+            READ_TEXT,
+            WRITE,
+            WRITE_TEXT,
+            CLOSE,
+            LOCAL_ADDRESS,
+            REMOTE_ADDRESS,
+            SET_READ_TIMEOUT,
+            SET_WRITE_TIMEOUT,
+            BIND_UDP,
+            RECEIVE_FROM,
+            RECEIVE_TEXT_FROM,
+            SEND_TO,
+            SEND_TEXT_TO,
+            TO_URL,
+        ] {
+            assert!(is_net_call(f), "{f}");
+        }
+        assert!(!is_net_call(INTERNAL_TO_URL));
+        assert!(!is_net_call("net.bogus"));
+    }
+
+    #[test]
+    fn builtin_types_and_fields() {
+        for t in [
+            SOCKET_TYPE,
+            LISTENER_TYPE,
+            ADDRESS_TYPE,
+            UDP_SOCKET_TYPE,
+            DATAGRAM_TYPE,
+            DATAGRAM_TEXT_TYPE,
+            URL_TYPE,
+        ] {
+            assert!(is_builtin_type(t), "{t}");
+        }
+        assert!(!is_builtin_type("Socketx"));
+
+        assert_eq!(
+            builtin_type_fields(ADDRESS_TYPE),
+            Some(&[("host", "String"), ("port", "Integer")][..])
+        );
+        assert_eq!(
+            builtin_type_fields(DATAGRAM_TYPE),
+            Some(&[("from", "Address"), ("bytes", "List OF Byte")][..])
+        );
+        assert_eq!(
+            builtin_type_fields(DATAGRAM_TEXT_TYPE),
+            Some(&[("from", "Address"), ("value", "String")][..])
+        );
+        assert_eq!(builtin_type_fields(SOCKET_TYPE), None);
+        assert_eq!(builtin_type_fields(URL_TYPE), None);
+    }
+
+    #[test]
+    fn resource_close_functions() {
+        assert_eq!(resource_close_function(SOCKET_TYPE), Some(CLOSE));
+        assert_eq!(resource_close_function(LISTENER_TYPE), Some(CLOSE));
+        assert_eq!(resource_close_function(UDP_SOCKET_TYPE), Some(CLOSE));
+        assert_eq!(resource_close_function(ADDRESS_TYPE), None);
+        assert_eq!(resource_close_function(URL_TYPE), None);
+    }
+
+    #[test]
+    fn call_param_names_present_and_absent() {
+        assert!(call_param_names(LOOKUP).is_some());
+        assert!(call_param_names(CONNECT_TCP).is_some());
+        assert!(call_param_names(LISTEN_TCP).is_some());
+        assert!(call_param_names(ACCEPT).is_some());
+        assert!(call_param_names(POLL).is_some());
+        assert!(call_param_names(READ).is_some());
+        assert!(call_param_names(WRITE).is_some());
+        assert!(call_param_names(WRITE_TEXT).is_some());
+        assert!(call_param_names(CLOSE).is_some());
+        assert!(call_param_names(LOCAL_ADDRESS).is_some());
+        assert!(call_param_names(REMOTE_ADDRESS).is_some());
+        assert!(call_param_names(SET_READ_TIMEOUT).is_some());
+        assert!(call_param_names(BIND_UDP).is_some());
+        assert!(call_param_names(RECEIVE_FROM).is_some());
+        assert!(call_param_names(SEND_TO).is_some());
+        assert!(call_param_names(SEND_TEXT_TO).is_some());
+        assert!(call_param_names(TO_URL).is_some());
+        assert_eq!(call_param_names("net.bogus"), None);
+    }
+
+    #[test]
+    fn call_return_type_names() {
+        assert_eq!(call_return_type_name(LOOKUP), Some("List OF Address"));
+        assert_eq!(call_return_type_name(CONNECT_TCP), Some(SOCKET_TYPE));
+        assert_eq!(call_return_type_name(ACCEPT), Some(SOCKET_TYPE));
+        assert_eq!(call_return_type_name(LISTEN_TCP), Some(LISTENER_TYPE));
+        assert_eq!(call_return_type_name(POLL), Some("Boolean"));
+        assert_eq!(call_return_type_name(READ), Some("List OF Byte"));
+        assert_eq!(call_return_type_name(READ_TEXT), Some("String"));
+        assert_eq!(call_return_type_name(WRITE), Some("Nothing"));
+        assert_eq!(call_return_type_name(SEND_TO), Some("Nothing"));
+        assert_eq!(call_return_type_name(LOCAL_ADDRESS), Some(ADDRESS_TYPE));
+        assert_eq!(call_return_type_name(REMOTE_ADDRESS), Some(ADDRESS_TYPE));
+        assert_eq!(call_return_type_name(BIND_UDP), Some(UDP_SOCKET_TYPE));
+        assert_eq!(call_return_type_name(RECEIVE_FROM), Some(DATAGRAM_TYPE));
+        assert_eq!(
+            call_return_type_name(RECEIVE_TEXT_FROM),
+            Some(DATAGRAM_TEXT_TYPE)
+        );
+        assert_eq!(call_return_type_name(TO_URL), Some(URL_TYPE));
+        assert_eq!(call_return_type_name("net.bogus"), None);
+    }
+
+    #[test]
+    fn resolve_lookup() {
+        assert_eq!(
+            ret(LOOKUP, &["String"]),
+            Some("List OF Address".to_string())
+        );
+        assert_eq!(
+            ret(LOOKUP, &["String", "Integer"]),
+            Some("List OF Address".to_string())
+        );
+        assert_eq!(ret(LOOKUP, &["Integer"]), None);
+        assert_eq!(ret(LOOKUP, &[]), None);
+    }
+
+    #[test]
+    fn resolve_connect_tcp_overloads() {
+        assert_eq!(
+            ret(CONNECT_TCP, &["String", "Integer"]),
+            Some(SOCKET_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(CONNECT_TCP, &["String", "Integer", "Integer"]),
+            Some(SOCKET_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(CONNECT_TCP, &[ADDRESS_TYPE]),
+            Some(SOCKET_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(CONNECT_TCP, &[ADDRESS_TYPE, "Integer"]),
+            Some(SOCKET_TYPE.to_string())
+        );
+        assert_eq!(ret(CONNECT_TCP, &["Integer"]), None);
+    }
+
+    #[test]
+    fn resolve_listen_and_accept() {
+        assert_eq!(
+            ret(LISTEN_TCP, &["String", "Integer"]),
+            Some(LISTENER_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(LISTEN_TCP, &["String", "Integer", "Integer"]),
+            Some(LISTENER_TYPE.to_string())
+        );
+        assert_eq!(ret(LISTEN_TCP, &["String"]), None);
+        assert_eq!(ret(ACCEPT, &[LISTENER_TYPE]), Some(SOCKET_TYPE.to_string()));
+        assert_eq!(
+            ret(ACCEPT, &[LISTENER_TYPE, "Integer"]),
+            Some(SOCKET_TYPE.to_string())
+        );
+        assert_eq!(ret(ACCEPT, &[SOCKET_TYPE]), None);
+    }
+
+    #[test]
+    fn resolve_poll_and_io() {
+        assert_eq!(ret(POLL, &[SOCKET_TYPE]), Some("Boolean".to_string()));
+        assert_eq!(
+            ret(POLL, &[SOCKET_TYPE, "Integer"]),
+            Some("Boolean".to_string())
+        );
+        assert_eq!(ret(POLL, &[LISTENER_TYPE]), None);
+        assert_eq!(
+            ret(READ, &[SOCKET_TYPE, "Integer"]),
+            Some("List OF Byte".to_string())
+        );
+        assert_eq!(
+            ret(READ_TEXT, &[SOCKET_TYPE, "Integer"]),
+            Some("String".to_string())
+        );
+        assert_eq!(
+            ret(WRITE, &[SOCKET_TYPE, "List OF Byte"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            ret(WRITE_TEXT, &[SOCKET_TYPE, "String"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(ret(READ, &[SOCKET_TYPE]), None);
+        assert_eq!(ret(WRITE, &[SOCKET_TYPE, "String"]), None);
+    }
+
+    #[test]
+    fn resolve_close_and_addresses() {
+        assert_eq!(ret(CLOSE, &[SOCKET_TYPE]), Some("Nothing".to_string()));
+        assert_eq!(ret(CLOSE, &[LISTENER_TYPE]), Some("Nothing".to_string()));
+        assert_eq!(ret(CLOSE, &[UDP_SOCKET_TYPE]), Some("Nothing".to_string()));
+        assert_eq!(ret(CLOSE, &[ADDRESS_TYPE]), None);
+        assert_eq!(
+            ret(LOCAL_ADDRESS, &[SOCKET_TYPE]),
+            Some(ADDRESS_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(LOCAL_ADDRESS, &[LISTENER_TYPE]),
+            Some(ADDRESS_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(LOCAL_ADDRESS, &[UDP_SOCKET_TYPE]),
+            Some(ADDRESS_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(REMOTE_ADDRESS, &[SOCKET_TYPE]),
+            Some(ADDRESS_TYPE.to_string())
+        );
+        assert_eq!(ret(REMOTE_ADDRESS, &[LISTENER_TYPE]), None);
+    }
+
+    #[test]
+    fn resolve_timeouts() {
+        assert_eq!(
+            ret(SET_READ_TIMEOUT, &[SOCKET_TYPE, "Integer"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            ret(SET_WRITE_TIMEOUT, &[UDP_SOCKET_TYPE, "Integer"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(ret(SET_READ_TIMEOUT, &[SOCKET_TYPE]), None);
+    }
+
+    #[test]
+    fn resolve_udp() {
+        assert_eq!(
+            ret(BIND_UDP, &["String", "Integer"]),
+            Some(UDP_SOCKET_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(RECEIVE_FROM, &[UDP_SOCKET_TYPE, "Integer"]),
+            Some(DATAGRAM_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(RECEIVE_TEXT_FROM, &[UDP_SOCKET_TYPE, "Integer"]),
+            Some(DATAGRAM_TEXT_TYPE.to_string())
+        );
+        assert_eq!(
+            ret(SEND_TO, &[UDP_SOCKET_TYPE, ADDRESS_TYPE, "List OF Byte"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(
+            ret(SEND_TEXT_TO, &[UDP_SOCKET_TYPE, ADDRESS_TYPE, "String"]),
+            Some("Nothing".to_string())
+        );
+        assert_eq!(ret(BIND_UDP, &["String"]), None);
+        assert_eq!(
+            ret(SEND_TO, &[UDP_SOCKET_TYPE, ADDRESS_TYPE, "String"]),
+            None
+        );
+    }
+
+    #[test]
+    fn resolve_to_url_and_unknown() {
+        assert_eq!(ret(TO_URL, &["String"]), Some(URL_TYPE.to_string()));
+        assert_eq!(ret(TO_URL, &["Integer"]), None);
+        assert_eq!(ret("net.bogus", &["String"]), None);
+    }
+
+    #[test]
+    fn expected_arguments_present() {
+        assert_eq!(expected_arguments(LOOKUP), Some("String, Integer"));
+        assert!(expected_arguments(CONNECT_TCP).unwrap().contains("Address"));
+        assert!(expected_arguments(CLOSE).unwrap().contains("UdpSocket"));
+        assert_eq!(expected_arguments(REMOTE_ADDRESS), Some("Socket"));
+        assert!(expected_arguments(SET_READ_TIMEOUT).is_some());
+        assert!(expected_arguments(SEND_TO).is_some());
+        assert!(expected_arguments(SEND_TEXT_TO).is_some());
+        assert_eq!(expected_arguments(TO_URL), Some("String"));
+        assert_eq!(expected_arguments("net.bogus"), None);
+    }
+
+    #[test]
+    fn argument_types_present_and_none() {
+        assert_eq!(argument_types(LOOKUP), Some("String, Integer"));
+        assert_eq!(argument_types(LISTEN_TCP), Some("String, Integer, Integer"));
+        assert_eq!(argument_types(ACCEPT), Some("Listener, Integer"));
+        assert_eq!(argument_types(READ), Some("Socket, Integer"));
+        assert_eq!(argument_types(WRITE), Some("Socket, List OF Byte"));
+        assert_eq!(argument_types(REMOTE_ADDRESS), Some("Socket"));
+        assert!(argument_types(SET_READ_TIMEOUT).is_some());
+        assert!(argument_types(BIND_UDP).is_some());
+        assert!(argument_types(SEND_TO).is_some());
+        assert_eq!(argument_types(TO_URL), Some("String"));
+        // overloaded calls return None
+        assert_eq!(argument_types(CONNECT_TCP), None);
+        assert_eq!(argument_types(POLL), None);
+        assert_eq!(argument_types(CLOSE), None);
+        assert_eq!(argument_types(LOCAL_ADDRESS), None);
+        assert_eq!(argument_types("net.bogus"), None);
+    }
+
+    #[test]
+    fn arity_spans() {
+        assert_eq!(arity(LOOKUP), Some((1, 2)));
+        assert_eq!(arity(CONNECT_TCP), Some((1, 3)));
+        assert_eq!(arity(LISTEN_TCP), Some((2, 3)));
+        assert_eq!(arity(ACCEPT), Some((1, 2)));
+        assert_eq!(arity(POLL), Some((1, 2)));
+        assert_eq!(arity(READ), Some((2, 2)));
+        assert_eq!(arity(SEND_TO), Some((3, 3)));
+        assert_eq!(arity(CLOSE), Some((1, 1)));
+        assert_eq!(arity(TO_URL), Some((1, 1)));
+        assert_eq!(arity("net.bogus"), None);
+    }
+
+    #[test]
+    fn implementation_name_to_url_only() {
+        assert_eq!(implementation_name(TO_URL), Some(INTERNAL_TO_URL));
+        assert_eq!(implementation_name(LOOKUP), None);
+        assert_eq!(implementation_name("net.bogus"), None);
+    }
+
+    #[test]
+    fn exact_helper() {
+        assert!(exact(
+            &strings(&["String", "Integer"]),
+            &["String", "Integer"]
+        ));
+        assert!(!exact(&strings(&["String"]), &["String", "Integer"]));
+        assert!(!exact(&strings(&["Integer"]), &["String"]));
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    #[test]
+    fn augmented_project_injects_when_imported() {
+        let ast = project("IMPORT net\nSUB main\nEND SUB\n");
+        assert!(uses_package(&ast));
+        let augmented = augmented_project(&ast).expect("augment");
+        assert_eq!(augmented.files.len(), ast.files.len() + 1);
+    }
+
+    #[test]
+    fn augmented_project_noop_without_import() {
+        let ast = project("SUB main\nEND SUB\n");
+        assert!(!uses_package(&ast));
+        assert_eq!(
+            augmented_project(&ast).expect("a").files.len(),
+            ast.files.len()
+        );
+    }
+}

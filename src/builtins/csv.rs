@@ -100,3 +100,91 @@ fn exact(arg_types: &[String], expected: &[&str]) -> bool {
             .zip(expected.iter())
             .all(|(actual, expected)| actual == expected)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn strings(items: &[&str]) -> Vec<String> {
+        items.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn project(src: &str) -> crate::ast::AstProject {
+        let file =
+            crate::ast::parse_source(Path::new("main.mfb"), "main.mfb", src).expect("parse source");
+        crate::ast::AstProject {
+            name: "test".to_string(),
+            files: vec![file],
+        }
+    }
+
+    #[test]
+    fn recognizes_csv_calls() {
+        assert!(is_csv_call(PARSE));
+        assert!(is_csv_call(STRINGIFY));
+        assert!(!is_csv_call("csv.other"));
+    }
+
+    #[test]
+    fn param_names_cover_all_calls() {
+        assert_eq!(call_param_names(PARSE), Some(&[&["value", "text"][..]][..]));
+        assert_eq!(call_param_names(STRINGIFY), Some(&[&["value"][..]][..]));
+        assert_eq!(call_param_names("csv.other"), None);
+    }
+
+    #[test]
+    fn return_types_and_arity() {
+        assert_eq!(call_return_type_name(PARSE), Some(GRID_TYPE));
+        assert_eq!(call_return_type_name(STRINGIFY), Some("String"));
+        assert_eq!(call_return_type_name("csv.other"), None);
+        assert_eq!(arity(PARSE), Some((1, 1)));
+        assert_eq!(arity(STRINGIFY), Some((1, 1)));
+        assert_eq!(arity("csv.other"), None);
+    }
+
+    #[test]
+    fn resolve_call_branches() {
+        assert_eq!(
+            resolve_call(PARSE, &strings(&["String"])).map(|r| r.return_type.into_owned()),
+            Some(GRID_TYPE.to_string())
+        );
+        assert_eq!(
+            resolve_call(STRINGIFY, &strings(&[GRID_TYPE])).map(|r| r.return_type.into_owned()),
+            Some("String".to_string())
+        );
+        assert!(resolve_call(PARSE, &strings(&["Integer"])).is_none());
+        assert!(resolve_call(STRINGIFY, &strings(&["String"])).is_none());
+        assert!(resolve_call("csv.other", &strings(&["String"])).is_none());
+    }
+
+    #[test]
+    fn expected_arguments_and_impl_names() {
+        assert_eq!(expected_arguments(PARSE), Some("String"));
+        assert_eq!(expected_arguments(STRINGIFY), Some(GRID_TYPE));
+        assert_eq!(expected_arguments("csv.other"), None);
+        assert_eq!(implementation_name(PARSE), Some(INTERNAL_PARSE));
+        assert_eq!(implementation_name(STRINGIFY), Some(INTERNAL_STRINGIFY));
+        assert_eq!(implementation_name("csv.other"), None);
+    }
+
+    #[test]
+    fn source_file_parses() {
+        assert!(source_file().is_ok());
+    }
+
+    #[test]
+    fn augmented_project_injects_when_imported() {
+        let ast = project("IMPORT csv\nSUB main\nEND SUB\n");
+        assert!(uses_package(&ast));
+        let augmented = augmented_project(&ast).expect("augment");
+        assert_eq!(augmented.files.len(), ast.files.len() + 1);
+    }
+
+    #[test]
+    fn augmented_project_noop_without_import() {
+        let ast = project("SUB main\nEND SUB\n");
+        assert!(!uses_package(&ast));
+        let augmented = augmented_project(&ast).expect("augment");
+        assert_eq!(augmented.files.len(), ast.files.len());
+    }
+}

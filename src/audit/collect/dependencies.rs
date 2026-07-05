@@ -27,7 +27,8 @@ pub(super) fn collect_dependencies(
                 match crate::manifest::package::read_mfp_header(&package_file) {
                     Ok(header) => {
                         resolved_version = Some(header.version.clone());
-                        signature = Some(crate::cli::pkg::signature_type_name(header.signature_type));
+                        signature =
+                            Some(crate::cli::pkg::signature_type_name(header.signature_type));
                         content_hash = std::fs::read(&package_file)
                             .ok()
                             .and_then(|bytes| {
@@ -72,6 +73,102 @@ fn verify_status_label(status: crate::cli::pkg::PackageVerifyStatus) -> String {
         crate::cli::pkg::PackageVerifyStatus::InvalidPackage => "invalid",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    fn manifest_with_packages(entries: Vec<(&str, &str)>) -> HashMap<String, JsonValue> {
+        let packages: Vec<JsonValue> = entries
+            .into_iter()
+            .map(|(name, version)| {
+                let mut map = HashMap::new();
+                map.insert("name".to_string(), JsonValue::String(name.to_string()));
+                map.insert(
+                    "version".to_string(),
+                    JsonValue::String(version.to_string()),
+                );
+                JsonValue::Object(map)
+            })
+            .collect();
+        let mut manifest = HashMap::new();
+        manifest.insert("packages".to_string(), JsonValue::Array(packages));
+        manifest
+    }
+
+    #[test]
+    fn verify_status_label_maps_all_variants() {
+        assert_eq!(
+            verify_status_label(crate::cli::pkg::PackageVerifyStatus::Ok),
+            "ok"
+        );
+        assert_eq!(
+            verify_status_label(crate::cli::pkg::PackageVerifyStatus::NeedsUpdate),
+            "needs-update"
+        );
+        assert_eq!(
+            verify_status_label(crate::cli::pkg::PackageVerifyStatus::InvalidPackage),
+            "invalid"
+        );
+    }
+
+    #[test]
+    fn no_packages_key_yields_empty_lists() {
+        let dir = tempdir().unwrap();
+        let manifest = HashMap::new();
+        assert!(collect_dependencies(dir.path(), &manifest).is_empty());
+        assert!(collect_packages(dir.path(), &manifest).is_empty());
+    }
+
+    #[test]
+    fn declared_but_uninstalled_dependency_is_missing() {
+        let dir = tempdir().unwrap();
+        let manifest = manifest_with_packages(vec![("alpha", "1.0.0")]);
+        let deps = collect_dependencies(dir.path(), &manifest);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].name, "alpha");
+        assert_eq!(deps[0].status, "missing");
+        assert!(deps[0].resolved_version.is_none());
+        assert!(deps[0].content_hash.is_none());
+        assert!(deps[0].signature.is_none());
+    }
+
+    #[test]
+    fn dependencies_are_sorted_by_name() {
+        let dir = tempdir().unwrap();
+        let manifest = manifest_with_packages(vec![("zeta", "1.0.0"), ("alpha", "1.0.0")]);
+        let deps = collect_dependencies(dir.path(), &manifest);
+        assert_eq!(deps[0].name, "alpha");
+        assert_eq!(deps[1].name, "zeta");
+    }
+
+    #[test]
+    fn collect_packages_skips_uninstalled_and_reports_invalid_file() {
+        let dir = tempdir().unwrap();
+        let manifest = manifest_with_packages(vec![("alpha", "1.0.0"), ("beta", "1.0.0")]);
+        // alpha has no file -> skipped entirely. beta has a garbage .mfp -> verifier failed.
+        std::fs::create_dir_all(dir.path().join("packages")).unwrap();
+        std::fs::write(dir.path().join("packages/beta.mfp"), b"not a real package").unwrap();
+        let packages = collect_packages(dir.path(), &manifest);
+        assert_eq!(packages.len(), 1);
+        assert_eq!(packages[0].name, "beta");
+        assert_eq!(packages[0].verifier, "failed");
+        assert_eq!(packages[0].signature, "unknown");
+        assert_eq!(packages[0].path, "packages/beta.mfp");
+    }
+
+    #[test]
+    fn collect_dependencies_reports_invalid_for_bad_file() {
+        let dir = tempdir().unwrap();
+        let manifest = manifest_with_packages(vec![("beta", "1.0.0")]);
+        std::fs::create_dir_all(dir.path().join("packages")).unwrap();
+        std::fs::write(dir.path().join("packages/beta.mfp"), b"garbage header").unwrap();
+        let deps = collect_dependencies(dir.path(), &manifest);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].status, "invalid");
+    }
 }
 
 pub(super) fn collect_packages(
