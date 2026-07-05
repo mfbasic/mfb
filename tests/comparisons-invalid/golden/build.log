@@ -9,12 +9,6 @@ tests/comparisons-invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: v
    6 |   LET badEq AS Boolean = 1 = "1"
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
      | ^
-tests/comparisons-invalid/src/main.mfb:7 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
-               Operator `=` requires compatible comparable operands, got Box and Box.
-   5 | FUNC main AS Integer
-   6 |   LET badEq AS Boolean = 1 = "1"
-   7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
-     | ^
 tests/comparisons-invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `boxesEqual` does not have a known type.
    6 |   LET badEq AS Boolean = 1 = "1"
@@ -47,6 +41,12 @@ tests/comparisons-invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_VALUE]: 
      | ^
 tests/comparisons-invalid/src/main.mfb:6 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
                Operator `=` requires compatible comparable operands, got Integer and String.
+   5 | FUNC main AS Integer
+   6 |   LET badEq AS Boolean = 1 = "1"
+   7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
+     | ^
+tests/comparisons-invalid/src/main.mfb:7 error[2-203-0061 TYPE_REQUIRES_COMPARABLE]: operation requires a comparable type
+               Operator `=` requires compatible comparable operands, got Box and Box.
    6 |   LET badEq AS Boolean = 1 = "1"
    7 |   LET boxesEqual AS Boolean = Box[[1]] = Box[[1]]
    8 |   LET badLt AS Boolean = "a" < 1

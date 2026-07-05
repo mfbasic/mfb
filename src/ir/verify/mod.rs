@@ -104,6 +104,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_DEFAULT_VALUE_MISMATCH",
     "TYPE_READ_ONLY_RECORD_UPDATE",
     "TYPE_MATCH_PATTERN_MISMATCH",
+    "TYPE_REQUIRES_COMPARABLE",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -133,6 +134,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         for param in &function.params {
             env.current_line.set(param.loc.line);
             locals.insert(param.name.clone(), param.type_.clone());
+            env.check_map_key_comparable(&param.type_);
             // Parameters are immutable (typecheck registers them
             // `mutable: false`), so assigning one is TYPE_ASSIGN_REQUIRES_MUT.
             muts.insert(param.name.clone(), false);
@@ -172,6 +174,9 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
     for binding in &project.bindings {
         env.current_file.replace(binding.file.clone());
         env.current_line.set(binding.loc.line);
+        if binding.explicit_type {
+            env.check_map_key_comparable(&binding.type_);
+        }
         if let Some(value) = &binding.value {
             env.check_value(value, &HashMap::new());
             let before = env.diags.borrow().len();
@@ -493,6 +498,12 @@ impl TypeEnv {
                         if !range_errored && *explicit_type {
                             self.check_binding_type(name, type_, value, locals);
                         }
+                    }
+                    // A declared map type's key must be comparable; the
+                    // inferred case is covered at its MapLiteral (checking it
+                    // here too would double-report).
+                    if *explicit_type {
+                        self.check_map_key_comparable(type_);
                     }
                     locals.insert(name.clone(), type_.clone());
                     // A capture bind's `mutable` reflects the by-ref/non-escaping
@@ -962,6 +973,7 @@ impl TypeEnv {
                     self.check_value(k, locals);
                     self.check_value(v, locals);
                 }
+                self.check_map_key_comparable(type_);
                 if let Some((key_type, value_type)) = parse_map(type_) {
                     for (k, v) in entries {
                         self.check_literal_range(key_type, k);
@@ -1222,6 +1234,27 @@ impl TypeEnv {
         self.is_comparable_seen(resource_base_type(type_), &mut HashSet::new())
     }
 
+    /// Every `Map OF K TO V` nested anywhere in `type_` must have a comparable
+    /// key — `typecheck`'s map-key arm of `TYPE_REQUIRES_COMPARABLE` (an
+    /// incomparable key breaks the map's hash/equality contract at runtime).
+    fn check_map_key_comparable(&self, type_: &str) {
+        let t = resource_base_type(type_);
+        if let Some(inner) = t.strip_prefix("List OF ") {
+            self.check_map_key_comparable(inner);
+            return;
+        }
+        if let Some((key, value)) = parse_map(t) {
+            if !key.is_empty() && key != "Unknown" && !self.is_comparable(key) {
+                self.emit(
+                    "TYPE_REQUIRES_COMPARABLE",
+                    format!("Map key type requires a comparable type, got `{key}`."),
+                );
+            }
+            self.check_map_key_comparable(key);
+            self.check_map_key_comparable(value);
+        }
+    }
+
     fn is_comparable_seen(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
         match type_ {
             "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer"
@@ -1274,6 +1307,9 @@ impl TypeEnv {
             match ty.kind.as_str() {
                 "type" | "record" => {
                     for field in &ty.fields {
+                        self.current_line.set(field.loc.line);
+                        self.check_map_key_comparable(&field.type_);
+                        self.current_line.set(ty.loc.line);
                         if is_resource_name(resource_base_type(&field.type_)) {
                             self.current_line.set(field.loc.line);
                             self.emit(
@@ -1845,6 +1881,28 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, String>,
     ) {
+        // `collections` element searches compare elements for equality, so the
+        // list's element type must be comparable — typecheck's
+        // `check_special_builtin_arguments` arm of TYPE_REQUIRES_COMPARABLE.
+        if matches!(
+            target,
+            "collections.contains" | "collections.replace" | "collections.find"
+        ) {
+            if let Some(first) = args.first() {
+                if let Some(t) = self.infer_type(first, locals) {
+                    if let Some(element) = resource_base_type(&t).strip_prefix("List OF ") {
+                        if element != "Unknown" && !self.is_comparable(element) {
+                            self.emit(
+                                "TYPE_REQUIRES_COMPARABLE",
+                                format!(
+                                    "Call to `{target}` requires a comparable type, got `{element}`."
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
         // Strip the `STATE T` clause a resource argument carries in its type
         // string (`File STATE FileState` → `File`); resolve_call and the
         // parameter tables use the bare resource type.
