@@ -790,3 +790,659 @@ fn json_string_end(contents: &str, start: usize) -> Option<usize> {
     }
     None
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tinyjson::JsonValue;
+
+    // --- .mfp header byte builder -----------------------------------------
+
+    /// Append a length-prefixed (u32 LE) byte field to a buffer.
+    fn push_field(buf: &mut Vec<u8>, value: &[u8]) {
+        buf.extend_from_slice(&(value.len() as u32).to_le_bytes());
+        buf.extend_from_slice(value);
+    }
+
+    /// Build a minimal, structurally-valid unsigned v1.0 `.mfp` header with an
+    /// empty binary-representation body. Overridable pieces let each test tweak
+    /// one aspect and assert the corresponding error.
+    fn build_mfp(name: &str, version: &str) -> Vec<u8> {
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&MFP_MAGIC);
+        buf.extend_from_slice(&1u16.to_le_bytes()); // container major
+        buf.extend_from_slice(&0u16.to_le_bytes()); // container minor
+        buf.extend_from_slice(&1u16.to_le_bytes()); // binary_repr major
+        buf.extend_from_slice(&0u16.to_le_bytes()); // binary_repr minor
+        buf.extend_from_slice(&0u32.to_le_bytes()); // flags
+        push_field(&mut buf, name.as_bytes()); // name (required)
+        push_field(&mut buf, b""); // ident
+        push_field(&mut buf, version.as_bytes()); // version (required)
+        push_field(&mut buf, b""); // author
+        push_field(&mut buf, b""); // url
+        push_field(&mut buf, b""); // identKey
+        push_field(&mut buf, b""); // signingKey
+        push_field(&mut buf, b""); // proof
+        push_field(&mut buf, &[0u8; 64]); // proofSig
+        push_field(&mut buf, b""); // attestation
+        push_field(&mut buf, &[0u8; 64]); // attestationSig
+        buf.extend_from_slice(&[0u8; 32]); // packageBinaryHash
+        buf.extend_from_slice(&0u64.to_le_bytes()); // binary_repr length = 0
+        buf.extend_from_slice(&0u16.to_le_bytes()); // signature type = unsigned
+        buf.extend_from_slice(&0u32.to_le_bytes()); // signature length = 0
+        buf
+    }
+
+    /// Read a header expecting failure, returning the error string. `MfpHeader`
+    /// is not `Debug`, so `unwrap_err` is unavailable.
+    fn header_err(path: &Path) -> String {
+        match read_mfp_header(path) {
+            Ok(_) => panic!("expected read_mfp_header to fail for {}", path.display()),
+            Err(err) => err,
+        }
+    }
+
+    fn write_temp(bytes: &[u8]) -> (tempfile::TempDir, PathBuf) {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let path = dir.path().join("pkg.mfp");
+        fs::write(&path, bytes).expect("write mfp");
+        (dir, path)
+    }
+
+    #[test]
+    fn read_mfp_header_parses_valid_unsigned_package() {
+        let (_dir, path) = write_temp(&build_mfp("mypkg", "1.2.3"));
+        let header = read_mfp_header(&path).expect("valid header");
+        assert_eq!(header.name, "mypkg");
+        assert_eq!(header.version, "1.2.3");
+        assert_eq!(header.container_major, 1);
+        assert_eq!(header.container_minor, 0);
+        assert_eq!(header.signature_type, 0);
+        assert_eq!(header.signature_length, 0);
+        assert_eq!(header.binary_repr_length, 0);
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = header_err(&dir.path().join("absent.mfp"));
+        assert!(err.contains("failed to read"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_too_small() {
+        let (_dir, path) = write_temp(&[0u8; 4]);
+        let err = header_err(&path);
+        assert!(err.contains("too small"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_bad_magic() {
+        let mut bytes = build_mfp("p", "1");
+        bytes[0] = 0xff;
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(err.contains("magic"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_bad_container_version() {
+        let mut bytes = build_mfp("p", "1");
+        bytes[8] = 2; // container major 2.0
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(err.contains("unsupported MFP container version"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_empty_required_name() {
+        let (_dir, path) = write_temp(&build_mfp("", "1"));
+        let err = header_err(&path);
+        assert!(err.contains("name must not be empty"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_signature_length_mismatch() {
+        // Unsigned (type 0) with a non-zero signature length is rejected.
+        let mut bytes = build_mfp("p", "1");
+        let len = bytes.len();
+        // The signature-length u32 is the last 4 bytes we appended.
+        bytes[len - 4..].copy_from_slice(&5u32.to_le_bytes());
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(err.contains("unsigned .mfp package must have zero signature length"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_unknown_signature_type() {
+        let mut bytes = build_mfp("p", "1");
+        let len = bytes.len();
+        // signature type u16 sits 6 bytes before the end (2 type + 4 length).
+        bytes[len - 6..len - 4].copy_from_slice(&9u16.to_le_bytes());
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(err.contains("unsupported .mfp signature type"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_trailing_length_mismatch() {
+        // Claim a non-zero binary_repr length but supply no body -> the final
+        // `offset != bytes.len()` check fails.
+        let mut bytes = build_mfp("p", "1");
+        // binary_repr length u64 sits 14 bytes before the end (8 + 2 + 4).
+        let at = bytes.len() - 14;
+        bytes[at..at + 8].copy_from_slice(&100u64.to_le_bytes());
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(err.contains("invalid .mfp binary representation length"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_truncated_field() {
+        // Truncate mid-header (after the fixed 20-byte prefix) so a length-
+        // prefixed string read runs off the end.
+        let bytes = build_mfp("longishname", "1")[..24].to_vec();
+        let (_dir, path) = write_temp(&bytes);
+        assert!(read_mfp_header(&path).is_err());
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_oversized_field() {
+        // Name length claims 300 bytes (> 255 limit) with matching payload.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&MFP_MAGIC);
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        buf.extend_from_slice(&300u32.to_le_bytes()); // name length exceeds limit
+        buf.extend_from_slice(&vec![b'x'; 300]);
+        let (_dir, path) = write_temp(&buf);
+        let err = header_err(&path);
+        assert!(err.contains("exceeds the 255 byte limit"));
+    }
+
+    // --- percent decoding / file:// URLs ----------------------------------
+
+    #[test]
+    fn package_file_url_path_validates_scheme_and_extension() {
+        assert!(package_file_url_path("https://x/y.mfp")
+            .unwrap_err()
+            .contains("file://"));
+        assert!(package_file_url_path("file://")
+            .unwrap_err()
+            .contains("absolute package path"));
+        assert!(package_file_url_path("file:///a/b.mfp?x=1")
+            .unwrap_err()
+            .contains("query strings or fragments"));
+        assert!(package_file_url_path("file://relative/path.mfp")
+            .unwrap_err()
+            .contains("absolute path"));
+        assert!(package_file_url_path("file:///abs/path.txt")
+            .unwrap_err()
+            .contains("must point to a .mfp file"));
+        assert!(package_file_url_path("file:///does/not/exist.mfp")
+            .unwrap_err()
+            .contains("does not exist"));
+    }
+
+    #[test]
+    fn package_file_url_path_accepts_existing_file_and_decodes_percent() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("my pkg.mfp");
+        fs::write(&file, b"x").unwrap();
+        // Percent-encode the space in the path.
+        let encoded = file.display().to_string().replace(' ', "%20");
+        let url = format!("file://{encoded}");
+        let resolved = package_file_url_path(&url).expect("resolves");
+        assert_eq!(resolved, file);
+    }
+
+    #[test]
+    fn percent_decode_rejects_malformed_escapes() {
+        assert!(percent_decode_path("abc%")
+            .unwrap_err()
+            .contains("incomplete"));
+        assert!(percent_decode_path("abc%zz")
+            .unwrap_err()
+            .contains("invalid percent escape"));
+        assert_eq!(percent_decode_path("a%2Fb").unwrap(), "a/b");
+    }
+
+    #[test]
+    fn hex_value_covers_all_cases() {
+        assert_eq!(hex_value(b'0'), Some(0));
+        assert_eq!(hex_value(b'9'), Some(9));
+        assert_eq!(hex_value(b'a'), Some(10));
+        assert_eq!(hex_value(b'F'), Some(15));
+        assert_eq!(hex_value(b'g'), None);
+    }
+
+    // --- project.json package dependency parsing --------------------------
+
+    fn json(src: &str) -> JsonValue {
+        src.parse::<JsonValue>().expect("json")
+    }
+
+    #[test]
+    fn project_package_dependency_reads_all_fields() {
+        let value = json(
+            r#"{"name":"pkg","ident":"pkg.id","version":"2.0","source":"file:///p.mfp","pin":true,"identKey":"KEY"}"#,
+        );
+        let dep = project_package_dependency(&value).expect("dependency");
+        assert_eq!(dep.name, "pkg");
+        assert_eq!(dep.ident, "pkg.id");
+        assert_eq!(dep.version, "2.0");
+        assert!(dep.pin);
+        assert_eq!(dep.source, "file:///p.mfp");
+        assert_eq!(dep.ident_key, "KEY");
+    }
+
+    #[test]
+    fn project_package_dependency_defaults_and_ident_key_alias() {
+        // Missing ident defaults to name; ident_key snake-case alias is honored.
+        let value = json(r#"{"name":"pkg","ident_key":"K2"}"#);
+        let dep = project_package_dependency(&value).expect("dependency");
+        assert_eq!(dep.ident, "pkg");
+        assert_eq!(dep.version, "");
+        assert!(!dep.pin);
+        assert_eq!(dep.ident_key, "K2");
+    }
+
+    #[test]
+    fn project_package_dependency_rejects_non_object_and_blank_name() {
+        assert!(project_package_dependency(&json("42")).is_none());
+        assert!(project_package_dependency(&json(r#"{"version":"1"}"#)).is_none());
+        assert!(project_package_dependency(&json(r#"{"name":"   "}"#)).is_none());
+    }
+
+    #[test]
+    fn package_metadata_and_dependencies_from_manifest() {
+        let value = json(
+            r#"{"name":"proj","version":"1.0","ident":"proj.id","author":"me","url":"http://x",
+                "packages":[{"name":"dep","version":"3.1","pin":true},{"noname":true}]}"#,
+        );
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let meta = package_metadata(manifest);
+        assert_eq!(meta.name, "proj");
+        assert_eq!(meta.version, "1.0");
+        assert_eq!(meta.ident, "proj.id");
+        assert_eq!(meta.author, "me");
+        assert_eq!(meta.url, "http://x");
+        // The malformed second package (no name) is filtered out.
+        assert_eq!(meta.dependencies.len(), 1);
+        assert_eq!(meta.dependencies[0].name, "dep");
+        assert_eq!(meta.dependencies[0].version, "3.1");
+        assert!(meta.dependencies[0].pin);
+        // Its ident defaults to its name.
+        assert_eq!(meta.dependencies[0].ident, "dep");
+    }
+
+    #[test]
+    fn package_metadata_defaults_when_optional_fields_absent() {
+        let value = json(r#"{"name":"p","version":"1"}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let meta = package_metadata(manifest);
+        assert_eq!(meta.ident, "");
+        assert_eq!(meta.author, "");
+        assert_eq!(meta.url, "");
+        assert!(meta.dependencies.is_empty());
+    }
+
+    #[test]
+    fn installed_package_files_empty_when_no_packages() {
+        let value = json(r#"{"name":"p","version":"1"}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let files = installed_package_files(dir.path(), manifest).expect("ok");
+        assert!(files.is_empty());
+    }
+
+    #[test]
+    fn installed_package_files_reports_missing_and_pin_mismatch() {
+        // A declared dependency with no installed file -> "must be installed".
+        let value = json(r#"{"name":"p","version":"1","packages":[{"name":"dep","version":"1"}]}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let err = installed_package_files(dir.path(), manifest).unwrap_err();
+        assert!(err.contains("must be installed"));
+
+        // Install a package at the wrong version with pin -> version mismatch.
+        let value = json(
+            r#"{"name":"p","version":"1","packages":[{"name":"dep","version":"9.9","pin":true}]}"#,
+        );
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let pkg_dir = dir.path().join("packages");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("dep.mfp"), build_mfp("dep", "1.0")).unwrap();
+        let err = installed_package_files(dir.path(), manifest).unwrap_err();
+        assert!(err.contains("is pinned to version"));
+    }
+
+    #[test]
+    fn installed_package_files_ok_when_present_and_unpinned() {
+        let value = json(r#"{"name":"p","version":"1","packages":[{"name":"dep","version":"1"}]}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let pkg_dir = dir.path().join("packages");
+        fs::create_dir_all(&pkg_dir).unwrap();
+        fs::write(pkg_dir.join("dep.mfp"), build_mfp("dep", "2.0")).unwrap();
+        let files = installed_package_files(dir.path(), manifest).expect("ok");
+        assert_eq!(files.len(), 1);
+        assert!(files[0].ends_with("dep.mfp"));
+    }
+
+    #[test]
+    fn external_package_function_types_lossy_swallows_errors() {
+        // Missing packages array -> empty maps, no error.
+        let value = json(r#"{"name":"p","version":"1"}"#);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let (functions, params) = external_package_function_types(dir.path(), manifest);
+        assert!(functions.is_empty());
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn package_export_function_type_formats_signature() {
+        let export = binary_repr::BinaryReprExport {
+            name: "f".to_string(),
+            kind: binary_repr::BinaryReprExportKind::Func,
+            isolated: false,
+            params: vec![
+                binary_repr::BinaryReprExportParam {
+                    name: "a".to_string(),
+                    type_: "Integer".to_string(),
+                    has_default: false,
+                },
+                binary_repr::BinaryReprExportParam {
+                    name: "b".to_string(),
+                    type_: "String".to_string(),
+                    has_default: false,
+                },
+            ],
+            return_type: "Boolean".to_string(),
+        };
+        assert_eq!(
+            package_export_function_type(&export),
+            "FUNC(Integer, String) AS Boolean"
+        );
+        let isolated = binary_repr::BinaryReprExport {
+            isolated: true,
+            params: Vec::new(),
+            ..export
+        };
+        assert_eq!(
+            package_export_function_type(&isolated),
+            "ISOLATED FUNC() AS Boolean"
+        );
+    }
+
+    // --- project.json rewriting -------------------------------------------
+
+    fn dependency(name: &str, ident_key: &str) -> ProjectPackageDependency {
+        ProjectPackageDependency {
+            name: name.to_string(),
+            ident: format!("{name}.id"),
+            version: "1.0".to_string(),
+            pin: true,
+            source: "file:///p.mfp".to_string(),
+            ident_key: ident_key.to_string(),
+        }
+    }
+
+    #[test]
+    fn project_json_with_package_inserts_new_array() {
+        let contents = "{\n  \"name\": \"proj\",\n  \"version\": \"1\"\n}\n";
+        let value = json(contents);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let out = project_json_with_package(contents, manifest, &dependency("dep", "KEY")).unwrap();
+        assert!(out.contains("\"packages\": ["));
+        assert!(out.contains("\"name\": \"dep\""));
+        assert!(out.contains("\"identKey\": \"KEY\""));
+        // Result is still valid JSON declaring the dependency.
+        let reparsed = out.parse::<JsonValue>().expect("valid json");
+        assert!(reparsed
+            .get::<HashMap<String, JsonValue>>()
+            .unwrap()
+            .contains_key("packages"));
+    }
+
+    #[test]
+    fn project_json_with_package_appends_to_existing_array() {
+        let contents =
+            "{\n  \"name\": \"proj\",\n  \"packages\": [\n    { \"name\": \"a\" }\n  ]\n}\n";
+        let value = json(contents);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        // No identKey -> the field is omitted.
+        let out = project_json_with_package(contents, manifest, &dependency("b", "")).unwrap();
+        assert!(out.contains("\"name\": \"a\""));
+        assert!(out.contains("\"name\": \"b\""));
+        assert!(!out.contains("identKey"));
+        out.parse::<JsonValue>().expect("valid json");
+    }
+
+    #[test]
+    fn project_json_with_package_appends_to_empty_array() {
+        let contents = "{\n  \"name\": \"proj\",\n  \"packages\": []\n}\n";
+        let value = json(contents);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let out = project_json_with_package(contents, manifest, &dependency("b", "")).unwrap();
+        assert!(out.contains("\"name\": \"b\""));
+        out.parse::<JsonValue>().expect("valid json");
+    }
+
+    #[test]
+    fn project_json_with_package_rejects_duplicate() {
+        let contents = "{\n  \"packages\": [\n    { \"name\": \"dep\" }\n  ]\n}\n";
+        let value = json(contents);
+        let manifest = value.get::<HashMap<String, JsonValue>>().unwrap();
+        let err =
+            project_json_with_package(contents, manifest, &dependency("dep", "")).unwrap_err();
+        assert!(err.contains("already declares package"));
+    }
+
+    #[test]
+    fn project_json_with_updated_ident_key_rewrites_existing() {
+        let contents = "{\n  \"packages\": [\n    {\n      \"name\": \"dep\",\n      \"identKey\": \"OLD\"\n    }\n  ]\n}\n";
+        let out = project_json_with_updated_ident_key(contents, "dep", "NEW").unwrap();
+        assert!(out.contains("\"identKey\": \"NEW\""));
+        assert!(!out.contains("OLD"));
+        out.parse::<JsonValue>().expect("valid json");
+    }
+
+    #[test]
+    fn project_json_with_updated_ident_key_inserts_when_absent() {
+        let contents = "{\n  \"packages\": [\n    {\n      \"name\": \"dep\"\n    }\n  ]\n}\n";
+        let out = project_json_with_updated_ident_key(contents, "dep", "NEW").unwrap();
+        assert!(out.contains("\"identKey\": \"NEW\""));
+        out.parse::<JsonValue>().expect("valid json");
+    }
+
+    #[test]
+    fn project_json_with_updated_ident_key_errors() {
+        // No packages array at all.
+        let err = project_json_with_updated_ident_key("{}", "dep", "K").unwrap_err();
+        assert!(err.contains("could not locate project.json `packages` array"));
+        // Array present but package not declared.
+        let contents = "{\n  \"packages\": [\n    { \"name\": \"other\" }\n  ]\n}\n";
+        let err = project_json_with_updated_ident_key(contents, "dep", "K").unwrap_err();
+        assert!(err.contains("does not declare package"));
+    }
+
+    #[test]
+    fn insert_helpers_report_missing_structures() {
+        // insert_package_dependency with no packages array.
+        assert!(insert_package_dependency("{}", "entry")
+            .unwrap_err()
+            .contains("could not locate project.json `packages` array"));
+        // insert_packages_array with no root object.
+        assert!(insert_packages_array("", "entry")
+            .unwrap_err()
+            .contains("could not locate end of project.json object"));
+    }
+
+    #[test]
+    fn json_scanning_primitives() {
+        let src = r#"{"a": "x\"y", "b": [1, 2]}"#;
+        // Field-name lookup skips string contents (the escaped quote in "x\"y").
+        let a = json_field_name_position(src, "a").unwrap();
+        assert_eq!(&src[a..a + 3], "\"a\"");
+        let b = json_field_name_position(src, "b").unwrap();
+        assert!(b > a);
+        assert!(json_field_name_position(src, "missing").is_none());
+        // Array bounds around "b".
+        let (start, end) = json_array_bounds(src, "b").unwrap();
+        assert_eq!(src.as_bytes()[start], b'[');
+        assert_eq!(src.as_bytes()[end], b']');
+        // find_json_punct returns None when a non-space non-target byte appears.
+        assert!(find_json_punct("x:", 0, b':').is_none());
+        // root_object_end and matching delimiter.
+        assert!(root_object_end("  { }").is_some());
+        assert!(root_object_end("no object").is_none());
+        // Unbalanced braces -> None.
+        assert!(matching_json_delimiter("{", 0, b'{', b'}').is_none());
+        // json_string_end on a non-string start.
+        assert!(json_string_end("abc", 0).is_none());
+        // Unterminated string.
+        assert!(json_string_end("\"abc", 0).is_none());
+    }
+
+    #[test]
+    fn read_int_helpers_reject_truncation() {
+        assert!(read_u16(&[0], 0).is_err());
+        assert!(read_u32(&[0, 0], 0).is_err());
+        assert!(read_u64(&[0, 0, 0], 0).is_err());
+        assert_eq!(read_u16(&[1, 0], 0).unwrap(), 1);
+        assert_eq!(read_u32(&[1, 0, 0, 0], 0).unwrap(), 1);
+        assert_eq!(read_u64(&[1, 0, 0, 0, 0, 0, 0, 0], 0).unwrap(), 1);
+    }
+
+    // --- real compiled .mfp fixture ---------------------------------------
+
+    /// A committed, structurally-valid compiled package fixture.
+    fn fixture_mfp() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("package-simple")
+            .join("golden")
+            .join("package_simple.mfp")
+    }
+
+    #[test]
+    fn read_mfp_header_reads_real_package_fixture() {
+        let header = read_mfp_header(&fixture_mfp()).expect("valid fixture header");
+        assert_eq!(header.name, "package_simple");
+        assert_eq!(header.container_major, 1);
+        assert_eq!(header.container_minor, 0);
+        assert!(header.binary_repr_length > 0);
+    }
+
+    #[test]
+    fn external_package_function_types_from_files_reads_exports() {
+        // The strict variant reads the real fixture's exported function types.
+        let (functions, params) =
+            external_package_function_types_from_files(&[fixture_mfp()]).expect("reads exports");
+        assert!(
+            !functions.is_empty(),
+            "fixture should export at least one function"
+        );
+        // Every exported function name is package-qualified and has a params entry.
+        for name in functions.keys() {
+            assert!(name.starts_with("package_simple."), "{name}");
+            assert!(params.contains_key(name), "missing params for {name}");
+        }
+        // Signatures are FUNC(...) AS ... shaped.
+        assert!(functions.values().all(|sig| sig.contains("FUNC(")));
+    }
+
+    #[test]
+    fn external_package_function_types_lossy_matches_strict_for_valid_files() {
+        let strict = external_package_function_types_from_files(&[fixture_mfp()]).unwrap();
+        let lossy = external_package_function_types_from_files_lossy(&[fixture_mfp()]);
+        assert_eq!(strict.0.len(), lossy.0.len());
+        assert_eq!(strict.1.len(), lossy.1.len());
+    }
+
+    #[test]
+    fn external_package_function_types_lossy_skips_bad_files() {
+        // A path that is not a valid .mfp is silently skipped by the lossy path.
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("bad.mfp");
+        fs::write(&bad, b"not an mfp").unwrap();
+        let (functions, params) = external_package_function_types_from_files_lossy(&[bad]);
+        assert!(functions.is_empty());
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn external_package_function_types_from_files_propagates_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let bad = dir.path().join("bad.mfp");
+        fs::write(&bad, b"not an mfp").unwrap();
+        assert!(external_package_function_types_from_files(&[bad]).is_err());
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_ed25519_wrong_signature_length() {
+        // signature type 1 (Ed25519) but a length other than 64 is rejected.
+        let mut bytes = build_mfp("p", "1");
+        let len = bytes.len();
+        bytes[len - 6..len - 4].copy_from_slice(&1u16.to_le_bytes()); // type = 1
+        bytes[len - 4..].copy_from_slice(&10u32.to_le_bytes()); // length = 10
+        let (_dir, path) = write_temp(&bytes);
+        let err = header_err(&path);
+        assert!(err.contains("Ed25519 .mfp package must have a 64 byte signature"));
+    }
+
+    #[test]
+    fn read_mfp_header_rejects_truncated_binary_hash() {
+        // Cut the buffer right after the last variable-length field so the fixed
+        // 32-byte packageBinaryHash read runs past the end.
+        let full = build_mfp("p", "1");
+        // The trailing fixed section is 32 (hash) + 8 (len) + 2 + 4 = 46 bytes.
+        let bytes = full[..full.len() - 46 + 4].to_vec();
+        let (_dir, path) = write_temp(&bytes);
+        assert!(read_mfp_header(&path).is_err());
+    }
+
+    #[test]
+    fn project_json_with_updated_ident_key_rewrites_snake_case_field() {
+        // A pre-existing snake_case `ident_key` field is rewritten in place.
+        let contents = "{\n  \"packages\": [\n    {\n      \"name\": \"dep\",\n      \"ident_key\": \"OLD\"\n    }\n  ]\n}\n";
+        let out = project_json_with_updated_ident_key(contents, "dep", "NEW").unwrap();
+        assert!(out.contains("\"NEW\""));
+        assert!(!out.contains("OLD"));
+        out.parse::<JsonValue>().expect("valid json");
+    }
+
+    #[test]
+    fn project_json_with_updated_ident_key_rejects_malformed_entry() {
+        // The packages array bounds resolve, but the first `{` inside never
+        // closes (no `}` anywhere after it), so matching_json_delimiter returns
+        // None -> "malformed project.json `packages` entry".
+        let contents = "{ \"packages\": [ { \"name\": \"dep\" ] ";
+        let err = project_json_with_updated_ident_key(contents, "dep", "K").unwrap_err();
+        assert!(
+            err.contains("malformed project.json `packages` entry"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn read_mfp_string_rejects_invalid_utf8() {
+        // A name field with invalid UTF-8 bytes is rejected.
+        let mut buf = Vec::new();
+        buf.extend_from_slice(&MFP_MAGIC);
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        buf.extend_from_slice(&1u16.to_le_bytes());
+        buf.extend_from_slice(&0u16.to_le_bytes());
+        buf.extend_from_slice(&0u32.to_le_bytes());
+        push_field(&mut buf, &[0xff, 0xfe]); // invalid UTF-8 name
+        let (_dir, path) = write_temp(&buf);
+        let err = header_err(&path);
+        assert!(err.contains("not valid UTF-8"));
+    }
+}

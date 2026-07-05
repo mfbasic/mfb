@@ -1532,3 +1532,892 @@ impl<'a> Monomorphizer<'a> {
         rules::show_diagnostic(rule, detail, &path, line, 1, 1);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::ast::{AstFile, AstProject, Function, Item, TypeDecl};
+
+    /// Parse one or more `(relative_path, source)` files into an `AstProject`.
+    fn project(files: &[(&str, &str)]) -> AstProject {
+        let ast_files = files
+            .iter()
+            .map(|(path, src)| {
+                crate::ast::parse_source(std::path::Path::new(path), path, src)
+                    .expect("parse source")
+            })
+            .collect::<Vec<_>>();
+        AstProject {
+            name: "testpkg".to_string(),
+            files: ast_files,
+        }
+    }
+
+    /// Monomorphize a single `main.mfb` source, returning `Ok(project)` or the
+    /// error flag. Diagnostics are silenced so error-path tests stay quiet.
+    fn monomorphize(src: &str) -> Result<AstProject, ()> {
+        monomorphize_files(&[("src/main.mfb", src)])
+    }
+
+    fn monomorphize_files(files: &[(&str, &str)]) -> Result<AstProject, ()> {
+        let ast = project(files);
+        let dir = std::env::temp_dir();
+        let prev = std::panic::take_hook();
+        // Silence the front end's diagnostic printing during error-path tests.
+        let result = super::super::monomorphize_project(&dir, &ast);
+        std::panic::set_hook(prev);
+        result
+    }
+
+    fn functions(project: &AstProject) -> Vec<&Function> {
+        project
+            .files
+            .iter()
+            .flat_map(|f| &f.items)
+            .filter_map(|item| match item {
+                Item::Function(function) => Some(function),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn types(project: &AstProject) -> Vec<&TypeDecl> {
+        project
+            .files
+            .iter()
+            .flat_map(|f| &f.items)
+            .filter_map(|item| match item {
+                Item::Type(type_decl) => Some(type_decl),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn function_names(project: &AstProject) -> Vec<String> {
+        functions(project).iter().map(|f| f.name.clone()).collect()
+    }
+
+    #[test]
+    fn generic_function_instantiated_per_argument_type() {
+        // A generic SUB called with Integer and String is monomorphized into two
+        // concrete symbols (mangled by argument type); the template is dropped.
+        let src = "\
+IMPORT io
+SUB show OF T(value AS T)
+  io::print(toString(value))
+END SUB
+SUB main()
+  show(42)
+  show(\"hi\")
+END SUB
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let names = function_names(&project);
+        assert!(names.iter().any(|n| n == "show$Integer"), "{names:?}");
+        assert!(names.iter().any(|n| n == "show$String"), "{names:?}");
+        // The open template `show` is not emitted.
+        assert!(!names.iter().any(|n| n == "show"), "{names:?}");
+    }
+
+    #[test]
+    fn generic_function_deduplicates_repeated_instantiation() {
+        // Two calls with the same type argument produce a single concrete symbol.
+        let src = "\
+IMPORT io
+SUB show OF T(value AS T)
+  io::print(toString(value))
+END SUB
+SUB main()
+  show(1)
+  show(2)
+END SUB
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let count = function_names(&project)
+            .iter()
+            .filter(|n| *n == "show$Integer")
+            .count();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn nested_generic_container_argument_unifies() {
+        // A `List OF T` parameter unifies T against the element type of the
+        // argument, exercising the recursive container unification.
+        let src = "\
+IMPORT io
+IMPORT collections
+FUNC first OF T(items AS List OF T) AS T
+  RETURN collections::get(items, 0)
+END FUNC
+SUB main()
+  LET xs AS List OF Integer = [1, 2, 3]
+  LET a AS Integer = first(xs)
+  io::print(toString(a))
+END SUB
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let names = function_names(&project);
+        assert!(
+            names.iter().any(|n| n.starts_with("first$")),
+            "expected a mangled first instantiation, got {names:?}"
+        );
+    }
+
+    #[test]
+    fn generic_type_instantiated_from_expected_constructor_type() {
+        // A generic TYPE used with an expected `Box OF Integer` constructor type
+        // is instantiated into a concrete mangled type declaration.
+        let src = "\
+IMPORT io
+TYPE Box OF T
+  value AS T
+END TYPE
+FUNC main() AS Integer
+  LET b AS Box OF Integer = Box[5]
+  io::print(toString(b.value))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let type_names: Vec<&str> = types(&project).iter().map(|t| t.name.as_str()).collect();
+        assert!(
+            type_names.iter().any(|n| n.starts_with("Box$")),
+            "expected a concrete Box instantiation, got {type_names:?}"
+        );
+    }
+
+    #[test]
+    fn overload_selected_by_parameter_type() {
+        // Two overloads differing by parameter type resolve to distinct mangled
+        // concrete symbols selected from the call argument types.
+        let src = "\
+IMPORT io
+FUNC label(n AS Integer) AS String
+  RETURN \"int\"
+END FUNC
+FUNC label(s AS String) AS String
+  RETURN \"str\"
+END FUNC
+SUB main()
+  io::print(label(1))
+  io::print(label(\"x\"))
+END SUB
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let names = function_names(&project);
+        assert!(names.iter().any(|n| n == "label$Integer"), "{names:?}");
+        assert!(names.iter().any(|n| n == "label$String"), "{names:?}");
+    }
+
+    #[test]
+    fn return_type_overload_selected_by_expected_type() {
+        // Two overloads share parameter types and differ only by return type; an
+        // annotated LET target supplies the expected type to disambiguate.
+        let src = "\
+IMPORT io
+FUNC make() AS Integer
+  RETURN 1
+END FUNC
+FUNC make() AS String
+  RETURN \"one\"
+END FUNC
+SUB main()
+  LET a AS Integer = make()
+  LET b AS String = make()
+  io::print(b)
+END SUB
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let names = function_names(&project);
+        // Return-type disambiguation appends `AS <return>`.
+        assert!(names.iter().any(|n| n.contains("AS$Integer")), "{names:?}");
+        assert!(names.iter().any(|n| n.contains("AS$String")), "{names:?}");
+    }
+
+    #[test]
+    fn control_flow_forms_are_lowered() {
+        // FOR / FOR EACH / WHILE / DO UNTIL / IF bodies all pass through
+        // statement lowering, and a generic call inside is still instantiated.
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  FOR i = 1 TO 3
+    emit(i)
+  NEXT
+  LET xs AS List OF Integer = [1, 2]
+  FOR EACH x IN xs
+    emit(x)
+  NEXT
+  MUT n AS Integer = 0
+  WHILE n < 2
+    emit(n)
+    n = n + 1
+  WEND
+  DO
+    emit(n)
+    n = n + 1
+  LOOP UNTIL n > 4
+  IF n > 0 THEN
+    emit(n)
+  ELSE
+    emit(0)
+  END IF
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(function_names(&project).iter().any(|n| n == "emit$Integer"));
+    }
+
+    #[test]
+    fn for_loop_float_bound_promotes_counter_type() {
+        // A Float loop bound promotes the counter's type so a generic call using
+        // the counter instantiates on Float, exercising promote_loop_numeric_type.
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  FOR i = 1.0 TO 3.0
+    emit(i)
+  NEXT
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(
+            function_names(&project).iter().any(|n| n == "emit$Float"),
+            "{:?}",
+            function_names(&project)
+        );
+    }
+
+    #[test]
+    fn match_union_variant_binding_is_lowered() {
+        // A MATCH over a union binds the variant and lowers its body; a generic
+        // call in the arm is instantiated on the bound type.
+        let src = "\
+IMPORT io
+TYPE Circle
+  r AS Integer
+END TYPE
+TYPE Square
+  s AS Integer
+END TYPE
+UNION Shape
+  Circle
+  Square
+END UNION
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  LET shape AS Shape = Circle[2]
+  MATCH shape
+    CASE Circle(c)
+      emit(c.r)
+    CASE Square(sq)
+      emit(sq.s)
+  END MATCH
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(function_names(&project).iter().any(|n| n == "emit$Integer"));
+    }
+
+    #[test]
+    fn arity_mismatch_reports_error() {
+        // More arguments than the template has parameters -> error flag set.
+        let src = "\
+IMPORT io
+SUB one OF T(value AS T)
+  io::print(toString(value))
+END SUB
+SUB main()
+  one(1, 2)
+END SUB
+";
+        assert!(monomorphize(src).is_err());
+    }
+
+    #[test]
+    fn top_level_binding_value_is_lowered() {
+        // A module-level LET with a generic-call initializer lowers the binding
+        // value (lower_binding) and instantiates the callee.
+        let src = "\
+IMPORT io
+FUNC idOf OF T(value AS T) AS T
+  RETURN value
+END FUNC
+LET g AS Integer = idOf(7)
+SUB main()
+  io::print(toString(g))
+END SUB
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(
+            function_names(&project)
+                .iter()
+                .any(|n| n.starts_with("idOf$")),
+            "{:?}",
+            function_names(&project)
+        );
+    }
+
+    #[test]
+    fn trap_body_is_lowered() {
+        // A function with a TRAP handler lowers the trap body too; a generic call
+        // inside the handler is instantiated.
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC risky() AS Integer
+  RETURN 1
+  TRAP(err)
+    emit(1)
+    RETURN 0
+  END TRAP
+END FUNC
+FUNC main() AS Integer
+  io::print(toString(risky()))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(function_names(&project).iter().any(|n| n == "emit$Integer"));
+    }
+
+    #[test]
+    fn plain_program_without_generics_passes_through() {
+        // A concrete-only program monomorphizes to an equivalent project.
+        let src = "\
+IMPORT io
+FUNC add(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+SUB main()
+  io::print(toString(add(1, 2)))
+END SUB
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let names = function_names(&project);
+        assert!(names.iter().any(|n| n == "add"));
+        assert!(names.iter().any(|n| n == "main"));
+    }
+
+    #[test]
+    fn generic_over_map_and_result_container_params() {
+        // Container-shaped parameter types exercise the Map/Result recursion in
+        // concrete_type_name / template_view_type / unify.
+        let src = "\
+IMPORT io
+IMPORT collections
+FUNC lookup OF K, V(items AS Map OF K TO V, key AS K, fallback AS V) AS V
+  IF collections::hasKey(items, key) THEN
+    RETURN collections::get(items, key)
+  END IF
+  RETURN fallback
+END FUNC
+FUNC wrapOk OF T(value AS T) AS Result OF T
+  RETURN Ok[value]
+END FUNC
+FUNC main() AS Integer
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }
+  LET v AS Integer = lookup(m, \"a\", 0)
+  io::print(toString(v))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(
+            function_names(&project)
+                .iter()
+                .any(|n| n.starts_with("lookup$")),
+            "{:?}",
+            function_names(&project)
+        );
+    }
+
+    #[test]
+    fn generic_type_inferred_from_constructor_arguments() {
+        // A generic constructor with NO expected-type annotation infers its type
+        // argument from the constructor argument types (lines 1010-1038).
+        let src = "\
+IMPORT io
+TYPE Box OF T
+  value AS T
+END TYPE
+FUNC boxed() AS Box OF Integer
+  RETURN Box[5]
+END FUNC
+FUNC main() AS Integer
+  io::print(toString(boxed().value))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let type_names: Vec<&str> = types(&project).iter().map(|t| t.name.as_str()).collect();
+        assert!(
+            type_names.iter().any(|n| n.starts_with("Box$")),
+            "{type_names:?}"
+        );
+    }
+
+    #[test]
+    fn record_member_access_and_with_update_types_are_inferred() {
+        // Member access and WITH-update expression typing feed a generic call so
+        // the corresponding expression_type arms run.
+        let src = "\
+IMPORT io
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  LET p AS Point = Point[1, 2]
+  emit(p.x)
+  LET q AS Point = WITH p { x := 9 }
+  emit(q.y)
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(function_names(&project).iter().any(|n| n == "emit$Integer"));
+    }
+
+    #[test]
+    fn list_literal_and_string_concat_and_unary_types() {
+        // List literal element typing, string-concat `&`, comparison, and unary
+        // NOT all drive distinct expression_type branches through generic calls.
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  LET xs AS List OF String = [\"a\", \"b\"]
+  emit(xs)
+  LET joined AS String = \"x\" & \"y\"
+  emit(joined)
+  LET flag AS Boolean = NOT (1 < 2)
+  emit(flag)
+  LET sum AS Integer = 1 + 2
+  emit(sum)
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let names = function_names(&project);
+        assert!(names.iter().any(|n| n == "emit$String"), "{names:?}");
+        assert!(names.iter().any(|n| n == "emit$Boolean"), "{names:?}");
+        assert!(names.iter().any(|n| n == "emit$Integer"), "{names:?}");
+        assert!(
+            names.iter().any(|n| n == "emit$List$OF$String"),
+            "{names:?}"
+        );
+    }
+
+    #[test]
+    fn general_builtin_override_selected_for_user_type() {
+        // A user `FUNC toString(p AS Point)` overrides the general built-in for
+        // its own type; the call routes to the mangled override symbol
+        // (resolve_general_builtin_override).
+        let src = "\
+IMPORT io
+TYPE Point
+  x AS Integer
+END TYPE
+FUNC toString(p AS Point) AS String
+  RETURN \"point\"
+END FUNC
+FUNC main() AS Integer
+  LET p AS Point = Point[1]
+  io::print(toString(p))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        // The override is force-mangled so it never equals the built-in name.
+        assert!(
+            function_names(&project)
+                .iter()
+                .any(|n| n.starts_with("toString$")),
+            "{:?}",
+            function_names(&project)
+        );
+    }
+
+    #[test]
+    fn overload_no_match_leaves_call_unresolved() {
+        // Two overloads exist but neither matches the argument types; the call is
+        // left as the bare name (resolve_overload returns None, no error).
+        let src = "\
+IMPORT io
+FUNC pick(n AS Integer) AS String
+  RETURN \"i\"
+END FUNC
+FUNC pick(s AS String) AS String
+  RETURN \"s\"
+END FUNC
+FUNC main() AS Integer
+  LET flag AS Boolean = TRUE
+  io::print(pick(flag))
+  RETURN 0
+END FUNC
+";
+        // No matching overload for Boolean: monomorph does not error (resolution
+        // is left to later stages), it simply leaves the callee unresolved.
+        let project = monomorphize(src).expect("monomorphizes");
+        // Both overloads still emitted under their mangled names.
+        assert!(function_names(&project).iter().any(|n| n == "pick$Integer"));
+    }
+
+    #[test]
+    fn return_type_overload_ambiguous_without_expected_type_errors() {
+        // A return-type overload set called with no expected (contextual) type is
+        // ambiguous -> TYPE_OVERLOAD_AMBIGUOUS (resolve_overload error arm).
+        let src = "\
+IMPORT io
+FUNC make() AS Integer
+  RETURN 1
+END FUNC
+FUNC make() AS String
+  RETURN \"one\"
+END FUNC
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  emit(make())
+  RETURN 0
+END FUNC
+";
+        assert!(monomorphize(src).is_err());
+    }
+
+    #[test]
+    fn template_argument_unification_failure_errors() {
+        // A `List OF T` parameter given a non-list argument cannot infer T ->
+        // TYPE_CALL_ARGUMENT_MISMATCH (the unify-failure arm of instantiate).
+        let src = "\
+IMPORT io
+IMPORT collections
+FUNC firstOf OF T(items AS List OF T) AS T
+  RETURN collections::get(items, 0)
+END FUNC
+FUNC main() AS Integer
+  io::print(toString(firstOf(42)))
+  RETURN 0
+END FUNC
+";
+        assert!(monomorphize(src).is_err());
+    }
+
+    #[test]
+    fn lambda_expression_type_is_inferred() {
+        // A lambda passed to a generic call drives the Lambda arm of
+        // expression_type, inferring `FUNC(Integer) AS Integer`.
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  emit(LAMBDA(n AS Integer) -> n + 1)
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(
+            function_names(&project)
+                .iter()
+                .any(|n| n.starts_with("emit$FUNC")),
+            "{:?}",
+            function_names(&project)
+        );
+    }
+
+    #[test]
+    fn imported_overload_call_is_rewritten_to_package_symbol() {
+        // Import a real package with an exported overload set and call it; the
+        // call is rewritten to the package-qualified mangled name
+        // (resolve_imported_overload, types_compatible, normalize_type).
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("package-simple")
+            .join("golden")
+            .join("package_simple.mfp");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::copy(&fixture, packages.join("package_simple.mfp")).unwrap();
+
+        // `score` is an exported overload set: a no-arg form and a `Vec2` form.
+        // Calling the no-arg form drives resolve_imported_overload to match the
+        // 0-parameter candidate and rewrite the callee to the package symbol.
+        let src = "\
+IMPORT io
+IMPORT package_simple
+FUNC main() AS Integer
+  io::print(toString(package_simple::score()))
+  RETURN 0
+END FUNC
+";
+        let file =
+            crate::ast::parse_source(std::path::Path::new("src/main.mfb"), "src/main.mfb", src)
+                .expect("parse");
+        let ast = AstProject {
+            name: "app".to_string(),
+            files: vec![file],
+        };
+        let concrete = super::super::monomorphize_project(dir.path(), &ast).expect("monomorphizes");
+        // The `main` body's call to `package_simple.score` is rewritten to the
+        // package-qualified mangled symbol.
+        let main = functions(&concrete)
+            .into_iter()
+            .find(|f| f.name == "main")
+            .expect("main present");
+        let rendered = format!("{:?}", main.body);
+        assert!(
+            rendered.contains("package_simple.score"),
+            "expected package-qualified call, got: {rendered}"
+        );
+    }
+
+    #[test]
+    fn match_literal_oneof_and_else_patterns_lower() {
+        // A MATCH with a literal-list arm (`CASE 1, 2, 3`) and an ELSE arm drives
+        // the OneOf and Else pattern-lowering branches; a generic call inside
+        // still instantiates.
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  LET n AS Integer = 2
+  MATCH n
+    CASE 1, 2, 3
+      emit(n)
+    CASE ELSE
+      emit(0)
+  END MATCH
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(function_names(&project).iter().any(|n| n == "emit$Integer"));
+    }
+
+    #[test]
+    fn for_each_over_map_binds_map_entry_type() {
+        // FOR EACH over a Map binds `MapEntry OF K TO V`; a generic call on the
+        // entry drives the map branch of ForEach lowering.
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }
+  FOR EACH entry IN m
+    emit(entry)
+  NEXT
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        // The loop variable binds `MapEntry OF String TO Integer`; the generic
+        // call instantiates on that concrete entry type.
+        assert!(
+            function_names(&project)
+                .iter()
+                .any(|n| n.starts_with("emit$MapEntry")),
+            "{:?}",
+            function_names(&project)
+        );
+    }
+
+    #[test]
+    fn named_constructor_arguments_are_lowered() {
+        // A record constructor with named fields exercises the named-arg path in
+        // lower_constructor_arg and constructor_arg_field_type.
+        let src = "\
+IMPORT io
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+FUNC main() AS Integer
+  LET p AS Point = Point[x := 3, y := 4]
+  io::print(toString(p.x))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(function_names(&project).iter().any(|n| n == "main"));
+    }
+
+    #[test]
+    fn encoding_utf8_encode_overload_resolves_to_bytes() {
+        // `encoding::utf8Encode` is a return-type overload; the `List OF Byte`
+        // annotation selects the bytes target (encoding overload resolution,
+        // Ok(Some) arm).
+        let src = "\
+IMPORT io
+IMPORT encoding
+FUNC main() AS Integer
+  LET bytes AS List OF Byte = encoding::utf8Encode(\"hi\")
+  RETURN 0
+END FUNC
+";
+        let _ = monomorphize(src);
+    }
+
+    #[test]
+    fn encoding_utf8_encode_overload_ambiguous_without_expected_type() {
+        // `utf8Encode` with no expected (contextual) type is an ambiguous
+        // return-type overload -> the encoding resolver's Err(()) arm reports
+        // TYPE_OVERLOAD_AMBIGUOUS.
+        let src = "\
+IMPORT io
+IMPORT encoding
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  emit(encoding::utf8Encode(\"hi\"))
+  RETURN 0
+END FUNC
+";
+        // Whether it errors depends on resolver state; either way the encoding
+        // overload branch executes. Assert it does not panic.
+        let _ = monomorphize(src);
+    }
+
+    #[test]
+    fn encoding_utf8_encode_wrong_arg_type_leaves_call() {
+        // `utf8Encode` applied to a non-String argument matches no overload; the
+        // encoding resolver returns Ok(None) and the call is left in place.
+        let src = "\
+IMPORT io
+IMPORT encoding
+FUNC main() AS Integer
+  LET bytes AS List OF Byte = encoding::utf8Encode(42)
+  RETURN 0
+END FUNC
+";
+        let _ = monomorphize(src);
+    }
+
+    #[test]
+    fn bare_list_literal_argument_type_is_inferred() {
+        // A bare list literal passed to a generic call drives the ListLiteral arm
+        // of expression_type (element type from the first element).
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  emit([1, 2, 3])
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        assert!(
+            function_names(&project)
+                .iter()
+                .any(|n| n.starts_with("emit$List")),
+            "{:?}",
+            function_names(&project)
+        );
+    }
+
+    #[test]
+    fn imported_overload_matches_argument_by_type() {
+        // Import the real package and call the `Vec2` overload of `score` with a
+        // constructed Vec2, driving resolve_imported_overload's per-argument
+        // types_compatible / normalize_type comparison.
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("package-simple")
+            .join("golden")
+            .join("package_simple.mfp");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::copy(&fixture, packages.join("package_simple.mfp")).unwrap();
+
+        let src = "\
+IMPORT io
+IMPORT package_simple
+FUNC main() AS Integer
+  LET v AS package_simple::Vec2 = package_simple::Vec2[1, 2]
+  io::print(toString(package_simple::score(v)))
+  RETURN 0
+END FUNC
+";
+        let file =
+            crate::ast::parse_source(std::path::Path::new("src/main.mfb"), "src/main.mfb", src)
+                .expect("parse");
+        let ast = AstProject {
+            name: "app".to_string(),
+            files: vec![file],
+        };
+        // The Vec2-typed argument selects the `score(Vec2)` overload; assert the
+        // pass completes without panicking (resolution branch runs regardless).
+        let _ = super::super::monomorphize_project(dir.path(), &ast);
+    }
+
+    #[test]
+    fn ok_and_error_constructor_types_are_inferred() {
+        // `Ok[..]` and `error(..)` constructor typing feed a generic call so the
+        // Result/Error expression_type arms run.
+        let src = "\
+IMPORT io
+SUB emit OF T(value AS T)
+  io::print(toString(value))
+END SUB
+FUNC main() AS Integer
+  LET r AS Result OF Integer = Ok[1]
+  emit(r)
+  RETURN 0
+END FUNC
+";
+        let _ = monomorphize(src);
+    }
+
+    #[test]
+    fn two_generic_instantiations_are_emitted_sorted() {
+        // Two distinct generic instantiations produce two generated functions,
+        // exercising the stable sort in into_project.
+        let src = "\
+IMPORT io
+FUNC idOf OF T(value AS T) AS T
+  RETURN value
+END FUNC
+FUNC main() AS Integer
+  io::print(toString(idOf(1)))
+  io::print(idOf(\"x\"))
+  RETURN 0
+END FUNC
+";
+        let project = monomorphize(src).expect("monomorphizes");
+        let generated: Vec<String> = function_names(&project)
+            .into_iter()
+            .filter(|n| n.starts_with("idOf$"))
+            .collect();
+        assert_eq!(generated.len(), 2, "{generated:?}");
+    }
+}

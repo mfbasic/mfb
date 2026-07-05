@@ -38,6 +38,7 @@ pub(super) fn constructor_arg_field_type<'a>(
     }
 }
 
+
 pub(super) fn unify_type(
     pattern: &str,
     actual: &str,
@@ -167,10 +168,7 @@ pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String
     Some((name.to_string(), split_top_level_commas(rest)))
 }
 
-pub(super) fn substitute_type_params(
-    type_name: &str,
-    substitutions: &HashMap<String, String>,
-) -> String {
+pub(super) fn substitute_type_params(type_name: &str, substitutions: &HashMap<String, String>) -> String {
     if let Some(value) = substitutions.get(type_name) {
         return value.clone();
     }
@@ -341,11 +339,7 @@ pub(super) fn overload_concrete_name(
 /// The internal overload-map key: `name(param,types) AS ReturnType`. The return
 /// type is part of the key so a return-type overload set (§F.1) maps each member
 /// to its own distinct concrete symbol.
-pub(super) fn overload_key(
-    name: &str,
-    params: &[crate::ast::Param],
-    return_type: Option<&str>,
-) -> String {
+pub(super) fn overload_key(name: &str, params: &[crate::ast::Param], return_type: Option<&str>) -> String {
     let params = params
         .iter()
         .map(|param| {
@@ -483,6 +477,38 @@ mod tests {
     }
 
     #[test]
+    fn unify_recurses_into_thread_shapes() {
+        // Thread types unify by kind, message, optional resource, and output.
+        let params = vec!["T".to_string(), "U".to_string()];
+        let mut s = HashMap::new();
+        assert!(unify_type(
+            "Thread OF T TO U",
+            "Thread OF Integer TO String",
+            &params,
+            &mut s
+        ));
+        // A thread with a resource clause on both sides unifies its resource slot.
+        let mut s2 = HashMap::new();
+        assert!(unify_type(
+            "ThreadWorker OF T RES U TO Nothing",
+            "ThreadWorker OF Integer RES String TO Nothing",
+            &params,
+            &mut s2
+        ));
+        // Resource present on one side only fails to unify.
+        let mut s3 = HashMap::new();
+        assert!(!unify_type(
+            "Thread OF T RES U TO Nothing",
+            "Thread OF Integer TO Nothing",
+            &params,
+            &mut s3
+        ));
+        // A thread pattern against a non-thread actual fails.
+        let mut s4 = HashMap::new();
+        assert!(!unify_type("Thread OF T TO U", "Integer", &params, &mut s4));
+    }
+
+    #[test]
     fn unify_rejects_mismatched_container_shapes() {
         let params = vec!["T".to_string(), "U".to_string()];
         let cases = [
@@ -574,10 +600,17 @@ mod tests {
             substitute_type_params("Pair OF T, U", &s),
             "Pair OF Integer, String"
         );
+        // Thread shape substitutes message and output slots.
+        assert_eq!(
+            substitute_type_params("Thread OF T TO U", &s),
+            "Thread OF Integer TO String"
+        );
         // Unknown names pass through unchanged.
         assert_eq!(substitute_type_params("Boolean", &s), "Boolean");
         // Malformed Map (no TO) falls through to the identity return.
         assert_eq!(substitute_type_params("Map OF T", &s), "Map OF T");
+        // Malformed MapEntry (no TO) also falls through.
+        assert_eq!(substitute_type_params("MapEntry OF T", &s), "MapEntry OF T");
     }
 
     #[test]
@@ -739,5 +772,60 @@ mod tests {
             split_top_level_commas("Integer, String"),
             vec!["Integer".to_string(), "String".to_string()]
         );
+    }
+
+    #[test]
+    fn collect_imported_overloads_empty_without_imports() {
+        // A project with no import bindings and no packages directory yields no
+        // overloads and no qualifiers.
+        let dir = std::env::temp_dir();
+        let project = AstProject {
+            name: "p".to_string(),
+            files: Vec::new(),
+        };
+        let (overloads, qualifiers) = collect_imported_overloads(&dir, &project);
+        assert!(overloads.is_empty());
+        assert!(qualifiers.is_empty());
+    }
+
+    #[test]
+    fn collect_imported_overloads_reads_package_overload_set() {
+        // Import a real compiled package whose exports include overload sets
+        // (`score$`/`score$Vec2`, `mark$`/`mark$Vec2`) so the by-base grouping,
+        // the ≥2 overload gate, and the qualifier collection all run.
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("package-simple")
+            .join("golden")
+            .join("package_simple.mfp");
+        let dir = tempfile::tempdir().expect("tempdir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::copy(&fixture, packages.join("package_simple.mfp")).unwrap();
+
+        let src = "IMPORT package_simple\nFUNC main() AS Integer\n  RETURN 0\nEND FUNC\n";
+        let file =
+            crate::ast::parse_source(std::path::Path::new("src/main.mfb"), "src/main.mfb", src)
+                .expect("parse");
+        let project = AstProject {
+            name: "app".to_string(),
+            files: vec![file],
+        };
+
+        let (overloads, qualifiers) = collect_imported_overloads(dir.path(), &project);
+        // Overload sets are keyed by `binding.base`.
+        assert!(
+            overloads.contains_key("package_simple.score"),
+            "keys: {:?}",
+            overloads.keys().collect::<Vec<_>>()
+        );
+        let score = &overloads["package_simple.score"];
+        assert!(score.len() >= 2);
+        // Each collected overload carries the package-qualified mangled name.
+        assert!(score
+            .iter()
+            .all(|o| o.qualified_name.starts_with("package_simple.score")));
+        // The binding/package qualifier prefix is captured.
+        assert!(qualifiers.iter().any(|q| q == "package_simple."));
     }
 }
