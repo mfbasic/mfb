@@ -169,10 +169,8 @@ pub fn verify_consistency(
     // If m is a power of two, the old root is an internal node of the new
     // tree; seed with it. Otherwise the first path element seeds the walk.
     let mut fn_index = m - 1;
-    let mut sn = n - 1;
     while fn_index % 2 == 1 {
         fn_index /= 2;
-        sn /= 2;
     }
     let (mut fr, mut sr) = if fn_index == 0 {
         (*old_root, *old_root)
