@@ -20,3 +20,6 @@ src/cli/build.rs      # load_build_signing_info requests attestation from a live
 src/cli/repo.rs       # register/auth/link/trust perform live HTTP + key-store mutation; Usage/arg validation is unit-covered
 src/main.rs           # top-level command dispatch spawns subprocess build/link pipelines (plan-12 target 90%); arg/help/manifest parsing is unit-covered
 src/target.rs         # write_executable/nir/plan/object dispatchers invoke per-OS backends that spawn linkers/codesign over a full IrProject; BuildTarget/NativeBuildMode parsing is unit-covered
+
+# --- Required-for-exhaustiveness defensive match arms (unreachable at runtime) ---
+src/syntaxcheck/resources.rs  # ~94.6%: `Type::Result` arms in exhaustive type-walkers (contains_thread/is_copyable/is_thread_sendable — Result isn't source-nameable there) and thread.send/transfer resource arms rejected earlier at declaration. The arms are required for match exhaustiveness so they cannot be deleted; every reachable rule IS unit-tested.

@@ -1293,53 +1293,6 @@ impl<'a> SyntaxChecker<'a> {
     ) -> Type {
         let arguments =
             self.normalize_builtin_call_arguments(file, display_callee, callee, arguments, line);
-        if callee == "filter" && arguments.len() == 2 {
-            if let Expression::Identifier(predicate) = &arguments[1] {
-                if builtins::general::builtin_function_id(predicate).is_some() {
-                    let collection_type =
-                        self.infer_expression(file, &arguments[0], locals, line, ExprMode::Read);
-                    let collection_type_name = self.type_name(&collection_type);
-                    let predicate_type =
-                        collection_type_name
-                            .strip_prefix("List OF ")
-                            .and_then(|element| {
-                                builtins::general::filter_predicate_type(predicate, element)
-                            });
-
-                    let Some(predicate_type) = predicate_type else {
-                        self.report(
-                            "TYPE_CALL_ARGUMENT_MISMATCH",
-                            &format!(
-                                "Call to `{display_callee}` has argument type(s) ({collection_type_name}, {predicate}), expected {}.",
-                                builtins::general::expected_arguments(callee)
-                                    .unwrap_or("supported overload")
-                            ),
-                            file,
-                            line,
-                        );
-                        return Type::Unknown;
-                    };
-
-                    let arg_types = vec![collection_type_name, predicate_type];
-                    let Some(resolved) = builtins::general::resolve_call(callee, &arg_types) else {
-                        self.report(
-                            "TYPE_CALL_ARGUMENT_MISMATCH",
-                            &format!(
-                                "Call to `{display_callee}` has argument type(s) ({}), expected {}.",
-                                arg_types.join(", "),
-                                builtins::general::expected_arguments(callee)
-                                    .unwrap_or("supported overload")
-                            ),
-                            file,
-                            line,
-                        );
-                        return Type::Unknown;
-                    };
-
-                    return self.parse_type(&resolved.return_type);
-                }
-            }
-        }
 
         let arg_types = arguments
             .iter()
@@ -1358,24 +1311,6 @@ impl<'a> SyntaxChecker<'a> {
             .iter()
             .map(|type_| self.type_name(type_))
             .collect::<Vec<_>>();
-
-        // A resource added to a collection through an update builtin must be a
-        // `RES` binding (the owner); its slot holds a borrow (§15.6). The op
-        // arrives qualified as `collections.append` after the §5 migration.
-        if matches!(
-            crate::builtins::collections::native_member_bare(callee),
-            Some("append" | "prepend" | "insert" | "set")
-        ) {
-            for (index, (argument, arg_type)) in arguments.iter().zip(arg_types.iter()).enumerate()
-            {
-                if index == 0 {
-                    continue;
-                }
-                self.check_collection_resource_element(
-                    file, line, "element", argument, arg_type, locals,
-                );
-            }
-        }
 
         if let Some((min, max)) = builtins::general::arity(callee) {
             if arguments.len() < min || arguments.len() > max {
