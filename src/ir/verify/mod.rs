@@ -109,6 +109,12 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_USE_AFTER_MOVE",
     "TYPE_UNKNOWN_ENUM_MEMBER",
     "SYMBOL_NOT_CALLABLE",
+    "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
+    "TYPE_LET_REQUIRES_VALUE",
+    "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+    "TYPE_DEFAULT_ARG_ORDER",
+    "TYPE_PARAM_REQUIRES_TYPE",
+    "TYPE_FUNC_REQUIRES_RETURN_TYPE",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -133,12 +139,47 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         env.current_file.replace(function.file.clone());
         env.current_return.replace(function.returns.clone());
         env.current_kind.replace(function.kind.clone());
+        // A declared FUNC must name its return type (`AS T`); lowering stamps
+        // `Unknown` when the annotation is absent. Synthesized `$lambda` bodies
+        // legitimately carry a computed (possibly Unknown) return — skip them.
+        if function.kind == "func"
+            && function.returns == "Unknown"
+            && !function.name.starts_with('$')
+        {
+            env.current_line.set(function.loc.line);
+            env.emit(
+                "TYPE_FUNC_REQUIRES_RETURN_TYPE",
+                format!("FUNC `{}` must declare an `AS` return type.", function.name),
+            );
+        }
         let mut locals: HashMap<String, String> = HashMap::new();
         let mut muts: HashMap<String, bool> = HashMap::new();
+        let mut seen_default = false;
         for param in &function.params {
             env.current_line.set(param.loc.line);
             locals.insert(param.name.clone(), param.type_.clone());
             env.check_map_key_comparable(&param.type_);
+            // Every parameter must declare an `AS` type (lambda parameters
+            // included — typecheck checks both forms with this rule).
+            if param.type_ == "Unknown" {
+                env.emit(
+                    "TYPE_PARAM_REQUIRES_TYPE",
+                    format!("Parameter `{}` must declare an `AS` type.", param.name),
+                );
+            }
+            // Once one parameter has a default, all later ones must too —
+            // positional call sites could not otherwise bind them.
+            if param.default.is_some() {
+                seen_default = true;
+            } else if seen_default {
+                env.emit(
+                    "TYPE_DEFAULT_ARG_ORDER",
+                    format!(
+                        "Parameter `{}` must have a default because an earlier parameter has one.",
+                        param.name
+                    ),
+                );
+            }
             // Parameters are immutable (typecheck registers them
             // `mutable: false`), so assigning one is TYPE_ASSIGN_REQUIRES_MUT.
             muts.insert(param.name.clone(), false);
@@ -187,6 +228,33 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         env.current_line.set(binding.loc.line);
         if binding.explicit_type {
             env.check_map_key_comparable(&binding.type_);
+        }
+        if binding.value.is_none() {
+            if !binding.explicit_type {
+                env.emit(
+                    "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
+                    format!(
+                        "Binding `{}` needs a type annotation or initializer.",
+                        binding.name
+                    ),
+                );
+            } else if !binding.mutable {
+                env.emit(
+                    "TYPE_LET_REQUIRES_VALUE",
+                    format!(
+                        "Immutable binding `{}` must have an initializer.",
+                        binding.name
+                    ),
+                );
+            } else if !env.is_defaultable(&binding.type_, &mut HashSet::new()) {
+                env.emit(
+                    "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+                    format!(
+                        "Mutable binding `{}` cannot omit its initializer because type `{}` does not have a defined default value.",
+                        binding.name, binding.type_
+                    ),
+                );
+            }
         }
         if let Some(value) = &binding.value {
             env.check_value(value, &HashMap::new());
@@ -569,6 +637,30 @@ impl TypeEnv {
                     // here too would double-report).
                     if *explicit_type {
                         self.check_map_key_comparable(type_);
+                    }
+                    // An initializer-less binding must be annotated, immutable
+                    // ones must have a value, and MUT needs a defaultable type
+                    // (typecheck's check_binding_shape None-value arms).
+                    // Synthesized `$` temps are the compiler's own.
+                    if value.is_none() && !name.starts_with('$') {
+                        if !*explicit_type {
+                            self.emit(
+                                "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
+                                format!("Binding `{name}` needs a type annotation or initializer."),
+                            );
+                        } else if !*mutable {
+                            self.emit(
+                                "TYPE_LET_REQUIRES_VALUE",
+                                format!("Immutable binding `{name}` must have an initializer."),
+                            );
+                        } else if !self.is_defaultable(type_, &mut HashSet::new()) {
+                            self.emit(
+                                "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
+                                format!(
+                                    "Mutable binding `{name}` cannot omit its initializer because type `{type_}` does not have a defined default value."
+                                ),
+                            );
+                        }
                     }
                     locals.insert(name.clone(), type_.clone());
                     // A capture bind's `mutable` reflects the by-ref/non-escaping
@@ -1707,6 +1799,47 @@ impl TypeEnv {
                 | IrValue::Constructor { .. }
                 | IrValue::WithUpdate { .. }
         ) || self.infer_type(value, locals).is_none()
+    }
+
+    /// Whether a type has a defined default value (`typecheck`'s
+    /// `is_defaultable_type` on type-name strings): primitives yes, functions/
+    /// results/resources/threads/unions/enums no, collections and records
+    /// recurse (cycle-guarded).
+    fn is_defaultable(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
+        match type_ {
+            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer"
+            | "Nothing" | "String" | "Unknown" => return true,
+            _ => {}
+        }
+        if let Some(element) = type_.strip_prefix("List OF ") {
+            return self.is_defaultable(element, seen);
+        }
+        if let Some((k, v)) = parse_map(type_) {
+            return self.is_defaultable(k, seen) && self.is_defaultable(v, seen);
+        }
+        if type_.starts_with("FUNC")
+            || type_.starts_with("Result")
+            || type_.starts_with("RES ")
+            || type_.starts_with("Thread")
+            || type_.contains(" STATE ")
+        {
+            return false;
+        }
+        if self.close_op_for(type_).is_some()
+            || self.unions.contains_key(type_)
+            || self.enums.contains_key(type_)
+        {
+            return false;
+        }
+        if !seen.insert(type_.to_string()) {
+            return false;
+        }
+        let result = match self.record_field_lists.get(type_) {
+            Some(fields) => fields.iter().all(|(_, ft)| self.is_defaultable(ft, seen)),
+            None => false,
+        };
+        seen.remove(type_);
+        result
     }
 
     /// The registered close op for a resource type: user-declared native

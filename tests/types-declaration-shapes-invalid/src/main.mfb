@@ -1,0 +1,16 @@
+IMPORT fs
+
+FUNC noReturn(x)
+  RETURN x
+END FUNC
+
+FUNC skipped(first AS Integer = 1, second AS Integer) AS Integer
+  RETURN first + second
+END FUNC
+
+FUNC main AS Integer
+  LET untyped
+  LET missing AS Integer
+  MUT handle AS File
+  RETURN noReturn(1) + skipped(1, 2)
+END FUNC

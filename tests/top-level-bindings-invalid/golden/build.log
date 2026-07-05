@@ -1,14 +1,14 @@
 $ mfb build -ast -ir tests/top-level-bindings-invalid
-   1 | LET missing AS Integer
-     | ^
-tests/top-level-bindings-invalid/src/main.mfb:1 error[2-203-0035 TYPE_LET_REQUIRES_VALUE]: immutable binding must have an initializer
-               Immutable binding `missing` must have an initializer.
    4 | 
    5 | FUNC main AS Integer
    6 |   locked = 2
      | ^
 tests/top-level-bindings-invalid/src/main.mfb:6 error[2-203-0048 TYPE_ASSIGN_REQUIRES_MUT]: assignment target must be mutable
                Binding `locked` is immutable and cannot be assigned.
+   1 | LET missing AS Integer
+     | ^
+tests/top-level-bindings-invalid/src/main.mfb:1 error[2-203-0035 TYPE_LET_REQUIRES_VALUE]: immutable binding must have an initializer
+               Immutable binding `missing` must have an initializer.
    1 | LET missing AS Integer
    2 | LET typed AS Integer = "bad"
      | ^
