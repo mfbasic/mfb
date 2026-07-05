@@ -121,6 +121,20 @@ pub fn ident_rotation_message(owner: &str, old_fingerprint: &str, new_public: &[
     message
 }
 
+/// Ident-signed release-state change (plan-10-C1): the account ident authorizes
+/// a maintainer state transition, binding the exact package, version, and new
+/// state so an auth session alone can never change a release state.
+pub fn release_state_message(ident: &str, version: &str, state: &str) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-release-state-v1\0");
+    message.extend_from_slice(ident.as_bytes());
+    message.push(0);
+    message.extend_from_slice(version.as_bytes());
+    message.push(0);
+    message.extend_from_slice(state.as_bytes());
+    message
+}
+
 /// Server-signed name→ident binding (plan-10-A `/index`): the registry
 /// vouches that `owner`'s current ident key has the given fingerprint, so a
 /// first `mfb pkg add` can pin the ident against a registry-authenticated

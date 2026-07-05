@@ -5,9 +5,9 @@ use crate::server::{
     ErrorResponse, IdentChainResponse, IndexResponse, InclusionProofResponse, LinkFetchRequest,
     LinkFetchResponse, LinkStartRequest, LinkStartResponse, LogEntry, LoginRequest,
     LoginResponse, PackageArtifactRequest, PublishPackageResponse, RegisterProofs,
-    RegisterRequest, RegisterResponse, RevokeChallengeRequest, RevokeRequest, RevokeResponse,
-    RotateRequest, RotateResponse, ServerIdentResponse, SigningRequest, SigningResponse,
-    ValidatePackageResponse,
+    RegisterRequest, RegisterResponse, ReleaseStateRequest, ReleaseStateResponse,
+    RevokeChallengeRequest, RevokeRequest, RevokeResponse, RotateRequest, RotateResponse,
+    ServerIdentResponse, SigningRequest, SigningResponse, ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
@@ -458,6 +458,39 @@ fn percent_encode(value: &str) -> String {
         }
     }
     out
+}
+
+/// `POST /release-state` (plan-10-C1): a maintainer sets a published version's
+/// release state. Signed with the local ident key (authority) and carrying the
+/// session token (auth); an auth session alone is refused server-side.
+pub fn set_release_state(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    ident: &str,
+    version: &str,
+    state: &str,
+) -> Result<ReleaseStateResponse, String> {
+    validate_owner_name(owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let ident_private = local::read_ident_private_key(paths, owner)?;
+    let session_token = local::read_session(paths, owner)?;
+    let signature = crypto::sign(
+        &ident_private,
+        &crypto::release_state_message(ident, version, state),
+    )?;
+    post_json::<ReleaseStateResponse>(
+        repo_url,
+        "/release-state",
+        &ReleaseStateRequest {
+            owner: owner.to_string(),
+            ident: ident.to_string(),
+            version: version.to_string(),
+            state: state.to_string(),
+            session_token,
+            ident_signature: crypto::encode_bytes(&signature),
+        },
+    )
 }
 
 /// `GET /index/<owner>#<package>` (plan-10-A): fetch the published version

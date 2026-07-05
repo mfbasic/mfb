@@ -1221,6 +1221,110 @@ fn repo_resolver_selects_substitute_and_locks_deterministically() {
 }
 
 #[test]
+fn repo_release_state_yank_excludes_floating_but_allows_pin() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    let pkg_dir = work.path().join("state_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", pkg_arg]).status.success());
+    let manifest = pkg_dir.join("project.json");
+    let base = std::fs::read_to_string(&manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#state_pkg\",\n",
+    );
+    std::fs::write(&manifest, &base).unwrap();
+    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+        .status
+        .success());
+
+    let run_pkg = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&pkg_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb pkg in package dir")
+    };
+
+    // A floating add succeeds while the version is available.
+    let add_ok_dir = work.path().join("add_ok");
+    assert!(run_mfb_plain(&["init", add_ok_dir.to_str().unwrap()])
+        .status
+        .success());
+    let add_ok = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#state_pkg"])
+        .current_dir(&add_ok_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("floating add");
+    assert!(add_ok.status.success(), "{}", String::from_utf8_lossy(&add_ok.stderr));
+
+    // Yank it (ident-signed, logged).
+    let yank = run_pkg(&["pkg", "release-state", "yanked"]);
+    assert!(
+        yank.status.success(),
+        "yank failed: {}\n{}",
+        String::from_utf8_lossy(&yank.stdout),
+        String::from_utf8_lossy(&yank.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&yank.stdout).contains("to yanked"),
+        "{}",
+        String::from_utf8_lossy(&yank.stdout)
+    );
+
+    // A floating add now finds nothing install-eligible.
+    let floating_dir = work.path().join("floating");
+    assert!(run_mfb_plain(&["init", floating_dir.to_str().unwrap()])
+        .status
+        .success());
+    let floating = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#state_pkg"])
+        .current_dir(&floating_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("floating add after yank");
+    assert!(!floating.status.success());
+    assert!(
+        String::from_utf8_lossy(&floating.stderr).contains("install-eligible"),
+        "{}",
+        String::from_utf8_lossy(&floating.stderr)
+    );
+
+    // An exact pin still selects the yanked version.
+    let pin_dir = work.path().join("pinned");
+    assert!(run_mfb_plain(&["init", pin_dir.to_str().unwrap()])
+        .status
+        .success());
+    let pinned = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#state_pkg@0.1.0"])
+        .current_dir(&pin_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("pin add after yank");
+    assert!(
+        pinned.status.success(),
+        "pinned add of a yanked version must succeed: {}",
+        String::from_utf8_lossy(&pinned.stderr)
+    );
+    assert!(pin_dir.join("packages/state_pkg.mfp").is_file());
+}
+
+#[test]
 fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

@@ -221,6 +221,13 @@ impl Store {
                 path TEXT NOT NULL,
                 created_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS release_state_changes (
+                id INTEGER PRIMARY KEY,
+                package_version_id INTEGER NOT NULL REFERENCES package_versions(id),
+                state TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
             "#,
         )
         .map_err(|err| format!("failed to migrate database: {err}"))?;
@@ -1066,6 +1073,62 @@ impl Store {
             state: "available".to_string(),
             log_entry,
         })
+    }
+
+    /// Set a published version's release state (plan-10-C1). Updates the
+    /// current state, records the transition with a timestamp, and appends one
+    /// transparency-log entry — all in a single transaction. Ident-signature
+    /// authorization is checked by the caller before this runs. Returns the
+    /// publish/transition log entry reference.
+    pub fn set_release_state(
+        &self,
+        ident: &str,
+        version: &str,
+        state: &str,
+    ) -> Result<LogEntryRef, String> {
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start release-state transaction: {err}"))?;
+        let package_version_id: Option<i64> = tx
+            .query_row(
+                "SELECT pv.id
+                 FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1 AND pv.version = ?2",
+                params![ident, version],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load package version: {err}"))?;
+        let Some(package_version_id) = package_version_id else {
+            return Err(format!("package version {ident}@{version} is not published"));
+        };
+        tx.execute(
+            "UPDATE package_versions SET state = ?1 WHERE id = ?2",
+            params![state, package_version_id],
+        )
+        .map_err(|err| format!("failed to update release state: {err}"))?;
+        tx.execute(
+            "INSERT INTO release_state_changes (package_version_id, state, created_at)
+             VALUES (?1, ?2, ?3)",
+            params![package_version_id, state, now],
+        )
+        .map_err(|err| format!("failed to record release-state change: {err}"))?;
+        let log_entry = append_log_tx(
+            &tx,
+            "release-state",
+            &format!(
+                "{{\"ident\":{},\"version\":{},\"state\":{}}}",
+                json_value(ident),
+                json_value(version),
+                json_value(state),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit release-state change: {err}"))?;
+        Ok(log_entry)
     }
 
     /// The number of transparency-log entries (the tree size).

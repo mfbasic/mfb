@@ -52,6 +52,7 @@ Package Management:
   pkg update              Resolve dependencies and write mfb.lock
   pkg install             Install dependencies from mfb.lock (by hash)
   pkg check-abi           Diff this package's ABI against its published version
+  pkg release-state <s>   Set a published version's state (available/deprecated/yanked)
 
 Repository & Auth:
   repo register <owner>   Register a repository owner

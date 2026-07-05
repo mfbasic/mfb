@@ -229,6 +229,33 @@ pub struct RevokeResponse {
     pub revoked: bool,
 }
 
+/// `POST /release-state` (plan-10-C1): a maintainer sets a published version's
+/// release state. Requires both a live session (auth) and an ident signature
+/// (authority) — an auth session alone can never change a release state.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReleaseStateRequest {
+    pub owner: String,
+    pub ident: String,
+    pub version: String,
+    /// One of `available`, `deprecated`, `yanked`. `blocked` and
+    /// `legal-tombstoned` are registry-operator states, refused here.
+    pub state: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+    /// Base64url ident signature over `release_state_message(ident, version, state)`.
+    #[serde(rename = "identSignature")]
+    pub ident_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ReleaseStateResponse {
+    pub ident: String,
+    pub version: String,
+    pub state: String,
+    #[serde(rename = "logEntry")]
+    pub log_entry: LogEntry,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PackageArtifactRequest {
     pub ident: String,
@@ -403,6 +430,7 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/machines/revoke", post(revoke_machine))
         .route("/index/:ident", get(package_index))
         .route("/blob/:hash", get(package_blob))
+        .route("/release-state", post(release_state))
         .route("/validate", post(validate_package))
         .route("/publish", post(publish_package))
         .with_state(state);
@@ -626,6 +654,74 @@ async fn package_index(
         name_binding_signature: crypto::encode_bytes(&name_binding),
         server_fingerprint: crypto::fingerprint(&server_public),
         versions,
+    }))
+}
+
+/// `POST /release-state` (plan-10-C1): a maintainer moves a published version
+/// between `available`/`deprecated`/`yanked`. Requires a live session AND an
+/// ident signature — an auth session alone is refused.
+async fn release_state(
+    State(state): State<AppState>,
+    Json(request): Json<ReleaseStateRequest>,
+) -> Result<Json<ReleaseStateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
+    if claims.sub != request.owner {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    let Some((owner, _key)) = state
+        .store
+        .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("session key is not a current auth key".to_string()));
+    };
+    if owner.id != claims.owner_id {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    // Maintainer states only — blocked/legal-tombstoned are operator states.
+    if !matches!(request.state.as_str(), "available" | "deprecated" | "yanked") {
+        return Err(bad_request(
+            "state must be one of available, deprecated, or yanked".to_string(),
+        ));
+    }
+    let Some((ident_owner, package_part)) = request.ident.split_once('#') else {
+        return Err(bad_request("ident must use <owner>#<package>".to_string()));
+    };
+    if package_part.is_empty()
+        || crate::validation::fold_owner(ident_owner)
+            != crate::validation::fold_owner(&request.owner)
+    {
+        return Err(bad_request("ident owner does not match session owner".to_string()));
+    }
+    // Authority is the ident key: verify its signature over the exact change.
+    let Some((_owner, ident_key)) = state
+        .store
+        .owner_with_ident_key(&request.owner)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("owner has no current ident key".to_string()));
+    };
+    let signature =
+        crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
+    crypto::verify(
+        &ident_key.public_key,
+        &crypto::release_state_message(&request.ident, &request.version, &request.state),
+        &signature,
+    )
+    .map_err(|_| bad_request("invalid release-state ident signature".to_string()))?;
+
+    let log_entry = state
+        .store
+        .set_release_state(&request.ident, &request.version, &request.state)
+        .map_err(bad_request)?;
+    Ok(Json(ReleaseStateResponse {
+        ident: request.ident,
+        version: request.version,
+        state: request.state,
+        log_entry: LogEntry {
+            index: log_entry.index,
+            leaf_hash: hex::encode(log_entry.leaf_hash),
+        },
     }))
 }
 
@@ -1917,6 +2013,100 @@ mod tests {
         )
         .await;
         assert_eq!(unknown.err().unwrap().0, StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn release_state_requires_ident_signature_and_is_served_and_logged() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "alice");
+        let token = open_session(&store, "alice", &keys.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: opened.packages_dir.clone(),
+        };
+        publish_valid_package(&state, &keys, &token, "1.0.0").await;
+        let log_before = store.log_size().unwrap();
+
+        let sign_state = |new_state: &str| {
+            crypto::encode_bytes(
+                &crypto::sign(
+                    &keys.ident_private,
+                    &crypto::release_state_message("alice#toolbox", "1.0.0", new_state),
+                )
+                .unwrap(),
+            )
+        };
+
+        // Auth session but no valid ident signature: refused (the ident key is
+        // the authority, an auth session alone must not suffice).
+        let refused = release_state(
+            State(state.clone()),
+            Json(ReleaseStateRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                state: "deprecated".to_string(),
+                session_token: token.clone(),
+                ident_signature: crypto::encode_bytes(&[0u8; 64]),
+            }),
+        )
+        .await;
+        assert!(refused.is_err());
+
+        // An operator-only state is refused even with a valid ident signature.
+        let refused = release_state(
+            State(state.clone()),
+            Json(ReleaseStateRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                state: "blocked".to_string(),
+                session_token: token.clone(),
+                ident_signature: sign_state("blocked"),
+            }),
+        )
+        .await;
+        assert!(refused.err().unwrap().0 == StatusCode::BAD_REQUEST);
+
+        // The happy path moves the version to deprecated, appends one log
+        // entry, and the index reflects it.
+        let response = release_state(
+            State(state.clone()),
+            Json(ReleaseStateRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                state: "deprecated".to_string(),
+                session_token: token.clone(),
+                ident_signature: sign_state("deprecated"),
+            }),
+        )
+        .await
+        .expect("state change accepted")
+        .0;
+        assert_eq!(response.state, "deprecated");
+        assert_eq!(store.log_size().unwrap(), log_before + 1);
+
+        let index = package_index(
+            State(state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("index served")
+        .0;
+        assert_eq!(index.versions[0].state, "deprecated");
+
+        // The transition's log entry has a verifying inclusion proof.
+        let leaves = store.log_leaf_hashes(None).unwrap();
+        let root = crate::log::root(&leaves);
+        let index_n = response.log_entry.index as usize;
+        let path = crate::log::inclusion_path(index_n, &leaves);
+        crate::log::verify_inclusion(index_n, leaves.len(), &leaves[index_n], &path, &root)
+            .expect("release-state entry inclusion verifies");
     }
 
     #[tokio::test]

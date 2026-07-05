@@ -68,6 +68,7 @@ in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:
 | `/log/publish` | GET | none | `?ident=&version=` | `LogEntry` | `pkg verify --proof` |
 | `/index/<owner>#<package>` | GET | none | — | `IndexResponse` | `pkg add` (registry) |
 | `/blob/<hash>` | GET | none | — | raw `.mfp` bytes | `pkg add` (registry) |
+| `/release-state` | POST | session + ident signature | `ReleaseStateRequest` | `ReleaseStateResponse` | `pkg release-state` |
 | `/idents/<owner>` | GET | none | — | `IdentChainResponse` | pin-follow (`pkg verify`) |
 | `/machines/link` | POST | session token | `LinkStartRequest` | `LinkStartResponse` | `repo link --start` |
 | `/machines/link/fetch` | POST | pairing code + proof | `LinkFetchRequest` | `LinkFetchResponse` | `repo link` |
@@ -563,6 +564,38 @@ The publish path stages the blob to a temp file, commits the `package_versions`
 row, and only then renames it into place, so a failed transaction leaves no
 orphan blob and a served blob always has a committed version
 row.[[repository/src/server.rs:publish_package]]
+
+## Release States — `POST /release-state`
+
+A maintainer moves a published version between release states (plan-10-C1).
+A state is registry metadata *about* a version — the blob and its signatures are
+never touched. The maintainer states are `available`, `deprecated`, and
+`yanked`; `blocked` and `legal-tombstoned` are registry-operator states and are
+refused here.[[repository/src/server.rs:release_state]]
+
+```json
+{
+  "owner": "alice",
+  "ident": "alice#toolbox",
+  "version": "1.2.3",
+  "state": "deprecated",
+  "sessionToken": "<JWT>",
+  "identSignature": "<base64url ident signature>"
+}
+```
+
+Authority is the **ident key**: an auth session alone can never change a
+release state. The request carries both a live session (the machine is logged
+in) and an ident signature over `release_state_message(ident, version, state)`
+(signing domain `mfb-repo-release-state-v1`), verified under the owner's current
+ident key. The change updates the version's state, records the transition with a
+timestamp, and appends one `release-state` entry to the transparency log — all
+in one transaction. The response echoes `{ident, version, state, logEntry}`.
+
+`GET /index` serves the current state per version. Resolution eligibility
+(plan-10-B2): `available`/`deprecated` are install-eligible, `yanked` is
+selectable only by an exact pin, and `blocked`/`legal-tombstoned` are excluded
+entirely.[[src/cli/resolve.rs:select_node]][[src/cli/pkg.rs:select_index_version]]
 
 ## Package Artifact Requests
 

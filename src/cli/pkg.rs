@@ -49,6 +49,15 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, location] if command == "update" => {
             super::resolve::update(Path::new(location)).map_err(PkgCommandError::Failed)
         }
+        [command, state] if command == "release-state" => {
+            set_release_state(Path::new("."), state, None).map_err(PkgCommandError::Failed)
+        }
+        [command, state, version] if command == "release-state" => {
+            set_release_state(Path::new("."), state, Some(version)).map_err(PkgCommandError::Failed)
+        }
+        [command, ..] if command == "release-state" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg release-state requires <available|deprecated|yanked> [version]\n\n{USAGE}"
+        ))),
         [command] if command == "check-abi" => {
             check_abi(Path::new(".")).map_err(PkgCommandError::Failed)
         }
@@ -175,6 +184,56 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
     println!(
         "Inclusion verified against checkpoint (size {}, root {})",
         checkpoint.size, checkpoint.root_hash
+    );
+    Ok(())
+}
+
+/// `mfb pkg release-state <state> [version]` (plan-10-C1): set a published
+/// version's maintainer release state (`available`/`deprecated`/`yanked`). Run
+/// in the package project; the ident and default version come from the
+/// manifest, and the change is ident-signed and logged by the registry.
+fn set_release_state(
+    project_dir: &Path,
+    state: &str,
+    version_override: Option<&str>,
+) -> Result<(), String> {
+    if !matches!(state, "available" | "deprecated" | "yanked") {
+        return Err(format!(
+            "state must be one of available, deprecated, or yanked (got `{state}`)"
+        ));
+    }
+    let project_path = project_dir.join("project.json");
+    let manifest = validate_project_manifest(&project_path)
+        .map_err(|_| "package project validation failed".to_string())?;
+    if project_kind(&manifest) != "package" {
+        return Err("mfb pkg release-state requires a package project".to_string());
+    }
+    let ident = manifest
+        .get("ident")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .ok_or_else(|| "project.json must declare an `ident` of <owner>#<package>".to_string())?;
+    let Some((owner, _package)) = ident.split_once('#') else {
+        return Err(format!("project ident `{ident}` must use <owner>#<package>"));
+    };
+    let version = version_override.map(str::to_string).unwrap_or_else(|| {
+        manifest
+            .get("version")
+            .and_then(|value| value.get::<String>())
+            .cloned()
+            .unwrap_or_default()
+    });
+    if version.is_empty() {
+        return Err("no version to set state on (pass one or declare it in project.json)".to_string());
+    }
+
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = super::local_paths_for_repo(&repo_url)?;
+    let response =
+        mfb_repository::client::set_release_state(&repo_url, &paths, owner, &ident, &version, state)?;
+    println!(
+        "Set {}@{} to {} (logged at index {})",
+        response.ident, response.version, response.state, response.log_entry.index
     );
     Ok(())
 }
@@ -931,6 +990,25 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     );
     println!("Author: {}", empty_marker(&header.author));
     println!("URL: {}", empty_marker(&header.url));
+    // Best-effort registry release state (plan-10-C1): only shown when the
+    // package has a registry ident and the configured registry answers. Silent
+    // otherwise, so offline `pkg info` is unchanged.
+    if let Some((owner, package_name)) = header.ident.split_once('#') {
+        let repo_url = mfb_repository::client::repo_url_from_env();
+        if let Ok(paths) = super::local_paths_for_repo(&repo_url) {
+            if let Ok(index) =
+                mfb_repository::client::fetch_index(&repo_url, &paths, owner, package_name)
+            {
+                if let Some(version) = index
+                    .versions
+                    .iter()
+                    .find(|version| version.version == header.version)
+                {
+                    println!("Release State: {}", version.state);
+                }
+            }
+        }
+    }
     println!("Path: {}", path.display());
     println!();
     println!("Container:");
