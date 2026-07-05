@@ -186,6 +186,9 @@ mod lowering_totality_tests {
                     act_rules.remove(pos);
                     *matched.entry(rule.clone()).or_default() += 1;
                 } else {
+                    if std::env::var("CENSUS_MISSING").is_ok() {
+                        eprintln!("MISSING {rule} in {}", dir.display());
+                    }
                     *missing.entry(rule.clone()).or_default() += 1;
                 }
             }

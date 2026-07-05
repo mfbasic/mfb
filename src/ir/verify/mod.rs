@@ -2005,6 +2005,78 @@ impl TypeEnv {
             }
             return;
         }
+        // `collections`/`general` builtins: per-name arity, then arg-typed
+        // overload resolution (typecheck's check_general_builtin_call arms).
+        if builtins::collections::is_collections_call(target) {
+            if let Some((min, max)) = builtins::collections::arity(target) {
+                if arg_types.len() < min || arg_types.len() > max {
+                    let expected = if min == max {
+                        min.to_string()
+                    } else {
+                        format!("{min} to {max}")
+                    };
+                    self.emit(
+                        "TYPE_CALL_ARITY_MISMATCH",
+                        format!(
+                            "Call to `{target}` has {} argument(s), expected {expected}.",
+                            arg_types.len()
+                        ),
+                    );
+                    return;
+                }
+            }
+            if builtins::collections::resolve_call(target, &arg_types).is_none() {
+                let expected = builtins::collections::expected_arguments(target)
+                    .unwrap_or("supported overload");
+                self.emit(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    format!(
+                        "Call to `{target}` has argument type(s) ({}), expected {expected}.",
+                        arg_types.join(", ")
+                    ),
+                );
+            }
+            return;
+        }
+        if builtins::general::is_general_call(target) {
+            if let Some((min, max)) = builtins::general::arity(target) {
+                if arg_types.len() < min || arg_types.len() > max {
+                    let expected = if min == max {
+                        min.to_string()
+                    } else {
+                        format!("{min} to {max}")
+                    };
+                    self.emit(
+                        "TYPE_CALL_ARITY_MISMATCH",
+                        format!(
+                            "Call to `{target}` has {} argument(s), expected {expected}.",
+                            arg_types.len()
+                        ),
+                    );
+                    return;
+                }
+            }
+            if builtins::general::resolve_call(target, &arg_types).is_none() {
+                // A package-provided override may accept what the built-in
+                // rejects (plan-01-overload §A.3.2) — never reject those.
+                if builtins::general::is_overridable(target)
+                    && arg_types.len() == 1
+                    && builtins::general_override_target(target, &arg_types[0]).is_some()
+                {
+                    return;
+                }
+                let expected =
+                    builtins::general::expected_arguments(target).unwrap_or("supported overload");
+                self.emit(
+                    "TYPE_CALL_ARGUMENT_MISMATCH",
+                    format!(
+                        "Call to `{target}` has argument type(s) ({}), expected {expected}.",
+                        arg_types.join(", ")
+                    ),
+                );
+            }
+            return;
+        }
         let unresolved = if builtins::math::is_math_call(target) {
             builtins::math::resolve_call(target, &arg_types).is_none()
         } else if builtins::bits::is_bits_call(target) {
