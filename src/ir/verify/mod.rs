@@ -127,6 +127,9 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RES_REQUIRES_RESOURCE",
     "TYPE_STATE_INVALID",
     "TYPE_UNION_STATE_FORBIDDEN",
+    "TYPE_RESULT_NOT_MATCHABLE",
+    "TYPE_RESULT_IS_IMPLICIT",
+    "TYPE_THREAD_RESULT_REMOVED",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -1595,6 +1598,16 @@ impl TypeEnv {
         let Some(type_name) = self.infer_type(target, locals) else {
             return;
         };
+        // The `t.result` field is removed; worker outcomes come only through
+        // `thread::waitFor(t)` (typecheck's TYPE_THREAD_RESULT_REMOVED).
+        if resource_base_type(&type_name).starts_with("Thread") && member == "result" {
+            self.emit(
+                "TYPE_THREAD_RESULT_REMOVED",
+                "Thread values have no `result` field; use `thread::waitFor(t)` to retrieve the worker outcome."
+                    .to_string(),
+            );
+            return;
+        }
         if PRIMITIVE_TYPES.contains(&type_name.as_str()) {
             self.emit(
                 "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
@@ -2493,6 +2506,24 @@ impl TypeEnv {
         }
         let union_variants = self.union_variants(&scrutinee);
         let check_pattern = |v: &IrValue| {
+            // `Result` is internal: `CASE Ok`/`CASE Error` are never valid
+            // match arms (typecheck's TYPE_RESULT_NOT_MATCHABLE). Only fires
+            // when the name is not a real variant of the scrutinee's union.
+            if let IrValue::Local(n) | IrValue::MemberAccess { member: n, .. } = v {
+                if matches!(n.as_str(), "Ok" | "Error" | "Err")
+                    && !union_variants
+                        .as_ref()
+                        .is_some_and(|vs| vs.contains(n.as_str()))
+                {
+                    self.emit(
+                        "TYPE_RESULT_NOT_MATCHABLE",
+                        format!(
+                            "`CASE {n}` is not a valid match arm; handle failure with an inline `TRAP` instead."
+                        ),
+                    );
+                    return;
+                }
+            }
             // A pattern that names a declared type is a union-variant arm.
             let type_name = match v {
                 IrValue::Local(name) => Some(name),
@@ -3045,6 +3076,14 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, String>,
     ) {
+        // `Ok`/`Result` are compiler-owned (typecheck's TYPE_RESULT_IS_IMPLICIT).
+        if matches!(type_name, "Ok" | "Result") {
+            self.emit(
+                "TYPE_RESULT_IS_IMPLICIT",
+                format!("`{type_name}` is compiler-owned and cannot be constructed directly."),
+            );
+            return;
+        }
         // Compiler-owned records may never be user-constructed (typecheck's
         // TYPE_READ_ONLY_RECORD_CONSTRUCTOR). The Error/ErrorLoc arm of that
         // rule stays in typecheck: lowering itself emits `Constructor{Error}`
