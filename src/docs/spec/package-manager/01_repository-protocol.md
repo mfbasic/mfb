@@ -12,9 +12,10 @@ authentication flow, the JWT session token, and the validate-then-publish
 sequence. Key generation and signing domains are owned by *signing*; on-disk key
 and session storage is owned by *key-store*.
 
-All requests are `POST` with a JSON body and expect a JSON response. Binary
-fields (public keys, proofs, nonces, signatures, package artifacts) are
-**base64url, no padding**. Hashes and key fingerprints are lowercase **hex**.
+All mutating requests are `POST` with a JSON body and expect a JSON response
+(`GET` serves `/health` and `/ident`). Binary fields (public keys, proofs,
+nonces, signatures, package artifacts) are **base64url, no padding**. Hashes
+and key fingerprints are lowercase **hex**.
 
 ## Transport and Endpoint Base
 
@@ -30,11 +31,13 @@ response. On a non-success status it reads the body, and if the body parses as
 `repository request failed with status <status>: <body>`. A connection failure
 returns `failed to connect to repository service: <err>`.[[repository/src/client.rs:post_json]][[repository/src/server.rs:ErrorResponse]]
 
-The reference server ships as the `mfb-repo` binary: `mfb-repo --path
-<repo_path> [--listen <addr:port>]`. It listens on `127.0.0.1:7777` by default,
-prints `MFB_REPO_LISTEN=<actual addr>` once bound, and keeps its state under
-`<repo_path>` as a SQLite `meta.db` plus a `packages/` blob
-directory.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]][[repository/src/store.rs:open_repository]]
+The reference server ships as the `mfb-repo` binary: `mfb-repo --dbpath
+<db_path> --datapath <data_path> [--listen <addr:port>]`. It listens on
+`127.0.0.1:7777` by default, prints `MFB_REPO_LISTEN=<actual addr>` once bound,
+and keeps its state as a SQLite database at `<db_path>` plus a blob directory
+at `<data_path>`. On first run it generates its own Ed25519 **server keypair**
+— the only private key the server ever holds; the private half never appears
+in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]][[repository/src/store.rs:open_repository]]
 
 ### Encoding
 
@@ -51,7 +54,8 @@ directory.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]
 | Path | Method | Auth | Request | Response | Backs |
 | --- | --- | --- | --- | --- | --- |
 | `/health` | GET | none | — | `{"ok": true}` | (liveness) |
-| `/accounts/register` | POST | proof signature | `RegisterRequest` | `RegisterResponse` | `repo register` |
+| `/ident` | GET | none | — | `ServerIdentResponse` | server-key pinning |
+| `/accounts/register` | POST | proof signatures | `RegisterRequest` | `RegisterResponse` | `repo register` |
 | `/auth/challenge` | POST | fingerprint match | `ChallengeRequest` | `ChallengeResponse` | `repo auth` (step 1) |
 | `/auth/login` | POST | challenge signature | `LoginRequest` | `LoginResponse` | `repo auth` (step 2) |
 | `/keys/signing` | POST | session token | `SigningInfoRequest` | `SigningInfoResponse` | `build --sign` |
@@ -63,22 +67,46 @@ directory.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:serve]
 JSON field names use camelCase on the wire (set by `#[serde(rename)]`), even
 though the Rust fields are snake_case. The tables below give the wire names.
 
+## Server Identity — `GET /ident`
+
+Returns the registry's own public key so clients can pin it as `server.pub` on
+first contact (see *key-store*). The fingerprint is the same value attestations
+later name as `repoFingerprint`.[[repository/src/server.rs:server_ident]]
+
+```json
+{
+  "serverKey": "<base64url server public key>",
+  "serverFingerprint": "<hex sha256 of server public key>"
+}
+```
+
+The client verifies that `serverFingerprint` matches the key it decodes, pins
+the key on first use, and hard-fails if a later fetch disagrees with the pinned
+key.[[repository/src/client.rs:ensure_server_key]][[repository/src/local.rs:pin_server_key]]
+
 ## Owner Registration — `/accounts/register`
 
 Backs `mfb repo register <owner_name>`. The client validates the owner name,
-generates a fresh ed25519 keypair, builds the registration message (signing
-domain `mfb-repo-register-v1`), signs it with the new private key as `proof`,
-**writes the keypair to local storage**, then posts the request. If the POST
-fails the client **removes the just-written keypair** (rollback), so a failed
-registration leaves no local key.[[repository/src/client.rs:register]][[repository/src/crypto.rs:registration_message]]
+generates **two** fresh Ed25519 keypairs locally — the machine's `auth` key and
+the account's `ident` key — and builds one proof-of-possession per key over the
+role-discriminated registration message (signing domain `mfb-repo-register-v1`;
+the role string is inside the signed bytes, so an auth proof can never be
+replayed as an ident proof). Both keypairs are **written to local storage
+first**, then the request is posted. If the POST fails the client **removes the
+just-written keypairs** (rollback), so a failed registration leaves no local
+keys. Private keys never leave the machine.[[repository/src/client.rs:register]][[repository/src/crypto.rs:registration_message]]
 
 Request `RegisterRequest`:[[repository/src/server.rs:RegisterRequest]]
 
 ```json
 {
   "owner": "alice",
-  "authKey": "<base64url public key>",
-  "proof": "<base64url signature over registration_message>"
+  "authKey": "<base64url auth public key>",
+  "identKey": "<base64url ident public key>",
+  "proofs": {
+    "auth": "<base64url signature over registration_message(auth)>",
+    "ident": "<base64url signature over registration_message(ident)>"
+  }
 }
 ```
 
@@ -87,15 +115,19 @@ Response `RegisterResponse`:[[repository/src/server.rs:RegisterResponse]]
 ```json
 {
   "owner": "alice",
-  "authFingerprint": "<hex sha256 of public key>"
+  "authFingerprint": "<hex sha256 of auth public key>",
+  "identFingerprint": "<hex sha256 of ident public key>"
 }
 ```
 
-The server decodes `authKey`/`proof`, verifies the proof against the
-registration message, and records the owner. A duplicate owner name yields a
-`409 Conflict` (message contains `already in use`); malformed input yields
+The server decodes both keys and proofs, verifies each proof against its own
+role's registration message, and records the owner with both public keys
+(roles `auth` and `ident`, both `status='current'`). A duplicate owner name
+yields a `409 Conflict` (message contains `already in use`); malformed input or
+an invalid/role-swapped proof yields
 `400`.[[repository/src/server.rs:register]][[repository/src/server.rs:conflict_or_bad_request]]
-The CLI prints `Registered owner <owner> with auth fingerprint <fp>`.[[src/cli/repo.rs:run_repo_command]]
+The CLI prints `Registered owner <owner> with auth fingerprint <fp> and ident
+fingerprint <fp>`.[[src/cli/repo.rs:run_repo_command]]
 
 ## Challenge-Response Authentication
 

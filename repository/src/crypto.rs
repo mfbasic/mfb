@@ -63,13 +63,57 @@ pub fn decode_bytes(value: &str, field: &str) -> Result<Vec<u8>, String> {
         .map_err(|_| format!("malformed {field}"))
 }
 
-pub fn registration_message(owner: &str, public_key: &[u8]) -> Vec<u8> {
+/// Key roles carried by the registration proof-of-possession message. The
+/// role is baked into the signed bytes so a proof made for one role can never
+/// be replayed as a proof for the other (plan-23 Phase A1).
+pub const ROLE_AUTH: &str = "auth";
+pub const ROLE_IDENT: &str = "ident";
+
+pub fn registration_message(role: &str, owner: &str, public_key: &[u8]) -> Vec<u8> {
     let mut message = Vec::new();
     message.extend_from_slice(b"mfb-repo-register-v1\0");
+    message.extend_from_slice(role.as_bytes());
+    message.push(0);
     message.extend_from_slice(owner.as_bytes());
     message.push(0);
     message.extend_from_slice(public_key);
     message
+}
+
+/// Domain-tagged signing input for the ident-signed build proof (plan-23 §5).
+pub fn proof_signing_input(proof_json: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"MFP-PROOF-v1\0");
+    message.extend_from_slice(proof_json);
+    message
+}
+
+/// Domain-tagged signing input for the server-signed attestation (plan-23 §5).
+pub fn attestation_signing_input(attestation_json: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"MFP-ATTEST-v1\0");
+    message.extend_from_slice(attestation_json);
+    message
+}
+
+/// Domain-tagged signing input for the container v1.0 package signature:
+/// `"MFP-PACKAGE-v2\0" || SHA-256(header bytes [0 .. offset of signature))`
+/// (plan-23 §4). The caller passes the raw signed prefix; the hash is taken
+/// here so every signer/verifier agrees on the construction.
+pub fn package_signing_input(signed_prefix: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"MFP-PACKAGE-v2\0");
+    message.extend_from_slice(&sha256(signed_prefix));
+    message
+}
+
+pub fn sha256(bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let digest = hasher.finalize();
+    let mut hash = [0; 32];
+    hash.copy_from_slice(&digest);
+    hash
 }
 
 pub fn challenge_message(challenge_id: &str, nonce: &[u8]) -> Vec<u8> {
@@ -98,5 +142,27 @@ mod tests {
     fn public_key_round_trips_from_private_key() {
         let (public, private) = generate_keypair();
         assert_eq!(public_from_private(&private).unwrap(), public);
+    }
+
+    #[test]
+    fn registration_message_separates_roles() {
+        let (public, _private) = generate_keypair();
+        assert_ne!(
+            registration_message(ROLE_AUTH, "alice", &public),
+            registration_message(ROLE_IDENT, "alice", &public)
+        );
+    }
+
+    #[test]
+    fn signing_inputs_are_domain_separated() {
+        let payload = b"{\"owner\":\"alice\"}";
+        let proof = proof_signing_input(payload);
+        let attestation = attestation_signing_input(payload);
+        assert_ne!(proof, attestation);
+        assert!(proof.starts_with(b"MFP-PROOF-v1\0"));
+        assert!(attestation.starts_with(b"MFP-ATTEST-v1\0"));
+        let package = package_signing_input(payload);
+        assert!(package.starts_with(b"MFP-PACKAGE-v2\0"));
+        assert_eq!(package.len(), b"MFP-PACKAGE-v2\0".len() + 32);
     }
 }

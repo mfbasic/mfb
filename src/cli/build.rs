@@ -500,9 +500,9 @@ pub(crate) struct BuildSigningInfo {
 
 fn load_build_signing_info(owner: &str) -> Result<BuildSigningInfo, String> {
     let repo_url = mfb_repository::client::repo_url_from_env();
-    let paths = mfb_repository::local::LocalPaths::from_env()?;
+    let paths = super::local_paths_for_repo(&repo_url)?;
     let signing_info = mfb_repository::client::signing_info(&repo_url, &paths, owner)?;
-    let private_key = mfb_repository::local::read_private_key(&paths, owner)?;
+    let private_key = mfb_repository::local::read_auth_private_key(&paths, owner)?;
     let local_public = mfb_repository::crypto::public_from_private(&private_key)?;
     let server_signing_public =
         mfb_repository::crypto::decode_bytes(&signing_info.signing_key, "signingKey")?;

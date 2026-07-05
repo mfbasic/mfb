@@ -17,15 +17,15 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
 
     let owner = &args[1];
     let repo_url = mfb_repository::client::repo_url_from_env();
-    let paths = mfb_repository::local::LocalPaths::from_env().map_err(RepoCommandError::Failed)?;
+    let paths = super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
 
     match command {
         "register" => {
             let response = mfb_repository::client::register(&repo_url, &paths, owner)
                 .map_err(RepoCommandError::Failed)?;
             println!(
-                "Registered owner {} with auth fingerprint {}",
-                response.owner, response.auth_fingerprint
+                "Registered owner {} with auth fingerprint {} and ident fingerprint {}",
+                response.owner, response.auth_fingerprint, response.ident_fingerprint
             );
             Ok(())
         }

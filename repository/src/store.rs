@@ -96,6 +96,7 @@ impl Store {
         };
         store.migrate()?;
         store.ensure_server_secret()?;
+        store.ensure_server_keypair()?;
         Ok(OpenedRepository {
             store,
             packages_dir: datapath.to_path_buf(),
@@ -151,6 +152,13 @@ impl Store {
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS server_keys (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                public_key BLOB NOT NULL,
+                private_key BLOB NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS packages (
                 id INTEGER PRIMARY KEY,
                 ident TEXT NOT NULL UNIQUE,
@@ -178,19 +186,30 @@ impl Store {
         .map_err(|err| format!("failed to migrate database: {err}"))
     }
 
+    /// Register an owner with the two client-held public keys (plan-23 §3.1):
+    /// a per-machine `auth` key and the account `ident` key. Each key must
+    /// carry a proof-of-possession signed over the role-discriminated
+    /// registration message, so an auth proof can never be replayed as an
+    /// ident proof (or vice versa). The server never sees a private key.
     pub fn register_owner(
         &self,
         owner: &str,
-        public_key: &[u8],
-        proof: &[u8],
-    ) -> Result<(OwnerRecord, KeyRecord), String> {
+        auth_key: &[u8],
+        auth_proof: &[u8],
+        ident_key: &[u8],
+        ident_proof: &[u8],
+    ) -> Result<(OwnerRecord, KeyRecord, KeyRecord), String> {
         validate_owner_name(owner)?;
-        let message = crypto::registration_message(owner, public_key);
-        crypto::verify(public_key, &message, proof)
-            .map_err(|_| "invalid proof-of-possession signature".to_string())?;
+        let auth_message = crypto::registration_message(crypto::ROLE_AUTH, owner, auth_key);
+        crypto::verify(auth_key, &auth_message, auth_proof)
+            .map_err(|_| "invalid auth proof-of-possession signature".to_string())?;
+        let ident_message = crypto::registration_message(crypto::ROLE_IDENT, owner, ident_key);
+        crypto::verify(ident_key, &ident_message, ident_proof)
+            .map_err(|_| "invalid ident proof-of-possession signature".to_string())?;
 
         let folded = fold_owner(owner);
-        let fingerprint = crypto::fingerprint(public_key);
+        let auth_fingerprint = crypto::fingerprint(auth_key);
+        let ident_fingerprint = crypto::fingerprint(ident_key);
         let now = now_unix();
         let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
         let tx = conn
@@ -212,10 +231,17 @@ impl Store {
         tx.execute(
             "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
              VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
-            params![owner_id, public_key, fingerprint, now],
+            params![owner_id, auth_key, auth_fingerprint, now],
         )
         .map_err(|err| format!("failed to register auth key: {err}"))?;
-        let key_id = tx.last_insert_rowid();
+        let auth_key_id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
+             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
+            params![owner_id, ident_key, ident_fingerprint, now],
+        )
+        .map_err(|err| format!("failed to register ident key: {err}"))?;
+        let ident_key_id = tx.last_insert_rowid();
         tx.commit()
             .map_err(|err| format!("failed to commit registration: {err}"))?;
 
@@ -225,14 +251,27 @@ impl Store {
                 owner_display: owner.to_string(),
             },
             KeyRecord {
-                id: key_id,
-                public_key: public_key.to_vec(),
-                fingerprint,
+                id: auth_key_id,
+                public_key: auth_key.to_vec(),
+                fingerprint: auth_fingerprint,
+            },
+            KeyRecord {
+                id: ident_key_id,
+                public_key: ident_key.to_vec(),
+                fingerprint: ident_fingerprint,
             },
         ))
     }
 
     pub fn owner_with_auth_key(&self, owner: &str) -> Result<Option<(OwnerRecord, KeyRecord)>, String> {
+        self.owner_with_key(owner, "auth")
+    }
+
+    pub fn owner_with_ident_key(&self, owner: &str) -> Result<Option<(OwnerRecord, KeyRecord)>, String> {
+        self.owner_with_key(owner, "ident")
+    }
+
+    fn owner_with_key(&self, owner: &str, role: &str) -> Result<Option<(OwnerRecord, KeyRecord)>, String> {
         let folded = fold_owner(owner);
         let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
         conn.query_row(
@@ -241,9 +280,9 @@ impl Store {
              JOIN keys k ON k.owner_id = o.id
              WHERE o.owner_folded = ?1
                AND o.status = 'active'
-               AND k.role = 'auth'
+               AND k.role = ?2
                AND k.status = 'current'",
-            params![folded],
+            params![folded, role],
             |row| {
                 Ok((
                     OwnerRecord {
@@ -477,6 +516,42 @@ impl Store {
         .map_err(|err| format!("failed to expire challenge: {err}"))
     }
 
+    /// The registry's own Ed25519 keypair (plan-23 §2): the only private key
+    /// the server holds. It signs attestations (and, later, log checkpoints);
+    /// it can never produce a user proof. Generated once on first run.
+    fn ensure_server_keypair(&self) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let exists: Option<i64> = conn
+            .query_row("SELECT 1 FROM server_keys WHERE id = 1", [], |row| row.get(0))
+            .optional()
+            .map_err(|err| format!("failed to check server keypair: {err}"))?;
+        if exists.is_none() {
+            let (public, private) = crypto::generate_keypair();
+            conn.execute(
+                "INSERT INTO server_keys (id, public_key, private_key, created_at) VALUES (1, ?1, ?2, ?3)",
+                params![public, private, now_unix()],
+            )
+            .map_err(|err| format!("failed to create server keypair: {err}"))?;
+        }
+        Ok(())
+    }
+
+    /// The server keypair. The private half must never leave the server
+    /// process: it is used only to sign, and no route returns it.
+    pub fn server_keypair(&self) -> Result<(Vec<u8>, Vec<u8>), String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row(
+            "SELECT public_key, private_key FROM server_keys WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .map_err(|err| format!("failed to load server keypair: {err}"))
+    }
+
+    pub fn server_public_key(&self) -> Result<Vec<u8>, String> {
+        Ok(self.server_keypair()?.0)
+    }
+
     fn ensure_server_secret(&self) -> Result<(), String> {
         let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
         let exists: Option<i64> = conn
@@ -524,12 +599,35 @@ mod tests {
         (temp, opened.store)
     }
 
+    pub(crate) struct RegisteredKeys {
+        pub(crate) auth_public: Vec<u8>,
+        pub(crate) auth_private: Vec<u8>,
+        pub(crate) ident_public: Vec<u8>,
+        #[allow(dead_code)]
+        pub(crate) ident_private: Vec<u8>,
+    }
+
+    pub(crate) fn register_keys(store: &Store, owner: &str) -> RegisteredKeys {
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let auth_message = crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public);
+        let auth_proof = crypto::sign(&auth_private, &auth_message).unwrap();
+        let ident_message = crypto::registration_message(crypto::ROLE_IDENT, owner, &ident_public);
+        let ident_proof = crypto::sign(&ident_private, &ident_message).unwrap();
+        store
+            .register_owner(owner, &auth_public, &auth_proof, &ident_public, &ident_proof)
+            .unwrap();
+        RegisteredKeys {
+            auth_public,
+            auth_private,
+            ident_public,
+            ident_private,
+        }
+    }
+
     fn register(store: &Store, owner: &str) -> (Vec<u8>, Vec<u8>) {
-        let (public, private) = crypto::generate_keypair();
-        let message = crypto::registration_message(owner, &public);
-        let proof = crypto::sign(&private, &message).unwrap();
-        store.register_owner(owner, &public, &proof).unwrap();
-        (public, private)
+        let keys = register_keys(store, owner);
+        (keys.auth_public, keys.auth_private)
     }
 
     #[test]
@@ -544,12 +642,15 @@ mod tests {
     }
 
     #[test]
-    fn registration_persists_owner_and_key() {
+    fn registration_persists_owner_and_both_keys() {
         let (_temp, store) = test_store();
-        let (public, _private) = register(&store, "alice");
-        let (owner, key) = store.owner_with_auth_key("alice").unwrap().unwrap();
+        let keys = register_keys(&store, "alice");
+        let (owner, auth_key) = store.owner_with_auth_key("alice").unwrap().unwrap();
         assert_eq!(owner.owner_display, "alice");
-        assert_eq!(key.public_key, public);
+        assert_eq!(auth_key.public_key, keys.auth_public);
+        let (_owner, ident_key) = store.owner_with_ident_key("alice").unwrap().unwrap();
+        assert_eq!(ident_key.public_key, keys.ident_public);
+        assert_ne!(auth_key.fingerprint, ident_key.fingerprint);
         assert_eq!(store.count_owners().unwrap(), 1);
     }
 
@@ -557,10 +658,21 @@ mod tests {
     fn duplicate_registration_is_case_folded() {
         let (_temp, store) = test_store();
         register(&store, "alice");
-        let (public, private) = crypto::generate_keypair();
-        let message = crypto::registration_message("Alice", &public);
-        let proof = crypto::sign(&private, &message).unwrap();
-        let err = store.register_owner("Alice", &public, &proof).unwrap_err();
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let auth_proof = crypto::sign(
+            &auth_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "Alice", &auth_public),
+        )
+        .unwrap();
+        let ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, "Alice", &ident_public),
+        )
+        .unwrap();
+        let err = store
+            .register_owner("Alice", &auth_public, &auth_proof, &ident_public, &ident_proof)
+            .unwrap_err();
         assert!(err.contains("already in use"));
         assert_eq!(store.count_owners().unwrap(), 1);
     }
@@ -568,12 +680,92 @@ mod tests {
     #[test]
     fn registration_rejects_bad_proof() {
         let (_temp, store) = test_store();
-        let (public, _private) = crypto::generate_keypair();
+        let (auth_public, _auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
         let (_other_public, other_private) = crypto::generate_keypair();
-        let message = crypto::registration_message("alice", &public);
-        let proof = crypto::sign(&other_private, &message).unwrap();
-        let err = store.register_owner("alice", &public, &proof).unwrap_err();
-        assert!(err.contains("invalid proof"));
+        let auth_proof = crypto::sign(
+            &other_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &auth_public),
+        )
+        .unwrap();
+        let ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, "alice", &ident_public),
+        )
+        .unwrap();
+        let err = store
+            .register_owner("alice", &auth_public, &auth_proof, &ident_public, &ident_proof)
+            .unwrap_err();
+        assert!(err.contains("invalid auth proof"));
+    }
+
+    #[test]
+    fn registration_rejects_role_replayed_proofs() {
+        // A proof-of-possession signed for one role must not be accepted for
+        // the other role, even with the same keypair (plan-23 Phase A1).
+        let (_temp, store) = test_store();
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        // Sign the ident proof with the IDENT key but over the AUTH role
+        // message: replaying a role-mismatched proof must fail.
+        let auth_proof = crypto::sign(
+            &auth_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &auth_public),
+        )
+        .unwrap();
+        let replayed_ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &ident_public),
+        )
+        .unwrap();
+        let err = store
+            .register_owner(
+                "alice",
+                &auth_public,
+                &auth_proof,
+                &ident_public,
+                &replayed_ident_proof,
+            )
+            .unwrap_err();
+        assert!(err.contains("invalid ident proof"));
+
+        // And the mirror image: an ident-role proof replayed as the auth proof.
+        let replayed_auth_proof = crypto::sign(
+            &auth_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, "alice", &auth_public),
+        )
+        .unwrap();
+        let ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, "alice", &ident_public),
+        )
+        .unwrap();
+        let err = store
+            .register_owner(
+                "alice",
+                &auth_public,
+                &replayed_auth_proof,
+                &ident_public,
+                &ident_proof,
+            )
+            .unwrap_err();
+        assert!(err.contains("invalid auth proof"));
+    }
+
+    #[test]
+    fn server_keypair_is_created_once_and_stable() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("meta.db");
+        let data_path = temp.path().join("data");
+        let opened = Store::open_repository(&db_path, &data_path).unwrap();
+        let (public, private) = opened.store.server_keypair().unwrap();
+        assert_eq!(public.len(), crypto::PUBLIC_KEY_LEN);
+        assert_eq!(private.len(), crypto::PRIVATE_KEY_LEN);
+        assert_eq!(crypto::public_from_private(&private).unwrap(), public);
+        drop(opened);
+        // Re-opening the repository must keep the same keypair.
+        let reopened = Store::open_repository(&db_path, &data_path).unwrap();
+        assert_eq!(reopened.store.server_public_key().unwrap(), public);
     }
 
     #[test]

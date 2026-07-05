@@ -31,12 +31,29 @@ impl LocalPaths {
         self.home.join("session")
     }
 
-    pub fn public_key_path(&self, owner: &str) -> PathBuf {
-        self.keys_dir().join(format!("{owner}.pub"))
+    /// Per-machine auth keypair (plan-23 §3.1): `<owner>.auth.{pub,prv}`.
+    pub fn auth_public_key_path(&self, owner: &str) -> PathBuf {
+        self.keys_dir().join(format!("{owner}.auth.pub"))
     }
 
-    pub fn private_key_path(&self, owner: &str) -> PathBuf {
-        self.keys_dir().join(format!("{owner}.prv"))
+    pub fn auth_private_key_path(&self, owner: &str) -> PathBuf {
+        self.keys_dir().join(format!("{owner}.auth.prv"))
+    }
+
+    /// Account ident keypair (plan-23 §3.1): `<owner>.ident.{pub,prv}`.
+    /// Present on every linked machine; linking copies it.
+    pub fn ident_public_key_path(&self, owner: &str) -> PathBuf {
+        self.keys_dir().join(format!("{owner}.ident.pub"))
+    }
+
+    pub fn ident_private_key_path(&self, owner: &str) -> PathBuf {
+        self.keys_dir().join(format!("{owner}.ident.prv"))
+    }
+
+    /// The pinned registry public key (plan-23 index §10.3): fetched from
+    /// `GET /ident` on first contact and pinned thereafter.
+    pub fn server_key_path(&self) -> PathBuf {
+        self.home.join("server.pub")
     }
 
     pub fn session_path(&self, owner: &str) -> PathBuf {
@@ -44,32 +61,76 @@ impl LocalPaths {
     }
 }
 
-pub fn write_keypair(paths: &LocalPaths, owner: &str, public: &[u8], private: &[u8]) -> Result<(), String> {
+pub fn write_auth_keypair(paths: &LocalPaths, owner: &str, public: &[u8], private: &[u8]) -> Result<(), String> {
     create_private_dir(&paths.keys_dir())?;
-    let public_path = paths.public_key_path(owner);
-    let private_path = paths.private_key_path(owner);
-    write_private_file(&public_path, &crypto::encode_bytes(public))?;
-    write_private_file(&private_path, &crypto::encode_bytes(private))?;
+    write_private_file(&paths.auth_public_key_path(owner), &crypto::encode_bytes(public))?;
+    write_private_file(&paths.auth_private_key_path(owner), &crypto::encode_bytes(private))?;
     Ok(())
 }
 
-pub fn remove_keypair(paths: &LocalPaths, owner: &str) {
-    let _ = fs::remove_file(paths.public_key_path(owner));
-    let _ = fs::remove_file(paths.private_key_path(owner));
+pub fn write_ident_keypair(paths: &LocalPaths, owner: &str, public: &[u8], private: &[u8]) -> Result<(), String> {
+    create_private_dir(&paths.keys_dir())?;
+    write_private_file(&paths.ident_public_key_path(owner), &crypto::encode_bytes(public))?;
+    write_private_file(&paths.ident_private_key_path(owner), &crypto::encode_bytes(private))?;
+    Ok(())
 }
 
-pub fn read_public_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>, String> {
-    let path = paths.public_key_path(owner);
-    let value = fs::read_to_string(&path)
-        .map_err(|err| format!("failed to read local public key '{}': {err}", path.display()))?;
-    crypto::decode_bytes(value.trim(), "local public key")
+pub fn remove_owner_keys(paths: &LocalPaths, owner: &str) {
+    let _ = fs::remove_file(paths.auth_public_key_path(owner));
+    let _ = fs::remove_file(paths.auth_private_key_path(owner));
+    let _ = fs::remove_file(paths.ident_public_key_path(owner));
+    let _ = fs::remove_file(paths.ident_private_key_path(owner));
 }
 
-pub fn read_private_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>, String> {
-    let path = paths.private_key_path(owner);
+pub fn read_auth_public_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>, String> {
+    read_key_file(&paths.auth_public_key_path(owner), "local auth public key")
+}
+
+pub fn read_auth_private_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>, String> {
+    let path = paths.auth_private_key_path(owner);
     let value = fs::read_to_string(&path)
         .map_err(|err| format!("missing local private key '{}': {err}", path.display()))?;
-    crypto::decode_bytes(value.trim(), "local private key")
+    crypto::decode_bytes(value.trim(), "local auth private key")
+}
+
+pub fn read_ident_public_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>, String> {
+    read_key_file(&paths.ident_public_key_path(owner), "local ident public key")
+}
+
+pub fn read_ident_private_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>, String> {
+    let path = paths.ident_private_key_path(owner);
+    let value = fs::read_to_string(&path)
+        .map_err(|err| format!("missing local ident private key '{}': {err}", path.display()))?;
+    crypto::decode_bytes(value.trim(), "local ident private key")
+}
+
+fn read_key_file(path: &Path, what: &str) -> Result<Vec<u8>, String> {
+    let value = fs::read_to_string(path)
+        .map_err(|err| format!("failed to read {what} '{}': {err}", path.display()))?;
+    crypto::decode_bytes(value.trim(), what)
+}
+
+/// Pin the registry public key on first contact; refuse a key change after.
+/// Returns an error naming the pinned file when the fetched key does not
+/// match, so a swapped registry key is loud and requires explicit action.
+pub fn pin_server_key(paths: &LocalPaths, server_key: &[u8]) -> Result<(), String> {
+    let path = paths.server_key_path();
+    if path.is_file() {
+        let pinned = read_key_file(&path, "pinned server key")?;
+        if pinned != server_key {
+            return Err(format!(
+                "repository server key does not match the pinned key in '{}'; refusing to continue",
+                path.display()
+            ));
+        }
+        return Ok(());
+    }
+    create_private_dir(&paths.home)?;
+    write_private_file(&path, &crypto::encode_bytes(server_key))
+}
+
+pub fn read_pinned_server_key(paths: &LocalPaths) -> Result<Vec<u8>, String> {
+    read_key_file(&paths.server_key_path(), "pinned server key")
 }
 
 pub fn write_session(paths: &LocalPaths, owner: &str, jwt: &str) -> Result<(), String> {
@@ -117,19 +178,44 @@ mod tests {
     }
 
     #[test]
-    fn writes_and_reads_keypair() {
+    fn writes_and_reads_both_keypairs() {
         let temp = tempfile::tempdir().unwrap();
         let paths = LocalPaths::new(temp.path().join(".mfb"));
-        let (public, private) = crypto::generate_keypair();
-        write_keypair(&paths, "alice", &public, &private).unwrap();
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        write_auth_keypair(&paths, "alice", &auth_public, &auth_private).unwrap();
+        write_ident_keypair(&paths, "alice", &ident_public, &ident_private).unwrap();
 
-        assert_eq!(read_public_key(&paths, "alice").unwrap(), public);
-        assert_eq!(read_private_key(&paths, "alice").unwrap(), private);
+        assert_eq!(read_auth_public_key(&paths, "alice").unwrap(), auth_public);
+        assert_eq!(read_auth_private_key(&paths, "alice").unwrap(), auth_private);
+        assert_eq!(read_ident_public_key(&paths, "alice").unwrap(), ident_public);
+        assert_eq!(read_ident_private_key(&paths, "alice").unwrap(), ident_private);
         #[cfg(unix)]
         {
             assert_eq!(mode(&paths.keys_dir()), 0o700);
-            assert_eq!(mode(&paths.private_key_path("alice")), 0o600);
+            assert_eq!(mode(&paths.auth_private_key_path("alice")), 0o600);
+            assert_eq!(mode(&paths.ident_private_key_path("alice")), 0o600);
         }
+
+        remove_owner_keys(&paths, "alice");
+        assert!(!paths.auth_private_key_path("alice").exists());
+        assert!(!paths.ident_private_key_path("alice").exists());
+    }
+
+    #[test]
+    fn pins_server_key_once_and_rejects_changes() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+        let (server_key, _private) = crypto::generate_keypair();
+        pin_server_key(&paths, &server_key).unwrap();
+        assert_eq!(read_pinned_server_key(&paths).unwrap(), server_key);
+        // Same key again is fine.
+        pin_server_key(&paths, &server_key).unwrap();
+        // A different key must be refused.
+        let (other_key, _other_private) = crypto::generate_keypair();
+        let err = pin_server_key(&paths, &other_key).unwrap_err();
+        assert!(err.contains("does not match the pinned key"), "{err}");
+        assert_eq!(read_pinned_server_key(&paths).unwrap(), server_key);
     }
 
     #[test]

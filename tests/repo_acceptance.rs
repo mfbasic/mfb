@@ -43,8 +43,10 @@ fn repo_exe() -> String {
 fn start_repo(repo_dir: &std::path::Path) -> RepoProcess {
     let mut child = Command::new(repo_exe())
         .args([
-            "--path",
-            repo_dir.to_str().unwrap(),
+            "--dbpath",
+            repo_dir.join("meta.db").to_str().unwrap(),
+            "--datapath",
+            repo_dir.join("packages").to_str().unwrap(),
             "--listen",
             "127.0.0.1:0",
         ])
@@ -65,6 +67,17 @@ fn start_repo(repo_dir: &std::path::Path) -> RepoProcess {
         child,
         url: format!("http://{address}"),
     }
+}
+
+fn open_store(repo_dir: &std::path::Path) -> mfb_repository::store::OpenedRepository {
+    Store::open_repository(&repo_dir.join("meta.db"), &repo_dir.join("packages"))
+        .expect("open repository store")
+}
+
+/// The local key/session store the CLI uses for this repository: MFB_HOME
+/// scoped by the SHA-256 of the repository URL (`~/.mfb/<repo-hash>/`).
+fn mfb_repo_home(repo: &RepoProcess, home: &std::path::Path) -> std::path::PathBuf {
+    home.join(".mfb").join(crypto::fingerprint(repo.url.as_bytes()))
 }
 
 fn run_mfb(repo: &RepoProcess, home: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -98,11 +111,21 @@ fn repo_register_and_authenticate_owner() {
         "register failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    assert!(home.path().join(".mfb/keys/alice.pub").is_file());
-    assert!(home.path().join(".mfb/keys/alice.prv").is_file());
+    let repo_home = mfb_repo_home(&repo, home.path());
+    assert!(repo_home.join("keys/alice.auth.pub").is_file());
+    assert!(repo_home.join("keys/alice.auth.prv").is_file());
+    assert!(repo_home.join("keys/alice.ident.pub").is_file());
+    assert!(repo_home.join("keys/alice.ident.prv").is_file());
+    // The registry public key is pinned on first contact.
+    let pinned = std::fs::read_to_string(repo_home.join("server.pub")).unwrap();
+    assert!(!pinned.trim().is_empty());
 
-    let opened = Store::open_repository(repo_dir.path()).unwrap();
+    let opened = open_store(repo_dir.path());
     assert_eq!(opened.store.count_owners().unwrap(), 1);
+    // The server never stores a user private key: only the two public keys.
+    let (_owner, auth_key) = opened.store.owner_with_auth_key("alice").unwrap().unwrap();
+    let (_owner, ident_key) = opened.store.owner_with_ident_key("alice").unwrap().unwrap();
+    assert_ne!(auth_key.fingerprint, ident_key.fingerprint);
 
     let output = run_mfb(&repo, home.path(), &["repo", "auth", "alice"]);
     assert!(
@@ -110,7 +133,7 @@ fn repo_register_and_authenticate_owner() {
         "auth failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    let session_path = home.path().join(".mfb/session/alice.ses");
+    let session_path = repo_home.join("session/alice.ses");
     assert!(session_path.is_file());
     let token = std::fs::read_to_string(session_path).unwrap();
     let payload = token.split('.').nth(1).unwrap();
@@ -138,9 +161,12 @@ fn repo_rejects_duplicate_and_missing_owner_auth() {
         "{}",
         String::from_utf8_lossy(&duplicate.stderr)
     );
-    assert!(!home.path().join(".mfb/keys/Alice.pub").exists());
-    assert!(!home.path().join(".mfb/keys/Alice.prv").exists());
-    let opened = Store::open_repository(repo_dir.path()).unwrap();
+    let repo_home = mfb_repo_home(&repo, home.path());
+    assert!(!repo_home.join("keys/Alice.auth.pub").exists());
+    assert!(!repo_home.join("keys/Alice.auth.prv").exists());
+    assert!(!repo_home.join("keys/Alice.ident.pub").exists());
+    assert!(!repo_home.join("keys/Alice.ident.prv").exists());
+    let opened = open_store(repo_dir.path());
     assert_eq!(opened.store.count_owners().unwrap(), 1);
 
     let missing = run_mfb(&repo, home.path(), &["repo", "auth", "missing_owner"]);
@@ -164,7 +190,8 @@ fn repo_auth_requires_local_private_key_and_keeps_sessions_per_owner() {
     assert!(run_mfb(&repo, home.path(), &["repo", "register", "bob"])
         .status
         .success());
-    std::fs::remove_file(home.path().join(".mfb/keys/alice.prv")).unwrap();
+    let repo_home = mfb_repo_home(&repo, home.path());
+    std::fs::remove_file(repo_home.join("keys/alice.auth.prv")).unwrap();
     let missing_key = run_mfb(&repo, home.path(), &["repo", "auth", "alice"]);
     assert!(!missing_key.status.success());
     assert!(
@@ -176,8 +203,37 @@ fn repo_auth_requires_local_private_key_and_keeps_sessions_per_owner() {
     assert!(run_mfb(&repo, home.path(), &["repo", "auth", "bob"])
         .status
         .success());
-    assert!(home.path().join(".mfb/session/bob.ses").is_file());
-    assert!(!home.path().join(".mfb/session/alice.ses").exists());
+    assert!(repo_home.join("session/bob.ses").is_file());
+    assert!(!repo_home.join("session/alice.ses").exists());
+}
+
+#[test]
+fn repo_refuses_a_changed_server_key() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+
+    // Poison the pinned server key: every later contact must refuse to
+    // proceed rather than silently trusting the new key.
+    let repo_home = mfb_repo_home(&repo, home.path());
+    let (other_key, _other_private) = crypto::generate_keypair();
+    std::fs::write(
+        repo_home.join("server.pub"),
+        crypto::encode_bytes(&other_key),
+    )
+    .unwrap();
+
+    let auth = run_mfb(&repo, home.path(), &["repo", "auth", "alice"]);
+    assert!(!auth.status.success());
+    assert!(
+        String::from_utf8_lossy(&auth.stderr).contains("does not match the pinned key"),
+        "{}",
+        String::from_utf8_lossy(&auth.stderr)
+    );
 }
 
 #[test]

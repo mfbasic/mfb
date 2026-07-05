@@ -2,8 +2,9 @@ use crate::crypto;
 use crate::local::{self, LocalPaths};
 use crate::server::{
     ChallengeRequest, ChallengeResponse, ErrorResponse, LoginRequest, LoginResponse,
-    PackageArtifactRequest, PublishPackageResponse, RegisterRequest, RegisterResponse,
-    SigningInfoRequest, SigningInfoResponse, ValidatePackageResponse,
+    PackageArtifactRequest, PublishPackageResponse, RegisterProofs, RegisterRequest,
+    RegisterResponse, ServerIdentResponse, SigningInfoRequest, SigningInfoResponse,
+    ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
@@ -14,22 +15,46 @@ pub fn repo_url_from_env() -> String {
     std::env::var("MFB_REPO_URL").unwrap_or_else(|_| DEFAULT_REPO_URL.to_string())
 }
 
+/// Fetch the registry public key from `GET /ident` and pin it as
+/// `server.pub` on first contact; a later mismatch is refused (plan-23 index
+/// §10.3). Every online flow calls this before touching other routes.
+pub fn ensure_server_key(repo_url: &str, paths: &LocalPaths) -> Result<Vec<u8>, String> {
+    let response = get_json::<ServerIdentResponse>(repo_url, "/ident")?;
+    let server_key = crypto::decode_bytes(&response.server_key, "serverKey")?;
+    if crypto::fingerprint(&server_key) != response.server_fingerprint {
+        return Err("repository /ident fingerprint does not match its key".to_string());
+    }
+    local::pin_server_key(paths, &server_key)?;
+    Ok(server_key)
+}
+
 pub fn register(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<RegisterResponse, String> {
     validate_owner_name(owner)?;
-    let (public, private) = crypto::generate_keypair();
-    let message = crypto::registration_message(owner, &public);
-    let proof = crypto::sign(&private, &message)?;
+    ensure_server_key(repo_url, paths)?;
+    // Both keypairs are generated locally; only the public halves and their
+    // role-separated proofs-of-possession go to the server (plan-23 §3.1).
+    let (auth_public, auth_private) = crypto::generate_keypair();
+    let (ident_public, ident_private) = crypto::generate_keypair();
+    let auth_message = crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public);
+    let auth_proof = crypto::sign(&auth_private, &auth_message)?;
+    let ident_message = crypto::registration_message(crypto::ROLE_IDENT, owner, &ident_public);
+    let ident_proof = crypto::sign(&ident_private, &ident_message)?;
     let request = RegisterRequest {
         owner: owner.to_string(),
-        auth_key: crypto::encode_bytes(&public),
-        proof: crypto::encode_bytes(&proof),
+        auth_key: crypto::encode_bytes(&auth_public),
+        ident_key: crypto::encode_bytes(&ident_public),
+        proofs: RegisterProofs {
+            auth: crypto::encode_bytes(&auth_proof),
+            ident: crypto::encode_bytes(&ident_proof),
+        },
     };
-    local::write_keypair(paths, owner, &public, &private)?;
+    local::write_auth_keypair(paths, owner, &auth_public, &auth_private)?;
+    local::write_ident_keypair(paths, owner, &ident_public, &ident_private)?;
     let response = post_json::<RegisterResponse>(repo_url, "/accounts/register", &request);
     match response {
         Ok(response) => Ok(response),
         Err(err) => {
-            local::remove_keypair(paths, owner);
+            local::remove_owner_keys(paths, owner);
             Err(err)
         }
     }
@@ -37,7 +62,8 @@ pub fn register(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<Regis
 
 pub fn auth(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<LoginResponse, String> {
     validate_owner_name(owner)?;
-    let private = match local::read_private_key(paths, owner) {
+    ensure_server_key(repo_url, paths)?;
+    let private = match local::read_auth_private_key(paths, owner) {
         Ok(private) => private,
         Err(local_err) => {
             let probe = post_json::<ChallengeResponse>(
@@ -57,7 +83,7 @@ pub fn auth(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<LoginResp
         }
     };
     let public = crypto::public_from_private(&private)?;
-    if let Ok(stored_public) = local::read_public_key(paths, owner) {
+    if let Ok(stored_public) = local::read_auth_public_key(paths, owner) {
         if stored_public != public {
             return Err("mismatched local key fingerprint".to_string());
         }
@@ -165,6 +191,21 @@ fn post_json<T: DeserializeOwned>(
         .json(body)
         .send()
         .map_err(|err| format!("failed to connect to repository service: {err}"))?;
+    read_json_response(response)
+}
+
+fn get_json<T: DeserializeOwned>(repo_url: &str, path: &str) -> Result<T, String> {
+    let url = format!("{}{}", repo_url.trim_end_matches('/'), path);
+    let response = Client::new()
+        .get(&url)
+        .send()
+        .map_err(|err| format!("failed to connect to repository service: {err}"))?;
+    read_json_response(response)
+}
+
+fn read_json_response<T: DeserializeOwned>(
+    response: reqwest::blocking::Response,
+) -> Result<T, String> {
     let status = response.status();
     if status.is_success() {
         return response
@@ -186,20 +227,16 @@ mod tests {
 
     #[test]
     fn register_duplicate_failure_leaves_no_local_keys() {
-        let temp_repo = tempfile::tempdir().unwrap();
-        let db_path = temp_repo.path().join("meta.db");
-        let data_path = temp_repo.path().join("data");
-        let opened = crate::store::Store::open_repository(&db_path, &data_path).unwrap();
-        let store = opened.store;
         let temp_home = tempfile::tempdir().unwrap();
         let paths = LocalPaths::new(temp_home.path().join(".mfb"));
 
-        let (public, private) = crypto::generate_keypair();
-        let message = crypto::registration_message("alice", &public);
-        let proof = crypto::sign(&private, &message).unwrap();
-        store.register_owner("alice", &public, &proof).unwrap();
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        local::write_auth_keypair(&paths, "alice", &auth_public, &auth_private).unwrap();
+        local::write_ident_keypair(&paths, "alice", &ident_public, &ident_private).unwrap();
 
-        local::remove_keypair(&paths, "alice");
-        assert!(!paths.private_key_path("alice").exists());
+        local::remove_owner_keys(&paths, "alice");
+        assert!(!paths.auth_private_key_path("alice").exists());
+        assert!(!paths.ident_private_key_path("alice").exists());
     }
 }

@@ -1,52 +1,77 @@
 # Local Key & Session Store
 
 The `mfb` package-manager client keeps a per-machine store of Ed25519 owner
-keypairs and short-lived repository sessions under a single private root
-directory. This store is the local half of the repository protocol: `register`
-generates and writes a keypair, `auth` signs a challenge with the stored private
-key and caches the returned session token, and every authenticated request
-(`signing-info`, publish) reads the cached session back. This topic owns the
-on-disk layout, the path-resolution rules, the encoding, and the permission
-model. [[repository/src/local.rs:LocalPaths]]
+keypairs, the pinned registry public key, and short-lived repository sessions
+under a private per-repository root directory. This store is the local half of
+the repository protocol: `register` generates and writes the machine's **auth**
+keypair and the account's **ident** keypair, `auth` signs a challenge with the
+stored auth private key and caches the returned session token, and every
+authenticated request (attestation fetch, publish) reads the cached session
+back. This topic owns the on-disk layout, the path-resolution rules, the
+encoding, and the permission model. [[repository/src/local.rs:LocalPaths]]
 
 ## Root Directory
 
-The store root is resolved once, lazily, from the environment. [[repository/src/local.rs:LocalPaths]]
+The store base is resolved once, lazily, from the environment, and then scoped
+per repository: because key and session files are named only by owner, the CLI
+appends the lowercase-hex SHA-256 of the repository URL as a directory
+component so that one owner name used against two different repositories never
+collides. [[src/cli/mod.rs:local_paths_for_repo]]
 
 | source | precedence | value |
 | --- | --- | --- |
-| `MFB_HOME` | highest | taken verbatim as the store root |
-| `HOME` | fallback | store root is `$HOME/.mfb` |
+| `MFB_HOME` | highest | taken verbatim as the store base |
+| `HOME` | fallback | store base is `$HOME/.mfb` |
 | neither set | — | hard error: `HOME is not set` |
 
-`MFB_HOME` is used exactly as given (it is *not* joined with `.mfb`), which lets
-tests and sandboxes point the store at a throwaway directory. The default root
-is `~/.mfb`. [[repository/src/local.rs:from_env]]
+The per-repository root is `<base>/<repo-hash>/` where `repo-hash =
+hex(SHA-256(repo_url))`. `MFB_HOME` is used exactly as given (it is *not*
+joined with `.mfb`), which lets tests and sandboxes point the store at a
+throwaway directory. [[src/cli/mod.rs:local_paths_for_repo]]
 
 ## Layout
 
-The root holds two subdirectories, one for keys and one for sessions; every file
-is named after its owner. [[repository/src/local.rs:keys_dir]]
+The per-repository root holds the pinned registry key and two subdirectories,
+one for keys and one for sessions; key files are named after their owner and
+role. [[repository/src/local.rs:keys_dir]]
 
 ```text
-$MFB_HOME (or ~/.mfb)/          (default mode)
+$MFB_HOME (or ~/.mfb)/<repo-hash>/
+├── server.pub                  0600   base64url registry public key (pinned)
 ├── keys/                       0700
-│   ├── <owner>.pub             0600   base64url public key
-│   └── <owner>.prv             0600   base64url private key
+│   ├── <owner>.auth.pub        0600   base64url auth public key (per machine)
+│   ├── <owner>.auth.prv        0600   base64url auth private key
+│   ├── <owner>.ident.pub       0600   base64url ident public key (per account)
+│   └── <owner>.ident.prv       0600   base64url ident private key
 └── session/                    0700
     └── <owner>.ses             0600   session JWT (HS256)
 ```
 
 | path | accessor | contents |
 | --- | --- | --- |
-| `keys/<owner>.pub` | `public_key_path` | base64url-encoded 32-byte Ed25519 public key |
-| `keys/<owner>.prv` | `private_key_path` | base64url-encoded 32-byte Ed25519 private (seed) key |
+| `server.pub` | `server_key_path` | base64url 32-byte registry public key, pinned on first contact |
+| `keys/<owner>.auth.pub` | `auth_public_key_path` | base64url 32-byte Ed25519 auth public key |
+| `keys/<owner>.auth.prv` | `auth_private_key_path` | base64url 32-byte Ed25519 auth private (seed) key |
+| `keys/<owner>.ident.pub` | `ident_public_key_path` | base64url 32-byte Ed25519 ident public key |
+| `keys/<owner>.ident.prv` | `ident_private_key_path` | base64url 32-byte Ed25519 ident private (seed) key |
 | `session/<owner>.ses` | `session_path` | repository session token (a signed JWT), one line |
 
-All file names are `format!("{owner}.ext")`; `owner` must already be a validated
-owner name before any path is built (callers run `validate_owner_name` first).
-See `./mfb spec package-manager owner-names` for the grammar.
-[[repository/src/local.rs:public_key_path]]
+The **auth** keypair is per machine and only logs into the registry API; the
+**ident** keypair *is* the account identity, lives on every linked machine, and
+signs build proofs — see `./mfb spec package-manager signing` for the key
+model. All key file names are `format!("{owner}.{role}.ext")`; `owner` must
+already be a validated owner name before any path is built (callers run
+`validate_owner_name` first). See `./mfb spec package-manager owner-names` for
+the grammar. [[repository/src/local.rs:auth_public_key_path]]
+
+## The Pinned Server Key (`server.pub`)
+
+`server.pub` holds the registry's own public key, fetched from `GET /ident` and
+written on **first contact** (trust-on-first-use). Every subsequent online flow
+re-fetches `/ident` and compares: a key that differs from the pinned one is a
+hard error naming the pinned file (`repository server key does not match the
+pinned key in '<path>'`), never a silent re-pin. Offline verification reads the
+pinned file directly. [[repository/src/local.rs:pin_server_key]][[repository/src/client.rs:ensure_server_key]]
 
 ## Encoding
 
@@ -75,7 +100,7 @@ non-Unix targets the permission step is a no-op. [[repository/src/local.rs:set_p
 | target | mode | applied by |
 | --- | --- | --- |
 | `keys/`, `session/` | `0700` | `create_private_dir` (via `create_dir_all` then `set_permissions`) |
-| `<owner>.pub`, `<owner>.prv`, `<owner>.ses` | `0600` | `write_private_file` (via `fs::write` then `set_permissions`) |
+| `<owner>.<role>.pub`, `<owner>.<role>.prv`, `server.pub`, `<owner>.ses` | `0600` | `write_private_file` (via `fs::write` then `set_permissions`) |
 
 `create_private_dir` calls `create_dir_all`, so the root and intermediate
 directories are created as needed, but only the named leaf directory's mode is
@@ -86,15 +111,21 @@ mode. [[repository/src/local.rs:create_private_dir]]
 
 | operation | function | effect |
 | --- | --- | --- |
-| store keypair | `write_keypair` | ensures `keys/` (0700), writes `<owner>.pub` and `<owner>.prv` (0600), each base64url-encoded |
-| discard keypair | `remove_keypair` | best-effort `remove_file` of both key files; errors ignored (used to roll back a failed `register`) |
-| load public key | `read_public_key` | reads, trims, base64url-decodes `<owner>.pub` |
-| load private key | `read_private_key` | reads, trims, base64url-decodes `<owner>.prv`; missing file ⇒ `missing local private key …` |
+| store auth keypair | `write_auth_keypair` | ensures `keys/` (0700), writes `<owner>.auth.pub` and `<owner>.auth.prv` (0600), each base64url-encoded |
+| store ident keypair | `write_ident_keypair` | same, for `<owner>.ident.pub` / `<owner>.ident.prv` |
+| discard owner keys | `remove_owner_keys` | best-effort `remove_file` of all four key files; errors ignored (used to roll back a failed `register`) |
+| load auth public key | `read_auth_public_key` | reads, trims, base64url-decodes `<owner>.auth.pub` |
+| load auth private key | `read_auth_private_key` | reads, trims, base64url-decodes `<owner>.auth.prv`; missing file ⇒ `missing local private key …` |
+| load ident public key | `read_ident_public_key` | reads, trims, base64url-decodes `<owner>.ident.pub` |
+| load ident private key | `read_ident_private_key` | reads, trims, base64url-decodes `<owner>.ident.prv`; missing file ⇒ `missing local ident private key …` |
+| pin server key | `pin_server_key` | writes `server.pub` on first use; errors if a different key is already pinned |
+| load pinned server key | `read_pinned_server_key` | reads, trims, base64url-decodes `server.pub` |
 | store session | `write_session` | ensures `session/` (0700), writes `<owner>.ses` (0600) verbatim |
 | load session | `read_session` | reads `<owner>.ses`, returns it trimmed |
 
-`write_keypair` is keyed by owner, so writing a keypair for a second owner adds a
-new pair of files rather than replacing the first. [[repository/src/local.rs:write_keypair]]
+The write helpers are keyed by owner, so writing keypairs for a second owner
+adds new files rather than replacing the first owner's.
+[[repository/src/local.rs:write_auth_keypair]]
 
 ## Owner-Scoped Sessions
 
@@ -113,11 +144,13 @@ re-runs `auth`. [[repository/src/client.rs:auth]]
 
 ## Relation to Signing
 
-The private key in `keys/<owner>.prv` is the same key used to prove ownership in
-the repository protocol: `register` signs the `mfb-repo-register-v1` domain
-message and `auth` signs the `mfb-repo-auth-v1` challenge with it. Package
-signing fingerprints and the publish signing flow build on the session token
-cached here. See `./mfb spec package-manager signing`. [[repository/src/crypto.rs:registration_message]]
+The auth private key in `keys/<owner>.auth.prv` proves machine login: `register`
+signs the role-discriminated `mfb-repo-register-v1` message with it and `auth`
+signs the `mfb-repo-auth-v1` challenge. The ident private key in
+`keys/<owner>.ident.prv` proves account identity: it signs its own registration
+proof and the per-build package proof. Package signing and the publish flow
+build on the session token cached here plus both keys. See
+`./mfb spec package-manager signing`. [[repository/src/crypto.rs:registration_message]]
 
 ## See Also
 

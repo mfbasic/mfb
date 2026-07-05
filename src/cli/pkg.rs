@@ -94,7 +94,7 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
     binary_repr::read_package_info(&package_path)?;
 
     let repo_url = mfb_repository::client::repo_url_from_env();
-    let paths = mfb_repository::local::LocalPaths::from_env()?;
+    let paths = super::local_paths_for_repo(&repo_url)?;
     let content_hash = package.content_hash_hex();
     let artifact_request = mfb_repository::client::PackageArtifact {
         ident: &package.ident,

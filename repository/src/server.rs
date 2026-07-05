@@ -22,7 +22,18 @@ pub struct RegisterRequest {
     pub owner: String,
     #[serde(rename = "authKey")]
     pub auth_key: String,
-    pub proof: String,
+    #[serde(rename = "identKey")]
+    pub ident_key: String,
+    /// Role-separated proof-of-possession signatures: each private key signs
+    /// the role-discriminated registration message for its own role, so one
+    /// proof can never be replayed as the other (plan-23 Phase A1).
+    pub proofs: RegisterProofs,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RegisterProofs {
+    pub auth: String,
+    pub ident: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -30,6 +41,19 @@ pub struct RegisterResponse {
     pub owner: String,
     #[serde(rename = "authFingerprint")]
     pub auth_fingerprint: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: String,
+}
+
+/// `GET /ident` — the registry's own public key (plan-23 index §10.3). Clients
+/// pin this as `server.pub` on first contact; its fingerprint is the
+/// `repoFingerprint` named in every attestation.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ServerIdentResponse {
+    #[serde(rename = "serverKey")]
+    pub server_key: String,
+    #[serde(rename = "serverFingerprint")]
+    pub server_fingerprint: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -150,6 +174,7 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
     };
     let app = Router::new()
         .route("/health", get(health))
+        .route("/ident", get(server_ident))
         .route("/accounts/register", post(register))
         .route("/auth/challenge", post(challenge))
         .route("/auth/login", post(login))
@@ -174,19 +199,33 @@ async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
 
+async fn server_ident(
+    State(state): State<AppState>,
+) -> Result<Json<ServerIdentResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let public = state.store.server_public_key().map_err(internal)?;
+    Ok(Json(ServerIdentResponse {
+        server_key: crypto::encode_bytes(&public),
+        server_fingerprint: crypto::fingerprint(&public),
+    }))
+}
+
 async fn register(
     State(state): State<AppState>,
     Json(request): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let public = crypto::decode_bytes(&request.auth_key, "authKey").map_err(bad_request)?;
-    let proof = crypto::decode_bytes(&request.proof, "proof").map_err(bad_request)?;
-    let (owner, key) = state
+    let auth_key = crypto::decode_bytes(&request.auth_key, "authKey").map_err(bad_request)?;
+    let ident_key = crypto::decode_bytes(&request.ident_key, "identKey").map_err(bad_request)?;
+    let auth_proof = crypto::decode_bytes(&request.proofs.auth, "auth proof").map_err(bad_request)?;
+    let ident_proof =
+        crypto::decode_bytes(&request.proofs.ident, "ident proof").map_err(bad_request)?;
+    let (owner, auth, ident) = state
         .store
-        .register_owner(&request.owner, &public, &proof)
+        .register_owner(&request.owner, &auth_key, &auth_proof, &ident_key, &ident_proof)
         .map_err(conflict_or_bad_request)?;
     Ok(Json(RegisterResponse {
         owner: owner.owner_display,
-        auth_fingerprint: key.fingerprint,
+        auth_fingerprint: auth.fingerprint,
+        ident_fingerprint: ident.fingerprint,
     }))
 }
 
@@ -474,6 +513,25 @@ mod tests {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
 
+    fn register_owner_with_keys(store: &Store, owner: &str) -> (Vec<u8>, Vec<u8>) {
+        let (auth_public, auth_private) = crypto::generate_keypair();
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let auth_proof = crypto::sign(
+            &auth_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public),
+        )
+        .unwrap();
+        let ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, owner, &ident_public),
+        )
+        .unwrap();
+        store
+            .register_owner(owner, &auth_public, &auth_proof, &ident_public, &ident_proof)
+            .unwrap();
+        (auth_public, auth_private)
+    }
+
     #[test]
     fn jwt_creation_sets_expected_claims_and_verifies() {
         let temp = tempfile::tempdir().unwrap();
@@ -481,10 +539,7 @@ mod tests {
         let data_path = temp.path().join("data");
         let opened = Store::open_repository(&db_path, &data_path).unwrap();
         let store = opened.store;
-        let (public, private) = crypto::generate_keypair();
-        let message = crypto::registration_message("alice", &public);
-        let proof = crypto::sign(&private, &message).unwrap();
-        store.register_owner("alice", &public, &proof).unwrap();
+        let (_public, private) = register_owner_with_keys(&store, "alice");
 
         let challenge = store.create_challenge("alice").unwrap();
         let message = crypto::challenge_message(&challenge.id, &challenge.nonce);
@@ -533,10 +588,8 @@ mod tests {
         let data_path = temp.path().join("data");
         let opened = Store::open_repository(&db_path, &data_path).unwrap();
         let store = opened.store;
-        let (public, private) = crypto::generate_keypair();
-        let message = crypto::registration_message("alice", &public);
-        let proof = crypto::sign(&private, &message).unwrap();
-        let (owner, key) = store.register_owner("alice", &public, &proof).unwrap();
+        register_owner_with_keys(&store, "alice");
+        let (owner, key) = store.owner_with_auth_key("alice").unwrap().unwrap();
         let now = crate::store::now_unix();
 
         let expired_jti = Uuid::new_v4().to_string();

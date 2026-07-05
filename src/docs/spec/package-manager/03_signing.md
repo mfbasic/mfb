@@ -2,9 +2,36 @@
 
 How publisher identity, package signatures, and the local-vs-repository key match are established. All asymmetric crypto is Ed25519 over a SHA-256 fingerprint scheme; the wire and metadata encodings live in `mfb_repository::crypto`. [[repository/src/crypto.rs:sign]]
 
-## Keys and fingerprints
+## The four keys
 
-The repository models two logical roles, the **ident key** and the **signing key**, even though the current implementation derives both from a single per-owner Ed25519 keypair. The ident key names the publisher (publisher identity); the signing key is the key whose private half signs `.mfp` packages.
+The trust model holds exactly four Ed25519 keypairs, distinguished by where the
+private half lives (plan-23). Whoever holds a private key can forge everything
+that key vouches for, so each key's storage *is* its authority boundary.
+
+| Key | How many | Private key lives | Job |
+| --- | --- | --- | --- |
+| **server key** | 1 per registry | on the server (the only private key it holds) | signs attestations |
+| **ident** | 1 per account | on every linked machine (copied at link time) | *is* the user's identity; signs proofs |
+| **auth** | 1 per machine | that machine | logs into the registry API; nothing more |
+| **signing** | 1 per package, one-off | for the duration of one build, then discarded | signs the `.mfp` |
+
+What each key must **not** be able to do:
+
+* **auth** cannot sign proofs or packages — a stolen login can request
+  attestations (logged) but can never produce a package that verifies.
+* **server key** signs attestations only — it can never produce a proof, so it
+  can never impersonate a user to a consumer who has pinned that user.
+* **ident** never signs packages directly — only proofs; the per-package key
+  does the byte-signing so the ident signature surface stays tiny.
+* **signing (one-off)** has no standing power — it dies at the end of the build.
+
+Forging a package therefore requires **two independent credentials**: the ident
+private key (to sign the proof) *and* a live authenticated session (to obtain
+the attestation). Either alone is useless. The server holds no user private
+keys: a full server compromise yields zero user keys.
+[[repository/src/store.rs:register_owner]][[repository/src/store.rs:server_keypair]]
+
+## Fingerprints and encodings
 
 | Concept | Meaning | Encoding (metadata form) |
 | --- | --- | --- |
@@ -12,26 +39,23 @@ The repository models two logical roles, the **ident key** and the **signing key
 | signing key | Key verifying a package signature | `ed25519:` + URL-safe base64 of 32-byte public key |
 | fingerprint | Key identifier | lowercase hex of `SHA-256(public_key)` |
 
-The `ed25519:`-prefixed form is the *metadata* encoding (package header,
-manifest, executable signing blob); the `/keys/signing` wire response carries
-the bare base64 key and the client prepends the prefix. [[src/cli/build.rs:load_build_signing_info]]
-
 A keypair is 32-byte public + 32-byte private; a signature is 64 bytes. [[repository/src/crypto.rs:PUBLIC_KEY_LEN]] Keys are generated from OS entropy. [[repository/src/crypto.rs:generate_keypair]] The public key can always be re-derived from the private key, which is how the build path checks a local key against the repository. [[repository/src/crypto.rs:public_from_private]]
 
 The fingerprint is `hex(SHA-256(public_key))` — the public key bytes hashed directly, no domain prefix. [[repository/src/crypto.rs:fingerprint]]
 
 Raw key/signature/nonce bytes are carried on the wire as URL-safe base64 without padding. [[repository/src/crypto.rs:encode_bytes]]
 
-In the current server, `/keys/signing` returns the owner's single auth public key for **both** `identKey`/`identFingerprint` and `signingKey`/`signingFingerprint`; the two roles are reported as equal. The split exists so signing can later be delegated to a distinct key without a protocol change. [[repository/src/server.rs:signing_info]]
-
 ## Signing-domain byte strings
 
 Two off-package proofs use length-free, NUL-delimited domain-separated messages. The literals are exact (verified against source); `\0` is a single NUL byte (`0x00`).
 
-Registration message — proves control of a freshly generated keypair when claiming an owner name:
+Registration message — proves control of a freshly generated keypair when
+claiming an owner name. The key's **role** (`auth` or `ident`) is inside the
+signed bytes, so a proof minted for one role can never be replayed as the
+other:
 
 ```text
-"mfb-repo-register-v1\0" || owner || "\0" || publicKey
+"mfb-repo-register-v1\0" || role || "\0" || owner || "\0" || publicKey
 ```
 
 [[repository/src/crypto.rs:registration_message]]
@@ -47,6 +71,8 @@ Challenge message — proves control of the private key when authenticating agai
 | Field | Element | Type |
 | --- | --- | --- |
 | register | domain | ASCII `mfb-repo-register-v1` + 1 NUL |
+| register | `role` | ASCII `auth` or `ident` |
+| register | separator | 1 NUL |
 | register | `owner` | UTF-8 owner name bytes |
 | register | separator | 1 NUL |
 | register | `publicKey` | 32 raw bytes |
@@ -59,11 +85,17 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 
 ### Registration flow
 
-`register` generates a keypair, builds `registration_message(owner, public)`, signs it, and `POST`s `{owner, authKey, proof}` to `/accounts/register`; the keypair is written locally first and removed again if the server rejects the request. [[repository/src/client.rs:register]] The server decodes `authKey`/`proof` and verifies the proof before recording the owner. [[repository/src/server.rs:register]]
+`register` generates the auth and ident keypairs locally, builds one
+role-discriminated `registration_message` per key, signs each with its own
+private key, and `POST`s `{owner, authKey, identKey, proofs:{auth,ident}}` to
+`/accounts/register`; the keypairs are written locally first and removed again
+if the server rejects the request. [[repository/src/client.rs:register]] The
+server decodes both keys and proofs and verifies each proof against its own
+role's message before recording the owner. [[repository/src/server.rs:register]]
 
 ### Challenge flow
 
-`auth` reads the local private key, derives the public key and its fingerprint, requests a challenge from `/auth/challenge`, signs `challenge_message(challengeId, nonce)`, and posts the signature to `/auth/login` to obtain a session token. [[repository/src/client.rs:auth]]
+`auth` reads the local **auth** private key, derives the public key and its fingerprint, requests a challenge from `/auth/challenge`, signs `challenge_message(challengeId, nonce)`, and posts the signature to `/auth/login` to obtain a session token. [[repository/src/client.rs:auth]]
 
 ## `build --sign`: local-key vs repository-key match
 
