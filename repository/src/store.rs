@@ -60,29 +60,35 @@ pub struct OpenedRepository {
 }
 
 impl Store {
-    pub fn open_repository(path: &Path) -> Result<OpenedRepository, String> {
-        if path.exists() && !path.is_dir() {
+    pub fn open_repository(dbpath: &Path, datapath: &Path) -> Result<OpenedRepository, String> {
+        if dbpath.exists() && !dbpath.is_file() {
             return Err(format!(
-                "repository path '{}' exists but is not a directory",
-                path.display()
+                "database path '{}' exists but is not a file",
+                dbpath.display()
             ));
         }
-        fs::create_dir_all(path).map_err(|err| {
+        if let Some(parent) = dbpath.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                format!(
+                    "failed to create database directory '{}': {err}",
+                    parent.display()
+                )
+            })?;
+        }
+        if datapath.exists() && !datapath.is_dir() {
+            return Err(format!(
+                "data path '{}' exists but is not a directory",
+                datapath.display()
+            ));
+        }
+        fs::create_dir_all(datapath).map_err(|err| {
             format!(
-                "failed to create repository path '{}': {err}",
-                path.display()
+                "failed to create data directory '{}': {err}",
+                datapath.display()
             )
         })?;
-        let packages_dir = path.join("packages");
-        fs::create_dir_all(&packages_dir).map_err(|err| {
-            format!(
-                "failed to create package directory '{}': {err}",
-                packages_dir.display()
-            )
-        })?;
-        let db_path = path.join("meta.db");
-        let conn = Connection::open(&db_path)
-            .map_err(|err| format!("failed to open '{}': {err}", db_path.display()))?;
+        let conn = Connection::open(dbpath)
+            .map_err(|err| format!("failed to open '{}': {err}", dbpath.display()))?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|err| format!("failed to enable foreign keys: {err}"))?;
         let store = Store {
@@ -92,7 +98,7 @@ impl Store {
         store.ensure_server_secret()?;
         Ok(OpenedRepository {
             store,
-            packages_dir,
+            packages_dir: datapath.to_path_buf(),
         })
     }
 
@@ -512,7 +518,9 @@ mod tests {
 
     fn test_store() -> (tempfile::TempDir, Store) {
         let temp = tempfile::tempdir().unwrap();
-        let opened = Store::open_repository(temp.path()).unwrap();
+        let db_path = temp.path().join("meta.db");
+        let data_path = temp.path().join("data");
+        let opened = Store::open_repository(&db_path, &data_path).unwrap();
         (temp, opened.store)
     }
 
@@ -527,9 +535,11 @@ mod tests {
     #[test]
     fn startup_creates_database_and_packages_dir() {
         let temp = tempfile::tempdir().unwrap();
-        let opened = Store::open_repository(temp.path()).unwrap();
-        assert!(temp.path().join("meta.db").is_file());
-        assert!(opened.packages_dir.is_dir());
+        let db_path = temp.path().join("meta.db");
+        let data_path = temp.path().join("data");
+        let opened = Store::open_repository(&db_path, &data_path).unwrap();
+        assert!(db_path.is_file());
+        assert!(data_path.is_dir());
         opened.store.migrate().unwrap();
     }
 

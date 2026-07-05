@@ -5,7 +5,7 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process;
 
-const USAGE: &str = "Usage: mfb-repo --path <repo_path> [--listen <addr:port>]";
+const USAGE: &str = "Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>]";
 
 #[tokio::main]
 async fn main() {
@@ -17,7 +17,7 @@ async fn main() {
         }
     };
 
-    let opened = match Store::open_repository(&options.path) {
+    let opened = match Store::open_repository(&options.dbpath, &options.datapath) {
         Ok(opened) => opened,
         Err(err) => {
             eprintln!("error: {err}");
@@ -32,22 +32,30 @@ async fn main() {
 }
 
 struct Options {
-    path: PathBuf,
+    dbpath: PathBuf,
+    datapath: PathBuf,
     listen: SocketAddr,
 }
 
 fn parse_args(args: Vec<String>) -> Result<Options, String> {
-    let mut path = None;
+    let mut dbpath = None;
+    let mut datapath = None;
     let mut listen = "127.0.0.1:7777".parse::<SocketAddr>().unwrap();
     let mut iter = args.into_iter();
 
     while let Some(arg) = iter.next() {
         match arg.as_str() {
-            "--path" => {
+            "--dbpath" => {
                 let Some(value) = iter.next() else {
-                    return Err("--path requires <repo_path>".to_string());
+                    return Err("--dbpath requires <db_path>".to_string());
                 };
-                path = Some(PathBuf::from(value));
+                dbpath = Some(PathBuf::from(value));
+            }
+            "--datapath" => {
+                let Some(value) = iter.next() else {
+                    return Err("--datapath requires <data_path>".to_string());
+                };
+                datapath = Some(PathBuf::from(value));
             }
             "--listen" => {
                 let Some(value) = iter.next() else {
@@ -57,8 +65,11 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
                     .parse()
                     .map_err(|_| format!("invalid listen address '{value}'"))?;
             }
-            _ if arg.starts_with("--path=") => {
-                path = Some(PathBuf::from(arg.trim_start_matches("--path=")));
+            _ if arg.starts_with("--dbpath=") => {
+                dbpath = Some(PathBuf::from(arg.trim_start_matches("--dbpath=")));
+            }
+            _ if arg.starts_with("--datapath=") => {
+                datapath = Some(PathBuf::from(arg.trim_start_matches("--datapath=")));
             }
             _ if arg.starts_with("--listen=") => {
                 let value = arg.trim_start_matches("--listen=");
@@ -70,8 +81,11 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
         }
     }
 
-    let Some(path) = path else {
-        return Err("--path is required".to_string());
+    let Some(dbpath) = dbpath else {
+        return Err("--dbpath is required".to_string());
     };
-    Ok(Options { path, listen })
+    let Some(datapath) = datapath else {
+        return Err("--datapath is required".to_string());
+    };
+    Ok(Options { dbpath, datapath, listen })
 }

@@ -477,7 +477,9 @@ mod tests {
     #[test]
     fn jwt_creation_sets_expected_claims_and_verifies() {
         let temp = tempfile::tempdir().unwrap();
-        let opened = Store::open_repository(temp.path()).unwrap();
+        let db_path = temp.path().join("meta.db");
+        let data_path = temp.path().join("data");
+        let opened = Store::open_repository(&db_path, &data_path).unwrap();
         let store = opened.store;
         let (public, private) = crypto::generate_keypair();
         let message = crypto::registration_message("alice", &public);
@@ -527,7 +529,9 @@ mod tests {
     #[test]
     fn jwt_verification_rejects_expired_wrong_signature_and_unknown_session() {
         let temp = tempfile::tempdir().unwrap();
-        let opened = Store::open_repository(temp.path()).unwrap();
+        let db_path = temp.path().join("meta.db");
+        let data_path = temp.path().join("data");
+        let opened = Store::open_repository(&db_path, &data_path).unwrap();
         let store = opened.store;
         let (public, private) = crypto::generate_keypair();
         let message = crypto::registration_message("alice", &public);

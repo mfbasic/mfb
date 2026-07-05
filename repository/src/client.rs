@@ -187,7 +187,9 @@ mod tests {
     #[test]
     fn register_duplicate_failure_leaves_no_local_keys() {
         let temp_repo = tempfile::tempdir().unwrap();
-        let opened = crate::store::Store::open_repository(temp_repo.path()).unwrap();
+        let db_path = temp_repo.path().join("meta.db");
+        let data_path = temp_repo.path().join("data");
+        let opened = crate::store::Store::open_repository(&db_path, &data_path).unwrap();
         let store = opened.store;
         let temp_home = tempfile::tempdir().unwrap();
         let paths = LocalPaths::new(temp_home.path().join(".mfb"));
