@@ -1,0 +1,32 @@
+$ mfb build -ast -ir tests/control-flow-match-pattern-invalid
+  14 |   MATCH shape
+  15 |     CASE Rect(r)
+  16 |       RETURN r.width
+     | ^
+tests/control-flow-match-pattern-invalid/src/main.mfb:16 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+  23 |   MATCH n
+  24 |     CASE Circle(c)
+  25 |       RETURN c.radius
+     | ^
+tests/control-flow-match-pattern-invalid/src/main.mfb:25 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               RETURN value does not have a known type.
+  13 | FUNC classify(shape AS Shape) AS Integer
+  14 |   MATCH shape
+  15 |     CASE Rect(r)
+     | ^
+tests/control-flow-match-pattern-invalid/src/main.mfb:15 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Rect` is not a member of UNION `Shape`.
+  22 | FUNC pick(n AS Integer) AS Integer
+  23 |   MATCH n
+  24 |     CASE Circle(c)
+     | ^
+tests/control-flow-match-pattern-invalid/src/main.mfb:24 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE `Circle` requires a UNION value, got Integer.
+  24 |     CASE Circle(c)
+  25 |       RETURN c.radius
+  26 |     CASE "one"
+     | ^
+tests/control-flow-match-pattern-invalid/src/main.mfb:26 error[2-203-0049 TYPE_MATCH_PATTERN_MISMATCH]: match pattern type does not match the scrutinee type
+               CASE pattern has type String, expected Integer.
+[exit 1]

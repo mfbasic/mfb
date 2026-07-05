@@ -1,0 +1,35 @@
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Rect
+  width AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+END UNION
+
+FUNC classify(shape AS Shape) AS Integer
+  MATCH shape
+    CASE Rect(r)
+      RETURN r.width
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+FUNC pick(n AS Integer) AS Integer
+  MATCH n
+    CASE Circle(c)
+      RETURN c.radius
+    CASE "one"
+      RETURN 1
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  RETURN classify(Circle[3]) + pick(2)
+END FUNC

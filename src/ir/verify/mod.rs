@@ -103,6 +103,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
     "TYPE_DEFAULT_VALUE_MISMATCH",
     "TYPE_READ_ONLY_RECORD_UPDATE",
+    "TYPE_MATCH_PATTERN_MISMATCH",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -626,6 +627,8 @@ impl TypeEnv {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
                     self.check_match_exhaustive(value, cases, locals);
+                    self.check_match_patterns(value, cases, locals);
+                    self.current_line.set(line);
                     for case in cases {
                         match &case.pattern {
                             super::IrMatchPattern::Else => {}
@@ -1639,6 +1642,87 @@ impl TypeEnv {
                 missing[0]
             ),
         );
+    }
+
+    /// `typecheck`'s `TYPE_MATCH_PATTERN_MISMATCH` on the IR: a CASE pattern
+    /// must fit the scrutinee — a union CASE must name one of the union's
+    /// variants, a type-named CASE requires a union scrutinee, and a literal
+    /// pattern's type must be compatible with the scrutinee type. Unknown
+    /// scrutinee or pattern types are skipped (sound skip-if-unknown).
+    fn check_match_patterns(
+        &self,
+        value: &IrValue,
+        cases: &[super::IrMatchCase],
+        locals: &HashMap<String, String>,
+    ) {
+        let Some(scrutinee) = self.infer_type(value, locals) else {
+            return;
+        };
+        let scrutinee = resource_base_type(&scrutinee).to_string();
+        if scrutinee.is_empty() || scrutinee == "Unknown" {
+            return;
+        }
+        let union_variants = self.union_variants(&scrutinee);
+        let check_pattern = |v: &IrValue| {
+            // A pattern that names a declared type is a union-variant arm.
+            let type_name = match v {
+                IrValue::Local(name) => Some(name),
+                IrValue::MemberAccess { member, .. } => Some(member),
+                _ => None,
+            }
+            .filter(|n| {
+                self.records.contains_key(n.as_str())
+                    || self.unions.contains_key(n.as_str())
+                    || self.enums.contains_key(n.as_str())
+            });
+            if let Some(type_name) = type_name {
+                match &union_variants {
+                    Some(variants) => {
+                        if !variants.contains(type_name.as_str()) {
+                            self.emit(
+                                "TYPE_MATCH_PATTERN_MISMATCH",
+                                format!(
+                                    "CASE `{type_name}` is not a member of UNION `{scrutinee}`."
+                                ),
+                            );
+                        }
+                    }
+                    None => {
+                        // An enum scrutinee's member arms share member names
+                        // with no type; a declared-type CASE against any
+                        // non-union scrutinee is malformed.
+                        self.emit(
+                            "TYPE_MATCH_PATTERN_MISMATCH",
+                            format!("CASE `{type_name}` requires a UNION value, got {scrutinee}."),
+                        );
+                    }
+                }
+                return;
+            }
+            // A literal (or expression) pattern: its type must fit the
+            // scrutinee. Enum member arms are Local names with no local type
+            // (infer_type -> None), so they fall through harmlessly here.
+            if let Some(pattern_type) = self.infer_type(v, locals) {
+                if !self.expression_compatible(&scrutinee, &pattern_type, v) {
+                    self.emit(
+                        "TYPE_MATCH_PATTERN_MISMATCH",
+                        format!("CASE pattern has type {pattern_type}, expected {scrutinee}."),
+                    );
+                }
+            }
+        };
+        for case in cases {
+            self.current_line.set(case.loc.line);
+            match &case.pattern {
+                super::IrMatchPattern::Else => {}
+                super::IrMatchPattern::Value(v) => check_pattern(v),
+                super::IrMatchPattern::OneOf(vs) => {
+                    for v in vs {
+                        check_pattern(v);
+                    }
+                }
+            }
+        }
     }
 
     /// The unary counterpart of `check_binary_operands` (`typecheck`'s
