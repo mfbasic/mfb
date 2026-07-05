@@ -190,10 +190,6 @@ struct SyntaxChecker<'a> {
     /// invalidation event #1 just like the registered close op itself
     /// (plan-link-update.md §5a).
     close_op_aliases: HashMap<String, String>,
-    /// Resource ownership decisions (escape analysis, §15.6) for the function
-    /// currently being checked. Drives borrow-only demotion of `RES` bindings
-    /// whose ownership has floated into an outer-scope collection.
-    current_resource_owners: crate::escape::FunctionEscape,
     /// Set true only while inferring the argument in a compiler-known
     /// *non-escaping* callback position (e.g. `forEach`'s action). A lambda
     /// inferred here may capture an outer `MUT` binding as a call-bound borrow.
@@ -245,7 +241,6 @@ impl<'a> SyntaxChecker<'a> {
             loop_stack: Vec::new(),
             resource_registry: builtins::ResourceRegistry::with_builtins(),
             close_op_aliases: HashMap::new(),
-            current_resource_owners: crate::escape::FunctionEscape::default(),
             nonescaping_callback: false,
         };
         checker.collect_types();
@@ -1572,7 +1567,6 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     pub(super) fn check_function(&mut self, file: &AstFile, function: &Function) {
-        self.current_resource_owners = crate::escape::analyze_function(function);
         if function.isolated
             && (!matches!(function.kind, FunctionKind::Func)
                 || !matches!(function.visibility, Visibility::Export))

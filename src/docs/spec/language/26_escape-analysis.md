@@ -28,24 +28,24 @@ The analysis is **purely syntactic over the AST**. It depends only on which
 local names are `RES` bindings, their declaration depth/order, and the shape of
 collection-valued expressions — never on inferred types. [[src/escape.rs:analyze_function]]
 
-It is run **independently** by two consumers, which must compute identical
-results:
-
-- the type checker, before checking a function body (`current_resource_owners`);
-- IR lowering, recorded per function as `resource_owners`.
+It is consumed by **IR lowering**, which records the result per function as
+`resource_owners` — carried into the IR (and serialized into `.mfp` packages)
+so the resource-ownership rules run on the typed IR, on both the source and
+package paths (plan-20). The escape decisions are what let `ir::verify`
+distinguish an owner from a borrow (`RES b = a` moves; a resource parameter or
+`FOR EACH` element borrows) without re-deriving ownership.
 
 ```text
-syntaxcheck.rs: self.current_resource_owners = escape::analyze_function(function)
-ir.rs:        resource_owners: escape::analyze_function(function).owners().clone()
+ir/lower.rs: resource_owners: escape::analyze_function(function).owners().clone()
 ```
 
-Both call the **same** `escape::analyze_function`; there is a single
-implementation in `src/escape.rs`. (CORRECTION to a common belief: the
-`is_insertion_builtin` helper and the analyzer are *not* copy-pasted into
-`syntaxcheck.rs` or `ir.rs` — those files only invoke `escape::analyze_function`.
-The unrelated `native_member_bare` match for `append|prepend|insert|set` at
-`src/syntaxcheck.rs` is a different check at a different call site, not a
-replication of this set.) [[src/syntaxcheck/mod.rs:check_function]] [[src/ir/lower.rs:lower_function]]
+There is a single implementation in `src/escape.rs`; the analyzer is invoked,
+not copy-pasted. (Historical note: the source checker `src/syntaxcheck/` used to
+run `analyze_function` a second time to demote borrow-only `RES` bindings, but
+that ownership logic relocated to `ir::verify` in plan-20-Z, so lowering is now
+the sole consumer. The unrelated `native_member_bare` match for
+`append|prepend|insert|set` in `src/syntaxcheck/mod.rs` is a different check at a
+different call site, not a replication of this set.) [[src/ir/lower.rs:lower_function]] [[src/escape.rs:analyze_function]]
 
 Soundness rests on the borrow rule (`TYPE_RESOURCE_BORROW_INVALIDATE`,
 §15.6): a borrowed resource cannot escape a callee, so a resource enters a
