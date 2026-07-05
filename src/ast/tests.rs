@@ -183,6 +183,852 @@ fn symlinked_source_paths_must_stay_inside_project() {
     fs::remove_dir_all(root).expect("remove temp dir");
 }
 
+// ---------------------------------------------------------------------------
+// Expression-parser coverage (src/ast/expr.rs)
+// ---------------------------------------------------------------------------
+
+/// Parse a whole program, expecting success.
+fn parse_ok(src: &str) -> AstFile {
+    parse_source(Path::new("main.mfb"), "main.mfb", src).expect("expected parse to succeed")
+}
+
+/// Parse a whole program, expecting a parse error.
+fn parse_err(src: &str) {
+    assert!(
+        parse_source(Path::new("main.mfb"), "main.mfb", src).is_err(),
+        "expected parse error for: {src:?}"
+    );
+}
+
+/// Wrap an expression in a `FUNC main` whose body returns it.
+fn ret(expr: &str) -> String {
+    format!("FUNC main AS Integer\n  RETURN {expr}\nEND FUNC\n")
+}
+
+/// Extract the first return-expression of `main`.
+fn first_return_expr(file: &AstFile) -> &Expression {
+    let Item::Function(function) = &file.items[0] else {
+        panic!("expected a function item");
+    };
+    let Statement::Return {
+        value: Some(expr), ..
+    } = &function.body[0]
+    else {
+        panic!("expected a return with a value");
+    };
+    expr
+}
+
+/// Parse `RETURN <expr>` and return the resulting expression.
+fn expr_of(expr: &str) -> Expression {
+    let file = parse_ok(&ret(expr));
+    first_return_expr(&file).clone()
+}
+
+#[test]
+fn parses_primary_literal_forms() {
+    assert!(matches!(expr_of("\"hi\""), Expression::String(s) if s == "hi"));
+    assert!(matches!(expr_of("42"), Expression::Number(n) if n == "42"));
+    assert!(matches!(expr_of("TRUE"), Expression::Boolean(true)));
+    assert!(matches!(expr_of("FALSE"), Expression::Boolean(false)));
+    assert!(matches!(expr_of("NOTHING"), Expression::Identifier(n) if n == "NOTHING"));
+    assert!(matches!(expr_of("(1)"), Expression::Number(n) if n == "1"));
+    assert!(matches!(expr_of("x"), Expression::Identifier(n) if n == "x"));
+}
+
+#[test]
+fn parses_list_literal_including_empty() {
+    assert!(matches!(expr_of("[]"), Expression::ListLiteral(v) if v.is_empty()));
+    let Expression::ListLiteral(values) = expr_of("[1, 2, 3]") else {
+        panic!("expected list literal");
+    };
+    assert_eq!(values.len(), 3);
+}
+
+#[test]
+fn parses_map_literal() {
+    let Expression::MapLiteral {
+        key_type,
+        value_type,
+        entries,
+    } = expr_of("Map OF String TO Integer { \"a\" := 1, \"b\" := 2 }")
+    else {
+        panic!("expected map literal");
+    };
+    assert_eq!(key_type, "String");
+    assert_eq!(value_type, "Integer");
+    assert_eq!(entries.len(), 2);
+}
+
+#[test]
+fn parses_empty_map_literal() {
+    let Expression::MapLiteral { entries, .. } = expr_of("Map OF String TO Integer {}") else {
+        panic!("expected map literal");
+    };
+    assert!(entries.is_empty());
+}
+
+#[test]
+fn parses_map_literal_with_res_value() {
+    let Expression::MapLiteral { value_type, .. } =
+        expr_of("Map OF String TO RES File { \"a\" := f }")
+    else {
+        panic!("expected map literal");
+    };
+    assert_eq!(value_type, "RES File");
+}
+
+#[test]
+fn map_literal_requires_to_keyword() {
+    parse_err(&ret("Map OF String FROM Integer { }"));
+}
+
+#[test]
+fn map_literal_requires_colon_equal_between_key_and_value() {
+    parse_err(&ret("Map OF String TO Integer { \"a\" 1 }"));
+}
+
+#[test]
+fn parses_operator_precedence_chain() {
+    // OR / XOR
+    let Expression::Binary { operator, .. } = expr_of("a OR b") else {
+        panic!("or");
+    };
+    assert_eq!(operator, "OR");
+    let Expression::Binary { operator, .. } = expr_of("a XOR b") else {
+        panic!("xor");
+    };
+    assert_eq!(operator, "XOR");
+    // AND
+    let Expression::Binary { operator, .. } = expr_of("a AND b") else {
+        panic!("and");
+    };
+    assert_eq!(operator, "AND");
+    // NOT (unary, right-recursive)
+    let Expression::Unary { operator, .. } = expr_of("NOT NOT a") else {
+        panic!("not");
+    };
+    assert_eq!(operator, "NOT");
+}
+
+#[test]
+fn parses_every_comparison_operator() {
+    for (src, op) in [
+        ("a = b", "="),
+        ("a <> b", "<>"),
+        ("a < b", "<"),
+        ("a <= b", "<="),
+        ("a > b", ">"),
+        ("a >= b", ">="),
+    ] {
+        let Expression::Binary { operator, .. } = expr_of(src) else {
+            panic!("comparison {src}");
+        };
+        assert_eq!(operator, op);
+    }
+}
+
+#[test]
+fn parses_arithmetic_and_multiplicative_operators() {
+    for (src, op) in [
+        ("a + b", "+"),
+        ("a - b", "-"),
+        ("a * b", "*"),
+        ("a / b", "/"),
+        ("a MOD b", "MOD"),
+        ("a DIV b", "DIV"),
+        ("a & b", "&"),
+    ] {
+        let Expression::Binary { operator, .. } = expr_of(src) else {
+            panic!("arith {src}");
+        };
+        assert_eq!(operator, op);
+    }
+}
+
+#[test]
+fn parses_power_right_associative_and_unary_minus() {
+    let Expression::Binary {
+        operator, right, ..
+    } = expr_of("a ^ b ^ c")
+    else {
+        panic!("power");
+    };
+    assert_eq!(operator, "^");
+    // Right-associative: right side is itself a power binary.
+    assert!(matches!(&*right, Expression::Binary { operator, .. } if operator == "^"));
+    let Expression::Unary { operator, .. } = expr_of("-a") else {
+        panic!("unary minus");
+    };
+    assert_eq!(operator, "-");
+}
+
+#[test]
+fn parses_pipeline_with_placeholder() {
+    // `a |> f(_)` substitutes `a` for the placeholder in `f(_)`.
+    let expr = expr_of("a |> f(_)");
+    let Expression::Call {
+        callee, arguments, ..
+    } = expr
+    else {
+        panic!("expected call after pipeline substitution");
+    };
+    assert_eq!(callee, "f");
+    assert_eq!(arguments.len(), 1);
+}
+
+#[test]
+fn pipeline_without_placeholder_is_rejected() {
+    parse_err(&ret("a |> f(b)"));
+}
+
+#[test]
+fn parses_call_with_positional_and_named_args() {
+    let Expression::Call {
+        callee, arguments, ..
+    } = expr_of("f(1, name := 2)")
+    else {
+        panic!("expected call");
+    };
+    assert_eq!(callee, "f");
+    assert_eq!(arguments.len(), 2);
+    assert!(matches!(arguments[0], CallArg::Positional(_)));
+    assert!(matches!(&arguments[1], CallArg::Named { name, .. } if name == "name"));
+}
+
+#[test]
+fn parses_empty_call() {
+    let Expression::Call { arguments, .. } = expr_of("f()") else {
+        panic!("expected call");
+    };
+    assert!(arguments.is_empty());
+}
+
+#[test]
+fn call_on_non_identifier_is_rejected() {
+    // A literal followed by `(` is not a callable identifier.
+    parse_err(&ret("\"s\"(1)"));
+}
+
+#[test]
+fn call_missing_closing_paren_is_rejected() {
+    parse_err(&ret("f(1"));
+}
+
+#[test]
+fn parses_constructor_positional_and_named() {
+    let Expression::Constructor {
+        type_name,
+        arguments,
+    } = expr_of("Point[1, y := 2]")
+    else {
+        panic!("expected constructor");
+    };
+    assert_eq!(type_name, "Point");
+    assert_eq!(arguments.len(), 2);
+    assert!(matches!(arguments[0], ConstructorArg::Positional(_)));
+    assert!(matches!(&arguments[1], ConstructorArg::Named { name, .. } if name == "y"));
+}
+
+#[test]
+fn parses_empty_constructor() {
+    let Expression::Constructor { arguments, .. } = expr_of("Point[]") else {
+        panic!("expected constructor");
+    };
+    assert!(arguments.is_empty());
+}
+
+#[test]
+fn constructor_on_non_identifier_is_rejected() {
+    parse_err(&ret("\"s\"[1]"));
+}
+
+#[test]
+fn constructor_missing_closing_bracket_is_rejected() {
+    parse_err(&ret("Point[1"));
+}
+
+#[test]
+fn parses_member_access_chain() {
+    let Expression::MemberAccess { target, member } = expr_of("a.b.c") else {
+        panic!("expected member access");
+    };
+    assert_eq!(member, "c");
+    assert!(matches!(&*target, Expression::MemberAccess { member, .. } if member == "b"));
+}
+
+#[test]
+fn member_access_requires_identifier() {
+    parse_err(&ret("a.1"));
+}
+
+#[test]
+fn parses_with_update() {
+    let Expression::WithUpdate { target, updates } = expr_of("WITH p { x := 1, y := 2 }") else {
+        panic!("expected WITH update");
+    };
+    assert!(matches!(&*target, Expression::Identifier(n) if n == "p"));
+    assert_eq!(updates.len(), 2);
+    assert_eq!(updates[0].field, "x");
+}
+
+#[test]
+fn parses_with_update_empty() {
+    let Expression::WithUpdate { updates, .. } = expr_of("WITH p { }") else {
+        panic!("expected WITH update");
+    };
+    assert!(updates.is_empty());
+}
+
+#[test]
+fn with_update_requires_open_brace() {
+    parse_err(&ret("WITH p x := 1 }"));
+}
+
+#[test]
+fn with_update_field_must_be_identifier() {
+    parse_err(&ret("WITH p { 1 := 2 }"));
+}
+
+#[test]
+fn with_update_requires_colon_equal() {
+    parse_err(&ret("WITH p { x = 1 }"));
+}
+
+#[test]
+fn with_update_requires_close_brace() {
+    parse_err(&ret("WITH p { x := 1 "));
+}
+
+#[test]
+fn parses_lambda_expression() {
+    let Expression::Lambda {
+        params,
+        body,
+        assign_target,
+    } = expr_of("LAMBDA(x AS Integer) -> x + 1")
+    else {
+        panic!("expected lambda");
+    };
+    assert_eq!(params.len(), 1);
+    assert!(assign_target.is_none());
+    assert!(matches!(&*body, Expression::Binary { operator, .. } if operator == "+"));
+}
+
+#[test]
+fn parses_lambda_with_assignment_body() {
+    let Expression::Lambda { assign_target, .. } = expr_of("LAMBDA(x AS Integer) -> total = x")
+    else {
+        panic!("expected lambda");
+    };
+    assert_eq!(assign_target.as_deref(), Some("total"));
+}
+
+#[test]
+fn parses_lambda_with_no_params() {
+    let Expression::Lambda { params, .. } = expr_of("LAMBDA() -> 1") else {
+        panic!("expected lambda");
+    };
+    assert!(params.is_empty());
+}
+
+#[test]
+fn lambda_requires_open_paren() {
+    parse_err(&ret("LAMBDA x -> 1"));
+}
+
+#[test]
+fn lambda_requires_close_paren() {
+    parse_err(&ret("LAMBDA(x AS Integer -> 1"));
+}
+
+#[test]
+fn lambda_requires_arrow() {
+    parse_err(&ret("LAMBDA(x AS Integer) 1"));
+}
+
+#[test]
+fn bare_expression_error_is_rejected() {
+    // A statement starting with a stray operator produces an "Expected an
+    // expression" error.
+    parse_err("FUNC main AS Integer\n  RETURN *\nEND FUNC\n");
+}
+
+// --- Type-name parsing (reached via `LET x AS <type>`) ---
+
+/// Parse `LET v AS <type> = NOTHING` inside `main` and return the parsed type.
+fn type_of(type_name: &str) -> String {
+    let src = format!("SUB main\n  LET v AS {type_name} = NOTHING\nEND SUB\n");
+    let file = parse_ok(&src);
+    let Item::Function(function) = &file.items[0] else {
+        panic!("expected function");
+    };
+    let Statement::Let { type_name, .. } = &function.body[0] else {
+        panic!("expected LET");
+    };
+    type_name.clone().expect("type name present")
+}
+
+fn type_err(type_name: &str) {
+    let src = format!("SUB main\n  LET v AS {type_name} = NOTHING\nEND SUB\n");
+    parse_err(&src);
+}
+
+#[test]
+fn parses_simple_and_generic_types() {
+    assert_eq!(type_of("Integer"), "Integer");
+    assert_eq!(type_of("List OF Integer"), "List OF Integer");
+    assert_eq!(type_of("List OF RES File"), "List OF RES File");
+    assert_eq!(type_of("Result OF Integer"), "Result OF Integer");
+    assert_eq!(type_of("(Integer)"), "(Integer)");
+    assert_eq!(type_of("Nothing"), "Nothing");
+}
+
+#[test]
+fn parses_map_type_variants() {
+    assert_eq!(
+        type_of("Map OF String TO Integer"),
+        "Map OF String TO Integer"
+    );
+    assert_eq!(
+        type_of("Map OF String TO RES File"),
+        "Map OF String TO RES File"
+    );
+    assert_eq!(
+        type_of("MapEntry OF String TO Integer"),
+        "MapEntry OF String TO Integer"
+    );
+}
+
+#[test]
+fn map_type_requires_to_keyword() {
+    type_err("Map OF String Integer");
+}
+
+#[test]
+fn parses_template_type_with_multiple_args() {
+    assert_eq!(
+        type_of("Pair OF Integer, String"),
+        "Pair OF Integer, String"
+    );
+}
+
+#[test]
+fn parses_thread_type_variants() {
+    assert_eq!(type_of("Thread OF Msg TO Out"), "Thread OF Msg TO Out");
+    assert_eq!(
+        type_of("Thread OF Msg RES Handle TO Out"),
+        "Thread OF Msg RES Handle TO Out"
+    );
+    assert_eq!(
+        type_of("Thread OF RES Handle TO Out"),
+        "Thread OF RES Handle TO Out"
+    );
+    assert_eq!(
+        type_of("ThreadWorker OF Msg TO Out"),
+        "ThreadWorker OF Msg TO Out"
+    );
+}
+
+#[test]
+fn thread_type_requires_to_keyword() {
+    type_err("Thread OF Msg Out");
+}
+
+#[test]
+fn parses_function_type_names() {
+    assert_eq!(
+        type_of("FUNC(Integer, String) AS Boolean"),
+        "FUNC(Integer, String) AS Boolean"
+    );
+    assert_eq!(type_of("FUNC() AS Integer"), "FUNC() AS Integer");
+    assert_eq!(
+        type_of("ISOLATED FUNC(Integer) AS Integer"),
+        "ISOLATED FUNC(Integer) AS Integer"
+    );
+}
+
+#[test]
+fn function_type_requires_open_paren() {
+    type_err("FUNC Integer AS Boolean");
+}
+
+#[test]
+fn function_type_requires_close_paren() {
+    type_err("FUNC(Integer AS Boolean");
+}
+
+#[test]
+fn function_type_requires_as() {
+    type_err("FUNC(Integer) Boolean");
+}
+
+#[test]
+fn isolated_type_requires_func() {
+    type_err("ISOLATED Integer");
+}
+
+#[test]
+fn grouped_type_requires_close_paren() {
+    type_err("(Integer");
+}
+
+#[test]
+fn type_base_name_rejects_non_identifier() {
+    type_err("123");
+}
+
+#[test]
+fn qualified_names_must_have_two_parts() {
+    // Three-part qualified name is rejected.
+    parse_err(&ret("a::b::c"));
+}
+
+#[test]
+fn parses_qualified_identifier() {
+    // A two-part qualified name normalizes to a dotted identifier.
+    let Expression::Identifier(name) = expr_of("math::pi") else {
+        panic!("expected identifier");
+    };
+    assert_eq!(name, "math.pi");
+}
+
+// ---------------------------------------------------------------------------
+// Project / manifest assembly coverage (src/ast/manifest.rs)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn parse_project_reads_files_and_appends_prelude() {
+    let root = test_temp_dir("parse_project_reads_files_and_appends_prelude");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let project = parse_project("demo", &project_dir, &manifest).expect("parse project");
+
+    assert_eq!(project.name, "demo");
+    // The user's source is files[0]; the compiler-owned prelude is appended.
+    assert_eq!(project.files[0].path, "src/main.mfb");
+    assert!(
+        project
+            .files
+            .iter()
+            .any(|file| file.path == BUILTIN_PRELUDE_PATH),
+        "prelude file must be appended"
+    );
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn parse_project_rejects_missing_project_dir() {
+    let missing = std::env::temp_dir().join("mfb_ast_parse_project_missing_dir_zzz_nope");
+    let _ = fs::remove_dir_all(&missing);
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    assert!(parse_project("demo", &missing, &manifest).is_err());
+}
+
+#[test]
+fn selected_source_paths_are_sorted_actual_paths() {
+    let root = test_temp_dir("selected_source_paths_are_sorted_actual_paths");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    fs::write(project_dir.join("src/a.mfb"), "SUB a\nEND SUB\n").expect("write a");
+    fs::write(project_dir.join("src/b.mfb"), "SUB b\nEND SUB\n").expect("write b");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let paths = selected_source_paths(&project_dir, &manifest).expect("paths");
+    assert_eq!(paths.len(), 2);
+    assert!(paths[0].ends_with("a.mfb"));
+    assert!(paths[1].ends_with("b.mfb"));
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn selected_source_paths_rejects_missing_project_dir() {
+    let missing = std::env::temp_dir().join("mfb_ast_selected_paths_missing_zzz_nope");
+    let _ = fs::remove_dir_all(&missing);
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    assert!(selected_source_paths(&missing, &manifest).is_err());
+}
+
+#[test]
+fn write_ast_writes_ast_json_file() {
+    let root = test_temp_dir("write_ast_writes_ast_json_file");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let project = parse_project("demo", &project_dir, &manifest).expect("parse project");
+    let ast_path = write_ast(&project_dir, &project).expect("write ast");
+    assert_eq!(ast_path, project_dir.join("demo.ast"));
+    let contents = fs::read_to_string(&ast_path).expect("read ast");
+    assert!(contents.contains("\"files\""), "{contents}");
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn write_ast_reports_write_failure() {
+    let root = test_temp_dir("write_ast_reports_write_failure");
+    // Point at a non-existent directory so the write fails.
+    let bogus_dir = root.join("does_not_exist");
+    let project = AstProject {
+        name: "demo".to_string(),
+        files: Vec::new(),
+    };
+    assert!(write_ast(&bogus_dir, &project).is_err());
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn parse_source_internal_marks_file_internal() {
+    let file = parse_source_internal(Path::new("pkg.mfb"), "pkg.mfb", "SUB main\nEND SUB\n")
+        .expect("parse internal");
+    assert!(file.internal);
+    assert_eq!(file.path, "pkg.mfb");
+}
+
+#[test]
+fn source_root_missing_is_rejected() {
+    let root = test_temp_dir("source_root_missing_is_rejected");
+    let project_dir = root.join("project");
+    fs::create_dir_all(&project_dir).expect("project dir");
+
+    let manifest = manifest_with_sources(vec![source_entry("missing_root", None, None)]);
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn empty_source_root_is_rejected() {
+    let root = test_temp_dir("empty_source_root_is_rejected");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    // No .mfb files under src.
+    fs::write(project_dir.join("src/readme.txt"), "not source\n").expect("write txt");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn source_entry_without_root_is_ignored() {
+    let root = test_temp_dir("source_entry_without_root_is_ignored");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+
+    // One entry has no `root` key (filtered out by source_entries), the other is valid.
+    let bad = JsonValue::Object(HashMap::from([(
+        "include".to_string(),
+        JsonValue::Array(vec![JsonValue::String("**/*.mfb".to_string())]),
+    )]));
+    let good = source_entry("src", None, None);
+    let manifest = manifest_with_sources(vec![bad, good]);
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    let files = collect_selected_source_files(&project_dir, &canonical, &manifest).expect("files");
+    assert_eq!(files.len(), 1);
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn file_root_ignores_non_mfb_extension() {
+    let root = test_temp_dir("file_root_ignores_non_mfb_extension");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(project_dir.join("src/notes.txt"), "notes\n").expect("write notes");
+
+    // A file root pointing at a non-.mfb file selects nothing, so the entry is
+    // empty and rejected.
+    let manifest = manifest_with_sources(vec![source_entry("src/notes.txt", None, None)]);
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[cfg(unix)]
+#[test]
+fn directory_cycle_via_symlink_is_tolerated() {
+    let root = test_temp_dir("directory_cycle_via_symlink_is_tolerated");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src/sub")).expect("src/sub");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    // A symlink pointing back to src forms a directory cycle; visited-dir
+    // tracking must break it and still return the real file.
+    symlink(project_dir.join("src"), project_dir.join("src/sub/loop")).expect("symlink loop");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    let files = collect_selected_source_files(&project_dir, &canonical, &manifest).expect("files");
+    assert_eq!(files.len(), 1);
+    assert!(files[0].actual_path.ends_with("main.mfb"));
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[cfg(unix)]
+#[test]
+fn nested_symlink_escape_is_rejected() {
+    let root = test_temp_dir("nested_symlink_escape_is_rejected");
+    let project_dir = root.join("project");
+    let outside_dir = root.join("outside");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    fs::create_dir_all(&outside_dir).expect("outside dir");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(outside_dir.join("escape.mfb"), "SUB escape\nEND SUB\n").expect("write escape");
+    // A file symlink inside a scanned directory pointing outside the project.
+    symlink(
+        outside_dir.join("escape.mfb"),
+        project_dir.join("src/escape.mfb"),
+    )
+    .expect("symlink escape");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn glob_star_and_question_components_match() {
+    // Exercise `*` (with backtracking) and `?` single-char wildcards.
+    assert!(glob_matches("f*o", "foo"));
+    assert!(glob_matches("f*o", "fabco"));
+    assert!(glob_matches("a?c", "abc"));
+    assert!(!glob_matches("a?c", "ac"));
+    assert!(!glob_matches("abc", "abd"));
+    // Trailing star matches the remaining suffix (including empty).
+    assert!(glob_matches("ab*", "ab"));
+    assert!(glob_matches("ab*", "abcdef"));
+    // `**` matches across an empty path tail.
+    assert!(glob_matches("src/**", "src"));
+    // A literal segment that does not match fails immediately.
+    assert!(!glob_matches("src/*.mfb", "lib/main.mfb"));
+}
+
+#[test]
+fn parse_project_propagates_collection_failure() {
+    // A missing source root makes collection fail; the error propagates out of
+    // `parse_project` (the `?` on `collect_selected_source_files`).
+    let root = test_temp_dir("parse_project_propagates_collection_failure");
+    let project_dir = root.join("project");
+    fs::create_dir_all(&project_dir).expect("project dir");
+    let manifest = manifest_with_sources(vec![source_entry("missing_root", None, None)]);
+    assert!(parse_project("demo", &project_dir, &manifest).is_err());
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn selected_source_paths_propagates_collection_failure() {
+    let root = test_temp_dir("selected_source_paths_propagates_collection_failure");
+    let project_dir = root.join("project");
+    fs::create_dir_all(&project_dir).expect("project dir");
+    let manifest = manifest_with_sources(vec![source_entry("missing_root", None, None)]);
+    assert!(selected_source_paths(&project_dir, &manifest).is_err());
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[cfg(unix)]
+#[test]
+fn broken_symlink_entry_reports_read_failure() {
+    // A dangling symlink with an `.mfb` name exists() as a directory entry but
+    // fails to canonicalize, exercising the per-entry canonicalize `?`.
+    let root = test_temp_dir("broken_symlink_entry_reports_read_failure");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    symlink(
+        project_dir.join("src/nonexistent_target.mfb"),
+        project_dir.join("src/dangling.mfb"),
+    )
+    .expect("symlink dangling");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[test]
+fn parse_source_reports_lex_failure() {
+    // A stray control/invalid byte makes the lexer fail before parsing.
+    assert!(parse_source(
+        Path::new("main.mfb"),
+        "main.mfb",
+        "SUB main\n  LET x = `\nEND SUB\n"
+    )
+    .is_err());
+    assert!(parse_source_internal(
+        Path::new("pkg.mfb"),
+        "pkg.mfb",
+        "SUB main\n  LET x = `\nEND SUB\n"
+    )
+    .is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn parse_project_reports_unreadable_source_file() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = test_temp_dir("parse_project_reports_unreadable_source_file");
+    let project_dir = root.join("project");
+    fs::create_dir_all(project_dir.join("src")).expect("src dir");
+    let file = project_dir.join("src/main.mfb");
+    fs::write(&file, "SUB main\nEND SUB\n").expect("write main");
+    // Strip all read permission so parse_file's read_to_string fails.
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o000)).expect("chmod");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let result = parse_project("demo", &project_dir, &manifest);
+
+    // Restore permission before assertions so cleanup can run.
+    fs::set_permissions(&file, fs::Permissions::from_mode(0o644)).expect("restore chmod");
+    assert!(result.is_err());
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
+#[cfg(unix)]
+#[test]
+fn unreadable_directory_reports_read_failure() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = test_temp_dir("unreadable_directory_reports_read_failure");
+    let project_dir = root.join("project");
+    let locked = project_dir.join("src/locked");
+    fs::create_dir_all(&locked).expect("locked dir");
+    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("write main");
+    fs::write(locked.join("inner.mfb"), "SUB inner\nEND SUB\n").expect("write inner");
+    // Remove read/exec permission so read_dir on the nested directory fails
+    // with a non-PermissionDenied-mapped error path.
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).expect("chmod");
+
+    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
+    let canonical = fs::canonicalize(&project_dir).expect("canonical");
+    let result = collect_selected_source_files(&project_dir, &canonical, &manifest);
+
+    fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).expect("restore chmod");
+    assert!(result.is_err());
+
+    fs::remove_dir_all(root).expect("remove temp dir");
+}
+
 fn manifest_with_sources(sources: Vec<JsonValue>) -> HashMap<String, JsonValue> {
     HashMap::from([("sources".to_string(), JsonValue::Array(sources))])
 }
@@ -1183,35 +2029,6 @@ fn map_literal_missing_to_is_error() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn parse_project_reads_files_and_appends_prelude() {
-    let root = test_temp_dir("parse_project_reads_files_and_appends_prelude");
-    let project_dir = root.join("project");
-    fs::create_dir_all(project_dir.join("src")).expect("src");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("main");
-
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    let project = parse_project("demo", &project_dir, &manifest).expect("project");
-    // The prelude file is appended and excluded from the JSON dump.
-    assert!(project.files.iter().any(|f| f.path == BUILTIN_PRELUDE_PATH));
-    let json = project.to_json();
-    assert!(!json.contains(BUILTIN_PRELUDE_PATH));
-    assert!(json.contains("\"project\": \"demo\""));
-
-    // write_ast writes a `<name>.ast` file with the same content.
-    let ast_path = write_ast(&project_dir, &project).expect("write_ast");
-    assert!(ast_path.ends_with("demo.ast"));
-    let written = fs::read_to_string(&ast_path).expect("read ast");
-    assert_eq!(written, json);
-
-    // selected_source_paths returns the on-disk source path.
-    let paths = selected_source_paths(&project_dir, &manifest).expect("paths");
-    assert_eq!(paths.len(), 1);
-    assert!(paths[0].ends_with("main.mfb"));
-
-    fs::remove_dir_all(root).expect("remove");
-}
-
-#[test]
 fn parse_project_propagates_parse_errors() {
     let root = test_temp_dir("parse_project_propagates_parse_errors");
     let project_dir = root.join("project");
@@ -1692,27 +2509,6 @@ fn qualified_numeric_member_edge_cases() {
     assert!(try_parse("FUNC f AS Integer\n  RETURN pkg::2 + 1\nEND FUNC\n").is_err());
     // A number and identifier separated by whitespace are not fused (not adjacent).
     assert!(try_parse("FUNC f AS Integer\n  RETURN pkg::2 b\nEND FUNC\n").is_err());
-}
-
-#[cfg(unix)]
-#[test]
-fn broken_symlink_entry_reports_read_failure() {
-    let root = test_temp_dir("broken_symlink_entry_reports_read_failure");
-    let project_dir = root.join("project");
-    fs::create_dir_all(project_dir.join("src")).expect("src");
-    fs::write(project_dir.join("src/main.mfb"), "SUB main\nEND SUB\n").expect("main");
-    // A dangling symlink entry inside the walked directory: canonicalize() fails
-    // with a NotFound (non-PermissionDenied) error, surfacing the read-failure
-    // diagnostic at the walk call site.
-    symlink(
-        project_dir.join("src/missing_target"),
-        project_dir.join("src/dangling"),
-    )
-    .expect("symlink");
-    let canonical = fs::canonicalize(&project_dir).expect("canonical");
-    let manifest = manifest_with_sources(vec![source_entry("src", None, None)]);
-    assert!(collect_selected_source_files(&project_dir, &canonical, &manifest).is_err());
-    fs::remove_dir_all(root).expect("remove");
 }
 
 #[test]

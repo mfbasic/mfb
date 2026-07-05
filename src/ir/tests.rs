@@ -834,6 +834,145 @@ mod binary_repr_tests {
             "{err}"
         );
     }
+    /// A project whose single function body exercises the JSON-emission arms the
+    /// `corpus_project` above does not: `For`, `DoUntil`, `ExitLoop`,
+    /// `ContinueLoop`, `ExitProgram`, `Fail`, `StateAssign`, and a by-value
+    /// `Capture`. Covers the remaining `IrOp::to_json` / `loop_kind_name` arms.
+    fn json_extra_ops_project() -> IrProject {
+        let body = vec![
+            IrOp::For {
+                name: "i".to_string(),
+                type_: "Integer".to_string(),
+                start: IrValue::Const {
+                    type_: "Integer".to_string(),
+                    value: "0".to_string(),
+                },
+                end: IrValue::Const {
+                    type_: "Integer".to_string(),
+                    value: "10".to_string(),
+                },
+                step: IrValue::Const {
+                    type_: "Integer".to_string(),
+                    value: "1".to_string(),
+                },
+                body: vec![
+                    IrOp::ExitLoop {
+                        kind: LoopKind::For,
+                        loc: IrSourceLoc::default(),
+                    },
+                    IrOp::ContinueLoop {
+                        kind: LoopKind::For,
+                        loc: IrSourceLoc::default(),
+                    },
+                ],
+                loc: IrSourceLoc::default(),
+            },
+            IrOp::DoUntil {
+                body: vec![IrOp::ContinueLoop {
+                    kind: LoopKind::Do,
+                    loc: IrSourceLoc::default(),
+                }],
+                condition: IrValue::Local("b".to_string()),
+                loc: IrSourceLoc::default(),
+            },
+            IrOp::StateAssign {
+                resource: "file".to_string(),
+                value: IrValue::Local("open".to_string()),
+                loc: IrSourceLoc::default(),
+            },
+            IrOp::Eval {
+                value: IrValue::Closure {
+                    name: "lam".to_string(),
+                    type_: "() -> Integer".to_string(),
+                    captures: vec![IrValue::Capture {
+                        index: 0,
+                        type_: "Integer".to_string(),
+                        by_ref: false,
+                    }],
+                },
+                loc: IrSourceLoc::default(),
+            },
+            IrOp::Fail {
+                error: IrValue::Local("e".to_string()),
+                loc: IrSourceLoc::default(),
+            },
+            IrOp::ExitProgram {
+                code: IrValue::Const {
+                    type_: "Integer".to_string(),
+                    value: "1".to_string(),
+                },
+                loc: IrSourceLoc::default(),
+            },
+        ];
+        project_named("extras", vec![fn_named("main", body)])
+    }
+
+    #[test]
+    fn json_covers_loop_state_and_capture_ops() {
+        let json = json_extra_ops_project().to_json();
+        assert!(json.contains("\"op\": \"for\""), "{json}");
+        assert!(json.contains("\"op\": \"doUntil\""), "{json}");
+        assert!(json.contains("\"op\": \"exitLoop\""), "{json}");
+        assert!(json.contains("\"op\": \"continueLoop\""), "{json}");
+        assert!(json.contains("\"op\": \"exitProgram\""), "{json}");
+        assert!(json.contains("\"op\": \"fail\""), "{json}");
+        assert!(json.contains("\"op\": \"stateAssign\""), "{json}");
+        // by-value capture omits the `byRef` field.
+        assert!(json.contains("\"kind\": \"capture\""), "{json}");
+        assert!(!json.contains("\"byRef\""), "{json}");
+        // Loop-kind names for `for` and `do` are emitted.
+        assert!(json.contains("\"loop\": \"for\""), "{json}");
+        assert!(json.contains("\"loop\": \"do\""), "{json}");
+    }
+
+    #[test]
+    fn json_binding_and_param_null_value_and_default() {
+        // A binding with no value and a param with no default both emit `null`,
+        // covering the `unwrap_or_else` "null" arms.
+        let mut project = project_named("nulls", vec![fn_named("main", vec![])]);
+        project.bindings.push(IrBinding {
+            name: "g".to_string(),
+            visibility: "package".to_string(),
+            mutable: true,
+            type_: "Integer".to_string(),
+            value: None,
+            loc: IrSourceLoc::default(),
+            file: String::new(),
+            explicit_type: false,
+        });
+        project.functions[0].params.push(IrParam {
+            name: "p".to_string(),
+            type_: "Integer".to_string(),
+            default: None,
+            loc: IrSourceLoc::default(),
+        });
+        let json = project.to_json();
+        assert!(json.contains("\"value\": null"), "{json}");
+        assert!(json.contains("\"default\": null"), "{json}");
+    }
+
+    #[test]
+    fn json_bind_with_null_value_emits_null() {
+        // A `Bind` op with no value takes the `null` arm.
+        let body = vec![IrOp::Bind {
+            mutable: false,
+            name: "x".to_string(),
+            type_: "Integer".to_string(),
+            value: None,
+            loc: IrSourceLoc::default(),
+            explicit_type: true,
+        }];
+        let json = project_named("bindnull", vec![fn_named("main", body)]).to_json();
+        assert!(json.contains("\"op\": \"bind\""), "{json}");
+        assert!(json.contains("\"value\": null"), "{json}");
+    }
+
+    #[test]
+    fn visibility_name_maps_all_variants() {
+        assert_eq!(visibility_name(Visibility::Private), "private");
+        assert_eq!(visibility_name(Visibility::Package), "package");
+        assert_eq!(visibility_name(Visibility::Export), "export");
+    }
 }
 
 /// Structural coverage for `ir/lower.rs` (plan-12): valid MFBASIC programs that
