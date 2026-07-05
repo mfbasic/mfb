@@ -217,7 +217,7 @@ fn rejects_constructor_with_extra_arguments() {
     let f = func("run", vec![], body);
     let err = check(&project(vec![f], vec![record("Point", &["x", "y"])]))
         .expect_err("over-arity constructor must be rejected");
-    assert!(err.contains("constructor `Point`"), "{err}");
+    assert!(err.contains("Constructor `Point`"), "{err}");
 }
 
 // --- capture bounds --------------------------------------------------------

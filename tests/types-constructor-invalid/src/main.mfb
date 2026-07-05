@@ -1,0 +1,22 @@
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+UNION Shape
+  Point
+END UNION
+
+ENUM Color
+  Red
+END ENUM
+
+FUNC main AS Integer
+  LET wrongKind = Shape[1]
+  LET wrongKind2 = Color[1]
+  LET tooMany = Point[1, 2, 3]
+  LET tooFew = Point[1]
+  LET wrongType = Point["a", 2]
+  LET updated = WITH tooMany { x := "b" }
+  RETURN updated.x
+END FUNC

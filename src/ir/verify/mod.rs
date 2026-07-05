@@ -98,6 +98,9 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_CONDITION_REQUIRES_BOOLEAN",
     "TYPE_FOR_REQUIRES_NUMERIC",
     "TYPE_FOR_EACH_REQUIRES_COLLECTION",
+    "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
+    "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
+    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -258,6 +261,10 @@ struct TypeEnv {
     /// Record type name → (member name → declared member type), for chained
     /// member-access type inference.
     field_types: HashMap<String, HashMap<String, String>>,
+    /// Record type name → its direct fields as ordered (name, type) pairs, for
+    /// positional constructor checking (mirrors typecheck's `TypeInfo.fields`,
+    /// which is declaration-ordered and not include-expanded).
+    record_field_lists: HashMap<String, Vec<(String, String)>>,
     /// Enum type name → its complete member-name set, for MATCH exhaustiveness.
     enums: HashMap<String, HashSet<String>>,
     /// Accumulated diagnostics (plan-20-E..I); the checker pushes here instead
@@ -282,6 +289,7 @@ impl TypeEnv {
         let mut unions = HashMap::new();
         let mut enums: HashMap<String, HashSet<String>> = HashMap::new();
         let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
+        let mut record_field_lists: HashMap<String, Vec<(String, String)>> = HashMap::new();
         for ty in &project.types {
             match ty.kind.as_str() {
                 "enum" => {
@@ -299,6 +307,13 @@ impl TypeEnv {
                         },
                     );
                     field_types.insert(ty.name.clone(), field_type_map(&ty.fields));
+                    record_field_lists.insert(
+                        ty.name.clone(),
+                        ty.fields
+                            .iter()
+                            .map(|f| (f.name.clone(), f.type_.clone()))
+                            .collect(),
+                    );
                 }
                 "union" => {
                     unions.insert(
@@ -320,6 +335,15 @@ impl TypeEnv {
                         field_types
                             .entry(variant.name.clone())
                             .or_insert_with(|| field_type_map(&variant.fields));
+                        record_field_lists
+                            .entry(variant.name.clone())
+                            .or_insert_with(|| {
+                                variant
+                                    .fields
+                                    .iter()
+                                    .map(|f| (f.name.clone(), f.type_.clone()))
+                                    .collect()
+                            });
                     }
                 }
                 _ => {}
@@ -376,6 +400,7 @@ impl TypeEnv {
             global_muts,
             closure_counts,
             field_types,
+            record_field_lists,
             enums,
             diags: RefCell::new(Vec::new()),
             current_line: Cell::new(0),
@@ -806,7 +831,7 @@ impl TypeEnv {
                 for arg in args {
                     self.check_value(arg, locals);
                 }
-                self.check_constructor_arity(type_, args.len());
+                self.check_constructor(type_, args, locals);
             }
             IrValue::UnionWrap {
                 union_type,
@@ -839,11 +864,31 @@ impl TypeEnv {
                 self.check_binary_operands(op, left, right, locals);
             }
             IrValue::WithUpdate {
-                target, updates, ..
+                type_,
+                target,
+                updates,
             } => {
                 self.check_value(target, locals);
+                // Each WITH update must match its field's declared type —
+                // typecheck's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
+                let fields = self.field_types.get(resource_base_type(type_));
                 for update in updates {
                     self.check_value(&update.value, locals);
+                    let Some(expected) = fields.and_then(|f| f.get(&update.field)) else {
+                        continue;
+                    };
+                    let Some(actual) = self.infer_type(&update.value, locals) else {
+                        continue;
+                    };
+                    if !self.expression_compatible(expected, &actual, &update.value) {
+                        self.emit(
+                            "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
+                            format!(
+                                "WITH update for `{}` has type {actual}, expected {expected}.",
+                                update.field
+                            ),
+                        );
+                    }
                 }
             }
             IrValue::ListLiteral { type_, values } => {
@@ -1921,18 +1966,63 @@ impl TypeEnv {
         }
     }
 
-    /// Reject a record constructor supplied with more arguments than the record
-    /// has fields (an overflow of the record's positional slots). Under-supply
-    /// is left unchecked: `IrField` carries no default marker, so the minimum
-    /// arity cannot be reconstructed soundly.
-    fn check_constructor_arity(&self, type_name: &str, argc: usize) {
-        if let Some(fields) = self.record_fields(type_name) {
-            if argc > fields.len() {
+    /// The typecheck constructor rules on a lowered `Constructor` value: the
+    /// name must be a record TYPE (`TYPE_CONSTRUCTOR_REQUIRES_RECORD`), the
+    /// argument count must equal the field count exactly — records have no
+    /// field defaults — (`TYPE_CONSTRUCTOR_ARITY_MISMATCH`), and each argument
+    /// must be compatible with its positional field
+    /// (`TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH`). Lowering reorders named
+    /// arguments into field order, so positional checking covers both forms.
+    fn check_constructor(
+        &self,
+        type_name: &str,
+        args: &[IrValue],
+        locals: &HashMap<String, String>,
+    ) {
+        if !self.records.contains_key(type_name) {
+            // A constructor naming a declared non-record type is malformed; an
+            // unknown name is left alone (could be a builtin record).
+            let kind = if self.unions.contains_key(type_name) {
+                Some("UNION")
+            } else if self.enums.contains_key(type_name) {
+                Some("ENUM")
+            } else {
+                None
+            };
+            if let Some(kind) = kind {
                 self.emit(
-                    VERIFY_TYPE,
+                    "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
+                    format!("`{type_name}` is a {kind}, not a record TYPE."),
+                );
+            }
+            return;
+        }
+        let Some(fields) = self.record_field_lists.get(type_name) else {
+            return;
+        };
+        if args.len() != fields.len() {
+            self.emit(
+                "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
+                format!(
+                    "Constructor `{type_name}` has {} argument(s), expected {}.",
+                    args.len(),
+                    fields.len()
+                ),
+            );
+        }
+        for (index, arg) in args.iter().enumerate() {
+            let Some((field_name, field_type)) = fields.get(index) else {
+                continue;
+            };
+            let Some(actual) = self.infer_type(arg, locals) else {
+                continue;
+            };
+            if !self.expression_compatible(field_type, &actual, arg) {
+                self.emit(
+                    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
                     format!(
-                        "constructor `{type_name}` passes {argc} argument(s) but the record has {} field(s)",
-                        fields.len()
+                        "Argument {} for `{type_name}` has type {actual}, expected {field_type} for field `{field_name}`.",
+                        index + 1
                     ),
                 );
             }
