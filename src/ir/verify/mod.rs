@@ -130,6 +130,8 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_RESULT_NOT_MATCHABLE",
     "TYPE_RESULT_IS_IMPLICIT",
     "TYPE_THREAD_RESULT_REMOVED",
+    "TYPE_RESOURCE_BORROW_INVALIDATE",
+    "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -263,11 +265,26 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         // Resource use-after-move is a separate dataflow pass (straight-line
         // within a block; moves on any fall-through branch propagate past the
         // join, mirroring typecheck's MaybeMoved).
+        let mut borrowed: HashSet<String> = function
+            .params
+            .iter()
+            .filter(|p| env.is_resource_or_resource_union(resource_base_type(&p.type_)))
+            .map(|p| p.name.clone())
+            .collect();
+        // A RES binding whose ownership floats into a collection
+        // (ResOwner::Float) is borrow-only afterwards: the collection owns the
+        // close obligation (§15.6).
+        for (name, owner) in &function.resource_owners {
+            if matches!(owner, crate::escape::ResOwner::Float(_)) {
+                borrowed.insert(name.clone());
+            }
+        }
         env.check_resource_moves(
             &function.body,
             &mut locals,
             &mut HashSet::new(),
             &function.resource_owners,
+            &borrowed,
         );
     }
     // Global initializers are lowered into a synthetic function later; verify
@@ -779,6 +796,20 @@ impl TypeEnv {
                             }
                         }
                     }
+                    // A collection `get`/`getOr` yields a *borrow* of a
+                    // resource element; it cannot be RES-bound (§15.6) —
+                    // typecheck's TYPE_RESOURCE_ELEMENT_NOT_OWNER.
+                    if self.current_owners.borrow().contains(name.as_str())
+                        && self.is_resource_or_resource_union(resource_base_type(type_))
+                        && value.as_ref().is_some_and(is_resource_element_borrow)
+                    {
+                        self.emit(
+                            "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
+                            format!(
+                                "Binding `{name}` is a borrowed collection element, not an owner; a borrowed resource cannot be bound with `RES`. Use it inline or via `FOR EACH` (§15.6)."
+                            ),
+                        );
+                    }
                     // An initializer-less binding must be annotated, immutable
                     // ones must have a value, and MUT needs a defaultable type
                     // (typecheck's check_binding_shape None-value arms).
@@ -984,6 +1015,19 @@ impl TypeEnv {
                             self.emit(
                                 "TYPE_UNKNOWN_VALUE",
                                 "RETURN value does not have a known type.".to_string(),
+                            );
+                        }
+                        // A borrowed collection element cannot be returned
+                        // (§15.6, TYPE_RESOURCE_ELEMENT_NOT_OWNER return arm).
+                        if is_resource_element_borrow(value)
+                            && self.infer_type(value, locals).is_some_and(|t| {
+                                self.is_resource_or_resource_union(resource_base_type(&t))
+                            })
+                        {
+                            self.emit(
+                                "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
+                                "RETURN value is a borrowed collection element, not an owner; a borrowed resource cannot be returned (§15.6)."
+                                    .to_string(),
                             );
                         }
                         self.check_return_type(value, locals);
@@ -1405,6 +1449,24 @@ impl TypeEnv {
                 for v in values {
                     self.check_value(v, locals);
                 }
+                // Only a RES binding (an owner) may be stored in a resource
+                // collection; a temporary (a call result) is not an owner
+                // (§15.6, TYPE_RESOURCE_ELEMENT_NOT_OWNER element arm).
+                if let Some(element) = type_.strip_prefix("List OF ") {
+                    let inner = element.strip_prefix("RES ").unwrap_or(element);
+                    if element.starts_with("RES ") && self.is_resource_or_resource_union(inner) {
+                        for v in values {
+                            if !matches!(v, IrValue::Local(_)) {
+                                self.emit(
+                                    "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
+                                    format!(
+                                        "Only a `RES` binding may be added as a collection element; `{inner}` is a temporary or borrowed resource, not an owner. Bind it with `RES` first (§15.6)."
+                                    ),
+                                );
+                            }
+                        }
+                    }
+                }
                 // A crafted list whose elements do not match its element type is
                 // a type confusion: codegen lays out and reads elements
                 // uniformly by the declared element type.
@@ -1724,6 +1786,20 @@ impl TypeEnv {
             return;
         }
         if let Some((key, value)) = parse_map(t) {
+            // A resource/thread may never be a Map key (handles are not
+            // comparable and ordinary collections cannot own them) —
+            // typecheck's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
+            if !key.is_empty()
+                && key != "Unknown"
+                && self.contains_resource_or_thread(key, &mut HashSet::new())
+            {
+                self.emit(
+                    "TYPE_COLLECTION_OWNERSHIP_VIOLATION",
+                    format!(
+                        "Ordinary collections cannot store key values of type `{key}` because they contain a resource or thread handle."
+                    ),
+                );
+            }
             if !key.is_empty() && key != "Unknown" && !self.is_comparable(key) {
                 self.emit(
                     "TYPE_REQUIRES_COMPARABLE",
@@ -1981,6 +2057,7 @@ impl TypeEnv {
         locals: &mut HashMap<String, String>,
         moved: &mut HashSet<String>,
         owners: &HashMap<String, crate::escape::ResOwner>,
+        borrowed: &HashSet<String>,
     ) {
         // A branch that always leaves the function never reaches the join, so
         // its moves must not leak past it (typecheck merges only fall-through
@@ -2001,7 +2078,7 @@ impl TypeEnv {
                               locals: &HashMap<String, String>,
                               moved: &mut HashSet<String>| {
             let mut branch_moved = moved.clone();
-            self.check_resource_moves(body, &mut locals.clone(), &mut branch_moved, owners);
+            self.check_resource_moves(body, &mut locals.clone(), &mut branch_moved, owners, borrowed);
             if !diverges(body) {
                 for name in branch_moved {
                     // Only propagate moves of bindings the outer scope knows;
@@ -2029,7 +2106,18 @@ impl TypeEnv {
                 }
             }
             if let Some(consumed) = self.consumed_resource(op, locals) {
-                moved.insert(consumed);
+                // A borrow (RES parameter, FOR EACH element) never owns the
+                // close obligation — typecheck's TYPE_RESOURCE_BORROW_INVALIDATE.
+                if borrowed.contains(&consumed) {
+                    self.emit(
+                        "TYPE_RESOURCE_BORROW_INVALIDATE",
+                        format!(
+                            "Binding `{consumed}` is a borrowed resource; only its owner may close, `RETURN`, or transfer it."
+                        ),
+                    );
+                } else {
+                    moved.insert(consumed);
+                }
             }
             match op {
                 IrOp::Bind {
@@ -2068,10 +2156,31 @@ impl TypeEnv {
                         run_branch(&case.body, locals, moved);
                     }
                 }
+                IrOp::ForEach {
+                    name, type_, body, ..
+                } => {
+                    // The element binding is a borrow of the collection's slot.
+                    let mut fe_locals = locals.clone();
+                    fe_locals.insert(name.clone(), type_.clone());
+                    let mut fe_borrowed = borrowed.clone();
+                    fe_borrowed.insert(name.clone());
+                    let mut branch_moved = moved.clone();
+                    self.check_resource_moves(
+                        body,
+                        &mut fe_locals,
+                        &mut branch_moved,
+                        owners,
+                        &fe_borrowed,
+                    );
+                    for n in branch_moved {
+                        if locals.contains_key(&n) {
+                            moved.insert(n);
+                        }
+                    }
+                }
                 IrOp::While { body, .. }
                 | IrOp::For { body, .. }
                 | IrOp::DoUntil { body, .. }
-                | IrOp::ForEach { body, .. }
                 | IrOp::Trap { body, .. } => {
                     run_branch(body, locals, moved);
                 }
@@ -2276,6 +2385,39 @@ impl TypeEnv {
         }
         // Nested collections (`List OF List OF RES File`).
         self.check_collection_res_axis(inner);
+    }
+
+    /// Whether a type contains a resource or thread handle anywhere (mirrors
+    /// typecheck's `contains_resource_or_thread` on type strings).
+    fn contains_resource_or_thread(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
+        let t = type_.strip_prefix("RES ").unwrap_or(type_);
+        let t = match t.find(" STATE ") {
+            Some(i) => &t[..i],
+            None => t,
+        };
+        if t.starts_with("Thread") || self.is_resource_or_resource_union(t) {
+            return true;
+        }
+        if let Some(e) = t.strip_prefix("List OF ") {
+            return self.contains_resource_or_thread(e, seen);
+        }
+        if let Some((k, v)) = parse_map(t) {
+            return self.contains_resource_or_thread(k, seen)
+                || self.contains_resource_or_thread(v, seen);
+        }
+        if !seen.insert(t.to_string()) {
+            return false;
+        }
+        let contained = self
+            .record_field_lists
+            .get(t)
+            .is_some_and(|fields| {
+                fields
+                    .iter()
+                    .any(|(_, ft)| self.contains_resource_or_thread(ft, seen))
+            });
+        seen.remove(t);
+        contained
     }
 
     /// Whether `base` is positively a non-resource data type: a primitive, a
@@ -3352,6 +3494,19 @@ fn integer_constant_value(value: &IrValue) -> Option<i128> {
         }
         _ => None,
     }
+}
+
+/// Whether an IR value is a `collections.get`/`getOr` call — a *borrow* of a
+/// collection element (mirrors `typecheck::helpers::is_resource_element_borrow`).
+fn is_resource_element_borrow(value: &IrValue) -> bool {
+    matches!(
+        value,
+        IrValue::Call { target, .. } | IrValue::CallResult { target, .. }
+            if matches!(
+                builtins::collections::native_member_bare(target),
+                Some("get" | "getOr")
+            )
+    )
 }
 
 /// Compiler-owned record types users may neither construct nor WITH-update —
