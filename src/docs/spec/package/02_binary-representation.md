@@ -46,7 +46,7 @@ length         u64
 
 `offset` is relative to the start of `packageBinaryRepr`, not the start of the file. Each section-table entry is exactly 24 bytes (`sectionId` u16, `sectionFlags` u16, `reserved` u32, `offset` u64, `length` u64), so the table occupies `16 + sectionCount * 24` bytes and section payloads follow.
 
-Sections may appear in any order. The current reader (`read_binary_repr_package`) loads the section table into a map keyed by `sectionId`, validates that each entry's `offset + length` stays within the payload, and then looks sections up by id. Note the gap between the format's intent and the current reader: it does **not** reject overlapping section ranges, and on a duplicate `sectionId` the **last** entry wins rather than being rejected. Producers must still emit each section at most once. [[src/binary_repr/reader.rs:read_binary_repr_package]]
+Sections may appear in any order. The current reader (`read_binary_repr_package`) loads the section table into a map keyed by `sectionId`, validates that each entry's `offset + length` stays within the payload, and then looks sections up by id. A duplicate `sectionId` **is** rejected (`duplicate MFPC section id <n>`, PKG-06). One gap remains between the format's intent and the current reader: it does **not** reject overlapping section ranges. Producers must still emit each section at most once. [[src/binary_repr/reader.rs:read_binary_repr_package]]
 
 ## Section IDs
 

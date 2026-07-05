@@ -76,7 +76,7 @@ through `load_build_signing_info`, which cross-checks the local private key
 against the repository's signing key/fingerprint.[[src/cli/build.rs:load_build_signing_info]]
 
 `-app` is **executable-only** and requires a native target that supports app mode
-(`macos-aarch64` or `linux-aarch64`); otherwise it errors before any lowering
+(`macos-aarch64`, `linux-aarch64`, or `linux-x86_64`); otherwise it errors before any lowering
 (`mfb build -app requires an executable project` / `mfb build -app requires a
 macOS or Linux target`).[[src/cli/build.rs:build_project]] A duplicate `-app` yields
 `mfb build accepts at most one -app option`. App mode selects

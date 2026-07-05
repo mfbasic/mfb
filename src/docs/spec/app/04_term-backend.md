@@ -233,9 +233,10 @@ cell/render model itself does not interpret keys. [[src/target/macos_aarch64/app
 
 The Linux backend is the analog of the macOS `TermView` but structurally
 different. The drawing area is created up front, held off-window by a ref, and
-swapped in as the window child on `term::on`. The Linux runtime carries
-documented SCAFFOLD-status gaps (e.g. cursor rendering §6.7 and `io::terminalSize`
-/ interactive resize, Phase 6, absent). [[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
+swapped in as the window child on `term::on`. The Linux runtime carries a
+documented SCAFFOLD-status gap: `io::terminalSize` / interactive resize (Phase 6)
+is absent. (Cursor rendering is implemented — a caret is drawn when the cursor is
+visible.) [[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
 
 ### Grid storage — one `_mfb_gtkapp_state` global, parallel static arrays
 

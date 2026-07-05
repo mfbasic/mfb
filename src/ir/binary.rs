@@ -12,7 +12,9 @@ pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// Version 4 (plan-20-Z) adds the declaration-fidelity fields the relocated
 /// rules need: `Bind` ops and top-level bindings carry `explicit_type`
 /// (whether the type came from a source `AS T` annotation), and types and
-/// top-level bindings carry their declaring source `file`.
+/// top-level bindings carry their declaring source `file`. Version 4 also
+/// serializes each function's `resource_owners` map (escape-analysis ownership
+/// decisions), which a decoded package has no AST to reconstruct.
 pub const BINARY_REPR_VERSION: u16 = 4;
 
 // --- low-level writers -----------------------------------------------------

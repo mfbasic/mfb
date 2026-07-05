@@ -60,7 +60,8 @@ enqueue success:
   the error handler, where it remains owned by the sender and can be released. The
   syntaxchecker treats the argument at index 1 of `thread.start`, `thread.send`, and
   `thread.transfer` as a move (`ExprMode::Transfer`); a borrowed resource cannot be
-  transferred (`OWNERSHIP_BORROWED_RESOURCE_OPERATION`). [[src/syntaxcheck/mod.rs:Transfer]]
+  transferred, rejected on the IR by `ir::verify` with `TYPE_RESOURCE_BORROW_INVALIDATE`
+  ("a borrowed resource cannot be closed, returned, or transferred"). [[src/ir/verify/mod.rs:2142]]
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal

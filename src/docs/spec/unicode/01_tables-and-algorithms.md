@@ -188,7 +188,7 @@ entries/sequences symbols and the entry count differ.
 
 ## Embedding: data objects and symbols
 
-`unicode_runtime_data_objects` emits all fifteen tables as raw, read-only
+`unicode_runtime_data_objects` emits all fourteen tables as raw, read-only
 `CodeDataObject`s, but only when the module actually uses a Unicode-aware
 builtin (`module_uses_unicode_runtime_tables` gates inclusion). Each table's
 bytes come from a hex serializer in `unicode_runtime_tables.rs`; sizes and

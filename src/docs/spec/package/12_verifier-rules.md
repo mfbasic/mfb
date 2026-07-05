@@ -71,7 +71,7 @@ The full semantic model these rules enforce is specified in `./mfb spec language
 
 The format anticipates these, but the current reader does **not** check them. An implementer should be aware they are gaps, not guarantees:
 
-* Section ranges may overlap, and a duplicate `sectionId` silently takes the last entry rather than being rejected.
+* Section ranges may overlap. (A duplicate `sectionId`, by contrast, **is** rejected — `duplicate MFPC section id <n>`, PKG-06.)
 * At *import/read* time the reader does not re-check the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). As of plan-20 that pass is the **complete** semantic checker — it re-derives flow-sensitive resource linearity (cross-branch use-after-move, borrow invalidation), match exhaustiveness, the full type system, literal ranges, visibility, and the `LINK` ABI. The only rules it does not re-derive are the source-syntax ones that cannot appear in a package at all (see "Compile-time guarantees" above).
 * No native-binding verifier — there is no `NATIVE_LINK_TABLE` section to validate; native `LINK` metadata is carried in the IR payload trailer and validated, if at all, when that IR is merged and lowered.
 * No standalone signature verification in the reader (delegated to the package manager).

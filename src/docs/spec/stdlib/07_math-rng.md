@@ -123,8 +123,8 @@ entry:
   _mfb_rng_seed_at(arena, scratch)  ; seed words 88/96
 ```
 
-The platform random-bytes seam is `getentropy` on macOS and `getrandom` on
-Linux. [[src/target/macos_aarch64/plan.rs:495]]
+The platform random-bytes seam is `getentropy` on macOS and Linux-aarch64; only
+Linux-x86_64 uses the `getrandom` syscall. [[src/target/macos_aarch64/plan.rs:514]]
 
 ### Spawned thread — drawn from the parent stream
 
@@ -167,7 +167,7 @@ mapping is *not* rejection-sampled; for `span` values that do not divide `2^64`
 evenly there is a negligible modulo bias. The full-domain case
 (`min = INT_MIN`, `max = INT_MAX`) detects the `span == 0` wrap and returns the
 raw 64-bit draw unmodified, covering every `Integer` uniformly.
-[[src/target/shared/code/builder_math.rs:317]]
+[[src/target/shared/code/builder_math.rs:794]]
 
 ## `math::seed(value)` semantics
 
@@ -177,7 +177,7 @@ own. Because each thread owns an independent generator and stream, reseeding one
 thread never disturbs another. Calling `math::seed` is optional — every thread is
 already seeded automatically (main from the OS, children from the parent) — and
 is needed only to make a thread's subsequent sequence reproducible.
-[[src/target/shared/code/builder_math.rs:408]]
+[[src/target/shared/code/builder_math.rs:883]]
 
 ## Relationship to the memory-fill RNG
 

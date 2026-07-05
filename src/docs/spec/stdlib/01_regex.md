@@ -42,8 +42,8 @@ returned indices are scalar indices.[[src/builtins/regex_package.mfb:__regex_mak
 
 Code points are derived two ways. `__regex_chr` UTF-8-encodes an `Integer` to a scalar
 string, clamping out-of-range and surrogate values; `__regex_scalarToCp` recovers a code
-point by binary search over `__regex_chr` (valid because UTF-8 byte order equals scalar
-order). The pattern is decomposed into scalars the same way before parsing.[[src/builtins/regex_package.mfb:__regex_scalarToCp]]
+point via the shared UTF-32 encoder (`encoding::utf32Encode`), returning the first
+scalar's code point. The pattern is decomposed into scalars the same way before parsing.[[src/builtins/regex_package.mfb:__regex_scalarToCp]]
 
 ## Pattern Grammar
 

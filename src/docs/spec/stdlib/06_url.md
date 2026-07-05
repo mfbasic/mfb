@@ -115,7 +115,7 @@ port, port out of range) and `77050007` (unsupported scheme). [[src/builtins/net
 
 A universal `toString(value)` whose argument is a `Url` is routed to
 `__net_urlToString` (the `__`-prefix internalizes the name so it never collides
-with the builtin `toString`). [[src/builtins/mod.rs:60]] [[src/builtins/net_package.mfb:__net_urlToString]]
+with the builtin `toString`). [[src/builtins/mod.rs:73]] [[src/builtins/net_package.mfb:__net_urlToString]]
 
 Rendering is the inverse of parsing and reconstructs an absolute href: [[src/builtins/net_package.mfb:__net_urlToString]]
 
