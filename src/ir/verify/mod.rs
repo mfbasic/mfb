@@ -2237,8 +2237,7 @@ impl TypeEnv {
         ) || self.infer_type(value, locals).is_none()
     }
 
-    /// Whether a type has a defined default value (`syntaxcheck`'s
-    /// `is_defaultable_type` on type-name strings): primitives yes, functions/
+    /// Whether a type has a defined default value: primitives yes, functions/
     /// results/resources/threads/unions/enums no, collections and records
     /// recurse (cycle-guarded).
     fn is_defaultable(&self, type_: &str, seen: &mut HashSet<String>) -> bool {

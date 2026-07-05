@@ -46,6 +46,7 @@ pub struct FunctionEscape {
 
 impl FunctionEscape {
     /// The owner of a `RES` binding; [`ResOwner::Local`] when it does not float.
+    #[cfg(test)]
     pub fn owner(&self, res_name: &str) -> ResOwner {
         self.owners
             .get(res_name)
@@ -56,6 +57,7 @@ impl FunctionEscape {
     /// Whether the binding's ownership has floated away from its own scope (into
     /// an outer collection, or out via return). Such a binding becomes
     /// borrow-only: it may not close, `RETURN`, or `thread::transfer`.
+    #[cfg(test)]
     pub fn floats(&self, res_name: &str) -> bool {
         !matches!(self.owner(res_name), ResOwner::Local)
     }

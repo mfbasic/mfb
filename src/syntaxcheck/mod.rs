@@ -85,7 +85,6 @@ struct FunctionSig {
 #[derive(Clone)]
 struct BindingSig {
     type_: Type,
-    mutable: bool,
     visibility: Visibility,
     owner_file_path: String,
 }
@@ -1214,7 +1213,6 @@ impl<'a> SyntaxChecker<'a> {
                         binding.name.clone(),
                         BindingSig {
                             type_,
-                            mutable: binding.mutable,
                             visibility: binding.visibility,
                             owner_file_path: file.path.clone(),
                         },

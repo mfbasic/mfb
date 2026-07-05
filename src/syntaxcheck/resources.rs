@@ -218,59 +218,6 @@ impl<'a> SyntaxChecker<'a> {
         self.is_thread_sendable_type_with_seen(type_, &mut HashSet::new())
     }
 
-    pub(super) fn is_defaultable_type(&self, type_: &Type) -> bool {
-        self.is_defaultable_type_with_seen(type_, &mut HashSet::new())
-    }
-
-    pub(super) fn is_defaultable_type_with_seen(
-        &self,
-        type_: &Type,
-        seen: &mut HashSet<String>,
-    ) -> bool {
-        match type_ {
-            Type::Boolean
-            | Type::Byte
-            | Type::Error
-            | Type::ErrorLoc
-            | Type::Fixed
-            | Type::Float
-            | Type::Integer
-            | Type::Nothing
-            | Type::String
-            | Type::Unknown => true,
-            Type::List(element) => self.is_defaultable_type_with_seen(element, seen),
-            Type::Map(key, value) => {
-                self.is_defaultable_type_with_seen(key, seen)
-                    && self.is_defaultable_type_with_seen(value, seen)
-            }
-            Type::Function { .. }
-            | Type::Result(_)
-            | Type::Res(_)
-            | Type::Thread(..)
-            | Type::ThreadWorker(..) => false,
-            Type::User(name) => {
-                if self.resource_registry.is_resource(name) {
-                    return false;
-                }
-                if !seen.insert(name.clone()) {
-                    return false;
-                }
-                let Some(info) = self.type_infos.get(name) else {
-                    return false;
-                };
-                let result = match info.kind {
-                    TypeDeclKind::Enum | TypeDeclKind::Union => false,
-                    TypeDeclKind::Type => info
-                        .fields
-                        .iter()
-                        .all(|field| self.is_defaultable_type_with_seen(&field.type_, seen)),
-                };
-                seen.remove(name);
-                result
-            }
-        }
-    }
-
     pub(super) fn is_copyable_type_with_seen(
         &self,
         type_: &Type,

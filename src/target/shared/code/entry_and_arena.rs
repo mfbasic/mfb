@@ -620,7 +620,6 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     let bin_scan = vregs.next();
     let bin_scan_end = vregs.next();
     let bin_rem = vregs.next();
-    let bin_rem_ptr = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         abi::compare_immediate("x1", "0"),

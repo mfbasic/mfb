@@ -60,16 +60,6 @@ const SYS_GETRANDOM: &str = "318";
 const PROT_READ_WRITE: &str = "3"; // PROT_READ | PROT_WRITE
 const MAP_PRIVATE_ANON: &str = "34"; // MAP_PRIVATE | MAP_ANONYMOUS (0x02 | 0x20)
 
-/// Build `eor dst, lhs, rhs` (no abi helper takes three explicit reg operands in
-/// the shape the entry needs for the zero-idiom; the AArch64 `exclusive_or`
-/// helper exists but we keep the entry explicit and ISA-local).
-fn xor_self(reg: &str) -> CodeInstruction {
-    CodeInstruction::new("eor")
-        .field("dst", reg)
-        .field("lhs", reg)
-        .field("rhs", reg)
-}
-
 impl code::CodegenPlatform for Platform {
     fn target(&self) -> &'static str {
         "linux-x86_64"

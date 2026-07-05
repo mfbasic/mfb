@@ -59,10 +59,6 @@ pub(crate) fn stack_pointer() -> &'static str {
     "sp"
 }
 
-pub(crate) fn raw_stack_pointer() -> &'static str {
-    "raw_sp"
-}
-
 pub(crate) fn syscall_register() -> &'static str {
     "x8"
 }
