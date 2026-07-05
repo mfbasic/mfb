@@ -53,6 +53,10 @@ Package Management:
 Repository & Auth:
   repo register <owner>   Register a repository owner
   repo auth <owner>       Authenticate as a repository owner
+  repo link [--start] <owner>
+                          Link this (or a new) machine to an account
+  machine revoke <owner> <fingerprint>
+                          Revoke a lost machine's auth key
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
@@ -99,10 +103,14 @@ Options for 'publish':
 
 pub(crate) const REPO_HELP: &str = "\
 Usage: mfb repo <command> <owner>
+       mfb machine revoke <owner> <auth-fingerprint>
 
 Commands:
   register            Register a new repository owner identity
   auth                Log in to an existing owner account
+  link --start        (old machine) display a one-time pairing code
+  link                (new machine) enter the pairing code to become an equal
+  machine revoke      Revoke a lost machine's auth key (needs the ident key)
 
 Arguments:
   <owner>             The unique handle for the repository owner";
@@ -283,6 +291,25 @@ fn main() {
                 return;
             }
             if let Err(err) = run_repo_command(&repo_args) {
+                match err {
+                    RepoCommandError::Usage(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(2);
+                    }
+                    RepoCommandError::Failed(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(1);
+                    }
+                }
+            }
+        }
+        Some("machine") => {
+            let machine_args = args.collect::<Vec<_>>();
+            if machine_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{REPO_HELP}");
+                return;
+            }
+            if let Err(err) = cli::repo::run_machine_command(&machine_args) {
                 match err {
                     RepoCommandError::Usage(message) => {
                         eprintln!("error: {message}");

@@ -113,6 +113,73 @@ pub struct SigningResponse {
     pub attestation_signature: String,
 }
 
+/// Machine link (plan-23 §3.2): the old machine relays the argon2id-encrypted
+/// ident keypair as a single-use, short-TTL blob the server cannot read.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinkStartRequest {
+    pub owner: String,
+    /// Code-derived lookup key: `hex(SHA-256("mfb-pairing-lookup-v1\0" || code))`.
+    pub lookup: String,
+    /// Base64url ciphertext: 12-byte nonce || ChaCha20-Poly1305(ident prv || pub).
+    pub blob: String,
+    /// Base64url argon2id salt.
+    pub salt: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinkStartResponse {
+    pub owner: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinkFetchRequest {
+    pub owner: String,
+    pub lookup: String,
+    /// The new machine's own auth public key, registered in this exchange.
+    #[serde(rename = "authKey")]
+    pub auth_key: String,
+    /// Role-separated proof-of-possession for the new auth key.
+    pub proof: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct LinkFetchResponse {
+    pub owner: String,
+    pub blob: String,
+    pub salt: String,
+    #[serde(rename = "authFingerprint")]
+    pub auth_fingerprint: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RevokeChallengeRequest {
+    pub owner: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RevokeRequest {
+    #[serde(rename = "challengeId")]
+    pub challenge_id: String,
+    /// Fingerprint of the auth key being revoked.
+    #[serde(rename = "authFingerprint")]
+    pub auth_fingerprint: String,
+    /// Base64url ident signature over the revocation message.
+    #[serde(rename = "identSignature")]
+    pub ident_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RevokeResponse {
+    pub owner: String,
+    #[serde(rename = "authFingerprint")]
+    pub auth_fingerprint: String,
+    pub revoked: bool,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct PackageArtifactRequest {
     pub ident: String,
@@ -184,6 +251,10 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/auth/challenge", post(challenge))
         .route("/auth/login", post(login))
         .route("/signing", post(signing))
+        .route("/machines/link", post(link_start))
+        .route("/machines/link/fetch", post(link_fetch))
+        .route("/machines/revoke/challenge", post(revoke_challenge))
+        .route("/machines/revoke", post(revoke_machine))
         .route("/validate", post(validate_package))
         .route("/publish", post(publish_package))
         .with_state(state);
@@ -238,24 +309,163 @@ async fn challenge(
     State(state): State<AppState>,
     Json(request): Json<ChallengeRequest>,
 ) -> Result<Json<ChallengeResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let Some((_owner, key)) = state
+    // Owner existence first, so a missing-key client probe (empty
+    // fingerprint) still learns "unknown owner" for an unregistered name.
+    if state
         .store
-        .owner_with_auth_key(&request.owner)
+        .owner_with_ident_key(&request.owner)
         .map_err(internal)?
-    else {
+        .is_none()
+    {
         return Err(bad_request("unknown owner".to_string()));
-    };
-    if key.fingerprint != request.auth_fingerprint {
-        return Err(bad_request("mismatched local key fingerprint".to_string()));
     }
+    // Machines are equals: challenge the specific machine's auth key.
     let challenge = state
         .store
-        .create_challenge(&request.owner)
+        .create_auth_challenge(&request.owner, &request.auth_fingerprint)
         .map_err(conflict_or_bad_request)?;
     Ok(Json(ChallengeResponse {
         challenge_id: challenge.id,
         nonce: crypto::encode_bytes(&challenge.nonce),
         expires_at: challenge.expires_at,
+    }))
+}
+
+/// Old-machine side of a link (plan-23 §3.2): store the encrypted ident blob
+/// under the code-derived lookup. Requires an authenticated session — an
+/// anonymous caller cannot park blobs on an account.
+async fn link_start(
+    State(state): State<AppState>,
+    Json(request): Json<LinkStartRequest>,
+) -> Result<Json<LinkStartResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
+    if claims.sub != request.owner {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    let Some((owner, _key)) = state
+        .store
+        .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("session key is not a current auth key".to_string()));
+    };
+    if owner.id != claims.owner_id {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    if request.lookup.len() != 64
+        || !request
+            .lookup
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(bad_request("malformed pairing lookup".to_string()));
+    }
+    let blob = crypto::decode_bytes(&request.blob, "blob").map_err(bad_request)?;
+    let salt = crypto::decode_bytes(&request.salt, "salt").map_err(bad_request)?;
+    if blob.is_empty() || blob.len() > 4096 || salt.is_empty() || salt.len() > 64 {
+        return Err(bad_request("malformed pairing blob".to_string()));
+    }
+    let expires_at = state
+        .store
+        .store_pairing_blob(owner.id, &request.lookup, &blob, &salt)
+        .map_err(conflict_or_bad_request)?;
+    Ok(Json(LinkStartResponse {
+        owner: owner.owner_display,
+        expires_at,
+    }))
+}
+
+/// New-machine side of a link: presenting the correct code-derived lookup is
+/// the pairing approval. The new machine's auth key is registered to the
+/// account and the (single-use) blob handed over in the same exchange.
+async fn link_fetch(
+    State(state): State<AppState>,
+    Json(request): Json<LinkFetchRequest>,
+) -> Result<Json<LinkFetchResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let auth_key = crypto::decode_bytes(&request.auth_key, "authKey").map_err(bad_request)?;
+    let proof = crypto::decode_bytes(&request.proof, "proof").map_err(bad_request)?;
+    // Verify the proof BEFORE consuming the single-use blob, so a malformed
+    // request cannot burn a pending pairing.
+    let Some((owner_record, _ident)) = state
+        .store
+        .owner_with_ident_key(&request.owner)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("unknown owner".to_string()));
+    };
+    let message = crypto::registration_message(
+        crypto::ROLE_AUTH,
+        &owner_record.owner_display,
+        &auth_key,
+    );
+    crypto::verify(&auth_key, &message, &proof)
+        .map_err(|_| bad_request("invalid auth proof-of-possession signature".to_string()))?;
+    let Some((blob, salt)) = state
+        .store
+        .take_pairing_blob(&request.owner, &request.lookup)
+        .map_err(internal)?
+    else {
+        return Err(bad_request(
+            "unknown, used, or expired pairing code".to_string(),
+        ));
+    };
+    let (owner, key) = state
+        .store
+        .add_auth_key(&request.owner, &auth_key, &proof)
+        .map_err(conflict_or_bad_request)?;
+    Ok(Json(LinkFetchResponse {
+        owner: owner.owner_display,
+        blob: crypto::encode_bytes(&blob),
+        salt: crypto::encode_bytes(&salt),
+        auth_fingerprint: key.fingerprint,
+    }))
+}
+
+/// Issue an ident challenge for an auth-key revocation. Revocation authority
+/// is the ident key alone (plan-23 §3.6): an auth session must NOT suffice,
+/// and the machine holding the ident key may not have a live session.
+async fn revoke_challenge(
+    State(state): State<AppState>,
+    Json(request): Json<RevokeChallengeRequest>,
+) -> Result<Json<ChallengeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let challenge = state
+        .store
+        .create_ident_challenge(&request.owner)
+        .map_err(conflict_or_bad_request)?;
+    Ok(Json(ChallengeResponse {
+        challenge_id: challenge.id,
+        nonce: crypto::encode_bytes(&challenge.nonce),
+        expires_at: challenge.expires_at,
+    }))
+}
+
+async fn revoke_machine(
+    State(state): State<AppState>,
+    Json(request): Json<RevokeRequest>,
+) -> Result<Json<RevokeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let signature =
+        crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
+    let (owner, _ident_key) = state
+        .store
+        .complete_revocation_challenge(
+            &request.challenge_id,
+            &signature,
+            &request.auth_fingerprint,
+        )
+        .map_err(conflict_or_bad_request)?;
+    let revoked = state
+        .store
+        .revoke_auth_key(owner.id, &request.auth_fingerprint)
+        .map_err(internal)?;
+    if !revoked {
+        return Err(bad_request(
+            "no current auth key with that fingerprint".to_string(),
+        ));
+    }
+    Ok(Json(RevokeResponse {
+        owner: owner.owner_display,
+        auth_fingerprint: request.auth_fingerprint,
+        revoked: true,
     }))
 }
 
@@ -339,14 +549,16 @@ async fn signing(
     if claims.sub != request.owner {
         return Err(bad_request("session owner does not match requested owner".to_string()));
     }
-    let Some((owner, key)) = state
+    let Some((owner, _key)) = state
         .store
-        .owner_with_auth_key(&request.owner)
+        .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
         .map_err(internal)?
     else {
-        return Err(bad_request("unknown owner".to_string()));
+        return Err(bad_request(
+            "session key does not match current auth key".to_string(),
+        ));
     };
-    if owner.id != claims.owner_id || key.fingerprint != claims.auth_fingerprint {
+    if owner.id != claims.owner_id {
         return Err(bad_request(
             "session key does not match current auth key".to_string(),
         ));
@@ -510,15 +722,25 @@ async fn validate_package_request(
     if crate::validation::fold_owner(owner_part) != crate::validation::fold_owner(&claims.sub) {
         diagnostics.push("session owner does not match package ident owner".to_string());
     }
-    let Some((owner, key)) = state
+    let Some((owner, _key)) = state
         .store
-        .owner_with_auth_key(owner_part)
+        .owner_auth_key_by_fingerprint(owner_part, &claims.auth_fingerprint)
         .map_err(internal)?
     else {
-        diagnostics.push("package ident owner is not registered".to_string());
+        // Distinguish "owner unknown" from "session key no longer current".
+        if state
+            .store
+            .owner_with_ident_key(owner_part)
+            .map_err(internal)?
+            .is_none()
+        {
+            diagnostics.push("package ident owner is not registered".to_string());
+            return Ok(invalid_report(hash, diagnostics));
+        }
+        diagnostics.push("session key does not match current owner key".to_string());
         return Ok(invalid_report(hash, diagnostics));
     };
-    if owner.id != claims.owner_id || key.fingerprint != claims.auth_fingerprint {
+    if owner.id != claims.owner_id {
         diagnostics.push("session key does not match current owner key".to_string());
     }
     if package.author != owner.owner_display {

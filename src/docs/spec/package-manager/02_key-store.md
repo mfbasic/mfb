@@ -59,7 +59,12 @@ $MFB_HOME (or ~/.mfb)/<repo-hash>/
 The **auth** keypair is per machine and only logs into the registry API; the
 **ident** keypair *is* the account identity, lives on every linked machine, and
 signs build proofs — see `./mfb spec package-manager signing` for the key
-model. All key file names are `format!("{owner}.{role}.ext")`; `owner` must
+model. `mfb repo register` writes both keypairs on the first machine;
+`mfb repo link` writes them on every later machine — the auth keypair freshly
+generated there, the ident keypair decrypted from the pairing relay blob
+(argon2id + ChaCha20-Poly1305 under the one-time pairing code; see
+*repository-protocol*). Machines are full equals afterwards.
+[[repository/src/client.rs:link_fetch]] All key file names are `format!("{owner}.{role}.ext")`; `owner` must
 already be a validated owner name before any path is built (callers run
 `validate_owner_name` first). See `./mfb spec package-manager owner-names` for
 the grammar. [[repository/src/local.rs:auth_public_key_path]]

@@ -59,6 +59,10 @@ in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:
 | `/auth/challenge` | POST | fingerprint match | `ChallengeRequest` | `ChallengeResponse` | `repo auth` (step 1) |
 | `/auth/login` | POST | challenge signature | `LoginRequest` | `LoginResponse` | `repo auth` (step 2) |
 | `/signing` | POST | session token | `SigningRequest` | `SigningResponse` | `build --sign` |
+| `/machines/link` | POST | session token | `LinkStartRequest` | `LinkStartResponse` | `repo link --start` |
+| `/machines/link/fetch` | POST | pairing code + proof | `LinkFetchRequest` | `LinkFetchResponse` | `repo link` |
+| `/machines/revoke/challenge` | POST | none (challenge issuance) | `RevokeChallengeRequest` | `ChallengeResponse` | `machine revoke` (step 1) |
+| `/machines/revoke` | POST | ident signature | `RevokeRequest` | `RevokeResponse` | `machine revoke` (step 2) |
 | `/validate` | POST | session token | `PackageArtifactRequest` | `ValidatePackageResponse` | `pkg publish` (step 1) |
 | `/publish` | POST | session token | `PackageArtifactRequest` | `PublishPackageResponse` | `pkg publish` (step 2) |
 
@@ -162,11 +166,14 @@ Response `ChallengeResponse`:[[repository/src/server.rs:ChallengeResponse]]
 }
 ```
 
-The server looks up the owner's auth key; an unknown owner (`unknown owner`) or
-a fingerprint that does not match the registered key (`mismatched local key
-fingerprint`) yields `400`.[[repository/src/server.rs:challenge]] The nonce is
-32 random bytes and the challenge expires **300 seconds** after
-issue.[[repository/src/store.rs:create_challenge]]
+The server first checks the owner exists (an unknown owner yields `400 unknown
+owner`, so the client's missing-key probe still works), then challenges the
+**specific machine's** auth key by fingerprint — an account holds one current
+auth key per linked machine (plan-23 §2), so auth-key resolution is always
+fingerprint-scoped; no current key with that fingerprint yields `400
+mismatched local key fingerprint` (which is also what a **revoked** machine
+sees). The nonce is 32 random bytes and the challenge expires **300 seconds**
+after issue.[[repository/src/server.rs:challenge]][[repository/src/store.rs:create_auth_challenge]]
 
 ### Step 2 — `/auth/login`
 
@@ -264,6 +271,98 @@ The client verifies the returned signature against its pinned `server.pub`
 before using the attestation, and refuses an attestation that does not pin the
 requested package or that names a different ident key than the machine
 holds.[[repository/src/client.rs:request_attestation]][[src/cli/build.rs:load_build_signing_info]]
+
+## Machine Link — `/machines/link` + `/machines/link/fetch`
+
+Backs `mfb repo link` (plan-23 §3.2). Linked machines are **full equals**:
+linking copies the account ident private key to the new machine, encrypted
+under a one-time pairing code the server never sees. The relay blob is
+single-use and short-TTL, and the server cannot read it.
+
+Old machine (`repo link --start <owner>`, session-authenticated): generates
+the pairing code (25 base32 characters in five groups, ~125 bits — displayed
+to the user, never transmitted), seals `identPrv || identPub` with
+ChaCha20-Poly1305 under an argon2id key derived from the code, and posts
+`LinkStartRequest`:[[repository/src/server.rs:link_start]][[repository/src/crypto.rs:seal_pairing_blob]]
+
+```json
+{
+  "owner": "alice",
+  "lookup": "<hex sha256 of 'mfb-pairing-lookup-v1\\0' || code>",
+  "blob": "<base64url: 12-byte nonce || ciphertext+tag>",
+  "salt": "<base64url argon2id salt>",
+  "sessionToken": "<JWT>"
+}
+```
+
+Response: `{"owner": "alice", "expiresAt": <unix>}`. The blob row lives **600
+seconds**, is deleted on first fetch, and expired rows are swept on insert. A
+pending pairing with the same lookup yields `409` (`already pending`). The
+`lookup` is a one-way hash of the code, so the relaying server can neither
+read the blob nor derive its key.[[repository/src/store.rs:store_pairing_blob]]
+
+New machine (`repo link <owner>`, types the code): generates its **own auth
+keypair**, builds the role-separated registration proof, and posts
+`LinkFetchRequest`:[[repository/src/server.rs:link_fetch]]
+
+```json
+{
+  "owner": "alice",
+  "lookup": "<hex, derived from the typed code>",
+  "authKey": "<base64url new auth public key>",
+  "proof": "<base64url signature over registration_message(auth)>"
+}
+```
+
+Presenting the correct code-derived lookup **is** the pairing approval: the
+server verifies the proof (before consuming the blob, so a malformed request
+cannot burn a pending pairing), consumes the blob (single use — the stored
+ciphertext is destroyed as it is handed out), registers the new auth key on
+the account, and returns
+`{"owner", "blob", "salt", "authFingerprint"}`. The client decrypts with the
+typed code (a wrong code fails the AEAD tag), cross-checks the ident keypair,
+and writes all four key files. An unknown, used, or expired lookup yields
+`400 unknown, used, or expired pairing code`.[[repository/src/client.rs:link_fetch]][[repository/src/store.rs:take_pairing_blob]]
+
+After a link the new machine is an equal: it opens its own sessions and runs
+the full build/sign/publish path with no involvement from the old machine.
+
+## Auth-Key Revocation — `/machines/revoke`
+
+Backs `mfb machine revoke <owner> <auth-fingerprint>` (plan-23 §3.6, lost
+machine). Authority is the **ident key alone** — an auth session must not
+suffice (a thief with a stolen laptop has one), and no session is required (a
+lapsed session must not block a revocation). Two round trips:
+
+1. `POST /machines/revoke/challenge` `{"owner": "alice"}` → a standard
+   `ChallengeResponse` issued against the owner's **ident**
+   key.[[repository/src/store.rs:create_ident_challenge]]
+2. `POST /machines/revoke`:[[repository/src/server.rs:revoke_machine]]
+
+```json
+{
+  "challengeId": "<from step 1>",
+  "authFingerprint": "<hex fingerprint of the key being revoked>",
+  "identSignature": "<base64url signature over revocation_message>"
+}
+```
+
+The signed bytes bind the challenge **and** the fingerprint being revoked, so
+a signature can neither be replayed nor redirected at a different machine's
+key:
+
+```text
+"mfb-repo-revoke-v1\0" || challengeId || "\0" || nonce || "\0" || authFingerprint
+```
+
+[[repository/src/crypto.rs:revocation_message]]
+
+On success the key's status flips to `revoked` and **every session opened
+with it is closed** in the same transaction: the revoked machine can no longer
+log in (`mismatched local key fingerprint` at challenge time), and its
+existing session tokens fail with `unknown session token`. Response:
+`{"owner", "authFingerprint", "revoked": true}`. A fingerprint that names no
+current auth key yields `400`.[[repository/src/store.rs:revoke_auth_key]]
 
 ## Package Artifact Requests
 

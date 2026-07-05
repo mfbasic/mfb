@@ -1,10 +1,11 @@
 use crate::crypto;
 use crate::local::{self, LocalPaths};
 use crate::server::{
-    ChallengeRequest, ChallengeResponse, ErrorResponse, LoginRequest, LoginResponse,
-    PackageArtifactRequest, PublishPackageResponse, RegisterProofs, RegisterRequest,
-    RegisterResponse, ServerIdentResponse, SigningRequest, SigningResponse,
-    ValidatePackageResponse,
+    ChallengeRequest, ChallengeResponse, ErrorResponse, LinkFetchRequest, LinkFetchResponse,
+    LinkStartRequest, LinkStartResponse, LoginRequest, LoginResponse, PackageArtifactRequest,
+    PublishPackageResponse, RegisterProofs, RegisterRequest, RegisterResponse,
+    RevokeChallengeRequest, RevokeRequest, RevokeResponse, ServerIdentResponse, SigningRequest,
+    SigningResponse, ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
@@ -147,6 +148,112 @@ pub fn request_attestation(
     )
     .map_err(|_| "attestation signature does not verify under the pinned server key".to_string())?;
     Ok(response)
+}
+
+/// Old-machine side of a machine link (plan-23 §3.2): generate the one-time
+/// pairing code, encrypt the local ident keypair under it, and park the blob
+/// on the server (single-use, short TTL). Returns `(code, expires_at)` — the
+/// code is displayed to the user and never sent anywhere.
+pub fn link_start(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<(String, i64), String> {
+    validate_owner_name(owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let ident_private = local::read_ident_private_key(paths, owner)?;
+    let ident_public = local::read_ident_public_key(paths, owner)?;
+    let session_token = local::read_session(paths, owner)?;
+
+    let code = crypto::generate_pairing_code();
+    let mut plaintext = ident_private.clone();
+    plaintext.extend_from_slice(&ident_public);
+    let (blob, salt) = crypto::seal_pairing_blob(&code, &plaintext)?;
+    let response = post_json::<LinkStartResponse>(
+        repo_url,
+        "/machines/link",
+        &LinkStartRequest {
+            owner: owner.to_string(),
+            lookup: crypto::pairing_lookup(&code),
+            blob: crypto::encode_bytes(&blob),
+            salt: crypto::encode_bytes(&salt),
+            session_token,
+        },
+    )?;
+    Ok((code, response.expires_at))
+}
+
+/// New-machine side of a machine link: generate this machine's own auth
+/// keypair, fetch the relay blob with the typed pairing code, decrypt the
+/// ident keypair, and store all four key files. After this the machine is a
+/// full equal — `mfb repo auth` opens its session.
+pub fn link_fetch(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    code: &str,
+) -> Result<RegisterResponse, String> {
+    validate_owner_name(owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let (auth_public, auth_private) = crypto::generate_keypair();
+    let message = crypto::registration_message(crypto::ROLE_AUTH, owner, &auth_public);
+    let proof = crypto::sign(&auth_private, &message)?;
+    let response = post_json::<LinkFetchResponse>(
+        repo_url,
+        "/machines/link/fetch",
+        &LinkFetchRequest {
+            owner: owner.to_string(),
+            lookup: crypto::pairing_lookup(code.trim()),
+            auth_key: crypto::encode_bytes(&auth_public),
+            proof: crypto::encode_bytes(&proof),
+        },
+    )?;
+    let blob = crypto::decode_bytes(&response.blob, "blob")?;
+    let salt = crypto::decode_bytes(&response.salt, "salt")?;
+    let plaintext = crypto::open_pairing_blob(code.trim(), &blob, &salt)?;
+    if plaintext.len() != crypto::PRIVATE_KEY_LEN + crypto::PUBLIC_KEY_LEN {
+        return Err("pairing blob does not contain an ident keypair".to_string());
+    }
+    let (ident_private, ident_public) = plaintext.split_at(crypto::PRIVATE_KEY_LEN);
+    if crypto::public_from_private(ident_private)? != ident_public {
+        return Err("pairing blob ident keypair is inconsistent".to_string());
+    }
+    local::write_auth_keypair(paths, owner, &auth_public, &auth_private)?;
+    local::write_ident_keypair(paths, owner, ident_public, ident_private)?;
+    Ok(RegisterResponse {
+        owner: response.owner,
+        auth_fingerprint: response.auth_fingerprint,
+        ident_fingerprint: crypto::fingerprint(ident_public),
+    })
+}
+
+/// Revoke a (lost) machine's auth key. Authority is the ident key alone: the
+/// request signs a server challenge plus the fingerprint being revoked with
+/// the local ident private key; no session is required.
+pub fn revoke_machine(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    auth_fingerprint: &str,
+) -> Result<RevokeResponse, String> {
+    validate_owner_name(owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let ident_private = local::read_ident_private_key(paths, owner)?;
+    let challenge = post_json::<ChallengeResponse>(
+        repo_url,
+        "/machines/revoke/challenge",
+        &RevokeChallengeRequest {
+            owner: owner.to_string(),
+        },
+    )?;
+    let nonce = crypto::decode_bytes(&challenge.nonce, "nonce")?;
+    let message = crypto::revocation_message(&challenge.challenge_id, &nonce, auth_fingerprint);
+    let signature = crypto::sign(&ident_private, &message)?;
+    post_json::<RevokeResponse>(
+        repo_url,
+        "/machines/revoke",
+        &RevokeRequest {
+            challenge_id: challenge.challenge_id,
+            auth_fingerprint: auth_fingerprint.to_string(),
+            ident_signature: crypto::encode_bytes(&signature),
+        },
+    )
 }
 
 pub struct PackageArtifact<'a> {

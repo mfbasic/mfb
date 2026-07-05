@@ -31,6 +31,8 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `pkg doc` | `mfb pkg doc <name-or-path> [--out file]` | 0 ok; 2 usage; 1 failed |
 | `repo register` | `mfb repo register <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `repo auth` | `mfb repo auth <owner_name>` | 0 ok; 2 usage; 1 failed |
+| `repo link` | `mfb repo link [--start] <owner_name>` | 0 ok; 2 usage; 1 failed |
+| `machine revoke` | `mfb machine revoke <owner_name> <auth-fingerprint>` | 0 ok; 2 usage; 1 failed |
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |
 | `man` | `mfb man [package] [function]` | 0 ok; 2 unknown package/function or >2 args |
 | `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok; 2 unknown topic, bad flag, or >2 positionals |
@@ -140,11 +142,18 @@ package's doc section (`run_pkg_doc`, default out
 `doc.html`).[[src/cli/pkg.rs:run_pkg_doc]] Each subcommand's arity error and the
 fallthrough `unknown pkg command` exit `2`; runtime failures exit `1`.
 
-`run_repo_command` requires exactly one `<owner_name>` for `register` or
-`auth`.[[src/cli/repo.rs:run_repo_command]] `register` prints `Registered owner <o>
-with auth fingerprint <f>`; `auth` prints `Authenticated owner <o> until <t>`.
-The registry protocol, signing, and publish detail are
-`./mfb spec package-manager` (coming).
+`run_repo_command` handles `register`, `auth`, and `link` (each scoped to one
+`<owner_name>`).[[src/cli/repo.rs:run_repo_command]] `register` prints
+`Registered owner <o> with auth fingerprint <f> and ident fingerprint <f>`;
+`auth` prints `Authenticated owner <o> until <t>`. `link --start <owner>` (old
+machine, needs a session) displays a one-time pairing code; `link <owner>`
+(new machine) reads the code from stdin, registers this machine's own auth
+key, and installs the decrypted ident keypair — the machine is then a full
+equal. `mfb machine revoke <owner> <auth-fingerprint>` revokes a lost
+machine's auth key with an ident-signed request (no session needed; requires
+the ident key on this machine).[[src/cli/repo.rs:run_machine_command]] The
+registry protocol, signing, and publish detail are
+`./mfb spec package-manager repository-protocol`.
 
 ## `pkg verify` Output
 

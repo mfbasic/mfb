@@ -368,6 +368,163 @@ fn repo_signs_package_and_embeds_executable_metadata() {
 }
 
 #[test]
+fn repo_machine_link_makes_an_equal_and_revoke_cuts_it_off() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home_a = tempfile::tempdir().unwrap();
+    let home_b = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    // Machine A registers and opens a session.
+    assert!(run_mfb(&repo, home_a.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home_a.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Machine A starts a link and displays the pairing code.
+    let start = run_mfb(&repo, home_a.path(), &["repo", "link", "--start", "alice"]);
+    assert!(
+        start.status.success(),
+        "link --start failed: {}",
+        String::from_utf8_lossy(&start.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&start.stdout);
+    let code = stdout
+        .lines()
+        .map(str::trim)
+        .find(|line| line.len() == 29 && line.bytes().filter(|byte| *byte == b'-').count() == 4)
+        .expect("pairing code in output")
+        .to_string();
+
+    // Machine B links with the typed code (stdin) and becomes a full equal.
+    let mut link = Command::new(mfb_exe())
+        .args(["repo", "link", "alice"])
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home_b.path().join(".mfb"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn repo link");
+    {
+        use std::io::Write;
+        link.stdin
+            .as_mut()
+            .unwrap()
+            .write_all(format!("{code}\n").as_bytes())
+            .unwrap();
+    }
+    let link = link.wait_with_output().expect("repo link");
+    assert!(
+        link.status.success(),
+        "repo link failed: {}",
+        String::from_utf8_lossy(&link.stderr)
+    );
+
+    // The ident keypair was copied; the auth keypair is machine B's own.
+    let home_a_repo = mfb_repo_home(&repo, home_a.path());
+    let home_b_repo = mfb_repo_home(&repo, home_b.path());
+    let ident_a = std::fs::read_to_string(home_a_repo.join("keys/alice.ident.pub")).unwrap();
+    let ident_b = std::fs::read_to_string(home_b_repo.join("keys/alice.ident.pub")).unwrap();
+    assert_eq!(ident_a.trim(), ident_b.trim());
+    let auth_a = std::fs::read_to_string(home_a_repo.join("keys/alice.auth.pub")).unwrap();
+    let auth_b = std::fs::read_to_string(home_b_repo.join("keys/alice.auth.pub")).unwrap();
+    assert_ne!(auth_a.trim(), auth_b.trim());
+
+    // The pairing code is single use.
+    let mut reuse = Command::new(mfb_exe())
+        .args(["repo", "link", "alice"])
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", work.path().join("third/.mfb"))
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("spawn reuse link");
+    {
+        use std::io::Write;
+        reuse
+            .stdin
+            .as_mut()
+            .unwrap()
+            .write_all(format!("{code}\n").as_bytes())
+            .unwrap();
+    }
+    let reuse = reuse.wait_with_output().expect("reuse link");
+    assert!(!reuse.status.success());
+    assert!(
+        String::from_utf8_lossy(&reuse.stderr).contains("unknown, used, or expired pairing code"),
+        "{}",
+        String::from_utf8_lossy(&reuse.stderr)
+    );
+
+    // Machine B opens its own session and completes the FULL signed-build +
+    // publish path with no involvement from machine A.
+    assert!(run_mfb(&repo, home_b.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+    let package_dir = work.path().join("linked_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let publish = run_mfb(
+        &repo,
+        home_b.path(),
+        &["pkg", "publish", "alice", package_dir_arg],
+    );
+    assert!(
+        publish.status.success(),
+        "linked-machine publish failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&publish.stdout),
+        String::from_utf8_lossy(&publish.stderr)
+    );
+
+    // Machine A revokes machine B's auth key (lost machine): B's session is
+    // dead and its auth key can no longer log in or fetch attestations.
+    let auth_b_fingerprint = {
+        let public = crypto::decode_bytes(auth_b.trim(), "auth key").unwrap();
+        crypto::fingerprint(&public)
+    };
+    let revoke = run_mfb(
+        &repo,
+        home_a.path(),
+        &["machine", "revoke", "alice", &auth_b_fingerprint],
+    );
+    assert!(
+        revoke.status.success(),
+        "machine revoke failed: {}",
+        String::from_utf8_lossy(&revoke.stderr)
+    );
+
+    let auth_after = run_mfb(&repo, home_b.path(), &["repo", "auth", "alice"]);
+    assert!(!auth_after.status.success());
+    assert!(
+        String::from_utf8_lossy(&auth_after.stderr).contains("mismatched local key fingerprint"),
+        "{}",
+        String::from_utf8_lossy(&auth_after.stderr)
+    );
+    // The revoked machine's existing session cannot request attestations.
+    let build_after = run_mfb(
+        &repo,
+        home_b.path(),
+        &["build", "--sign", "alice", package_dir_arg],
+    );
+    assert!(!build_after.status.success());
+    assert!(
+        String::from_utf8_lossy(&build_after.stderr).contains("unknown session token"),
+        "{}",
+        String::from_utf8_lossy(&build_after.stderr)
+    );
+    // Machine A is untouched.
+    assert!(run_mfb(&repo, home_a.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+}
+
+#[test]
 fn repo_end_to_end_install_verifies_signed_package() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

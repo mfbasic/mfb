@@ -159,6 +159,17 @@ impl Store {
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS pairing_blobs (
+                id INTEGER PRIMARY KEY,
+                owner_id INTEGER NOT NULL REFERENCES owners(id),
+                lookup TEXT NOT NULL UNIQUE,
+                blob BLOB NOT NULL,
+                salt BLOB NOT NULL,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                used_at INTEGER NULL
+            );
+
             CREATE TABLE IF NOT EXISTS signing_requests (
                 id INTEGER PRIMARY KEY,
                 owner_id INTEGER NOT NULL REFERENCES owners(id),
@@ -280,6 +291,44 @@ impl Store {
         self.owner_with_key(owner, "ident")
     }
 
+    /// Look up one of the owner's current auth keys by fingerprint. Machines
+    /// are equals (plan-23 §2): an account holds one current auth key per
+    /// linked machine, so auth-key resolution is always fingerprint-scoped.
+    pub fn owner_auth_key_by_fingerprint(
+        &self,
+        owner: &str,
+        fingerprint: &str,
+    ) -> Result<Option<(OwnerRecord, KeyRecord)>, String> {
+        let folded = fold_owner(owner);
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row(
+            "SELECT o.id, o.owner_display, k.id, k.public_key, k.fingerprint
+             FROM owners o
+             JOIN keys k ON k.owner_id = o.id
+             WHERE o.owner_folded = ?1
+               AND o.status = 'active'
+               AND k.role = 'auth'
+               AND k.status = 'current'
+               AND k.fingerprint = ?2",
+            params![folded, fingerprint],
+            |row| {
+                Ok((
+                    OwnerRecord {
+                        id: row.get(0)?,
+                        owner_display: row.get(1)?,
+                    },
+                    KeyRecord {
+                        id: row.get(2)?,
+                        public_key: row.get(3)?,
+                        fingerprint: row.get(4)?,
+                    },
+                ))
+            },
+        )
+        .optional()
+        .map_err(|err| format!("failed to load owner: {err}"))
+    }
+
     fn owner_with_key(&self, owner: &str, role: &str) -> Result<Option<(OwnerRecord, KeyRecord)>, String> {
         let folded = fold_owner(owner);
         let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
@@ -330,11 +379,41 @@ impl Store {
         Ok(())
     }
 
+    /// Legacy single-machine helper kept for tests: challenges the owner's
+    /// (sole) current auth key.
     pub fn create_challenge(&self, owner: &str) -> Result<ChallengeRecord, String> {
         validate_owner_name(owner)?;
         let Some((owner, key)) = self.owner_with_auth_key(owner)? else {
             return Err("unknown owner".to_string());
         };
+        self.create_challenge_for_key(owner.id, key.id)
+    }
+
+    /// Challenge a specific machine's auth key (plan-23-B: an account holds
+    /// one current auth key per linked machine).
+    pub fn create_auth_challenge(
+        &self,
+        owner: &str,
+        fingerprint: &str,
+    ) -> Result<ChallengeRecord, String> {
+        validate_owner_name(owner)?;
+        let Some((owner, key)) = self.owner_auth_key_by_fingerprint(owner, fingerprint)? else {
+            return Err("mismatched local key fingerprint".to_string());
+        };
+        self.create_challenge_for_key(owner.id, key.id)
+    }
+
+    /// Challenge the owner's ident key: proves possession of the account
+    /// identity for ident-authorized operations (auth-key revocation).
+    pub fn create_ident_challenge(&self, owner: &str) -> Result<ChallengeRecord, String> {
+        validate_owner_name(owner)?;
+        let Some((owner, key)) = self.owner_with_ident_key(owner)? else {
+            return Err("unknown owner".to_string());
+        };
+        self.create_challenge_for_key(owner.id, key.id)
+    }
+
+    fn create_challenge_for_key(&self, owner_id: i64, key_id: i64) -> Result<ChallengeRecord, String> {
         let id = Uuid::new_v4().to_string();
         let mut nonce = vec![0u8; 32];
         rand::thread_rng().fill_bytes(&mut nonce);
@@ -345,20 +424,190 @@ impl Store {
             "INSERT INTO auth_challenges
              (id, owner_id, key_id, nonce, created_at, expires_at, used_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
-            params![id, owner.id, key.id, nonce, created_at, expires_at],
+            params![id, owner_id, key_id, nonce, created_at, expires_at],
         )
         .map_err(|err| format!("failed to create auth challenge: {err}"))?;
         Ok(ChallengeRecord {
             id,
-            owner_id: owner.id,
-            key_id: key.id,
+            owner_id,
+            key_id,
             nonce,
             expires_at,
             used_at: None,
         })
     }
 
+    /// Store a machine-link relay blob (plan-23 §3.2): a single-use,
+    /// short-TTL ciphertext the server cannot read, keyed by the
+    /// code-derived lookup. Returns the expiry time.
+    pub fn store_pairing_blob(
+        &self,
+        owner_id: i64,
+        lookup: &str,
+        blob: &[u8],
+        salt: &[u8],
+    ) -> Result<i64, String> {
+        let now = now_unix();
+        let expires_at = now + 600;
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        // Housekeeping: expired blobs are dead weight; drop them here so no
+        // background reaper is needed (full rate-limiting is plan-10-D).
+        conn.execute(
+            "DELETE FROM pairing_blobs WHERE expires_at <= ?1",
+            params![now],
+        )
+        .map_err(|err| format!("failed to clear expired pairing blobs: {err}"))?;
+        conn.execute(
+            "INSERT INTO pairing_blobs (owner_id, lookup, blob, salt, created_at, expires_at, used_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL)",
+            params![owner_id, lookup, blob, salt, now, expires_at],
+        )
+        .map_err(|err| {
+            if is_unique_violation(&err) {
+                "a pairing with this code is already pending; generate a new code".to_string()
+            } else {
+                format!("failed to store pairing blob: {err}")
+            }
+        })?;
+        Ok(expires_at)
+    }
+
+    /// Fetch-and-consume a pairing blob: single use, refused after expiry.
+    /// The stored ciphertext is destroyed as it is handed out.
+    pub fn take_pairing_blob(
+        &self,
+        owner: &str,
+        lookup: &str,
+    ) -> Result<Option<(Vec<u8>, Vec<u8>)>, String> {
+        let folded = fold_owner(owner);
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start pairing transaction: {err}"))?;
+        let row: Option<(i64, Vec<u8>, Vec<u8>)> = tx
+            .query_row(
+                "SELECT p.id, p.blob, p.salt
+                 FROM pairing_blobs p
+                 JOIN owners o ON o.id = p.owner_id
+                 WHERE p.lookup = ?1
+                   AND o.owner_folded = ?2
+                   AND o.status = 'active'
+                   AND p.used_at IS NULL
+                   AND p.expires_at > ?3",
+                params![lookup, folded, now],
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load pairing blob: {err}"))?;
+        let Some((id, blob, salt)) = row else {
+            tx.commit().ok();
+            return Ok(None);
+        };
+        tx.execute(
+            "UPDATE pairing_blobs SET used_at = ?1, blob = x'' WHERE id = ?2",
+            params![now, id],
+        )
+        .map_err(|err| format!("failed to consume pairing blob: {err}"))?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit pairing fetch: {err}"))?;
+        Ok(Some((blob, salt)))
+    }
+
+    /// Register an additional machine's auth key on an existing account
+    /// (plan-23 §3.2 step 1). The proof must be role-separated exactly like
+    /// registration.
+    pub fn add_auth_key(
+        &self,
+        owner: &str,
+        public_key: &[u8],
+        proof: &[u8],
+    ) -> Result<(OwnerRecord, KeyRecord), String> {
+        validate_owner_name(owner)?;
+        let Some((owner, _ident)) = self.owner_with_ident_key(owner)? else {
+            return Err("unknown owner".to_string());
+        };
+        let message = crypto::registration_message(crypto::ROLE_AUTH, &owner.owner_display, public_key);
+        crypto::verify(public_key, &message, proof)
+            .map_err(|_| "invalid auth proof-of-possession signature".to_string())?;
+        let fingerprint = crypto::fingerprint(public_key);
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.execute(
+            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
+             VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
+            params![owner.id, public_key, fingerprint, now_unix()],
+        )
+        .map_err(|err| format!("failed to register machine auth key: {err}"))?;
+        let key_id = conn.last_insert_rowid();
+        Ok((
+            owner,
+            KeyRecord {
+                id: key_id,
+                public_key: public_key.to_vec(),
+                fingerprint,
+            },
+        ))
+    }
+
+    /// Revoke a machine's auth key and kill every session opened with it
+    /// (plan-23 §3.6). Returns false when no current auth key matches.
+    pub fn revoke_auth_key(&self, owner_id: i64, fingerprint: &str) -> Result<bool, String> {
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start revocation transaction: {err}"))?;
+        let key_id: Option<i64> = tx
+            .query_row(
+                "SELECT id FROM keys
+                 WHERE owner_id = ?1 AND role = 'auth' AND status = 'current' AND fingerprint = ?2",
+                params![owner_id, fingerprint],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load auth key: {err}"))?;
+        let Some(key_id) = key_id else {
+            tx.commit().ok();
+            return Ok(false);
+        };
+        tx.execute(
+            "UPDATE keys SET status = 'revoked', revoked_at = ?1 WHERE id = ?2",
+            params![now, key_id],
+        )
+        .map_err(|err| format!("failed to revoke auth key: {err}"))?;
+        tx.execute(
+            "UPDATE sessions SET revoked_at = ?1 WHERE key_id = ?2 AND revoked_at IS NULL",
+            params![now, key_id],
+        )
+        .map_err(|err| format!("failed to revoke sessions: {err}"))?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit revocation: {err}"))?;
+        Ok(true)
+    }
+
     pub fn complete_challenge(&self, challenge_id: &str, signature: &[u8]) -> Result<(OwnerRecord, KeyRecord), String> {
+        self.complete_challenge_with(challenge_id, signature, crypto::challenge_message)
+    }
+
+    /// Complete an ident challenge whose signature covers the revocation
+    /// message (challenge + the fingerprint being revoked).
+    pub fn complete_revocation_challenge(
+        &self,
+        challenge_id: &str,
+        signature: &[u8],
+        fingerprint: &str,
+    ) -> Result<(OwnerRecord, KeyRecord), String> {
+        self.complete_challenge_with(challenge_id, signature, |id, nonce| {
+            crypto::revocation_message(id, nonce, fingerprint)
+        })
+    }
+
+    fn complete_challenge_with(
+        &self,
+        challenge_id: &str,
+        signature: &[u8],
+        message: impl Fn(&str, &[u8]) -> Vec<u8>,
+    ) -> Result<(OwnerRecord, KeyRecord), String> {
         let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
         let tx = conn
             .transaction()
@@ -405,7 +654,7 @@ impl Store {
         if challenge.expires_at <= now_unix() {
             return Err("expired challenge".to_string());
         }
-        let message = crypto::challenge_message(&challenge.id, &challenge.nonce);
+        let message = message(&challenge.id, &challenge.nonce);
         crypto::verify(&key.public_key, &message, signature)?;
         tx.execute(
             "UPDATE auth_challenges SET used_at = ?1 WHERE id = ?2 AND used_at IS NULL",
@@ -795,6 +1044,157 @@ mod tests {
         // Re-opening the repository must keep the same keypair.
         let reopened = Store::open_repository(&db_path, &data_path).unwrap();
         assert_eq!(reopened.store.server_public_key().unwrap(), public);
+    }
+
+    #[test]
+    fn pairing_blob_is_single_use_and_expires() {
+        let (_temp, store) = test_store();
+        register(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let lookup = crypto::pairing_lookup("test-code");
+        store
+            .store_pairing_blob(owner_id, &lookup, b"ciphertext", b"salt")
+            .unwrap();
+
+        // Wrong owner or wrong lookup yields nothing.
+        assert!(store.take_pairing_blob("bob", &lookup).unwrap().is_none());
+        assert!(store
+            .take_pairing_blob("alice", &crypto::pairing_lookup("other"))
+            .unwrap()
+            .is_none());
+
+        // First fetch succeeds; the second finds the blob consumed.
+        let (blob, salt) = store.take_pairing_blob("alice", &lookup).unwrap().unwrap();
+        assert_eq!(blob, b"ciphertext");
+        assert_eq!(salt, b"salt");
+        assert!(store.take_pairing_blob("alice", &lookup).unwrap().is_none());
+
+        // An expired blob is never handed out.
+        let expired_lookup = crypto::pairing_lookup("expired-code");
+        store
+            .store_pairing_blob(owner_id, &expired_lookup, b"ciphertext", b"salt")
+            .unwrap();
+        store
+            .conn
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE pairing_blobs SET expires_at = ?1 WHERE lookup = ?2",
+                params![now_unix() - 1, expired_lookup],
+            )
+            .unwrap();
+        assert!(store
+            .take_pairing_blob("alice", &expired_lookup)
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn linked_machine_key_works_and_revocation_kills_sessions() {
+        let (_temp, store) = test_store();
+        let keys = register_keys(&store, "alice");
+
+        // A second machine registers its own auth key.
+        let (machine_public, machine_private) = crypto::generate_keypair();
+        let proof = crypto::sign(
+            &machine_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &machine_public),
+        )
+        .unwrap();
+        let (owner, machine_key) = store.add_auth_key("alice", &machine_public, &proof).unwrap();
+        let machine_fingerprint = machine_key.fingerprint.clone();
+
+        // Both machines' keys resolve by fingerprint; each can open a session.
+        let first_fingerprint = crypto::fingerprint(&keys.auth_public);
+        assert!(store
+            .owner_auth_key_by_fingerprint("alice", &first_fingerprint)
+            .unwrap()
+            .is_some());
+        let challenge = store
+            .create_auth_challenge("alice", &machine_fingerprint)
+            .unwrap();
+        let signature = crypto::sign(
+            &machine_private,
+            &crypto::challenge_message(&challenge.id, &challenge.nonce),
+        )
+        .unwrap();
+        let (_owner, key) = store.complete_challenge(&challenge.id, &signature).unwrap();
+        store
+            .insert_session(&NewSession {
+                owner_id: owner.id,
+                key_id: key.id,
+                jwt_id: "machine-session".to_string(),
+                issued_at: now_unix(),
+                expires_at: now_unix() + 3600,
+            })
+            .unwrap();
+        assert!(store.session_exists("machine-session").unwrap());
+
+        // Revocation flips the key and closes its sessions.
+        assert!(store
+            .revoke_auth_key(owner.id, &machine_fingerprint)
+            .unwrap());
+        assert!(store
+            .owner_auth_key_by_fingerprint("alice", &machine_fingerprint)
+            .unwrap()
+            .is_none());
+        assert!(!store.session_exists("machine-session").unwrap());
+        assert!(store
+            .create_auth_challenge("alice", &machine_fingerprint)
+            .is_err());
+        // Revoking again reports nothing to revoke.
+        assert!(!store
+            .revoke_auth_key(owner.id, &machine_fingerprint)
+            .unwrap());
+        // The first machine is untouched.
+        assert!(store
+            .owner_auth_key_by_fingerprint("alice", &first_fingerprint)
+            .unwrap()
+            .is_some());
+    }
+
+    #[test]
+    fn revocation_challenge_requires_the_ident_key() {
+        let (_temp, store) = test_store();
+        let keys = register_keys(&store, "alice");
+        let fingerprint = crypto::fingerprint(&keys.auth_public);
+
+        // Signed with the AUTH key (auth session alone): refused.
+        let challenge = store.create_ident_challenge("alice").unwrap();
+        let nonce = challenge.nonce.clone();
+        let bad = crypto::sign(
+            &keys.auth_private,
+            &crypto::revocation_message(&challenge.id, &nonce, &fingerprint),
+        )
+        .unwrap();
+        assert!(store
+            .complete_revocation_challenge(&challenge.id, &bad, &fingerprint)
+            .is_err());
+
+        // Signed with the ident key over a DIFFERENT fingerprint: refused
+        // (the fingerprint is inside the signed bytes).
+        let challenge = store.create_ident_challenge("alice").unwrap();
+        let nonce = challenge.nonce.clone();
+        let redirected = crypto::sign(
+            &keys.ident_private,
+            &crypto::revocation_message(&challenge.id, &nonce, "someone-else"),
+        )
+        .unwrap();
+        assert!(store
+            .complete_revocation_challenge(&challenge.id, &redirected, &fingerprint)
+            .is_err());
+
+        // Signed with the ident key over the right fingerprint: accepted.
+        let challenge = store.create_ident_challenge("alice").unwrap();
+        let nonce = challenge.nonce.clone();
+        let good = crypto::sign(
+            &keys.ident_private,
+            &crypto::revocation_message(&challenge.id, &nonce, &fingerprint),
+        )
+        .unwrap();
+        store
+            .complete_revocation_challenge(&challenge.id, &good, &fingerprint)
+            .unwrap();
     }
 
     #[test]
