@@ -42,11 +42,12 @@ pageoff12   12-bit offset within a page, for ADD/LDR/STR
 ```
 [[src/arch/aarch64/encode/mod.rs:EncodedRelocation]]
 
-with two bindings:
+with three bindings:
 
-- `internal` — the target is a defined symbol in this image. The linker computes
-  the final delta and patches the instruction directly. Internal `branch26`
-  handles direct calls; `page21`/`pageoff12` handle data addressing.
+- `internal` — a direct call to a defined symbol in this image (`branch26`). The
+  linker computes the final delta and patches the branch directly.
+- `data` — data addressing to a defined symbol in this image
+  (`page21`/`pageoff12`). The linker patches the ADRP/ADD page pair directly.
 - `external` — the target is an imported symbol. The linker resolves it through
   the import machinery: `branch26` is redirected to the symbol's import stub;
   `page21`/`pageoff12` are redirected to the symbol's GOT slot (data-style

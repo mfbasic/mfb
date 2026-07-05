@@ -139,7 +139,8 @@ import. The set is:
   `_NSForegroundColorAttributeName`, `_NSUnderlineStyleAttributeName`,
   `_NSStrokeWidthAttributeName`, plus the function `_NSRectFill` (all from
   `AppKit`).
-- libSystem support: `_pthread_create`, `_pause`, `_getenv`, `_write`, `_pipe`,
+- libSystem support: `_pthread_create`, `_pthread_attr_init`,
+  `_pthread_attr_setstacksize`, `_pause`, `_getenv`, `_write`, `_pipe`,
   `_dup2`, `_strlen`, `_calloc`, `_bzero`, `_memmove`.
 
 All names carry the Darwin leading underscore. See `macos-runtime` for how the

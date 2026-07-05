@@ -70,9 +70,10 @@ libz         /usr/lib/libz.1.dylib
 ```
 [[src/os/macos/link/mod.rs:dylib_path]]
 
-Console builds draw their POSIX/pthread/math surface from `libSystem` using
+Console builds draw their POSIX/pthread surface from `libSystem` using
 Darwin C ABI symbol names (leading underscore: `_write`, `_read`, `_open`,
-`_close`, `_pthread_create`, `_pow`, `_sin`, `_cos`, …); `net::` adds `Network`.
+`_close`, `_pthread_create`, …); `net::` adds `Network`. There is no math
+import surface — `pow`/`sin`/`cos` and the rest are in-tree kernels.
 App-mode builds add `AppKit`/`Foundation`/`libobjc` for the toolkit bootstrap. A
 library name outside this set is a linker error. Threading uses libSystem pthread
 creation (see `mfb spec threading`); raw Mach thread creation is not the worker

@@ -29,7 +29,7 @@ when:
   `symbol '…' does not resolve`;
 - a `(binding, kind)` relocation pair is unsupported — e.g.
   `macOS linker does not support relocation … …` /
-  `linux-aarch64 linker does not support relocation … …`;
+  `linux linker does not support relocation … …`;
 - an external function relocation has no generated stub —
   `… linker cannot bind external symbol '…' from …`;
 - an external data relocation has no GOT slot —

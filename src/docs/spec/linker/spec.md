@@ -17,9 +17,10 @@ lowers the program, its installed packages, runtime helpers, and platform
 imports into an in-memory native image, then the target-specific linker encodes
 the final executable container (Mach-O or ELF) and writes it to disk itself.
 
-Both backends target aarch64 only. The macOS backend emits one Mach-O
-executable; the Linux backend emits two ELF executables (glibc and musl
-flavors) for console builds, or one for app-mode builds.
+The macOS backend targets aarch64 only; the Linux backend targets both aarch64
+and x86_64. The macOS backend emits one Mach-O executable; the Linux backend
+emits two ELF executables (glibc and musl flavors) for console builds, or one
+for app-mode builds.
 [[src/os/macos/link/macho.rs:encode_unsigned_mach_o]]
 
 ## Reading order
