@@ -123,8 +123,10 @@ entry:
   _mfb_rng_seed_at(arena, scratch)  ; seed words 88/96
 ```
 
-The platform random-bytes seam is `getentropy` on macOS and Linux-aarch64; only
-Linux-x86_64 uses the `getrandom` syscall. [[src/target/macos_aarch64/plan.rs:514]]
+The program-entry seed's random-bytes seam is `getentropy` (libc) on macOS and
+Linux-aarch64; Linux-x86_64 instead draws it from the `getrandom` syscall (nr
+318). (The `math::rand`/`math::seed` runtime helpers and `crypto::randomBytes`
+use `getentropy` on all three targets — only the entry seed differs.) [[src/target/macos_aarch64/plan.rs:514]] [[src/target/linux_x86_64/code.rs:emit_random_bytes]]
 
 ### Spawned thread — drawn from the parent stream
 

@@ -305,6 +305,7 @@ is an imported symbol; an unresolved target is an encode error.
 
 ## See Also
 
+* ./mfb spec architecture x86_64-instruction-set — the sibling x86-64 backend
 * ./mfb spec architecture native — the native code plan these instructions populate
 * ./mfb spec memory native-calling-convention — registers, ABI, and clobber sets
 * ./mfb spec linker symbols-and-relocations — the relocation kinds that patch `adrp`/`bl`/page-offset words

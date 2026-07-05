@@ -40,9 +40,10 @@ The topics below follow the native linking pipeline.
   the encoded image.
 - `static-and-dynamic-output` contrasts an import-free image with the
   dynamic-loading metadata an image with imports requires.
-- `macos-aarch64` and `linux-aarch64` specify the two concrete backends — Mach-O
-  with ad-hoc code signing for macOS, and ELF with its glibc and musl flavors and
-  symbol versioning for Linux. Each covers its app-mode output.
+- `macos-aarch64`, `linux-aarch64`, and `linux-x86_64` specify the concrete
+  backends — Mach-O with ad-hoc code signing for macOS, and ELF with its glibc and
+  musl flavors and symbol versioning for Linux (aarch64 and x86-64). Each covers
+  its app-mode output.
 - `package-linking` describes how installed `.mfp` package exports reach the
   executable (merged into IR, not linked as external symbols).
 - `failure-rules` lists the conditions under which the linker must fail rather

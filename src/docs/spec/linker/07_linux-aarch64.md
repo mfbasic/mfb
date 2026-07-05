@@ -109,6 +109,7 @@ by the linker.
 
 ## See Also
 
+* ./mfb spec linker linux-x86_64 — the sibling x86-64 ELF backend
 * ./mfb spec linker import-selection — the per-call `(library, symbol)` mapping
   and flavor soname selection
 * ./mfb spec linker symbols-and-relocations — relocation kinds, import stubs, and

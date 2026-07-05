@@ -70,8 +70,9 @@ splits into `binary-representation` (packages) and `native` (executables). The
 and `extending` are quick references. The deeper-dive topics specify individual
 stages in reimplementable detail: `monomorphization` (template instantiation,
 symbol mangling, overload resolution, between `frontend` and `ir`), `native-ir`
-(the NIR representation and IR→NIR lowering), `aarch64-instruction-set` (the
-instruction repertoire the encoder emits), `mir-instruction-set` (the
+(the NIR representation and IR→NIR lowering), `aarch64-instruction-set` and
+`x86_64-instruction-set` (the two backends' instruction repertoires and
+encodings), `mir-instruction-set` (the
 target-neutral machine IR the backend lowers to and selects from, under active
 construction), `math-kernels` (the in-tree `Float`/
 `Fixed` math kernels, their accuracy/determinism contract, and validation),
