@@ -3,10 +3,32 @@
 `mfb.lock` records the resolved dependency state a project was last reconciled
 against, so a later build or audit can detect that the declared dependency set
 has drifted from what was locked. It lives at the project root beside
-`project.json`. The toolchain currently treats it as **read-only input**:
-`mfb audit` consumes it, but **nothing in the toolchain writes it** — there is no
-code path that emits or updates `mfb.lock`. It is produced out-of-band (by hand,
-or by a future package manager) and consumed here.
+`project.json`. It is **written by `mfb pkg update`** (the resolver, plan-10-B2)
+and **applied by `mfb pkg install`**, which fetches each locked blob by hash and
+verifies it — never re-resolving. `mfb audit` also consumes it (the `lockfile`
+section and `AUDIT-LOCK-*` findings).
+
+## Writer: `mfb pkg update`
+
+`mfb pkg update` runs the resolver over the project's registry dependencies and
+writes `mfb.lock` with a byte-stable formatting, so re-resolving an unchanged
+project reproduces the file exactly. For each dependency it records the
+requested and selected versions, the content hash, the pinned owner `identKey`
+(metadata form) and its fingerprint, and the current release `state`; the file
+also carries the registry `repoFingerprint` and the pinned transparency-log
+`checkpoint` (size + root). Signing keys are one-off per package (plan-23), so
+there is no key status/window to record. `mfb pkg install` reads this file,
+cross-checks `repoFingerprint` against the pinned `server.pub`, and installs
+each package by fetching `/blob/<hash>` and re-verifying the plan-23 §3.5 chain
+against the locked `identKey` — no `/index` lookups.[[src/cli/resolve.rs:write_lock]][[src/cli/resolve.rs:install]]
+
+The resolver picks, for every dependency, the highest install-eligible version
+(`available`/`deprecated`; `yanked` only under an exact pin) whose exported
+`ABI_INDEX` is a **superset** of every requirer's needs. A dependency that
+imports another anchors that import at the ABI it compiled against; two
+requirers that disagree on a symbol's hash are a **diamond conflict**, reported
+by naming both requirers and the symbol. A `pin` dependency bypasses the search
+and takes its exact version.[[src/cli/resolve.rs:select_node]]
 
 ## Location and presence
 
@@ -14,7 +36,7 @@ or by a future package manager) and consumed here.
 | --- | --- |
 | Path | `<project>/mfb.lock` (sibling of `project.json`) |
 | Required | No — absence is not an error unless `--locked` is set |
-| Written by | Nothing in this toolchain (read-only consumed) |
+| Written by | `mfb pkg update` (resolver, plan-10-B2) |
 | Read by | `mfb audit` (the `lockfile` section + `AUDIT-LOCK-*` findings) |
 
 The audit collector probes the path; a missing file yields a summary with

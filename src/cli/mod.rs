@@ -5,6 +5,7 @@ pub mod init;
 pub mod man;
 pub mod pkg;
 pub mod repo;
+pub mod resolve;
 pub mod spec;
 
 use std::path::PathBuf;

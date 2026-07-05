@@ -49,6 +49,8 @@ Package Management:
   pkg verify              Verify packages declared in project.json
   pkg validate <pkg>      Check an existing package's signatures and structure
   pkg publish <own> <pkg> Publish a signed package project
+  pkg update              Resolve dependencies and write mfb.lock
+  pkg install             Install dependencies from mfb.lock (by hash)
   pkg check-abi           Diff this package's ABI against its published version
 
 Repository & Auth:

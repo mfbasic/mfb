@@ -37,6 +37,18 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, package] if command == "validate" => {
             validate_package_file(Path::new("."), package).map_err(PkgCommandError::Failed)
         }
+        [command] if command == "install" => {
+            super::resolve::install(Path::new(".")).map_err(PkgCommandError::Failed)
+        }
+        [command, location] if command == "install" => {
+            super::resolve::install(Path::new(location)).map_err(PkgCommandError::Failed)
+        }
+        [command] if command == "update" => {
+            super::resolve::update(Path::new(".")).map_err(PkgCommandError::Failed)
+        }
+        [command, location] if command == "update" => {
+            super::resolve::update(Path::new(location)).map_err(PkgCommandError::Failed)
+        }
         [command] if command == "check-abi" => {
             check_abi(Path::new(".")).map_err(PkgCommandError::Failed)
         }

@@ -305,12 +305,31 @@ pub struct IndexVersion {
     #[serde(rename = "publishedAt")]
     pub published_at: i64,
     pub state: String,
-    /// Per-symbol ABI index (plan-10-B); an empty object until B1 lands.
+    /// Per-symbol ABI index (plan-10-B1): `{ "<symbol>": "<hex abiHash>" }`.
     #[serde(rename = "abiIndex")]
     pub abi_index: serde_json::Value,
     /// The version's publish transparency-log entry (plan-23-B3), if present.
     #[serde(rename = "logEntry")]
     pub log_entry: Option<LogEntry>,
+}
+
+impl IndexVersion {
+    /// The exported-symbol ABI as an ordered `symbol -> hex hash` map (empty
+    /// when the package carries no ABI index). Used by the client resolver
+    /// (plan-10-B2) for the superset compatibility check.
+    pub fn abi_map(&self) -> std::collections::BTreeMap<String, String> {
+        self.abi_index
+            .as_object()
+            .map(|object| {
+                object
+                    .iter()
+                    .filter_map(|(name, value)| {
+                        value.as_str().map(|hash| (name.clone(), hash.to_string()))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
 }
 
 /// `GET /log/checkpoint` — the signed tree head (plan-23-B3): size + RFC 6962

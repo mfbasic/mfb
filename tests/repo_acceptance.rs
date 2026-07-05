@@ -1125,6 +1125,211 @@ fn repo_check_abi_reports_superset_and_breaking_changes() {
 }
 
 #[test]
+fn repo_resolver_selects_substitute_and_locks_deterministically() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Publish dep@0.1.0 and dep@0.1.1 (a compatible patch, same ABI surface).
+    let dep_dir = work.path().join("dep");
+    let dep_arg = dep_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", dep_arg]).status.success());
+    let dep_manifest = dep_dir.join("project.json");
+    let base = std::fs::read_to_string(&dep_manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#dep\",\n",
+    );
+    std::fs::write(&dep_manifest, &base).unwrap();
+    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", dep_arg])
+        .status
+        .success());
+    let bumped = base.replace("\"version\": \"0.1.0\"", "\"version\": \"0.1.1\"");
+    std::fs::write(&dep_manifest, &bumped).unwrap();
+    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", dep_arg])
+        .status
+        .success());
+
+    // Consumer pins dep@0.1.0 via add, then relaxes to a floating dependency.
+    let app_dir = work.path().join("consumer");
+    let app_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_arg]).status.success());
+    let run_in = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&app_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in consumer")
+    };
+    assert!(run_in(&["pkg", "add", "alice#dep@0.1.0"]).status.success());
+    let manifest_path = app_dir.join("project.json");
+    let relaxed = std::fs::read_to_string(&manifest_path)
+        .unwrap()
+        .replace("\"pin\": true", "\"pin\": false");
+    std::fs::write(&manifest_path, relaxed).unwrap();
+
+    // Update resolves the floating dep up to the compatible patch 0.1.1.
+    let update = run_in(&["pkg", "update"]);
+    let stdout = String::from_utf8_lossy(&update.stdout);
+    assert!(
+        update.status.success(),
+        "update failed: {stdout}\n{}",
+        String::from_utf8_lossy(&update.stderr)
+    );
+    let lock = std::fs::read_to_string(app_dir.join("mfb.lock")).unwrap();
+    assert!(lock.contains("\"selected\": \"0.1.1\""), "{lock}");
+    assert!(lock.contains("\"requested\": \"0.1.0\""), "{lock}");
+    assert!(lock.contains("\"repoFingerprint\":"), "{lock}");
+    assert!(lock.contains("\"checkpoint\":"), "{lock}");
+
+    // Re-resolving an unchanged project reproduces the lock byte-for-byte.
+    assert!(run_in(&["pkg", "update"]).status.success());
+    let lock2 = std::fs::read_to_string(app_dir.join("mfb.lock")).unwrap();
+    assert_eq!(lock, lock2, "re-resolve must be byte-identical");
+
+    // The locked install fetches by hash and installs the selected 0.1.1.
+    assert!(std::fs::remove_file(app_dir.join("packages/dep.mfp")).is_ok());
+    let install = run_in(&["pkg", "install"]);
+    assert!(
+        install.status.success(),
+        "install failed: {}",
+        String::from_utf8_lossy(&install.stderr)
+    );
+    let installed = mfb_repository::package::parse_mfp_package(
+        &std::fs::read(app_dir.join("packages/dep.mfp")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(installed.version, "0.1.1");
+
+    // A pinned dependency bypasses the search and keeps its exact version.
+    let pinned = std::fs::read_to_string(&manifest_path)
+        .unwrap()
+        .replace("\"pin\": false", "\"pin\": true");
+    std::fs::write(&manifest_path, pinned).unwrap();
+    assert!(run_in(&["pkg", "update"]).status.success());
+    let lock = std::fs::read_to_string(app_dir.join("mfb.lock")).unwrap();
+    assert!(lock.contains("\"selected\": \"0.1.0\""), "pinned select: {lock}");
+}
+
+#[test]
+fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // common@1.0.0 exports `shared()`; common@2.0.0 changes its signature, so
+    // the two versions export `shared` with different ABI hashes.
+    let common_dir = work.path().join("common");
+    let common_arg = common_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", common_arg]).status.success());
+    let common_manifest = common_dir.join("project.json");
+    let common_base = std::fs::read_to_string(&common_manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"1.0.0\",\n  \"ident\": \"alice#common\",\n",
+    );
+    std::fs::write(&common_manifest, &common_base).unwrap();
+    std::fs::write(
+        common_dir.join("src/lib.mfb"),
+        "EXPORT FUNC shared() AS Integer\n  RETURN 1\nEND FUNC\n",
+    )
+    .unwrap();
+    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", common_arg])
+        .status
+        .success());
+    // Save common@1.0.0's blob before bumping so `user` can build against it.
+    let common_v1 = work.path().join("common-1.0.0.mfp");
+    std::fs::copy(common_dir.join("common.mfp"), &common_v1).unwrap();
+
+    let common_v2 = common_base.replace("\"version\": \"1.0.0\"", "\"version\": \"2.0.0\"");
+    std::fs::write(&common_manifest, &common_v2).unwrap();
+    std::fs::write(
+        common_dir.join("src/lib.mfb"),
+        "EXPORT FUNC shared(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n",
+    )
+    .unwrap();
+    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", common_arg])
+        .status
+        .success());
+
+    // user@1.0.0 imports common (compiled against common@1.0.0's `shared`).
+    let user_dir = work.path().join("user");
+    let user_arg = user_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", user_arg]).status.success());
+    let user_manifest = user_dir.join("project.json");
+    let user_base = std::fs::read_to_string(&user_manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"1.0.0\",\n  \"ident\": \"alice#user\",\n",
+    );
+    std::fs::write(&user_manifest, &user_base).unwrap();
+    let add_common = Command::new(mfb_exe())
+        .args(["pkg", "add", &format!("file://{}", common_v1.display())])
+        .current_dir(&user_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("add common to user");
+    assert!(add_common.status.success(), "{}", String::from_utf8_lossy(&add_common.stderr));
+    std::fs::write(
+        user_dir.join("src/lib.mfb"),
+        "IMPORT common\nEXPORT FUNC callShared() AS Integer\n  RETURN common::shared()\nEND FUNC\n",
+    )
+    .unwrap();
+    let publish_user = run_mfb(&repo, home.path(), &["pkg", "publish", "alice", user_arg]);
+    assert!(
+        publish_user.status.success(),
+        "publish user failed: {}\n{}",
+        String::from_utf8_lossy(&publish_user.stdout),
+        String::from_utf8_lossy(&publish_user.stderr)
+    );
+
+    // Consumer wants `user` (which needs common's old `shared`) AND
+    // common@2.0.0 (whose `shared` has a different ABI) — a diamond conflict.
+    let app_dir = work.path().join("diamond_consumer");
+    let app_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_arg]).status.success());
+    let run_in = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&app_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in consumer")
+    };
+    assert!(run_in(&["pkg", "add", "alice#user@1.0.0"]).status.success());
+    assert!(run_in(&["pkg", "add", "alice#common@2.0.0"]).status.success());
+    let manifest_path = app_dir.join("project.json");
+    let relaxed = std::fs::read_to_string(&manifest_path)
+        .unwrap()
+        .replace("\"pin\": true", "\"pin\": false");
+    std::fs::write(&manifest_path, relaxed).unwrap();
+
+    let update = run_in(&["pkg", "update"]);
+    assert!(!update.status.success(), "diamond conflict must fail resolution");
+    let stderr = String::from_utf8_lossy(&update.stderr);
+    assert!(stderr.contains("diamond conflict"), "{stderr}");
+    assert!(stderr.contains("shared"), "must name the disagreeing symbol: {stderr}");
+    assert!(stderr.contains("user"), "must name the requirer package: {stderr}");
+}
+
+#[test]
 fn repo_publish_rejects_non_package_and_missing_session() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

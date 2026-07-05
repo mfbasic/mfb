@@ -11,6 +11,11 @@ mod json;
 mod report;
 mod text;
 
+/// The canonical hash of a project's declared dependency request set, reused
+/// by the `mfb.lock` writer (plan-10-B2) so `mfb audit` sees a fresh lock as
+/// current.
+pub(crate) use collect::project_hash;
+
 use std::path::PathBuf;
 
 use collect::AuditInputs;
