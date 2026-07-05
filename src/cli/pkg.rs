@@ -49,6 +49,18 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, location] if command == "update" => {
             super::resolve::update(Path::new(location)).map_err(PkgCommandError::Failed)
         }
+        [command, ident, to_owner] if command == "transfer" => {
+            transfer_offer(ident, to_owner).map_err(PkgCommandError::Failed)
+        }
+        [command, ..] if command == "transfer" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg transfer requires <owner>#<package> <to-owner>\n\n{USAGE}"
+        ))),
+        [command, ident] if command == "transfer-accept" => {
+            transfer_accept(ident).map_err(PkgCommandError::Failed)
+        }
+        [command, ..] if command == "transfer-accept" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg transfer-accept requires <owner>#<package>\n\n{USAGE}"
+        ))),
         [command, state] if command == "release-state" => {
             set_release_state(Path::new("."), state, None).map_err(PkgCommandError::Failed)
         }
@@ -185,6 +197,43 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         "Inclusion verified against checkpoint (size {}, root {})",
         checkpoint.size, checkpoint.root_hash
     );
+    Ok(())
+}
+
+/// `mfb pkg transfer <owner>#<package> <to-owner>` (plan-10-D1): the current
+/// owner offers a package to a recipient (signed with the local ident key).
+fn transfer_offer(ident: &str, to_owner: &str) -> Result<(), String> {
+    let Some((from_owner, _)) = ident.split_once('#') else {
+        return Err("ident must use <owner>#<package>".to_string());
+    };
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = super::local_paths_for_repo(&repo_url)?;
+    let response =
+        mfb_repository::client::transfer_offer(&repo_url, &paths, ident, from_owner, to_owner)?;
+    println!(
+        "Offered {} to {}; they must run `mfb pkg transfer-accept {}` to accept.",
+        response.ident, response.to_owner, response.ident
+    );
+    Ok(())
+}
+
+/// `mfb pkg transfer-accept <owner>#<package>` (plan-10-D1): the recipient
+/// accepts a pending transfer offer (signed with the local ident key). The
+/// recipient owner is read from the local session for the ident's owner? No —
+/// the accepting account is inferred from which owner has a local session; here
+/// it is passed as the current shell's authenticated recipient via the ident's
+/// pending offer. The recipient owner must be provided by having a local
+/// session; we accept as the owner named after `@`, falling back to prompting.
+fn transfer_accept(ident: &str) -> Result<(), String> {
+    // The recipient is whoever holds a local session able to accept; require
+    // it explicitly via `<ident>@<to-owner>` to avoid ambiguity.
+    let (ident, to_owner) = ident
+        .split_once('@')
+        .ok_or_else(|| "use <owner>#<package>@<to-owner> to name the accepting account".to_string())?;
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = super::local_paths_for_repo(&repo_url)?;
+    let response = mfb_repository::client::transfer_accept(&repo_url, &paths, ident, to_owner)?;
+    println!("Accepted transfer of {} to {}.", response.ident, response.to_owner);
     Ok(())
 }
 

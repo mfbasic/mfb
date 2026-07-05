@@ -5,10 +5,11 @@ use crate::server::{
     ErrorResponse, IdentChainResponse, IndexResponse, InclusionProofResponse, LinkFetchRequest,
     LinkFetchResponse, LinkStartRequest, LinkStartResponse, LogEntry, LoginRequest,
     LoginResponse, PackageArtifactRequest, PublishPackageResponse, RegisterProofs,
-    RegisterRequest, RegisterResponse, ReleaseStateRequest, ReleaseStateResponse,
-    RevokeChallengeRequest, RevokeRequest, RevokeResponse, RootResponse, RotateRequest,
-    RotateResponse, ServerIdentResponse, SignedMetadataResponse, SigningRequest, SigningResponse,
-    ValidatePackageResponse,
+    OrgMemberRequest, OrgMemberResponse, RegisterRequest, RegisterResponse, ReleaseStateRequest,
+    ReleaseStateResponse, RevokeChallengeRequest, RevokeRequest, RevokeResponse, RootResponse,
+    RotateRequest, RotateResponse, ServerIdentResponse, SignedMetadataResponse, SigningRequest,
+    SigningResponse, TokenIssueRequest, TokenIssueResponse, TokenRevokeRequest, TokenRevokeResponse,
+    TransferAcceptRequest, TransferOfferRequest, TransferResponse, ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
@@ -654,6 +655,164 @@ fn fetch_and_verify_metadata(
         root_fingerprint,
         min_snapshot_version,
         crate::store::now_unix(),
+    )
+}
+
+/// `POST /orgs/members` (plan-10-D1): grant or remove a member's org role,
+/// authorized by the grantor's local ident key + session.
+pub fn set_org_member(
+    repo_url: &str,
+    paths: &LocalPaths,
+    org: &str,
+    grantor: &str,
+    member: &str,
+    role: &str,
+    remove: bool,
+) -> Result<OrgMemberResponse, String> {
+    validate_owner_name(grantor)?;
+    ensure_server_key(repo_url, paths)?;
+    let ident_private = local::read_ident_private_key(paths, grantor)?;
+    let session_token = local::read_session(paths, grantor)?;
+    let role_in_message = if remove { "removed" } else { role };
+    let signature =
+        crypto::sign(&ident_private, &crypto::org_role_message(org, member, role_in_message))?;
+    post_json::<OrgMemberResponse>(
+        repo_url,
+        "/orgs/members",
+        &OrgMemberRequest {
+            org: org.to_string(),
+            grantor: grantor.to_string(),
+            member: member.to_string(),
+            role: role.to_string(),
+            action: if remove { "remove" } else { "grant" }.to_string(),
+            session_token,
+            ident_signature: crypto::encode_bytes(&signature),
+        },
+    )
+}
+
+/// `POST /tokens` (plan-10-D1): issue a scoped publish token. Generates the
+/// token keypair locally, registers its public key, and returns the response
+/// plus the token private key (base64url) for the operator to deploy to CI.
+pub fn issue_publish_token(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    scope: &str,
+    ttl_seconds: i64,
+) -> Result<(TokenIssueResponse, String), String> {
+    validate_owner_name(owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let ident_private = local::read_ident_private_key(paths, owner)?;
+    let session_token = local::read_session(paths, owner)?;
+    let (token_public, token_private) = crypto::generate_keypair();
+    let token_fingerprint = crypto::fingerprint(&token_public);
+    let proof = crypto::sign(
+        &token_private,
+        &crypto::registration_message(crypto::ROLE_AUTH, owner, &token_public),
+    )?;
+    let signature = crypto::sign(
+        &ident_private,
+        &crypto::token_issue_message(owner, &token_fingerprint, scope),
+    )?;
+    let response = post_json::<TokenIssueResponse>(
+        repo_url,
+        "/tokens",
+        &TokenIssueRequest {
+            owner: owner.to_string(),
+            token_key: crypto::encode_bytes(&token_public),
+            proof: crypto::encode_bytes(&proof),
+            scope: scope.to_string(),
+            ttl_seconds,
+            session_token,
+            ident_signature: crypto::encode_bytes(&signature),
+        },
+    )?;
+    Ok((response, crypto::encode_bytes(&token_private)))
+}
+
+/// `POST /tokens/revoke` (plan-10-D1): revoke a publish token by fingerprint.
+pub fn revoke_publish_token(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    token_fingerprint: &str,
+) -> Result<TokenRevokeResponse, String> {
+    validate_owner_name(owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let ident_private = local::read_ident_private_key(paths, owner)?;
+    let session_token = local::read_session(paths, owner)?;
+    let signature = crypto::sign(
+        &ident_private,
+        &crypto::token_revoke_message(owner, token_fingerprint),
+    )?;
+    post_json::<TokenRevokeResponse>(
+        repo_url,
+        "/tokens/revoke",
+        &TokenRevokeRequest {
+            owner: owner.to_string(),
+            token_fingerprint: token_fingerprint.to_string(),
+            session_token,
+            ident_signature: crypto::encode_bytes(&signature),
+        },
+    )
+}
+
+/// `POST /packages/transfer/offer` (plan-10-D1): the current owner offers a
+/// package to a recipient, signed by the current owner's ident.
+pub fn transfer_offer(
+    repo_url: &str,
+    paths: &LocalPaths,
+    ident: &str,
+    from_owner: &str,
+    to_owner: &str,
+) -> Result<TransferResponse, String> {
+    validate_owner_name(from_owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let ident_private = local::read_ident_private_key(paths, from_owner)?;
+    let session_token = local::read_session(paths, from_owner)?;
+    let signature = crypto::sign(
+        &ident_private,
+        &crypto::transfer_offer_message(ident, from_owner, to_owner),
+    )?;
+    post_json::<TransferResponse>(
+        repo_url,
+        "/packages/transfer/offer",
+        &TransferOfferRequest {
+            ident: ident.to_string(),
+            from_owner: from_owner.to_string(),
+            to_owner: to_owner.to_string(),
+            session_token,
+            ident_signature: crypto::encode_bytes(&signature),
+        },
+    )
+}
+
+/// `POST /packages/transfer/accept` (plan-10-D1): the recipient accepts a
+/// pending offer, signed by the recipient's ident.
+pub fn transfer_accept(
+    repo_url: &str,
+    paths: &LocalPaths,
+    ident: &str,
+    to_owner: &str,
+) -> Result<TransferResponse, String> {
+    validate_owner_name(to_owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let ident_private = local::read_ident_private_key(paths, to_owner)?;
+    let session_token = local::read_session(paths, to_owner)?;
+    let signature = crypto::sign(
+        &ident_private,
+        &crypto::transfer_accept_message(ident, to_owner),
+    )?;
+    post_json::<TransferResponse>(
+        repo_url,
+        "/packages/transfer/accept",
+        &TransferAcceptRequest {
+            ident: ident.to_string(),
+            to_owner: to_owner.to_string(),
+            session_token,
+            ident_signature: crypto::encode_bytes(&signature),
+        },
     )
 }
 

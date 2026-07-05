@@ -140,6 +140,85 @@ pub(crate) fn run_key_command(args: &[String]) -> Result<(), RepoCommandError> {
     }
 }
 
+/// `mfb org grant|remove <org> <member> [role]` — manage org membership
+/// (plan-10-D1). The grantor is `--as <owner>` (default: the org itself, for
+/// the first grant); the grantor's local ident + session authorize the change.
+pub(crate) fn run_org_command(args: &[String]) -> Result<(), RepoCommandError> {
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
+    // Optional `--as <grantor>` overrides the acting account (default: the org).
+    let mut positional = Vec::new();
+    let mut grantor: Option<String> = None;
+    let mut iter = args.iter();
+    while let Some(arg) = iter.next() {
+        if arg == "--as" {
+            grantor = Some(
+                iter.next()
+                    .ok_or_else(|| RepoCommandError::Usage("--as requires <grantor>".to_string()))?
+                    .clone(),
+            );
+        } else {
+            positional.push(arg.clone());
+        }
+    }
+    match positional.as_slice() {
+        [command, org, member, role] if command == "grant" => {
+            let grantor = grantor.unwrap_or_else(|| org.clone());
+            let response =
+                mfb_repository::client::set_org_member(&repo_url, &paths, org, &grantor, member, role, false)
+                    .map_err(RepoCommandError::Failed)?;
+            println!("Granted {} the {} role in org {}", response.member, response.role, response.org);
+            Ok(())
+        }
+        [command, org, member] if command == "remove" => {
+            let grantor = grantor.unwrap_or_else(|| org.clone());
+            let response =
+                mfb_repository::client::set_org_member(&repo_url, &paths, org, &grantor, member, "", true)
+                    .map_err(RepoCommandError::Failed)?;
+            println!("Removed {} from org {}", response.member, response.org);
+            Ok(())
+        }
+        _ => Err(RepoCommandError::Usage(
+            "mfb org grant <org> <member> <owner|admin|publisher> [--as <grantor>]\n       mfb org remove <org> <member> [--as <grantor>]".to_string(),
+        )),
+    }
+}
+
+/// `mfb token issue|revoke` — manage scoped publish tokens (plan-10-D1).
+pub(crate) fn run_token_command(args: &[String]) -> Result<(), RepoCommandError> {
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
+    match args {
+        [command, owner, scope, ttl] if command == "issue" => {
+            let ttl_seconds: i64 = ttl
+                .parse()
+                .map_err(|_| RepoCommandError::Usage("<ttl-seconds> must be an integer".to_string()))?;
+            let (response, token_private) =
+                mfb_repository::client::issue_publish_token(&repo_url, &paths, owner, scope, ttl_seconds)
+                    .map_err(RepoCommandError::Failed)?;
+            println!(
+                "Issued publish token {} for {} (scope {}, expires {})",
+                response.token_fingerprint, response.owner, response.scope, response.expires_at
+            );
+            println!("Token PRIVATE key (deploy to CI as the auth key): {token_private}");
+            Ok(())
+        }
+        [command, owner, fingerprint] if command == "revoke" => {
+            let response =
+                mfb_repository::client::revoke_publish_token(&repo_url, &paths, owner, fingerprint)
+                    .map_err(RepoCommandError::Failed)?;
+            println!(
+                "Revoked publish token {} for {}",
+                response.token_fingerprint, response.owner
+            );
+            Ok(())
+        }
+        _ => Err(RepoCommandError::Usage(
+            "mfb token issue <owner> <scope> <ttl-seconds>\n       mfb token revoke <owner> <token-fingerprint>".to_string(),
+        )),
+    }
+}
+
 /// `mfb machine revoke <owner> <auth-fingerprint>` — revoke a lost machine's
 /// auth key (plan-23 §3.6). Requires the ident key on this machine.
 pub(crate) fn run_machine_command(args: &[String]) -> Result<(), RepoCommandError> {

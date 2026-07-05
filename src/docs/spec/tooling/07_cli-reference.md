@@ -37,6 +37,9 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `repo auth` | `mfb repo auth <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `repo link` | `mfb repo link [--start] <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `repo trust` | `mfb repo trust <registry-id> <root-fingerprint>` | 0 ok; 2 usage; 1 failed |
+| `org grant` / `org remove` | `mfb org grant <org> <member> <role> [--as <grantor>]` | 0 ok; 2 usage; 1 failed |
+| `token issue` / `token revoke` | `mfb token issue <owner> <scope> <ttl-seconds>` | 0 ok; 2 usage; 1 failed |
+| `pkg transfer` / `pkg transfer-accept` | `mfb pkg transfer <ident> <to-owner>` | 0 ok; 2 usage; 1 failed |
 | `machine revoke` | `mfb machine revoke <owner_name> <auth-fingerprint>` | 0 ok; 2 usage; 1 failed |
 | `key rotate` | `mfb key rotate <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |

@@ -1322,6 +1322,76 @@ fn repo_signed_metadata_root_verifies_chain_and_gates_add() {
 }
 
 #[test]
+fn repo_ownership_transfer_is_two_sided_and_rebinds_the_package() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    for owner in ["alice", "bob"] {
+        assert!(run_mfb(&repo, home.path(), &["repo", "register", owner])
+            .status
+            .success());
+        assert!(run_mfb(&repo, home.path(), &["repo", "auth", owner])
+            .status
+            .success());
+    }
+
+    // Alice publishes a package, then offers it to Bob.
+    let pkg_dir = work.path().join("xfer_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", pkg_arg]).status.success());
+    let manifest = pkg_dir.join("project.json");
+    let base = std::fs::read_to_string(&manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#xfer_pkg\",\n",
+    );
+    std::fs::write(&manifest, &base).unwrap();
+    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+        .status
+        .success());
+
+    let offer = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "transfer", "alice#xfer_pkg", "bob"],
+    );
+    assert!(
+        offer.status.success(),
+        "transfer offer failed: {}",
+        String::from_utf8_lossy(&offer.stderr)
+    );
+
+    // Bob accepts; the package is re-bound to bob.
+    let accept = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "transfer-accept", "alice#xfer_pkg@bob"],
+    );
+    assert!(
+        accept.status.success(),
+        "transfer accept failed: {}",
+        String::from_utf8_lossy(&accept.stderr)
+    );
+
+    let opened = open_store(repo_dir.path());
+    assert_eq!(
+        opened
+            .store
+            .package_owner("alice#xfer_pkg")
+            .unwrap()
+            .unwrap()
+            .owner_display,
+        "bob"
+    );
+    // The already-published version is untouched.
+    assert_eq!(
+        opened.store.list_package_versions("alice#xfer_pkg").unwrap().len(),
+        1
+    );
+}
+
+#[test]
 fn repo_release_state_yank_excludes_floating_but_allows_pin() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

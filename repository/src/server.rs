@@ -248,6 +248,112 @@ pub struct SignedMetadataResponse {
     pub signature: String,
 }
 
+/// Org membership change (plan-10-D1): an owner/admin member — or the org
+/// itself for the first grant — sets a member's role. Ident-authorized + a
+/// live session, like every account mutation.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OrgMemberRequest {
+    pub org: String,
+    /// The member account whose role is being set/removed by the grantor's ident.
+    pub grantor: String,
+    pub member: String,
+    /// `owner`, `admin`, or `publisher` (ignored when `action` is `remove`).
+    pub role: String,
+    /// `grant` or `remove`.
+    pub action: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+    #[serde(rename = "identSignature")]
+    pub ident_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct OrgMemberResponse {
+    pub org: String,
+    pub member: String,
+    pub role: String,
+}
+
+/// Publish-token issuance (plan-10-D1): a scoped, TTL-bounded auth key for CI.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TokenIssueRequest {
+    pub owner: String,
+    #[serde(rename = "tokenKey")]
+    pub token_key: String,
+    pub proof: String,
+    /// `<owner>#<package>` or `<owner>#*` — the packages this token may attest.
+    pub scope: String,
+    #[serde(rename = "ttlSeconds")]
+    pub ttl_seconds: i64,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+    #[serde(rename = "identSignature")]
+    pub ident_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TokenIssueResponse {
+    pub owner: String,
+    #[serde(rename = "tokenFingerprint")]
+    pub token_fingerprint: String,
+    pub scope: String,
+    #[serde(rename = "expiresAt")]
+    pub expires_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TokenRevokeRequest {
+    pub owner: String,
+    #[serde(rename = "tokenFingerprint")]
+    pub token_fingerprint: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+    #[serde(rename = "identSignature")]
+    pub ident_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TokenRevokeResponse {
+    pub owner: String,
+    #[serde(rename = "tokenFingerprint")]
+    pub token_fingerprint: String,
+    pub revoked: bool,
+}
+
+/// Two-sided ownership transfer (plan-10-D1). Both halves are ident-signed and
+/// logged; already-published versions keep verifying against the old ident.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransferOfferRequest {
+    pub ident: String,
+    #[serde(rename = "fromOwner")]
+    pub from_owner: String,
+    #[serde(rename = "toOwner")]
+    pub to_owner: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+    #[serde(rename = "identSignature")]
+    pub ident_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransferAcceptRequest {
+    pub ident: String,
+    #[serde(rename = "toOwner")]
+    pub to_owner: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+    #[serde(rename = "identSignature")]
+    pub ident_signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TransferResponse {
+    pub ident: String,
+    #[serde(rename = "toOwner")]
+    pub to_owner: String,
+    pub accepted: bool,
+}
+
 /// `POST /release-state` (plan-10-C1): a maintainer sets a published version's
 /// release state. Requires both a live session (auth) and an ident signature
 /// (authority) — an auth session alone can never change a release state.
@@ -450,6 +556,11 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/index/:ident", get(package_index))
         .route("/blob/:hash", get(package_blob))
         .route("/release-state", post(release_state))
+        .route("/orgs/members", post(org_members))
+        .route("/tokens", post(issue_token))
+        .route("/tokens/revoke", post(revoke_token))
+        .route("/packages/transfer/offer", post(transfer_offer))
+        .route("/packages/transfer/accept", post(transfer_accept))
         .route("/root.json", get(root_metadata))
         .route("/snapshot.json", get(snapshot_metadata))
         .route("/timestamp.json", get(timestamp_metadata))
@@ -683,6 +794,235 @@ async fn package_index(
 /// for a week; the timestamp refreshes daily and pins the current snapshot.
 const SNAPSHOT_TTL_SECS: i64 = 7 * 24 * 3600;
 const TIMESTAMP_TTL_SECS: i64 = 24 * 3600;
+
+/// Shared preamble for ident-authorized account mutations (plan-10-D1): verify
+/// the session names `owner` and matches a current auth key, and return the
+/// owner record plus their current ident public key (for ident-signature
+/// verification). An auth session alone can never mutate account state.
+fn session_and_ident(
+    state: &AppState,
+    owner: &str,
+    session_token: &str,
+) -> Result<(crate::store::OwnerRecord, Vec<u8>), (StatusCode, Json<ErrorResponse>)> {
+    let claims = verify_session_token(&state.store, session_token).map_err(bad_request)?;
+    if claims.sub != owner {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    let Some((owner_record, _key)) = state
+        .store
+        .owner_auth_key_by_fingerprint(owner, &claims.auth_fingerprint)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("session key is not a current auth key".to_string()));
+    };
+    if owner_record.id != claims.owner_id {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    let Some((_owner, ident_key)) = state.store.owner_with_ident_key(owner).map_err(internal)? else {
+        return Err(bad_request("owner has no current ident key".to_string()));
+    };
+    Ok((owner_record, ident_key.public_key))
+}
+
+/// `POST /orgs/members` (plan-10-D1): grant or remove a member's org role. The
+/// grantor must be the org itself (bootstrap) or an owner/admin member, and the
+/// change is authorized by the grantor's ident signature and logged.
+async fn org_members(
+    State(state): State<AppState>,
+    Json(request): Json<OrgMemberRequest>,
+) -> Result<Json<OrgMemberResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (_grantor, grantor_ident) =
+        session_and_ident(&state, &request.grantor, &request.session_token)?;
+    let role_in_message = if request.action == "remove" {
+        "removed"
+    } else {
+        &request.role
+    };
+    let signature =
+        crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
+    crypto::verify(
+        &grantor_ident,
+        &crypto::org_role_message(&request.org, &request.member, role_in_message),
+        &signature,
+    )
+    .map_err(|_| bad_request("invalid org role ident signature".to_string()))?;
+
+    // Authority: the org itself (first grant) or an owner/admin member.
+    let is_org = crate::validation::fold_owner(&request.grantor)
+        == crate::validation::fold_owner(&request.org);
+    let grantor_role = state
+        .store
+        .org_member_role(&request.org, &request.grantor)
+        .map_err(internal)?;
+    if !is_org && !matches!(grantor_role.as_deref(), Some("owner") | Some("admin")) {
+        return Err(bad_request(
+            "grantor must be the org or an owner/admin member".to_string(),
+        ));
+    }
+
+    if request.action == "remove" {
+        state
+            .store
+            .remove_org_member(&request.org, &request.member)
+            .map_err(bad_request)?;
+        return Ok(Json(OrgMemberResponse {
+            org: request.org,
+            member: request.member,
+            role: "removed".to_string(),
+        }));
+    }
+    state
+        .store
+        .grant_org_member(&request.org, &request.member, &request.role)
+        .map_err(bad_request)?;
+    Ok(Json(OrgMemberResponse {
+        org: request.org,
+        member: request.member,
+        role: request.role,
+    }))
+}
+
+/// `POST /tokens` (plan-10-D1): issue a scoped, TTL-bounded publish token —
+/// ident-authorized and logged. The token can request attestations only within
+/// its scope and never bypasses the ident-proof requirement.
+async fn issue_token(
+    State(state): State<AppState>,
+    Json(request): Json<TokenIssueRequest>,
+) -> Result<Json<TokenIssueResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (_owner, ident_public) = session_and_ident(&state, &request.owner, &request.session_token)?;
+    let token_public = crypto::decode_bytes(&request.token_key, "tokenKey").map_err(bad_request)?;
+    let proof = crypto::decode_bytes(&request.proof, "proof").map_err(bad_request)?;
+    let token_fingerprint = crypto::fingerprint(&token_public);
+    let signature =
+        crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
+    crypto::verify(
+        &ident_public,
+        &crypto::token_issue_message(&request.owner, &token_fingerprint, &request.scope),
+        &signature,
+    )
+    .map_err(|_| bad_request("invalid token issuance ident signature".to_string()))?;
+    // Scope must belong to the issuing owner.
+    if !scope_owner_matches(&request.scope, &request.owner) {
+        return Err(bad_request(
+            "token scope must be within the issuing owner".to_string(),
+        ));
+    }
+    let (owner, key, expires_at) = state
+        .store
+        .issue_publish_token(&request.owner, &token_public, &proof, &request.scope, request.ttl_seconds)
+        .map_err(bad_request)?;
+    Ok(Json(TokenIssueResponse {
+        owner: owner.owner_display,
+        token_fingerprint: key.fingerprint,
+        scope: request.scope,
+        expires_at,
+    }))
+}
+
+/// `POST /tokens/revoke` (plan-10-D1): revoke a publish token — ident-authorized
+/// and logged; its sessions are closed.
+async fn revoke_token(
+    State(state): State<AppState>,
+    Json(request): Json<TokenRevokeRequest>,
+) -> Result<Json<TokenRevokeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (_owner, ident_public) = session_and_ident(&state, &request.owner, &request.session_token)?;
+    let signature =
+        crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
+    crypto::verify(
+        &ident_public,
+        &crypto::token_revoke_message(&request.owner, &request.token_fingerprint),
+        &signature,
+    )
+    .map_err(|_| bad_request("invalid token revocation ident signature".to_string()))?;
+    let revoked = state
+        .store
+        .revoke_publish_token(&request.owner, &request.token_fingerprint)
+        .map_err(bad_request)?;
+    if !revoked {
+        return Err(bad_request("no active token with that fingerprint".to_string()));
+    }
+    Ok(Json(TokenRevokeResponse {
+        owner: request.owner,
+        token_fingerprint: request.token_fingerprint,
+        revoked: true,
+    }))
+}
+
+/// `POST /packages/transfer/offer` (plan-10-D1): the current owner offers a
+/// package to a recipient, authorized by the current owner's ident.
+async fn transfer_offer(
+    State(state): State<AppState>,
+    Json(request): Json<TransferOfferRequest>,
+) -> Result<Json<TransferResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (_owner, ident_public) = session_and_ident(&state, &request.from_owner, &request.session_token)?;
+    let signature =
+        crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
+    crypto::verify(
+        &ident_public,
+        &crypto::transfer_offer_message(&request.ident, &request.from_owner, &request.to_owner),
+        &signature,
+    )
+    .map_err(|_| bad_request("invalid transfer offer ident signature".to_string()))?;
+    state
+        .store
+        .create_transfer_offer(&request.ident, &request.from_owner, &request.to_owner)
+        .map_err(bad_request)?;
+    Ok(Json(TransferResponse {
+        ident: request.ident,
+        to_owner: request.to_owner,
+        accepted: false,
+    }))
+}
+
+/// `POST /packages/transfer/accept` (plan-10-D1): the recipient accepts a
+/// pending offer; the package is re-bound to them and both halves are logged.
+async fn transfer_accept(
+    State(state): State<AppState>,
+    Json(request): Json<TransferAcceptRequest>,
+) -> Result<Json<TransferResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let (_owner, ident_public) = session_and_ident(&state, &request.to_owner, &request.session_token)?;
+    let signature =
+        crypto::decode_bytes(&request.ident_signature, "identSignature").map_err(bad_request)?;
+    crypto::verify(
+        &ident_public,
+        &crypto::transfer_accept_message(&request.ident, &request.to_owner),
+        &signature,
+    )
+    .map_err(|_| bad_request("invalid transfer accept ident signature".to_string()))?;
+    state
+        .store
+        .accept_transfer(&request.ident, &request.to_owner)
+        .map_err(bad_request)?;
+    Ok(Json(TransferResponse {
+        ident: request.ident,
+        to_owner: request.to_owner,
+        accepted: true,
+    }))
+}
+
+/// Whether a token `scope` (`<owner>#<package>` or `<owner>#*`) belongs to
+/// `owner`.
+fn scope_owner_matches(scope: &str, owner: &str) -> bool {
+    scope
+        .split_once('#')
+        .map(|(scope_owner, _)| {
+            crate::validation::fold_owner(scope_owner) == crate::validation::fold_owner(owner)
+        })
+        .unwrap_or(false)
+}
+
+/// Whether a token `scope` permits attesting `ident` (`<owner>#<package>`).
+/// `<owner>#*` matches any package of that owner; otherwise an exact match.
+fn scope_permits(scope: &str, ident: &str) -> bool {
+    if let Some((scope_owner, scope_pkg)) = scope.split_once('#') {
+        if let Some((ident_owner, _)) = ident.split_once('#') {
+            let owner_ok = crate::validation::fold_owner(scope_owner)
+                == crate::validation::fold_owner(ident_owner);
+            return owner_ok && (scope_pkg == "*" || scope == ident);
+        }
+    }
+    false
+}
 
 /// `GET /root.json` (plan-10-C2): the offline-root-signed metadata delegating
 /// the online server/snapshot/timestamp keys. A client pins the root
@@ -1166,7 +1506,7 @@ async fn signing(
     if claims.sub != request.owner {
         return Err(bad_request("session owner does not match requested owner".to_string()));
     }
-    let Some((owner, _key)) = state
+    let Some((owner, key)) = state
         .store
         .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
         .map_err(internal)?
@@ -1179,6 +1519,23 @@ async fn signing(
         return Err(bad_request(
             "session key does not match current auth key".to_string(),
         ));
+    }
+    // If the session's auth key is a scoped publish token (plan-10-D1), it may
+    // only attest packages within its scope, and only until it expires.
+    if let Some((scope, expires_at, revoked_at)) =
+        state.store.publish_token_for_key(key.id).map_err(internal)?
+    {
+        if revoked_at.is_some() {
+            return Err(bad_request("publish token is revoked".to_string()));
+        }
+        if expires_at <= now_unix() {
+            return Err(bad_request("publish token has expired".to_string()));
+        }
+        if !scope_permits(&scope, &request.ident) {
+            return Err(bad_request(
+                "publish token scope does not permit this package".to_string(),
+            ));
+        }
     }
     // The attestation pins one exact package+version: the ident must belong
     // to the session owner and the one-off key fingerprint must be
@@ -2132,6 +2489,270 @@ mod tests {
         )
         .await;
         assert_eq!(unknown.err().unwrap().0, StatusCode::BAD_REQUEST);
+    }
+
+    /// Open a session bound to a specific auth key (by fingerprint), so a
+    /// publish-token session can be exercised.
+    fn open_session_for_key(store: &Store, owner: &str, private: &[u8], fingerprint: &str) -> String {
+        let challenge = store.create_auth_challenge(owner, fingerprint).unwrap();
+        let message = crypto::challenge_message(&challenge.id, &challenge.nonce);
+        let signature = crypto::sign(private, &message).unwrap();
+        let (owner_rec, key) = store.complete_challenge(&challenge.id, &signature).unwrap();
+        let issued_at = crate::store::now_unix();
+        let jwt_id = Uuid::new_v4().to_string();
+        let claims = SessionClaims {
+            sub: owner_rec.owner_display,
+            owner_id: owner_rec.id,
+            auth_fingerprint: key.fingerprint,
+            iat: issued_at,
+            exp: issued_at + 3600,
+            jti: jwt_id.clone(),
+        };
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(&store.server_secret().unwrap()),
+        )
+        .unwrap();
+        store
+            .insert_session(&NewSession {
+                owner_id: owner_rec.id,
+                key_id: key.id,
+                jwt_id,
+                issued_at,
+                expires_at: issued_at + 3600,
+            })
+            .unwrap();
+        token
+    }
+
+    #[tokio::test]
+    async fn org_roles_are_ident_authorized_and_role_gated() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let org = register_owner_with_all_keys(&store, "acme");
+        let _member = register_owner_with_all_keys(&store, "alice");
+        let mallory = register_owner_with_all_keys(&store, "mallory");
+        let org_token = open_session(&store, "acme", &org.auth_private);
+        let mallory_token = open_session(&store, "mallory", &mallory.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: opened.packages_dir.clone(),
+        };
+
+        let grant = |grantor: &str, ident_private: &[u8], token: &str, member: &str, role: &str| {
+            let sig = crypto::encode_bytes(
+                &crypto::sign(
+                    ident_private,
+                    &crypto::org_role_message("acme", member, role),
+                )
+                .unwrap(),
+            );
+            OrgMemberRequest {
+                org: "acme".to_string(),
+                grantor: grantor.to_string(),
+                member: member.to_string(),
+                role: role.to_string(),
+                action: "grant".to_string(),
+                session_token: token.to_string(),
+                ident_signature: sig,
+            }
+        };
+
+        // The org bootstraps its first member.
+        org_members(State(state.clone()), Json(grant("acme", &org.ident_private, &org_token, "alice", "admin")))
+            .await
+            .expect("org grants first member");
+        assert_eq!(
+            store.org_member_role("acme", "alice").unwrap().as_deref(),
+            Some("admin")
+        );
+
+        // A non-member cannot grant roles even with a valid ident signature.
+        let refused = org_members(
+            State(state.clone()),
+            Json(grant("mallory", &mallory.ident_private, &mallory_token, "mallory", "owner")),
+        )
+        .await;
+        assert!(refused.is_err());
+
+        // Removal is logged and takes effect.
+        let remove = OrgMemberRequest {
+            org: "acme".to_string(),
+            grantor: "acme".to_string(),
+            member: "alice".to_string(),
+            role: String::new(),
+            action: "remove".to_string(),
+            session_token: org_token.clone(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(&org.ident_private, &crypto::org_role_message("acme", "alice", "removed")).unwrap(),
+            ),
+        };
+        org_members(State(state.clone()), Json(remove)).await.expect("removal");
+        assert!(store.org_member_role("acme", "alice").unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn publish_tokens_are_scoped_and_revocable() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let alice = register_owner_with_all_keys(&store, "alice");
+        let owner_token = open_session(&store, "alice", &alice.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: opened.packages_dir.clone(),
+        };
+
+        // Issue a token scoped to exactly alice#toolbox.
+        let (token_public, token_private) = crypto::generate_keypair();
+        let token_fingerprint = crypto::fingerprint(&token_public);
+        let proof = crypto::sign(
+            &token_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &token_public),
+        )
+        .unwrap();
+        let issue = TokenIssueRequest {
+            owner: "alice".to_string(),
+            token_key: crypto::encode_bytes(&token_public),
+            proof: crypto::encode_bytes(&proof),
+            scope: "alice#toolbox".to_string(),
+            ttl_seconds: 3600,
+            session_token: owner_token.clone(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(
+                    &alice.ident_private,
+                    &crypto::token_issue_message("alice", &token_fingerprint, "alice#toolbox"),
+                )
+                .unwrap(),
+            ),
+        };
+        issue_token(State(state.clone()), Json(issue)).await.expect("token issued");
+
+        // The token opens its own session and can attest within scope...
+        let token_session = open_session_for_key(&store, "alice", &token_private, &token_fingerprint);
+        let (in_scope_public, _) = crypto::generate_keypair();
+        signing(
+            State(state.clone()),
+            Json(SigningRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                signing_fingerprint: crypto::fingerprint(&in_scope_public),
+                session_token: token_session.clone(),
+            }),
+        )
+        .await
+        .expect("in-scope attestation");
+
+        // ...but not outside its scope.
+        let (out_public, _) = crypto::generate_keypair();
+        let refused = signing(
+            State(state.clone()),
+            Json(SigningRequest {
+                owner: "alice".to_string(),
+                ident: "alice#other".to_string(),
+                version: "1.0.0".to_string(),
+                signing_fingerprint: crypto::fingerprint(&out_public),
+                session_token: token_session.clone(),
+            }),
+        )
+        .await;
+        assert!(refused.err().unwrap().1.error.contains("scope"));
+
+        // Revocation (ident-authorized) kills the token session.
+        revoke_token(
+            State(state.clone()),
+            Json(TokenRevokeRequest {
+                owner: "alice".to_string(),
+                token_fingerprint: token_fingerprint.clone(),
+                session_token: owner_token.clone(),
+                ident_signature: crypto::encode_bytes(
+                    &crypto::sign(
+                        &alice.ident_private,
+                        &crypto::token_revoke_message("alice", &token_fingerprint),
+                    )
+                    .unwrap(),
+                ),
+            }),
+        )
+        .await
+        .expect("token revoked");
+        let after = signing(
+            State(state.clone()),
+            Json(SigningRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "2.0.0".to_string(),
+                signing_fingerprint: crypto::fingerprint(&in_scope_public),
+                session_token: token_session,
+            }),
+        )
+        .await;
+        assert!(after.is_err());
+    }
+
+    #[tokio::test]
+    async fn ownership_transfer_is_two_sided_and_rebinds_the_package() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let alice = register_owner_with_all_keys(&store, "alice");
+        let bob = register_owner_with_all_keys(&store, "bob");
+        let alice_token = open_session(&store, "alice", &alice.auth_private);
+        let bob_token = open_session(&store, "bob", &bob.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: opened.packages_dir.clone(),
+        };
+        publish_valid_package(&state, &alice, &alice_token, "1.0.0").await;
+
+        // An offer signed by the wrong ident is refused.
+        let bad_offer = TransferOfferRequest {
+            ident: "alice#toolbox".to_string(),
+            from_owner: "alice".to_string(),
+            to_owner: "bob".to_string(),
+            session_token: alice_token.clone(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(&bob.ident_private, &crypto::transfer_offer_message("alice#toolbox", "alice", "bob")).unwrap(),
+            ),
+        };
+        assert!(transfer_offer(State(state.clone()), Json(bad_offer)).await.is_err());
+
+        // A correctly signed offer, then a bob-signed acceptance, re-binds it.
+        let offer = TransferOfferRequest {
+            ident: "alice#toolbox".to_string(),
+            from_owner: "alice".to_string(),
+            to_owner: "bob".to_string(),
+            session_token: alice_token.clone(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(&alice.ident_private, &crypto::transfer_offer_message("alice#toolbox", "alice", "bob")).unwrap(),
+            ),
+        };
+        transfer_offer(State(state.clone()), Json(offer)).await.expect("offer");
+        let accept = TransferAcceptRequest {
+            ident: "alice#toolbox".to_string(),
+            to_owner: "bob".to_string(),
+            session_token: bob_token.clone(),
+            ident_signature: crypto::encode_bytes(
+                &crypto::sign(&bob.ident_private, &crypto::transfer_accept_message("alice#toolbox", "bob")).unwrap(),
+            ),
+        };
+        transfer_accept(State(state.clone()), Json(accept)).await.expect("accept");
+
+        // The package is re-bound to bob; the already-published version persists.
+        assert_eq!(
+            store.package_owner("alice#toolbox").unwrap().unwrap().owner_display,
+            "bob"
+        );
+        assert_eq!(store.list_package_versions("alice#toolbox").unwrap().len(), 1);
     }
 
     #[tokio::test]

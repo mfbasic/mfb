@@ -229,6 +229,35 @@ impl Store {
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS org_members (
+                id INTEGER PRIMARY KEY,
+                org_id INTEGER NOT NULL REFERENCES owners(id),
+                member_id INTEGER NOT NULL REFERENCES owners(id),
+                role TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                UNIQUE(org_id, member_id)
+            );
+
+            CREATE TABLE IF NOT EXISTS publish_tokens (
+                id INTEGER PRIMARY KEY,
+                owner_id INTEGER NOT NULL REFERENCES owners(id),
+                key_id INTEGER NOT NULL REFERENCES keys(id),
+                scope TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                revoked_at INTEGER NULL,
+                created_at INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS transfer_offers (
+                id INTEGER PRIMARY KEY,
+                package_id INTEGER NOT NULL REFERENCES packages(id),
+                from_owner_id INTEGER NOT NULL REFERENCES owners(id),
+                to_owner_id INTEGER NOT NULL REFERENCES owners(id),
+                created_at INTEGER NOT NULL,
+                accepted_at INTEGER NULL,
+                UNIQUE(package_id)
+            );
+
             CREATE TABLE IF NOT EXISTS registry_config (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 registry_id TEXT NOT NULL,
@@ -1087,6 +1116,419 @@ impl Store {
             state: "available".to_string(),
             log_entry,
         })
+    }
+
+    /// Resolve an owner name to its row (any account: user or org).
+    fn owner_record(&self, owner: &str) -> Result<Option<OwnerRecord>, String> {
+        let folded = fold_owner(owner);
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row(
+            "SELECT id, owner_display FROM owners WHERE owner_folded = ?1 AND status = 'active'",
+            params![folded],
+            |row| {
+                Ok(OwnerRecord {
+                    id: row.get(0)?,
+                    owner_display: row.get(1)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|err| format!("failed to load owner: {err}"))
+    }
+
+    // --- Orgs (plan-10-D1) -------------------------------------------------
+
+    /// A member's role in an org (`owner`/`admin`/`publisher`), or None.
+    pub fn org_member_role(&self, org: &str, member: &str) -> Result<Option<String>, String> {
+        let org_folded = fold_owner(org);
+        let member_folded = fold_owner(member);
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row(
+            "SELECT m.role
+             FROM org_members m
+             JOIN owners o ON o.id = m.org_id
+             JOIN owners u ON u.id = m.member_id
+             WHERE o.owner_folded = ?1 AND u.owner_folded = ?2",
+            params![org_folded, member_folded],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|err| format!("failed to load org member role: {err}"))
+    }
+
+    /// Grant (or update) a member's org role and log it (plan-10-D1). Caller
+    /// verifies the granting member's authority before this runs.
+    pub fn grant_org_member(&self, org: &str, member: &str, role: &str) -> Result<(), String> {
+        if !matches!(role, "owner" | "admin" | "publisher") {
+            return Err("role must be owner, admin, or publisher".to_string());
+        }
+        let Some(org_record) = self.owner_record(org)? else {
+            return Err("unknown org".to_string());
+        };
+        let Some(member_record) = self.owner_record(member)? else {
+            return Err("unknown member account".to_string());
+        };
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start org transaction: {err}"))?;
+        tx.execute(
+            "INSERT INTO org_members (org_id, member_id, role, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(org_id, member_id) DO UPDATE SET role = excluded.role",
+            params![org_record.id, member_record.id, role, now],
+        )
+        .map_err(|err| format!("failed to record org member: {err}"))?;
+        append_log_tx(
+            &tx,
+            "org-role",
+            &format!(
+                "{{\"org\":{},\"member\":{},\"role\":{}}}",
+                json_value(&org_record.owner_display),
+                json_value(&member_record.owner_display),
+                json_value(role),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit org member grant: {err}"))?;
+        Ok(())
+    }
+
+    /// Remove a member from an org and log it (plan-10-D1). Returns false when
+    /// the member had no role.
+    pub fn remove_org_member(&self, org: &str, member: &str) -> Result<bool, String> {
+        let Some(org_record) = self.owner_record(org)? else {
+            return Err("unknown org".to_string());
+        };
+        let Some(member_record) = self.owner_record(member)? else {
+            return Err("unknown member account".to_string());
+        };
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start org transaction: {err}"))?;
+        let removed = tx
+            .execute(
+                "DELETE FROM org_members WHERE org_id = ?1 AND member_id = ?2",
+                params![org_record.id, member_record.id],
+            )
+            .map_err(|err| format!("failed to remove org member: {err}"))?;
+        if removed == 0 {
+            tx.commit().ok();
+            return Ok(false);
+        }
+        append_log_tx(
+            &tx,
+            "org-role",
+            &format!(
+                "{{\"org\":{},\"member\":{},\"role\":{}}}",
+                json_value(&org_record.owner_display),
+                json_value(&member_record.owner_display),
+                json_value("removed"),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit org member removal: {err}"))?;
+        Ok(true)
+    }
+
+    /// The org's members as `(member_display, role)`, oldest first.
+    pub fn list_org_members(&self, org: &str) -> Result<Vec<(String, String)>, String> {
+        let org_folded = fold_owner(org);
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let mut statement = conn
+            .prepare(
+                "SELECT u.owner_display, m.role
+                 FROM org_members m
+                 JOIN owners o ON o.id = m.org_id
+                 JOIN owners u ON u.id = m.member_id
+                 WHERE o.owner_folded = ?1
+                 ORDER BY m.id ASC",
+            )
+            .map_err(|err| format!("failed to prepare org query: {err}"))?;
+        let rows = statement
+            .query_map(params![org_folded], |row| Ok((row.get(0)?, row.get(1)?)))
+            .map_err(|err| format!("failed to list org members: {err}"))?;
+        let mut members = Vec::new();
+        for row in rows {
+            members.push(row.map_err(|err| format!("failed to read org member: {err}"))?);
+        }
+        Ok(members)
+    }
+
+    // --- Publish tokens (plan-10-D1) --------------------------------------
+
+    /// Issue a scoped, TTL-bounded publish token: register its auth key on the
+    /// owner and record the scope/expiry, logged. The token can open sessions
+    /// and request attestations only within `scope` and only until `expires_at`
+    /// — it never bypasses the ident-proof requirement. Caller verifies the
+    /// owner-ident authorization before this runs.
+    pub fn issue_publish_token(
+        &self,
+        owner: &str,
+        token_public: &[u8],
+        proof: &[u8],
+        scope: &str,
+        ttl_secs: i64,
+    ) -> Result<(OwnerRecord, KeyRecord, i64), String> {
+        let Some(owner_record) = self.owner_record(owner)? else {
+            return Err("unknown owner".to_string());
+        };
+        let message =
+            crypto::registration_message(crypto::ROLE_AUTH, &owner_record.owner_display, token_public);
+        crypto::verify(token_public, &message, proof)
+            .map_err(|_| "invalid token proof-of-possession signature".to_string())?;
+        if scope.is_empty() || scope.len() > 255 {
+            return Err("token scope must be 1..=255 bytes".to_string());
+        }
+        if ttl_secs <= 0 || ttl_secs > 365 * 24 * 3600 {
+            return Err("token ttl must be 1..=31536000 seconds".to_string());
+        }
+        let fingerprint = crypto::fingerprint(token_public);
+        let now = now_unix();
+        let expires_at = now + ttl_secs;
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start token transaction: {err}"))?;
+        tx.execute(
+            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
+             VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
+            params![owner_record.id, token_public, fingerprint, now],
+        )
+        .map_err(|err| format!("failed to register token key: {err}"))?;
+        let key_id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO publish_tokens (owner_id, key_id, scope, expires_at, revoked_at, created_at)
+             VALUES (?1, ?2, ?3, ?4, NULL, ?5)",
+            params![owner_record.id, key_id, scope, expires_at, now],
+        )
+        .map_err(|err| format!("failed to record publish token: {err}"))?;
+        append_log_tx(
+            &tx,
+            "token-issue",
+            &format!(
+                "{{\"owner\":{},\"tokenFingerprint\":{},\"scope\":{}}}",
+                json_value(&owner_record.owner_display),
+                json_value(&fingerprint),
+                json_value(scope),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit token issue: {err}"))?;
+        Ok((
+            owner_record,
+            KeyRecord {
+                id: key_id,
+                public_key: token_public.to_vec(),
+                fingerprint,
+            },
+            expires_at,
+        ))
+    }
+
+    /// The publish-token scope/expiry/revocation for an auth key, if it is a
+    /// token. Used at `/signing` to bound what a token session may attest.
+    pub fn publish_token_for_key(
+        &self,
+        key_id: i64,
+    ) -> Result<Option<(String, i64, Option<i64>)>, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row(
+            "SELECT scope, expires_at, revoked_at FROM publish_tokens WHERE key_id = ?1",
+            params![key_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(|err| format!("failed to load publish token: {err}"))
+    }
+
+    /// Revoke a publish token (its auth key and any sessions), logged. Returns
+    /// false when no active token matches the fingerprint.
+    pub fn revoke_publish_token(&self, owner: &str, fingerprint: &str) -> Result<bool, String> {
+        let Some(owner_record) = self.owner_record(owner)? else {
+            return Err("unknown owner".to_string());
+        };
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start token revoke transaction: {err}"))?;
+        let key_id: Option<i64> = tx
+            .query_row(
+                "SELECT k.id
+                 FROM publish_tokens t
+                 JOIN keys k ON k.id = t.key_id
+                 WHERE t.owner_id = ?1 AND k.fingerprint = ?2 AND t.revoked_at IS NULL",
+                params![owner_record.id, fingerprint],
+                |row| row.get(0),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load token: {err}"))?;
+        let Some(key_id) = key_id else {
+            tx.commit().ok();
+            return Ok(false);
+        };
+        tx.execute(
+            "UPDATE publish_tokens SET revoked_at = ?1 WHERE key_id = ?2",
+            params![now, key_id],
+        )
+        .map_err(|err| format!("failed to revoke token: {err}"))?;
+        tx.execute(
+            "UPDATE keys SET status = 'revoked', revoked_at = ?1 WHERE id = ?2",
+            params![now, key_id],
+        )
+        .map_err(|err| format!("failed to revoke token key: {err}"))?;
+        tx.execute(
+            "UPDATE sessions SET revoked_at = ?1 WHERE key_id = ?2 AND revoked_at IS NULL",
+            params![now, key_id],
+        )
+        .map_err(|err| format!("failed to close token sessions: {err}"))?;
+        append_log_tx(
+            &tx,
+            "token-revoke",
+            &format!(
+                "{{\"owner\":{},\"tokenFingerprint\":{}}}",
+                json_value(&owner_record.owner_display),
+                json_value(fingerprint),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit token revoke: {err}"))?;
+        Ok(true)
+    }
+
+    // --- Ownership transfer (plan-10-D1) ----------------------------------
+
+    /// The account that currently owns a package (may differ from the ident
+    /// string's owner after a transfer).
+    pub fn package_owner(&self, ident: &str) -> Result<Option<OwnerRecord>, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row(
+            "SELECT o.id, o.owner_display
+             FROM packages p JOIN owners o ON o.id = p.owner_id
+             WHERE p.ident = ?1",
+            params![ident],
+            |row| {
+                Ok(OwnerRecord {
+                    id: row.get(0)?,
+                    owner_display: row.get(1)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|err| format!("failed to load package owner: {err}"))
+    }
+
+    /// Record a transfer offer: the current owner offers `ident` to `to_owner`.
+    /// Caller verifies the current owner's ident authorization first.
+    pub fn create_transfer_offer(
+        &self,
+        ident: &str,
+        from_owner: &str,
+        to_owner: &str,
+    ) -> Result<(), String> {
+        let Some(package_owner) = self.package_owner(ident)? else {
+            return Err("unknown package".to_string());
+        };
+        if fold_owner(&package_owner.owner_display) != fold_owner(from_owner) {
+            return Err("offering owner does not currently own the package".to_string());
+        }
+        let Some(to_record) = self.owner_record(to_owner)? else {
+            return Err("unknown recipient account".to_string());
+        };
+        if to_record.id == package_owner.id {
+            return Err("cannot transfer a package to its current owner".to_string());
+        }
+        let package_id: i64 = {
+            let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+            conn.query_row(
+                "SELECT id FROM packages WHERE ident = ?1",
+                params![ident],
+                |row| row.get(0),
+            )
+            .map_err(|err| format!("failed to load package: {err}"))?
+        };
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start transfer transaction: {err}"))?;
+        tx.execute(
+            "INSERT INTO transfer_offers (package_id, from_owner_id, to_owner_id, created_at, accepted_at)
+             VALUES (?1, ?2, ?3, ?4, NULL)
+             ON CONFLICT(package_id) DO UPDATE SET
+               from_owner_id = excluded.from_owner_id,
+               to_owner_id = excluded.to_owner_id,
+               created_at = excluded.created_at,
+               accepted_at = NULL",
+            params![package_id, package_owner.id, to_record.id, now],
+        )
+        .map_err(|err| format!("failed to record transfer offer: {err}"))?;
+        append_log_tx(
+            &tx,
+            "transfer-offer",
+            &format!(
+                "{{\"ident\":{},\"from\":{},\"to\":{}}}",
+                json_value(ident),
+                json_value(&package_owner.owner_display),
+                json_value(&to_record.owner_display),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit transfer offer: {err}"))?;
+        Ok(())
+    }
+
+    /// Accept a pending transfer: re-bind the package to `to_owner` and log it.
+    /// Already-published versions keep verifying against the old ident's
+    /// proofs (issued facts); new versions publish under the new owner's ident.
+    pub fn accept_transfer(&self, ident: &str, to_owner: &str) -> Result<(), String> {
+        let Some(to_record) = self.owner_record(to_owner)? else {
+            return Err("unknown recipient account".to_string());
+        };
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start transfer transaction: {err}"))?;
+        let offer: Option<(i64, i64)> = tx
+            .query_row(
+                "SELECT o.id, o.package_id
+                 FROM transfer_offers o
+                 JOIN packages p ON p.id = o.package_id
+                 WHERE p.ident = ?1 AND o.to_owner_id = ?2 AND o.accepted_at IS NULL",
+                params![ident, to_record.id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(|err| format!("failed to load transfer offer: {err}"))?;
+        let Some((offer_id, package_id)) = offer else {
+            return Err("no pending transfer offer for this account".to_string());
+        };
+        tx.execute(
+            "UPDATE packages SET owner_id = ?1 WHERE id = ?2",
+            params![to_record.id, package_id],
+        )
+        .map_err(|err| format!("failed to re-bind package owner: {err}"))?;
+        tx.execute(
+            "UPDATE transfer_offers SET accepted_at = ?1 WHERE id = ?2",
+            params![now, offer_id],
+        )
+        .map_err(|err| format!("failed to close transfer offer: {err}"))?;
+        append_log_tx(
+            &tx,
+            "transfer-accept",
+            &format!(
+                "{{\"ident\":{},\"to\":{}}}",
+                json_value(ident),
+                json_value(&to_record.owner_display),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit transfer accept: {err}"))?;
+        Ok(())
     }
 
     /// Operator root ceremony (plan-10-C2): generate the offline root key and

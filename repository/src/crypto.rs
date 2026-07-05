@@ -121,6 +121,66 @@ pub fn ident_rotation_message(owner: &str, old_fingerprint: &str, new_public: &[
     message
 }
 
+/// Ident-signed org role change (plan-10-D1): an owner/admin member (or the
+/// org itself) authorizes a member role grant/removal.
+pub fn org_role_message(org: &str, member: &str, role: &str) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-org-role-v1\0");
+    message.extend_from_slice(org.as_bytes());
+    message.push(0);
+    message.extend_from_slice(member.as_bytes());
+    message.push(0);
+    message.extend_from_slice(role.as_bytes());
+    message
+}
+
+/// Ident-signed publish-token issuance (plan-10-D1): the account ident
+/// authorizes a scoped, short-lived CI credential.
+pub fn token_issue_message(owner: &str, token_fingerprint: &str, scope: &str) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-token-issue-v1\0");
+    message.extend_from_slice(owner.as_bytes());
+    message.push(0);
+    message.extend_from_slice(token_fingerprint.as_bytes());
+    message.push(0);
+    message.extend_from_slice(scope.as_bytes());
+    message
+}
+
+/// Ident-signed publish-token revocation (plan-10-D1).
+pub fn token_revoke_message(owner: &str, token_fingerprint: &str) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-token-revoke-v1\0");
+    message.extend_from_slice(owner.as_bytes());
+    message.push(0);
+    message.extend_from_slice(token_fingerprint.as_bytes());
+    message
+}
+
+/// Ident-signed ownership-transfer offer (plan-10-D1): the current owner offers
+/// a package to a recipient.
+pub fn transfer_offer_message(ident: &str, from_owner: &str, to_owner: &str) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-transfer-offer-v1\0");
+    message.extend_from_slice(ident.as_bytes());
+    message.push(0);
+    message.extend_from_slice(from_owner.as_bytes());
+    message.push(0);
+    message.extend_from_slice(to_owner.as_bytes());
+    message
+}
+
+/// Ident-signed ownership-transfer acceptance (plan-10-D1): the recipient
+/// accepts the offered package.
+pub fn transfer_accept_message(ident: &str, to_owner: &str) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-transfer-accept-v1\0");
+    message.extend_from_slice(ident.as_bytes());
+    message.push(0);
+    message.extend_from_slice(to_owner.as_bytes());
+    message
+}
+
 /// Signed-metadata domains (plan-10-C2, TUF-like root of trust). The offline
 /// root delegates the online server/snapshot/timestamp keys; snapshot pins the
 /// index state and timestamp pins the current snapshot, both short-lived.

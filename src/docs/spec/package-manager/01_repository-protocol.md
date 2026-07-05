@@ -69,6 +69,11 @@ in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:
 | `/index/<owner>#<package>` | GET | none | — | `IndexResponse` | `pkg add` (registry) |
 | `/blob/<hash>` | GET | none | — | raw `.mfp` bytes | `pkg add` (registry) |
 | `/release-state` | POST | session + ident signature | `ReleaseStateRequest` | `ReleaseStateResponse` | `pkg release-state` |
+| `/orgs/members` | POST | session + ident signature | `OrgMemberRequest` | `OrgMemberResponse` | `org grant`/`org remove` |
+| `/tokens` | POST | session + ident signature | `TokenIssueRequest` | `TokenIssueResponse` | `token issue` |
+| `/tokens/revoke` | POST | session + ident signature | `TokenRevokeRequest` | `TokenRevokeResponse` | `token revoke` |
+| `/packages/transfer/offer` | POST | session + ident signature | `TransferOfferRequest` | `TransferResponse` | `pkg transfer` |
+| `/packages/transfer/accept` | POST | session + ident signature | `TransferAcceptRequest` | `TransferResponse` | `pkg transfer-accept` |
 | `/root.json` | GET | none | — | `RootResponse` | `repo trust` |
 | `/snapshot.json` | GET | none | — | `SignedMetadataResponse` | `repo trust` |
 | `/timestamp.json` | GET | none | — | `SignedMetadataResponse` | `repo trust` |
@@ -599,6 +604,41 @@ in one transaction. The response echoes `{ident, version, state, logEntry}`.
 (plan-10-B2): `available`/`deprecated` are install-eligible, `yanked` is
 selectable only by an exact pin, and `blocked`/`legal-tombstoned` are excluded
 entirely.[[src/cli/resolve.rs:select_node]][[src/cli/pkg.rs:select_index_version]]
+
+## Accounts — Orgs, Publish Tokens, Transfers
+
+The accounts surface (plan-10-D1) obeys two invariants: **publishing always
+requires the ident key** (no feature creates a credential that can publish
+without it), and **every account mutation is ident-authorized and logged** — an
+auth session alone may read and request attestations, never change account
+state. Each endpoint below carries a live session (liveness) *and* an ident
+signature (authority).
+
+**Orgs.** An org is an account with its own ident keypair; its ident is shared
+among member machines via the plan-23 link flow, so an org package's proof is
+org-ident-signed. `POST /orgs/members` grants or removes a member role
+(`owner`/`admin`/`publisher`), authorized by the grantor's ident signature over
+`org_role_message(org, member, role)`. The grantor must be the org itself (the
+bootstrap grant) or an existing owner/admin member; the role is
+logged.[[repository/src/server.rs:org_members]]
+
+**Publish tokens.** A token is a **scoped auth key** — a CI credential that is a
+linked machine whose auth key is scoped and short-lived. `POST /tokens` issues
+one (owner-ident-signed), registering an auth key plus a `scope`
+(`<owner>#<package>` or `<owner>#*`) and TTL. At `/signing` the token may request
+attestations **only within its scope and only until it expires**; it can never
+bypass the ident-proof requirement (the CI box still needs the org/owner ident
+to sign the package proof). `POST /tokens/revoke` revokes it and closes its
+sessions. Issue, use (via the log), and revoke are all
+logged.[[repository/src/server.rs:issue_token]][[repository/src/store.rs:publish_token_for_key]]
+
+**Ownership transfer.** Two-sided: `POST /packages/transfer/offer` (current
+owner's ident signs `transfer_offer_message(ident, from, to)`) then `POST
+/packages/transfer/accept` (recipient's ident signs
+`transfer_accept_message(ident, to)`). The server re-binds the package to the
+new owner and logs both halves; already-published versions keep verifying
+against the old ident's proofs/attestations (issued-only facts), while new
+versions publish under the new owner's ident.[[repository/src/store.rs:accept_transfer]]
 
 ## Signed Metadata — `/root.json`, `/snapshot.json`, `/timestamp.json`
 

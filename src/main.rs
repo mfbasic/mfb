@@ -53,6 +53,10 @@ Package Management:
   pkg install             Install dependencies from mfb.lock (by hash)
   pkg check-abi           Diff this package's ABI against its published version
   pkg release-state <s>   Set a published version's state (available/deprecated/yanked)
+  pkg transfer <ident> <to-owner>
+                          Offer a package to another owner
+  pkg transfer-accept <ident>@<to-owner>
+                          Accept a pending package transfer
 
 Repository & Auth:
   repo register <owner>   Register a repository owner
@@ -64,6 +68,14 @@ Repository & Auth:
   machine revoke <owner> <fingerprint>
                           Revoke a lost machine's auth key
   key rotate <owner>      Rotate the account ident (chained successor)
+  org grant <org> <member> <role>
+                          Grant a member an org role (owner/admin/publisher)
+  org remove <org> <member>
+                          Remove a member from an org
+  token issue <owner> <scope> <ttl-seconds>
+                          Issue a scoped, short-lived publish token
+  token revoke <owner> <token-fingerprint>
+                          Revoke a publish token
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
@@ -337,6 +349,44 @@ fn main() {
                 return;
             }
             if let Err(err) = cli::repo::run_key_command(&key_args) {
+                match err {
+                    RepoCommandError::Usage(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(2);
+                    }
+                    RepoCommandError::Failed(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(1);
+                    }
+                }
+            }
+        }
+        Some("org") => {
+            let org_args = args.collect::<Vec<_>>();
+            if org_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{REPO_HELP}");
+                return;
+            }
+            if let Err(err) = cli::repo::run_org_command(&org_args) {
+                match err {
+                    RepoCommandError::Usage(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(2);
+                    }
+                    RepoCommandError::Failed(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(1);
+                    }
+                }
+            }
+        }
+        Some("token") => {
+            let token_args = args.collect::<Vec<_>>();
+            if token_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{REPO_HELP}");
+                return;
+            }
+            if let Err(err) = cli::repo::run_token_command(&token_args) {
                 match err {
                     RepoCommandError::Usage(message) => {
                         eprintln!("error: {message}");

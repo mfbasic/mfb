@@ -94,6 +94,11 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 | `mfb-repo-root-v1\0` | offline root key | `root.json` delegating the server/snapshot/timestamp keys |
 | `mfb-repo-snapshot-v1\0` | snapshot key | `snapshot.json` (the index state) |
 | `mfb-repo-timestamp-v1\0` | timestamp key | `timestamp.json` (the current snapshot pointer) |
+| `mfb-repo-org-role-v1\0` | member ident key | an org role grant/removal (org + member + role) |
+| `mfb-repo-token-issue-v1\0` | ident key | a publish-token issuance (owner + token fingerprint + scope) |
+| `mfb-repo-token-revoke-v1\0` | ident key | a publish-token revocation (owner + token fingerprint) |
+| `mfb-repo-transfer-offer-v1\0` | current-owner ident | an ownership-transfer offer (ident + from + to) |
+| `mfb-repo-transfer-accept-v1\0` | recipient ident | an ownership-transfer acceptance (ident + to) |
 | `MFP-PROOF-v1\0` | ident key | the build proof JSON |
 | `MFP-ATTEST-v1\0` | server key | the attestation JSON |
 | `MFP-PACKAGE-v2\0` | one-off signing key | `SHA-256(header signed prefix)` — see container-format |
