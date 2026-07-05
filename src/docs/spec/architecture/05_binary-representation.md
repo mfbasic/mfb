@@ -109,14 +109,19 @@ originated. The location flows through every layer:
 - **AST** (`src/ast.rs`): `Expression::Call`/`Binary`/`Unary` and `Statement::For`
   carry an internal `(line, column)`; the source file is the enclosing `AstFile`.
   These are not serialized to the `.ast` JSON.
-- **IR** (`src/ir.rs`): `IrValue::Call`/`CallResult`/`Binary`/`Unary` and
-  `IrOp::For` carry an `IrSourceLoc { line, column }`; each `IrFunction` carries
-  its source `file`. The `error(code, message)` built-in lowers to nested record
+- **IR** (`src/ir.rs`): every `IrOp`, `IrMatchCase`, and declaration node
+  (`IrFunction`/`IrParam`/`IrType`/`IrField`/`IrVariant`/`IrBinding`) carries an
+  `IrSourceLoc { line, column }`, and computed value nodes carry their result
+  type; each `IrFunction` also carries its source `file` and `resource_owners`,
+  `IrType`/`IrBinding` carry `file`, and `Bind`/`IrBinding` carry an
+  `explicit_type` flag (format v4 — `./mfb spec package ir-section` has the full
+  field list). The `error(code, message)` built-in lowers to nested record
   constructors — `Error[code, message, ErrorLoc[file, line, char]]` — so
-  `Error`/`ErrorLoc` are ordinary records for the rest of the pipeline. These
-  fields are not serialized to the `.ir` JSON but are encoded into the Binary
-  Representation, so an imported package's functions retain their own source
-  locations.
+  `Error`/`ErrorLoc` are ordinary records for the rest of the pipeline. The
+  `loc`, result-type, and `explicit_type` fields are not serialized to the
+  `.ir` JSON debug dump but **are** encoded into the Binary Representation, so
+  an imported package's functions retain their own source locations and stay
+  checkable without re-inference.
 - **NIR** (`src/target/shared/nir.rs`): mirrors the IR fields (`NirSourceLoc`,
   `NirFunction::file`).
 - **Native runtime** (`src/target/shared/code`): the code generator tracks the
