@@ -106,6 +106,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_MATCH_PATTERN_MISMATCH",
     "TYPE_REQUIRES_COMPARABLE",
     "TYPE_MATCH_NOT_EXHAUSTIVE",
+    "TYPE_USE_AFTER_MOVE",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -167,8 +168,15 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
             closure_slots,
             0,
         );
-        // Resource use-after-move is a separate straight-line dataflow pass.
-        env.check_resource_moves(&function.body, &mut locals, &mut HashSet::new());
+        // Resource use-after-move is a separate dataflow pass (straight-line
+        // within a block; moves on any fall-through branch propagate past the
+        // join, mirroring typecheck's MaybeMoved).
+        env.check_resource_moves(
+            &function.body,
+            &mut locals,
+            &mut HashSet::new(),
+            &function.resource_owners,
+        );
     }
     // Global initializers are lowered into a synthetic function later; verify
     // their initializer expressions here with an empty local scope.
@@ -282,6 +290,10 @@ struct TypeEnv {
     globals: HashMap<String, String>,
     /// Global binding name → whether it was declared `MUT` (assignable).
     global_muts: HashMap<String, bool>,
+    /// User-declared native resource type → its registered close op (dotted
+    /// `alias.func`), complementing the builtin close table for the
+    /// use-after-move pass.
+    resource_closers: HashMap<String, String>,
     /// Function name → the distinct captured-slot counts observed at the
     /// `Closure` sites that target it. A single count means the closure shape is
     /// known; zero or multiple distinct counts leaves it ambiguous (skip).
@@ -405,6 +417,11 @@ impl TypeEnv {
             .iter()
             .map(|b| (b.name.clone(), b.mutable))
             .collect();
+        let resource_closers = project
+            .native_resources
+            .iter()
+            .map(|r| (r.name.clone(), r.close_function.clone()))
+            .collect();
 
         let mut closure_counts: HashMap<String, HashSet<usize>> = HashMap::new();
         for function in &project.functions {
@@ -427,6 +444,7 @@ impl TypeEnv {
             functions,
             globals,
             global_muts,
+            resource_closers,
             closure_counts,
             field_types,
             record_field_lists,
@@ -1505,7 +1523,38 @@ impl TypeEnv {
         ops: &[IrOp],
         locals: &mut HashMap<String, String>,
         moved: &mut HashSet<String>,
+        owners: &HashMap<String, crate::escape::ResOwner>,
     ) {
+        // A branch that always leaves the function never reaches the join, so
+        // its moves must not leak past it (typecheck merges only fall-through
+        // branches). Top-level test is enough: a mid-block Return makes the
+        // rest unreachable anyway.
+        fn diverges(ops: &[IrOp]) -> bool {
+            ops.iter().any(|op| {
+                matches!(
+                    op,
+                    IrOp::Return { .. } | IrOp::Fail { .. } | IrOp::ExitProgram { .. }
+                )
+            })
+        }
+        // Run `body` as a branch: fresh scope, then merge the new moves of a
+        // fall-through branch back into the outer set (typecheck's MaybeMoved —
+        // moved on *some* path means unusable after the join).
+        let mut run_branch = |body: &[IrOp],
+                              locals: &HashMap<String, String>,
+                              moved: &mut HashSet<String>| {
+            let mut branch_moved = moved.clone();
+            self.check_resource_moves(body, &mut locals.clone(), &mut branch_moved, owners);
+            if !diverges(body) {
+                for name in branch_moved {
+                    // Only propagate moves of bindings the outer scope knows;
+                    // branch-local resources die with the branch.
+                    if locals.contains_key(&name) {
+                        moved.insert(name);
+                    }
+                }
+            }
+        };
         for op in ops {
             self.current_line.set(op.loc().line);
             // A read of an already-moved binding is a use-after-move. The
@@ -1529,6 +1578,20 @@ impl TypeEnv {
                 IrOp::Bind {
                     name, type_, value, ..
                 } => {
+                    // `RES new = old` transfers ownership: the source binding is
+                    // moved. Only a RES-declared bind (an entry in the
+                    // function's resource-owner table) moves; a plain LET of a
+                    // resource local is a borrow.
+                    if owners.contains_key(name) {
+                        if let Some(IrValue::Local(source)) = value {
+                            if locals
+                                .get(source)
+                                .is_some_and(|t| self.close_op_for(resource_base_type(t)).is_some())
+                            {
+                                moved.insert(source.clone());
+                            }
+                        }
+                    }
                     // A rebind of a resource name reopens ownership.
                     if value.is_some() {
                         moved.remove(name);
@@ -1540,16 +1603,12 @@ impl TypeEnv {
                     else_body,
                     ..
                 } => {
-                    self.check_resource_moves(then_body, &mut locals.clone(), &mut moved.clone());
-                    self.check_resource_moves(else_body, &mut locals.clone(), &mut moved.clone());
+                    run_branch(then_body, locals, moved);
+                    run_branch(else_body, locals, moved);
                 }
                 IrOp::Match { cases, .. } => {
                     for case in cases {
-                        self.check_resource_moves(
-                            &case.body,
-                            &mut locals.clone(),
-                            &mut moved.clone(),
-                        );
+                        run_branch(&case.body, locals, moved);
                     }
                 }
                 IrOp::While { body, .. }
@@ -1557,11 +1616,21 @@ impl TypeEnv {
                 | IrOp::DoUntil { body, .. }
                 | IrOp::ForEach { body, .. }
                 | IrOp::Trap { body, .. } => {
-                    self.check_resource_moves(body, &mut locals.clone(), &mut moved.clone());
+                    run_branch(body, locals, moved);
                 }
                 _ => {}
             }
         }
+    }
+
+    /// The registered close op for a resource type: user-declared native
+    /// resources first (`RESOURCE T CLOSE BY alias.func`), then the builtin
+    /// close table.
+    fn close_op_for(&self, base: &str) -> Option<&str> {
+        self.resource_closers
+            .get(base)
+            .map(String::as_str)
+            .or_else(|| builtins::resource::builtin_resource_close_function(base))
     }
 
     /// The resource binding consumed by an op, if any: a call to the binding's
@@ -1586,7 +1655,7 @@ impl TypeEnv {
             };
             let type_ = locals.get(name)?;
             let base = resource_base_type(type_);
-            if builtins::resource::builtin_resource_close_function(base) == Some(target.as_str()) {
+            if self.close_op_for(base) == Some(target.as_str()) {
                 Some(name.clone())
             } else {
                 None
@@ -1603,9 +1672,7 @@ impl TypeEnv {
                 ..
             } => {
                 let type_ = locals.get(name)?;
-                if builtins::resource::builtin_resource_close_function(resource_base_type(type_))
-                    .is_some()
-                {
+                if self.close_op_for(resource_base_type(type_)).is_some() {
                     Some(name.clone())
                 } else {
                     None
