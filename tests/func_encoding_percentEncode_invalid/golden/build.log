@@ -35,4 +35,22 @@ tests/func_encoding_percentEncode_invalid/src/main.mfb:6 error[2-203-0021 TYPE_C
      | ^
 tests/func_encoding_percentEncode_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `d` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET b AS List OF Byte = encoding::percentEncode()
+     | ^
+tests/func_encoding_percentEncode_invalid/src/main.mfb:4 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `b` has initializer type String, expected List OF Byte.
+   3 | FUNC main AS Integer
+   4 |   LET b AS List OF Byte = encoding::percentEncode()
+   5 |   LET c AS List OF Byte = encoding::percentEncode("x", "y")
+     | ^
+tests/func_encoding_percentEncode_invalid/src/main.mfb:5 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `c` has initializer type String, expected List OF Byte.
+   4 |   LET b AS List OF Byte = encoding::percentEncode()
+   5 |   LET c AS List OF Byte = encoding::percentEncode("x", "y")
+   6 |   LET d AS List OF Byte = encoding::percentEncode(123)
+     | ^
+tests/func_encoding_percentEncode_invalid/src/main.mfb:6 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `d` has initializer type String, expected List OF Byte.
 [exit 1]

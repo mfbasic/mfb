@@ -23,4 +23,16 @@ tests/func_encoding_uleb128Decode_invalid/src/main.mfb:5 error[2-203-0021 TYPE_C
      | ^
 tests/func_encoding_uleb128Decode_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `d` does not have a known type.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET b AS String = encoding::uleb128Decode()
+     | ^
+tests/func_encoding_uleb128Decode_invalid/src/main.mfb:4 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `b` has initializer type Integer, expected String.
+   3 | FUNC main AS Integer
+   4 |   LET b AS String = encoding::uleb128Decode()
+   5 |   LET d AS String = encoding::uleb128Decode("notbytes")
+     | ^
+tests/func_encoding_uleb128Decode_invalid/src/main.mfb:5 error[2-203-0007 TYPE_BINDING_MISMATCH]: binding initializer type does not match declared type
+               Binding `d` has initializer type Integer, expected String.
 [exit 1]
