@@ -912,6 +912,136 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
 }
 
 #[test]
+fn repo_registry_add_installs_and_verifies_from_index() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Publish a signed package to the registry.
+    let package_dir = work.path().join("addable_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let manifest_path = package_dir.join("project.json");
+    let manifest = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#addable_pkg\",\n",
+    );
+    std::fs::write(&manifest_path, manifest).unwrap();
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", package_dir_arg],
+    )
+    .status
+    .success());
+
+    // A fresh consumer installs it straight from the registry by ident.
+    let app_dir = work.path().join("registry_consumer");
+    let app_dir_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_dir_arg]).status.success());
+    let run_in_consumer = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&app_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in consumer")
+    };
+
+    let add = run_in_consumer(&["pkg", "add", "alice#addable_pkg"]);
+    assert!(
+        add.status.success(),
+        "registry add failed: stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&add.stdout),
+        String::from_utf8_lossy(&add.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&add.stdout).contains("from alice#addable_pkg"),
+        "{}",
+        String::from_utf8_lossy(&add.stdout)
+    );
+
+    // The identKey was pinned from the registry-vouched index, the blob is
+    // installed, and a build walks the full §3.5 chain to Verified.
+    let manifest = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
+    assert!(
+        manifest.contains("\"identKey\": \"ed25519:"),
+        "registry add must pin the identKey: {manifest}"
+    );
+    assert!(app_dir.join("packages/addable_pkg.mfp").is_file());
+    let build = run_in_consumer(&["build"]);
+    assert!(
+        build.status.success(),
+        "consumer build failed: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&build.stdout).contains("uses addable_pkg - [Verified]"),
+        "{}",
+        String::from_utf8_lossy(&build.stdout)
+    );
+
+    // A version that does not exist is rejected with an actionable message.
+    let app2 = work.path().join("registry_consumer2");
+    let app2_arg = app2.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app2_arg]).status.success());
+    let missing = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#addable_pkg@9.9.9"])
+        .current_dir(&app2)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("pkg add missing version");
+    assert!(!missing.status.success());
+    assert!(
+        String::from_utf8_lossy(&missing.stderr).contains("no version `9.9.9`"),
+        "{}",
+        String::from_utf8_lossy(&missing.stderr)
+    );
+
+    // A tampered server blob is rejected on download (hash mismatch): corrupt
+    // the stored blob and a fresh add must refuse it.
+    let blob = std::fs::read_dir(repo_dir.path().join("packages"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("mfp"))
+        .expect("stored blob");
+    let mut bytes = std::fs::read(&blob).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0x01;
+    std::fs::write(&blob, &bytes).unwrap();
+    let app3 = work.path().join("registry_consumer3");
+    let app3_arg = app3.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app3_arg]).status.success());
+    let tampered = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#addable_pkg"])
+        .current_dir(&app3)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("pkg add tampered");
+    assert!(!tampered.status.success());
+    assert!(
+        String::from_utf8_lossy(&tampered.stderr).contains("does not match")
+            || String::from_utf8_lossy(&tampered.stderr).contains("corruption"),
+        "{}",
+        String::from_utf8_lossy(&tampered.stderr)
+    );
+}
+
+#[test]
 fn repo_publish_rejects_non_package_and_missing_session() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

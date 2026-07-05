@@ -23,7 +23,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `build` | `mfb build [flags] [location]` | 0 ok; 2 bad flags; 1 build failed |
 | `fmt` | `mfb fmt [--check] [--indent N] [location]` | 0 ok; 2 bad flags; 1 not-formatted (`--check`) or error |
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
-| `pkg add` | `mfb pkg add <url>` | 0 ok; 2 usage; 1 failed |
+| `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]>` | 0 ok; 2 usage; 1 failed |
 | `pkg info` | `mfb pkg info <package>` | 0 ok; 2 usage; 1 failed |
 | `pkg verify` | `mfb pkg verify [--proof]` | 0 ok; 2 usage; 1 failed |
 | `pkg validate` | `mfb pkg validate <package>` | 0 valid; 2 usage; 1 invalid or failed |

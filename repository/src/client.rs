@@ -2,7 +2,7 @@ use crate::crypto;
 use crate::local::{self, LocalPaths};
 use crate::server::{
     ChallengeRequest, ChallengeResponse, CheckpointResponse, ConsistencyProofResponse,
-    ErrorResponse, IdentChainResponse, InclusionProofResponse, LinkFetchRequest,
+    ErrorResponse, IdentChainResponse, IndexResponse, InclusionProofResponse, LinkFetchRequest,
     LinkFetchResponse, LinkStartRequest, LinkStartResponse, LogEntry, LoginRequest,
     LoginResponse, PackageArtifactRequest, PublishPackageResponse, RegisterProofs,
     RegisterRequest, RegisterResponse, RevokeChallengeRequest, RevokeRequest, RevokeResponse,
@@ -458,6 +458,73 @@ fn percent_encode(value: &str) -> String {
         }
     }
     out
+}
+
+/// `GET /index/<owner>#<package>` (plan-10-A): fetch the published version
+/// list plus the owner's current ident key. The server-signed name binding is
+/// verified under the pinned server key, so the returned `identKey` is a
+/// registry-authenticated anchor a first `mfb pkg add` can pin.
+pub fn fetch_index(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+    package: &str,
+) -> Result<IndexResponse, String> {
+    validate_owner_name(owner)?;
+    let server_key = ensure_server_key(repo_url, paths)?;
+    let ident = format!("{owner}#{package}");
+    let response = get_json::<IndexResponse>(
+        repo_url,
+        &format!("/index/{}", percent_encode(&ident)),
+    )?;
+    // The pinned ident is only as trustworthy as the name binding: verify it
+    // under the pinned server key and cross-check the fingerprint.
+    let ident_public = crypto::decode_bytes(
+        response.ident_key.strip_prefix("ed25519:").unwrap_or(&response.ident_key),
+        "identKey",
+    )?;
+    if crypto::fingerprint(&ident_public) != response.ident_fingerprint {
+        return Err("registry index identKey does not match its fingerprint".to_string());
+    }
+    let signature =
+        crypto::decode_bytes(&response.name_binding_signature, "nameBindingSignature")?;
+    crypto::verify(
+        &server_key,
+        &crypto::name_binding_message(&response.owner, &response.ident_fingerprint),
+        &signature,
+    )
+    .map_err(|_| {
+        "registry name binding does not verify under the pinned server key".to_string()
+    })?;
+    Ok(response)
+}
+
+/// `GET /blob/<hash>` (plan-10-A): download a content-addressed `.mfp` blob and
+/// verify its bytes hash to the requested hash before returning them.
+pub fn fetch_blob(repo_url: &str, hash: &str) -> Result<Vec<u8>, String> {
+    let url = format!("{}/blob/{}", repo_url.trim_end_matches('/'), hash);
+    let response = Client::new()
+        .get(&url)
+        .send()
+        .map_err(|err| format!("failed to connect to repository service: {err}"))?;
+    let status = response.status();
+    if !status.is_success() {
+        let text = response
+            .text()
+            .unwrap_or_else(|_| "repository request failed".to_string());
+        if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
+            return Err(error.error);
+        }
+        return Err(format!("repository request failed with status {status}: {text}"));
+    }
+    let bytes = response
+        .bytes()
+        .map_err(|err| format!("failed to read blob body: {err}"))?
+        .to_vec();
+    if hex::encode(crypto::sha256(&bytes)) != hash {
+        return Err("downloaded blob does not match the requested content hash".to_string());
+    }
+    Ok(bytes)
 }
 
 pub struct PackageArtifact<'a> {

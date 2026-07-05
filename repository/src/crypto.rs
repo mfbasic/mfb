@@ -121,6 +121,20 @@ pub fn ident_rotation_message(owner: &str, old_fingerprint: &str, new_public: &[
     message
 }
 
+/// Server-signed name→ident binding (plan-10-A `/index`): the registry
+/// vouches that `owner`'s current ident key has the given fingerprint, so a
+/// first `mfb pkg add` can pin the ident against a registry-authenticated
+/// anchor rather than a bare index field. Verified under the pinned server
+/// key before the pin is written.
+pub fn name_binding_message(owner: &str, ident_fingerprint: &str) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-name-binding-v1\0");
+    message.extend_from_slice(owner.as_bytes());
+    message.push(0);
+    message.extend_from_slice(ident_fingerprint.as_bytes());
+    message
+}
+
 /// One-time pairing code for a machine link (plan-23 §3.2): 25 random
 /// base32 characters in five groups (~125 bits), displayed on the old
 /// machine and typed on the new. High-entropy so the code-derived key

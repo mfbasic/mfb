@@ -1,10 +1,12 @@
 # Repository Protocol
 
 The wire protocol between the `mfb` client and a repository (registry) service.
-It backs four commands: `mfb repo register`, `mfb repo auth`, `mfb pkg publish`,
-and `mfb build --sign`. (`mfb pkg add` does not use this protocol: it accepts
-only `file://` URLs and copies the `.mfp` into `packages/`
-locally.[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]])
+It backs five commands: `mfb repo register`, `mfb repo auth`, `mfb pkg publish`,
+`mfb build --sign`, and — for registry idents — `mfb pkg add`. `mfb pkg add`
+accepts either a `file://…​.mfp` URL (copied into `packages/` locally, no
+protocol) or an `<owner>#<package>[@version]` ident, which resolves `GET
+/index`, downloads `GET /blob/<hash>`, and runs the full plan-23 §3.5
+verification chain before installing.[[src/cli/pkg.rs:add_package]][[src/manifest/package.rs:package_file_url_path]]
 The client side is the `mfb_repository` crate's `client`
 module; the reference server is the same crate's `server` module. This topic
 owns the HTTP surface (endpoints, methods, JSON bodies), the challenge-response
@@ -64,6 +66,8 @@ in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:
 | `/log/proof/<index>` | GET | none | `?size=N` | `InclusionProofResponse` | inclusion proofs |
 | `/log/consistency` | GET | none | `?from=M&to=N` | `ConsistencyProofResponse` | append-only audit |
 | `/log/publish` | GET | none | `?ident=&version=` | `LogEntry` | `pkg verify --proof` |
+| `/index/<owner>#<package>` | GET | none | — | `IndexResponse` | `pkg add` (registry) |
+| `/blob/<hash>` | GET | none | — | raw `.mfp` bytes | `pkg add` (registry) |
 | `/idents/<owner>` | GET | none | — | `IdentChainResponse` | pin-follow (`pkg verify`) |
 | `/machines/link` | POST | session token | `LinkStartRequest` | `LinkStartResponse` | `repo link --start` |
 | `/machines/link/fetch` | POST | pairing code + proof | `LinkFetchRequest` | `LinkFetchResponse` | `repo link` |
@@ -499,6 +503,66 @@ log in (`mismatched local key fingerprint` at challenge time), and its
 existing session tokens fail with `unknown session token`. Response:
 `{"owner", "authFingerprint", "revoked": true}`. A fingerprint that names no
 current auth key yields `400`.[[repository/src/store.rs:revoke_auth_key]]
+
+## Install Path — `/index` and `/blob`
+
+The install path (plan-10-A) makes a published package retrievable. `mfb pkg
+add <owner>#<package>[@version]` resolves the index, pins the ident, downloads
+the blob, and runs the plan-23 §3.5 verification chain — nothing is installed
+until every link verifies.[[src/cli/pkg.rs:add_package_from_registry]]
+
+### Package Index — `GET /index/<owner>#<package>`
+
+The `#` is percent-encoded (`%23`) in the request path. Returns the published
+version list plus the owner's current ident key and a **server-signed name
+binding**, so a first `add` pins the ident against a registry-authenticated
+anchor rather than a bare field. An unknown owner or malformed ident yields
+`400`.[[repository/src/server.rs:package_index]]
+
+```json
+{
+  "ident": "alice#toolbox",
+  "owner": "alice",
+  "identKey": "ed25519:<base64url current ident public key>",
+  "identFingerprint": "<hex>",
+  "nameBindingSignature": "<base64url server signature>",
+  "serverFingerprint": "<hex>",
+  "versions": [
+    { "version": "1.2.3", "hash": "<hex>", "publishedAt": 1700000000,
+      "state": "available", "abiIndex": {},
+      "logEntry": { "index": 7, "leafHash": "<hex>" } }
+  ]
+}
+```
+
+The name binding is a server signature over `"mfb-repo-name-binding-v1\0" ||
+owner || "\0" || identFingerprint` (signing domain
+`mfb-repo-name-binding-v1`).[[repository/src/crypto.rs:name_binding_message]]
+The client verifies it under the pinned `server.pub`, cross-checks that
+`identFingerprint` is the fingerprint of `identKey`, and only then trusts the
+key as the anchor to pin.[[repository/src/client.rs:fetch_index]] `abiIndex` is
+an empty object until plan-10-B; release `state` values other than `available`
+arrive with plan-10-C. There are **no** key-rotation/window fields: one-off
+signing keys have no status (plan-23).
+
+The client picks the requested version (any non-`blocked`/`legal-tombstoned`
+state) or, for a floating add, the newest version whose state is `available`
+or `deprecated`.[[src/cli/pkg.rs:select_index_version]]
+
+### Blob — `GET /blob/<hash>`
+
+Streams `packages/<hash>.mfp` with immutable, long-cache headers
+(`Cache-Control: public, max-age=31536000, immutable`). The hash must be 64
+lowercase hex characters (else `400`); an absent blob is `404`. The server
+recomputes the SHA-256 of the file and refuses to serve it if it does not match
+the path (`500`, blob-store corruption defense); the client independently
+re-checks the downloaded bytes against the requested
+hash.[[repository/src/server.rs:package_blob]][[repository/src/client.rs:fetch_blob]]
+
+The publish path stages the blob to a temp file, commits the `package_versions`
+row, and only then renames it into place, so a failed transaction leaves no
+orphan blob and a served blob always has a committed version
+row.[[repository/src/server.rs:publish_package]]
 
 ## Package Artifact Requests
 

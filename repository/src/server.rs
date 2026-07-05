@@ -276,6 +276,43 @@ pub struct LogEntry {
     pub leaf_hash: String,
 }
 
+/// `GET /index/<owner>#<package>` (plan-10-A): the published version list plus
+/// the owner's current ident key and a server-signed name binding, so a first
+/// `mfb pkg add` can pin the ident against a registry-authenticated anchor.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IndexResponse {
+    pub ident: String,
+    pub owner: String,
+    /// The owner's current ident public key in metadata form
+    /// (`ed25519:<base64url>`), ready to pin into `project.json`.
+    #[serde(rename = "identKey")]
+    pub ident_key: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: String,
+    /// Server signature over `name_binding_message(owner, identFingerprint)`,
+    /// verifiable under the pinned `server.pub`.
+    #[serde(rename = "nameBindingSignature")]
+    pub name_binding_signature: String,
+    #[serde(rename = "serverFingerprint")]
+    pub server_fingerprint: String,
+    pub versions: Vec<IndexVersion>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IndexVersion {
+    pub version: String,
+    pub hash: String,
+    #[serde(rename = "publishedAt")]
+    pub published_at: i64,
+    pub state: String,
+    /// Per-symbol ABI index (plan-10-B); an empty object until B1 lands.
+    #[serde(rename = "abiIndex")]
+    pub abi_index: serde_json::Value,
+    /// The version's publish transparency-log entry (plan-23-B3), if present.
+    #[serde(rename = "logEntry")]
+    pub log_entry: Option<LogEntry>,
+}
+
 /// `GET /log/checkpoint` — the signed tree head (plan-23-B3): size + RFC 6962
 /// root, signed by the server key so a checkpoint cannot be forged and two
 /// consumers can compare views.
@@ -345,6 +382,8 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/machines/link/fetch", post(link_fetch))
         .route("/machines/revoke/challenge", post(revoke_challenge))
         .route("/machines/revoke", post(revoke_machine))
+        .route("/index/:ident", get(package_index))
+        .route("/blob/:hash", get(package_blob))
         .route("/validate", post(validate_package))
         .route("/publish", post(publish_package))
         .with_state(state);
@@ -513,6 +552,100 @@ async fn log_publish_entry(
         index: entry.index,
         leaf_hash: hex::encode(entry.leaf_hash),
     }))
+}
+
+/// `GET /index/<owner>#<package>` (plan-10-A): serve the published version
+/// list, the owner's current ident key, and a server-signed name binding.
+async fn package_index(
+    State(state): State<AppState>,
+    axum::extract::Path(ident): axum::extract::Path<String>,
+) -> Result<Json<IndexResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let Some((owner_part, package_part)) = ident.split_once('#') else {
+        return Err(bad_request("ident must use <owner>#<package>".to_string()));
+    };
+    if owner_part.is_empty() || package_part.is_empty() {
+        return Err(bad_request("ident must use <owner>#<package>".to_string()));
+    }
+    let Some((owner_record, ident_key)) = state
+        .store
+        .owner_with_ident_key(owner_part)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("unknown owner".to_string()));
+    };
+    let mut versions = Vec::new();
+    for row in state.store.list_package_versions(&ident).map_err(internal)? {
+        let log_entry = state
+            .store
+            .publish_log_entry(&ident, &row.version)
+            .map_err(internal)?
+            .map(|entry| LogEntry {
+                index: entry.index,
+                leaf_hash: hex::encode(entry.leaf_hash),
+            });
+        versions.push(IndexVersion {
+            version: row.version,
+            hash: row.hash,
+            published_at: row.published_at,
+            state: row.state,
+            abi_index: serde_json::json!({}),
+            log_entry,
+        });
+    }
+    let (server_public, server_private) = state.store.server_keypair().map_err(internal)?;
+    let name_binding = crypto::sign(
+        &server_private,
+        &crypto::name_binding_message(&owner_record.owner_display, &ident_key.fingerprint),
+    )
+    .map_err(internal)?;
+    Ok(Json(IndexResponse {
+        ident: ident.clone(),
+        owner: owner_record.owner_display,
+        ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_key.public_key)),
+        ident_fingerprint: ident_key.fingerprint,
+        name_binding_signature: crypto::encode_bytes(&name_binding),
+        server_fingerprint: crypto::fingerprint(&server_public),
+        versions,
+    }))
+}
+
+/// `GET /blob/<hash>` (plan-10-A): stream `packages/<hash>.mfp`. The blob is
+/// content-addressed and immutable; the recomputed hash is checked against the
+/// path on read as a blob-store corruption defense.
+async fn package_blob(
+    State(state): State<AppState>,
+    axum::extract::Path(hash): axum::extract::Path<String>,
+) -> Result<axum::response::Response, (StatusCode, Json<ErrorResponse>)> {
+    if hash.len() != 64
+        || !hash
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(bad_request("blob hash must be 64 lowercase hex characters".to_string()));
+    }
+    let path = state.packages_dir.join(format!("{hash}.mfp"));
+    let bytes = match std::fs::read(&path) {
+        Ok(bytes) => bytes,
+        Err(_) => {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "no blob with that hash".to_string(),
+                }),
+            ));
+        }
+    };
+    if hex::encode(crypto::sha256(&bytes)) != hash {
+        return Err(internal(
+            "stored blob hash does not match its path (blob-store corruption)".to_string(),
+        ));
+    }
+    axum::response::Response::builder()
+        .status(StatusCode::OK)
+        .header(axum::http::header::CONTENT_TYPE, "application/octet-stream")
+        .header(axum::http::header::CACHE_CONTROL, "public, max-age=31536000, immutable")
+        .body(axum::body::Body::from(bytes))
+        .map_err(|err| internal(format!("failed to build blob response: {err}")))
 }
 
 async fn rotate_ident(
@@ -902,24 +1035,44 @@ async fn publish_package(
     let artifact = crypto::decode_bytes(&request.artifact, "artifact").map_err(bad_request)?;
     let hash = report.content_hash;
     let path = state.packages_dir.join(format!("{hash}.mfp"));
-    let blob_stored = !path.exists();
-    if blob_stored {
-        std::fs::write(&path, &artifact)
-            .map_err(|err| internal(format!("failed to write package blob: {err}")))?;
+    let already_present = path.exists();
+    // Blob-ordering fix (plan-10-A §2.6): stage the blob to a temp file, commit
+    // the DB row, and only then rename into place — a failed transaction leaves
+    // no orphan blob, and a served blob always has a committed version row.
+    let temp_path = state
+        .packages_dir
+        .join(format!("{hash}.mfp.tmp-{}", Uuid::new_v4()));
+    if !already_present {
+        std::fs::write(&temp_path, &artifact)
+            .map_err(|err| internal(format!("failed to stage package blob: {err}")))?;
     }
     let owner_id = verify_session_token(&state.store, &request.session_token)
         .map_err(bad_request)?
         .owner_id;
-    let published = state
-        .store
-        .publish_package_version(
-            owner_id,
-            &request.ident,
-            &request.version,
-            &hash,
-            &path.to_string_lossy(),
-        )
-        .map_err(conflict_or_bad_request)?;
+    let published = match state.store.publish_package_version(
+        owner_id,
+        &request.ident,
+        &request.version,
+        &hash,
+        &path.to_string_lossy(),
+    ) {
+        Ok(published) => published,
+        Err(err) => {
+            if !already_present {
+                let _ = std::fs::remove_file(&temp_path);
+            }
+            return Err(conflict_or_bad_request(err));
+        }
+    };
+    let blob_stored = if already_present {
+        false
+    } else {
+        std::fs::rename(&temp_path, &path).map_err(|err| {
+            let _ = std::fs::remove_file(&temp_path);
+            internal(format!("failed to persist package blob: {err}"))
+        })?;
+        true
+    };
     Ok(Json(PublishPackageResponse {
         ident: published.ident,
         version: published.version,
@@ -1600,6 +1753,141 @@ mod tests {
             "{:?}",
             report.diagnostics
         );
+    }
+
+    /// Build a valid signed `alice#toolbox` package at `version`, publish it
+    /// through the real handler, and return the artifact bytes and its hash.
+    async fn publish_valid_package(
+        state: &AppState,
+        keys: &TestOwnerKeys,
+        token: &str,
+        version: &str,
+    ) -> (Vec<u8>, String) {
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let (attestation, attestation_sig) =
+            real_attestation(state, token, version, &signing_fingerprint).await;
+        let proof = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"{version}\",\"identFingerprint\":\"{ident_fingerprint}\",\"signingFingerprint\":\"{signing_fingerprint}\"}}",
+        );
+        let proof_sig =
+            crypto::sign(&keys.ident_private, &crypto::proof_signing_input(proof.as_bytes()))
+                .unwrap();
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: version.to_string(),
+                author: "alice".to_string(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof,
+                proof_sig,
+                attestation,
+                attestation_sig,
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).unwrap();
+        let request = PackageArtifactRequest {
+            ident: parsed.ident.clone(),
+            version: parsed.version.clone(),
+            artifact: crypto::encode_bytes(&artifact),
+            content_hash: parsed.content_hash_hex(),
+            ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+            session_token: token.to_string(),
+        };
+        let response = publish_package(State(state.clone()), Json(request))
+            .await
+            .expect("publish succeeds")
+            .0;
+        (artifact, response.hash)
+    }
+
+    #[tokio::test]
+    async fn install_path_serves_blob_and_index() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "alice");
+        let token = open_session(&store, "alice", &keys.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: opened.packages_dir.clone(),
+        };
+
+        let (artifact, hash) = publish_valid_package(&state, &keys, &token, "1.0.0").await;
+
+        // The blob round-trips byte-for-byte.
+        let response = package_blob(State(state.clone()), axum::extract::Path(hash.clone()))
+            .await
+            .expect("blob served");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        assert_eq!(body.as_ref(), artifact.as_slice());
+
+        // An unknown hash is a 404; a malformed hash is a 400.
+        let missing = package_blob(
+            State(state.clone()),
+            axum::extract::Path("0".repeat(64)),
+        )
+        .await;
+        assert_eq!(missing.err().unwrap().0, StatusCode::NOT_FOUND);
+        let malformed =
+            package_blob(State(state.clone()), axum::extract::Path("nothex".to_string())).await;
+        assert_eq!(malformed.err().unwrap().0, StatusCode::BAD_REQUEST);
+
+        // A corrupted stored blob is refused (blob-store corruption defense).
+        std::fs::write(opened.packages_dir.join(format!("{hash}.mfp")), b"corrupt").unwrap();
+        let corrupted =
+            package_blob(State(state.clone()), axum::extract::Path(hash.clone())).await;
+        assert_eq!(
+            corrupted.err().unwrap().0,
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        // The index lists the version with its publish time, state, and a
+        // name binding that verifies under the server key.
+        let index = package_index(
+            State(state.clone()),
+            axum::extract::Path("alice#toolbox".to_string()),
+        )
+        .await
+        .expect("index served")
+        .0;
+        assert_eq!(index.versions.len(), 1);
+        assert_eq!(index.versions[0].version, "1.0.0");
+        assert_eq!(index.versions[0].hash, hash);
+        assert_eq!(index.versions[0].state, "available");
+        assert!(index.versions[0].published_at > 0);
+        assert!(index.versions[0].log_entry.is_some());
+        let (server_public, _private) = store.server_keypair().unwrap();
+        let ident_public = crypto::decode_bytes(
+            index.ident_key.strip_prefix("ed25519:").unwrap(),
+            "identKey",
+        )
+        .unwrap();
+        assert_eq!(ident_public, keys.ident_public);
+        crypto::verify(
+            &server_public,
+            &crypto::name_binding_message(&index.owner, &index.ident_fingerprint),
+            &crypto::decode_bytes(&index.name_binding_signature, "sig").unwrap(),
+        )
+        .expect("name binding verifies");
+
+        // An unknown owner/package is a 400.
+        let unknown = package_index(
+            State(state.clone()),
+            axum::extract::Path("bob#toolbox".to_string()),
+        )
+        .await;
+        assert_eq!(unknown.err().unwrap().0, StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

@@ -945,6 +945,37 @@ impl Store {
             .map_err(|err| format!("failed to count owners: {err}"))
     }
 
+    /// The published versions of a package, oldest first (plan-10-A `/index`).
+    /// Each row carries the version, content hash, publish time, and current
+    /// release state; the transparency-log entry is resolved separately.
+    pub fn list_package_versions(&self, ident: &str) -> Result<Vec<PackageVersionRow>, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let mut statement = conn
+            .prepare(
+                "SELECT pv.version, pv.hash, pv.created_at, pv.state
+                 FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id
+                 WHERE p.ident = ?1
+                 ORDER BY pv.created_at ASC, pv.id ASC",
+            )
+            .map_err(|err| format!("failed to prepare version query: {err}"))?;
+        let rows = statement
+            .query_map(params![ident], |row| {
+                Ok(PackageVersionRow {
+                    version: row.get(0)?,
+                    hash: row.get(1)?,
+                    published_at: row.get(2)?,
+                    state: row.get(3)?,
+                })
+            })
+            .map_err(|err| format!("failed to list package versions: {err}"))?;
+        let mut versions = Vec::new();
+        for row in rows {
+            versions.push(row.map_err(|err| format!("failed to read package version: {err}"))?);
+        }
+        Ok(versions)
+    }
+
     pub fn package_version_exists(&self, ident: &str, version: &str) -> Result<bool, String> {
         let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
         let exists: Option<i64> = conn
@@ -1164,6 +1195,15 @@ impl Store {
 pub struct LogEntryRef {
     pub index: i64,
     pub leaf_hash: [u8; 32],
+}
+
+/// One published version of a package (plan-10-A `/index`).
+#[derive(Debug, Clone)]
+pub struct PackageVersionRow {
+    pub version: String,
+    pub hash: String,
+    pub published_at: i64,
+    pub state: String,
 }
 
 fn json_value(value: &str) -> String {

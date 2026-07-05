@@ -172,7 +172,24 @@ fn print_publish_verify_report(report: &mfb_repository::server::ValidatePackageR
     }
 }
 
-fn add_package(project_dir: &Path, url: &str) -> Result<(), String> {
+/// `mfb pkg add <target>`: a `file://…​.mfp` URL copies a local package (the
+/// original path, kept as a `source: "file:"` special case), while a
+/// `<owner>#<package>[@version]` ident installs from the configured registry
+/// (plan-10-A) — pinning the registry-vouched identKey, downloading the blob,
+/// and verifying the full plan-23 §3.5 chain before it is installed.
+fn add_package(project_dir: &Path, target: &str) -> Result<(), String> {
+    if target.starts_with("file://") {
+        add_package_from_file(project_dir, target)
+    } else if target.contains('#') {
+        add_package_from_registry(project_dir, target)
+    } else {
+        Err(format!(
+            "mfb pkg add expects a file:// URL or an <owner>#<package>[@version] ident, got `{target}`"
+        ))
+    }
+}
+
+fn add_package_from_file(project_dir: &Path, url: &str) -> Result<(), String> {
     let source_path = package_file_url_path(url)?;
     let package = read_mfp_header(&source_path)?;
 
@@ -219,6 +236,140 @@ fn add_package(project_dir: &Path, url: &str) -> Result<(), String> {
         project_path.display()
     );
     Ok(())
+}
+
+/// Install a package from the registry (plan-10-A): resolve `/index`, pin the
+/// registry-vouched identKey, download `/blob/<hash>`, run the full §3.5
+/// verification chain, and install into `packages/`.
+fn add_package_from_registry(project_dir: &Path, target: &str) -> Result<(), String> {
+    let (ident, requested_version) = match target.split_once('@') {
+        Some((ident, version)) if !version.is_empty() => (ident, Some(version)),
+        Some((_, _)) => return Err("version after `@` must not be empty".to_string()),
+        None => (target, None),
+    };
+    let Some((owner, package)) = ident.split_once('#') else {
+        return Err("registry ident must use <owner>#<package>".to_string());
+    };
+    if owner.is_empty() || package.is_empty() {
+        return Err("registry ident must use <owner>#<package>".to_string());
+    }
+
+    let project_path = project_dir.join("project.json");
+    let contents = fs::read_to_string(&project_path)
+        .map_err(|err| format!("failed to read '{}': {err}", project_path.display()))?;
+    let manifest = parse_project_json(&contents, &project_path)?;
+    validate_packages_array(&manifest)?;
+
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = super::local_paths_for_repo(&repo_url)?;
+    let index = mfb_repository::client::fetch_index(&repo_url, &paths, owner, package)?;
+
+    // Pick the requested version, or the newest install-eligible one
+    // (yanked/blocked/legal-tombstoned are excluded from a floating add).
+    let chosen = select_index_version(&index, requested_version)?;
+    let blob = mfb_repository::client::fetch_blob(&repo_url, &chosen.hash)?;
+    let header = mfb_repository::package::parse_mfp_package(&blob)
+        .map_err(|err| format!("registry returned a malformed package: {err}"))?;
+    let full_ident = format!("{owner}#{package}");
+    if header.ident != full_ident {
+        return Err(format!(
+            "downloaded package ident `{}` does not match `{full_ident}`",
+            header.ident
+        ));
+    }
+
+    let packages_dir = project_dir.join("packages");
+    fs::create_dir_all(&packages_dir)
+        .map_err(|err| format!("failed to create '{}': {err}", packages_dir.display()))?;
+    let destination = packages_dir.join(format!("{}.mfp", header.name));
+    fs::write(&destination, &blob)
+        .map_err(|err| format!("failed to write '{}': {err}", destination.display()))?;
+
+    // Verify the full plan-23 §3.5 chain against the registry-vouched pin
+    // (pinned server key → attestation → pinned ident → proof → package
+    // signature → packageBinaryHash). Anything less than Verified is fatal.
+    let classification =
+        super::build::classify_installed_package(&destination, Some(&index.ident_key));
+    if classification.state != super::build::PackageVerification::Verified {
+        let _ = fs::remove_file(&destination);
+        let detail = classification
+            .refusal
+            .map(|(_, detail)| detail)
+            .unwrap_or_else(|| "downloaded package did not verify".to_string());
+        return Err(format!(
+            "refusing to add `{}`: {detail}",
+            header.name
+        ));
+    }
+
+    let dependency = ProjectPackageDependency {
+        name: header.name.clone(),
+        ident: full_ident.clone(),
+        version: header.version.clone(),
+        pin: true,
+        source: full_ident,
+        ident_key: index.ident_key.clone(),
+    };
+    let updated = project_json_with_package(&contents, &manifest, &dependency)?;
+    fs::write(&project_path, updated)
+        .map_err(|err| format!("failed to write '{}': {err}", project_path.display()))?;
+
+    println!(
+        "Added package {} {} from {} to {}",
+        header.name,
+        header.version,
+        index.ident,
+        project_path.display()
+    );
+    Ok(())
+}
+
+/// Whether a release state is eligible for a floating (non-pinned) install
+/// (plan-10-C). `available`/`deprecated` are eligible; `yanked` is pin-only;
+/// `blocked`/`legal-tombstoned` are never installed.
+pub(crate) fn state_is_floating_eligible(state: &str) -> bool {
+    matches!(state, "available" | "deprecated")
+}
+
+/// Choose the version to install from a registry index: an exact requested
+/// version (any non-blocked state), else the newest floating-eligible one.
+fn select_index_version<'a>(
+    index: &'a mfb_repository::server::IndexResponse,
+    requested: Option<&str>,
+) -> Result<&'a mfb_repository::server::IndexVersion, String> {
+    if index.versions.is_empty() {
+        return Err(format!("registry has no published versions of `{}`", index.ident));
+    }
+    if let Some(version) = requested {
+        return index
+            .versions
+            .iter()
+            .find(|entry| entry.version == version)
+            .ok_or_else(|| {
+                format!("registry has no version `{version}` of `{}`", index.ident)
+            })
+            .and_then(|entry| {
+                if entry.state == "blocked" || entry.state == "legal-tombstoned" {
+                    Err(format!(
+                        "version `{version}` of `{}` is {} and cannot be installed",
+                        index.ident, entry.state
+                    ))
+                } else {
+                    Ok(entry)
+                }
+            });
+    }
+    index
+        .versions
+        .iter()
+        .filter(|entry| state_is_floating_eligible(&entry.state))
+        .max_by_key(|entry| entry.published_at)
+        .ok_or_else(|| {
+            format!(
+                "registry has no install-eligible version of `{}` (all yanked or blocked)",
+                index.ident
+            )
+        })
 }
 
 /// `mfb pkg validate <pkg>` (plan-23 index §10.4): validate an EXISTING

@@ -44,7 +44,7 @@ Project Setup:
   init-pkg <path>         Create a new MFBASIC package project
 
 Package Management:
-  pkg add <url>           Add a compiled package to the current project
+  pkg add <target>        Add a package: file:// URL or <owner>#<pkg>[@ver] ident
   pkg info <pkg>          Show information about a compiled package
   pkg verify              Verify packages declared in project.json
   pkg validate <pkg>      Check an existing package's signatures and structure
