@@ -4,10 +4,10 @@ Current implementation boundaries to know when extending the compiler.
 
 The following boundaries are important when extending the compiler:
 
-- Native executable support is target-limited to `macos-aarch64` and
-  `linux-aarch64`.
-- Native runtime-call support covers the `datetime.*`, `fs.*`, `io.*`, `net.*`,
-  `term.*`, `thread.*`, and `tls.*` built-ins. `math`, `strings`, and `general`
+- Native executable support is target-limited to `macos-aarch64`,
+  `linux-aarch64`, and `linux-x86_64`.
+- Native runtime-call support covers the `crypto.*`, `datetime.*`, `fs.*`,
+  `io.*`, `net.*`, `term.*`, `thread.*`, and `tls.*` built-ins. `math`, `strings`, and `general`
   operations are code-generated inline and do not go through the runtime-helper
   capability gate. The exact supported set is each backend's `runtime_calls`
   declaration.[[src/target/macos_aarch64/mod.rs:runtime_calls]] `json` built-ins

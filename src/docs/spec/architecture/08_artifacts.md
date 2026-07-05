@@ -7,6 +7,7 @@ Every build artifact, the flag that produces it, and what it contains.[[src/cli/
 | `<name>.ast` | `mfb build -ast` | `src/ast.rs` | Parsed source tree before monomorphization. |
 | `<name>.ir` | `mfb build -ir` | `src/ir.rs` | Typed, architecture-independent compiler IR. |
 | `<name>.hex` | `mfb build -br` | `src/binary_repr.rs` | Hex dump of MFPC binary representation. |
+| `<name>.mir` | `mfb build -mir` | `src/target/shared/code/mir.rs` | Target-neutral MIR dump. |
 | `<name>.nir` | `mfb build -nir` | `src/target/shared/nir.rs` | Native IR for the selected target. |
 | `<name>.nplan` | `mfb build -nplan` | `src/target/shared/plan.rs` | Native function/storage/call plan. |
 | `<name>.nobj` | `mfb build -nobj` | `src/os/*/object.rs` | OS object/container layout plan. |

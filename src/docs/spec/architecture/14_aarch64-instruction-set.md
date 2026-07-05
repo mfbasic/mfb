@@ -26,13 +26,13 @@ union: every operand (register name, immediate, label, symbol) is a string,
 looked up by name at encode time via `field(instruction, "name")`. Construction
 is fluent (`CodeInstruction::new(mnemonic).field("dst","x0")…`), and `validate`
 checks that each op carries its required field names before encoding.
-[[src/target/shared/code/validation.rs:validate]]
+[[src/target/shared/code/code_impl.rs:validate]]
 
 Operands are decoded by small helpers:
 
 - `reg` maps a register name to a 0–31 number. `x0..x28`, `x30`/`lr`, and the
   `w*` aliases map to the same numbers; `sp`/`raw_sp`/`x31`/`xzr` all map to
-  `31`; `d0..d7` map to `0..7`. There is **no `x18`** (platform-reserved) and
+  `31`; `d0..d31` map to `0..31`. There is **no `x18`** (platform-reserved) and
   **no `x29`** in the table. [[src/arch/aarch64/encode/operand.rs:reg]]
 - `immediate` parses a `u64`, also accepting `"true"`→1 / `"false"`→0.
   [[src/arch/aarch64/encode/operand.rs:immediate]]
@@ -48,7 +48,7 @@ of emission so label and symbol offsets are known before patching.
 Each row gives the op's mnemonic, its required fields, and the base 32-bit word
 the encoder ORs operand bits into. Field placement is `Rd = bits[4:0]`,
 `Rn = bits[9:5]`, `Rm = bits[20:16]` unless noted. Every encoder lives in
-`encode.rs`. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
+`encode/emitter.rs`. [[src/arch/aarch64/encode/emitter.rs:emit_instruction]]
 
 | Op | Mnemonic | Fields | Base word | Notes |
 |----|----------|--------|-----------|-------|
@@ -66,7 +66,8 @@ the encoder ORs operand bits into. Field placement is `Rd = bits[4:0]`,
 | `Mul` | `mul` | `dst`,`lhs`,`rhs` | `0x9B007C00` | `madd` with `Ra=xzr` |
 | `SMulH` | `smulh` | `dst`,`lhs`,`rhs` | `0x9B407C00` | signed high mul |
 | `UMulH` | `umulh` | `dst`,`lhs`,`rhs` | `0x9BC07C00` | unsigned high mul |
-| `Adc` | `adc` | `dst`,`lhs`,`rhs` | `0x9A000000` | add with carry |
+| `AddCarry` | `add_carry` | `dst`,`carry_out`,`lhs`,`rhs`,`carry_in` | *(compound)* | expands to `adds;cset` (or `cmp carry_in,#1;adcs;cset`) |
+| `SubBorrow` | `sub_borrow` | `dst`,`borrow_out`,`lhs`,`rhs`,`borrow_in` | *(compound)* | subtractive counterpart of `add_carry` |
 | `Rorv` | `rorv` | `dst`,`lhs`,`rhs` | `0x9AC02C00` | variable rotate-right |
 | `SDiv` | `sdiv` | `dst`,`lhs`,`rhs` | `0x9AC00C00` | signed divide |
 | `UDiv` | `udiv` | `dst`,`lhs`,`rhs` | `0x9AC00800` | unsigned divide |
@@ -126,12 +127,12 @@ Notes on the float ops: the `fmov`/`fcvt`/`scvtf` family places the operand
 register in `bits[9:5]` (`src`) and the destination in `bits[4:0]` (`dst`), the
 same `(src<<5)|dst` pattern the integer single-source ops use, even though one
 side is a D-register and the other an X-register.
-[[src/arch/aarch64/encode/emitter.rs:emit_scvtf_d_from_x]] The double-precision set is
-exactly: `fadd_d`, `fsub_d`, `fmul_d`, `fdiv_d`, `fneg_d`, `fsqrt_d`, `fcmp_d`,
-`fcmp_zero_d`, `fmov_x_from_d`, `fmov_d_from_x`, `scvtf_d_from_x`,
+[[src/arch/aarch64/encode/emitter.rs:emit_scvtf_d_from_x]] The double-precision set is:
+`fadd_d`, `fsub_d`, `fmul_d`, `fdiv_d`, `fneg_d`, `fabs_d`, `fsqrt_d`, `fcmp_d`,
+`fcmp_zero_d`, `fmov_x_from_d`, `fmov_d_from_x`, `fmov_d_from_d`, `scvtf_d_from_x`,
 `fcvtzs_x_from_d`, `fcvtms_x_from_d`, `fcvtps_x_from_d`, `fcvtas_x_from_d` —
-note `fneg_d`, `fsqrt_d`, `fcmp_d`, and `fcmp_zero_d` are present in addition to
-the four arithmetic and five conversion ops.
+note `fneg_d`, `fabs_d`, `fsqrt_d`, `fcmp_d`, `fcmp_zero_d`, and the register-to-register
+`fmov_d_from_d` are present in addition to the four arithmetic and five conversion ops.
 
 ## NEON vector ops
 
@@ -208,7 +209,7 @@ those from `cmgt_v`+`bsl_v` (lane select) and integer shifts instead. A per-lane
 error mask (e.g. `fcmlt_zero_v` for a negative `sqrt` lane) is reduced to a GPR
 with two `umov_x_from_v` extracts ORed together — there is no horizontal-reduce
 op in the set. Shift-immediate ops encode the amount in `immhb=bits[22:16]`. Every
-new op's exact word is pinned by `encodes_neon_vector_ops` in `encode.rs`, which
+new op's exact word is pinned by `encodes_neon_vector_ops` in `encode/tests.rs`, which
 asserts against the system assembler (`as -arch arm64`) output.
 
 ## Worked encodings

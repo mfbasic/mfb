@@ -55,10 +55,10 @@ The output is conventional JSON; strings are escaped by the shared
 Top-level program globals, one object per binding:
 
 ```json
-{ "name": "...", "visibility": "...", "mutable": false, "type": "...", "value": <value> | null }
+{ "name": "...", "line": <int>, "visibility": "...", "mutable": false, "type": "...", "value": <value> | null }
 ```
 
-`value` is a value node (below) or `null`.
+`value` is a value node (below) or `null`; `line` is the node's source line.
 
 ### types[[src/ir/types.rs:IrType]]
 
@@ -67,23 +67,23 @@ unknown kind is `unreachable!`.
 
 | `kind` | Fields |
 | --- | --- |
-| `type` | `kind`, `visibility`, `name`, `fields` (array of field nodes) |
-| `union` | `kind`, `visibility`, `name`, `includes` (array of strings), `variants` (array of variant nodes) |
-| `enum` | `kind`, `visibility`, `name`, `members` (array of member nodes) |
+| `type` | `kind`, `line`, `visibility`, `name`, `fields` (array of field nodes) |
+| `union` | `kind`, `line`, `visibility`, `name`, `includes` (array of strings), `variants` (array of variant nodes) |
+| `enum` | `kind`, `line`, `visibility`, `name`, `members` (array of member nodes) |
 
 Field node:[[src/ir/types.rs:IrField]]
 
 ```json
-{ "visibility": "..." | null, "name": "...", "type": "..." }
+{ "visibility": "..." | null, "line": <int>, "name": "...", "type": "..." }
 ```
 
 Variant node (union):[[src/ir/types.rs:IrVariant]]
 
 ```json
-{ "name": "...", "fields": [ <field>, ... ] }
+{ "name": "...", "line": <int>, "fields": [ <field>, ... ] }
 ```
 
-Enum member node:[[src/ir/types.rs:IrEnumMember]]
+Enum member node (no `line`):[[src/ir/types.rs:IrEnumMember]]
 
 ```json
 { "name": "..." }
@@ -94,6 +94,7 @@ Enum member node:[[src/ir/types.rs:IrEnumMember]]
 ```json
 {
   "name": "...",
+  "line": <int>,
   "visibility": "...",
   "kind": "...",
   "params": [ <param>, ... ],
@@ -105,13 +106,15 @@ Enum member node:[[src/ir/types.rs:IrEnumMember]]
 Param node:[[src/ir/types.rs:IrParam]]
 
 ```json
-{ "name": "...", "type": "...", "default": <value> | null }
+{ "name": "...", "line": <int>, "type": "...", "default": <value> | null }
 ```
 
 ## Ops
 
-Each op node carries an `"op"` discriminator string.[[src/ir/op.rs:IrOp]] The
-emitted name differs from the Rust variant name where noted.
+Each op node carries an `"op"` discriminator string, immediately followed by a
+`"line"` source-line field (omitted from the per-op payload columns below for
+brevity).[[src/ir/op.rs:IrOp]] The emitted name differs from the Rust variant
+name where noted.
 
 | `op` | Variant | Payload keys |
 | --- | --- | --- |
@@ -138,7 +141,7 @@ emitted name differs from the Rust variant name where noted.
 Match-case node:[[src/ir/value.rs:IrMatchCase]]
 
 ```json
-{ "pattern": <pattern>, "guard": <value> | null, "body": [ <op>, ... ] }
+{ "line": <int>, "pattern": <pattern>, "guard": <value> | null, "body": [ <op>, ... ] }
 ```
 
 Match-pattern node, keyed by `kind`:[[src/ir/value.rs:IrMatchPattern]]

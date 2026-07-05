@@ -10,7 +10,7 @@ see "Semantic Checking" below.)
 ## Project Manifest Loading
 
 The project manifest is `project.json` in the build location. The manifest is
-read and validated by `validate_project_manifest` in `src/main.rs`.
+read and validated by `validate_project_manifest` in `src/manifest/mod.rs`.
 
 The current implementation requires these string fields:
 
@@ -111,12 +111,15 @@ inject the package's MFBASIC source companion (and, for `json`, expand
 load-bearing:
 
 ```text
-json -> csv -> regex -> datetime -> http -> net
+json -> csv -> regex -> datetime -> vector -> http -> net -> crypto -> encoding
 ```
 
 `http` is augmented before `net` because `http`'s source companion
 (`http_package.mfb`) imports `net`; `net::uses_package` must see http's source
 already present so the `net` dependency is detected and its companion injected.
+For the same reason `crypto` is augmented before `encoding` (`crypto_package.mfb`
+imports `encoding`). `vector` has no ordering dependency (it imports only the
+intrinsic `math` package).
 Each augmenter takes the previous augmenter's output, so the augmented AST that
 reaches the `Resolver` is the cumulative result of the whole chain. (The
 `collections` package is injected earlier, during `parse_project`.)[[src/resolver/mod.rs:resolve_project_with]]
@@ -136,7 +139,7 @@ The resolver knows the built-in type names in `BUILTIN_TYPES` (`src/resolver.rs`
 `Nothing`, `Result`, `String`, plus the resource and record types contributed by
 built-in packages — `File` (fs), `TermColor` and `TermSize` (term), `Socket`,
 `Listener`, `Address`, `UdpSocket`, `Datagram`, `DatagramText` (net), and
-`TlsSocket` (tls). The package-contributed names are referenced by constant
+`TlsSocket`/`TlsListener` (tls). The package-contributed names are referenced by constant
 (e.g. `builtins::fs::FILE_TYPE`) so the resolver list and the packages stay in
 sync.[[src/resolver/mod.rs:BUILTIN_TYPES]]
 
@@ -172,7 +175,7 @@ declarations into concrete declarations between the two resolution passes; see
 ## Entry-Point Validation
 
 Entry-point validation is implemented in `validate_entry_point` in
-`src/main.rs`.
+`src/manifest/entry.rs`.
 
 Package projects have no executable entry point and return `None` for the IR
 entry.

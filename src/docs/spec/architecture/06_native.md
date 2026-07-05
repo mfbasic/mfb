@@ -9,6 +9,7 @@ The active native backend registry is in `src/target.rs`:[[src/target.rs:NativeB
 
 - `macos-aarch64`
 - `linux-aarch64`
+- `linux-x86_64`
 
 Each backend implements the `NativeBackend` trait. The trait exposes
 capabilities and methods for executable and intermediate artifact emission.
@@ -53,6 +54,7 @@ Runtime-helper detection is implemented in `src/target/shared/runtime.rs`.
 The compiler scans IR values for calls into built-in packages. It records
 which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[src/target/shared/runtime/mod.rs:RuntimeHelper]]
 
+- `crypto`
 - `datetime`
 - `fs`
 - `general`
@@ -66,9 +68,11 @@ which helper families are needed (the `RuntimeHelper` enum in `runtime.rs`):[[sr
 
 `validate_capabilities` rejects native builds that require runtime calls not
 listed in the backend capability set.[[src/target/shared/validate.rs:validate_capabilities]]
-Both `macos-aarch64` and `linux-aarch64` currently declare the same set of
-supported native runtime calls:
+The `macos-aarch64`, `linux-aarch64`, and `linux-x86_64` backends currently
+declare the same set of supported native runtime calls:
 
+- `crypto.*` calls: `crypto.randomBytes` plus the P-256/384/521 key-generation,
+  signing, and verification calls
 - All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.printError`,
   `io.writeError`, `io.flushError`, `io.input`, `io.readLine`, `io.readChar`,
   `io.readByte`, `io.pollInput`, `io.isInputTerminal`, `io.isOutputTerminal`,
@@ -98,7 +102,7 @@ supported native runtime calls:
   `net.receiveTextFrom`, `net.localAddress`, `net.remoteAddress`, `net.close`,
   `net.poll`, `net.setReadTimeout`, `net.setWriteTimeout`
 - All `tls.*` calls: `tls.connect`, `tls.read`, `tls.readText`, `tls.write`,
-  `tls.writeText`, `tls.close`
+  `tls.writeText`, `tls.close`, `tls.listen`, `tls.accept`, `tls.closeListener`
 
 `math`, `strings`, and `general` operations are not listed as runtime helper
 calls because they are code-generated inline rather than dispatched through

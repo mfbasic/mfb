@@ -21,7 +21,7 @@ emitted byte. The raise/lower round trip `select ∘ lower_to_mir` is the
 **identity** on the instruction stream: every backend op maps to exactly one
 `MirOp` and back, and the fused/expand ops re-expand to the exact instruction
 sequence the builders emit today. [[src/target/shared/code/mir.rs:lower_to_mir]]
-[[src/target/shared/code/mir.rs:select_aarch64]]
+[[src/arch/aarch64/select.rs:select_aarch64]]
 
 The MIR is now the **sole** code path: plan-00-G flipped it on by default and
 deleted the legacy `direct` (no-MIR) AArch64 backend. During plans A–F the round
@@ -271,7 +271,7 @@ a backend picks. [[src/target/shared/code/mir.rs:MirRelocation]]
       "instructions": [
         { "op": "addr_of", "dst": "%v0", "symbol": "_mfb_str_0" },
         { "op": "mov", "dst": "%v1", "src": "%v0" },
-        { "op": "call", "symbol": "_mfb_rt_io_io_print" }
+        { "op": "call", "target": "_mfb_rt_io_io_print" }
       ],
       "relocations": [
         { "from": "_mfb_fn_main", "to": "_mfb_rt_io_io_print",

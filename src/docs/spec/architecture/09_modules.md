@@ -9,7 +9,8 @@ A map of the compiler's source modules and their responsibilities.
 | `src/ast.rs` | Parser, AST model, source discovery, AST JSON output. |
 | `src/resolver.rs` | Name resolution and import/package symbol checks. |
 | `src/monomorph.rs` | Template/generic expansion into concrete AST. |
-| `src/syntaxcheck.rs` | Type system, expression checking, flow validation. |
+| `src/syntaxcheck/*` | Source-syntax checking only (named-argument binding, EXIT/inline-TRAP boundaries, lambda capture escape, package metadata). All semantic rules live in `src/ir/verify/*`. |
+| `src/ir/verify/*` | IR semantic verification — the single source of truth for every semantic rule, run on both source-lowered IR and decoded-package IR. |
 | `src/escape.rs` | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
 | `src/ir.rs` | Shared compiler IR and AST-to-IR lowering. |
 | `src/internal_name.rs` | Compiler-internal sigil symbol naming for injected source packages. |
@@ -35,7 +36,7 @@ A map of the compiler's source modules and their responsibilities.
 | `src/builtins/regex.rs` | Regex built-in signatures. |
 | `src/builtins/errorcode.rs` | `errorCode` integer-constant package. |
 | `src/builtins/resource.rs` | Data-driven resource-type registry. |
-| `src/builtins/*_package.mfb` | MFBASIC-source built-in packages injected at build (`collections`, `csv`, `datetime`, `http`, `json`, `net`, `regex`, `regex_unicode`). |
+| `src/builtins/*_package.mfb` | MFBASIC-source built-in packages injected at build (`collections`, `crypto`, `csv`, `datetime`, `encoding`, `http`, `json`, `net`, `regex`, `vector`); `regex_unicode.mfb` is a plain source companion, not a `*_package.mfb`. |
 | `src/unicode_backend.rs` | Compile-time (constant-fold) Unicode oracles: upper/lower/caseFold/normalizeNfc/graphemes on static strings. |
 | `src/unicode_runtime_tables.rs` | Compile-time Unicode lookup tables embedded in generated code. |
 | `src/target.rs` | Target parsing, backend registry, backend dispatch. |
@@ -46,9 +47,12 @@ A map of the compiler's source modules and their responsibilities.
 | `src/target/shared/plan.rs` | Shared native plan lowering. |
 | `src/target/shared/code/` | Shared native code-plan lowering (directory module with builder submodules). |
 | `src/target/macos_aarch64/*` | macOS aarch64 backend wrappers and platform behavior (`app.rs` = AppKit app mode). |
-| `src/target/linux_aarch64/*` | Linux aarch64 backend wrappers and platform behavior (`gtk.rs` = GTK4 app mode). |
+| `src/target/linux_aarch64/*` | Linux aarch64 backend wrappers and platform behavior. |
+| `src/target/linux_x86_64/*` | Linux x86-64 backend wrappers and platform behavior. |
+| `src/target/linux_gtk/*` | Shared GTK4 app-mode backend for the Linux targets. |
 | `src/target/package_mfp` | MFP package container writer. |
 | `src/arch/aarch64/*` | AArch64 ABI, operations, and binary instruction encoding. |
+| `src/arch/x86_64/*` | x86-64 ABI, operations, and binary instruction encoding. |
 | `src/os/macos/*` | Mach-O object planning and executable writing. |
 | `src/os/linux/flavor.rs` | Linux flavor enumeration (glibc/musl) and suffix/interpreter selection. |
 | `src/os/linux/link.rs` | ELF object planning and executable writing. |

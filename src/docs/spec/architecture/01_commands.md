@@ -14,6 +14,7 @@ The CLI supports these build-related commands:
 - `mfb build -ir [location]` writes `<name>.ir`.
 - `mfb build -br [location]` writes `<name>.hex`, a hexadecimal dump of MFPC
   binary representation.
+- `mfb build -mir [location]` writes `<name>.mir`, a target-neutral MIR dump.
 - `mfb build -nir [location]` writes `<name>.nir`.
 - `mfb build -nplan [location]` writes `<name>.nplan`.
 - `mfb build -nobj [location]` writes `<name>.nobj`.
