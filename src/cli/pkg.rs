@@ -181,6 +181,9 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         "Published {}@{} as {}",
         response.ident, response.version, response.hash
     );
+    for warning in &response.warnings {
+        println!("warning: {warning}");
+    }
     println!(
         "Publish logged at index {} (leaf {})",
         response.log_entry.index, response.log_entry.leaf_hash

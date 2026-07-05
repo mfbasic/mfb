@@ -93,6 +93,14 @@ impl Store {
             .map_err(|err| format!("failed to open '{}': {err}", dbpath.display()))?;
         conn.pragma_update(None, "foreign_keys", "ON")
             .map_err(|err| format!("failed to enable foreign keys: {err}"))?;
+        // WAL + a busy timeout (plan-10-D2 hardening): readers no longer block
+        // on the writer at the SQLite level, and a brief writer contention
+        // waits rather than failing, so concurrent publishes/reads do not
+        // serialize behind a single global write lock.
+        conn.pragma_update(None, "journal_mode", "WAL")
+            .map_err(|err| format!("failed to enable WAL: {err}"))?;
+        conn.busy_timeout(std::time::Duration::from_secs(5))
+            .map_err(|err| format!("failed to set busy timeout: {err}"))?;
         let store = Store {
             conn: Arc::new(Mutex::new(conn)),
         };
@@ -1718,6 +1726,48 @@ impl Store {
         Ok(log_entry)
     }
 
+    /// Reap expired challenges, sessions, and pairing blobs (plan-10-D2). Runs
+    /// on a timer so stale rows do not accumulate. Returns the number of rows
+    /// deleted/closed across the three tables.
+    pub fn reap_expired(&self) -> Result<usize, String> {
+        let now = now_unix();
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let mut total = 0usize;
+        total += conn
+            .execute("DELETE FROM auth_challenges WHERE expires_at <= ?1", params![now])
+            .map_err(|err| format!("failed to reap challenges: {err}"))?;
+        total += conn
+            .execute(
+                "UPDATE sessions SET revoked_at = ?1 WHERE revoked_at IS NULL AND expires_at <= ?1",
+                params![now],
+            )
+            .map_err(|err| format!("failed to reap sessions: {err}"))?;
+        total += conn
+            .execute("DELETE FROM pairing_blobs WHERE expires_at <= ?1", params![now])
+            .map_err(|err| format!("failed to reap pairing blobs: {err}"))?;
+        Ok(total)
+    }
+
+    /// Existing package idents within edit distance 1 of `ident` (excluding an
+    /// exact match) — the warn-only typosquat check at publish (plan-10-D2).
+    pub fn typosquat_candidates(&self, ident: &str) -> Result<Vec<String>, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let mut statement = conn
+            .prepare("SELECT ident FROM packages")
+            .map_err(|err| format!("failed to prepare typosquat query: {err}"))?;
+        let rows = statement
+            .query_map([], |row| row.get::<_, String>(0))
+            .map_err(|err| format!("failed to scan packages: {err}"))?;
+        let mut candidates = Vec::new();
+        for row in rows {
+            let existing = row.map_err(|err| format!("failed to read package ident: {err}"))?;
+            if existing != ident && within_edit_distance_one(&existing, ident) {
+                candidates.push(existing);
+            }
+        }
+        Ok(candidates)
+    }
+
     /// The number of transparency-log entries (the tree size).
     pub fn log_size(&self) -> Result<i64, String> {
         let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
@@ -1921,6 +1971,39 @@ fn add_column_if_missing(conn: &Connection, table: &str, column_def: &str) -> Re
         Err(err) if err.to_string().contains("duplicate column name") => Ok(()),
         Err(err) => Err(format!("failed to add column to {table}: {err}")),
     }
+}
+
+/// Whether two strings are within Levenshtein edit distance 1 (a single
+/// insert, delete, or substitution), used for the typosquat warning.
+fn within_edit_distance_one(a: &str, b: &str) -> bool {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (la, lb) = (a.len(), b.len());
+    if la.abs_diff(lb) > 1 {
+        return false;
+    }
+    if la == lb {
+        // At most one substitution.
+        return a.iter().zip(&b).filter(|(x, y)| x != y).count() <= 1;
+    }
+    // Lengths differ by exactly one: check for a single insertion/deletion.
+    let (short, long) = if la < lb { (&a, &b) } else { (&b, &a) };
+    let mut i = 0usize;
+    let mut j = 0usize;
+    let mut edits = 0usize;
+    while i < short.len() && j < long.len() {
+        if short[i] == long[j] {
+            i += 1;
+            j += 1;
+        } else {
+            edits += 1;
+            if edits > 1 {
+                return false;
+            }
+            j += 1; // skip a char in the longer string
+        }
+    }
+    true
 }
 
 fn is_unique_violation(err: &rusqlite::Error) -> bool {
@@ -2339,6 +2422,53 @@ mod tests {
         let path = crate::log::inclusion_path(2, &leaves);
         crate::log::verify_inclusion(2, 7, &entry.leaf_hash, &path, &root)
             .expect("publish entry inclusion verifies");
+    }
+
+    #[test]
+    fn typosquat_and_reaping_hardening() {
+        let (_temp, store) = test_store();
+        let keys = register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .unwrap();
+
+        // A one-edit-away ident is flagged; an exact match and a far ident are not.
+        assert_eq!(
+            store.typosquat_candidates("alice#toolbx").unwrap(),
+            vec!["alice#toolbox".to_string()]
+        );
+        assert!(store.typosquat_candidates("alice#toolbox").unwrap().is_empty());
+        assert!(store.typosquat_candidates("alice#unrelated").unwrap().is_empty());
+
+        // Reaping drops expired challenges.
+        let challenge = store.create_challenge("alice").unwrap();
+        store.force_expire_challenge(&challenge.id).unwrap();
+        // Also expire a session so reaping closes it.
+        store
+            .insert_session(&NewSession {
+                owner_id,
+                key_id: store.owner_with_auth_key("alice").unwrap().unwrap().1.id,
+                jwt_id: "expired-sess".to_string(),
+                issued_at: now_unix() - 7200,
+                expires_at: now_unix() - 3600,
+            })
+            .unwrap();
+        assert!(store.session_exists("expired-sess").unwrap());
+        let reaped = store.reap_expired().unwrap();
+        assert!(reaped >= 2, "reaped {reaped}");
+        assert!(!store.session_exists("expired-sess").unwrap());
+        let _ = keys;
+    }
+
+    #[test]
+    fn edit_distance_one_covers_insert_delete_substitute() {
+        assert!(within_edit_distance_one("toolbox", "toolbox")); // equal (0)
+        assert!(within_edit_distance_one("toolbox", "toolbux")); // substitution
+        assert!(within_edit_distance_one("toolbox", "toolbx")); // deletion
+        assert!(within_edit_distance_one("toolbox", "toolboxs")); // insertion
+        assert!(!within_edit_distance_one("toolbox", "tulbox")); // two edits
+        assert!(!within_edit_distance_one("toolbox", "widget")); // far
     }
 
     #[test]

@@ -107,6 +107,27 @@ The client verifies that `serverFingerprint` matches the key it decodes, pins
 the key on first use, and hard-fails if a later fetch disagrees with the pinned
 key.[[repository/src/client.rs:ensure_server_key]][[repository/src/local.rs:pin_server_key]]
 
+## Operational Hardening
+
+Independent of the protocol, the reference server applies several operational
+safeguards (plan-10-D2):
+
+- **SQLite WAL + busy timeout** — readers no longer block on the writer at the
+  database level, and brief writer contention waits rather than failing, so
+  concurrent publishes and reads do not serialize behind one global write
+  lock.[[repository/src/store.rs:open_repository]]
+- **Background reaping** — a timer sweeps expired challenges, expired sessions,
+  and expired pairing blobs, and prunes the rate-limiter map, so stale rows
+  never accumulate.[[repository/src/store.rs:reap_expired]]
+- **Rate limiting** — an in-memory sliding-window limiter caps abusive bursts
+  on `register`/`challenge`/`login`/`signing` (a `429` when exceeded), keeping
+  the transparency log spam-free.[[repository/src/server.rs:RateLimiter]]
+- **Request-size cap** — inline base64 artifacts are bounded (64 MiB), so a
+  single upload cannot exhaust server memory.[[repository/src/server.rs:MAX_BODY_BYTES]]
+- **Typosquat warning** — `POST /publish` returns warn-only `warnings` naming
+  existing idents within edit distance 1 of the published one; it never blocks
+  the publish.[[repository/src/store.rs:typosquat_candidates]]
+
 ## Owner Registration — `/accounts/register`
 
 Backs `mfb repo register <owner_name>`. The client validates the owner name,

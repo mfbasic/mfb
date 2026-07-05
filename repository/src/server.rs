@@ -15,6 +15,58 @@ use uuid::Uuid;
 pub struct AppState {
     store: Store,
     packages_dir: PathBuf,
+    rate_limiter: RateLimiter,
+}
+
+/// A minimal in-memory sliding-window rate limiter (plan-10-D2). Keyed per
+/// endpoint (and, where meaningful, per owner), it caps abusive bursts on the
+/// cheap, loggable operations (register/challenge/login/signing) without a
+/// dependency. Approximate and process-local — a real deployment fronts this
+/// with a proxy — but enough to keep the transparency log spam-free.
+#[derive(Clone)]
+struct RateLimiter {
+    hits: std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, Vec<i64>>>>,
+}
+
+impl RateLimiter {
+    fn new() -> Self {
+        Self {
+            hits: std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new())),
+        }
+    }
+
+    /// Record a hit for `key`; return false if it exceeded `max` hits within
+    /// the last `window_secs`.
+    fn allow(&self, key: &str, max: usize, window_secs: i64) -> bool {
+        let now = now_unix();
+        let mut hits = self.hits.lock().expect("rate limiter poisoned");
+        let entry = hits.entry(key.to_string()).or_default();
+        entry.retain(|timestamp| now - *timestamp < window_secs);
+        if entry.len() >= max {
+            return false;
+        }
+        entry.push(now);
+        true
+    }
+
+    /// Drop keys whose windows have fully elapsed, so the map stays bounded.
+    fn prune(&self, window_secs: i64) {
+        let now = now_unix();
+        let mut hits = self.hits.lock().expect("rate limiter poisoned");
+        hits.retain(|_key, times| {
+            times.retain(|timestamp| now - *timestamp < window_secs);
+            !times.is_empty()
+        });
+    }
+}
+
+fn too_many_requests() -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        Json(ErrorResponse {
+            error: "rate limit exceeded; slow down".to_string(),
+        }),
+    )
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -419,6 +471,10 @@ pub struct PublishPackageResponse {
     /// The publish's transparency-log entry (plan-23-B3).
     #[serde(rename = "logEntry")]
     pub log_entry: LogEntry,
+    /// Warn-only typosquat notices (plan-10-D2): existing idents within edit
+    /// distance 1 of the published one. Never blocks the publish.
+    #[serde(default)]
+    pub warnings: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -531,11 +587,28 @@ pub struct SessionClaims {
     pub jti: String,
 }
 
+/// Maximum inline request body (plan-10-D2): caps the base64 artifact carried
+/// by `/validate` and `/publish` so a single upload cannot exhaust memory.
+const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
+
 pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> Result<SocketAddr, String> {
     let state = AppState {
         store,
         packages_dir,
+        rate_limiter: RateLimiter::new(),
     };
+    // Background reaper (plan-10-D2): sweep expired challenges/sessions/pairing
+    // blobs and prune the rate-limiter map so nothing accumulates unbounded.
+    {
+        let reaper_state = state.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                let _ = reaper_state.store.reap_expired();
+                reaper_state.rate_limiter.prune(3600);
+            }
+        });
+    }
     let app = Router::new()
         .route("/health", get(health))
         .route("/ident", get(server_ident))
@@ -566,6 +639,7 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/timestamp.json", get(timestamp_metadata))
         .route("/validate", post(validate_package))
         .route("/publish", post(publish_package))
+        .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
         .with_state(state);
     let listener = TcpListener::bind(listen)
         .await
@@ -598,6 +672,9 @@ async fn register(
     State(state): State<AppState>,
     Json(request): Json<RegisterRequest>,
 ) -> Result<Json<RegisterResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state.rate_limiter.allow("register", 60, 60) {
+        return Err(too_many_requests());
+    }
     let auth_key = crypto::decode_bytes(&request.auth_key, "authKey").map_err(bad_request)?;
     let ident_key = crypto::decode_bytes(&request.ident_key, "identKey").map_err(bad_request)?;
     let auth_proof = crypto::decode_bytes(&request.proofs.auth, "auth proof").map_err(bad_request)?;
@@ -618,6 +695,9 @@ async fn challenge(
     State(state): State<AppState>,
     Json(request): Json<ChallengeRequest>,
 ) -> Result<Json<ChallengeResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state.rate_limiter.allow(&format!("challenge:{}", request.owner), 20, 60) {
+        return Err(too_many_requests());
+    }
     // Owner existence first, so a missing-key client probe (empty
     // fingerprint) still learns "unknown owner" for an unregistered name.
     if state
@@ -1430,6 +1510,9 @@ async fn login(
     State(state): State<AppState>,
     Json(request): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state.rate_limiter.allow("login", 60, 60) {
+        return Err(too_many_requests());
+    }
     let signature = crypto::decode_bytes(&request.signature, "signature").map_err(bad_request)?;
     let (owner, key) = state
         .store
@@ -1502,6 +1585,9 @@ async fn signing(
     State(state): State<AppState>,
     Json(request): Json<SigningRequest>,
 ) -> Result<Json<SigningResponse>, (StatusCode, Json<ErrorResponse>)> {
+    if !state.rate_limiter.allow(&format!("signing:{}", request.owner), 60, 60) {
+        return Err(too_many_requests());
+    }
     let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
     if claims.sub != request.owner {
         return Err(bad_request("session owner does not match requested owner".to_string()));
@@ -1669,6 +1755,17 @@ async fn publish_package(
         })?;
         true
     };
+    // Warn-only typosquat check (plan-10-D2): surface near-duplicate idents so
+    // the publisher can notice an impersonation attempt; never blocks.
+    let warnings = state
+        .store
+        .typosquat_candidates(&published.ident)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|existing| {
+            format!("published `{}` is one edit away from existing `{existing}`", published.ident)
+        })
+        .collect();
     Ok(Json(PublishPackageResponse {
         ident: published.ident,
         version: published.version,
@@ -1680,6 +1777,7 @@ async fn publish_package(
             index: published.log_entry.index,
             leaf_hash: hex::encode(published.log_entry.leaf_hash),
         },
+        warnings,
     }))
 }
 
@@ -2000,6 +2098,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: temp.path().join("data"),
+            rate_limiter: RateLimiter::new(),
         };
         let (signing_public, _signing_private) = crypto::generate_keypair();
         let signing_fingerprint = crypto::fingerprint(&signing_public);
@@ -2177,6 +2276,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: temp.path().join("data"),
+            rate_limiter: RateLimiter::new(),
         };
 
         // The crafted flow needs the attestation to pin the one-off key, and
@@ -2420,6 +2520,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: opened.packages_dir.clone(),
+            rate_limiter: RateLimiter::new(),
         };
 
         let (artifact, hash) = publish_valid_package(&state, &keys, &token, "1.0.0").await;
@@ -2527,6 +2628,40 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn challenge_rate_limit_trips_after_the_window_cap() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        register_owner_with_all_keys(&store, "alice");
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: opened.packages_dir.clone(),
+            rate_limiter: RateLimiter::new(),
+        };
+        // The challenge cap is 20 per window; the 21st is refused with 429.
+        let mut last = Ok(());
+        for _ in 0..21 {
+            last = challenge(
+                State(state.clone()),
+                Json(ChallengeRequest {
+                    owner: "alice".to_string(),
+                    auth_fingerprint: crypto::fingerprint(&register_dummy()),
+                }),
+            )
+            .await
+            .map(|_| ())
+            .map_err(|(status, _)| status);
+        }
+        assert_eq!(last.unwrap_err(), StatusCode::TOO_MANY_REQUESTS);
+    }
+
+    fn register_dummy() -> Vec<u8> {
+        crypto::generate_keypair().0
+    }
+
+    #[tokio::test]
     async fn org_roles_are_ident_authorized_and_role_gated() {
         let temp = tempfile::tempdir().unwrap();
         let opened =
@@ -2541,6 +2676,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: opened.packages_dir.clone(),
+            rate_limiter: RateLimiter::new(),
         };
 
         let grant = |grantor: &str, ident_private: &[u8], token: &str, member: &str, role: &str| {
@@ -2607,6 +2743,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: opened.packages_dir.clone(),
+            rate_limiter: RateLimiter::new(),
         };
 
         // Issue a token scoped to exactly alice#toolbox.
@@ -2711,6 +2848,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: opened.packages_dir.clone(),
+            rate_limiter: RateLimiter::new(),
         };
         publish_valid_package(&state, &alice, &alice_token, "1.0.0").await;
 
@@ -2767,6 +2905,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: opened.packages_dir.clone(),
+            rate_limiter: RateLimiter::new(),
         };
         publish_valid_package(&state, &keys, &token, "1.0.0").await;
         let log_before = store.log_size().unwrap();
@@ -2861,6 +3000,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: temp.path().join("data"),
+            rate_limiter: RateLimiter::new(),
         };
 
         // Build a fully valid package (attestation minted pre-rotation).
@@ -3032,6 +3172,7 @@ mod tests {
         let state = AppState {
             store: store.clone(),
             packages_dir: temp.path().join("data"),
+            rate_limiter: RateLimiter::new(),
         };
         // Grow the log: register (1) + three attestations (4 total).
         for version in ["1.0.0", "1.1.0", "1.2.0"] {
