@@ -321,7 +321,28 @@ struct TypeEnv {
     current_return: RefCell<String>,
     /// `kind` (`func`/`sub`) of the function currently being checked.
     current_kind: RefCell<String>,
+    /// Whether a type-poisoning rule fired while checking the current value —
+    /// typecheck's inference yields `Unknown` after an operator/constructor
+    /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
+    /// where lowering stamped a nominal result type. Reset per checked value.
+    poisoned: Cell<bool>,
 }
+
+/// Rules whose failure leaves the failing expression's type undeterminable in
+/// typecheck (its `infer_*` returns `Unknown` after reporting them).
+const POISONING_RULES: &[&str] = &[
+    "TYPE_BINARY_OPERATOR_MISMATCH",
+    "TYPE_UNARY_OPERATOR_MISMATCH",
+    "TYPE_UNARY_OPERATOR_UNKNOWN",
+    "TYPE_REQUIRES_COMPARABLE",
+    "TYPE_CALL_ARGUMENT_MISMATCH",
+    "TYPE_CALL_ARITY_MISMATCH",
+    "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
+    "TYPE_READ_ONLY_RECORD_CONSTRUCTOR",
+    "TYPE_READ_ONLY_RECORD_UPDATE",
+    "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
+    "TYPE_UNKNOWN_FIELD",
+];
 
 impl TypeEnv {
     fn build(project: &IrProject) -> Self {
@@ -454,11 +475,15 @@ impl TypeEnv {
             current_file: RefCell::new(String::new()),
             current_return: RefCell::new(String::new()),
             current_kind: RefCell::new(String::new()),
+            poisoned: Cell::new(false),
         }
     }
 
     /// Record one diagnostic at the current line/file.
     fn emit(&self, rule: &str, detail: String) {
+        if POISONING_RULES.contains(&rule) {
+            self.poisoned.set(true);
+        }
         self.diags.borrow_mut().push(Diagnostic {
             rule: rule.to_string(),
             detail,
@@ -510,8 +535,23 @@ impl TypeEnv {
                     ..
                 } => {
                     if let Some(value) = value {
+                        self.poisoned.set(false);
                         self.check_value_captures(value, closure_slots);
                         self.check_value(value, locals);
+                        // typecheck's cascade: an initializer whose type could
+                        // not be determined *because it is erroneous* also gets
+                        // TYPE_UNKNOWN_VALUE. Gate on a poisoning rule having
+                        // fired for this very value, so a clean-but-untypable
+                        // initializer (an external LINK call the lowering has
+                        // no signature for) is never rejected.
+                        if self.value_type_poisoned(value, locals) {
+                            self.emit(
+                                "TYPE_UNKNOWN_VALUE",
+                                format!(
+                                    "Initializer for binding `{name}` does not have a known type."
+                                ),
+                            );
+                        }
                         let before = self.diags.borrow().len();
                         self.check_literal_range(resource_base_type(type_), value);
                         let range_errored = self.diags.borrow().len() > before;
@@ -618,8 +658,17 @@ impl TypeEnv {
                 }
                 IrOp::Return { value, .. } => {
                     if let Some(value) = value {
+                        self.poisoned.set(false);
                         self.check_value_captures(value, closure_slots);
                         self.check_value(value, locals);
+                        // Cascade: an erroneous RETURN value with no
+                        // determinable type (see the Bind arm).
+                        if self.value_type_poisoned(value, locals) {
+                            self.emit(
+                                "TYPE_UNKNOWN_VALUE",
+                                "RETURN value does not have a known type.".to_string(),
+                            );
+                        }
                         self.check_return_type(value, locals);
                         let ret = self.current_return.borrow().clone();
                         self.check_literal_range(&ret, value);
@@ -1621,6 +1670,25 @@ impl TypeEnv {
                 _ => {}
             }
         }
+    }
+
+    /// Whether the just-checked value's type is undeterminable the way
+    /// typecheck's inference would see it: either a poisoning rule fired and
+    /// the value's own result rides on the failed node (a Binary/Unary chain,
+    /// where lowering stamps a nominal type the failure invalidates), or the
+    /// type simply cannot be reconstructed *and* something was reported. The
+    /// caller must reset `self.poisoned` before checking the value.
+    fn value_type_poisoned(&self, value: &IrValue, locals: &HashMap<String, String>) -> bool {
+        if !self.poisoned.get() {
+            return false;
+        }
+        matches!(
+            value,
+            IrValue::Binary { .. }
+                | IrValue::Unary { .. }
+                | IrValue::Constructor { .. }
+                | IrValue::WithUpdate { .. }
+        ) || self.infer_type(value, locals).is_none()
     }
 
     /// The registered close op for a resource type: user-declared native
