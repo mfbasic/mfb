@@ -138,6 +138,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn every_model_method() {
+        let m = X86_64RegisterModel;
+        // allocatable: both classes.
+        assert_eq!(m.allocatable(RegClass::Int), INT_ALLOCATABLE);
+        assert_eq!(m.allocatable(RegClass::Fp), FP_REGS);
+        // caller_saved: both classes.
+        assert_eq!(m.caller_saved(RegClass::Int), INT_CALLER_SAVED);
+        assert_eq!(m.caller_saved(RegClass::Fp), FP_REGS);
+        // class_of covers int, fp, and the None fall-through.
+        assert_eq!(m.class_of("r10"), Some(RegClass::Int));
+        assert_eq!(m.class_of("xmm15"), Some(RegClass::Fp));
+        assert_eq!(m.class_of("nonsense"), None);
+        // spill/reload widths and mnemonics per class.
+        let sp = m.emit_spill(RegClass::Int, "rbx", 8);
+        assert_eq!(sp.op.mnemonic(), "str_u64");
+        assert_eq!(sp.get("src"), Some("rbx"));
+        assert_eq!(sp.get("base"), Some("rsp"));
+        assert_eq!(sp.get("offset"), Some("8"));
+        assert_eq!(
+            m.emit_spill(RegClass::Fp, "xmm0", 16).op.mnemonic(),
+            "str_q"
+        );
+        let rl = m.emit_reload(RegClass::Int, "rbx", 8);
+        assert_eq!(rl.op.mnemonic(), "ldr_u64");
+        assert_eq!(rl.get("dst"), Some("rbx"));
+        assert_eq!(
+            m.emit_reload(RegClass::Fp, "xmm0", 16).op.mnemonic(),
+            "ldr_q"
+        );
+        // spill slot size, move, arena base, math pool base.
+        assert_eq!(m.spill_slot_bytes(), 16);
+        let mv = m.emit_move("rbx", "r10");
+        assert_eq!(mv.op.mnemonic(), "mov");
+        assert_eq!(mv.get("dst"), Some("rbx"));
+        assert_eq!(mv.get("src"), Some("r10"));
+        assert_eq!(m.arena_base(), "r15");
+        assert_eq!(m.math_pool_base(), None);
+        // ZERO_REGISTER constant.
+        assert_eq!(ZERO_REGISTER, "r14");
+    }
+
+    #[test]
     fn classes_and_saved_partition() {
         let m = X86_64RegisterModel;
         assert_eq!(m.class_of("rax"), Some(RegClass::Int));

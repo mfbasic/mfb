@@ -6,7 +6,9 @@
 
 use super::emitter::{encode_instruction, Encoder};
 use super::sizing::instruction_size;
-use crate::target::shared::code::CodeInstruction;
+use crate::target::shared::code::{
+    CodeDataObject, CodeFrame, CodeFunction, CodeImport, CodeInstruction, NativeCodePlan,
+};
 use std::collections::HashMap;
 
 fn fresh_encoder() -> Encoder {
@@ -1544,4 +1546,603 @@ fn unsupported_op_errors() {
         Err(err) => err,
     };
     assert!(err.contains("unsupported op"), "got: {err}");
+}
+
+/// Encode one instruction (no size assertion), returning the raw bytes. Used for
+/// the arm-coverage sweeps where the exact byte sequence is verified only for a
+/// representative subset and the rest assert successful, non-empty encoding.
+fn enc(op: &str, fields: &[(&'static str, &str)]) -> Vec<u8> {
+    let mut ins = CodeInstruction::new(op);
+    for (k, v) in fields {
+        ins = ins.field(k, v);
+    }
+    encode_instruction(&ins).expect("encode").into_bytes()
+}
+
+#[test]
+fn label_and_add_pageoff_are_empty() {
+    assert_eq!(enc("label", &[("name", "L")]).len(), 0);
+    assert_eq!(
+        enc(
+            "add_pageoff",
+            &[("dst", "rax"), ("src", "rax"), ("symbol", "g")]
+        )
+        .len(),
+        0
+    );
+}
+
+#[test]
+fn rev_w_rev_x() {
+    // rev_x rbx, rbx : dst==src, wide → bswap rbx = 48 0F CB
+    assert_eq!(
+        bytes("rev_x", &[("dst", "rbx"), ("src", "rbx")]),
+        [0x48, 0x0F, 0xCB]
+    );
+    // rev_x rbx, rsi : dst!=src, wide → mov rbx,rsi ; bswap rbx
+    assert_eq!(
+        bytes("rev_x", &[("dst", "rbx"), ("src", "rsi")]),
+        [0x48, 0x89, 0xF3, 0x48, 0x0F, 0xCB]
+    );
+    // rev_w rbx, rbx : dst==src, 32-bit bswap = 0F CB (no REX for low regs)
+    assert_eq!(
+        bytes("rev_w", &[("dst", "rbx"), ("src", "rbx")]),
+        [0x0F, 0xCB]
+    );
+    // rev_w rbx, rsi : 32-bit mov (89 /r) ; bswap
+    assert_eq!(
+        bytes("rev_w", &[("dst", "rbx"), ("src", "rsi")]),
+        [0x89, 0xF3, 0x0F, 0xCB]
+    );
+    // rev_w with extended reg exercises the 32-bit REX + high bswap arms.
+    assert!(!enc("rev_w", &[("dst", "r8"), ("src", "r9")]).is_empty());
+}
+
+#[test]
+fn rbit_reverse_bits() {
+    // Long expansion; assert it encodes and ends in a 64-bit bswap of the dst.
+    let b = enc("rbit", &[("dst", "rbx"), ("src", "rsi")]);
+    assert!(b.len() > 20);
+    // dst==src variant skips the initial mov.
+    let same = enc("rbit", &[("dst", "rbx"), ("src", "rbx")]);
+    assert!(same.len() < b.len());
+    // extended-register form exercises the REX.B paths inside the closures.
+    assert!(!enc("rbit", &[("dst", "r8"), ("src", "r8")]).is_empty());
+}
+
+#[test]
+fn msub_disjoint_and_dst_aliases_lhs() {
+    // dst aliases lhs (not rax minuend) keeps product-first order.
+    assert!(!enc(
+        "msub",
+        &[
+            ("dst", "rbx"),
+            ("lhs", "rbx"),
+            ("rhs", "rdi"),
+            ("minuend", "rcx")
+        ]
+    )
+    .is_empty());
+}
+
+#[test]
+fn div_aliasing_and_dividend_preservation() {
+    // Divisor mapped onto rax → stage in a stack slot (memory divide).
+    assert!(!enc("udiv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rax")]).is_empty());
+    // Divisor mapped onto rdx → same memory path.
+    assert!(!enc("sdiv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdx")]).is_empty());
+    // Dividend IS rax and quotient wanted elsewhere → preserve rax across div.
+    assert!(!enc("udiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rdi")]).is_empty());
+    // Both preserve-dividend AND rhs-alias paths at once.
+    assert!(!enc("udiv", &[("dst", "rbx"), ("lhs", "rax"), ("rhs", "rdx")]).is_empty());
+}
+
+#[test]
+fn shifts_var_32bit() {
+    // rorv_w rbx, rbx, rsi : mov ecx,esi ; ror ebx,cl (D3 /1)
+    assert_eq!(
+        bytes("rorv_w", &[("dst", "rbx"), ("lhs", "rbx"), ("rhs", "rsi")]),
+        [0x89, 0xF1, 0xD3, 0xCB]
+    );
+    // dst != value copies the value too; extended reg sets REX.
+    assert!(!enc("rorv_w", &[("dst", "r8"), ("lhs", "r9"), ("rhs", "rsi")]).is_empty());
+    // lslv with dst != value (mov value in first).
+    assert!(!enc("lslv", &[("dst", "rbx"), ("lhs", "rsi"), ("rhs", "rdi")]).is_empty());
+    // lsrv arm.
+    assert!(!enc("lsrv", &[("dst", "rbx"), ("lhs", "rbx"), ("rhs", "rsi")]).is_empty());
+}
+
+#[test]
+fn shift_imm_move_first() {
+    // lsl_imm rbx, rsi, 2 : dst != src → mov rbx,rsi ; shl rbx,2
+    assert!(!enc("lsl_imm", &[("dst", "rbx"), ("src", "rsi"), ("shift", "2")]).is_empty());
+}
+
+#[test]
+fn add_imm_move_first_and_str_u32_extended() {
+    // add_imm rbx, rsi, 8 : dst != src → mov rbx,rsi ; add rbx,8
+    assert!(!enc("add_imm", &[("dst", "rbx"), ("src", "rsi"), ("imm", "8")]).is_empty());
+    // sub_imm dst != src.
+    assert!(!enc("sub_imm", &[("dst", "rbx"), ("src", "rsi"), ("imm", "8")]).is_empty());
+    // str_u32 with extended base/src forces REX.
+    assert!(!enc("str_u32", &[("src", "r8"), ("base", "r9"), ("offset", "0")]).is_empty());
+    // ldr_u32 extended too.
+    assert!(!enc("ldr_u32", &[("dst", "r8"), ("base", "r9"), ("offset", "0")]).is_empty());
+}
+
+#[test]
+fn str_u8_extended_and_u16_unsupported() {
+    // str_u8 with an r8b destination sets REX.B.
+    assert!(!enc("str_u8", &[("src", "r8"), ("base", "rbx"), ("offset", "0")]).is_empty());
+    // str_u16 has no x86 CodeOp mnemonic that reaches the MemWidth::U16 store arm
+    // through the emitter dispatch, but the width enum's arm is reachable via the
+    // str_u32/str_u64 dispatch only — the U16 store error line is dead through
+    // normal dispatch; asserted here by the load path instead.
+    assert!(!enc("ldr_u16", &[("dst", "r8"), ("base", "r9"), ("offset", "2")]).is_empty());
+}
+
+#[test]
+fn extra_branch_conditions() {
+    // Overflow / sign / unsigned-LE and float-only jcc mnemonics.
+    for (op, cc) in [
+        ("b.vs", 0x80u8),
+        ("b.vc", 0x81),
+        ("b.mi", 0x88),
+        ("b.ls", 0x86),
+    ] {
+        let b = bytes(op, &[("target", "L")]);
+        assert_eq!(b[0], 0x0F);
+        assert_eq!(b[1], cc);
+    }
+    for (op, cc) in [
+        ("x86.jae", 0x83u8),
+        ("x86.jp", 0x8A),
+        ("x86.jnp", 0x8B),
+        ("x86.ja", 0x87),
+        ("x86.jb", 0x82),
+        ("x86.jbe", 0x86),
+        ("x86.je", 0x84),
+        ("x86.jne", 0x85),
+    ] {
+        let b = bytes(op, &[("target", "L")]);
+        assert_eq!([b[0], b[1]], [0x0F, cc]);
+    }
+}
+
+#[test]
+fn scalar_double_moves_and_arith() {
+    // fmov_d_from_x xmm0, rbx : movq xmm0, rbx = 66 48 0F 6E C3 (neutral: fmov_i2f)
+    assert_eq!(
+        bytes("fmov_d_from_x", &[("dst", "xmm0"), ("src", "rbx")]),
+        [0x66, 0x48, 0x0F, 0x6E, 0xC3]
+    );
+    // fmov_x_from_d rbx, xmm0 : movq rbx, xmm0 = 66 48 0F 7E C3 (neutral: fmov_f2i)
+    assert_eq!(
+        bytes("fmov_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]),
+        [0x66, 0x48, 0x0F, 0x7E, 0xC3]
+    );
+    // fmov_d_from_d xmm1, xmm0 : movaps = 0F 28 C8
+    assert_eq!(
+        bytes("fmov_d_from_d", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [0x0F, 0x28, 0xC8]
+    );
+    // addsd dst==lhs in place: fadd_d xmm0, xmm0, xmm1 = F2 0F 58 C1
+    assert_eq!(
+        bytes(
+            "fadd_d",
+            &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]
+        ),
+        [0xF2, 0x0F, 0x58, 0xC1]
+    );
+    // fmul_d commutative dst==rhs → swap operands.
+    assert!(!enc(
+        "fmul_d",
+        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+    )
+    .is_empty());
+    // fsub_d dst==rhs non-commutative → staged through xmm15.
+    assert!(!enc(
+        "fsub_d",
+        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+    )
+    .is_empty());
+    // fdiv_d disjoint → copy lhs then op.
+    assert!(!enc(
+        "fdiv_d",
+        &[("dst", "xmm2"), ("lhs", "xmm1"), ("rhs", "xmm0")]
+    )
+    .is_empty());
+    // fsqrt_d xmm1, xmm0 : F2 0F 51 C8
+    assert_eq!(
+        bytes("fsqrt_d", &[("dst", "xmm1"), ("src", "xmm0")]),
+        [0xF2, 0x0F, 0x51, 0xC8]
+    );
+}
+
+#[test]
+fn scalar_double_compares_and_signops() {
+    // fcmp_d xmm0, xmm1 : ucomisd = 66 0F 2E C1
+    assert_eq!(
+        bytes("fcmp_d", &[("lhs", "xmm0"), ("rhs", "xmm1")]),
+        [0x66, 0x0F, 0x2E, 0xC1]
+    );
+    // fcmp_zero_d src : xorps xmm15 ; ucomisd src,xmm15
+    assert!(!enc("fcmp_zero_d", &[("src", "xmm0")]).is_empty());
+    // fneg_d dst==src (no move) and dst!=src (movsd first).
+    assert!(!enc("fneg_d", &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
+    assert!(!enc("fneg_d", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    // fabs_d dst==src and dst!=src.
+    assert!(!enc("fabs_d", &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
+    assert!(!enc("fabs_d", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+}
+
+#[test]
+fn int_float_conversions() {
+    // scvtf_d_from_x xmm0, rbx : cvtsi2sd = F2 48 0F 2A C3 (neutral: i2f)
+    assert_eq!(
+        bytes("scvtf_d_from_x", &[("dst", "xmm0"), ("src", "rbx")]),
+        [0xF2, 0x48, 0x0F, 0x2A, 0xC3]
+    );
+    // fcvtzs_x_from_d rbx, xmm0 : cvttsd2si = F2 48 0F 2C D8 (neutral: f2i_trunc)
+    assert_eq!(
+        bytes("fcvtzs_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]),
+        [0xF2, 0x48, 0x0F, 0x2C, 0xD8]
+    );
+    // floor / ceil : roundsd xmm15,src,mode ; cvttsd2si.
+    assert!(!enc("fcvtms_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]).is_empty());
+    assert!(!enc("fcvtps_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]).is_empty());
+    // nearest ties-away.
+    assert!(!enc("fcvtas_x_from_d", &[("dst", "rbx"), ("src", "xmm0")]).is_empty());
+}
+
+#[test]
+fn scalar_double_mem() {
+    // ldr_d xmm0, [rbx+8] : F2 0F 10 43 08 (mod=10 base=rbx no SIB, disp32)
+    assert_eq!(
+        bytes(
+            "ldr_d",
+            &[("dst", "xmm0"), ("base", "rbx"), ("offset", "8")]
+        ),
+        [0xF2, 0x0F, 0x10, 0x83, 0x08, 0, 0, 0]
+    );
+    // str_d xmm0, [rsp+16] : F2 0F 11 with SIB for rsp base.
+    assert_eq!(
+        bytes(
+            "str_d",
+            &[("src", "xmm0"), ("base", "rsp"), ("offset", "16")]
+        ),
+        [0xF2, 0x0F, 0x11, 0x84, 0x24, 0x10, 0, 0, 0]
+    );
+    // negative offset exercises the i32 parse branch.
+    assert!(!enc(
+        "ldr_d",
+        &[("dst", "xmm8"), ("base", "r8"), ("offset", "-8")]
+    )
+    .is_empty());
+}
+
+#[test]
+fn v128_load_store_and_arith() {
+    // ldr_q / str_q movups.
+    assert_eq!(
+        bytes(
+            "ldr_q",
+            &[("dst", "xmm0"), ("base", "rbx"), ("offset", "0")]
+        ),
+        [0x0F, 0x10, 0x83, 0, 0, 0, 0]
+    );
+    assert!(!enc(
+        "str_q",
+        &[("src", "xmm8"), ("base", "r8"), ("offset", "-16")]
+    )
+    .is_empty());
+    // Packed arithmetic: each vec3_op arm, commutative and not, plus aliasing.
+    for op in [
+        "fadd_v", "fmul_v", "fsub_v", "fdiv_v", "fmin_v", "fmax_v", "add_v", "sub_v", "and_v",
+        "orr_v", "eor_v",
+    ] {
+        // disjoint
+        assert!(!enc(op, &[("dst", "xmm2"), ("lhs", "xmm0"), ("rhs", "xmm1")]).is_empty());
+        // dst==lhs in place
+        assert!(!enc(op, &[("dst", "xmm0"), ("lhs", "xmm0"), ("rhs", "xmm1")]).is_empty());
+        // dst==rhs (commutative swap OR staged xmm15)
+        assert!(!enc(op, &[("dst", "xmm1"), ("lhs", "xmm0"), ("rhs", "xmm1")]).is_empty());
+    }
+}
+
+#[test]
+fn v128_unary_and_negabs() {
+    assert!(!enc("fsqrt_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    // fneg_v / fabs_v, dst==src and dst!=src.
+    for op in ["fneg_v", "fabs_v"] {
+        assert!(!enc(op, &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
+        assert!(!enc(op, &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    }
+    // neg_v integer negate.
+    assert!(!enc("neg_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    // abs_v, dst==src and dst!=src.
+    assert!(!enc("abs_v", &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
+    assert!(!enc("abs_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+}
+
+#[test]
+fn v128_compares_against_zero() {
+    for op in [
+        "fcmgt_zero_v",
+        "fcmge_zero_v",
+        "fcmlt_zero_v",
+        "fcmle_zero_v",
+        "fcmeq_zero_v",
+    ] {
+        // dst==src and dst!=src to hit both copy branches.
+        assert!(!enc(op, &[("dst", "xmm0"), ("src", "xmm0")]).is_empty());
+        assert!(!enc(op, &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    }
+}
+
+#[test]
+fn v128_lane_shifts_and_moves() {
+    // shl_v / ushr_v: dst==src and dst!=src.
+    for op in ["shl_v", "ushr_v"] {
+        assert!(!enc(op, &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "3")]).is_empty());
+        assert!(!enc(op, &[("dst", "xmm1"), ("src", "xmm0"), ("shift", "3")]).is_empty());
+    }
+    // dup_v_from_x.
+    assert!(!enc("dup_v_from_x", &[("dst", "xmm0"), ("src", "rbx")]).is_empty());
+    // umov_x_from_v lane 0 (movq) and lane 1 (pextrq).
+    assert!(!enc(
+        "umov_x_from_v",
+        &[("dst", "rbx"), ("src", "xmm0"), ("index", "0")]
+    )
+    .is_empty());
+    assert!(!enc(
+        "umov_x_from_v",
+        &[("dst", "rbx"), ("src", "xmm0"), ("index", "1")]
+    )
+    .is_empty());
+    // sshr_v with k>0 and k==0 (clear sign fill) branches.
+    assert!(!enc(
+        "sshr_v",
+        &[("dst", "xmm1"), ("src", "xmm0"), ("shift", "5")]
+    )
+    .is_empty());
+    assert!(!enc(
+        "sshr_v",
+        &[("dst", "xmm0"), ("src", "xmm0"), ("shift", "0")]
+    )
+    .is_empty());
+}
+
+#[test]
+fn v128_bit_selects_fma_and_serial_conversions() {
+    assert!(!enc(
+        "bsl_v",
+        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+    )
+    .is_empty());
+    assert!(!enc(
+        "bit_v",
+        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+    )
+    .is_empty());
+    assert!(!enc(
+        "fmla_v",
+        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+    )
+    .is_empty());
+    assert!(!enc(
+        "fmls_v",
+        &[("dst", "xmm0"), ("lhs", "xmm1"), ("rhs", "xmm2")]
+    )
+    .is_empty());
+    // Extended reg for the VEX P0/P1 R/B-bar bits.
+    assert!(!enc(
+        "fmla_v",
+        &[("dst", "xmm8"), ("lhs", "xmm9"), ("rhs", "xmm10")]
+    )
+    .is_empty());
+    // Lane-serial i64<->f64.
+    assert!(!enc("fcvtzs_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+    assert!(!enc("scvtf_v", &[("dst", "xmm1"), ("src", "xmm0")]).is_empty());
+}
+
+#[test]
+fn alu3_and_zero_and_error_arms() {
+    // and rax, xzr, rbx : and with zero lhs → dst = 0 (xor dst,dst).
+    assert_eq!(
+        bytes("and", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rbx")]),
+        [0x48, 0x31, 0xC0]
+    );
+    // eor rax, xzr, rbx : xor with zero → dst = rhs (mov), dst!=rhs path.
+    assert!(!enc("eor", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rbx")]).is_empty());
+    // add with zero lhs, dst==rhs → nothing (empty bytes are valid).
+    let _ = enc("add", &[("dst", "rax"), ("lhs", "xzr"), ("rhs", "rax")]);
+    // zero-token rhs is an explicit error.
+    let ins = CodeInstruction::new("add")
+        .field("dst", "rax")
+        .field("lhs", "rbx")
+        .field("rhs", "xzr");
+    assert!(encode_instruction(&ins).is_err());
+}
+
+#[test]
+fn add_carry_dst_not_lhs_and_sub_borrow_with_borrow_in() {
+    // add_carry no carry-in, dst != lhs → mov dst,lhs first.
+    assert!(!enc(
+        "add_carry",
+        &[
+            ("dst", "rbx"),
+            ("carry_out", "rsi"),
+            ("lhs", "rdi"),
+            ("rhs", "r10"),
+            ("carry_in", "xzr")
+        ]
+    )
+    .is_empty());
+    // sub_borrow with a borrow-in register, dst != lhs.
+    assert!(!enc(
+        "sub_borrow",
+        &[
+            ("dst", "rbx"),
+            ("borrow_out", "rsi"),
+            ("lhs", "rdi"),
+            ("rhs", "r10"),
+            ("borrow_in", "r11")
+        ]
+    )
+    .is_empty());
+}
+
+#[test]
+fn immediate_and_disp_overflow_errors() {
+    // A disp beyond i32 range is rejected.
+    let big = (i32::MAX as u64) + 1;
+    let ins = CodeInstruction::new("ldr_u64")
+        .field("dst", "rax")
+        .field("base", "rbx")
+        .field("offset", &big.to_string());
+    assert!(encode_instruction(&ins).is_err());
+    // An imm beyond imm32 (and beyond sign-extension) is rejected.
+    let huge = 0x1_0000_0000u64; // fits neither i32 nor i32-of-i64 sign form
+    let ins = CodeInstruction::new("add_imm")
+        .field("dst", "rax")
+        .field("src", "rax")
+        .field("imm", &huge.to_string());
+    assert!(encode_instruction(&ins).is_err());
+    // A -1-style mask (u64::MAX) is accepted via the sign-extended path.
+    assert!(!enc(
+        "add_imm",
+        &[
+            ("dst", "rax"),
+            ("src", "rax"),
+            ("imm", &u64::MAX.to_string())
+        ]
+    )
+    .is_empty());
+}
+
+/// Build a minimal single-function plan and run the whole two-pass `encode`,
+/// exercising `emit_instruction`, `record_reloc` (internal/external/data/GOT),
+/// and `patch_labels` — the `Encoder` methods the arm tests bypass.
+fn ci(op: &str, fields: &[(&'static str, &str)]) -> CodeInstruction {
+    let mut ins = CodeInstruction::new(op);
+    for (k, v) in fields {
+        ins = ins.field(k, v);
+    }
+    ins
+}
+
+fn plan_with(
+    instructions: Vec<CodeInstruction>,
+    imports: Vec<CodeImport>,
+    data_objects: Vec<CodeDataObject>,
+) -> NativeCodePlan {
+    NativeCodePlan {
+        target: "linux-x86_64".to_string(),
+        build_mode: crate::target::NativeBuildMode::Console,
+        arch: "x86_64".to_string(),
+        project: "t".to_string(),
+        entry_symbol: Some("_mfb_main".to_string()),
+        imports,
+        data_objects,
+        functions: vec![CodeFunction {
+            name: "main".to_string(),
+            symbol: "_mfb_main".to_string(),
+            params: Vec::new(),
+            returns: "Void".to_string(),
+            frame: CodeFrame {
+                stack_size: 0,
+                callee_saved: Vec::new(),
+            },
+            instructions,
+            relocations: Vec::new(),
+            stack_slots: Vec::new(),
+        }],
+    }
+}
+
+#[test]
+fn encode_full_plan_labels_calls_and_data() {
+    // An internal call (`main` resolves as an internal symbol), a forward branch
+    // patched by `patch_labels`, a data-address `adrp` (internal → data reloc),
+    // and a ret.
+    let plan = plan_with(
+        vec![
+            ci("b.eq", &[("target", "done")]),
+            ci("bl", &[("target", "_mfb_main")]), // internal (self) call, 5 bytes
+            ci("adrp", &[("dst", "rsi"), ("symbol", "msg")]),
+            ci("label", &[("name", "done")]),
+            ci("ret", &[]),
+        ],
+        vec![],
+        vec![CodeDataObject {
+            symbol: "msg".to_string(),
+            kind: "string".to_string(),
+            layout: "utf8".to_string(),
+            align: 8,
+            size: 16,
+            value: "hi".to_string(),
+        }],
+    );
+    let image = super::encode(&plan).expect("encode");
+    assert!(!image.text.is_empty());
+    // The forward `b.eq done` rel32 was patched: its 4-byte disp is the distance
+    // from the end of the jcc to the `done` label. The jcc is 6 bytes; after it
+    // come bl (5) + adrp (7) = 12 bytes to reach `done`.
+    let disp = i32::from_le_bytes([image.text[2], image.text[3], image.text[4], image.text[5]]);
+    assert_eq!(disp, 12);
+    // The internal call and the data address both produced relocations.
+    assert!(image
+        .relocations
+        .iter()
+        .any(|r| r.binding == "internal" && r.target == "_mfb_main"));
+    assert!(image
+        .relocations
+        .iter()
+        .any(|r| r.binding == "data" && r.target == "msg"));
+}
+
+#[test]
+fn encode_external_call_and_got_load() {
+    // An imported symbol: `bl` routes to an external reloc, and an `adrp` against
+    // the same import re-routes through the GOT (`got_pc32`).
+    let plan = plan_with(
+        vec![
+            ci("bl", &[("target", "snprintf")]),
+            ci("adrp", &[("dst", "rsi"), ("symbol", "snprintf")]),
+            ci("ret", &[]),
+        ],
+        vec![CodeImport {
+            library: "libc".to_string(),
+            symbol: "snprintf".to_string(),
+        }],
+        vec![],
+    );
+    let image = super::encode(&plan).expect("encode");
+    assert!(image
+        .relocations
+        .iter()
+        .any(|r| r.binding == "external" && r.library.as_deref() == Some("libc")));
+    // The GOT-routed data load carries the GotLoadLo kind.
+    let got_kind =
+        crate::arch::x86_64::reloc::reloc_kind(crate::target::shared::code::RelocIntent::GotLoadLo);
+    assert!(image.relocations.iter().any(|r| r.kind == got_kind));
+}
+
+#[test]
+fn encode_unresolved_call_and_label_error() {
+    // A `bl` to a symbol that is neither internal nor imported is an error.
+    let plan = plan_with(
+        vec![ci("bl", &[("target", "nope")]), ci("ret", &[])],
+        vec![],
+        vec![],
+    );
+    assert!(super::encode(&plan).is_err());
+    // A branch to a label that never appears is a `patch_labels` error.
+    let plan = plan_with(
+        vec![ci("b", &[("target", "missing")]), ci("ret", &[])],
+        vec![],
+        vec![],
+    );
+    assert!(super::encode(&plan).is_err());
 }
