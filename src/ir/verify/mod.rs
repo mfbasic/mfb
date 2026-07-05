@@ -2316,11 +2316,13 @@ impl TypeEnv {
                         return true;
                     }
                 }
-                IrOp::Trap { body, .. } => {
-                    if self.block_always_returns(body, &locals) {
-                        return true;
-                    }
-                }
+                // A function-level `TRAP` is the error *handler* for the
+                // preceding statements; on the success path control falls
+                // through it without executing the handler. So a trailing
+                // `Trap` never makes the block always-return — only the ops
+                // *before* it (a success-path `RETURN`) can. The handler
+                // returning is irrelevant to fall-through.
+                IrOp::Trap { .. } => {}
                 IrOp::Bind { name, type_, .. } => {
                     locals.insert(name.clone(), type_.clone());
                 }
