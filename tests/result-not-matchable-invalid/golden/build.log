@@ -23,18 +23,18 @@ tests/result-not-matchable-invalid/src/main.mfb:14 error[2-203-0071 TYPE_RESULT_
      | ^
 tests/result-not-matchable-invalid/src/main.mfb:15 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                RETURN value does not have a known type.
-   9 | 
-  10 | FUNC main AS Integer
-  11 |   MATCH parse(5)
-     | ^
-tests/result-not-matchable-invalid/src/main.mfb:11 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
-               MATCH on open type Integer requires an unguarded CASE ELSE.
    8 | END FUNC
    9 | 
   10 | FUNC main AS Integer
      | ^
 tests/result-not-matchable-invalid/src/main.mfb:10 error[2-203-0032 TYPE_FUNC_MISSING_RETURN]: function is missing a return value
                FUNC `main` must return a Integer value.
+   9 | 
+  10 | FUNC main AS Integer
+  11 |   MATCH parse(5)
+     | ^
+tests/result-not-matchable-invalid/src/main.mfb:11 error[2-203-0062 TYPE_MATCH_NOT_EXHAUSTIVE]: match cases do not cover every possible value
+               MATCH on open type Integer requires an unguarded CASE ELSE.
   11 |   MATCH parse(5)
   12 |     CASE Ok(value)
   13 |       RETURN value

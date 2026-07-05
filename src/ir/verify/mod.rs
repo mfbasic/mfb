@@ -105,6 +105,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_READ_ONLY_RECORD_UPDATE",
     "TYPE_MATCH_PATTERN_MISMATCH",
     "TYPE_REQUIRES_COMPARABLE",
+    "TYPE_MATCH_NOT_EXHAUSTIVE",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -254,6 +255,9 @@ struct RecordInfo {
 
 struct UnionInfo {
     variants: HashSet<String>,
+    /// The direct variants in declaration order, for diagnostics that list
+    /// missing members in source order (exhaustiveness).
+    variant_order: Vec<String>,
     includes: Vec<String>,
 }
 
@@ -344,6 +348,7 @@ impl TypeEnv {
                         ty.name.clone(),
                         UnionInfo {
                             variants: ty.variants.iter().map(|v| v.name.clone()).collect(),
+                            variant_order: ty.variants.iter().map(|v| v.name.clone()).collect(),
                             includes: ty.includes.clone(),
                         },
                     );
@@ -1627,14 +1632,29 @@ impl TypeEnv {
         let Some(ty) = self.infer_type(value, locals) else {
             return;
         };
+        let ty = resource_base_type(&ty).to_string();
+        // A Result scrutinee's CASE Ok/Error arms are rejected by
+        // TYPE_RESULT_NOT_MATCHABLE; suppress the secondary exhaustiveness
+        // cascade like typecheck does. Unknown types are skipped as always.
+        if ty.is_empty() || ty == "Unknown" || ty == "Result" || ty.starts_with("Result OF ") {
+            return;
+        }
         // The complete member/variant set, and whether it is a union (for the
-        // diagnostic wording). Anything else (Boolean Result flag, primitive,
-        // unresolved include) is skipped — no false rejection.
+        // diagnostic wording). Any other *known* type is an open type: only an
+        // unguarded CASE ELSE can make its MATCH exhaustive.
         let (all, is_union) = if let Some(variants) = self.union_variants(&ty) {
             (variants, true)
         } else if let Some(members) = self.enums.get(&ty) {
             (members.clone(), false)
         } else {
+            if !cases.iter().any(|case| {
+                case.guard.is_none() && matches!(case.pattern, super::IrMatchPattern::Else)
+            }) {
+                self.emit(
+                    "TYPE_MATCH_NOT_EXHAUSTIVE",
+                    format!("MATCH on open type {ty} requires an unguarded CASE ELSE."),
+                );
+            }
             return;
         };
         let pattern_name = |v: &IrValue| -> Option<String> {
@@ -1665,19 +1685,52 @@ impl TypeEnv {
                 }
             }
         }
-        let mut missing: Vec<&String> = all.difference(&covered).collect();
-        if missing.is_empty() {
+        if all.difference(&covered).next().is_none() {
             return;
         }
-        missing.sort();
-        let kind = if is_union { "UNION" } else { "ENUM" };
-        self.emit(
-            "TYPE_MATCH_NOT_EXHAUSTIVE",
+        // Missing-member lists mirror typecheck's wording exactly: unions list
+        // the uncovered variants in declaration order; enums list sorted
+        // `Type.member` names.
+        let missing = if is_union {
+            let mut ordered: Vec<String> = self
+                .unions
+                .get(&ty)
+                .map(|info| {
+                    info.variant_order
+                        .iter()
+                        .filter(|v| !covered.contains(*v))
+                        .cloned()
+                        .collect()
+                })
+                .unwrap_or_default();
+            // Variants reached through INCLUDES have no declaration slot here;
+            // append them sorted so the list is complete and deterministic.
+            let mut extra: Vec<String> = all
+                .difference(&covered)
+                .filter(|v| !ordered.contains(v))
+                .cloned()
+                .collect();
+            extra.sort();
+            ordered.extend(extra);
+            ordered.join(", ")
+        } else {
+            let mut members: Vec<String> = all
+                .difference(&covered)
+                .map(|m| format!("{ty}.{m}"))
+                .collect();
+            members.sort();
+            members.join(", ")
+        };
+        let detail = if is_union {
             format!(
-                "MATCH on {kind} `{ty}` does not cover {}; add unguarded CASE arms or CASE ELSE.",
-                missing[0]
-            ),
-        );
+                "MATCH on UNION `{ty}` does not cover {missing}; add unguarded CASE arms or CASE ELSE."
+            )
+        } else {
+            format!(
+                "MATCH on enum `{ty}` does not cover {missing}; add unguarded CASE arms or CASE ELSE."
+            )
+        };
+        self.emit("TYPE_MATCH_NOT_EXHAUSTIVE", detail);
     }
 
     /// `typecheck`'s `TYPE_MATCH_PATTERN_MISMATCH` on the IR: a CASE pattern
