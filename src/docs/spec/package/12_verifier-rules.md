@@ -2,7 +2,7 @@
 
 The `.mfp` reader runs before a package can be imported or merged. This page separates three things an implementer must not conflate:
 
-1. **Import-time checks** — what the current reader (`src/binary_repr.rs`, `src/main.rs`) actually enforces when it opens a `.mfp`.
+1. **Import-time checks** — what the current reader (`src/binary_repr/`, `src/main.rs`) actually enforces when it opens a `.mfp`.
 2. **Compile-time guarantees** — invariants established when the package *source* was compiled, and therefore assumed (not re-derived) on import.
 3. **Not yet enforced** — invariants the format anticipates but the current reader does not check.
 
@@ -36,51 +36,50 @@ The reader does **not** verify the cryptographic signature; that is the package 
 
 ### IR payload
 
-* `decode_binary_repr` checks the `MFBR` magic and `version == 2`, then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error. [[src/ir/binary.rs:decode_binary_repr]]
+* `decode_binary_repr` checks the `MFBR` magic and `version == 4` (the current `BINARY_REPR_VERSION`), then structurally decodes the whole `IrProject`; truncation or invalid UTF-8 anywhere in the payload is an error. [[src/ir/binary.rs:decode_binary_repr]]
 
 ## Merge-time semantic verification (enforced before native lowering)
 
-Reading a `.mfp` reconstructs an `IrProject`, but that IR is only lowered to native code when it is *merged* into a consuming build (`merge_packages`, `src/target/shared/nir/lower.rs`). At that point — after every imported package's IR and the importer's own IR are merged into one project, and before any code is emitted — a semantic verifier runs over the merged IR (`ir::verify_semantics`, `src/ir/verify/`). A crafted `.mfp` carries hand-serialized IR that never passed the source type checker, so this pass re-establishes the semantic invariants codegen would otherwise trust (audit-1 finding **PKG-02**). A failure aborts the build with a `PACKAGE_BINARY_REPRESENTATION_VERIFY_*` error; the type-confused IR is never lowered.
+Reading a `.mfp` reconstructs an `IrProject`, but that IR is only lowered to native code when it is *merged* into a consuming build (`merge_packages`, `src/target/shared/nir/lower.rs`). At that point — after every imported package's IR and the importer's own IR are merged into one project, and before any code is emitted — the **complete semantic verifier** runs over the merged IR (`ir::verify_semantics`, `src/ir/verify/`). A crafted `.mfp` carries hand-serialized IR that never passed any source check, so this pass re-establishes the semantic invariants codegen would otherwise trust (audit-1 finding **PKG-02**). A failure aborts the build with a `PACKAGE_BINARY_REPRESENTATION_VERIFY_*` error; the invalid IR is never lowered. [[src/target/shared/nir/lower.rs:merge_packages]]
 
-The verifier is **sound with respect to acceptance**: it rejects only what it can *prove* is malformed and skips any node whose type it cannot reconstruct with certainty, so it accepts exactly the IR the front end emits today. Within that limit it enforces:
+`ir::verify` is the **single source of truth for every semantic rule** — it is the sole rejecter of those rules on *both* the source-lowered IR and decoded package IR (plan-20). The decoded package payload is fully typed (every value node carries its result type; §"Expressions" of the IR-section page) and carries the declaration-fidelity fields (`explicit_type`, `file`) the rules need, so the checker runs the whole rule set without re-inferring types. Concretely it enforces, on package IR:
 
-* **Member access** resolves to a real member — a `MemberAccess` on a primitive (`Integer`/`Float`/`String`/`Boolean`/`Byte`/`Fixed`/`Nothing`) is rejected, as is one on a record type that does not declare the member (fields expanded through `includes`).
-* **Closure captures** stay in range — every `Capture` index is below the captured-slot count of the `Closure` site that targets the enclosing function.
-* **Call / constructor arity** matches the callee — a direct call to an internal function passes an argument count within `[required, total]` for that signature, and a record constructor supplies no more arguments than the record has fields.
-* **Union wraps** name a real variant — a `UnionWrap.member_type` must be a variant of the named union (variants expanded through included unions).
-* **`MATCH`** carries at least one case, bounded to `256` levels of statement nesting (mirroring the decoder's depth cap).
+* **Type correctness** — binary/unary operand types, call/constructor argument types, return types, assignment types, list/map element/key/value types, member access on a real record member (a `MemberAccess` on a primitive is rejected), union-wrap variant membership, and match-pattern typing.
+* **Arity & shape** — call arity against the callee signature, exact constructor arity (records have no field defaults), closure-`Capture` indices within their site's slot count, `Map` keys comparable, non-empty and **exhaustive** `MATCH` (full enum/union coverage or an `ELSE`, not merely non-empty), bounded to `256` levels of statement nesting.
+* **Resource linearity** (flow-sensitive) — use-after-move / double-close across branches (`TYPE_USE_AFTER_MOVE`, cross-branch `MaybeMoved` union; see `./mfb spec language memory-semantics` §14.9), borrow invalidation (`TYPE_RESOURCE_BORROW_INVALIDATE`), the `RES`/`STATE` ownership axis (`TYPE_RESOURCE_REQUIRES_RES`, `TYPE_RES_REQUIRES_RESOURCE`, `TYPE_STATE_INVALID`, `TYPE_UNION_STATE_FORBIDDEN`), and collection-element ownership (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, thread/resource in a `Map` key).
+* **Declarations** — literal-range fit for every numeric `Const`, union include/member and enum well-formedness, duplicate union variants, cross-file member visibility (`TYPE_MEMBER_NOT_VISIBLE`), and binding/parameter well-formedness where it survives lowering.
+* **Native `LINK` ABI** — C-type escape (`NATIVE_CPTR_ESCAPE`), ABI slot/param/CONST binding, and result-marker consistency over the merged link table.
 
 This complements the structural `verify_package` re-check (unique/non-empty function and type names) that runs per-package as the IR is decoded.
 
+The verifier remains **sound with respect to acceptance**: it rejects only what it can *prove* is malformed and skips any node whose type it genuinely cannot reconstruct (e.g. an external `LINK` result with no in-package signature), so it accepts exactly the IR a conforming front end emits.
+
 ## Compile-time guarantees (assumed on import, not re-checked)
 
-These were enforced by the source compiler when the package was built and are **not** re-verified by the import-time reader. An importer relies on the package having been produced by a conforming compiler:
+Only the rules about **source syntax that lowering erases** are assumed rather than re-verified — and they are assumed *vacuously*, because the constructs they govern cannot appear in a `.mfp` at all (lowering normalized them away before serialization):
 
-* Every IR node is type-correct — operands, calls, constructors, member access, and `Result` inspection (`ResultIsOk`/`ResultValue`/`ResultError`) are well-typed.
-* Define-before-use; no use-after-move.
-* Declared return/effect agreement: every path produces a `Result` consistent with the declared success type.
-* `PROPAGATE` appears only inside a `TRAP` region (it is lowered to `Fail` before serialization, so decoded IR contains no separate propagate node).
-* `CallResult`/`ResultValue`/`ResultError` apply only to fallible (`Result`) expressions, on the structurally correct branch.
-* `MATCH` is exhaustive (covers every value or has an `ELSE`).
-* Resource linearity: resources are not copied/compared/printed/serialized/stored in ordinary collections/captured by lambdas; not sent to threads unless marked sendable; closed exactly once (explicit close or lexical drop); ownership transfers on return; borrows do not outlive the call.
-* Isolated-function restrictions.
-* `Map` keys are comparable; `CPtr` does not appear in ordinary MFBASIC signatures.
+* Named-argument call binding (`f(x := …)` duplicate/unknown names, post-normalization arity). Packages carry only positional argument lists.
+* `EXIT FUNC` / `EXIT SUB` flavor distinctions and `SUB` return-shape rules — `EXIT FUNC` lowers to nothing, `EXIT SUB`/bare `RETURN` to `Return{None}`; the flavor is gone.
+* Inline-`TRAP` boundaries, fallibility, and `RECOVER`-outside-handler — the handler is treeified into ordinary ops with no boundary marker; `PROPAGATE` outside a `TRAP` *is* still caught (`TYPE_PROPAGATE_REQUIRES_TRAP`) because it serializes as an unbound-sentinel `Fail`.
+* Lambda capture-escape classification and thread channel *sendability* — front-end escape/registry properties whose conclusion (not derivation) the IR records.
 
 Because control flow is structured (nested regions with explicit ends), there are no branch targets to validate and no "jump into a trap or cleanup region" to reject — that whole class of flat-binary verification does not exist here.
 
-These guarantees are defined and enforced by the source compiler, not restated here. Their canonical specifications are `./mfb spec language error-model` (typing, `Result`/`PROPAGATE`/effect agreement), `./mfb spec language resource-management` (resource linearity, drop-once, sendability), and `./mfb spec language pattern-matching` (`MATCH` exhaustiveness).
+The full semantic model these rules enforce is specified in `./mfb spec language error-model` (typing, `Result`/effect agreement), `./mfb spec language resource-management` (resource linearity, drop-once, sendability), and `./mfb spec language pattern-matching` (`MATCH` exhaustiveness).
 
 ## Not yet enforced by the reader
 
 The format anticipates these, but the current reader does **not** check them. An implementer should be aware they are gaps, not guarantees:
 
 * Section ranges may overlap, and a duplicate `sectionId` silently takes the last entry rather than being rejected.
-* At *import/read* time the reader does not re-syntaxcheck the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). That pass covers member access, closure-capture bounds, call/constructor arity, union-variant membership, and non-empty `MATCH`; it does **not** yet re-derive flow-sensitive resource linearity or full `Result`/effect-agreement, which still rely on the compile-time guarantees above.
+* At *import/read* time the reader does not re-check the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). As of plan-20 that pass is the **complete** semantic checker — it re-derives flow-sensitive resource linearity (cross-branch use-after-move, borrow invalidation), match exhaustiveness, the full type system, literal ranges, visibility, and the `LINK` ABI. The only rules it does not re-derive are the source-syntax ones that cannot appear in a package at all (see "Compile-time guarantees" above).
 * No native-binding verifier — there is no `NATIVE_LINK_TABLE` section to validate; native `LINK` metadata is carried in the IR payload trailer and validated, if at all, when that IR is merged and lowered.
 * No standalone signature verification in the reader (delegated to the package manager).
 
 ## See Also
 
+* ./mfb spec architecture frontend — the two-checker split (`syntaxcheck` vs `ir::verify`)
+* ./mfb spec package ir-section — the decoded IR payload the verifier operates on (fully typed, `explicit_type`/`file` fields)
 * ./mfb spec language error-model — typing, `Result`, and effect-agreement guarantees
 * ./mfb spec language resource-management — resource linearity and drop-once guarantees
 * ./mfb spec language pattern-matching — `MATCH` exhaustiveness

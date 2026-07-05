@@ -5,5 +5,5 @@ Wrote IR to tests/security/pkg-07-need-overflow/pkg_07_need_overflow.ir
 [exit 0]
 $ mfb build tests/security/pkg-07-need-overflow
 uses sec_needlen - [Unsigned]
-error: failed to read 'tests/security/pkg-07-need-overflow/packages/sec_needlen.mfp': Binary Representation truncated: needed 4294967295 bytes at offset 10, have 130
+error: failed to read 'tests/security/pkg-07-need-overflow/packages/sec_needlen.mfp': Binary Representation truncated: needed 4294967295 bytes at offset 10, have 134
 [exit 1]

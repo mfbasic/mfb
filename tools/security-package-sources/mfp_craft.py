@@ -338,8 +338,8 @@ def mutate_type_confusion(data: bytes) -> bytes:
     lowering. The IR semantic verifier must reject it before codegen turns the
     member access into an out-of-bounds field load in the victim's binary.
 
-    The body is hand-encoded to mirror `src/ir/binary.rs` (MFBR version 3):
-    `MFBR` + u16(3) + project{name, entry=None, bindings=[], types=[],
+    The body is hand-encoded to mirror `src/ir/binary.rs` (MFBR version 4):
+    `MFBR` + u16(4) + project{name, entry=None, bindings=[], types=[],
     functions=[run]}` where `run`'s single op is
     `Return(MemberAccess(target=Const Integer "0", member="x"))`. Format v3
     (plan-20-A/B) appends a `loc` (u32 line + u32 column) to every op and to
@@ -375,10 +375,11 @@ def mutate_type_confusion(data: bytes) -> bytes:
     function += _u32(1) + return_op  # body: one Return op
     function += put_str(b"")  # source file
     function += put_loc()  # declaration loc (v3)
+    function += _u32(0)  # resource_owners: none (v4)
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(3)  # BINARY_REPR_VERSION
+    body += _u16(4)  # BINARY_REPR_VERSION
     body += put_str(b"sec_confused")  # project name
     body += bytes([0])  # entry: None
     body += _u32(0)  # bindings: none
@@ -440,10 +441,11 @@ def mutate_type_confusion_computed(data: bytes) -> bytes:
     function += _u32(1) + return_op  # body: one Return op
     function += put_str(b"")  # source file
     function += put_loc()  # declaration loc (v3)
+    function += _u32(0)  # resource_owners: none (v4)
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(3)  # BINARY_REPR_VERSION
+    body += _u16(4)  # BINARY_REPR_VERSION
     body += put_str(b"sec_confused_computed")  # project name
     body += bytes([0])  # entry: None
     body += _u32(0)  # bindings: none
@@ -495,10 +497,11 @@ def mutate_operator_confusion(data: bytes) -> bytes:
     function += _u32(1) + return_op
     function += put_str(b"")
     function += put_loc()
+    function += _u32(0)  # resource_owners: none (v4)
 
     body = bytearray()
     body += b"MFBR"
-    body += _u16(3)
+    body += _u16(4)
     body += put_str(b"sec_operator_confused")
     body += bytes([0])
     body += _u32(0)
@@ -523,7 +526,7 @@ def mutate_deep_body(data: bytes, depth: int = 300) -> bytes:
     body = bytearray()
     body += MFPC_MAGIC[:0]  # no-op to keep bytearray typed
     body += b"MFBR"
-    body += _u16(3)  # BINARY_REPR_VERSION
+    body += _u16(4)  # BINARY_REPR_VERSION
     body += put_str(b"x")  # project name
     body += bytes([0])  # entry: None
     body += _u32(1)  # bindings: one

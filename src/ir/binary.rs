@@ -9,7 +9,11 @@ pub const BINARY_REPR_MAGIC: &[u8; 4] = b"MFBR";
 /// op, match case, and declaration (function/param/type/field/variant/binding)
 /// carries a trailing `loc`, so the IR-level semantic checker can report at the
 /// same source line the AST checker does.
-pub const BINARY_REPR_VERSION: u16 = 3;
+/// Version 4 (plan-20-Z) adds the declaration-fidelity fields the relocated
+/// rules need: `Bind` ops and top-level bindings carry `explicit_type`
+/// (whether the type came from a source `AS T` annotation), and types and
+/// top-level bindings carry their declaring source `file`.
+pub const BINARY_REPR_VERSION: u16 = 4;
 
 // --- low-level writers -----------------------------------------------------
 
@@ -581,6 +585,22 @@ fn encode_function(out: &mut Vec<u8>, f: &IrFunction) {
     put_vec(out, &f.body, encode_op);
     put_str(out, &f.file);
     put_loc(out, f.loc);
+    // Resource ownership decisions (escape analysis, §15.6): a decoded package
+    // has no AST to re-run escape analysis on, so this must ride the format for
+    // the package-path RES/ownership rules and resource codegen to stay correct
+    // (format v4). Sorted by binding name for a deterministic encoding.
+    let mut owners: Vec<(&String, &crate::escape::ResOwner)> = f.resource_owners.iter().collect();
+    owners.sort_by(|a, b| a.0.cmp(b.0));
+    put_vec(out, &owners, |o, (name, owner)| {
+        put_str(o, name);
+        match owner {
+            crate::escape::ResOwner::Local => put_u8(o, 0),
+            crate::escape::ResOwner::Float(target) => {
+                put_u8(o, 1);
+                put_str(o, target);
+            }
+        }
+    });
 }
 
 fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
@@ -594,10 +614,29 @@ fn decode_function(r: &mut IrReader) -> Result<IrFunction, String> {
         body: decode_vec(r, decode_op)?,
         file: r.string()?,
         loc: get_loc(r)?,
-        // Recomputed by codegen from the in-memory IR; not part of the binary
-        // representation, so a decoded function carries an empty map.
-        resource_owners: HashMap::new(),
+        resource_owners: decode_resource_owners(r)?,
     })
+}
+
+fn decode_resource_owners(
+    r: &mut IrReader,
+) -> Result<HashMap<String, crate::escape::ResOwner>, String> {
+    let count = r.count()?;
+    let mut owners = HashMap::with_capacity(count);
+    for _ in 0..count {
+        let name = r.string()?;
+        let owner = match r.u8()? {
+            0 => crate::escape::ResOwner::Local,
+            1 => crate::escape::ResOwner::Float(r.string()?),
+            other => {
+                return Err(format!(
+                    "Binary Representation: invalid ResOwner tag {other}"
+                ))
+            }
+        };
+        owners.insert(name, owner);
+    }
+    Ok(owners)
 }
 
 // --- IrOp ------------------------------------------------------------------

@@ -15,8 +15,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: d6f0e9646a2f3de43fdfe2ec97a2fcf862d21e25259520eab9239b659bf94c1e
-  binary representation length: 850
+  content hash: f14bbebcaeaf96adc67dd663260fa82abb10863d69512a3623ea52b7e2d8e382
+  binary representation length: 865
 
 Manifest:
   name: package_comparable_types

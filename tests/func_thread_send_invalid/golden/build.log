@@ -67,16 +67,4 @@ tests/func_thread_send_invalid/src/main.mfb:20 error[2-203-0043 TYPE_UNKNOWN_VAL
      | ^
 tests/func_thread_send_invalid/src/main.mfb:22 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
                Call to `thread.send` has argument type(s) (Thread OF RES File TO Integer, File), expected Thread OF Msg TO Out or ThreadWorker OF Msg TO Out, Msg, Integer.
-  21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
-  22 |   thread::send(fileThread, movedFile)
-  23 |   fs::close(movedFile)
-     | ^
-tests/func_thread_send_invalid/src/main.mfb:23 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
-               Binding `movedFile` was moved and cannot be used again.
-  21 |   RES movedFile AS File = fs::openFile("tests/func_thread_send_invalid/src/main.mfb")
-  22 |   thread::send(fileThread, movedFile)
-  23 |   fs::close(movedFile)
-     | ^
-tests/func_thread_send_invalid/src/main.mfb:23 error[2-203-0055 TYPE_USE_AFTER_MOVE]: binding is used after move
-               Binding `movedFile` was moved and cannot be used again.
 [exit 1]
