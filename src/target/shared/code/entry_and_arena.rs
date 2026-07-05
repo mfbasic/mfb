@@ -103,6 +103,23 @@ pub(crate) fn lower_program_entry(
     // user code (including global initializers, which may call `math::rand`).
     // The seed scratch lives in the as-yet-unused args slot; pre-fill it with
     // the arena address so a `getentropy` failure still yields a varying seed.
+    //
+    // Park argc/argv into callee-saved x27/x28 NOW, while they are still live in
+    // x0/x1. Everything from here on — the seed_rng `getentropy`/`RNG_SEED`
+    // calls, the always-on fill block's `clock_gettime`/`getentropy`/
+    // `ARENA_FILL_SEED`, and the later `LINK`/global-initializer calls — clobbers
+    // x0/x1, so an arg-accepting entry must preserve them across all of it and
+    // read the args region back from x27/x28. Doing this BEFORE the seed_rng
+    // block fixes the crash where a program that both takes `args` and uses
+    // `math::rand` parked garbage (the `RNG_SEED` return) instead of argv.
+    // Non-arg entries keep the original sequence (parked inside the fill block)
+    // so their entry code stays byte-identical.
+    if language_entry_accepts_args {
+        instructions.extend([
+            abi::move_register("x27", "x0"),
+            abi::move_register("x28", "x1"),
+        ]);
+    }
     if seed_rng {
         instructions.extend([
             abi::store_u64(
@@ -138,14 +155,20 @@ pub(crate) fn lower_program_entry(
     // poison streams. This is a separate stream from `math::rand` (offsets 88/96),
     // so it never perturbs the reproducible language RNG.
     //
-    // `argc`/`argv` (x0/x1) are still live here for arg-accepting entries (saved
-    // to the stack further below), and this block clobbers x0–x16, so park them
-    // in callee-saved x27/x28 — preserved by the libc calls and the fill helpers
-    // — and restore them afterward. A local 16-byte stack buffer holds first the
-    // `timespec` and then the entropy bytes, so no entry-stack slot is touched.
+    // `argc`/`argv` (x0/x1) may still be live here (for a non-arg entry they are
+    // irrelevant), and this block clobbers x0–x16, so park them in callee-saved
+    // x27/x28 — preserved by the libc calls and the fill helpers — and restore
+    // them afterward. A local 16-byte stack buffer holds first the `timespec`
+    // and then the entropy bytes, so no entry-stack slot is touched. An
+    // arg-accepting entry has already parked argc/argv into x27/x28 above (before
+    // the seed_rng block clobbered x0/x1), so it must NOT re-park garbage here.
+    if !language_entry_accepts_args {
+        instructions.extend([
+            abi::move_register("x27", "x0"),
+            abi::move_register("x28", "x1"),
+        ]);
+    }
     instructions.extend([
-        abi::move_register("x27", "x0"),
-        abi::move_register("x28", "x1"),
         abi::subtract_stack(16),
         abi::move_immediate("x0", "Integer", "0"), // CLOCK_REALTIME
         abi::add_immediate("x1", abi::stack_pointer(), 0),
@@ -231,9 +254,13 @@ pub(crate) fn lower_program_entry(
         // globals); `entry_stack_size` includes ENTRY_ARGS_REGION_SIZE for an
         // arg-accepting entry (see the mod.rs sizing).
         let args_base = entry_stack_size - ENTRY_ARGS_REGION_SIZE;
+        // Source argc/argv from the preserved callee-saved registers rather than
+        // x0/x1: a `LINK` initializer or global initializer runs between here and
+        // the top-of-entry parking, and those `bl`s clobber x0/x1 (but preserve
+        // x27/x28).
         instructions.extend([
-            abi::store_u64("x0", abi::stack_pointer(), args_base),
-            abi::store_u64("x1", abi::stack_pointer(), args_base + 8),
+            abi::store_u64("x27", abi::stack_pointer(), args_base),
+            abi::store_u64("x28", abi::stack_pointer(), args_base + 8),
         ]);
         emit_entry_args_list_materialization(
             error_label,
