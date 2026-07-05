@@ -58,6 +58,37 @@ fn patches_external_data_relocations_to_got_entry() {
 }
 
 #[test]
+fn bind_info_uses_uleb_ordinal_past_fifteen() {
+    // A 16th distinct library forces the ULEB ordinal path (BIND_OPCODE
+    // SET_DYLIB_ORDINAL_ULEB, 0x80) instead of the packed immediate form.
+    // `bind_info` takes the library list directly, so hand-build 16 libraries
+    // and place the single import in the last one (ordinal 16).
+    let libraries: Vec<(String, String)> = (1..=16)
+        .map(|i| (format!("lib{i}"), format!("/usr/lib/lib{i}.dylib")))
+        .collect();
+    let image = EncodedImage {
+        text: Vec::new(),
+        data: Vec::new(),
+        symbols: Vec::new(),
+        relocations: Vec::new(),
+        imports: vec![import("lib16", "_late")],
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    assert_eq!(library_ordinal(&libraries, "lib16").unwrap(), 16);
+    let bind = bind_info(&image, &libraries);
+    // 0x80 = SET_DYLIB_ORDINAL_ULEB, then a single ULEB byte 16 (0x10).
+    assert_eq!(bind[0], 0x80);
+    assert_eq!(bind[1], 0x10);
+    // Followed by BIND_OPCODE_SET_SYMBOL (0x40) and the null-terminated name.
+    assert_eq!(bind[2], 0x40);
+    assert!(bind
+        .windows(b"_late\0".len())
+        .any(|window| window == b"_late\0"));
+}
+
+#[test]
 fn import_libraries_assigns_one_ordinal_per_distinct_library() {
     let image = EncodedImage {
         text: Vec::new(),

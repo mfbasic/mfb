@@ -158,20 +158,17 @@ fn glob_dat_image(libc: &str) -> EncodedImage {
     }
 }
 
-fn text_symbol(name: &str, offset: usize) -> EncodedSymbol {
-    EncodedSymbol {
-        name: name.to_string(),
-        section: EncodedSection::Text,
-        offset,
-    }
-}
-
-fn ret_image() -> EncodedImage {
+// A minimal x86-64 image: `_main` at offset 0 that does `ret`. Raw-syscall
+// backend, so no imports → the static, writable-data ELF path.
+fn x86_static_image() -> EncodedImage {
     EncodedImage {
-        // x86 `ret` (0xc3) padded so text is a few bytes.
-        text: vec![0xc3, 0x90, 0x90, 0x90],
+        text: vec![0xc3], // ret
         data: vec![1, 2, 3, 4],
-        symbols: vec![text_symbol("_main", 0)],
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
         relocations: Vec::new(),
         imports: Vec::new(),
         entry: "_main".to_string(),
@@ -180,328 +177,95 @@ fn ret_image() -> EncodedImage {
     }
 }
 
-// The x86-64 static path (no imports → raw-syscall ELF): two PT_LOAD segments
-// (text R+X, data R+W). Asserts the header machine/type and both program
-// headers, driving `encode_static_elf_x86` and the `arch == "x86_64"` dispatch.
 #[test]
-fn writes_static_x86_elf_with_writable_data_segment() {
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "prog",
-        "x86_64",
-        LinuxFlavor::Glibc,
-        false,
-        &ret_image(),
-    )
-    .expect("static x86 elf");
-    let bytes = std::fs::read(&path).unwrap();
-    assert_eq!(&bytes[0..4], b"\x7fELF");
-    // e_machine = EM_X86_64 (62).
+fn encode_static_elf_x86_emits_two_pt_load_segments() {
+    let image = x86_static_image();
+    let bytes = encode_static_elf_x86(0, &image.text, &image.data, None);
+    // e_ident magic + class/data/version.
+    assert_eq!(&bytes[..4], &[0x7f, b'E', b'L', b'F']);
+    assert_eq!(&bytes[4..8], &[2, 1, 1, 0]);
+    // e_type = ET_EXEC (2), e_machine = EM_X86_64 (62).
+    assert_eq!(u16::from_le_bytes([bytes[16], bytes[17]]), 2);
     assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62);
+    // e_entry = text_vmaddr + entry_offset(0).
+    assert_eq!(
+        u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
+        IMAGE_BASE + TEXT_FILE_OFFSET as u64
+    );
     // e_phnum = 2 (text + data).
     assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 2);
-    // Second program header (data) has p_flags = R+W (6) at phoff 64 + 56.
-    let ph2 = 64 + 56;
+    // First program header at offset 64: PT_LOAD (1), R+X (5).
+    assert_eq!(u32::from_le_bytes(bytes[64..68].try_into().unwrap()), 1);
+    assert_eq!(u32::from_le_bytes(bytes[68..72].try_into().unwrap()), 5);
+    // Second program header at offset 64+56=120: PT_LOAD (1), R+W (6).
+    assert_eq!(u32::from_le_bytes(bytes[120..124].try_into().unwrap()), 1);
+    assert_eq!(u32::from_le_bytes(bytes[124..128].try_into().unwrap()), 6);
+    // The data segment's p_filesz (header 2 base 120 + 32) equals data length.
     assert_eq!(
-        u32::from_le_bytes(bytes[ph2 + 4..ph2 + 8].try_into().unwrap()),
-        6
+        u64::from_le_bytes(bytes[152..160].try_into().unwrap()),
+        image.data.len() as u64
     );
+    // The text lands at TEXT_FILE_OFFSET and the data on the next page.
+    assert_eq!(bytes[TEXT_FILE_OFFSET], 0xc3);
+    let data_offset = align(TEXT_FILE_OFFSET + image.text.len(), PAGE_SIZE);
+    assert_eq!(&bytes[data_offset..data_offset + 4], &[1, 2, 3, 4][..]);
 }
 
 #[test]
-fn app_mode_writes_unflavored_output_name() {
+fn encode_static_elf_x86_appends_signing_section() {
+    let image = x86_static_image();
+    let meta = br#"{"owner":"bob"}"#;
+    let bytes = encode_static_elf_x86(0, &image.text, &image.data, Some(meta));
+    assert!(bytes
+        .windows(b".mfb_sign".len())
+        .any(|window| window == b".mfb_sign"));
+    assert!(bytes.windows(meta.len()).any(|window| window == meta));
+    // Section header table is now present (e_shoff / e_shnum patched).
+    assert_ne!(u64::from_le_bytes(bytes[40..48].try_into().unwrap()), 0);
+    assert_eq!(u16::from_le_bytes([bytes[60], bytes[61]]), 3);
+    assert_eq!(u16::from_le_bytes([bytes[62], bytes[63]]), 2);
+}
+
+#[test]
+fn write_executable_x86_static_writes_flavored_output() {
+    let image = x86_static_image();
     let dir = tempfile::tempdir().unwrap();
     let path = write_executable(
         dir.path(),
-        "app",
+        "x86s",
+        "x86_64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link x86 static elf");
+    // Console (non-app) build gets the flavor suffix.
+    assert!(path.ends_with("x86s-glibc.out"));
+    let bytes = std::fs::read(&path).unwrap();
+    assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62); // EM_X86_64
+}
+
+#[test]
+fn write_executable_app_mode_drops_flavor_suffix() {
+    let image = x86_static_image();
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "myapp",
         "x86_64",
         LinuxFlavor::Glibc,
         true,
-        &ret_image(),
-    )
-    .expect("app-mode elf");
-    // App mode drops the flavor suffix.
-    assert_eq!(path, dir.path().join("app.out"));
-}
-
-#[test]
-fn static_x86_elf_carries_signing_section() {
-    let mut image = ret_image();
-    image.signing_metadata = Some(br#"{"owner":"bob"}"#.to_vec());
-    let dir = tempfile::tempdir().unwrap();
-    let path = write_executable(
-        dir.path(),
-        "signed",
-        "x86_64",
-        LinuxFlavor::Glibc,
-        false,
         &image,
     )
-    .expect("signed static x86");
-    let bytes = std::fs::read(&path).unwrap();
-    assert!(bytes.windows(b".mfb_sign".len()).any(|w| w == b".mfb_sign"));
-    assert!(bytes
-        .windows(br#"{"owner":"bob"}"#.len())
-        .any(|w| w == br#"{"owner":"bob"}"#));
-}
-
-// The x86-64 dynamic path: a `call sym@PLT` (external call_pc32), a `lea
-// rip-rel` (internal call_pc32) and an imported data global via GOTPCREL
-// (external data_pc32). Drives `encode_dynamic_elf(arch="x86_64")`, the x86 PLT
-// stub, and the x86 relocation arms.
-#[test]
-fn writes_dynamic_x86_elf_with_plt_and_gotpcrel() {
-    let mut text = Vec::new();
-    // call helper (E8 rel32) at 0; disp32 field at offset 1.
-    text.extend_from_slice(&[0xe8, 0, 0, 0, 0]);
-    // lea rax,[rip+environ_got] (48 8D 05 disp32); disp32 field at offset 8.
-    text.extend_from_slice(&[0x48, 0x8d, 0x05, 0, 0, 0, 0]);
-    // call _exit@PLT (E8 rel32) at 12; disp32 field at offset 13.
-    text.extend_from_slice(&[0xe8, 0, 0, 0, 0]);
-    // helper: ret.
-    text.push(0xc3);
-    let image = EncodedImage {
-        text,
-        data: Vec::new(),
-        symbols: vec![text_symbol("_main", 0), text_symbol("helper", 17)],
-        relocations: vec![
-            EncodedRelocation {
-                offset: 1,
-                target: "helper".to_string(),
-                kind: "call_pc32".to_string(),
-                binding: "internal".to_string(),
-                library: None,
-            },
-            EncodedRelocation {
-                offset: 8,
-                target: "environ".to_string(),
-                kind: "data_pc32".to_string(),
-                binding: "external".to_string(),
-                library: Some("libc.so.6".to_string()),
-            },
-            EncodedRelocation {
-                offset: 13,
-                target: "_exit".to_string(),
-                kind: "call_pc32".to_string(),
-                binding: "external".to_string(),
-                library: Some("libc.so.6".to_string()),
-            },
-        ],
-        imports: vec![
-            EncodedImport {
-                library: "libc.so.6".to_string(),
-                symbol: "environ".to_string(),
-                kind: ImportKind::Data,
-                version: None,
-            },
-            EncodedImport {
-                library: "libc.so.6".to_string(),
-                symbol: "_exit".to_string(),
-                kind: ImportKind::Function,
-                version: None,
-            },
-        ],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-    };
-    let dir = std::path::PathBuf::from("tmp/x86dyn");
-    std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = write_executable(&dir, "x86dyn", "x86_64", LinuxFlavor::Glibc, false, &image)
-        .expect("dynamic x86 elf");
-    let bytes = std::fs::read(&path).unwrap();
-    assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62); // EM_X86_64
-    assert!(bytes.windows(b"environ".len()).any(|w| w == b"environ"));
-    // The x86 interpreter path reached ld-linux-x86-64.
-    assert!(bytes
-        .windows(b"ld-linux-x86-64.so.2".len())
-        .any(|w| w == b"ld-linux-x86-64.so.2"));
+    .expect("link app-mode elf");
+    assert!(path.ends_with("myapp.out"));
+    assert!(!path.to_string_lossy().contains("glibc"));
 }
 
 #[test]
-fn writes_dynamic_x86_musl_elf() {
-    let mut text = Vec::new();
-    text.extend_from_slice(&[0xe8, 0, 0, 0, 0]); // call _exit@PLT
-    let image = EncodedImage {
-        text,
-        data: Vec::new(),
-        symbols: vec![text_symbol("_main", 0)],
-        relocations: vec![EncodedRelocation {
-            offset: 1,
-            target: "_exit".to_string(),
-            kind: "call_pc32".to_string(),
-            binding: "external".to_string(),
-            library: Some("libc.musl-x86_64.so.1".to_string()),
-        }],
-        imports: vec![EncodedImport {
-            library: "libc.musl-x86_64.so.1".to_string(),
-            symbol: "_exit".to_string(),
-            kind: ImportKind::Function,
-            version: None,
-        }],
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-    };
-    let dir = std::path::PathBuf::from("tmp/x86musldyn");
-    std::fs::create_dir_all(&dir).expect("temp dir");
-    let path = write_executable(&dir, "x86musl", "x86_64", LinuxFlavor::Musl, false, &image)
-        .expect("dynamic x86 musl elf");
-    let bytes = std::fs::read(&path).unwrap();
-    assert!(bytes
-        .windows(b"ld-musl-x86_64.so.1".len())
-        .any(|w| w == b"ld-musl-x86_64.so.1"));
-}
-
-#[test]
-fn patch_relocations_supports_data_pc32_internal() {
-    // `data` binding data_pc32: a RIP-relative address of an internal data symbol.
-    let mut text = vec![0x48, 0x8d, 0x05, 0, 0, 0, 0];
-    let image = EncodedImage {
-        text: text.clone(),
-        data: vec![0; 8],
-        symbols: vec![
-            text_symbol("_main", 0),
-            EncodedSymbol {
-                name: "_g".to_string(),
-                section: EncodedSection::Data,
-                offset: 0,
-            },
-        ],
-        relocations: vec![EncodedRelocation {
-            offset: 3,
-            target: "_g".to_string(),
-            kind: "data_pc32".to_string(),
-            binding: "data".to_string(),
-            library: None,
-        }],
-        imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-    };
-    patch_relocations(
-        &mut text,
-        &image,
-        IMAGE_BASE + TEXT_FILE_OFFSET as u64,
-        IMAGE_BASE + 0x2000,
-        &ImportLocations::default(),
-    )
-    .expect("data_pc32 internal");
-}
-
-#[test]
-fn patch_relocations_rejects_unsupported_kind() {
-    let mut text = vec![0; 4];
-    let image = EncodedImage {
-        text: text.clone(),
-        data: Vec::new(),
-        symbols: vec![text_symbol("_main", 0)],
-        relocations: vec![EncodedRelocation {
-            offset: 0,
-            target: "_main".to_string(),
-            kind: "bogus".to_string(),
-            binding: "weird".to_string(),
-            library: None,
-        }],
-        imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-    };
-    let err = patch_relocations(
-        &mut text,
-        &image,
-        IMAGE_BASE,
-        IMAGE_BASE,
-        &ImportLocations::default(),
-    )
-    .expect_err("unsupported reloc");
-    assert!(err.contains("does not support relocation"), "{err}");
-}
-
-#[test]
-fn patch_relocations_rejects_unbound_externals_each_arch() {
-    let cases = [
-        ("branch26", "aarch64"),
-        ("page21", "aarch64"),
-        ("pageoff12", "aarch64"),
-        ("call_pc32", "x86_64"),
-        ("data_pc32", "x86_64"),
-    ];
-    for (kind, arch) in cases {
-        let image = EncodedImage {
-            text: vec![0; 8],
-            data: Vec::new(),
-            symbols: vec![text_symbol("_main", 0)],
-            relocations: vec![EncodedRelocation {
-                offset: 0,
-                target: "_unbound".to_string(),
-                kind: kind.to_string(),
-                binding: "external".to_string(),
-                library: Some("libc.so.6".to_string()),
-            }],
-            imports: Vec::new(),
-            entry: "_main".to_string(),
-            initializers: Vec::new(),
-            signing_metadata: None,
-        };
-        let mut text = image.text.clone();
-        let err = patch_relocations(
-            &mut text,
-            &image,
-            IMAGE_BASE,
-            IMAGE_BASE,
-            &ImportLocations::default(),
-        )
-        .expect_err("unbound external");
-        assert!(err.contains("cannot bind external"), "{arch}/{kind}: {err}");
-    }
-}
-
-#[test]
-fn symbol_vmaddr_resolves_sections_and_rejects_unknown() {
-    let image = EncodedImage {
-        text: Vec::new(),
-        data: Vec::new(),
-        symbols: vec![
-            text_symbol("_t", 4),
-            EncodedSymbol {
-                name: "_d".to_string(),
-                section: EncodedSection::Data,
-                offset: 8,
-            },
-        ],
-        relocations: Vec::new(),
-        imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-    };
-    assert_eq!(symbol_vmaddr(&image, "_t", 0x1000, 0x2000).unwrap(), 0x1004);
-    assert_eq!(symbol_vmaddr(&image, "_d", 0x1000, 0x2000).unwrap(), 0x2008);
-    assert!(symbol_vmaddr(&image, "_missing", 0x1000, 0x2000)
-        .expect_err("unknown")
-        .contains("does not resolve"));
-}
-
-#[test]
-fn rejects_entry_symbol_not_in_text() {
-    let image = EncodedImage {
-        text: vec![0xc3],
-        data: vec![0; 4],
-        symbols: vec![EncodedSymbol {
-            name: "_main".to_string(),
-            section: EncodedSection::Data,
-            offset: 0,
-        }],
-        relocations: Vec::new(),
-        imports: Vec::new(),
-        entry: "_main".to_string(),
-        initializers: Vec::new(),
-        signing_metadata: None,
-    };
+fn write_executable_rejects_entry_not_in_text() {
+    let mut image = x86_static_image();
+    image.entry = "_nowhere".to_string();
     let dir = tempfile::tempdir().unwrap();
     let err = write_executable(
         dir.path(),
@@ -511,31 +275,503 @@ fn rejects_entry_symbol_not_in_text() {
         false,
         &image,
     )
-    .expect_err("entry not text");
-    assert!(err.contains("does not resolve to text"), "{err}");
+    .expect_err("missing entry must be rejected");
+    assert!(err.contains("does not resolve to text"));
+}
+
+// A dynamic x86-64 image importing libc `_exit` via `call _exit@PLT`
+// (call_pc32) plus an internal call and internal/imported data references,
+// exercising the x86 stub emitter and every x86 relocation kind.
+fn x86_dynamic_image() -> EncodedImage {
+    // Layout (offsets into text):
+    //  0: call _helper        (internal call_pc32, disp at 1)
+    //  5: call _exit@PLT       (external call_pc32, disp at 6)
+    // 10: lea rax,[rip+data]   (data data_pc32, disp at 12; 48 8d 05 <disp>)
+    // 17: lea rax,[rip+environ] (external data_pc32 via GOT, disp at 19)
+    // 24: _helper: ret
+    let mut text = vec![
+        0xe8, 0, 0, 0, 0, // call rel32  -> _helper
+        0xe8, 0, 0, 0, 0, // call rel32  -> _exit@PLT
+        0x48, 0x8d, 0x05, 0, 0, 0, 0, // lea rax,[rip+disp32] -> _msg (data)
+        0x48, 0x8b, 0x05, 0, 0, 0, 0,    // mov rax,[rip+disp32] -> environ (GOT)
+        0xc3, // _helper: ret
+    ];
+    let _ = &mut text;
+    EncodedImage {
+        text,
+        data: b"hi\0".to_vec(),
+        symbols: vec![
+            EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            },
+            EncodedSymbol {
+                name: "_helper".to_string(),
+                section: EncodedSection::Text,
+                offset: 24,
+            },
+            EncodedSymbol {
+                name: "_msg".to_string(),
+                section: EncodedSection::Data,
+                offset: 0,
+            },
+        ],
+        relocations: vec![
+            EncodedRelocation {
+                offset: 1,
+                target: "_helper".to_string(),
+                kind: "call_pc32".to_string(),
+                binding: "internal".to_string(),
+                library: None,
+            },
+            EncodedRelocation {
+                offset: 6,
+                target: "_exit".to_string(),
+                kind: "call_pc32".to_string(),
+                binding: "external".to_string(),
+                library: Some("libc.so.6".to_string()),
+            },
+            EncodedRelocation {
+                offset: 13,
+                target: "_msg".to_string(),
+                kind: "data_pc32".to_string(),
+                binding: "data".to_string(),
+                library: None,
+            },
+            EncodedRelocation {
+                offset: 20,
+                target: "environ".to_string(),
+                kind: "data_pc32".to_string(),
+                binding: "external".to_string(),
+                library: Some("libc.so.6".to_string()),
+            },
+        ],
+        imports: vec![
+            EncodedImport {
+                library: "libc.so.6".to_string(),
+                symbol: "_exit".to_string(),
+                kind: ImportKind::Function,
+                version: None,
+            },
+            EncodedImport {
+                library: "libc.so.6".to_string(),
+                symbol: "environ".to_string(),
+                kind: ImportKind::Data,
+                version: None,
+            },
+        ],
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    }
 }
 
 #[test]
-fn elf_hash_matches_sysv_reference() {
-    // Reference SysV hash values (used for Vernaux.vna_hash).
-    assert_eq!(elf_hash(b""), 0);
-    assert_eq!(elf_hash(b"GLIBC_2.17"), 0x0696_9197);
+fn write_executable_x86_dynamic_covers_all_reloc_kinds() {
+    let image = x86_dynamic_image();
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "x86d",
+        "x86_64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link x86 dynamic elf");
+    let bytes = std::fs::read(&path).unwrap();
+    // EM_X86_64 dynamic ELF: 5 program headers, interpreter present.
+    assert_eq!(u16::from_le_bytes([bytes[18], bytes[19]]), 62);
+    assert_eq!(u16::from_le_bytes([bytes[56], bytes[57]]), 5);
+    assert!(bytes
+        .windows(b"ld-linux-x86-64.so.2".len())
+        .any(|window| window == b"ld-linux-x86-64.so.2"));
+    // The internal PLT stubs use `jmp *disp32(%rip)` (FF 25 ...).
+    assert!(bytes.windows(2).any(|window| window == [0xff, 0x25]));
 }
 
 #[test]
-fn branch_imm26_encodes_relative_word_offset() {
-    // Forward branch of 8 bytes → 2 words.
-    assert_eq!(branch_imm26(0, 8), 2);
-    // Backward branch of 4 bytes → -1 word masked to 26 bits.
-    assert_eq!(branch_imm26(8, 4), 0x03ff_ffff);
+fn write_executable_x86_dynamic_musl_uses_musl_interpreter() {
+    let image = x86_dynamic_image();
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "x86dm",
+        "x86_64",
+        LinuxFlavor::Musl,
+        false,
+        &image,
+    )
+    .expect("link x86 dynamic musl elf");
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes
+        .windows(b"ld-musl-x86_64.so.1".len())
+        .any(|window| window == b"ld-musl-x86_64.so.1"));
 }
 
 #[test]
-fn align_rounds_up_power_of_two() {
-    assert_eq!(align(0, 0x1000), 0);
-    assert_eq!(align(1, 0x1000), 0x1000);
-    assert_eq!(align(0x1000, 0x1000), 0x1000);
-    assert_eq!(align(0x1001, 0x1000), 0x2000);
+fn write_executable_aarch64_dynamic_musl_uses_musl_interpreter() {
+    let image = glob_dat_image("libc.musl-aarch64.so.1");
+    let dir = tempfile::tempdir().unwrap();
+    let path = write_executable(
+        dir.path(),
+        "aad",
+        "aarch64",
+        LinuxFlavor::Musl,
+        false,
+        &image,
+    )
+    .expect("link aarch64 musl elf");
+    let bytes = std::fs::read(&path).unwrap();
+    assert!(bytes
+        .windows(b"ld-musl-aarch64.so.1".len())
+        .any(|window| window == b"ld-musl-aarch64.so.1"));
+}
+
+#[test]
+fn write_executable_rejects_unbound_external_symbol() {
+    // A branch26 to a symbol that is not imported → no stub → bind error.
+    let mut text = Vec::new();
+    put_u32(&mut text, 0x9400_0000); // bl _missing
+    let image = EncodedImage {
+        text,
+        data: Vec::new(),
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: vec![EncodedRelocation {
+            offset: 0,
+            target: "_missing".to_string(),
+            kind: "branch26".to_string(),
+            binding: "external".to_string(),
+            library: Some("libc.so.6".to_string()),
+        }],
+        // Import a *different* symbol so the dynamic path runs but the stub map
+        // lacks `_missing`.
+        imports: vec![EncodedImport {
+            library: "libc.so.6".to_string(),
+            symbol: "_exit".to_string(),
+            kind: ImportKind::Function,
+            version: None,
+        }],
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let err = write_executable(
+        dir.path(),
+        "unbound",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect_err("unbound external symbol must be rejected");
+    assert!(err.contains("cannot bind external symbol '_missing'"));
+}
+
+#[test]
+fn write_executable_rejects_unsupported_relocation() {
+    let mut text = Vec::new();
+    put_u32(&mut text, 0);
+    let image = EncodedImage {
+        text,
+        data: Vec::new(),
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: vec![EncodedRelocation {
+            offset: 0,
+            target: "_main".to_string(),
+            kind: "bogus_kind".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        }],
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let err = write_executable(
+        dir.path(),
+        "unsup",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect_err("unsupported relocation must be rejected");
+    assert!(err.contains("does not support relocation"));
+}
+
+#[test]
+fn dynamic_build_rejects_missing_initializer_symbol() {
+    // An initializer naming no text symbol must error from DynamicPayload::build.
+    let image = EncodedImage {
+        text: vec![0x00, 0x00, 0x00, 0x00],
+        data: Vec::new(),
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: Vec::new(),
+        imports: vec![EncodedImport {
+            library: "libc.so.6".to_string(),
+            symbol: "_exit".to_string(),
+            kind: ImportKind::Function,
+            version: None,
+        }],
+        entry: "_main".to_string(),
+        initializers: vec!["_ghost".to_string()],
+        signing_metadata: None,
+    };
+    let err = encode_dynamic_elf(
+        "aarch64",
+        LinuxFlavor::Glibc,
+        0,
+        &image.text,
+        &image.data,
+        &image,
+    )
+    .expect_err("dangling initializer must be rejected");
+    assert!(err.contains("does not resolve to a text symbol"));
+}
+
+#[test]
+fn dynamic_elf_appends_signing_section() {
+    let mut image = glob_dat_image("libc.so.6");
+    image.signing_metadata = Some(br#"{"k":"v"}"#.to_vec());
+    let bytes = encode_dynamic_elf(
+        "aarch64",
+        LinuxFlavor::Glibc,
+        0,
+        &image.text,
+        &image.data,
+        &image,
+    )
+    .expect("dynamic elf with signing");
+    assert!(bytes
+        .windows(b".mfb_sign".len())
+        .any(|window| window == b".mfb_sign"));
+    assert!(bytes
+        .windows(br#"{"k":"v"}"#.len())
+        .any(|window| window == br#"{"k":"v"}"#));
+}
+
+// A static aarch64 image with an internal `bl` (branch26) and internal data
+// references (page21/pageoff12) — no imports, so the static path exercises the
+// aarch64 internal + data relocation arms of `patch_relocations`.
+#[test]
+fn write_executable_aarch64_static_internal_relocs() {
+    let mut text = Vec::new();
+    put_u32(&mut text, 0x9000_0000); // adrp x0, _msg          (data page21)
+    put_u32(&mut text, 0x9100_0000); // add  x0, x0, :lo12:_msg (data pageoff12)
+    put_u32(&mut text, 0x9400_0000); // bl   _helper           (internal branch26)
+    put_u32(&mut text, 0xd65f_03c0); // ret
+    put_u32(&mut text, 0xd65f_03c0); // _helper: ret
+    let image = EncodedImage {
+        text,
+        data: b"hi\0".to_vec(),
+        symbols: vec![
+            EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            },
+            EncodedSymbol {
+                name: "_helper".to_string(),
+                section: EncodedSection::Text,
+                offset: 16,
+            },
+            EncodedSymbol {
+                name: "_msg".to_string(),
+                section: EncodedSection::Data,
+                offset: 0,
+            },
+        ],
+        relocations: vec![
+            EncodedRelocation {
+                offset: 0,
+                target: "_msg".to_string(),
+                kind: "page21".to_string(),
+                binding: "data".to_string(),
+                library: None,
+            },
+            EncodedRelocation {
+                offset: 4,
+                target: "_msg".to_string(),
+                kind: "pageoff12".to_string(),
+                binding: "data".to_string(),
+                library: None,
+            },
+            EncodedRelocation {
+                offset: 8,
+                target: "_helper".to_string(),
+                kind: "branch26".to_string(),
+                binding: "internal".to_string(),
+                library: None,
+            },
+        ],
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    write_executable(
+        dir.path(),
+        "aast",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link aarch64 static internal-reloc elf");
+}
+
+// A `data data_pc32` (x86 RIP-relative to an internal data symbol) on the
+// static x86 path, covering that arm without imports.
+#[test]
+fn write_executable_x86_static_data_pc32() {
+    let mut text = vec![0x48, 0x8d, 0x05, 0, 0, 0, 0, 0xc3]; // lea rax,[rip+_d]; ret
+    let _ = &mut text;
+    let image = EncodedImage {
+        text,
+        data: b"xy\0".to_vec(),
+        symbols: vec![
+            EncodedSymbol {
+                name: "_main".to_string(),
+                section: EncodedSection::Text,
+                offset: 0,
+            },
+            EncodedSymbol {
+                name: "_d".to_string(),
+                section: EncodedSection::Data,
+                offset: 0,
+            },
+        ],
+        relocations: vec![EncodedRelocation {
+            offset: 3,
+            target: "_d".to_string(),
+            kind: "data_pc32".to_string(),
+            binding: "data".to_string(),
+            library: None,
+        }],
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    write_executable(
+        dir.path(),
+        "x86dp",
+        "x86_64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect("link x86 static data_pc32 elf");
+}
+
+// Drives each "cannot bind external ... symbol" error arm: a relocation of the
+// given kind whose target is not among the imports (so the stub/GOT map lacks
+// it) but a *different* symbol is imported (so the dynamic path is taken).
+fn expect_unbound(kind: &str, expect_fragment: &str) {
+    let mut text = Vec::new();
+    // One 4-byte instruction; the exact bytes don't matter for the bind check.
+    put_u32(&mut text, 0);
+    let image = EncodedImage {
+        text,
+        data: Vec::new(),
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: vec![EncodedRelocation {
+            offset: 0,
+            target: "_missing".to_string(),
+            kind: kind.to_string(),
+            binding: "external".to_string(),
+            library: None, // exercises the "<unknown library>" fallback
+        }],
+        imports: vec![EncodedImport {
+            library: "libc.so.6".to_string(),
+            symbol: "_present".to_string(),
+            kind: ImportKind::Function,
+            version: None,
+        }],
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let arch = if kind.ends_with("pc32") {
+        "x86_64"
+    } else {
+        "aarch64"
+    };
+    let err = write_executable(dir.path(), "ub", arch, LinuxFlavor::Glibc, false, &image)
+        .expect_err("unbound external must be rejected");
+    assert!(
+        err.contains(expect_fragment) && err.contains("<unknown library>"),
+        "unexpected error for {kind}: {err}"
+    );
+}
+
+#[test]
+fn write_executable_rejects_unbound_external_all_kinds() {
+    expect_unbound("page21", "cannot bind external data symbol '_missing'");
+    expect_unbound("pageoff12", "cannot bind external data symbol '_missing'");
+    expect_unbound("call_pc32", "cannot bind external symbol '_missing'");
+    expect_unbound("data_pc32", "cannot bind external data symbol '_missing'");
+}
+
+#[test]
+fn write_executable_rejects_undefined_internal_symbol() {
+    // An internal branch26 whose target names no symbol → symbol_vmaddr error.
+    let mut text = Vec::new();
+    put_u32(&mut text, 0x9400_0000);
+    let image = EncodedImage {
+        text,
+        data: Vec::new(),
+        symbols: vec![EncodedSymbol {
+            name: "_main".to_string(),
+            section: EncodedSection::Text,
+            offset: 0,
+        }],
+        relocations: vec![EncodedRelocation {
+            offset: 0,
+            target: "_ghost".to_string(),
+            kind: "branch26".to_string(),
+            binding: "internal".to_string(),
+            library: None,
+        }],
+        imports: Vec::new(),
+        entry: "_main".to_string(),
+        initializers: Vec::new(),
+        signing_metadata: None,
+    };
+    let dir = tempfile::tempdir().unwrap();
+    let err = write_executable(
+        dir.path(),
+        "undef",
+        "aarch64",
+        LinuxFlavor::Glibc,
+        false,
+        &image,
+    )
+    .expect_err("undefined internal symbol must be rejected");
+    assert!(err.contains("symbol '_ghost' does not resolve"));
 }
 
 #[test]
