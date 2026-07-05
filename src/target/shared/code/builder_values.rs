@@ -1264,7 +1264,7 @@ impl CodeBuilder<'_> {
     /// `TRAP`: the helper outcome is materialized as a `Result OF <success>`
     /// value instead of propagating on error.
     /// `net::connectTcp` is overloaded on its first argument. The single-argument
-    /// call is unambiguously the `Address` overload (typecheck rejects a lone
+    /// call is unambiguously the `Address` overload (syntaxcheck rejects a lone
     /// host); the two-argument call is the `Address` overload only when the first
     /// argument is statically an `Address` (otherwise it is `host, port`).
     fn net_connect_is_address_form(&self, args: &[NirValue]) -> bool {

@@ -151,7 +151,7 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 /// general builtins `len`/`toString`/`typeName` — have their machine code
 /// spliced in at the call site and own no standalone callable symbol, so a raw
 /// `bl <target>` would name a symbol that does not exist (undefined-symbol at
-/// link). The front-end gate (`Expression::Trapped` typecheck) rejects these
+/// link). The front-end gate (`Expression::Trapped` syntaxcheck) rejects these
 /// with `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`; the codegen backstop asserts
 /// against the same set so a future builtin added without updating the gate
 /// fails loudly instead of miscompiling (plan-00-trap-fix.md §4.1).

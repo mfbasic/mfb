@@ -4,7 +4,7 @@ All access is via free functions — **no indexing brackets, no key brackets**. 
 
 List literals use the declared or otherwise expected `List OF T` element type when one is available; otherwise the element type is inferred from the first item. Every element must be compatible with that element type. This allows annotated lists of union members, such as `LET shapes AS List OF Shape = [Circle[5], Rect[2, 3]]`.
 
-**Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec language type-inference`) for the directional compatibility rule. [[src/typecheck/inference.rs:infer_list_literal]]
+**Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec language type-inference`) for the directional compatibility rule. [[src/syntaxcheck/inference.rs:infer_list_literal]]
 
 ```basic
 LET list  = [1, 2, 3]                          ' List OF Integer (literal)
@@ -57,13 +57,13 @@ monomorphization and instantiated like any generic function:
 `collections::zip`, `collections::chunks`, `collections::window`,
 `collections::distinct`, `collections::merge`, `collections::partition`.
 
-Comparability/orderability constraints (`src/typecheck.rs`):
+Comparability/orderability constraints (`src/syntaxcheck.rs`):
 
 - `collections::contains`, `collections::find`, and `collections::replace`
   require a **comparable** element type, enforced by
   `check_general_builtin_comparability`.
 - A `Map OF K TO V` key type `K` must be comparable, enforced by
-  `require_comparable_type` ("Map key type", `src/typecheck.rs`); a resource
+  `require_comparable_type` ("Map key type", `src/syntaxcheck.rs`); a resource
   handle may never be a `Map` key.
 - A type is comparable when it is `Boolean`, `Byte`, `Error`, `ErrorLoc`,
   `Fixed`, `Float`, `Integer`, `Nothing`, `String`, an `ENUM`, or a `TYPE`

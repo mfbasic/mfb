@@ -1,7 +1,7 @@
 use super::helpers::*;
 use super::*;
 
-impl<'a> TypeChecker<'a> {
+impl<'a> SyntaxChecker<'a> {
     pub(super) fn is_resource_type(&self, type_: &Type) -> bool {
         match type_ {
             Type::User(name) => {

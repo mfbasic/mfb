@@ -2,7 +2,7 @@
 //!
 //! A compiled package (`.mfp`) carries hand-serializable IR that a consumer
 //! decodes and lowers to native code. Only the source front end runs the AST
-//! type checker (`src/typecheck/`); the decoded package IR is otherwise trusted
+//! type checker (`src/syntaxcheck/`); the decoded package IR is otherwise trusted
 //! to be well typed. A crafted `.mfp` can therefore ship type-confused IR — a
 //! `MemberAccess` on an `Integer`, a `Capture` index past the closure's slots, a
 //! call with the wrong argument count — that codegen turns into memory-unsafe
@@ -61,10 +61,10 @@ pub(crate) struct Diagnostic {
 }
 
 /// Rules for which `ir::verify` is the sole rejecter (plan-20-Z). On the
-/// **source** path `ir::verify` emits ONLY these (typecheck still owns every
+/// **source** path `ir::verify` emits ONLY these (syntaxcheck still owns every
 /// other rule, so emitting a non-relocated rule here would duplicate it); on
-/// the **package** path there is no typecheck, so `ir::verify` emits all of its
-/// checks regardless. `typecheck::report` skips this same set. A rule appears
+/// the **package** path there is no syntaxcheck, so `ir::verify` emits all of its
+/// checks regardless. `syntaxcheck::report` skips this same set. A rule appears
 /// here only once `ir::verify` reproduces it completely (verified against every
 /// `*-invalid` fixture).
 pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
@@ -212,7 +212,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
             env.check_map_key_comparable(&param.type_);
             env.check_collection_res_axis(resource_base_type(&param.type_));
             // Every parameter must declare an `AS` type (lambda parameters
-            // included — typecheck checks both forms with this rule).
+            // included — syntaxcheck checks both forms with this rule).
             if param.type_ == "Unknown" {
                 env.emit(
                     "TYPE_PARAM_REQUIRES_TYPE",
@@ -232,13 +232,13 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
                     ),
                 );
             }
-            // Parameters are immutable (typecheck registers them
+            // Parameters are immutable (syntaxcheck registers them
             // `mutable: false`), so assigning one is TYPE_ASSIGN_REQUIRES_MUT.
             muts.insert(param.name.clone(), false);
             if let Some(default) = &param.default {
                 env.check_value(default, &locals);
                 // A parameter default must match the declared parameter type —
-                // typecheck's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
+                // syntaxcheck's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
                 let expected = resource_base_type(&param.type_);
                 if !expected.is_empty() && expected != "Unknown" && expected != "Nothing" {
                     if let Some(actual) = env.infer_type(default, &locals) {
@@ -265,7 +265,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         );
         // Resource use-after-move is a separate dataflow pass (straight-line
         // within a block; moves on any fall-through branch propagate past the
-        // join, mirroring typecheck's MaybeMoved).
+        // join, mirroring syntaxcheck's MaybeMoved).
         let mut borrowed: HashSet<String> = function
             .params
             .iter()
@@ -351,9 +351,9 @@ pub fn check(project: &IrProject) -> Result<(), String> {
 }
 
 /// The relocated source-path diagnostics as unrendered `PendingDiagnostic`s, so
-/// `build` can merge them with `typecheck`'s stream and render both in one
+/// `build` can merge them with `syntaxcheck`'s stream and render both in one
 /// line-ordered pass (plan-20-Z). Only rules in `RELOCATED_TO_IR_VERIFY` are
-/// ir::verify's to emit on the source path; the rest are still typecheck's.
+/// ir::verify's to emit on the source path; the rest are still syntaxcheck's.
 pub fn collect_source_diagnostics(
     project: &IrProject,
     project_dir: &Path,
@@ -427,7 +427,7 @@ struct TypeEnv {
     /// member-access type inference.
     field_types: HashMap<String, HashMap<String, String>>,
     /// Record type name → its direct fields as ordered (name, type) pairs, for
-    /// positional constructor checking (mirrors typecheck's `TypeInfo.fields`,
+    /// positional constructor checking (mirrors syntaxcheck's `TypeInfo.fields`,
     /// which is declaration-ordered and not include-expanded).
     record_field_lists: HashMap<String, Vec<(String, String)>>,
     /// Enum type name → its complete member-name set, for MATCH exhaustiveness.
@@ -447,7 +447,7 @@ struct TypeEnv {
     /// `kind` (`func`/`sub`) of the function currently being checked.
     current_kind: RefCell<String>,
     /// Whether a type-poisoning rule fired while checking the current value —
-    /// typecheck's inference yields `Unknown` after an operator/constructor
+    /// syntaxcheck's inference yields `Unknown` after an operator/constructor
     /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
     /// where lowering stamped a nominal result type. Reset per checked value.
     poisoned: Cell<bool>,
@@ -455,7 +455,7 @@ struct TypeEnv {
     /// kind present here. Checking is sequential, so a RefCell stack suffices.
     loop_stack: RefCell<Vec<crate::ast::LoopKind>>,
     /// Whether the value about to be checked sits in statement position, where
-    /// a value-less SUB call is legal (typecheck's `allow_value_less_call`).
+    /// a value-less SUB call is legal (syntaxcheck's `allow_value_less_call`).
     /// Consumed (reset) by the first Call node checked.
     allow_sub_call: Cell<bool>,
     /// The RES-declared binding names of the function currently being checked
@@ -470,7 +470,7 @@ struct TypeEnv {
 }
 
 /// Rules whose failure leaves the failing expression's type undeterminable in
-/// typecheck (its `infer_*` returns `Unknown` after reporting them).
+/// syntaxcheck (its `infer_*` returns `Unknown` after reporting them).
 const POISONING_RULES: &[&str] = &[
     "TYPE_BINARY_OPERATOR_MISMATCH",
     "TYPE_UNARY_OPERATOR_MISMATCH",
@@ -689,7 +689,7 @@ impl TypeEnv {
             let line = op.loc().line;
             self.current_line.set(line);
             // Anything after an EXIT/CONTINUE in the same block is unreachable
-            // (typecheck reports each following statement, then stops).
+            // (syntaxcheck reports each following statement, then stops).
             if let Some(exit_index) = exited_at {
                 if op_index > exit_index {
                     self.emit(
@@ -722,7 +722,7 @@ impl TypeEnv {
                         }
                         self.check_value(value, locals);
                         self.allow_sub_call.set(false);
-                        // typecheck's cascade: an initializer whose type could
+                        // syntaxcheck's cascade: an initializer whose type could
                         // not be determined *because it is erroneous* also gets
                         // TYPE_UNKNOWN_VALUE. Gate on a poisoning rule having
                         // fired for this very value, so a clean-but-untypable
@@ -741,7 +741,7 @@ impl TypeEnv {
                         let range_errored = self.diags.borrow().len() > before;
                         // Only an explicit `AS T` annotation can disagree with
                         // the initializer; an inferred type is the initializer's
-                        // type by construction (matches typecheck).
+                        // type by construction (matches syntaxcheck).
                         if !range_errored && *explicit_type {
                             self.check_binding_type(name, type_, value, locals);
                         }
@@ -753,7 +753,7 @@ impl TypeEnv {
                         self.check_map_key_comparable(type_);
                         self.check_collection_res_axis(resource_base_type(type_));
                     }
-                    // The RES ownership axis (typecheck's
+                    // The RES ownership axis (syntaxcheck's
                     // check_resource_declaration): a resource-typed binding
                     // must be RES-declared (else its close obligation is
                     // untracked — a leak/UAF on decoded IR), and RES may only
@@ -807,7 +807,7 @@ impl TypeEnv {
                     }
                     // A collection `get`/`getOr` yields a *borrow* of a
                     // resource element; it cannot be RES-bound (§15.6) —
-                    // typecheck's TYPE_RESOURCE_ELEMENT_NOT_OWNER.
+                    // syntaxcheck's TYPE_RESOURCE_ELEMENT_NOT_OWNER.
                     if self.current_owners.borrow().contains(name.as_str())
                         && self.is_resource_or_resource_union(resource_base_type(type_))
                         && value.as_ref().is_some_and(is_resource_element_borrow)
@@ -821,7 +821,7 @@ impl TypeEnv {
                     }
                     // An initializer-less binding must be annotated, immutable
                     // ones must have a value, and MUT needs a defaultable type
-                    // (typecheck's check_binding_shape None-value arms).
+                    // (syntaxcheck's check_binding_shape None-value arms).
                     // Synthesized `$` temps are the compiler's own.
                     if value.is_none() && !name.starts_with('$') {
                         if !*explicit_type {
@@ -845,7 +845,7 @@ impl TypeEnv {
                     }
                     locals.insert(name.clone(), type_.clone());
                     // A capture bind's `mutable` reflects the by-ref/non-escaping
-                    // proof, not the outer binding's MUTness — typecheck judges
+                    // proof, not the outer binding's MUTness — syntaxcheck judges
                     // assignments to captures at the lambda site (as
                     // TYPE_LAMBDA_CAPTURE_UNSUPPORTED when escaping), so leave
                     // the capture's mutability unknown here.
@@ -987,7 +987,7 @@ impl TypeEnv {
                     self.check_value(value, locals);
                     // `PROPAGATE` outside a TRAP lowers to `Fail(Local("$error"))`
                     // with the sentinel unbound; inside a trap the real error
-                    // binding is used (typecheck's TYPE_PROPAGATE_REQUIRES_TRAP).
+                    // binding is used (syntaxcheck's TYPE_PROPAGATE_REQUIRES_TRAP).
                     if matches!(value, IrValue::Local(n) if n == "$error")
                         && !locals.contains_key("$error")
                     {
@@ -996,7 +996,7 @@ impl TypeEnv {
                             "PROPAGATE is valid only inside a TRAP.".to_string(),
                         );
                     } else if let Some(actual) = self.infer_type(value, locals) {
-                        // FAIL carries an Error (typecheck's TYPE_FAIL_REQUIRES_ERROR).
+                        // FAIL carries an Error (syntaxcheck's TYPE_FAIL_REQUIRES_ERROR).
                         if !self.compatible("Error", &actual) {
                             self.emit(
                                 "TYPE_FAIL_REQUIRES_ERROR",
@@ -1215,7 +1215,7 @@ impl TypeEnv {
                         }
                     }
                     // A literal STEP of zero never advances the counter (a
-                    // non-literal step is left alone, matching typecheck).
+                    // non-literal step is left alone, matching syntaxcheck).
                     if resolve(step, &temp_consts).is_some_and(numeric_literal_is_zero) {
                         self.emit(
                             "TYPE_FOR_STEP_ZERO",
@@ -1225,7 +1225,7 @@ impl TypeEnv {
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
                     branch.insert(name.clone(), type_.clone());
-                    // The loop counter is immutable inside the body (typecheck
+                    // The loop counter is immutable inside the body (syntaxcheck
                     // registers it `mutable: false`).
                     branch_muts.insert(name.clone(), false);
                     self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
@@ -1312,7 +1312,7 @@ impl TypeEnv {
                         depth + 1,
                     );
                     // A function-level TRAP block must leave the function on
-                    // every path (typecheck's TYPE_TRAP_FALLTHROUGH).
+                    // every path (syntaxcheck's TYPE_TRAP_FALLTHROUGH).
                     self.current_line.set(line);
                     if !self.block_always_returns(body, &branch) {
                         self.emit(
@@ -1401,7 +1401,7 @@ impl TypeEnv {
             } => {
                 self.check_value(target, locals);
                 // Compiler/runtime-owned records may never be updated —
-                // typecheck's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
+                // syntaxcheck's TYPE_READ_ONLY_RECORD_UPDATE (message differs for
                 // the Error pair vs the compiler-owned handle records). When
                 // lowering could not stamp the update's type (e.g. the target
                 // is a member access it didn't resolve), infer the target here.
@@ -1425,7 +1425,7 @@ impl TypeEnv {
                     );
                 }
                 // Each WITH update must match its field's declared type —
-                // typecheck's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
+                // syntaxcheck's WITH arm of TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH.
                 let fields = self.field_types.get(resource_base_type(type_));
                 let mut seen_fields: HashSet<&str> = HashSet::new();
                 for update in updates {
@@ -1532,7 +1532,7 @@ impl TypeEnv {
     }
 
     /// Check a numeric literal in a position that expects `expected` against
-    /// that type's range (`typecheck`'s TYPE_*_LITERAL_OVERFLOW/UNDERFLOW).
+    /// that type's range (`syntaxcheck`'s TYPE_*_LITERAL_OVERFLOW/UNDERFLOW).
     /// The check is contextual — keyed on the *expected* type, not the literal
     /// node's own type — because lowering does not push the expected type
     /// through a `-` negation (`-1` into `Byte` lowers to `Unary("-",
@@ -1652,7 +1652,7 @@ impl TypeEnv {
     ) {
         // `Enum.Member` selection: the target is the bare enum TYPE name (no
         // local shadows it), so the member must be one of the enum's declared
-        // members — typecheck's TYPE_UNKNOWN_ENUM_MEMBER.
+        // members — syntaxcheck's TYPE_UNKNOWN_ENUM_MEMBER.
         if let IrValue::Local(name) = target {
             if !locals.contains_key(name) {
                 if let Some(members) = self.enums.get(name) {
@@ -1670,7 +1670,7 @@ impl TypeEnv {
             return;
         };
         // The `t.result` field is removed; worker outcomes come only through
-        // `thread::waitFor(t)` (typecheck's TYPE_THREAD_RESULT_REMOVED).
+        // `thread::waitFor(t)` (syntaxcheck's TYPE_THREAD_RESULT_REMOVED).
         if resource_base_type(&type_name).starts_with("Thread") && member == "result" {
             self.emit(
                 "TYPE_THREAD_RESULT_REMOVED",
@@ -1706,7 +1706,7 @@ impl TypeEnv {
     }
 
     /// Whether `member` of `type_name` is explicitly private and the current
-    /// file is not the type's declaring file (typecheck's `visible_from`).
+    /// file is not the type's declaring file (syntaxcheck's `visible_from`).
     fn hidden_from_here(&self, type_name: &str, member: &str) -> bool {
         if !self
             .private_fields
@@ -1721,7 +1721,7 @@ impl TypeEnv {
     }
 
     /// Reject a binary operator applied to operands whose types it cannot
-    /// accept — the IR-level counterpart of `typecheck`'s `infer_binary`
+    /// accept — the IR-level counterpart of `syntaxcheck`'s `infer_binary`
     /// operand rule (`TYPE_BINARY_OPERATOR_MISMATCH` / `TYPE_REQUIRES_COMPARABLE`).
     /// On decoded package IR this is a memory-safety gate: codegen selects the
     /// machine instruction from the operand *types*, so a crafted `String - Integer`
@@ -1798,7 +1798,7 @@ impl TypeEnv {
     }
 
     /// Whether a value of type `type_` can be compared for equality
-    /// (`typecheck::is_comparable`): primitives/enums yes; collections,
+    /// (`syntaxcheck::is_comparable`): primitives/enums yes; collections,
     /// functions, results, resources, and unions no; a record only if every
     /// field is comparable. `Unknown` is comparable (never a false rejection).
     fn is_comparable(&self, type_: &str) -> bool {
@@ -1806,7 +1806,7 @@ impl TypeEnv {
     }
 
     /// Every `Map OF K TO V` nested anywhere in `type_` must have a comparable
-    /// key — `typecheck`'s map-key arm of `TYPE_REQUIRES_COMPARABLE` (an
+    /// key — `syntaxcheck`'s map-key arm of `TYPE_REQUIRES_COMPARABLE` (an
     /// incomparable key breaks the map's hash/equality contract at runtime).
     fn check_map_key_comparable(&self, type_: &str) {
         let t = resource_base_type(type_);
@@ -1817,7 +1817,7 @@ impl TypeEnv {
         if let Some((key, value)) = parse_map(t) {
             // A resource/thread may never be a Map key (handles are not
             // comparable and ordinary collections cannot own them) —
-            // typecheck's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
+            // syntaxcheck's TYPE_COLLECTION_OWNERSHIP_VIOLATION key arm.
             if !key.is_empty()
                 && key != "Unknown"
                 && self.contains_resource_or_thread(key, &mut HashSet::new())
@@ -1878,7 +1878,7 @@ impl TypeEnv {
         true
     }
 
-    /// Structural well-formedness of the type table (`typecheck`'s
+    /// Structural well-formedness of the type table (`syntaxcheck`'s
     /// `check_type_decl`), checkable directly on the IR. On decoded package IR
     /// these guard codegen's layout and drop assumptions: a record that owns a
     /// resource field, a union mixing data and resource variants (tag-dependent
@@ -1986,7 +1986,7 @@ impl TypeEnv {
     }
 
     /// The full member-name set of `union_name`, expanding every `INCLUDES`d
-    /// union transitively (cycle-guarded). Mirrors `typecheck`'s
+    /// union transitively (cycle-guarded). Mirrors `syntaxcheck`'s
     /// `expanded_union_variants`, but names only — dup detection needs no fields.
     fn expanded_union_variant_names(
         &self,
@@ -2007,7 +2007,7 @@ impl TypeEnv {
         names
     }
 
-    /// `typecheck::report_expanded_union_member_conflicts` on the IR: a union
+    /// `syntaxcheck::report_expanded_union_member_conflicts` on the IR: a union
     /// member may not be provided by two different includes, nor by both an
     /// include and a local declaration. On decoded package IR a duplicated
     /// variant is an ambiguous tag → mis-dispatch, so this must run here too.
@@ -2071,7 +2071,7 @@ impl TypeEnv {
     }
 
     /// Reject a read of a resource binding after it was moved (closed, returned)
-    /// — `typecheck`'s `TYPE_USE_AFTER_MOVE`. On decoded package IR a
+    /// — `syntaxcheck`'s `TYPE_USE_AFTER_MOVE`. On decoded package IR a
     /// use-after-move is a use-after-free / double-free: the resource's backing
     /// handle is released by the move, so a later read hands codegen a dangling
     /// handle. Conservative straight-line dataflow: a move is only tracked
@@ -2089,7 +2089,7 @@ impl TypeEnv {
         borrowed: &HashSet<String>,
     ) {
         // A branch that always leaves the function never reaches the join, so
-        // its moves must not leak past it (typecheck merges only fall-through
+        // its moves must not leak past it (syntaxcheck merges only fall-through
         // branches). Top-level test is enough: a mid-block Return makes the
         // rest unreachable anyway.
         fn diverges(ops: &[IrOp]) -> bool {
@@ -2101,7 +2101,7 @@ impl TypeEnv {
             })
         }
         // Run `body` as a branch: fresh scope, then merge the new moves of a
-        // fall-through branch back into the outer set (typecheck's MaybeMoved —
+        // fall-through branch back into the outer set (syntaxcheck's MaybeMoved —
         // moved on *some* path means unusable after the join).
         let run_branch = |body: &[IrOp],
                               locals: &HashMap<String, String>,
@@ -2136,7 +2136,7 @@ impl TypeEnv {
             }
             if let Some(consumed) = self.consumed_resource(op, locals) {
                 // A borrow (RES parameter, FOR EACH element) never owns the
-                // close obligation — typecheck's TYPE_RESOURCE_BORROW_INVALIDATE.
+                // close obligation — syntaxcheck's TYPE_RESOURCE_BORROW_INVALIDATE.
                 if borrowed.contains(&consumed) {
                     self.emit(
                         "TYPE_RESOURCE_BORROW_INVALIDATE",
@@ -2219,7 +2219,7 @@ impl TypeEnv {
     }
 
     /// Whether the just-checked value's type is undeterminable the way
-    /// typecheck's inference would see it: either a poisoning rule fired and
+    /// syntaxcheck's inference would see it: either a poisoning rule fired and
     /// the value's own result rides on the failed node (a Binary/Unary chain,
     /// where lowering stamps a nominal type the failure invalidates), or the
     /// type simply cannot be reconstructed *and* something was reported. The
@@ -2237,7 +2237,7 @@ impl TypeEnv {
         ) || self.infer_type(value, locals).is_none()
     }
 
-    /// Whether a type has a defined default value (`typecheck`'s
+    /// Whether a type has a defined default value (`syntaxcheck`'s
     /// `is_defaultable_type` on type-name strings): primitives yes, functions/
     /// results/resources/threads/unions/enums no, collections and records
     /// recurse (cycle-guarded).
@@ -2279,7 +2279,7 @@ impl TypeEnv {
     }
 
     /// Whether every path through `ops` leaves the function (mirrors
-    /// typecheck's `Flow::AlwaysReturns`): a Return/Fail/ExitProgram op, an If
+    /// syntaxcheck's `Flow::AlwaysReturns`): a Return/Fail/ExitProgram op, an If
     /// whose both branches return, a MATCH with an unguarded CASE ELSE whose
     /// every arm returns, or a TRAP whose body returns. Loops never count
     /// (they may run zero times).
@@ -2378,7 +2378,7 @@ impl TypeEnv {
         all.difference(&covered).next().is_none()
     }
 
-    /// The `RES` ownership axis on collection element/value types (typecheck's
+    /// The `RES` ownership axis on collection element/value types (syntaxcheck's
     /// `check_collection_element_axis`, §15.6): a resource element must be
     /// `RES`-marked (`List OF RES File`), and `RES` may mark only a resource.
     /// Recurses through nested collections; `line` positions are the caller's.
@@ -2416,13 +2416,13 @@ impl TypeEnv {
         self.check_collection_res_axis(inner);
     }
 
-    /// Validate the merged LINK table (typecheck's `check_link_function` on the
+    /// Validate the merged LINK table (syntaxcheck's `check_link_function` on the
     /// IR): C ABI types may not escape into wrapper signatures, every ABI slot
     /// must bind to a parameter / CONST pin / the `return` result marker, every
     /// parameter and CONST pin must name a real slot, and a value-producing
     /// wrapper needs exactly one result marker. Package-path defense: a crafted
     /// .mfp's link table drives raw C calls, so these are marshaling-safety
-    /// gates. (Spans are function-level here; typecheck keeps the slot-level
+    /// gates. (Spans are function-level here; syntaxcheck keeps the slot-level
     /// spans on the source path.)
     fn check_link_functions(&self, project: &IrProject) {
         fn is_c_abi_type(t: &str) -> bool {
@@ -2557,7 +2557,7 @@ impl TypeEnv {
                 }
             }
             // The IR's FREE form keeps only slot+symbol (the deallocator's
-            // signature check stays in typecheck): the symbol must be present.
+            // signature check stays in syntaxcheck): the symbol must be present.
             if let Some(free) = &function.free {
                 if free.symbol.is_empty() {
                     self.emit(
@@ -2574,7 +2574,7 @@ impl TypeEnv {
     }
 
     /// Whether a type contains a resource or thread handle anywhere (mirrors
-    /// typecheck's `contains_resource_or_thread` on type strings).
+    /// syntaxcheck's `contains_resource_or_thread` on type strings).
     fn contains_resource_or_thread(&self, type_: &str, seen: &mut HashSet<String>) -> bool {
         let t = type_.strip_prefix("RES ").unwrap_or(type_);
         let t = match t.find(" STATE ") {
@@ -2661,7 +2661,7 @@ impl TypeEnv {
             // here. On the failure path of `transfer(...) TRAP(e)` ownership
             // returns to the sender so the handler may close the resource — a
             // straight-line detector cannot see that and would false-reject the
-            // valid recover pattern. typecheck models the restore explicitly;
+            // valid recover pattern. syntaxcheck models the restore explicitly;
             // the IR checker stays conservative and only tracks close/return.
             // A registered close op consumes the resource at arg 0.
             let IrValue::Local(name) = args.first()? else {
@@ -2697,7 +2697,7 @@ impl TypeEnv {
     }
 
     /// Reject a `MATCH` on an enum or union that neither covers every
-    /// member/variant nor has an unguarded catch-all (`typecheck`'s
+    /// member/variant nor has an unguarded catch-all (`syntaxcheck`'s
     /// `TYPE_MATCH_NOT_EXHAUSTIVE`). On decoded package IR this is a
     /// memory-safety gate: a non-exhaustive match falls through with no arm
     /// selected, leaving a typed value uninitialized. Only checked when the
@@ -2716,7 +2716,7 @@ impl TypeEnv {
         let ty = resource_base_type(&ty).to_string();
         // A Result scrutinee's CASE Ok/Error arms are rejected by
         // TYPE_RESULT_NOT_MATCHABLE; suppress the secondary exhaustiveness
-        // cascade like typecheck does. Unknown types are skipped as always.
+        // cascade like syntaxcheck does. Unknown types are skipped as always.
         if ty.is_empty() || ty == "Unknown" || ty == "Result" || ty.starts_with("Result OF ") {
             return;
         }
@@ -2769,7 +2769,7 @@ impl TypeEnv {
         if all.difference(&covered).next().is_none() {
             return;
         }
-        // Missing-member lists mirror typecheck's wording exactly: unions list
+        // Missing-member lists mirror syntaxcheck's wording exactly: unions list
         // the uncovered variants in declaration order; enums list sorted
         // `Type.member` names.
         let missing = if is_union {
@@ -2814,7 +2814,7 @@ impl TypeEnv {
         self.emit("TYPE_MATCH_NOT_EXHAUSTIVE", detail);
     }
 
-    /// `typecheck`'s `TYPE_MATCH_PATTERN_MISMATCH` on the IR: a CASE pattern
+    /// `syntaxcheck`'s `TYPE_MATCH_PATTERN_MISMATCH` on the IR: a CASE pattern
     /// must fit the scrutinee — a union CASE must name one of the union's
     /// variants, a type-named CASE requires a union scrutinee, and a literal
     /// pattern's type must be compatible with the scrutinee type. Unknown
@@ -2835,7 +2835,7 @@ impl TypeEnv {
         let union_variants = self.union_variants(&scrutinee);
         let check_pattern = |v: &IrValue| {
             // `Result` is internal: `CASE Ok`/`CASE Error` are never valid
-            // match arms (typecheck's TYPE_RESULT_NOT_MATCHABLE). Only fires
+            // match arms (syntaxcheck's TYPE_RESULT_NOT_MATCHABLE). Only fires
             // when the name is not a real variant of the scrutinee's union.
             if let IrValue::Local(n) | IrValue::MemberAccess { member: n, .. } = v {
                 if matches!(n.as_str(), "Ok" | "Error" | "Err")
@@ -2913,7 +2913,7 @@ impl TypeEnv {
         }
     }
 
-    /// The unary counterpart of `check_binary_operands` (`typecheck`'s
+    /// The unary counterpart of `check_binary_operands` (`syntaxcheck`'s
     /// `infer_unary` / `TYPE_UNARY_OPERATOR_MISMATCH`): `NOT` requires a Boolean
     /// operand, unary `-` a numeric one. Same memory-safety rationale — codegen
     /// picks the instruction from the operand type. `Unknown` never rejects.
@@ -2952,7 +2952,7 @@ impl TypeEnv {
     /// runtime helpers, imports and indirect (function-typed local) calls are
     /// skipped.
     fn check_call_arity(&self, target: &str, argc: usize, locals: &HashMap<String, String>) {
-        // Calling something that is not a function — typecheck's
+        // Calling something that is not a function — syntaxcheck's
         // SYMBOL_NOT_CALLABLE: a package constant (`math.pi()`), or a local
         // binding/parameter of a known non-function type.
         if builtins::is_package_constant(target) {
@@ -2990,7 +2990,7 @@ impl TypeEnv {
     }
 
     /// Reject a call to a known user function whose argument types are
-    /// incompatible with the declared parameter types (`typecheck`'s
+    /// incompatible with the declared parameter types (`syntaxcheck`'s
     /// `TYPE_CALL_ARGUMENT_MISMATCH`). On decoded package IR this is an ABI-level
     /// type confusion: codegen marshals each argument by its declared parameter
     /// type, so a crafted `String` passed where an `Integer` is expected is read
@@ -3034,7 +3034,7 @@ impl TypeEnv {
     }
 
     /// Reject a call to a numeric built-in whose argument types match no
-    /// overload — the IR-level counterpart of `typecheck`'s per-built-in
+    /// overload — the IR-level counterpart of `syntaxcheck`'s per-built-in
     /// `TYPE_CALL_ARGUMENT_MISMATCH`, reusing the *same* `resolve_call` dispatch
     /// the compiler already uses for return-type inference (so there is one
     /// source of truth for the argument rules, not a re-implementation). On
@@ -3051,7 +3051,7 @@ impl TypeEnv {
         locals: &HashMap<String, String>,
     ) {
         // `collections` element searches compare elements for equality, so the
-        // list's element type must be comparable — typecheck's
+        // list's element type must be comparable — syntaxcheck's
         // `check_special_builtin_arguments` arm of TYPE_REQUIRES_COMPARABLE.
         if matches!(
             target,
@@ -3084,7 +3084,7 @@ impl TypeEnv {
         };
         // `term` exposes its per-name signatures (`arity`, `param_types`)
         // rather than an arg-typed `resolve_call`, so check against those with
-        // the ported `expression_compatible` — the same data typecheck's
+        // the ported `expression_compatible` — the same data syntaxcheck's
         // `check_term_builtin_call` uses, so term's signature is single-source.
         if builtins::term::is_term_call(target) {
             if let Some((min, max)) = builtins::term::arity(target) {
@@ -3122,7 +3122,7 @@ impl TypeEnv {
             return;
         }
         // `collections`/`general` builtins: per-name arity, then arg-typed
-        // overload resolution (typecheck's check_general_builtin_call arms).
+        // overload resolution (syntaxcheck's check_general_builtin_call arms).
         if builtins::collections::is_collections_call(target) {
             if let Some((min, max)) = builtins::collections::arity(target) {
                 if arg_types.len() < min || arg_types.len() > max {
@@ -3220,7 +3220,7 @@ impl TypeEnv {
         }
     }
 
-    /// Type compatibility (`typecheck::compatible`), on canonical type-name
+    /// Type compatibility (`syntaxcheck::compatible`), on canonical type-name
     /// strings. `Unknown` on either side is compatible; the `RES` ownership
     /// marker is stripped; container types recurse; a union accepts any of its
     /// variants. Anything unresolved falls back to string equality (never a
@@ -3265,7 +3265,7 @@ impl TypeEnv {
         false
     }
 
-    /// `typecheck::expression_compatible`: `compatible`, plus the literal
+    /// `syntaxcheck::expression_compatible`: `compatible`, plus the literal
     /// coercions that the AST checker allows for constant arguments — a `Byte`
     /// parameter accepts an in-range `Integer` literal, `Fixed` accepts an
     /// `Integer`/`Float` literal. The `Const` node carries the literal type and
@@ -3296,7 +3296,7 @@ impl TypeEnv {
     }
 
     /// Reject a `RETURN <value>` whose value type is incompatible with the
-    /// function's declared return type (`typecheck`'s `TYPE_RETURN_MISMATCH`).
+    /// function's declared return type (`syntaxcheck`'s `TYPE_RETURN_MISMATCH`).
     /// Codegen places the return value into the ABI return slot by the declared
     /// type, so a crafted mismatch is a type confusion at the return boundary.
     fn check_return_type(&self, value: &IrValue, locals: &HashMap<String, String>) {
@@ -3316,9 +3316,9 @@ impl TypeEnv {
     }
 
     /// Reject a binding whose initializer type is incompatible with its declared
-    /// type — `typecheck`'s `TYPE_BINDING_MISMATCH`. The caller suppresses this
+    /// type — `syntaxcheck`'s `TYPE_BINDING_MISMATCH`. The caller suppresses this
     /// when a literal-range error already fired for the same binding (matching
-    /// typecheck's `!reported_range_error` guard), so a single out-of-range
+    /// syntaxcheck's `!reported_range_error` guard), so a single out-of-range
     /// literal is reported once, as the more specific range error.
     fn check_binding_type(
         &self,
@@ -3343,7 +3343,7 @@ impl TypeEnv {
     }
 
     /// Reject a control-flow condition (IF/WHILE/LOOP UNTIL/WHEN guard) whose
-    /// type is provably not Boolean — `typecheck`'s
+    /// type is provably not Boolean — `syntaxcheck`'s
     /// `TYPE_CONDITION_REQUIRES_BOOLEAN`. `what` is the statement-specific
     /// message prefix (`"IF condition"`, `"WHEN guard"`, …).
     fn check_condition_boolean(
@@ -3364,9 +3364,9 @@ impl TypeEnv {
     }
 
     /// Reject an assignment whose value type is incompatible with the target
-    /// binding's settled type — `typecheck`'s `TYPE_ASSIGNMENT_MISMATCH`. The
+    /// binding's settled type — `syntaxcheck`'s `TYPE_ASSIGNMENT_MISMATCH`. The
     /// caller suppresses this when a literal-range error already fired
-    /// (typecheck's `!reported_range_error` guard). Unlike `TYPE_BINDING_MISMATCH`
+    /// (syntaxcheck's `!reported_range_error` guard). Unlike `TYPE_BINDING_MISMATCH`
     /// no explicit-annotation gate applies: by assignment time the binding's
     /// type is settled regardless of how it was declared.
     fn check_assignment_type(
@@ -3391,7 +3391,7 @@ impl TypeEnv {
         }
     }
 
-    /// The typecheck constructor rules on a lowered `Constructor` value: the
+    /// The syntaxcheck constructor rules on a lowered `Constructor` value: the
     /// name must be a record TYPE (`TYPE_CONSTRUCTOR_REQUIRES_RECORD`), the
     /// argument count must equal the field count exactly — records have no
     /// field defaults — (`TYPE_CONSTRUCTOR_ARITY_MISMATCH`), and each argument
@@ -3404,7 +3404,7 @@ impl TypeEnv {
         args: &[IrValue],
         locals: &HashMap<String, String>,
     ) {
-        // `Ok`/`Result` are compiler-owned (typecheck's TYPE_RESULT_IS_IMPLICIT).
+        // `Ok`/`Result` are compiler-owned (syntaxcheck's TYPE_RESULT_IS_IMPLICIT).
         if matches!(type_name, "Ok" | "Result") {
             self.emit(
                 "TYPE_RESULT_IS_IMPLICIT",
@@ -3412,9 +3412,9 @@ impl TypeEnv {
             );
             return;
         }
-        // Compiler-owned records may never be user-constructed (typecheck's
+        // Compiler-owned records may never be user-constructed (syntaxcheck's
         // TYPE_READ_ONLY_RECORD_CONSTRUCTOR). The Error/ErrorLoc arm of that
-        // rule stays in typecheck: lowering itself emits `Constructor{Error}`
+        // rule stays in syntaxcheck: lowering itself emits `Constructor{Error}`
         // for the `error()` builtin and trap machinery, so on the IR a user
         // `Error[..]` is indistinguishable from a legitimate synthesized one.
         if read_only_record_type(type_name) {
@@ -3443,7 +3443,7 @@ impl TypeEnv {
             return;
         }
         // A private type (or one with hidden fields) may only be constructed
-        // from its declaring file (typecheck's TYPE_MEMBER_NOT_VISIBLE arms).
+        // from its declaring file (syntaxcheck's TYPE_MEMBER_NOT_VISIBLE arms).
         if let Some((file, visibility)) = self.type_decl_info.get(type_name) {
             if visibility == "private" && !file.is_empty() && *file != *self.current_file.borrow()
             {
@@ -3674,7 +3674,7 @@ fn usable_type(annotated: Option<&str>) -> Option<String> {
 }
 
 /// Whether an IR value is a numeric literal equal to zero (possibly negated) —
-/// mirrors `typecheck::helpers::numeric_literal_is_zero` on the IR shape.
+/// mirrors `syntaxcheck::helpers::numeric_literal_is_zero` on the IR shape.
 fn numeric_literal_is_zero(value: &IrValue) -> bool {
     match value {
         IrValue::Const { type_, value }
@@ -3687,7 +3687,7 @@ fn numeric_literal_is_zero(value: &IrValue) -> bool {
     }
 }
 
-/// The source keyword for a loop kind — mirrors `typecheck::helpers`.
+/// The source keyword for a loop kind — mirrors `syntaxcheck::helpers`.
 fn loop_kind_keyword(kind: crate::ast::LoopKind) -> &'static str {
     match kind {
         crate::ast::LoopKind::For => "FOR",
@@ -3697,7 +3697,7 @@ fn loop_kind_keyword(kind: crate::ast::LoopKind) -> &'static str {
 }
 
 /// The integer value of a constant expression (possibly negated) — mirrors
-/// `typecheck::helpers::integer_constant_value` on the IR shape.
+/// `syntaxcheck::helpers::integer_constant_value` on the IR shape.
 fn integer_constant_value(value: &IrValue) -> Option<i128> {
     match value {
         IrValue::Const { type_, value } if type_ == "Integer" || type_ == "Byte" => {
@@ -3711,7 +3711,7 @@ fn integer_constant_value(value: &IrValue) -> Option<i128> {
 }
 
 /// Whether an IR value is a `collections.get`/`getOr` call — a *borrow* of a
-/// collection element (mirrors `typecheck::helpers::is_resource_element_borrow`).
+/// collection element (mirrors `syntaxcheck::helpers::is_resource_element_borrow`).
 fn is_resource_element_borrow(value: &IrValue) -> bool {
     matches!(
         value,
@@ -3724,7 +3724,7 @@ fn is_resource_element_borrow(value: &IrValue) -> bool {
 }
 
 /// Compiler-owned record types users may neither construct nor WITH-update —
-/// mirrors `typecheck::helpers::read_only_record_type`.
+/// mirrors `syntaxcheck::helpers::read_only_record_type`.
 fn read_only_record_type(type_name: &str) -> bool {
     type_name == builtins::term::TERM_COLOR_TYPE
         || type_name == builtins::term::TERM_SIZE_TYPE
@@ -3853,7 +3853,7 @@ fn field_type_map(fields: &[IrField]) -> HashMap<String, String> {
 /// Builtin record types (io/net/term) expose their fields through the builtins
 /// tables. Consolidated here so the checker consults one accessor.
 fn builtin_type_fields(name: &str) -> Option<&'static [(&'static str, &'static str)]> {
-    // The runtime error records (typecheck types their members inline in
+    // The runtime error records (syntaxcheck types their members inline in
     // `infer_member`); listed here so member-access inference resolves
     // `err.source.line` chains and the read-only WITH check sees ErrorLoc.
     match name {

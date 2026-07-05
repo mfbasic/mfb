@@ -1,7 +1,7 @@
 use super::helpers::*;
 use super::*;
 
-impl<'a> TypeChecker<'a> {
+impl<'a> SyntaxChecker<'a> {
     /// Parse a collection element / `Map` value type, honoring the `RES` marker
     /// (`List OF RES File`). The marker wraps the element in [`Type::Res`]; the
     /// element validation later checks it matches the element's resource-ness.

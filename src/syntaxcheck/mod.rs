@@ -132,7 +132,7 @@ pub fn check_project_collect(
     // (mirrors `http` before `net`; plan-04-crypto.md Part C).
     let augmented = builtins::crypto::augmented_project(&augmented)?;
     let augmented = builtins::encoding::augmented_project(&augmented)?;
-    let mut checker = TypeChecker::new(project_dir, &augmented);
+    let mut checker = SyntaxChecker::new(project_dir, &augmented);
     checker.check();
     Ok(checker.diagnostics)
 }
@@ -151,7 +151,7 @@ pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
     }
 }
 
-struct TypeChecker<'a> {
+struct SyntaxChecker<'a> {
     project_dir: &'a Path,
     ast: &'a AstProject,
     functions: HashMap<String, Vec<FunctionSig>>,
@@ -226,7 +226,7 @@ struct VariantConstructor {
     fields: Vec<FieldInfo>,
 }
 
-impl<'a> TypeChecker<'a> {
+impl<'a> SyntaxChecker<'a> {
     pub(super) fn new(project_dir: &'a Path, ast: &'a AstProject) -> Self {
         let mut checker = Self {
             project_dir,
@@ -1477,7 +1477,7 @@ impl<'a> TypeChecker<'a> {
                     // A re-export alias carries no body to check; its target was
                     // validated during resolve (plan-link-update.md §5a).
                     Item::FuncAlias(_) => {}
-                    // DOC blocks carry no executable code to typecheck.
+                    // DOC blocks carry no executable code to syntaxcheck.
                     Item::Doc(_) => {}
                 }
             }
@@ -1943,13 +1943,13 @@ impl<'a> TypeChecker<'a> {
 
     pub(super) fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
         // plan-20-Z: every relocated rule's emission site has been DELETED from
-        // `typecheck` — `ir::verify` is the single source of truth for them.
+        // `syntaxcheck` — `ir::verify` is the single source of truth for them.
         // This function now carries only the erased-syntax rules (constructs
         // total lowering removes, which no IR checker can see) and elaboration
         // stays untouched.
         debug_assert!(
             !crate::ir::RELOCATED_TO_IR_VERIFY.contains(&rule),
-            "rule {rule} is relocated to ir::verify; typecheck must not emit it"
+            "rule {rule} is relocated to ir::verify; syntaxcheck must not emit it"
         );
         self.had_error = true;
         self.diagnostics.push(crate::rules::PendingDiagnostic {

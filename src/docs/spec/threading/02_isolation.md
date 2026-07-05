@@ -4,10 +4,10 @@
 capturing current stack locals, closures, or current-package private state.
 
 An `ISOLATED` declaration must itself be an exported `FUNC` (not a `SUB`, and not
-private/package-visible). `typecheck.rs` enforces this at declaration time,
+private/package-visible). `syntaxcheck.rs` enforces this at declaration time,
 reporting `ISOLATED function `<name>` must be an exported FUNC declaration.` for a
 violation. This is independent of the call-site check in `thread::start`, which
-additionally requires the entry to come from an *imported* package. [[src/typecheck/builtins.rs:check_thread_builtin_call]]
+additionally requires the entry to come from an *imported* package. [[src/syntaxcheck/builtins.rs:check_thread_builtin_call]]
 
 An isolated worker may still call:
 

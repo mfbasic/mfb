@@ -410,7 +410,7 @@ impl CodeBuilder<'_> {
         self.emit_symbol_call(symbol);
 
         // An inline `TRAP` traps the raw send `Result`. On failure the sent value
-        // remains owned by the caller (the typechecker restores the binding into
+        // remains owned by the caller (the syntaxchecker restores the binding into
         // the handler scope); the success continuation treats it as moved.
         if raw {
             self.deactivate_moved_thread_arguments(target, args);

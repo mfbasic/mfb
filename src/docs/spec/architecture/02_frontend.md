@@ -205,7 +205,7 @@ program accepts command-line arguments.
 
 ## Type Checking
 
-Type checking is implemented in `src/typecheck.rs`.
+Type checking is implemented in `src/syntaxcheck.rs`.
 
 The type checker builds indices for:
 

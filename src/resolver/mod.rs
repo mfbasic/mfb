@@ -120,7 +120,7 @@ fn call_arg_value(argument: &crate::ast::CallArg) -> &Expression {
     }
 }
 
-/// Whether `type_name` is a raw C ABI type (mirrors `typecheck::is_c_abi_type`),
+/// Whether `type_name` is a raw C ABI type (mirrors `syntaxcheck::is_c_abi_type`),
 /// which may appear only inside ABI slots (plan-link-update.md §5/§11).
 fn is_c_abi_type(type_name: &str) -> bool {
     matches!(

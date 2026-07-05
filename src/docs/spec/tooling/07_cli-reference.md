@@ -91,7 +91,7 @@ package emits only `.mfp`. The `-regalloc` flag requires a value (`mfb build
 [location]`. The location defaults to `.`; the target defaults to the host.
 
 `build` runs the pipeline parse → resolve → monomorphize → resolve (no DOC
-re-validation) → validate entry point → typecheck before emitting any artifact;
+re-validation) → validate entry point → syntaxcheck before emitting any artifact;
 any stage failure exits `1`.[[src/cli/build.rs:build_project]] Build-mode and
 build-flag *semantics* live in `./mfb spec architecture commands`.
 

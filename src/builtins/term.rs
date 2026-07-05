@@ -8,7 +8,7 @@
 //!
 //! `term::on()` is the gate: every `term::*` call other than `term::on()` and
 //! `term::isOn()` is a no-op while TUI mode is off (plan §4.2.1). That rule is a
-//! runtime concern (a `state.active` check in each helper), not a typecheck one,
+//! runtime concern (a `state.active` check in each helper), not a syntaxcheck one,
 //! so typing and arity here are unconditional.
 
 use std::borrow::Cow;
@@ -82,7 +82,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
     }
 }
 
-/// Declared argument types per call, used by typecheck to validate each argument
+/// Declared argument types per call, used by syntaxcheck to validate each argument
 /// (with the usual integer-literal-to-`Byte` coercion).
 pub(crate) fn param_types(name: &str) -> Option<&'static [&'static str]> {
     match name {

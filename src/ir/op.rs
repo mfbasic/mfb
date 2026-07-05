@@ -12,7 +12,7 @@ pub(crate) enum IrOp {
         // from the initializer or synthesized by lowering). Only explicitly
         // annotated bindings are subject to `TYPE_BINDING_MISMATCH`: an inferred
         // binding's type *is* its initializer's type and cannot disagree
-        // (plan-20-Z; mirrors typecheck's `declared: Option<Type>`).
+        // (plan-20-Z; mirrors syntaxcheck's `declared: Option<Type>`).
         explicit_type: bool,
         // Source location of the declaring statement.
         loc: IrSourceLoc,

@@ -3,7 +3,7 @@
 The `datetime::` package is a built-in source package: all calendar math,
 formatting, and parsing are written in MFBASIC as internal `__datetime_*`
 functions, and only the OS clock and the local-zone table are platform state.
-The Rust seam (`src/builtins/datetime.rs`) owns registration, typecheck
+The Rust seam (`src/builtins/datetime.rs`) owns registration, syntaxcheck
 metadata, and the rewrite from each public `datetime::` call onto its internal
 implementation; the `.mfb` source owns the algorithm. This topic specifies the
 **model** — the record shapes, the civil-calendar math, the clock/zone seam, and

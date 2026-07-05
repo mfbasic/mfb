@@ -30,7 +30,7 @@ which whitelists `builtins::general::is_general_call`); the set is defined in
 
 > The conversion name is `toInt` (not `toInteger`). String concatenation `&` is a
 > binary **operator** (`src/lexer.rs` `TokenKind::Ampersand`, lowered in
-> `src/typecheck.rs`), not a built-in function — it is not in this set.
+> `src/syntaxcheck.rs`), not a built-in function — it is not in this set.
 >
 > The `is*` predicates are **inlined** builtins (`src/builtins/general.rs`
 > `builtin_function_id`); they cannot be passed as a function value directly.

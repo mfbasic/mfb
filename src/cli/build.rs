@@ -18,7 +18,7 @@ use crate::monomorph;
 use crate::resolver;
 use crate::rules;
 use crate::target;
-use crate::typecheck;
+use crate::syntaxcheck;
 
 pub(crate) struct BuildOptions {
     pub(crate) location: PathBuf,
@@ -194,19 +194,20 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // plan-20-Z cutover: the semantic rules are split across two passes that
     // both run to completion (neither short-circuits the other) so a program
     // with errors of both kinds reports all of them:
-    //   - `typecheck` elaborates (annotates the AST that lowering consumes) and
-    //     still rejects the rules that have not been relocated;
+    //   - `syntaxcheck` rejects the source-syntax rules — constructs total
+    //     lowering erases (named arguments, EXIT flavors, inline-trap
+    //     boundaries), which therefore cannot exist in IR or packages;
     //   - `ir::verify` runs on the source-lowered IR and is the sole rejecter
-    //     for every rule ported off `typecheck` — the same implementation that
+    //     for every rule ported off `syntaxcheck` — the same implementation that
     //     guards decoded package IR, so source and package are checked once.
-    // Lowering is total (plan-20-D), so it is safe to run even when typecheck
+    // Lowering is total (plan-20-D), so it is safe to run even when syntaxcheck
     // found errors. External package signatures are resolved on the package
     // path, so an empty external map suffices for the source functions here.
     // Both checkers collect (rather than print) so their diagnostics can be
     // merged and rendered in a single line-ordered pass; otherwise every
-    // relocated `ir::verify` rule would print after all of typecheck's,
+    // relocated `ir::verify` rule would print after all of syntaxcheck's,
     // scrambling the source-order sequence the goldens record (plan-20-Z).
-    let typecheck_diagnostics = typecheck::check_project_collect(&options.location, &concrete_ast);
+    let syntaxcheck_diagnostics = syntaxcheck::check_project_collect(&options.location, &concrete_ast);
     let source_ir = ir::lower_project_with_external_functions(
         &concrete_ast,
         entry.clone(),
@@ -214,7 +215,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         &HashMap::new(),
     );
     let verify_diagnostics = ir::verify_source_diagnostics(&source_ir, &options.location);
-    let Ok(mut diagnostics) = typecheck_diagnostics else {
+    let Ok(mut diagnostics) = syntaxcheck_diagnostics else {
         return Err(());
     };
     diagnostics.extend(verify_diagnostics);

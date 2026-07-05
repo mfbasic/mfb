@@ -3,10 +3,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 /// A rejection collected but not yet rendered. The source-path checkers
-/// (`typecheck` for not-yet-relocated rules, `ir::verify` for relocated ones)
+/// (`syntaxcheck` for not-yet-relocated rules, `ir::verify` for relocated ones)
 /// each return these so the caller can merge both streams and render them in a
 /// single source-order pass — otherwise a relocated rule would print after all
-/// of typecheck's, breaking the line-ordered diagnostic sequence (plan-20-Z).
+/// of syntaxcheck's, breaking the line-ordered diagnostic sequence (plan-20-Z).
 pub struct PendingDiagnostic {
     pub rule: String,
     pub detail: String,
@@ -15,7 +15,7 @@ pub struct PendingDiagnostic {
 }
 
 /// Render `diagnostics` in the order given. The caller concatenates
-/// `typecheck`'s stream (not-yet-relocated rules, in its traversal order) with
+/// `syntaxcheck`'s stream (not-yet-relocated rules, in its traversal order) with
 /// `ir::verify`'s relocated stream, matching the sequence the goldens record
 /// and the eventual single-checker (ir::verify traversal) end state — not a
 /// line sort, which neither checker produces (plan-20-Z).

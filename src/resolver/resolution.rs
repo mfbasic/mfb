@@ -574,7 +574,7 @@ impl Resolver<'_> {
             for param in &function.params {
                 if let Some(type_name) = &param.type_name {
                     // A raw C ABI type in a wrapper signature is reported by
-                    // typecheck as NATIVE_CPTR_ESCAPE; don't double-report it here
+                    // syntaxcheck as NATIVE_CPTR_ESCAPE; don't double-report it here
                     // as an unknown type.
                     if is_c_abi_type(type_name) {
                         continue;

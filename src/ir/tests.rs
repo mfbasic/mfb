@@ -6,7 +6,7 @@ use super::*;
 /// type checker rejects them before lowering; once the checker moves onto the
 /// IR (plan-20-Z) lowering runs first, so it must survive them. This test
 /// drives every `*-invalid` fixture through parse → resolve → monomorph →
-/// **lower** (skipping typecheck) and asserts lowering does not panic. Fixtures
+/// **lower** (skipping syntaxcheck) and asserts lowering does not panic. Fixtures
 /// that fail before lowering (parse/resolve/monomorph errors — also pre-lowering
 /// rejections) are skipped; the assertion is purely "if it reaches lowering, it
 /// does not panic".
@@ -92,7 +92,7 @@ mod lowering_totality_tests {
         assert!(
             reached > 50,
             "only {reached} invalid fixtures reached lowering; expected the \
-             typecheck-invalid majority — the pipeline wiring may be broken"
+             syntaxcheck-invalid majority — the pipeline wiring may be broken"
         );
     }
 
@@ -156,11 +156,11 @@ mod lowering_totality_tests {
     /// Porting-progress report (plan-20-E..I): for every invalid fixture that
     /// reaches lowering, compare the rule ids `ir::verify` produces against the
     /// golden (the AST checker). Not an assertion — a census that names which
-    /// rules are still only in `typecheck` (MISSING) so the port can drive them
+    /// rules are still only in `syntaxcheck` (MISSING) so the port can drive them
     /// to zero. Run with `--nocapture`.
     #[test]
     #[ignore = "porting census (plan-20-E..I); run with --ignored --nocapture"]
-    fn verify_vs_typecheck_diagnostic_parity() {
+    fn verify_vs_syntaxcheck_diagnostic_parity() {
         let prev = std::panic::take_hook();
         std::panic::set_hook(Box::new(|_| {}));
         use std::collections::BTreeMap;
@@ -200,8 +200,8 @@ mod lowering_totality_tests {
             }
         }
         std::panic::set_hook(prev);
-        eprintln!("\n=== verify-vs-typecheck census ({fixtures} fixtures reached lowering) ===");
-        eprintln!("MISSING (typecheck emits, ir::verify does not) — port these:");
+        eprintln!("\n=== verify-vs-syntaxcheck census ({fixtures} fixtures reached lowering) ===");
+        eprintln!("MISSING (syntaxcheck emits, ir::verify does not) — port these:");
         for (rule, n) in &missing {
             eprintln!("  {n:3}  {rule}");
         }
@@ -209,7 +209,7 @@ mod lowering_totality_tests {
         for (rule, n) in &matched {
             eprintln!("  {n:3}  {rule}");
         }
-        eprintln!("EXTRA (ir::verify emits, typecheck did not — over-rejection risk):");
+        eprintln!("EXTRA (ir::verify emits, syntaxcheck did not — over-rejection risk):");
         for (rule, n) in &extra {
             eprintln!("  {n:3}  {rule}");
         }

@@ -58,9 +58,9 @@ enqueue success:
 - Code may attach an inline `TRAP` to `thread::send(...)`/`thread::transfer(...)`
   to separate the success path, where the sent/transferred binding is moved, from
   the error handler, where it remains owned by the sender and can be released. The
-  typechecker treats the argument at index 1 of `thread.start`, `thread.send`, and
+  syntaxchecker treats the argument at index 1 of `thread.start`, `thread.send`, and
   `thread.transfer` as a move (`ExprMode::Transfer`); a borrowed resource cannot be
-  transferred (`OWNERSHIP_BORROWED_RESOURCE_OPERATION`). [[src/typecheck/mod.rs:Transfer]]
+  transferred (`OWNERSHIP_BORROWED_RESOURCE_OPERATION`). [[src/syntaxcheck/mod.rs:Transfer]]
 
 Receiving a non-copyable value moves it out of the queue into the receiver's
 binding. Receiving a copyable value may copy or move according to the normal

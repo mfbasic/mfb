@@ -1589,7 +1589,7 @@ fn block_terminates(stmts: &[Statement]) -> bool {
 }
 
 /// Whether a statement always diverges or recovers (ends its enclosing handler
-/// path). Mirrors the typecheck flow analysis for the constructs an inline-trap
+/// path). Mirrors the syntaxcheck flow analysis for the constructs an inline-trap
 /// handler may contain.
 fn statement_terminates(statement: &Statement) -> bool {
     match statement {
@@ -1665,7 +1665,7 @@ fn lower_match_case(
     context: &mut LowerContext<'_>,
     trap_name: Option<&str>,
 ) -> IrMatchCase {
-    // The case arm's own span (typecheck reports match-arm rules at the case
+    // The case arm's own span (syntaxcheck reports match-arm rules at the case
     // line); captured locally since the body block re-sets the context copy.
     let loc = IrSourceLoc {
         line: case.line as u32,
@@ -2898,7 +2898,7 @@ fn lower_expression_with_expected(
             IrValue::Call {
                 // The resource plane reuses the proven data-channel runtime:
                 // `thread::transfer`/`accept` lower exactly like `send`/`receive`
-                // (typecheck already enforced their resource semantics).
+                // (syntaxcheck already enforced their resource semantics).
                 target: thread_resource_plane_target(&resolved_target).to_string(),
                 args,
                 type_: result_type,
@@ -2942,7 +2942,7 @@ fn lower_expression_with_expected(
                 .iter()
                 .map(|capture| nonescaping && context.mutable_locals.contains(&capture.name))
                 .collect::<Vec<_>>();
-            // Lambdas carry the enclosing statement's span (typecheck reports
+            // Lambdas carry the enclosing statement's span (syntaxcheck reports
             // lambda rules at the threaded statement line).
             let loc = context.current_loc;
             let mut lambda_locals = HashMap::new();

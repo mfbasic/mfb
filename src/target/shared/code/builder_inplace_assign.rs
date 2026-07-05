@@ -124,7 +124,7 @@ impl CodeBuilder<'_> {
         }
         if let Some(element_type) = super::list_element_type(&collection_type) {
             // The list `set` item is always a single element of type `T`
-            // (typecheck-enforced), so — unlike append's bulk-vs-single gate — no
+            // (syntaxcheck-enforced), so — unlike append's bulk-vs-single gate — no
             // static element-type check is needed; the post-lowering `item.type_`
             // check catches any mismatch.
             let index = self.lower_value(&args[1])?;

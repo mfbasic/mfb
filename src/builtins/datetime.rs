@@ -2,7 +2,7 @@
 //!
 //! Mirrors `json`/`regex`: the portable calendar math, formatting, and parsing
 //! live in `datetime_package.mfb` as internal `__datetime_*` functions; this
-//! module owns registration, typecheck metadata, and the mapping from a public
+//! module owns registration, syntaxcheck metadata, and the mapping from a public
 //! `datetime::` call onto its internal implementation. The only platform state
 //! is reached through three intrinsics (`nowNanos`, `monotonicNanos`,
 //! `localOffset`) that lower to libc runtime helpers (§8.2).

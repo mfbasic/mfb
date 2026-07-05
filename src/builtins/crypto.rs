@@ -3,7 +3,7 @@
 //! Mirrors `encoding`/`datetime`: the cryptographic algorithms live in
 //! `crypto_package.mfb` as internal `__crypto_*` functions (portable software
 //! cores over the `bits` package — see the plan's hybrid backend note), and this
-//! module owns registration, typecheck metadata, and the mapping from a public
+//! module owns registration, syntaxcheck metadata, and the mapping from a public
 //! `crypto::` call onto its internal implementation. A small number of entry
 //! points are **native runtime helpers** instead of source (they return `None`
 //! from `implementation_name` and route through `runtime::helper_for_call`):

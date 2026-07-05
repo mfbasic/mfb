@@ -18,7 +18,7 @@ mod os;
 mod resolver;
 mod rules;
 mod target;
-mod typecheck;
+mod syntaxcheck;
 mod unicode_backend;
 mod unicode_runtime_tables;
 

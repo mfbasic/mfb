@@ -1,7 +1,7 @@
 use super::helpers::*;
 use super::*;
 
-impl<'a> TypeChecker<'a> {
+impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_block(
         &mut self,
         file: &AstFile,

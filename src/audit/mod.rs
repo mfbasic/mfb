@@ -102,7 +102,7 @@ pub fn run(options: &AuditOptions) -> i32 {
     let Ok(entry) = crate::manifest::entry::validate_entry_point(&options.location, &manifest, &concrete_ast) else {
         return 3;
     };
-    if crate::typecheck::check_project(&options.location, &concrete_ast).is_err() {
+    if crate::syntaxcheck::check_project(&options.location, &concrete_ast).is_err() {
         return 3;
     }
 

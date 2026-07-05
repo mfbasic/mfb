@@ -4,7 +4,7 @@
 //! `Integer2/3/4` — and a set of overloaded geometry / utility / 2D functions
 //! and package constants over them. Like `net`/`datetime`, the behaviour lives
 //! in the source companion `vector_package.mfb`; this module owns the type
-//! registration, the per-call return-type/arity metadata the typecheck needs,
+//! registration, the per-call return-type/arity metadata the syntaxcheck needs,
 //! and the mapping from a public `vector::` call onto the type-specific internal
 //! implementation in the companion.
 //!
@@ -13,7 +13,7 @@
 //! companion does not overload its `__vector_*` helpers: every (function,
 //! element-type, dimension) triple is a distinctly named FUNC, and
 //! `implementation_name` selects it from the call's argument types. The public
-//! return type is computed here from the same argument types so the typecheck
+//! return type is computed here from the same argument types so the syntaxcheck
 //! never needs the companion signature.
 
 use std::borrow::Cow;
@@ -245,13 +245,13 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 /// The type-specific internal implementation for a public `vector::` call, e.g.
 /// `vector.length` over a `Float3` → `__vector_length_float3`. Constants map to
 /// their zero-arg accessor name. Returns `None` when the call does not resolve
-/// to a vector overload (the typecheck has already reported the error).
+/// to a vector overload (the syntaxcheck has already reported the error).
 pub(crate) fn implementation_name(name: &str, arg_types: &[String]) -> Option<String> {
     if is_vector_constant(name) {
         let member = name.strip_prefix("vector.")?;
         return Some(format!("__vector_{member}"));
     }
-    // Resolve against the same overload table the typecheck used, then build the
+    // Resolve against the same overload table the syntaxcheck used, then build the
     // `<func>_<type>` suffix from the first argument's vector type.
     resolve_call(name, arg_types)?;
     let suffix = arg_types.first()?.to_ascii_lowercase();

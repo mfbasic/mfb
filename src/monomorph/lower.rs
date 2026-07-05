@@ -212,7 +212,7 @@ impl<'a> Monomorphizer<'a> {
                             }
                         }
                         // Native LINK constructs are not monomorphized; preserve
-                        // them verbatim so later stages (resolve, typecheck,
+                        // them verbatim so later stages (resolve, syntaxcheck,
                         // package metadata) still see them.
                         Item::Resource(resource) => {
                             items.push(Item::Resource(resource.clone()));

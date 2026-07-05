@@ -12,14 +12,14 @@ Visibility (`Visibility` enum in `src/ast.rs`; default is `Private`):
 - `EXPORT` — visible to importers.
 
 Within a single build, `PACKAGE` and `EXPORT` are treated **identically** by
-`visible_from` (`src/resolver.rs`, `src/typecheck.rs`): both are visible across
+`visible_from` (`src/resolver.rs`, `src/syntaxcheck.rs`): both are visible across
 files in the project, and only `PRIVATE` is file-local. The `PACKAGE`/`EXPORT`
 distinction matters only for what is written into the compiled `.mfp` package
 (the exported-symbol flag), not for in-project name resolution. This is why a
 cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 `PACKAGE`/`EXPORT` or the project is built as a single file.
 
-Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PACKAGE`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PACKAGE`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PACKAGE` (`effective_field_visibility`, `src/typecheck.rs`) — i.e. the containing type's visibility, capped at `PACKAGE` for non-exported types.
+Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PACKAGE`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PACKAGE`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PACKAGE` (`effective_field_visibility`, `src/syntaxcheck.rs`) — i.e. the containing type's visibility, capped at `PACKAGE` for non-exported types.
 
 Only exported top-level `FUNC` declarations may use `ISOLATED`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
 

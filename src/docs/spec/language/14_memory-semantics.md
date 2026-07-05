@@ -10,7 +10,7 @@ The compiler may choose stack storage, inline storage, heap allocation, or destr
 - **Move** transfers ownership from one place to another. After a move, the source binding is uninitialized and any later read, write, capture, comparison, print, return, or drop of that binding is a compile-time use-after-move error. [[src/rules/table.rs:602]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
-Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions whose active payload is copyable are copyable. `List` and `Map` are copyable only when their element/key/value types are copyable; copying a collection copies its contents. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/typecheck/resources.rs:is_copyable_type]]
+Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions whose active payload is copyable are copyable. `List` and `Map` are copyable only when their element/key/value types are copyable; copying a collection copies its contents. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/syntaxcheck/resources.rs:is_copyable_type]]
 
 The compiler may replace a semantic copy with a move when it proves the source is not used afterward. This is an optimization only; it must not change diagnostics or observable behavior except performance.
 
@@ -99,11 +99,11 @@ At minimum, exported type shape metadata must remain sufficient to reconstruct c
 
 ## 14.9 The move-state lattice
 
-Use-after-move (§14.1, §14.8) is detected by a flow-sensitive move checker. Each binding carries an `OwnershipState` that is one of three values: `Available` (the binding still owns its value), `Moved` (its value was definitely transferred away), or `MaybeMoved` (it was moved on some control-flow paths but not others). Moving a non-copyable binding transitions it from `Available` to `Moved`; copyable bindings are never marked moved because consuming them copies. [[src/typecheck/mod.rs:OwnershipState]]
+Use-after-move (§14.1, §14.8) is detected by a flow-sensitive move checker. Each binding carries an `OwnershipState` that is one of three values: `Available` (the binding still owns its value), `Moved` (its value was definitely transferred away), or `MaybeMoved` (it was moved on some control-flow paths but not others). Moving a non-copyable binding transitions it from `Available` to `Moved`; copyable bindings are never marked moved because consuming them copies. [[src/syntaxcheck/mod.rs:OwnershipState]]
 
-The checker tracks ownership per binding in a local map threaded through each block. At a branching statement — `IF`/`ELSE` and each `MATCH` case — every branch is checked against its own *clone* of the entering local map, so a move inside one branch does not affect the others or the bindings visible before the branch. After the branches, the per-branch maps are merged back into a single state. [[src/typecheck/checking.rs:merge_branch_locals]]
+The checker tracks ownership per binding in a local map threaded through each block. At a branching statement — `IF`/`ELSE` and each `MATCH` case — every branch is checked against its own *clone* of the entering local map, so a move inside one branch does not affect the others or the bindings visible before the branch. After the branches, the per-branch maps are merged back into a single state. [[src/syntaxcheck/checking.rs:merge_branch_locals]]
 
-Only branches that *fall through* contribute to the merge. A branch that always returns (or otherwise diverges) is dropped from the merge, so a move performed on a path that cannot reach the code after the branch never taints the post-branch state. When an `IF` has no `ELSE` (or an empty `ELSE`), the unbranched entering state participates in the merge as an implicit fall-through path. [[src/typecheck/checking.rs:merge_branch_locals]]
+Only branches that *fall through* contribute to the merge. A branch that always returns (or otherwise diverges) is dropped from the merge, so a move performed on a path that cannot reach the code after the branch never taints the post-branch state. When an `IF` has no `ELSE` (or an empty `ELSE`), the unbranched entering state participates in the merge as an implicit fall-through path. [[src/syntaxcheck/checking.rs:merge_branch_locals]]
 
 Merging combines two states per binding with this lattice:
 
@@ -113,14 +113,14 @@ Merging combines two states per binding with this lattice:
 | `Moved`        | `MaybeMoved` | `Moved`      | `MaybeMoved` |
 | `MaybeMoved`   | `MaybeMoved` | `MaybeMoved` | `MaybeMoved` |
 
-That is: `Available + Available = Available`; `Moved + Moved = Moved`; `Available` exclusive-or `Moved` yields `MaybeMoved`; and anything combined with `MaybeMoved` yields `MaybeMoved`. The merge is performed pairwise, folding each fall-through branch into the running state. [[src/typecheck/checking.rs:merge_local_info]]
+That is: `Available + Available = Available`; `Moved + Moved = Moved`; `Available` exclusive-or `Moved` yields `MaybeMoved`; and anything combined with `MaybeMoved` yields `MaybeMoved`. The merge is performed pairwise, folding each fall-through branch into the running state. [[src/syntaxcheck/checking.rs:merge_local_info]]
 
 Using a binding requires its state to be `Available`. A `Moved` use and a `MaybeMoved` use are both reported under code `TYPE_USE_AFTER_MOVE`, but with distinct messages so the diagnostic distinguishes a definite reuse from a path-dependent one:
 
 - `Moved`: "Binding `name` was moved and cannot be used again."
 - `MaybeMoved`: "Binding `name` may have been moved on another control-flow path and cannot be used here."
 
-[[src/typecheck/checking.rs:require_local_owned]]
+[[src/syntaxcheck/checking.rs:require_local_owned]]
 
 ## See Also
 

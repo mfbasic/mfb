@@ -9,7 +9,7 @@ A map of the compiler's source modules and their responsibilities.
 | `src/ast.rs` | Parser, AST model, source discovery, AST JSON output. |
 | `src/resolver.rs` | Name resolution and import/package symbol checks. |
 | `src/monomorph.rs` | Template/generic expansion into concrete AST. |
-| `src/typecheck.rs` | Type system, expression checking, flow validation. |
+| `src/syntaxcheck.rs` | Type system, expression checking, flow validation. |
 | `src/escape.rs` | Resource escape analysis (resource ownership/scope; see `./mfb spec language resource-management`). |
 | `src/ir.rs` | Shared compiler IR and AST-to-IR lowering. |
 | `src/internal_name.rs` | Compiler-internal sigil symbol naming for injected source packages. |

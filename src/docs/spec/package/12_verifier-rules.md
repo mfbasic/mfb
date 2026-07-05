@@ -75,7 +75,7 @@ These guarantees are defined and enforced by the source compiler, not restated h
 The format anticipates these, but the current reader does **not** check them. An implementer should be aware they are gaps, not guarantees:
 
 * Section ranges may overlap, and a duplicate `sectionId` silently takes the last entry rather than being rejected.
-* At *import/read* time the reader does not re-typecheck the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). That pass covers member access, closure-capture bounds, call/constructor arity, union-variant membership, and non-empty `MATCH`; it does **not** yet re-derive flow-sensitive resource linearity or full `Result`/effect-agreement, which still rely on the compile-time guarantees above.
+* At *import/read* time the reader does not re-syntaxcheck the decoded IR; the semantic invariants are instead re-established at *merge* time, before native lowering (see "Merge-time semantic verification" above). That pass covers member access, closure-capture bounds, call/constructor arity, union-variant membership, and non-empty `MATCH`; it does **not** yet re-derive flow-sensitive resource linearity or full `Result`/effect-agreement, which still rely on the compile-time guarantees above.
 * No native-binding verifier — there is no `NATIVE_LINK_TABLE` section to validate; native `LINK` metadata is carried in the IR payload trailer and validated, if at all, when that IR is merged and lowered.
 * No standalone signature verification in the reader (delegated to the package manager).
 

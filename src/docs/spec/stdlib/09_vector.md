@@ -33,7 +33,7 @@ normalized to the bare id `Float3` at parse time by `qualified_builtin_type`
 Every function is overloaded by **exact argument record type and arity**. Unlike
 the other source packages, `vector` does not overload its internal helpers:
 each (function, element-type, dimension) triple is a distinctly named companion
-FUNC (`__vector_length_float3`, `__vector_cross_integer4`, …). The typecheck
+FUNC (`__vector_length_float3`, `__vector_cross_integer4`, …). The syntaxcheck
 resolves the public return type from the argument types (`vector::resolve_call`),
 and IR lowering rewrites the public call onto the type-specific internal name
 from those same argument types (`vector::implementation_name`). A wrong arity,
