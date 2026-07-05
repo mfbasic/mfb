@@ -23,7 +23,7 @@ Identifiers are case-sensitive, so `userId` and `userid` are distinct. Tooling s
 
 ## 2.1 Numeric literals
 
-The lexer reads one or more ASCII digits, optionally followed by a single `.` and one or more ASCII digits. A `.` is consumed as a decimal point **only** when a digit follows it, so `x.0` is `x . 0` (member access) and `1.foo` is `1 . foo`. There is no exponent (`1e9`), hexadecimal (`0x`), binary, sign, digit-separator (`1_000`), or type-suffix syntax at the lexical level; a number token is just its raw digit text. A leading `-` is the unary-minus operator, not part of the literal. Literal *typing* (untyped → `Integer`/`Float`/`Fixed`) is resolved later by the type checker; see §4.1.
+The lexer reads one or more ASCII digits, optionally followed by a single `.` and one or more ASCII digits. A `.` is consumed as a decimal point **only** when a digit follows it, so `x.0` is `x . 0` (member access) and `1.foo` is `1 . foo`. There is no exponent (`1e9`), hexadecimal (`0x`), binary, sign, digit-separator (`1_000`), or type-suffix syntax at the lexical level; a number token is just its raw digit text. A leading `-` is the unary-minus operator, not part of the literal. Literal *typing* (untyped → `Integer`/`Float`/`Fixed`) is resolved later from context during type inference; see §4.1.
 
 ## 2.2 String literals and escapes
 

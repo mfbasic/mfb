@@ -128,8 +128,8 @@ implements.
 
 `expression_type(expr, context)` computes the argument types fed into unification
 and overload resolution. [[src/monomorph/lower.rs:expression_type]] It is a small,
-context-driven inference pass — not the type checker — and returns `None` when a
-type cannot be determined locally.
+context-driven inference pass — not a general type checker — and returns `None`
+when a type cannot be determined locally.
 
 | Expression | Inferred type |
 |------------|---------------|

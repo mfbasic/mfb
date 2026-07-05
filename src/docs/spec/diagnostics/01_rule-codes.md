@@ -81,7 +81,7 @@ unallocated). The scheme leaves room; it does not densely fill it.
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 13 |
 | `2-201` | imports & symbol resolution | 16 |
-| `2-203` | type checking, ownership, native ABI | 100 |
+| `2-203` | semantic checking (typing, ownership, native ABI) | 100 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
 | `3-302` | verification | 1 |
 | `3-304` | target/codegen support | 2 |

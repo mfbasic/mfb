@@ -2,7 +2,8 @@
 
 Every type in MFBASIC is carried between compiler stages as a single **flat
 string** — never a structured AST node. The parser builds this string when it
-reads a type annotation; the resolver, monomorphizer, type checker, and IR all
+reads a type annotation; the resolver, monomorphizer, source checker
+(`syntaxcheck`), and the IR — including the `ir::verify` semantic checker — all
 **re-derive structure by prefix-stripping and separator-splitting** the same
 string. This document is the canonical contract for that encoding. A mismatch in
 spacing, keyword casing, or separator width silently breaks every consumer, so
@@ -106,7 +107,8 @@ scope-ownership transfers across a function boundary.
 | Thread resource plane | `Thread OF Msg RES Res TO Out` | infix `RES` clause |
 
 `parse_type_name` accepts `RES` after `List OF` (the `Result` base accepts the
-keyword token but the marker is harmless and later rejected by type checking) and
+keyword token but the marker is harmless and later rejected by the semantic
+checker, `ir::verify`, as `TYPE_RES_REQUIRES_RESOURCE`) and
 after `Map ... TO`. Consumers strip it with
 `strip_prefix("RES ").unwrap_or(...)` before resolving the underlying type.
 [[src/ast/expr.rs:parse_type_name]] [[src/resolver/resolution.rs:resolve_type_name]]
@@ -178,8 +180,9 @@ Map/MapEntry bodies are split with `split_top_level_to` (a `" TO "`
 (a `", "` split). [[src/monomorph/helpers.rs:split_top_level_to]]
 [[src/monomorph/helpers.rs:func_type_parts]] Any new type shape must be added in lockstep
 to **all** of: `parse_type_name`, `resolve_type_name`, `concrete_type_name`
-(plus its sibling substitution passes), and the type checker — there is no shared
-parser to change in one place.
+(plus its sibling substitution passes), the source checker (`syntaxcheck`), and
+the `ir::verify` semantic checker — there is no shared parser to change in one
+place.
 
 ## See Also
 

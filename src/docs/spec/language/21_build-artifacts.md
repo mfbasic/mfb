@@ -17,7 +17,7 @@ package-to-native bridge. The full backend pipeline (IR → NIR → native), the
 package decode-and-merge-under-identity-prefix sequence, and native dependency
 resolution are owned by `./mfb spec architecture flows`.
 
-Package compilation emits `.mfp` packages containing portable Binary Representation plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, type checking, IR merging, and verification. This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfp`: importers consume the package API and do not repeat the `LINK` declarations.
+Package compilation emits `.mfp` packages containing portable Binary Representation plus the embedded package manifest, dependency metadata, native-link metadata, and public API metadata needed for import, source-syntax checking, IR merging, and semantic verification (`ir::verify`). This metadata includes each exported type and function's ownership properties: copyability, movability, resource-handle status, closure-capture requirements, thread-sendability, drop requirements, and collection element constraints. A package containing `LINK` declarations emits a reusable native binding `.mfp`: importers consume the package API and do not repeat the `LINK` declarations.
 
 ## 21.1 `.mfp` Binary Representation verification
 

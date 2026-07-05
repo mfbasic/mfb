@@ -94,33 +94,41 @@ The compiler must diagnose:
 - Binding a borrowed collection element of resource type with `RES` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`), or otherwise treating such a borrow as an owner.
 - Any control-flow path that could drop the same resource or owned value more than once.
 
-`.mfp` packages must preserve enough ownership metadata for import-time type checking and Binary Representation verification (§21).
+`.mfp` packages must preserve enough ownership metadata for import-time checking and Binary Representation semantic verification (§21).
 At minimum, exported type shape metadata must remain sufficient to reconstruct copyability, resource/thread containment, and drop-sensitive ownership checks when imported packages participate in move analysis.
 
-## 14.9 The move-state lattice
+## 14.9 Move tracking
 
-Use-after-move (§14.1, §14.8) is detected by a flow-sensitive move checker. Each binding carries an `OwnershipState` that is one of three values: `Available` (the binding still owns its value), `Moved` (its value was definitely transferred away), or `MaybeMoved` (it was moved on some control-flow paths but not others). Moving a non-copyable binding transitions it from `Available` to `Moved`; copyable bindings are never marked moved because consuming them copies. [[src/syntaxcheck/mod.rs:OwnershipState]]
+Use-after-move (§14.1, §14.8) is detected on the **typed IR** by `ir::verify`'s
+resource-move pass — the same checker that runs on decoded `.mfp` packages, so
+a crafted package cannot smuggle a double-free past it (plan-20). The check is
+resource-linearity: a *move* is the transfer of a resource's close obligation —
+a call to the resource type's registered close op with the binding as its first
+argument, a `RETURN` of a resource binding, or `RES new = old` (which transfers
+ownership of `old`). Copying a copyable value is never a move. [[src/ir/verify/mod.rs:check_resource_moves]]
 
-The checker tracks ownership per binding in a local map threaded through each block. At a branching statement — `IF`/`ELSE` and each `MATCH` case — every branch is checked against its own *clone* of the entering local map, so a move inside one branch does not affect the others or the bindings visible before the branch. After the branches, the per-branch maps are merged back into a single state. [[src/syntaxcheck/checking.rs:merge_branch_locals]]
+State is a single per-block set of moved binding names threaded through the op
+list (moved-or-not, not a three-value lattice). Reading a name already in the
+set is a use-after-move; the consuming op reads the name too, but it is inserted
+into the set only *after* that op, so the consume itself is fine and a *second*
+consume (a double close) is what trips. Reporting is under `TYPE_USE_AFTER_MOVE`
+with a single message — `"Binding \`name\` was moved and cannot be used again."`
+— regardless of whether the earlier move was definite or path-dependent.
 
-Only branches that *fall through* contribute to the merge. A branch that always returns (or otherwise diverges) is dropped from the merge, so a move performed on a path that cannot reach the code after the branch never taints the post-branch state. When an `IF` has no `ELSE` (or an empty `ELSE`), the unbranched entering state participates in the merge as an implicit fall-through path. [[src/syntaxcheck/checking.rs:merge_branch_locals]]
+At a branch — each arm of `IF`/`ELSE`, every `MATCH` case, and loop/`TRAP`
+bodies — the arm runs against a *clone* of the entering set, and the new moves
+it accumulates are unioned back into the outer set only if the arm *falls
+through*. An arm that diverges (a top-level `RETURN`/`FAIL`/`EXIT PROGRAM`)
+cannot reach the code after the branch, so its moves are dropped from the merge
+— close-then-return in one branch does not taint the join. Only moves of
+bindings the outer scope knows propagate; branch-local resources die with the
+branch. Because "moved on *some* fall-through path" unions into the set, a
+subsequent use is rejected exactly as a definite move would be. [[src/ir/verify/mod.rs:check_resource_moves]]
 
-Merging combines two states per binding with this lattice:
-
-| left \ right   | `Available`  | `Moved`      | `MaybeMoved` |
-| -------------- | ------------ | ------------ | ------------ |
-| `Available`    | `Available`  | `MaybeMoved` | `MaybeMoved` |
-| `Moved`        | `MaybeMoved` | `Moved`      | `MaybeMoved` |
-| `MaybeMoved`   | `MaybeMoved` | `MaybeMoved` | `MaybeMoved` |
-
-That is: `Available + Available = Available`; `Moved + Moved = Moved`; `Available` exclusive-or `Moved` yields `MaybeMoved`; and anything combined with `MaybeMoved` yields `MaybeMoved`. The merge is performed pairwise, folding each fall-through branch into the running state. [[src/syntaxcheck/checking.rs:merge_local_info]]
-
-Using a binding requires its state to be `Available`. A `Moved` use and a `MaybeMoved` use are both reported under code `TYPE_USE_AFTER_MOVE`, but with distinct messages so the diagnostic distinguishes a definite reuse from a path-dependent one:
-
-- `Moved`: "Binding `name` was moved and cannot be used again."
-- `MaybeMoved`: "Binding `name` may have been moved on another control-flow path and cannot be used here."
-
-[[src/syntaxcheck/checking.rs:require_local_owned]]
+A *borrow* — a resource parameter, a `FOR EACH` element binding, or a `RES`
+binding whose ownership floated into a collection — never owns the close
+obligation, so closing/returning/transferring one is rejected as
+`TYPE_RESOURCE_BORROW_INVALIDATE` rather than tracked as a move. [[src/ir/verify/mod.rs:check_resource_moves]]
 
 ## See Also
 

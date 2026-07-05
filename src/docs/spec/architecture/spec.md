@@ -27,9 +27,16 @@ project.json
   -> monomorphization
   -> name resolution again
   -> entry-point validation
-  -> type checking
+  -> source-syntax checking
   -> IR
+  -> IR semantic verification (ir::verify)
 ```
+
+Semantic validation is split by where the rule can be seen (plan-20): the source
+front end (`syntaxcheck`) checks only source-*syntax* rules — constructs lowering
+erases — while `ir::verify` is the single source of truth for every *semantic*
+rule, running on the typed IR of both the program being built and every decoded
+`.mfp` package (see `frontend` and `package binary-representation`).
 
 After IR, the pipeline splits:
 
@@ -56,7 +63,8 @@ artifacts are written into the project directory.
 ## Reading order
 
 The subtopics below follow the pipeline. `frontend` covers everything from
-manifest loading through type checking; `ir` is the shared hinge; then the path
+manifest loading through source-syntax checking (and the post-lowering semantic
+checker it hands off to); `ir` is the shared hinge; then the path
 splits into `binary-representation` (packages) and `native` (executables). The
 `flows` topic walks both end to end, and `artifacts`, `modules`, `boundaries`,
 and `extending` are quick references. The deeper-dive topics specify individual

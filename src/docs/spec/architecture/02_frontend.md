@@ -1,9 +1,11 @@
 # Shared Front End
 
-The shared front end: manifest loading, source discovery, name resolution, monomorphization, entry-point validation, and type checking.
+The shared front end: manifest loading, source discovery, name resolution, monomorphization, entry-point validation, and source-syntax checking.
 
 Every build — executable or package — runs the same front end, from reading
-`project.json` through type checking, before the pipeline splits at IR.
+`project.json` through source-syntax checking, before the pipeline splits at IR.
+(The bulk of semantic validation now runs *after* lowering, on the typed IR —
+see "Semantic Checking" below.)
 
 ## Project Manifest Loading
 
@@ -96,9 +98,9 @@ when their members are — handled by the normal template machinery rather than
 special-cased.
 
 `AstProject::to_json` filters this file out by path, so the prelude does not
-appear in `mfb build -ast` golden output. The resolver, monomorphizer, and type
-checker all consume the full project (prelude included), so `Pair` and
-`Partition` resolve, monomorphize, and type-check as if user-declared.[[src/ast/manifest.rs:BUILTIN_PRELUDE_PATH]]
+appear in `mfb build -ast` golden output. The resolver, monomorphizer, and both
+checkers consume the full project (prelude included), so `Pair` and
+`Partition` resolve, monomorphize, and check as if user-declared.[[src/ast/manifest.rs:BUILTIN_PRELUDE_PATH]]
 
 ## Built-in Package Augmentation
 
@@ -203,33 +205,43 @@ Rules enforced by the implementation:
 The resulting IR entry records the entry name, return type, and whether the
 program accepts command-line arguments.
 
-## Type Checking
+## Semantic Checking (two passes, one source of truth)
 
-Type checking is implemented in `src/syntaxcheck.rs`.
+Semantic validation is **split by where the rule can be seen** (plan-20). The
+authoritative checker for every *semantic* rule is `ir::verify`
+(`src/ir/verify/`), which runs on the typed IR. It is the sole rejecter for
+those rules on **both** paths: the freshly lowered IR of the program being
+built, and the decoded IR of every imported `.mfp` package. A crafted package
+never passed any source check, so running the same checker over its IR is what
+keeps type-confused IR out of a victim's binary (see
+`./mfb spec package verifier-rules`).
 
-The type checker builds indices for:
+The front-end checker `src/syntaxcheck/` (formerly `typecheck`) retains only the
+rules about **source syntax** — constructs that total lowering *erases*, so they
+can never appear in IR or in a package: named-argument call binding
+(`f(x := …)` duplicate/unknown names and the post-normalization arity/argument
+shapes), `EXIT FUNC`/`EXIT SUB` flavor distinctions, inline-`TRAP` boundaries
+and fallibility, lambda capture-escape analysis, and package-metadata ingestion
+(`PACKAGE_INVALID`, thread-sendability, the native-`LINK` slot-level ABI spans).
+It builds indices for local/package functions, user types and their kinds/fields,
+union members, and enum members to evaluate those rules, and it models the
+language's type forms (`./mfb spec language types`) to do so — but nothing
+downstream consumes its inference; lowering re-infers independently. It does
+**not** check the relocated semantic rules (operator/argument/return typing,
+member access, constructor arity, match exhaustiveness, resource ownership,
+literal ranges, …); those live only in `ir::verify`.
 
-- Local project functions.
-- Exported package functions.
-- User-defined types.
-- Type kinds.
-- Type fields.
-- Union member types.
-- Enum members.
-
-It then validates declarations, statement flow, expression types, mutability,
-constructor usage, member access, function calls, built-in calls, package calls,
-return/fail behavior, isolated-function restrictions, and default values.
-
-The type checker models the primitive and compound forms of the language —
-the scalars, `List`/`Map` collections, function values, `Result`, `Thread`/
-`ThreadWorker`, user-defined types, and the `Unknown` inference placeholder.
-The canonical enumeration of these forms is `./mfb spec language types`.
-
-Type checking is the last front-end validation pass before lowering to IR.
+`build_project` runs both over the source program: `syntaxcheck::check_project_collect`
+gathers the syntax-rule diagnostics, IR is lowered, `ir::verify_source_diagnostics`
+gathers the semantic-rule diagnostics, and the two streams are concatenated in
+source order and rendered together. On the package path, `merge_packages` runs
+`ir::verify_semantics` once over the fully merged IR before any code is emitted.
+[[src/cli/build.rs:build_project]] [[src/target/shared/nir/lower.rs:merge_packages]]
 
 ## See Also
 
-* ./mfb spec language types — the source-level type model the type checker enforces
+* ./mfb spec language types — the source-level type model the checkers share
+* ./mfb spec package verifier-rules — the package-path semantic verifier (`ir::verify_semantics`)
+* ./mfb spec diagnostics rule-codes — the diagnostic rule registry
 * ./mfb spec tooling source-selection — the glob-matching algorithm behind source-file selection
 * ./mfb spec architecture monomorphization — the template-expansion pass run between the two resolution passes
