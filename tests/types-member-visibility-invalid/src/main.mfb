@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  LET acct = mkAccount("a", 10)
+  RETURN acct.balance
+END FUNC

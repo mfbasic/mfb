@@ -132,6 +132,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_THREAD_RESULT_REMOVED",
     "TYPE_RESOURCE_BORROW_INVALIDATE",
     "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
+    "TYPE_MEMBER_NOT_VISIBLE",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -475,6 +476,12 @@ struct TypeEnv {
     /// The RES-declared binding names of the function currently being checked
     /// (its `resource_owners` table), for the RES ownership-axis rules.
     current_owners: RefCell<HashSet<String>>,
+    /// Type name → (declaring file, declared visibility) for cross-file
+    /// visibility checks (private = same file only).
+    type_decl_info: HashMap<String, (String, String)>,
+    /// Type name → its explicitly `private` fields (same-file only; other
+    /// fields are at least package-visible).
+    private_fields: HashMap<String, HashSet<String>>,
 }
 
 /// Rules whose failure leaves the failing expression's type undeterminable in
@@ -500,6 +507,12 @@ impl TypeEnv {
         let mut enums: HashMap<String, HashSet<String>> = HashMap::new();
         let mut field_types: HashMap<String, HashMap<String, String>> = HashMap::new();
         let mut record_field_lists: HashMap<String, Vec<(String, String)>> = HashMap::new();
+        let mut private_fields: HashMap<String, HashSet<String>> = HashMap::new();
+        let type_decl_info: HashMap<String, (String, String)> = project
+            .types
+            .iter()
+            .map(|t| (t.name.clone(), (t.file.clone(), t.visibility.clone())))
+            .collect();
         for ty in &project.types {
             match ty.kind.as_str() {
                 "enum" => {
@@ -524,6 +537,15 @@ impl TypeEnv {
                             .map(|f| (f.name.clone(), f.type_.clone()))
                             .collect(),
                     );
+                    let private: HashSet<String> = ty
+                        .fields
+                        .iter()
+                        .filter(|f| f.visibility.as_deref() == Some("private"))
+                        .map(|f| f.name.clone())
+                        .collect();
+                    if !private.is_empty() {
+                        private_fields.insert(ty.name.clone(), private);
+                    }
                 }
                 "union" => {
                     unions.insert(
@@ -629,6 +651,8 @@ impl TypeEnv {
             loop_stack: RefCell::new(Vec::new()),
             allow_sub_call: Cell::new(false),
             current_owners: RefCell::new(HashSet::new()),
+            type_decl_info,
+            private_fields,
         }
     }
 
@@ -1687,8 +1711,28 @@ impl TypeEnv {
                     "TYPE_UNKNOWN_FIELD",
                     format!("record `{type_name}` has no member `{member}`."),
                 );
+            } else if self.hidden_from_here(&type_name, member) {
+                self.emit(
+                    "TYPE_MEMBER_NOT_VISIBLE",
+                    format!("Field `{type_name}::{member}` is not visible from this file."),
+                );
             }
         }
+    }
+
+    /// Whether `member` of `type_name` is explicitly private and the current
+    /// file is not the type's declaring file (typecheck's `visible_from`).
+    fn hidden_from_here(&self, type_name: &str, member: &str) -> bool {
+        if !self
+            .private_fields
+            .get(type_name)
+            .is_some_and(|p| p.contains(member))
+        {
+            return false;
+        }
+        self.type_decl_info
+            .get(type_name)
+            .is_some_and(|(file, _)| !file.is_empty() && *file != *self.current_file.borrow())
     }
 
     /// Reject a binary operator applied to operands whose types it cannot
@@ -3255,6 +3299,34 @@ impl TypeEnv {
                 );
             }
             return;
+        }
+        // A private type (or one with hidden fields) may only be constructed
+        // from its declaring file (typecheck's TYPE_MEMBER_NOT_VISIBLE arms).
+        if let Some((file, visibility)) = self.type_decl_info.get(type_name) {
+            if visibility == "private" && !file.is_empty() && *file != *self.current_file.borrow()
+            {
+                self.emit(
+                    "TYPE_MEMBER_NOT_VISIBLE",
+                    format!("Constructor `{type_name}` is not visible from this file."),
+                );
+                return;
+            }
+        }
+        if let Some(private) = self.private_fields.get(type_name) {
+            if self
+                .type_decl_info
+                .get(type_name)
+                .is_some_and(|(file, _)| !file.is_empty() && *file != *self.current_file.borrow())
+            {
+                for field in private {
+                    self.emit(
+                        "TYPE_MEMBER_NOT_VISIBLE",
+                        format!(
+                            "Constructor `{type_name}` cannot set hidden field `{field}` from this file."
+                        ),
+                    );
+                }
+            }
         }
         let Some(fields) = self.record_field_lists.get(type_name) else {
             return;

@@ -1,0 +1,8 @@
+EXPORT TYPE Account
+  name AS String
+  PRIVATE balance AS Integer
+END TYPE
+
+EXPORT FUNC mkAccount(name AS String, balance AS Integer) AS Account
+  RETURN Account[name, balance]
+END FUNC
