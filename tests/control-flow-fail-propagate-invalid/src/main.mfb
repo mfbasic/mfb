@@ -1,0 +1,9 @@
+FUNC risky(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL 42
+  PROPAGATE
+  RETURN v
+END FUNC
+
+FUNC main AS Integer
+  RETURN risky(1)
+END FUNC

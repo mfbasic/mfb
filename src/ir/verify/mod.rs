@@ -121,6 +121,8 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
     "TYPE_SUB_HAS_NO_VALUE",
     "TYPE_FUNC_MISSING_RETURN",
+    "TYPE_FAIL_REQUIRES_ERROR",
+    "TYPE_PROPAGATE_REQUIRES_TRAP",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -745,12 +747,28 @@ impl TypeEnv {
                 IrOp::Assign { name, value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
-                    // Skip synthesized `$`-temp targets (user identifiers cannot
-                    // start with `$`): e.g. the RECOVER slot, whose value/type
-                    // agreement is TYPE_RECOVER_TYPE_MISMATCH's rule, not this
-                    // one. An undeclared target (a lambda writing its captured
-                    // outer binding) is skipped the same way — no local info.
+                    // Synthesized `$`-temp targets are not user assignments —
+                    // but an assign into the RECOVER slot (`$trap_val*`) is the
+                    // lowered RECOVER value, which must match the trapped
+                    // expression's success type (TYPE_RECOVER_TYPE_MISMATCH).
                     if name.starts_with('$') {
+                        if name.starts_with("$trap_val") {
+                            if let (Some(expected), Some(actual)) =
+                                (locals.get(name), self.infer_type(value, locals))
+                            {
+                                let expected = resource_base_type(expected);
+                                if !expected.is_empty()
+                                    && expected != "Unknown"
+                                    && expected != "Nothing"
+                                    && !self.expression_compatible(expected, &actual, value)
+                                {
+                                    self.emit(
+                                        "TYPE_RECOVER_TYPE_MISMATCH",
+                                        format!("RECOVER has type {actual}, expected {expected}."),
+                                    );
+                                }
+                            }
+                        }
                         continue;
                     }
                     if muts.get(name) == Some(&false) {
@@ -842,6 +860,25 @@ impl TypeEnv {
                 IrOp::Fail { error: value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
+                    // `PROPAGATE` outside a TRAP lowers to `Fail(Local("$error"))`
+                    // with the sentinel unbound; inside a trap the real error
+                    // binding is used (typecheck's TYPE_PROPAGATE_REQUIRES_TRAP).
+                    if matches!(value, IrValue::Local(n) if n == "$error")
+                        && !locals.contains_key("$error")
+                    {
+                        self.emit(
+                            "TYPE_PROPAGATE_REQUIRES_TRAP",
+                            "PROPAGATE is valid only inside a TRAP.".to_string(),
+                        );
+                    } else if let Some(actual) = self.infer_type(value, locals) {
+                        // FAIL carries an Error (typecheck's TYPE_FAIL_REQUIRES_ERROR).
+                        if !self.compatible("Error", &actual) {
+                            self.emit(
+                                "TYPE_FAIL_REQUIRES_ERROR",
+                                format!("FAIL has type {actual}, expected Error."),
+                            );
+                        }
+                    }
                 }
                 IrOp::Return { value, .. } => {
                     // A SUB produces no value; lowering keeps a SUB's `RETURN
@@ -1136,6 +1173,15 @@ impl TypeEnv {
                         closure_slots,
                         depth + 1,
                     );
+                    // A function-level TRAP block must leave the function on
+                    // every path (typecheck's TYPE_TRAP_FALLTHROUGH).
+                    self.current_line.set(line);
+                    if !self.block_always_returns(body, &branch) {
+                        self.emit(
+                            "TYPE_TRAP_FALLTHROUGH",
+                            format!("TRAP `{name}` must return, fail, or propagate."),
+                        );
+                    }
                 }
             }
         }
