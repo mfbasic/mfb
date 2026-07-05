@@ -1,8 +1,7 @@
-use super::*;
 use super::helpers::*;
+use super::*;
 
 impl<'a> TypeChecker<'a> {
-
     /// Parse a collection element / `Map` value type, honoring the `RES` marker
     /// (`List OF RES File`). The marker wraps the element in [`Type::Res`]; the
     /// element validation later checks it matches the element's resource-ness.
@@ -288,15 +287,6 @@ impl<'a> TypeChecker<'a> {
         if self.is_comparable(type_) {
             return;
         }
-        self.report(
-            "TYPE_REQUIRES_COMPARABLE",
-            &format!(
-                "{context} requires a comparable type, got `{}`.",
-                self.type_name(type_)
-            ),
-            file,
-            line,
-        );
     }
 
     /// The argument mode for argument `index` of a call to `callee`. A call to a
@@ -304,7 +294,12 @@ impl<'a> TypeChecker<'a> {
     /// (overhaul invalidation event #1) — for native LINK resources this is the
     /// `LINK` CLOSE wrapper (plan-link-update.md §6). All other resource arguments
     /// borrow by default.
-    pub(super) fn call_argument_mode(&self, callee: &str, index: usize, sig: &FunctionSig) -> ExprMode {
+    pub(super) fn call_argument_mode(
+        &self,
+        callee: &str,
+        index: usize,
+        sig: &FunctionSig,
+    ) -> ExprMode {
         let param_type = sig.params.get(index).map(|param| &param.type_);
         if index == 0 {
             if let Some(Type::User(name)) = param_type {

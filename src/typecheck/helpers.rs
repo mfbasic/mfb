@@ -1,66 +1,5 @@
 use super::*;
 
-pub(super) enum ByteLiteralRangeError<'a> {
-    Overflow(&'a str),
-    Underflow(String),
-}
-
-pub(super) enum SignedLiteralRangeError {
-    Overflow(String),
-    Underflow(String),
-}
-
-pub(super) fn byte_literal_range_error(expression: &Expression) -> Option<ByteLiteralRangeError<'_>> {
-    match expression {
-        Expression::Number(value) if !value.contains('.') => value
-            .parse::<u16>()
-            .map_or(Some(ByteLiteralRangeError::Overflow(value)), |number| {
-                (number > u8::MAX as u16).then_some(ByteLiteralRangeError::Overflow(value))
-            }),
-        Expression::Unary {
-            operator, operand, ..
-        } if operator == "-" => {
-            let Expression::Number(value) = operand.as_ref() else {
-                return None;
-            };
-            if value.contains('.') {
-                return None;
-            }
-            let Ok(number) = value.parse::<u128>() else {
-                return Some(ByteLiteralRangeError::Underflow(format!("-{value}")));
-            };
-            (number != 0).then_some(ByteLiteralRangeError::Underflow(format!("-{value}")))
-        }
-        _ => None,
-    }
-}
-
-pub(super) fn float_literal_range_error(expression: &Expression) -> Option<SignedLiteralRangeError> {
-    let (text, negative) = signed_numeric_literal(expression)?;
-    let parsed = text.parse::<f64>().ok()?;
-    if parsed.is_finite() {
-        return None;
-    }
-    if negative {
-        Some(SignedLiteralRangeError::Underflow(format!("-{text}")))
-    } else {
-        Some(SignedLiteralRangeError::Overflow(text.to_string()))
-    }
-}
-
-pub(super) fn fixed_literal_range_error(expression: &Expression) -> Option<SignedLiteralRangeError> {
-    let (text, negative) = signed_numeric_literal(expression)?;
-    let parsed = text.parse::<f64>().ok()?;
-    let value = if negative { -parsed } else { parsed };
-    if value < -2147483648.0 {
-        Some(SignedLiteralRangeError::Underflow(format!("-{text}")))
-    } else if value >= 2147483648.0 {
-        Some(SignedLiteralRangeError::Overflow(text.to_string()))
-    } else {
-        None
-    }
-}
-
 pub(super) fn statement_line(statement: &Statement) -> usize {
     match statement {
         Statement::Let { line, .. }
@@ -82,35 +21,12 @@ pub(super) fn statement_line(statement: &Statement) -> usize {
     }
 }
 
-pub(super) fn loop_kind_keyword(kind: LoopKind) -> &'static str {
-    match kind {
-        LoopKind::For => "FOR",
-        LoopKind::Do => "DO",
-        LoopKind::While => "WHILE",
-    }
-}
-
 pub(super) fn integer_constant_value(expression: &Expression) -> Option<i128> {
     match expression {
         Expression::Number(value) => value.parse::<i128>().ok(),
         Expression::Unary {
             operator, operand, ..
         } if operator == "-" => integer_constant_value(operand).map(|value| -value),
-        _ => None,
-    }
-}
-
-pub(super) fn signed_numeric_literal(expression: &Expression) -> Option<(&str, bool)> {
-    match expression {
-        Expression::Number(value) => Some((value.as_str(), false)),
-        Expression::Unary {
-            operator, operand, ..
-        } if operator == "-" => {
-            let Expression::Number(value) = operand.as_ref() else {
-                return None;
-            };
-            Some((value.as_str(), true))
-        }
         _ => None,
     }
 }
@@ -314,14 +230,6 @@ pub(super) fn is_c_abi_type(type_name: &str) -> bool {
             | "CFloat"
             | "CDouble"
     )
-}
-
-pub(super) fn type_kind_name(kind: TypeDeclKind) -> &'static str {
-    match kind {
-        TypeDeclKind::Type => "TYPE",
-        TypeDeclKind::Union => "UNION",
-        TypeDeclKind::Enum => "ENUM",
-    }
 }
 
 pub(super) fn numeric_literal_type(expression: &Expression) -> Option<Type> {

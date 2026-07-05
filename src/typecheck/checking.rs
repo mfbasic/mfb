@@ -1,5 +1,5 @@
-use super::*;
 use super::helpers::*;
+use super::*;
 
 impl<'a> TypeChecker<'a> {
     pub(super) fn check_block(
@@ -84,26 +84,8 @@ impl<'a> TypeChecker<'a> {
     ) -> bool {
         match info.ownership {
             OwnershipState::Available => true,
-            OwnershipState::Moved => {
-                self.report(
-                    "TYPE_USE_AFTER_MOVE",
-                    &format!("Binding `{name}` was moved and cannot be used again."),
-                    file,
-                    line,
-                );
-                false
-            }
-            OwnershipState::MaybeMoved => {
-                self.report(
-                    "TYPE_USE_AFTER_MOVE",
-                    &format!(
-                        "Binding `{name}` may have been moved on another control-flow path and cannot be used here."
-                    ),
-                    file,
-                    line,
-                );
-                false
-            }
+            OwnershipState::Moved => false,
+            OwnershipState::MaybeMoved => false,
         }
     }
 
@@ -123,14 +105,6 @@ impl<'a> TypeChecker<'a> {
         // A borrowed resource cannot be invalidated: close, `RETURN`, and
         // `thread::transfer` all require ownership, which a borrow does not grant.
         if info.borrowed && self.is_resource_type(&info.type_) {
-            self.report(
-                "TYPE_RESOURCE_BORROW_INVALIDATE",
-                &format!(
-                    "Binding `{name}` is a borrowed resource; only its owner may close, `RETURN`, or transfer it."
-                ),
-                file,
-                line,
-            );
             return;
         }
         if !self.is_copyable_type(&info.type_) {
@@ -155,24 +129,8 @@ impl<'a> TypeChecker<'a> {
         let is_resource = declared.is_some_and(|type_| self.is_resource_type(type_));
         if is_resource && !resource {
             let type_name = declared.map(|t| self.type_name(t)).unwrap_or_default();
-            self.report(
-                "TYPE_RESOURCE_REQUIRES_RES",
-                &format!(
-                    "{context} holds resource `{type_name}`; bind it with `RES`, not `LET`/`MUT`."
-                ),
-                file,
-                line,
-            );
         } else if resource && declared.is_some() && !is_resource {
             let type_name = self.type_name(declared.unwrap());
-            self.report(
-                "TYPE_RES_REQUIRES_RESOURCE",
-                &format!(
-                    "{context} is declared `RES` but `{type_name}` is not a resource type; use `LET`/`MUT`."
-                ),
-                file,
-                line,
-            );
         }
 
         if let Some(state) = state_type {
@@ -183,27 +141,11 @@ impl<'a> TypeChecker<'a> {
                 matches!(declared, Some(Type::User(name)) if self.is_resource_union(name));
             if on_resource_union {
                 let type_name = self.type_name(declared.unwrap());
-                self.report(
-                    "TYPE_UNION_STATE_FORBIDDEN",
-                    &format!(
-                        "{context} attaches STATE to resource union `{type_name}`; a resource union carries no STATE — use a concrete stateful resource."
-                    ),
-                    file,
-                    line,
-                );
             }
             let state_resolved = self.parse_type(state);
             self.check_type_reference(file, &state_resolved, line);
             if !self.is_copyable_type(&state_resolved) || !self.is_defaultable_type(&state_resolved)
             {
-                self.report(
-                    "TYPE_STATE_INVALID",
-                    &format!(
-                        "{context} STATE type `{state}` must be a copyable, defaultable data type."
-                    ),
-                    file,
-                    line,
-                );
             }
         }
     }
@@ -227,55 +169,10 @@ impl<'a> TypeChecker<'a> {
             );
         }
 
-        let reported_range_error = declared.zip(value).is_some_and(|(declared, value)| {
-            self.report_primitive_literal_range_error(declared, value, file, line)
-        });
-
-        match (declared, inferred) {
-            (Some(declared), Some(inferred))
-                if !reported_range_error
-                    && !self.expression_compatible(declared, inferred, value) =>
-            {
-                self.report(
-                    "TYPE_BINDING_MISMATCH",
-                    &format!(
-                        "Binding `{name}` has initializer type {}, expected {}.",
-                        self.type_name(inferred),
-                        self.type_name(declared)
-                    ),
-                    file,
-                    line,
-                );
-            }
-            (None, None) => {
-                self.report(
-                    "TYPE_BINDING_REQUIRES_TYPE_OR_VALUE",
-                    &format!("Binding `{name}` needs a type annotation or initializer."),
-                    file,
-                    line,
-                );
-            }
-            (Some(_), None) if !mutable => {
-                self.report(
-                    "TYPE_LET_REQUIRES_VALUE",
-                    &format!("Immutable binding `{name}` must have an initializer."),
-                    file,
-                    line,
-                );
-            }
-            (Some(declared), None) if mutable && !self.is_defaultable_type(declared) => {
-                self.report(
-                    "TYPE_MUT_REQUIRES_DEFAULTABLE_TYPE",
-                    &format!(
-                        "Mutable binding `{name}` cannot omit its initializer because type `{}` does not have a defined default value.",
-                        self.type_name(declared)
-                    ),
-                    file,
-                    line,
-                );
-            }
-            _ => {}
-        }
+        // The binding-shape rejections (mismatch, missing type/value,
+        // non-defaultable MUT, literal range) live in `ir::verify` now
+        // (plan-20-Z); only the inference side effects above remain here.
+        let _ = (declared, inferred, value, mutable, file, line);
     }
 
     pub(super) fn check_statement(
@@ -338,16 +235,7 @@ impl<'a> TypeChecker<'a> {
                     && value
                         .as_ref()
                         .is_some_and(|value| is_resource_element_borrow(value))
-                {
-                    self.report(
-                        "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
-                        &format!(
-                            "Binding `{name}` is a borrowed collection element, not an owner; a borrowed resource cannot be bound with `RES`. Use it inline or via `FOR EACH` (§15.6)."
-                        ),
-                        file,
-                        *line,
-                    );
-                }
+                {}
                 // A `RES` binding whose ownership floats into an outer-scope
                 // collection (or out via a returned collection) becomes
                 // borrow-only: it may not close, `RETURN`, or transfer the
@@ -407,26 +295,8 @@ impl<'a> TypeChecker<'a> {
                     && value
                         .as_ref()
                         .is_some_and(|value| is_resource_element_borrow(value))
-                {
-                    self.report(
-                        "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
-                        "RETURN value is a borrowed collection element, not an owner; a borrowed resource cannot be returned (§15.6).",
-                        file,
-                        *line,
-                    );
-                }
-                if !self.expression_compatible(expected_return, &actual, value.as_ref()) {
-                    self.report(
-                        "TYPE_RETURN_MISMATCH",
-                        &format!(
-                            "RETURN has type {}, expected {}.",
-                            self.type_name(&actual),
-                            self.type_name(expected_return)
-                        ),
-                        file,
-                        *line,
-                    );
-                }
+                {}
+                if !self.expression_compatible(expected_return, &actual, value.as_ref()) {}
                 Flow::AlwaysReturns
             }
             Statement::Exit { target, code, line } => {
@@ -438,17 +308,7 @@ impl<'a> TypeChecker<'a> {
                             ExitTarget::While => LoopKind::While,
                             _ => unreachable!(),
                         };
-                        if !self.loop_stack.iter().rev().any(|item| *item == kind) {
-                            self.report(
-                                "EXIT_NO_MATCHING_LOOP",
-                                &format!(
-                                    "EXIT {} has no matching enclosing loop.",
-                                    loop_kind_keyword(kind)
-                                ),
-                                file,
-                                *line,
-                            );
-                        }
+                        if !self.loop_stack.iter().rev().any(|item| *item == kind) {}
                     }
                     ExitTarget::Sub => {
                         if !self.current_is_sub {
@@ -480,66 +340,25 @@ impl<'a> TypeChecker<'a> {
                         };
                         let actual =
                             self.infer_expression(file, code, locals, *line, ExprMode::Read);
-                        if !self.expression_compatible(&Type::Integer, &actual, Some(code)) {
-                            self.report(
-                                "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
-                                &format!(
-                                    "EXIT PROGRAM code has type {}, expected Integer.",
-                                    self.type_name(&actual)
-                                ),
-                                file,
-                                *line,
-                            );
-                        }
+                        if !self.expression_compatible(&Type::Integer, &actual, Some(code)) {}
                         if let Some(value) = integer_constant_value(code) {
-                            if !(0..=255).contains(&value) {
-                                self.report(
-                                    "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
-                                    "EXIT PROGRAM constant exit code must be in the host range 0..255.",
-                                    file,
-                                    *line,
-                                );
-                            }
+                            if !(0..=255).contains(&value) {}
                         }
                     }
                 }
                 Flow::AlwaysReturns
             }
             Statement::Continue { kind, line } => {
-                if !self.loop_stack.iter().rev().any(|item| *item == *kind) {
-                    self.report(
-                        "CONTINUE_NO_MATCHING_LOOP",
-                        &format!(
-                            "CONTINUE {} has no matching enclosing loop.",
-                            loop_kind_keyword(*kind)
-                        ),
-                        file,
-                        *line,
-                    );
-                }
+                if !self.loop_stack.iter().rev().any(|item| *item == *kind) {}
                 Flow::AlwaysReturns
             }
             Statement::Fail { error, line } => {
                 let actual = self.infer_expression(file, error, locals, *line, ExprMode::Transfer);
-                if !self.compatible(&Type::Error, &actual) {
-                    self.report(
-                        "TYPE_FAIL_REQUIRES_ERROR",
-                        &format!("FAIL has type {}, expected Error.", self.type_name(&actual)),
-                        file,
-                        *line,
-                    );
-                }
+                if !self.compatible(&Type::Error, &actual) {}
                 Flow::AlwaysReturns
             }
             Statement::Propagate { line } => {
-                if trap_name.is_none() {
-                    self.report(
-                        "TYPE_PROPAGATE_REQUIRES_TRAP",
-                        "PROPAGATE is valid only inside a TRAP.",
-                        file,
-                        *line,
-                    );
-                }
+                if trap_name.is_none() {}
                 Flow::AlwaysReturns
             }
             Statement::Recover { value, line } => {
@@ -606,36 +425,10 @@ impl<'a> TypeChecker<'a> {
             Statement::Assign { name, value, line } => {
                 let Some(local) = locals.get(name).cloned() else {
                     if let Some(binding) = self.lookup_visible_binding(file, name).cloned() {
-                        if !binding.mutable {
-                            self.report(
-                                "TYPE_ASSIGN_REQUIRES_MUT",
-                                &format!("Binding `{name}` is immutable and cannot be assigned."),
-                                file,
-                                *line,
-                            );
-                        }
-                        let actual =
-                            self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
-                        let reported_range_error = self.report_primitive_literal_range_error(
-                            &binding.type_,
-                            value,
-                            file,
-                            *line,
-                        );
-                        if !reported_range_error
-                            && !self.expression_compatible(&binding.type_, &actual, Some(value))
-                        {
-                            self.report(
-                                "TYPE_ASSIGNMENT_MISMATCH",
-                                &format!(
-                                    "Assignment to `{name}` has type {}, expected {}.",
-                                    self.type_name(&actual),
-                                    self.type_name(&binding.type_)
-                                ),
-                                file,
-                                *line,
-                            );
-                        }
+                        // Mutability/type/range rejections for global
+                        // assignment targets live in `ir::verify` (plan-20-Z);
+                        // inference still runs for elaboration.
+                        self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
                         return Flow::FallsThrough;
                     }
                     self.report(
@@ -646,33 +439,11 @@ impl<'a> TypeChecker<'a> {
                     );
                     return Flow::FallsThrough;
                 };
-                if !local.mutable {
-                    self.report(
-                        "TYPE_ASSIGN_REQUIRES_MUT",
-                        &format!("Binding `{name}` is immutable and cannot be assigned."),
-                        file,
-                        *line,
-                    );
-                }
-                let actual = self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
+                // Mutability/type/range rejections for local assignment
+                // targets live in `ir::verify` (plan-20-Z).
+                self.infer_expression(file, value, locals, *line, ExprMode::Transfer);
                 if !self.require_local_owned(file, *line, name, &local) {
                     return Flow::FallsThrough;
-                }
-                let reported_range_error =
-                    self.report_primitive_literal_range_error(&local.type_, value, file, *line);
-                if !reported_range_error
-                    && !self.expression_compatible(&local.type_, &actual, Some(value))
-                {
-                    self.report(
-                        "TYPE_ASSIGNMENT_MISMATCH",
-                        &format!(
-                            "Assignment to `{name}` has type {}, expected {}.",
-                            self.type_name(&actual),
-                            self.type_name(&local.type_)
-                        ),
-                        file,
-                        *line,
-                    );
                 }
                 Flow::FallsThrough
             }
@@ -692,14 +463,6 @@ impl<'a> TypeChecker<'a> {
                     return Flow::FallsThrough;
                 };
                 let Some(state_name) = local.state_type.clone() else {
-                    self.report(
-                        "TYPE_STATE_INVALID",
-                        &format!(
-                            "`{resource}` has no STATE to assign; declare the resource with `STATE T`."
-                        ),
-                        file,
-                        *line,
-                    );
                     self.infer_expression(file, value, locals, *line, ExprMode::Read);
                     return Flow::FallsThrough;
                 };
@@ -717,18 +480,7 @@ impl<'a> TypeChecker<'a> {
                     Some(&state_type),
                     ExprMode::Transfer,
                 );
-                if !self.expression_compatible(&state_type, &actual, Some(value)) {
-                    self.report(
-                        "TYPE_ASSIGNMENT_MISMATCH",
-                        &format!(
-                            "State assignment to `{resource}.state` has type {}, expected {}.",
-                            self.type_name(&actual),
-                            self.type_name(&state_type)
-                        ),
-                        file,
-                        *line,
-                    );
-                }
+                if !self.expression_compatible(&state_type, &actual, Some(value)) {}
                 Flow::FallsThrough
             }
             Statement::Expression { expression, line } => {
@@ -747,17 +499,7 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let condition_type =
                     self.infer_expression(file, condition, locals, *line, ExprMode::Read);
-                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
-                    self.report(
-                        "TYPE_CONDITION_REQUIRES_BOOLEAN",
-                        &format!(
-                            "IF condition has type {}, expected Boolean.",
-                            self.type_name(&condition_type)
-                        ),
-                        file,
-                        *line,
-                    );
-                }
+                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {}
                 let mut then_locals = locals.clone();
                 let then_flow = self.check_block(
                     file,
@@ -840,17 +582,7 @@ impl<'a> TypeChecker<'a> {
                             case.line,
                             ExprMode::Read,
                         );
-                        if !self.expression_compatible(&Type::Boolean, &guard_type, Some(guard)) {
-                            self.report(
-                                "TYPE_CONDITION_REQUIRES_BOOLEAN",
-                                &format!(
-                                    "WHEN guard has type {}, expected Boolean.",
-                                    self.type_name(&guard_type)
-                                ),
-                                file,
-                                case.line,
-                            );
-                        }
+                        if !self.expression_compatible(&Type::Boolean, &guard_type, Some(guard)) {}
                     }
                     let case_flow = self.check_block(
                         file,
@@ -907,29 +639,12 @@ impl<'a> TypeChecker<'a> {
                         ("end", &end_type),
                         ("step", &step_type),
                     ] {
-                        if !self.is_numeric(type_) {
-                            self.report(
-                                "TYPE_FOR_REQUIRES_NUMERIC",
-                                &format!(
-                                    "FOR loop {label} value has type {}, expected numeric.",
-                                    self.type_name(type_)
-                                ),
-                                file,
-                                *line,
-                            );
-                        }
+                        if !self.is_numeric(type_) {}
                     }
                     Type::Unknown
                 };
                 if let Some(step) = step {
-                    if numeric_literal_is_zero(step) {
-                        self.report(
-                            "TYPE_FOR_STEP_ZERO",
-                            "FOR loop STEP must not be zero.",
-                            file,
-                            *line,
-                        );
-                    }
+                    if numeric_literal_is_zero(step) {}
                 }
                 let mut nested = locals.clone();
                 nested.insert(
@@ -968,18 +683,7 @@ impl<'a> TypeChecker<'a> {
                         self.type_name(&key),
                         self.type_name(strip_res(&value))
                     )),
-                    other => {
-                        self.report(
-                            "TYPE_FOR_EACH_REQUIRES_COLLECTION",
-                            &format!(
-                                "FOR EACH source has type {}, expected List or Map.",
-                                self.type_name(&other)
-                            ),
-                            file,
-                            *line,
-                        );
-                        Type::Unknown
-                    }
+                    other => Type::Unknown,
                 };
                 // Iterating a resource collection yields a *borrow* of each
                 // element; the loop variable may not close, `RETURN`, or transfer
@@ -1013,17 +717,7 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let condition_type =
                     self.infer_expression(file, condition, locals, *line, ExprMode::Read);
-                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
-                    self.report(
-                        "TYPE_CONDITION_REQUIRES_BOOLEAN",
-                        &format!(
-                            "WHILE condition has type {}, expected Boolean.",
-                            self.type_name(&condition_type)
-                        ),
-                        file,
-                        *line,
-                    );
-                }
+                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {}
                 let mut nested = locals.clone();
                 self.loop_stack.push(*kind);
                 let body_flow =
@@ -1046,17 +740,7 @@ impl<'a> TypeChecker<'a> {
                 self.loop_stack.pop();
                 let condition_type =
                     self.infer_expression(file, condition, locals, *line, ExprMode::Read);
-                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {
-                    self.report(
-                        "TYPE_CONDITION_REQUIRES_BOOLEAN",
-                        &format!(
-                            "LOOP UNTIL condition has type {}, expected Boolean.",
-                            self.type_name(&condition_type)
-                        ),
-                        file,
-                        *line,
-                    );
-                }
+                if !self.expression_compatible(&Type::Boolean, &condition_type, Some(condition)) {}
                 if body_flow == Flow::FallsThrough {
                     self.merge_branch_locals(locals, vec![nested]);
                 }

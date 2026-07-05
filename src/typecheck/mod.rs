@@ -21,10 +21,6 @@ mod inference;
 mod resources;
 mod types;
 
-// The set of rules relocated to `ir::verify` lives there (its authoritative
-// list of what it emits on the source path); `typecheck` skips the same set.
-use crate::ir::RELOCATED_TO_IR_VERIFY;
-
 use self::helpers::*;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -349,7 +345,12 @@ impl<'a> TypeChecker<'a> {
     /// structural close-op checks run during resolve; the sendability opt-in is
     /// recorded into the registry (and the `RESOURCE_TABLE` sendable bit) by
     /// `collect_native_resources` (plan-link-update.md §8/§10).
-    pub(super) fn check_resource_decl(&mut self, _file: &AstFile, _resource: &crate::ast::ResourceDecl) {}
+    pub(super) fn check_resource_decl(
+        &mut self,
+        _file: &AstFile,
+        _resource: &crate::ast::ResourceDecl,
+    ) {
+    }
 
     /// Native-specific checks on a `LINK` block: `CPtr` containment and ABI
     /// slot/parameter consistency (plan-link-update.md §5b/§5c/§11/§12).
@@ -359,7 +360,11 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub(super) fn check_link_function(&mut self, file: &AstFile, function: &crate::ast::LinkFunction) {
+    pub(super) fn check_link_function(
+        &mut self,
+        file: &AstFile,
+        function: &crate::ast::LinkFunction,
+    ) {
         // `CPtr` (and other raw C ABI types) may never appear in a wrapper's
         // MFBASIC-facing signature — only inside `ABI (...)` slots. A wrapper
         // param or return typed as a C type would let a raw pointer escape into an
@@ -1053,7 +1058,10 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub(super) fn package_variant_info(&self, variant: BinaryReprTypeVariant) -> VariantConstructor {
+    pub(super) fn package_variant_info(
+        &self,
+        variant: BinaryReprTypeVariant,
+    ) -> VariantConstructor {
         VariantConstructor {
             name: variant.name,
             union_name: String::new(),
@@ -1112,38 +1120,22 @@ impl<'a> TypeChecker<'a> {
         variants
     }
 
-    pub(super) fn report_expanded_union_member_conflicts(&mut self, file: &AstFile, type_decl: &TypeDecl) {
+    pub(super) fn report_expanded_union_member_conflicts(
+        &mut self,
+        file: &AstFile,
+        type_decl: &TypeDecl,
+    ) {
         let mut included_members: HashMap<String, String> = HashMap::new();
         for include in &type_decl.includes {
             for variant in self.expanded_union_variants(include, &mut HashSet::new()) {
                 if let Some(previous_include) =
                     included_members.insert(variant.name.clone(), include.clone())
-                {
-                    self.report(
-                        "TYPE_DUPLICATE_VARIANT",
-                        &format!(
-                            "Member type `{}` in UNION `{}` is provided by both included UNION `{}` and included UNION `{}`.",
-                            variant.name, type_decl.name, previous_include, include
-                        ),
-                        file,
-                        type_decl.line,
-                    );
-                }
+                {}
             }
         }
 
         for variant in &type_decl.variants {
-            if let Some(include) = included_members.get(&variant.name) {
-                self.report(
-                    "TYPE_DUPLICATE_VARIANT",
-                    &format!(
-                        "Member type `{}` in UNION `{}` conflicts with a member included from UNION `{}`.",
-                        variant.name, type_decl.name, include
-                    ),
-                    file,
-                    variant.line,
-                );
-            }
+            if let Some(include) = included_members.get(&variant.name) {}
         }
     }
 
@@ -1215,7 +1207,11 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub(super) fn field_info(&self, field: &TypeField, containing_visibility: Visibility) -> FieldInfo {
+    pub(super) fn field_info(
+        &self,
+        field: &TypeField,
+        containing_visibility: Visibility,
+    ) -> FieldInfo {
         FieldInfo {
             name: field.name.clone(),
             type_: self.parse_type(&field.type_name),
@@ -1379,7 +1375,11 @@ impl<'a> TypeChecker<'a> {
         format!("{package}.{rest}")
     }
 
-    pub(super) fn visible_function_sigs<'b>(&'b self, file: &AstFile, name: &str) -> Vec<&'b FunctionSig> {
+    pub(super) fn visible_function_sigs<'b>(
+        &'b self,
+        file: &AstFile,
+        name: &str,
+    ) -> Vec<&'b FunctionSig> {
         self.functions
             .get(name)
             .into_iter()
@@ -1400,7 +1400,11 @@ impl<'a> TypeChecker<'a> {
         visible.into_iter().last()
     }
 
-    pub(super) fn lookup_visible_binding<'b>(&'b self, file: &AstFile, name: &str) -> Option<&'b BindingSig> {
+    pub(super) fn lookup_visible_binding<'b>(
+        &'b self,
+        file: &AstFile,
+        name: &str,
+    ) -> Option<&'b BindingSig> {
         self.bindings
             .get(name)
             .filter(|sig| self.visible_from(file, sig.visibility, &sig.owner_file_path))
@@ -1544,48 +1548,16 @@ impl<'a> TypeChecker<'a> {
                     // A record (product) may never own a resource: it would trap
                     // copyable data behind move-only semantics (ownership
                     // contagion). Resource data travels in the resource's STATE.
-                    if self.is_resource_type(&type_) {
-                        self.report(
-                            "TYPE_RESOURCE_FIELD_FORBIDDEN",
-                            &format!(
-                                "Record `{}` field `{}` is resource `{}`; records cannot own resources. Hold a `RES` binding or carry the data in the resource's STATE.",
-                                type_decl.name,
-                                field.name,
-                                self.type_name(&type_)
-                            ),
-                            file,
-                            field.line,
-                        );
-                    }
+                    if self.is_resource_type(&type_) {}
                 }
-                if self.record_field_cycle(&type_decl.name) {
-                    self.report(
-                        "TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION",
-                        &format!(
-                            "Record `{}` refers to itself without passing through a List, Map, or UNION; such a record has no base case and cannot be constructed.",
-                            type_decl.name
-                        ),
-                        file,
-                        type_decl.line,
-                    );
-                }
+                if self.record_field_cycle(&type_decl.name) {}
             }
             TypeDeclKind::Union => {
                 for include in &type_decl.includes {
                     let type_ = self.parse_type(include);
                     self.check_type_reference(file, &type_, type_decl.line);
                     if let Some(kind) = self.user_type_kinds.get(include) {
-                        if !matches!(kind, TypeDeclKind::Union) {
-                            self.report(
-                                "TYPE_UNION_INCLUDE_REQUIRES_UNION",
-                                &format!(
-                                    "UNION `{}` includes `{include}`, but `{include}` is not a UNION.",
-                                    type_decl.name
-                                ),
-                                file,
-                                type_decl.line,
-                            );
-                        }
+                        if !matches!(kind, TypeDeclKind::Union) {}
                     }
                 }
                 self.report_expanded_union_member_conflicts(file, type_decl);
@@ -1594,17 +1566,7 @@ impl<'a> TypeChecker<'a> {
                     let type_ = self.parse_type(&variant.name);
                     self.check_type_reference(file, &type_, variant.line);
                     if let Some(kind) = self.user_type_kinds.get(&variant.name) {
-                        if !matches!(kind, TypeDeclKind::Type) {
-                            self.report(
-                                "TYPE_UNION_MEMBER_REQUIRES_TYPE",
-                                &format!(
-                                    "UNION `{}` member `{}` must be a concrete TYPE.",
-                                    type_decl.name, variant.name
-                                ),
-                                file,
-                                variant.line,
-                            );
-                        }
+                        if !matches!(kind, TypeDeclKind::Type) {}
                     }
                 }
                 // A union must be uniformly data or uniformly resource: a union
@@ -1616,31 +1578,9 @@ impl<'a> TypeChecker<'a> {
                     .iter()
                     .filter(|variant| self.resource_registry.is_resource(&variant.name))
                     .count();
-                if resource_variants > 0 && resource_variants < type_decl.variants.len() {
-                    self.report(
-                        "TYPE_MIXED_RESOURCE_UNION",
-                        &format!(
-                            "UNION `{}` mixes data and resource variants; a union must be all-data or all-resource.",
-                            type_decl.name
-                        ),
-                        file,
-                        type_decl.line,
-                    );
-                }
+                if resource_variants > 0 && resource_variants < type_decl.variants.len() {}
             }
-            TypeDeclKind::Enum => {
-                if type_decl.members.is_empty() {
-                    self.report(
-                        "TYPE_ENUM_REQUIRES_MEMBER",
-                        &format!(
-                            "ENUM `{}` must declare at least one member.",
-                            type_decl.name
-                        ),
-                        file,
-                        type_decl.line,
-                    );
-                }
-            }
+            TypeDeclKind::Enum => if type_decl.members.is_empty() {},
         }
     }
 
@@ -1664,12 +1604,6 @@ impl<'a> TypeChecker<'a> {
         let expected_return = match function.kind {
             FunctionKind::Func => {
                 if function.return_type.is_none() {
-                    self.report(
-                        "TYPE_FUNC_REQUIRES_RETURN_TYPE",
-                        &format!("FUNC `{}` must declare an `AS` return type.", function.name),
-                        file,
-                        function.line,
-                    );
                     Type::Unknown
                 } else {
                     let return_type = self.parse_type(function.return_type.as_deref().unwrap());
@@ -1724,14 +1658,7 @@ impl<'a> TypeChecker<'a> {
                 .unwrap_or(Type::Unknown);
             self.check_type_reference(file, &param_type, param.line);
 
-            if param.type_name.is_none() {
-                self.report(
-                    "TYPE_PARAM_REQUIRES_TYPE",
-                    &format!("Parameter `{}` must declare an `AS` type.", param.name),
-                    file,
-                    param.line,
-                );
-            }
+            if param.type_name.is_none() {}
 
             self.check_resource_declaration(
                 file,
@@ -1745,15 +1672,6 @@ impl<'a> TypeChecker<'a> {
             if param.default.is_some() {
                 seen_default = true;
             } else if seen_default {
-                self.report(
-                    "TYPE_DEFAULT_ARG_ORDER",
-                    &format!(
-                        "Parameter `{}` must have a default because an earlier parameter has one.",
-                        param.name
-                    ),
-                    file,
-                    param.line,
-                );
             }
 
             if let Some(default) = &param.default {
@@ -1770,19 +1688,7 @@ impl<'a> TypeChecker<'a> {
                         param.line,
                     );
                 }
-                if !self.expression_compatible(&param_type, &default_type, Some(default)) {
-                    self.report(
-                        "TYPE_DEFAULT_VALUE_MISMATCH",
-                        &format!(
-                            "Default value for `{}` has type {}, expected {}.",
-                            param.name,
-                            self.type_name(&default_type),
-                            self.type_name(&param_type)
-                        ),
-                        file,
-                        param.line,
-                    );
-                }
+                if !self.expression_compatible(&param_type, &default_type, Some(default)) {}
             }
 
             let borrowed = self.is_resource_type(&param_type);
@@ -1849,21 +1755,15 @@ impl<'a> TypeChecker<'a> {
         if matches!(function.kind, FunctionKind::Func)
             && !matches!(expected_return, Type::Nothing)
             && flow != Flow::AlwaysReturns
-        {
-            self.report(
-                "TYPE_FUNC_MISSING_RETURN",
-                &format!(
-                    "FUNC `{}` must return a {} value.",
-                    function.name,
-                    self.type_name(&expected_return)
-                ),
-                file,
-                function.line,
-            );
-        }
+        {}
     }
 
-    pub(super) fn visible_from(&self, file: &AstFile, visibility: Visibility, owner_file_path: &str) -> bool {
+    pub(super) fn visible_from(
+        &self,
+        file: &AstFile,
+        visibility: Visibility,
+        owner_file_path: &str,
+    ) -> bool {
         match visibility {
             Visibility::Export | Visibility::Package => true,
             Visibility::Private => file.path == owner_file_path,
@@ -1961,14 +1861,7 @@ impl<'a> TypeChecker<'a> {
                 let Some(info) = self.type_infos.get(name) else {
                     return;
                 };
-                if !self.visible_from(file, info.visibility, &info.file_path) {
-                    self.report(
-                        "TYPE_MEMBER_NOT_VISIBLE",
-                        &format!("Type `{name}` is not visible from this file."),
-                        file,
-                        line,
-                    );
-                }
+                if !self.visible_from(file, info.visibility, &info.file_path) {}
             }
             Type::Boolean
             | Type::Byte
@@ -2066,15 +1959,15 @@ impl<'a> TypeChecker<'a> {
     }
 
     pub(super) fn report(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
-        // plan-20-Z cutover: rules relocated to `ir::verify` are rejected there
-        // (on the source-lowered IR, in `build.rs`), so `typecheck` no longer
-        // emits or fails for them — it keeps only elaboration (inference still
-        // annotates the AST) and the rules not yet relocated. This makes
-        // `ir::verify` the single source of truth for each ported rule while the
-        // migration proceeds rule-by-rule.
-        if RELOCATED_TO_IR_VERIFY.contains(&rule) {
-            return;
-        }
+        // plan-20-Z: every relocated rule's emission site has been DELETED from
+        // `typecheck` — `ir::verify` is the single source of truth for them.
+        // This function now carries only the erased-syntax rules (constructs
+        // total lowering removes, which no IR checker can see) and elaboration
+        // stays untouched.
+        debug_assert!(
+            !crate::ir::RELOCATED_TO_IR_VERIFY.contains(&rule),
+            "rule {rule} is relocated to ir::verify; typecheck must not emit it"
+        );
         self.had_error = true;
         self.diagnostics.push(crate::rules::PendingDiagnostic {
             rule: rule.to_string(),
@@ -2082,77 +1975,5 @@ impl<'a> TypeChecker<'a> {
             path: self.project_dir.join(&file.path),
             line,
         });
-    }
-
-    pub(super) fn report_primitive_literal_range_error(
-        &mut self,
-        expected: &Type,
-        expression: &Expression,
-        file: &AstFile,
-        line: usize,
-    ) -> bool {
-        match expected {
-            Type::Byte => {
-                let Some(range_error) = byte_literal_range_error(expression) else {
-                    return false;
-                };
-                match range_error {
-                    ByteLiteralRangeError::Overflow(value) => self.report(
-                        "TYPE_BYTE_LITERAL_OVERFLOW",
-                        &format!("Integer literal `{value}` is outside the Byte range 0..255."),
-                        file,
-                        line,
-                    ),
-                    ByteLiteralRangeError::Underflow(value) => self.report(
-                        "TYPE_BYTE_LITERAL_UNDERFLOW",
-                        &format!("Integer literal `{value}` is outside the Byte range 0..255."),
-                        file,
-                        line,
-                    ),
-                }
-                true
-            }
-            Type::Float => {
-                let Some(range_error) = float_literal_range_error(expression) else {
-                    return false;
-                };
-                match range_error {
-                    SignedLiteralRangeError::Overflow(value) => self.report(
-                        "TYPE_FLOAT_LITERAL_OVERFLOW",
-                        &format!("Numeric literal `{value}` is outside the Float range."),
-                        file,
-                        line,
-                    ),
-                    SignedLiteralRangeError::Underflow(value) => self.report(
-                        "TYPE_FLOAT_LITERAL_UNDERFLOW",
-                        &format!("Numeric literal `{value}` is outside the Float range."),
-                        file,
-                        line,
-                    ),
-                }
-                true
-            }
-            Type::Fixed => {
-                let Some(range_error) = fixed_literal_range_error(expression) else {
-                    return false;
-                };
-                match range_error {
-                    SignedLiteralRangeError::Overflow(value) => self.report(
-                        "TYPE_FIXED_LITERAL_OVERFLOW",
-                        &format!("Numeric literal `{value}` is outside the Fixed range."),
-                        file,
-                        line,
-                    ),
-                    SignedLiteralRangeError::Underflow(value) => self.report(
-                        "TYPE_FIXED_LITERAL_UNDERFLOW",
-                        &format!("Numeric literal `{value}` is outside the Fixed range."),
-                        file,
-                        line,
-                    ),
-                }
-                true
-            }
-            _ => false,
-        }
     }
 }

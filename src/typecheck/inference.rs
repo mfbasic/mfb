@@ -1,5 +1,5 @@
-use super::*;
 use super::helpers::*;
+use super::*;
 
 impl<'a> TypeChecker<'a> {
     pub(super) fn infer_expression(
@@ -37,12 +37,6 @@ impl<'a> TypeChecker<'a> {
                 } else if value.parse::<i64>().is_ok() {
                     Type::Integer
                 } else {
-                    self.report(
-                        "TYPE_INTEGER_LITERAL_OVERFLOW",
-                        &format!("Integer literal `{value}` is outside the Integer range."),
-                        file,
-                        line,
-                    );
                     Type::Integer
                 }
             }
@@ -188,14 +182,7 @@ impl<'a> TypeChecker<'a> {
                 operator, operand, ..
             } => {
                 if operator == "-" && !integer_literal_in_range(expression) {
-                    if let Expression::Number(value) = operand.as_ref() {
-                        self.report(
-                            "TYPE_INTEGER_LITERAL_OVERFLOW",
-                            &format!("Integer literal `-{value}` is outside the Integer range."),
-                            file,
-                            line,
-                        );
-                    }
+                    if let Expression::Number(value) = operand.as_ref() {}
                     return Type::Integer;
                 }
                 if operator == "-"
@@ -212,12 +199,6 @@ impl<'a> TypeChecker<'a> {
             } => {
                 let canonical_callee = self.canonical_import_name(file, callee);
                 if builtins::is_package_constant(&canonical_callee) {
-                    self.report(
-                        "SYMBOL_NOT_CALLABLE",
-                        &format!("Package constant `{callee}` is not callable."),
-                        file,
-                        line,
-                    );
                     for argument in arguments {
                         self.infer_expression(
                             file,
@@ -253,17 +234,7 @@ impl<'a> TypeChecker<'a> {
                     })
                 {
                     self.check_call(file, callee, &sig, arguments, locals, line);
-                    if matches!(sig.kind, FunctionKind::Sub) && !value_less_call_ok {
-                        self.report(
-                            "TYPE_SUB_HAS_NO_VALUE",
-                            &format!(
-                                "SUB `{callee}` produces no value; its call is a statement, \
-                                 not an expression."
-                            ),
-                            file,
-                            line,
-                        );
-                    }
+                    if matches!(sig.kind, FunctionKind::Sub) && !value_less_call_ok {}
                     return sig.return_type;
                 }
 
@@ -369,18 +340,7 @@ impl<'a> TypeChecker<'a> {
             MatchPattern::Literal(expression) => {
                 let pattern_type =
                     self.infer_expression(file, expression, case_locals, line, ExprMode::Read);
-                if !self.expression_compatible(matched_type, &pattern_type, Some(expression)) {
-                    self.report(
-                        "TYPE_MATCH_PATTERN_MISMATCH",
-                        &format!(
-                            "CASE pattern has type {}, expected {}.",
-                            self.type_name(&pattern_type),
-                            self.type_name(matched_type)
-                        ),
-                        file,
-                        line,
-                    );
-                }
+                if !self.expression_compatible(matched_type, &pattern_type, Some(expression)) {}
             }
             MatchPattern::OneOf(expressions) => {
                 for expression in expressions {
@@ -398,15 +358,6 @@ impl<'a> TypeChecker<'a> {
                     // `Result`/`Ok` are internal: a user `MATCH` can never
                     // scrutinize a `Result`, so `CASE Ok`/`CASE Error` are not
                     // valid match arms. Failures are handled with inline `TRAP`.
-                    self.report(
-                        "TYPE_RESULT_NOT_MATCHABLE",
-                        &format!(
-                            "`CASE {type_name}` is not a valid match arm; \
-                             handle failure with an inline `TRAP` instead."
-                        ),
-                        file,
-                        line,
-                    );
                     return;
                 }
                 match matched_type {
@@ -420,14 +371,6 @@ impl<'a> TypeChecker<'a> {
                                 .iter()
                                 .any(|variant| variant.name == *type_name)
                         {
-                            self.report(
-                                "TYPE_MATCH_PATTERN_MISMATCH",
-                                &format!(
-                                    "CASE `{type_name}` is not a member of UNION `{union_name}`."
-                                ),
-                                file,
-                                line,
-                            );
                             return;
                         }
                         case_locals.insert(
@@ -441,15 +384,9 @@ impl<'a> TypeChecker<'a> {
                             },
                         );
                     }
-                    _ => self.report(
-                        "TYPE_MATCH_PATTERN_MISMATCH",
-                        &format!(
-                            "CASE `{type_name}` requires a UNION value, got {}.",
-                            self.type_name(matched_type)
-                        ),
-                        file,
-                        line,
-                    ),
+                    // Non-union scrutinee: rejected by `ir::verify`'s
+                    // TYPE_MATCH_PATTERN_MISMATCH (plan-20-Z).
+                    _ => {}
                 }
             }
         }
@@ -469,7 +406,11 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub(super) fn match_is_exhaustive(&self, matched_type: &Type, covered_cases: &HashSet<String>) -> bool {
+    pub(super) fn match_is_exhaustive(
+        &self,
+        matched_type: &Type,
+        covered_cases: &HashSet<String>,
+    ) -> bool {
         let Type::User(type_name) = matched_type else {
             return false;
         };
@@ -549,7 +490,6 @@ impl<'a> TypeChecker<'a> {
                 self.type_name(matched_type)
             ),
         };
-        self.report("TYPE_MATCH_NOT_EXHAUSTIVE", &detail, file, line);
     }
 
     pub(super) fn infer_list_literal(
@@ -577,18 +517,7 @@ impl<'a> TypeChecker<'a> {
                 self.check_collection_resource_element(
                     file, line, "element", value, &actual, locals,
                 );
-                if !self.expression_compatible(expected_element, &actual, Some(value)) {
-                    self.report(
-                        "TYPE_LIST_ELEMENT_MISMATCH",
-                        &format!(
-                            "List element has type {}, expected {}.",
-                            self.type_name(&actual),
-                            self.type_name(expected_element)
-                        ),
-                        file,
-                        line,
-                    );
-                }
+                if !self.expression_compatible(expected_element, &actual, Some(value)) {}
             }
             return Type::List(expected_element.clone());
         }
@@ -606,18 +535,7 @@ impl<'a> TypeChecker<'a> {
             let mode = self.collection_element_mode(value, locals);
             let actual = self.infer_expression(file, value, locals, line, mode);
             self.check_collection_resource_element(file, line, "element", value, &actual, locals);
-            if !self.expression_compatible(&element_type, &actual, Some(value)) {
-                self.report(
-                    "TYPE_LIST_ELEMENT_MISMATCH",
-                    &format!(
-                        "List element has type {}, expected {}.",
-                        self.type_name(&actual),
-                        self.type_name(&element_type)
-                    ),
-                    file,
-                    line,
-                );
-            }
+            if !self.expression_compatible(&element_type, &actual, Some(value)) {}
         }
         Type::List(Box::new(element_type))
     }
@@ -646,18 +564,7 @@ impl<'a> TypeChecker<'a> {
         }
         for (key, value) in entries {
             let actual_key = self.infer_expression(file, key, locals, line, ExprMode::Transfer);
-            if !self.expression_compatible(&key_type, &actual_key, Some(key)) {
-                self.report(
-                    "TYPE_MAP_KEY_MISMATCH",
-                    &format!(
-                        "Map key has type {}, expected {}.",
-                        self.type_name(&actual_key),
-                        self.type_name(&key_type)
-                    ),
-                    file,
-                    line,
-                );
-            }
+            if !self.expression_compatible(&key_type, &actual_key, Some(key)) {}
             let value_mode = self.collection_element_mode(value, locals);
             let actual_value = self.infer_expression(file, value, locals, line, value_mode);
             self.check_collection_resource_element(
@@ -668,18 +575,7 @@ impl<'a> TypeChecker<'a> {
                 &actual_value,
                 locals,
             );
-            if !self.expression_compatible(&value_type, &actual_value, Some(value)) {
-                self.report(
-                    "TYPE_MAP_VALUE_MISMATCH",
-                    &format!(
-                        "Map value has type {}, expected {}.",
-                        self.type_name(&actual_value),
-                        self.type_name(&value_type)
-                    ),
-                    file,
-                    line,
-                );
-            }
+            if !self.expression_compatible(&value_type, &actual_value, Some(value)) {}
         }
         Type::Map(Box::new(key_type), Box::new(value_type))
     }
@@ -722,12 +618,6 @@ impl<'a> TypeChecker<'a> {
         }
 
         if matches!(type_name, "Ok" | "Result") {
-            self.report(
-                "TYPE_RESULT_IS_IMPLICIT",
-                &format!("`{type_name}` is compiler-owned and cannot be constructed directly."),
-                file,
-                line,
-            );
             for argument in arguments {
                 self.infer_expression(
                     file,
@@ -761,24 +651,9 @@ impl<'a> TypeChecker<'a> {
 
         if let Some(info) = self.type_infos.get(type_name).cloned() {
             if !self.visible_from(file, info.visibility, &info.file_path) {
-                self.report(
-                    "TYPE_MEMBER_NOT_VISIBLE",
-                    &format!("Constructor `{type_name}` is not visible from this file."),
-                    file,
-                    line,
-                );
                 return Type::Unknown;
             }
             if !matches!(info.kind, TypeDeclKind::Type) {
-                self.report(
-                    "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
-                    &format!(
-                        "`{type_name}` is a {}, not a record TYPE.",
-                        type_kind_name(info.kind)
-                    ),
-                    file,
-                    line,
-                );
                 return Type::Unknown;
             }
             self.check_constructor_arguments(
@@ -815,39 +690,15 @@ impl<'a> TypeChecker<'a> {
     ) -> Type {
         let target_type = self.infer_expression(file, target, locals, line, ExprMode::Transfer);
         if matches!(target_type, Type::Error | Type::ErrorLoc) {
-            self.report(
-                "TYPE_READ_ONLY_RECORD_UPDATE",
-                &format!(
-                    "`{}` is a read-only built-in record and cannot be updated.",
-                    self.type_name(&target_type)
-                ),
-                file,
-                line,
-            );
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
             }
             return target_type;
         }
         let Type::User(type_name) = &target_type else {
-            self.report(
-                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
-                &format!(
-                    "WITH update requires a record value, got {}.",
-                    self.type_name(&target_type)
-                ),
-                file,
-                line,
-            );
             return Type::Unknown;
         };
         if read_only_record_type(type_name) {
-            self.report(
-                "TYPE_READ_ONLY_RECORD_UPDATE",
-                &format!("TYPE `{type_name}` is read-only and cannot be updated."),
-                file,
-                line,
-            );
             for update in updates {
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
             }
@@ -857,15 +708,6 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         };
         if !matches!(info.kind, TypeDeclKind::Type) {
-            self.report(
-                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
-                &format!(
-                    "WITH update requires a record value, got {} `{type_name}`.",
-                    type_kind_name(info.kind)
-                ),
-                file,
-                line,
-            );
             return Type::Unknown;
         }
         let mut seen = HashSet::new();
@@ -879,26 +721,10 @@ impl<'a> TypeChecker<'a> {
                 );
             }
             let Some(field) = info.fields.iter().find(|field| field.name == update.field) else {
-                self.report(
-                    "TYPE_UNKNOWN_FIELD",
-                    &format!("TYPE `{type_name}` has no field `{}`.", update.field),
-                    file,
-                    update.line,
-                );
                 self.infer_expression(file, &update.value, locals, update.line, ExprMode::Transfer);
                 continue;
             };
-            if !self.visible_from(file, field.visibility, &info.file_path) {
-                self.report(
-                    "TYPE_MEMBER_NOT_VISIBLE",
-                    &format!(
-                        "Field `{type_name}::{}` is not visible from this file.",
-                        update.field
-                    ),
-                    file,
-                    update.line,
-                );
-            }
+            if !self.visible_from(file, field.visibility, &info.file_path) {}
             let actual = self.infer_expression_with_expected(
                 file,
                 &update.value,
@@ -907,19 +733,7 @@ impl<'a> TypeChecker<'a> {
                 Some(&field.type_),
                 ExprMode::Transfer,
             );
-            if !self.expression_compatible(&field.type_, &actual, Some(&update.value)) {
-                self.report(
-                    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
-                    &format!(
-                        "WITH update for `{}` has type {}, expected {}.",
-                        update.field,
-                        self.type_name(&actual),
-                        self.type_name(&field.type_)
-                    ),
-                    file,
-                    update.line,
-                );
-            }
+            if !self.expression_compatible(&field.type_, &actual, Some(&update.value)) {}
         }
         target_type
     }
@@ -952,21 +766,9 @@ impl<'a> TypeChecker<'a> {
             if let Some(info) = self.type_infos.get(type_name).cloned() {
                 if matches!(info.kind, TypeDeclKind::Enum) {
                     if !self.visible_from(file, info.visibility, &info.file_path) {
-                        self.report(
-                            "TYPE_MEMBER_NOT_VISIBLE",
-                            &format!("ENUM `{type_name}` is not visible from this file."),
-                            file,
-                            line,
-                        );
                         return Type::Unknown;
                     }
                     if !info.members.contains(member) {
-                        self.report(
-                            "TYPE_UNKNOWN_ENUM_MEMBER",
-                            &format!("ENUM `{type_name}` has no member `{member}`."),
-                            file,
-                            line,
-                        );
                         return Type::Unknown;
                     }
                     return Type::User(type_name.clone());
@@ -980,21 +782,8 @@ impl<'a> TypeChecker<'a> {
                 // The `t.result` field is removed: a worker outcome is retrieved
                 // only through `thread::waitFor(t)`, which auto-unwraps the value
                 // or auto-propagates the `Error` like any other call.
-                self.report(
-                    "TYPE_THREAD_RESULT_REMOVED",
-                    "Thread values have no `result` field; use `thread::waitFor(t)` \
-                     to retrieve the worker outcome.",
-                    file,
-                    line,
-                );
                 return Type::Unknown;
             }
-            self.report(
-                "TYPE_UNKNOWN_FIELD",
-                &format!("Thread value has no field `{member}`."),
-                file,
-                line,
-            );
             return Type::Unknown;
         }
         if matches!(target_type, Type::Error) {
@@ -1002,15 +791,7 @@ impl<'a> TypeChecker<'a> {
                 "code" => Type::Integer,
                 "message" => Type::String,
                 "source" => Type::ErrorLoc,
-                _ => {
-                    self.report(
-                        "TYPE_UNKNOWN_FIELD",
-                        &format!("Error value has no field `{member}`."),
-                        file,
-                        line,
-                    );
-                    Type::Unknown
-                }
+                _ => Type::Unknown,
             };
         }
         if matches!(target_type, Type::ErrorLoc) {
@@ -1018,27 +799,10 @@ impl<'a> TypeChecker<'a> {
                 "filename" => Type::String,
                 "line" => Type::Integer,
                 "char" => Type::Integer,
-                _ => {
-                    self.report(
-                        "TYPE_UNKNOWN_FIELD",
-                        &format!("ErrorLoc value has no field `{member}`."),
-                        file,
-                        line,
-                    );
-                    Type::Unknown
-                }
+                _ => Type::Unknown,
             };
         }
         let Type::User(type_name) = target_type else {
-            self.report(
-                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
-                &format!(
-                    "Field access `{member}` requires a record value, got {}.",
-                    self.type_name(&target_type)
-                ),
-                file,
-                line,
-            );
             return Type::Unknown;
         };
         if let Some(rest) = type_name.strip_prefix("MapEntry OF ") {
@@ -1046,15 +810,7 @@ impl<'a> TypeChecker<'a> {
                 return match member {
                     "key" => self.parse_type(key),
                     "value" => self.parse_type(value),
-                    _ => {
-                        self.report(
-                            "TYPE_UNKNOWN_FIELD",
-                            &format!("Map entry has no field `{member}`."),
-                            file,
-                            line,
-                        );
-                        Type::Unknown
-                    }
+                    _ => Type::Unknown,
                 };
             }
         }
@@ -1070,15 +826,6 @@ impl<'a> TypeChecker<'a> {
             return Type::Unknown;
         };
         if !matches!(info.kind, TypeDeclKind::Type) {
-            self.report(
-                "TYPE_FIELD_ACCESS_REQUIRES_RECORD",
-                &format!(
-                    "Field access `{member}` requires a record value, got {} `{type_name}`.",
-                    type_kind_name(info.kind)
-                ),
-                file,
-                line,
-            );
             return Type::Unknown;
         }
         let Some(field) = info
@@ -1087,22 +834,9 @@ impl<'a> TypeChecker<'a> {
             .find(|field| field.name == member)
             .cloned()
         else {
-            self.report(
-                "TYPE_UNKNOWN_FIELD",
-                &format!("TYPE `{type_name}` has no field `{member}`."),
-                file,
-                line,
-            );
             return Type::Unknown;
         };
-        if !self.visible_from(file, field.visibility, &info.file_path) {
-            self.report(
-                "TYPE_MEMBER_NOT_VISIBLE",
-                &format!("Field `{type_name}::{member}` is not visible from this file."),
-                file,
-                line,
-            );
-        }
+        if !self.visible_from(file, field.visibility, &info.file_path) {}
         field.type_
     }
 
@@ -1116,31 +850,10 @@ impl<'a> TypeChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) {
-        if arguments.len() != fields.len() {
-            self.report(
-                "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
-                &format!(
-                    "Constructor `{constructor}` has {} argument(s), expected {}.",
-                    arguments.len(),
-                    fields.len()
-                ),
-                file,
-                line,
-            );
-        }
+        if arguments.len() != fields.len() {}
 
         for field in fields {
-            if !self.visible_from(file, field.visibility, owner_file_path) {
-                self.report(
-                    "TYPE_MEMBER_NOT_VISIBLE",
-                    &format!(
-                        "Constructor `{constructor}` cannot set hidden field `{}` from this file.",
-                        field.name
-                    ),
-                    file,
-                    line,
-                );
-            }
+            if !self.visible_from(file, field.visibility, owner_file_path) {}
         }
 
         let mut seen_named = HashSet::new();
@@ -1188,30 +901,10 @@ impl<'a> TypeChecker<'a> {
                 )
             };
             let Some(field) = field else {
-                if let ConstructorArg::Named { name, .. } = argument {
-                    self.report(
-                        "TYPE_UNKNOWN_FIELD",
-                        &format!("Constructor `{constructor}` has no field `{name}`."),
-                        file,
-                        argument_line,
-                    );
-                }
+                if let ConstructorArg::Named { name, .. } = argument {}
                 continue;
             };
-            if !self.expression_compatible(&field.type_, &actual, Some(argument_value)) {
-                self.report(
-                    "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
-                    &format!(
-                        "Argument {} for `{constructor}` has type {}, expected {} for field `{}`.",
-                        index + 1,
-                        self.type_name(&actual),
-                        self.type_name(&field.type_),
-                        field.name
-                    ),
-                    file,
-                    argument_line,
-                );
-            }
+            if !self.expression_compatible(&field.type_, &actual, Some(argument_value)) {}
         }
     }
 
@@ -1227,16 +920,6 @@ impl<'a> TypeChecker<'a> {
             if self.compatible(&Type::Boolean, left) && self.compatible(&Type::Boolean, right) {
                 return Type::Boolean;
             }
-            self.report(
-                "TYPE_BINARY_OPERATOR_MISMATCH",
-                &format!(
-                    "Operator `{operator}` requires Boolean operands, got {} and {}.",
-                    self.type_name(left),
-                    self.type_name(right)
-                ),
-                file,
-                line,
-            );
             return Type::Unknown;
         }
 
@@ -1250,20 +933,6 @@ impl<'a> TypeChecker<'a> {
             {
                 return Type::Boolean;
             }
-            self.report(
-                if self.compatible(left, right) || self.compatible(right, left) {
-                    "TYPE_REQUIRES_COMPARABLE"
-                } else {
-                    "TYPE_BINARY_OPERATOR_MISMATCH"
-                },
-                &format!(
-                    "Operator `{operator}` requires compatible comparable operands, got {} and {}.",
-                    self.type_name(left),
-                    self.type_name(right)
-                ),
-                file,
-                line,
-            );
             return Type::Unknown;
         }
 
@@ -1277,16 +946,6 @@ impl<'a> TypeChecker<'a> {
             if self.is_orderable_string(left) && self.is_orderable_string(right) {
                 return Type::Boolean;
             }
-            self.report(
-                "TYPE_BINARY_OPERATOR_MISMATCH",
-                &format!(
-                    "Operator `{operator}` requires numeric or String operands, got {} and {}.",
-                    self.type_name(left),
-                    self.type_name(right)
-                ),
-                file,
-                line,
-            );
             return Type::Unknown;
         }
 
@@ -1294,51 +953,28 @@ impl<'a> TypeChecker<'a> {
             if self.compatible(&Type::String, left) && self.compatible(&Type::String, right) {
                 return Type::String;
             }
-            self.report(
-                "TYPE_BINARY_OPERATOR_MISMATCH",
-                &format!(
-                    "Operator `&` requires String operands, got {} and {}.",
-                    self.type_name(left),
-                    self.type_name(right)
-                ),
-                file,
-                line,
-            );
             return Type::Unknown;
         }
 
         if self.is_numeric(left) && self.is_numeric(right) {
             numeric_binary_result_type(operator, left, right)
         } else {
-            self.report(
-                "TYPE_BINARY_OPERATOR_MISMATCH",
-                &format!(
-                    "Operator `{operator}` requires numeric operands, got {} and {}.",
-                    self.type_name(left),
-                    self.type_name(right)
-                ),
-                file,
-                line,
-            );
             Type::Unknown
         }
     }
 
-    pub(super) fn infer_unary(&mut self, file: &AstFile, operator: &str, operand: &Type, line: usize) -> Type {
+    pub(super) fn infer_unary(
+        &mut self,
+        file: &AstFile,
+        operator: &str,
+        operand: &Type,
+        line: usize,
+    ) -> Type {
         match operator {
             "NOT" => {
                 if self.compatible(&Type::Boolean, operand) {
                     Type::Boolean
                 } else {
-                    self.report(
-                        "TYPE_UNARY_OPERATOR_MISMATCH",
-                        &format!(
-                            "Operator `NOT` requires a Boolean operand, got {}.",
-                            self.type_name(operand)
-                        ),
-                        file,
-                        line,
-                    );
                     Type::Unknown
                 }
             }
@@ -1346,27 +982,10 @@ impl<'a> TypeChecker<'a> {
                 if self.is_numeric(operand) {
                     operand.clone()
                 } else {
-                    self.report(
-                        "TYPE_UNARY_OPERATOR_MISMATCH",
-                        &format!(
-                            "Unary `-` requires a numeric operand, got {}.",
-                            self.type_name(operand)
-                        ),
-                        file,
-                        line,
-                    );
                     Type::Unknown
                 }
             }
-            _ => {
-                self.report(
-                    "TYPE_UNARY_OPERATOR_UNKNOWN",
-                    &format!("Unknown unary operator `{operator}`."),
-                    file,
-                    line,
-                );
-                Type::Unknown
-            }
+            _ => Type::Unknown,
         }
     }
 
@@ -1427,12 +1046,6 @@ impl<'a> TypeChecker<'a> {
             ..
         } = type_
         else {
-            self.report(
-                "SYMBOL_NOT_CALLABLE",
-                &format!("Local binding or parameter `{callee}` is not callable."),
-                file,
-                line,
-            );
             for argument in arguments {
                 self.infer_expression(file, call_arg_value(argument), locals, line, ExprMode::Read);
             }
@@ -1513,25 +1126,8 @@ impl<'a> TypeChecker<'a> {
                 .as_deref()
                 .map(|name| self.parse_type(name))
                 .unwrap_or(Type::Unknown);
-            if param.type_name.is_none() {
-                self.report(
-                    "TYPE_PARAM_REQUIRES_TYPE",
-                    &format!(
-                        "Lambda parameter `{}` must declare an `AS` type.",
-                        param.name
-                    ),
-                    file,
-                    param.line,
-                );
-            }
-            if param.default.is_some() {
-                self.report(
-                    "TYPE_DEFAULT_ARG_ORDER",
-                    "Lambda parameters cannot declare default values.",
-                    file,
-                    param.line,
-                );
-            }
+            if param.type_name.is_none() {}
+            if param.default.is_some() {}
             locals.insert(
                 param.name.clone(),
                 LocalInfo {
@@ -1631,14 +1227,7 @@ impl<'a> TypeChecker<'a> {
                 // the body type must match it — then yield `Nothing`.
                 let target_type = match locals.get(target).cloned() {
                     Some(local) => {
-                        if !local.mutable {
-                            self.report(
-                                "TYPE_ASSIGN_REQUIRES_MUT",
-                                &format!("Binding `{target}` is immutable and cannot be assigned."),
-                                file,
-                                line,
-                            );
-                        }
+                        if !local.mutable {}
                         Some(local.type_)
                     }
                     None => {
@@ -1654,22 +1243,9 @@ impl<'a> TypeChecker<'a> {
                 let actual =
                     self.infer_expression(file, body, &mut locals, line, ExprMode::Transfer);
                 if let Some(target_type) = target_type {
-                    let reported_range_error =
-                        self.report_primitive_literal_range_error(&target_type, body, file, line);
-                    if !reported_range_error
-                        && !self.expression_compatible(&target_type, &actual, Some(body))
-                    {
-                        self.report(
-                            "TYPE_ASSIGNMENT_MISMATCH",
-                            &format!(
-                                "Assignment to `{target}` has type {}, expected {}.",
-                                self.type_name(&actual),
-                                self.type_name(&target_type)
-                            ),
-                            file,
-                            line,
-                        );
-                    }
+                    // Assignment mismatch/range rejections live in
+                    // `ir::verify` (plan-20-Z).
+                    let _ = target_type;
                 }
                 Type::Nothing
             }

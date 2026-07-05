@@ -1,5 +1,5 @@
-use super::*;
 use super::helpers::*;
+use super::*;
 
 impl<'a> TypeChecker<'a> {
     pub(super) fn check_builtin_call(

@@ -350,22 +350,6 @@ pub fn check(project: &IrProject) -> Result<(), String> {
     }
 }
 
-/// Verify the freshly elaborated **source-path** IR, emitting every diagnostic
-/// through the shared diagnostics machinery (so the rule id, span, and source
-/// context match what the AST type checker prints). Returns `Err(())` when any
-/// diagnostic was emitted. `project_dir` resolves each `Diagnostic::file` to an
-/// absolute path for the source-context display.
-pub fn check_and_emit(project: &IrProject, project_dir: &Path) -> Result<(), ()> {
-    let pending = collect_source_diagnostics(project, project_dir);
-    let had_error = !pending.is_empty();
-    crate::rules::render_pending(pending);
-    if had_error {
-        Err(())
-    } else {
-        Ok(())
-    }
-}
-
 /// The relocated source-path diagnostics as unrendered `PendingDiagnostic`s, so
 /// `build` can merge them with `typecheck`'s stream and render both in one
 /// line-ordered pass (plan-20-Z). Only rules in `RELOCATED_TO_IR_VERIFY` are

@@ -1,5 +1,5 @@
-use super::*;
 use super::helpers::*;
+use super::*;
 
 impl<'a> TypeChecker<'a> {
     pub(super) fn is_resource_type(&self, type_: &Type) -> bool {
@@ -40,7 +40,11 @@ impl<'a> TypeChecker<'a> {
         self.contains_thread_with_seen(type_, &mut HashSet::new())
     }
 
-    pub(super) fn contains_thread_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
+    pub(super) fn contains_thread_with_seen(
+        &self,
+        type_: &Type,
+        seen: &mut HashSet<String>,
+    ) -> bool {
         match type_ {
             Type::Thread(..) | Type::ThreadWorker(..) => true,
             Type::List(element) => self.contains_thread_with_seen(element, seen),
@@ -151,25 +155,7 @@ impl<'a> TypeChecker<'a> {
         let inner = strip_res(element);
         let is_resource = self.is_resource_type(inner);
         if is_resource && !is_res_marked {
-            self.report(
-                "TYPE_RESOURCE_REQUIRES_RES",
-                &format!(
-                    "Collection {role} type `{}` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type.",
-                    self.type_name(inner)
-                ),
-                file,
-                line,
-            );
         } else if is_res_marked && !is_resource {
-            self.report(
-                "TYPE_RES_REQUIRES_RESOURCE",
-                &format!(
-                    "Collection {role} is marked `RES` but `{}` is not a resource type; drop the `RES`.",
-                    self.type_name(inner)
-                ),
-                file,
-                line,
-            );
         }
     }
 
@@ -192,15 +178,6 @@ impl<'a> TypeChecker<'a> {
         if self.collection_element_is_resource_binding(value, locals) {
             return;
         }
-        self.report(
-            "TYPE_RESOURCE_ELEMENT_NOT_OWNER",
-            &format!(
-                "Only a `RES` binding may be added as a collection {role}; `{}` is a temporary or borrowed resource, not an owner. Bind it with `RES` first (§15.6).",
-                self.type_name(type_)
-            ),
-            file,
-            line,
-        );
     }
 
     /// Whether `value` is an identifier naming a resource `RES` binding or
@@ -245,7 +222,11 @@ impl<'a> TypeChecker<'a> {
         self.is_defaultable_type_with_seen(type_, &mut HashSet::new())
     }
 
-    pub(super) fn is_defaultable_type_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
+    pub(super) fn is_defaultable_type_with_seen(
+        &self,
+        type_: &Type,
+        seen: &mut HashSet<String>,
+    ) -> bool {
         match type_ {
             Type::Boolean
             | Type::Byte
@@ -290,7 +271,11 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub(super) fn is_copyable_type_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
+    pub(super) fn is_copyable_type_with_seen(
+        &self,
+        type_: &Type,
+        seen: &mut HashSet<String>,
+    ) -> bool {
         match type_ {
             Type::Boolean
             | Type::Byte
@@ -344,7 +329,11 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    pub(super) fn is_thread_sendable_type_with_seen(&self, type_: &Type, seen: &mut HashSet<String>) -> bool {
+    pub(super) fn is_thread_sendable_type_with_seen(
+        &self,
+        type_: &Type,
+        seen: &mut HashSet<String>,
+    ) -> bool {
         match type_ {
             Type::Boolean
             | Type::Byte
