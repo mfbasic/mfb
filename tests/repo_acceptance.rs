@@ -1042,6 +1042,89 @@ fn repo_registry_add_installs_and_verifies_from_index() {
 }
 
 #[test]
+fn repo_check_abi_reports_superset_and_breaking_changes() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    let package_dir = work.path().join("abi_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    let manifest_path = package_dir.join("project.json");
+    let base_manifest = std::fs::read_to_string(&manifest_path).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#abi_pkg\",\n",
+    );
+    std::fs::write(&manifest_path, &base_manifest).unwrap();
+    let src_path = package_dir.join("src/lib.mfb");
+
+    // Publish the baseline (exports `answer`).
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", package_dir_arg],
+    )
+    .status
+    .success());
+
+    let run_check = || {
+        Command::new(mfb_exe())
+            .args(["pkg", "check-abi"])
+            .current_dir(&package_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("pkg check-abi")
+    };
+
+    // Unchanged working tree: identical ABI, exit 0. This also proves the
+    // registry stored and served a real (non-empty) abiIndex — an empty index
+    // would have reported `answer` as dropped.
+    let identical = run_check();
+    let stdout = String::from_utf8_lossy(&identical.stdout);
+    assert!(
+        identical.status.success(),
+        "check-abi failed: {stdout}\n{}",
+        String::from_utf8_lossy(&identical.stderr)
+    );
+    assert!(stdout.contains("ABI is identical"), "{stdout}");
+
+    // Adding an export is a backward-compatible superset (exit 0).
+    std::fs::write(
+        &src_path,
+        "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n\
+         EXPORT FUNC greet() AS Integer\n  RETURN 1\nEND FUNC\n",
+    )
+    .unwrap();
+    let superset = run_check();
+    let stdout = String::from_utf8_lossy(&superset.stdout);
+    assert!(superset.status.success(), "{stdout}");
+    assert!(stdout.contains("added:   greet"), "{stdout}");
+    assert!(stdout.contains("superset"), "{stdout}");
+
+    // Changing an exported signature is breaking: named + non-zero exit.
+    std::fs::write(
+        &src_path,
+        "EXPORT FUNC answer(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n",
+    )
+    .unwrap();
+    let breaking = run_check();
+    let stdout = String::from_utf8_lossy(&breaking.stdout);
+    assert!(!breaking.status.success(), "{stdout}");
+    assert!(stdout.contains("changed: answer"), "{stdout}");
+}
+
+#[test]
 fn repo_publish_rejects_non_package_and_missing_session() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

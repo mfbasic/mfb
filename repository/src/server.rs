@@ -583,12 +583,13 @@ async fn package_index(
                 index: entry.index,
                 leaf_hash: hex::encode(entry.leaf_hash),
             });
+        let abi_index = serde_json::from_str(&row.abi_index).unwrap_or_else(|_| serde_json::json!({}));
         versions.push(IndexVersion {
             version: row.version,
             hash: row.hash,
             published_at: row.published_at,
             state: row.state,
-            abi_index: serde_json::json!({}),
+            abi_index,
             log_entry,
         });
     }
@@ -1049,12 +1050,16 @@ async fn publish_package(
     let owner_id = verify_session_token(&state.store, &request.session_token)
         .map_err(bad_request)?
         .owner_id;
+    // Persist the ABI index alongside the version row (plan-10-B1); it is
+    // parsed from the same validated artifact `report` covered.
+    let abi_index = serde_json::to_string(&report.abi_index).unwrap_or_else(|_| "{}".to_string());
     let published = match state.store.publish_package_version(
         owner_id,
         &request.ident,
         &request.version,
         &hash,
         &path.to_string_lossy(),
+        &abi_index,
     ) {
         Ok(published) => published,
         Err(err) => {
@@ -1211,10 +1216,15 @@ async fn validate_package_request(
         ));
     }
 
+    // The per-symbol ABI index (plan-10-B1) is parsed best-effort from the
+    // payload; it is covered by packageBinaryHash + the signature, so the
+    // registry serves it for resolution without having to trust it.
+    let abi_index = crate::abi::abi_index_json(&package.payload);
+
     Ok(ValidatePackageResponse {
         valid: diagnostics.is_empty(),
         content_hash: hash,
-        abi_index: serde_json::json!({}),
+        abi_index,
         diagnostics,
     })
 }

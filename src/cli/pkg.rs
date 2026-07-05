@@ -37,6 +37,15 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command, package] if command == "validate" => {
             validate_package_file(Path::new("."), package).map_err(PkgCommandError::Failed)
         }
+        [command] if command == "check-abi" => {
+            check_abi(Path::new(".")).map_err(PkgCommandError::Failed)
+        }
+        [command, location] if command == "check-abi" => {
+            check_abi(Path::new(location)).map_err(PkgCommandError::Failed)
+        }
+        [command, ..] if command == "check-abi" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg check-abi accepts at most one [location]\n\n{USAGE}"
+        ))),
         [command, ..] if command == "validate" => Err(PkgCommandError::Usage(format!(
             "mfb pkg validate requires exactly one <package>\n\n{USAGE}"
         ))),
@@ -156,6 +165,113 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         checkpoint.size, checkpoint.root_hash
     );
     Ok(())
+}
+
+/// `mfb pkg check-abi` (plan-10-B1): build the working tree's package, compute
+/// its per-symbol ABI index, and diff it against the latest published version's
+/// index served by the registry. Names every changed or dropped symbol (both
+/// break the superset relation the resolver relies on) and exits non-zero when
+/// any breaking change is present; a pure superset (only additions) is OK.
+fn check_abi(project_dir: &Path) -> Result<(), String> {
+    let project_path = project_dir.join("project.json");
+    let manifest = validate_project_manifest(&project_path)
+        .map_err(|_| "package project validation failed".to_string())?;
+    if project_kind(&manifest) != "package" {
+        return Err("mfb pkg check-abi requires a package project".to_string());
+    }
+    let ident = manifest
+        .get("ident")
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .ok_or_else(|| {
+            "project.json must declare an `ident` of <owner>#<package> to compare against the registry"
+                .to_string()
+        })?;
+    let Some((owner, package)) = ident.split_once('#') else {
+        return Err(format!("project ident `{ident}` must use <owner>#<package>"));
+    };
+
+    // Build the working tree unsigned to emit its ABI index section.
+    build_project(&BuildOptions {
+        location: project_dir.to_path_buf(),
+        outputs: Vec::new(),
+        target: target::BuildTarget::host(),
+        sign_owner: None,
+        app_mode: false,
+        regalloc: target::shared::code::regalloc::active_kind(),
+        allow_unsigned: false,
+    })
+    .map_err(|_| "package build failed".to_string())?;
+
+    let package_name = manifest
+        .get("name")
+        .and_then(|value| value.get::<String>())
+        .expect("validated project name");
+    let package_path = project_dir.join(format!("{package_name}.mfp"));
+    let info = binary_repr::read_package_info(&package_path)?;
+    let mut working: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for export in &info.exports {
+        working.insert(export.name.clone(), export.sig_hash.clone());
+    }
+
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let paths = super::local_paths_for_repo(&repo_url)?;
+    let index = mfb_repository::client::fetch_index(&repo_url, &paths, owner, package)?;
+    let Some(latest) = index.versions.iter().max_by_key(|entry| entry.published_at) else {
+        println!("No published versions of {ident}; nothing to compare against.");
+        return Ok(());
+    };
+    let published: std::collections::BTreeMap<String, String> = latest
+        .abi_index
+        .as_object()
+        .map(|object| {
+            object
+                .iter()
+                .filter_map(|(name, value)| {
+                    value.as_str().map(|hash| (name.clone(), hash.to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    println!(
+        "ABI comparison for {ident} against published version {}:",
+        latest.version
+    );
+    let mut changed = Vec::new();
+    let mut dropped = Vec::new();
+    for (name, hash) in &published {
+        match working.get(name) {
+            Some(current) if current != hash => changed.push(name.clone()),
+            Some(_) => {}
+            None => dropped.push(name.clone()),
+        }
+    }
+    let added: Vec<&String> = working.keys().filter(|name| !published.contains_key(*name)).collect();
+    for name in &changed {
+        println!("  changed: {name}");
+    }
+    for name in &dropped {
+        println!("  dropped: {name}");
+    }
+    for name in &added {
+        println!("  added:   {name}");
+    }
+    if changed.is_empty() && dropped.is_empty() {
+        if added.is_empty() {
+            println!("  ABI is identical to the published version.");
+        } else {
+            println!("  ABI is a superset of the published version (backward-compatible).");
+        }
+        Ok(())
+    } else {
+        Err(format!(
+            "ABI is not backward-compatible with {ident}@{}: {} changed, {} dropped",
+            latest.version,
+            changed.len(),
+            dropped.len()
+        ))
+    }
 }
 
 fn print_publish_verify_report(report: &mfb_repository::server::ValidatePackageResponse) {

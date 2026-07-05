@@ -54,6 +54,9 @@ pub struct MfpPackage {
     pub signed_prefix: Vec<u8>,
     /// SHA-256 recomputed over the actual payload bytes.
     pub payload_sha256: [u8; 32],
+    /// The raw `packageBinaryRepr` payload bytes (the MFPC container). Carries
+    /// the ABI index section the registry serves (plan-10-B1).
+    pub payload: Vec<u8>,
     /// SHA-256 of the whole artifact (blob/dedup identity).
     pub content_hash: [u8; 32],
 }
@@ -161,7 +164,8 @@ pub fn parse_mfp_package(bytes: &[u8]) -> Result<MfpPackage, String> {
     if payload_end != bytes.len() {
         return Err("invalid .mfp binary representation length".to_string());
     }
-    let payload_sha256 = crypto::sha256(&bytes[signature_end..payload_end]);
+    let payload = bytes[signature_end..payload_end].to_vec();
+    let payload_sha256 = crypto::sha256(&payload);
 
     // Signed packages must carry the full chain; unsigned local packages must
     // carry none of it (a partial chain is malformed either way).
@@ -216,6 +220,7 @@ pub fn parse_mfp_package(bytes: &[u8]) -> Result<MfpPackage, String> {
         binary_repr_length,
         signed_prefix,
         payload_sha256,
+        payload,
         content_hash: crypto::sha256(bytes),
     })
 }

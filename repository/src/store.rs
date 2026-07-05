@@ -211,6 +211,7 @@ impl Store {
                 version TEXT NOT NULL,
                 hash TEXT NOT NULL,
                 state TEXT NOT NULL,
+                abi_index TEXT NOT NULL DEFAULT '{}',
                 created_at INTEGER NOT NULL,
                 UNIQUE(package_id, version)
             );
@@ -222,7 +223,12 @@ impl Store {
             );
             "#,
         )
-        .map_err(|err| format!("failed to migrate database: {err}"))
+        .map_err(|err| format!("failed to migrate database: {err}"))?;
+        // Idempotent column additions for databases created before the column
+        // existed (plan-10-B1 abi_index). A "duplicate column" error means the
+        // migration already ran, so it is ignored.
+        add_column_if_missing(&conn, "package_versions", "abi_index TEXT NOT NULL DEFAULT '{}'")?;
+        Ok(())
     }
 
     /// Register an owner with the two client-held public keys (plan-23 §3.1):
@@ -952,7 +958,7 @@ impl Store {
         let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
         let mut statement = conn
             .prepare(
-                "SELECT pv.version, pv.hash, pv.created_at, pv.state
+                "SELECT pv.version, pv.hash, pv.created_at, pv.state, pv.abi_index
                  FROM package_versions pv
                  JOIN packages p ON p.id = pv.package_id
                  WHERE p.ident = ?1
@@ -966,6 +972,7 @@ impl Store {
                     hash: row.get(1)?,
                     published_at: row.get(2)?,
                     state: row.get(3)?,
+                    abi_index: row.get(4)?,
                 })
             })
             .map_err(|err| format!("failed to list package versions: {err}"))?;
@@ -999,6 +1006,7 @@ impl Store {
         version: &str,
         hash: &str,
         blob_path: &str,
+        abi_index: &str,
     ) -> Result<PublishedVersion, String> {
         let now = now_unix();
         let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
@@ -1027,9 +1035,9 @@ impl Store {
         )
         .map_err(|err| format!("failed to store package blob metadata: {err}"))?;
         tx.execute(
-            "INSERT INTO package_versions (package_id, version, hash, state, created_at)
-             VALUES (?1, ?2, ?3, 'available', ?4)",
-            params![package_id, version, hash, now],
+            "INSERT INTO package_versions (package_id, version, hash, state, abi_index, created_at)
+             VALUES (?1, ?2, ?3, 'available', ?4, ?5)",
+            params![package_id, version, hash, abi_index, now],
         )
         .map_err(|err| {
             if is_unique_violation(&err) {
@@ -1204,6 +1212,8 @@ pub struct PackageVersionRow {
     pub hash: String,
     pub published_at: i64,
     pub state: String,
+    /// The per-symbol ABI index JSON string (plan-10-B1), `{}` when absent.
+    pub abi_index: String,
 }
 
 fn json_value(value: &str) -> String {
@@ -1236,6 +1246,17 @@ pub fn now_unix() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
+}
+
+/// Add a column to a table if it is not already present (idempotent
+/// migration). SQLite has no `ADD COLUMN IF NOT EXISTS`, so a "duplicate
+/// column name" error is treated as success.
+fn add_column_if_missing(conn: &Connection, table: &str, column_def: &str) -> Result<(), String> {
+    match conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column_def}"), []) {
+        Ok(_) => Ok(()),
+        Err(err) if err.to_string().contains("duplicate column name") => Ok(()),
+        Err(err) => Err(format!("failed to add column to {table}: {err}")),
+    }
 }
 
 fn is_unique_violation(err: &rusqlite::Error) -> bool {
@@ -1597,7 +1618,7 @@ mod tests {
 
         // publish
         store
-            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path")
+            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
             .unwrap();
         assert_eq!(store.log_size().unwrap(), 3);
 

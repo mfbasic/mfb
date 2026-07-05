@@ -49,6 +49,7 @@ Package Management:
   pkg verify              Verify packages declared in project.json
   pkg validate <pkg>      Check an existing package's signatures and structure
   pkg publish <own> <pkg> Publish a signed package project
+  pkg check-abi           Diff this package's ABI against its published version
 
 Repository & Auth:
   repo register <owner>   Register a repository owner
