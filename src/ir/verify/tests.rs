@@ -144,7 +144,8 @@ fn skips_member_access_on_unknown_type() {
 
 #[test]
 fn rejects_call_with_too_many_arguments() {
-    let callee = func("helper", vec![param("a", "Integer", None)], vec![]);
+    // `Nothing`-returning: an empty body must not trip TYPE_FUNC_MISSING_RETURN.
+    let callee = func_returns("helper", "Nothing", vec![param("a", "Integer", None)], vec![]);
     let body = vec![IrOp::Return {
         value: Some(IrValue::Call {
             target: "helper".to_string(),
@@ -162,8 +163,9 @@ fn rejects_call_with_too_many_arguments() {
 
 #[test]
 fn accepts_call_omitting_defaulted_argument() {
-    let callee = func(
+    let callee = func_returns(
         "helper",
+        "Nothing",
         vec![
             param("a", "Integer", None),
             param("b", "Integer", Some(int_const("0"))),
@@ -354,7 +356,9 @@ fn rejects_empty_match() {
         cases: vec![],
         loc: IrSourceLoc::default(),
     }];
-    let f = func("run", vec![], body);
+    // `Nothing`-returning so the empty-match rejection is the first (and
+    // only) diagnostic rather than TYPE_FUNC_MISSING_RETURN.
+    let f = func_returns("run", "Nothing", vec![], body);
     let err = check(&project(vec![f], vec![])).expect_err("empty match must be rejected");
     assert!(err.contains("MATCH has no cases"), "{err}");
 }
