@@ -123,6 +123,10 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_FUNC_MISSING_RETURN",
     "TYPE_FAIL_REQUIRES_ERROR",
     "TYPE_PROPAGATE_REQUIRES_TRAP",
+    "TYPE_RESOURCE_REQUIRES_RES",
+    "TYPE_RES_REQUIRES_RESOURCE",
+    "TYPE_STATE_INVALID",
+    "TYPE_UNION_STATE_FORBIDDEN",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -147,6 +151,14 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         env.current_file.replace(function.file.clone());
         env.current_return.replace(function.returns.clone());
         env.current_kind.replace(function.kind.clone());
+        env.current_owners
+            .replace(function.resource_owners.keys().cloned().collect());
+        // A declared return type is a type reference too (`AS List OF File`
+        // needs the RES element marking like any collection declaration).
+        if !function.name.starts_with('$') {
+            env.current_line.set(function.loc.line);
+            env.check_collection_res_axis(resource_base_type(&function.returns));
+        }
         // A declared FUNC must name its return type (`AS T`); lowering stamps
         // `Unknown` when the annotation is absent. Synthesized `$lambda` bodies
         // legitimately carry a computed (possibly Unknown) return — skip them.
@@ -192,6 +204,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
             env.current_line.set(param.loc.line);
             locals.insert(param.name.clone(), param.type_.clone());
             env.check_map_key_comparable(&param.type_);
+            env.check_collection_res_axis(resource_base_type(&param.type_));
             // Every parameter must declare an `AS` type (lambda parameters
             // included — typecheck checks both forms with this rule).
             if param.type_ == "Unknown" {
@@ -261,6 +274,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         env.current_line.set(binding.loc.line);
         if binding.explicit_type {
             env.check_map_key_comparable(&binding.type_);
+            env.check_collection_res_axis(resource_base_type(&binding.type_));
         }
         if binding.value.is_none() {
             if !binding.explicit_type {
@@ -438,6 +452,9 @@ struct TypeEnv {
     /// a value-less SUB call is legal (typecheck's `allow_value_less_call`).
     /// Consumed (reset) by the first Call node checked.
     allow_sub_call: Cell<bool>,
+    /// The RES-declared binding names of the function currently being checked
+    /// (its `resource_owners` table), for the RES ownership-axis rules.
+    current_owners: RefCell<HashSet<String>>,
 }
 
 /// Rules whose failure leaves the failing expression's type undeterminable in
@@ -591,6 +608,7 @@ impl TypeEnv {
             poisoned: Cell::new(false),
             loop_stack: RefCell::new(Vec::new()),
             allow_sub_call: Cell::new(false),
+            current_owners: RefCell::new(HashSet::new()),
         }
     }
 
@@ -704,6 +722,59 @@ impl TypeEnv {
                     // here too would double-report).
                     if *explicit_type {
                         self.check_map_key_comparable(type_);
+                        self.check_collection_res_axis(resource_base_type(type_));
+                    }
+                    // The RES ownership axis (typecheck's
+                    // check_resource_declaration): a resource-typed binding
+                    // must be RES-declared (else its close obligation is
+                    // untracked — a leak/UAF on decoded IR), and RES may only
+                    // mark a resource. RES-ness on the IR = membership in the
+                    // function's resource-owner table.
+                    if *explicit_type && !name.starts_with('$') {
+                        let base = resource_base_type(type_);
+                        let is_resource = self.is_resource_or_resource_union(base);
+                        let is_res_declared = self.current_owners.borrow().contains(name.as_str());
+                        if is_resource && !is_res_declared {
+                            self.emit(
+                                "TYPE_RESOURCE_REQUIRES_RES",
+                                format!(
+                                    "binding `{name}` holds resource `{base}`; bind it with `RES`, not `LET`/`MUT`."
+                                ),
+                            );
+                        } else if is_res_declared && !is_resource && self.provably_data_type(base)
+                        {
+                            // Only a POSITIVELY known data type rejects: an
+                            // unknown name may be an external package's
+                            // resource (e.g. sqlite3's Db), which the source
+                            // lowering has no table for.
+                            self.emit(
+                                "TYPE_RES_REQUIRES_RESOURCE",
+                                format!(
+                                    "binding `{name}` is declared `RES` but `{base}` is not a resource type; use `LET`/`MUT`."
+                                ),
+                            );
+                        }
+                        // STATE is undefined on a resource union (varies by
+                        // tag), and a STATE payload type must be defaultable.
+                        if let Some(idx) = type_.find(" STATE ") {
+                            let state_type = &type_[idx + " STATE ".len()..];
+                            if self.unions.contains_key(base) {
+                                self.emit(
+                                    "TYPE_UNION_STATE_FORBIDDEN",
+                                    format!(
+                                        "binding `{name}` attaches STATE to resource union `{base}`; a resource union carries no STATE — use a concrete stateful resource."
+                                    ),
+                                );
+                            }
+                            if !self.is_defaultable(state_type, &mut HashSet::new()) {
+                                self.emit(
+                                    "TYPE_STATE_INVALID",
+                                    format!(
+                                        "binding `{name}` STATE type `{state_type}` must be a copyable, defaultable data type."
+                                    ),
+                                );
+                            }
+                        }
                     }
                     // An initializer-less binding must be annotated, immutable
                     // ones must have a value, and MUT needs a defaultable type
@@ -810,8 +881,19 @@ impl TypeEnv {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
                     // `res.state = value` must match the declared `STATE T` type,
-                    // carried in the local's type string (`File STATE T`).
+                    // carried in the local's type string (`File STATE T`); a
+                    // resource declared without STATE has nothing to assign.
                     if let Some(t) = locals.get(resource) {
+                        if !t.contains(" STATE ")
+                            && self.is_resource_or_resource_union(resource_base_type(t))
+                        {
+                            self.emit(
+                                "TYPE_STATE_INVALID",
+                                format!(
+                                    "`{resource}` has no STATE to assign; declare the resource with `STATE T`."
+                                ),
+                            );
+                        }
                         if let Some(idx) = t.find(" STATE ") {
                             let state_type = t[idx + " STATE ".len()..].to_string();
                             if let Some(actual) = self.infer_type(value, locals) {
@@ -2143,6 +2225,75 @@ impl TypeEnv {
             }
         }
         all.difference(&covered).next().is_none()
+    }
+
+    /// The `RES` ownership axis on collection element/value types (typecheck's
+    /// `check_collection_element_axis`, §15.6): a resource element must be
+    /// `RES`-marked (`List OF RES File`), and `RES` may mark only a resource.
+    /// Recurses through nested collections; `line` positions are the caller's.
+    fn check_collection_res_axis(&self, type_: &str) {
+        if let Some(element) = type_.strip_prefix("List OF ") {
+            self.collection_axis_element(element, "element");
+            return;
+        }
+        if let Some((_, value)) = parse_map(type_) {
+            self.collection_axis_element(value, "value");
+        }
+    }
+
+    fn collection_axis_element(&self, element: &str, role: &str) {
+        let bare = element.strip_prefix("RES ");
+        let inner = bare.unwrap_or(element);
+        let is_res_marked = bare.is_some();
+        let is_resource = self.is_resource_or_resource_union(inner);
+        if is_resource && !is_res_marked {
+            self.emit(
+                "TYPE_RESOURCE_REQUIRES_RES",
+                format!(
+                    "Collection {role} type `{inner}` is a resource; mark it `RES` (e.g. `List OF RES File`), not a bare resource type."
+                ),
+            );
+        } else if is_res_marked && !is_resource && self.provably_data_type(inner) {
+            self.emit(
+                "TYPE_RES_REQUIRES_RESOURCE",
+                format!(
+                    "Collection {role} is marked `RES` but `{inner}` is not a resource type; drop the `RES`."
+                ),
+            );
+        }
+        // Nested collections (`List OF List OF RES File`).
+        self.check_collection_res_axis(inner);
+    }
+
+    /// Whether `base` is positively a non-resource data type: a primitive, a
+    /// declared record/enum, a collection/FUNC type, or a union with no
+    /// resource variants. Unknown names are NOT provably data (they may be an
+    /// external package's resource type).
+    fn provably_data_type(&self, base: &str) -> bool {
+        matches!(
+            base,
+            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer"
+                | "Nothing" | "String"
+        ) || base.starts_with("List OF ")
+            || base.starts_with("Map OF ")
+            || base.starts_with("FUNC")
+            || (self.records.contains_key(base) && self.close_op_for(base).is_none())
+            || self.enums.contains_key(base)
+            || self
+                .unions
+                .get(base)
+                .is_some_and(|u| u.variants.iter().all(|v| self.close_op_for(v).is_none()))
+    }
+
+    /// Whether `base` is a resource type or a resource union (a union any of
+    /// whose variants is a resource — mixed unions are already rejected).
+    fn is_resource_or_resource_union(&self, base: &str) -> bool {
+        if self.close_op_for(base).is_some() {
+            return true;
+        }
+        self.unions
+            .get(base)
+            .is_some_and(|u| u.variants.iter().any(|v| self.close_op_for(v).is_some()))
     }
 
     /// The registered close op for a resource type: user-declared native
