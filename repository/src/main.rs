@@ -15,6 +15,9 @@ Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>]
 fresh ident public key with NO chain link. Clients holding the old pin fail
 hard with a re-anchor warning instead of silently following.";
 
+// coverage:off — the async entrypoint binds a listener / spawns the server and
+// calls process::exit on every error branch; it cannot run under a unit test.
+// Its pure argument parsing is covered directly below via parse_* functions.
 #[tokio::main]
 async fn main() {
     let mut args: Vec<String> = env::args().skip(1).collect();
@@ -131,6 +134,7 @@ async fn main() {
         process::exit(1);
     }
 }
+// coverage:on
 
 fn parse_reanchor_args(
     args: Vec<String>,
@@ -186,6 +190,7 @@ fn parse_init_root_args(args: Vec<String>) -> Result<(PathBuf, PathBuf, String, 
     ))
 }
 
+#[derive(Debug)]
 struct Options {
     dbpath: PathBuf,
     datapath: PathBuf,
@@ -243,4 +248,184 @@ fn parse_args(args: Vec<String>) -> Result<Options, String> {
         return Err("--datapath is required".to_string());
     };
     Ok(Options { dbpath, datapath, listen })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_args_reads_space_and_equals_forms_and_defaults_listen() {
+        let options =
+            parse_args(args(&["--dbpath", "/db", "--datapath", "/data"])).unwrap();
+        assert_eq!(options.dbpath, PathBuf::from("/db"));
+        assert_eq!(options.datapath, PathBuf::from("/data"));
+        assert_eq!(options.listen.to_string(), "127.0.0.1:7777");
+
+        let options = parse_args(args(&[
+            "--dbpath=/db2",
+            "--datapath=/data2",
+            "--listen=0.0.0.0:9000",
+        ]))
+        .unwrap();
+        assert_eq!(options.dbpath, PathBuf::from("/db2"));
+        assert_eq!(options.datapath, PathBuf::from("/data2"));
+        assert_eq!(options.listen.to_string(), "0.0.0.0:9000");
+
+        // The space form of --listen parses too.
+        let options = parse_args(args(&[
+            "--dbpath", "/db", "--datapath", "/data", "--listen", "127.0.0.1:1234",
+        ]))
+        .unwrap();
+        assert_eq!(options.listen.to_string(), "127.0.0.1:1234");
+    }
+
+    #[test]
+    fn parse_args_rejects_missing_values_bad_listen_and_unknown_options() {
+        assert!(parse_args(args(&["--dbpath"])).unwrap_err().contains("--dbpath requires"));
+        assert!(parse_args(args(&["--dbpath", "/db", "--datapath"]))
+            .unwrap_err()
+            .contains("--datapath requires"));
+        assert!(parse_args(args(&[
+            "--dbpath", "/db", "--datapath", "/data", "--listen",
+        ]))
+        .unwrap_err()
+        .contains("--listen requires"));
+        assert!(parse_args(args(&[
+            "--dbpath", "/db", "--datapath", "/data", "--listen", "not-an-addr",
+        ]))
+        .unwrap_err()
+        .contains("invalid listen address"));
+        assert!(parse_args(args(&[
+            "--dbpath=/db", "--datapath=/data", "--listen=bad",
+        ]))
+        .unwrap_err()
+        .contains("invalid listen address"));
+        assert!(parse_args(args(&["--datapath", "/data"]))
+            .unwrap_err()
+            .contains("--dbpath is required"));
+        assert!(parse_args(args(&["--dbpath", "/db"]))
+            .unwrap_err()
+            .contains("--datapath is required"));
+        assert!(parse_args(args(&["--bogus"])).unwrap_err().contains("unknown option"));
+    }
+
+    #[test]
+    fn parse_reanchor_args_reads_all_fields_and_reports_missing() {
+        let (dbpath, datapath, owner, ident_key) = parse_reanchor_args(args(&[
+            "--dbpath", "/db", "--datapath", "/data", "--owner", "alice", "--ident-key", "KEY",
+        ]))
+        .unwrap();
+        assert_eq!(dbpath, PathBuf::from("/db"));
+        assert_eq!(datapath, PathBuf::from("/data"));
+        assert_eq!(owner, "alice");
+        assert_eq!(ident_key, "KEY");
+
+        assert!(parse_reanchor_args(args(&["--owner", "alice"]))
+            .unwrap_err()
+            .contains("--dbpath is required"));
+        assert!(parse_reanchor_args(args(&["--dbpath"]))
+            .unwrap_err()
+            .contains("--dbpath requires"));
+        assert!(parse_reanchor_args(args(&["--nope", "x"]))
+            .unwrap_err()
+            .contains("unknown option"));
+    }
+
+    #[test]
+    fn parse_init_root_args_reads_fields_defaults_and_validates_expiry() {
+        let (dbpath, datapath, registry_id, expires_days) = parse_init_root_args(args(&[
+            "--dbpath", "/db", "--datapath", "/data", "--registry-id", "reg-1",
+        ]))
+        .unwrap();
+        assert_eq!(dbpath, PathBuf::from("/db"));
+        assert_eq!(datapath, PathBuf::from("/data"));
+        assert_eq!(registry_id, "reg-1");
+        assert_eq!(expires_days, 365); // default
+
+        let (_d, _p, _r, expires_days) = parse_init_root_args(args(&[
+            "--dbpath", "/db", "--datapath", "/data", "--registry-id", "reg-1",
+            "--expires-days", "30",
+        ]))
+        .unwrap();
+        assert_eq!(expires_days, 30);
+
+        assert!(parse_init_root_args(args(&[
+            "--dbpath", "/db", "--datapath", "/data", "--registry-id", "reg-1",
+            "--expires-days", "notnum",
+        ]))
+        .unwrap_err()
+        .contains("--expires-days must be an integer"));
+        assert!(parse_init_root_args(args(&["--dbpath"]))
+            .unwrap_err()
+            .contains("--dbpath requires"));
+        assert!(parse_init_root_args(args(&["--registry-id", "reg"]))
+            .unwrap_err()
+            .contains("--dbpath is required"));
+        assert!(parse_init_root_args(args(&["--nope", "x"]))
+            .unwrap_err()
+            .contains("unknown option"));
+    }
+
+    /// The reanchor subcommand's core store operation (what `main` runs after
+    /// parsing) — decode the ident key and re-anchor the owner.
+    #[test]
+    fn reanchor_operation_binds_a_fresh_ident() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened = Store::open_repository(
+            &temp.path().join("meta.db"),
+            &temp.path().join("data"),
+        )
+        .unwrap();
+        // Register alice with proofs so an ident key exists to re-anchor.
+        let (auth_public, auth_private) = mfb_repository::crypto::generate_keypair();
+        let (ident_public, ident_private) = mfb_repository::crypto::generate_keypair();
+        use mfb_repository::crypto;
+        let auth_proof = crypto::sign(
+            &auth_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &auth_public),
+        )
+        .unwrap();
+        let ident_proof = crypto::sign(
+            &ident_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, "alice", &ident_public),
+        )
+        .unwrap();
+        opened
+            .store
+            .register_owner("alice", &auth_public, &auth_proof, &ident_public, &ident_proof)
+            .unwrap();
+
+        let (fresh_public, _fresh_private) = crypto::generate_keypair();
+        let ident_key = crypto::encode_bytes(&fresh_public);
+        let decoded = crypto::decode_bytes(&ident_key, "identKey").unwrap();
+        let key = opened.store.reanchor_ident("alice", &decoded).unwrap();
+        assert_eq!(key.fingerprint, crypto::fingerprint(&fresh_public));
+    }
+
+    /// The init-root subcommand's core store operation: initialize the root of
+    /// trust and confirm the config + returned private key.
+    #[test]
+    fn init_root_operation_creates_config_and_returns_root_private_key() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened = Store::open_repository(
+            &temp.path().join("meta.db"),
+            &temp.path().join("data"),
+        )
+        .unwrap();
+        let expires_at = mfb_repository::store::now_unix() + 365 * 24 * 3600;
+        let root_private = opened.store.init_registry_root("reg-1", expires_at).unwrap();
+        assert_eq!(root_private.len(), mfb_repository::crypto::PRIVATE_KEY_LEN);
+        let config = opened.store.registry_config().unwrap().unwrap();
+        assert_eq!(config.registry_id, "reg-1");
+        // The returned private key derives the config's root public key.
+        assert_eq!(
+            mfb_repository::crypto::public_from_private(&root_private).unwrap(),
+            config.root_public
+        );
+    }
 }

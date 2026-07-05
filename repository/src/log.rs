@@ -286,4 +286,83 @@ mod tests {
         all[3] = leaf_hash(b"tampered");
         assert_ne!(before, root(&all));
     }
+
+    #[test]
+    fn verify_inclusion_rejects_out_of_range_index_and_bad_path_length() {
+        let all = leaves(8);
+        let tree_root = root(&all);
+        let path = inclusion_path(0, &all);
+        // Index outside the tree.
+        assert!(verify_inclusion(8, 8, &all[0], &path, &tree_root)
+            .unwrap_err()
+            .contains("outside the tree"));
+        // A path that is too long for the tree.
+        let mut too_long = path.clone();
+        too_long.push(leaf_hash(b"extra"));
+        too_long.push(leaf_hash(b"extra2"));
+        assert!(verify_inclusion(0, 8, &all[0], &too_long, &tree_root).is_err());
+        // A path that is too short.
+        let too_short: Vec<[u8; HASH_LEN]> = Vec::new();
+        assert!(verify_inclusion(0, 8, &all[0], &too_short, &tree_root)
+            .unwrap_err()
+            .contains("too short"));
+    }
+
+    #[test]
+    fn consistency_path_is_empty_for_degenerate_sizes() {
+        let all = leaves(4);
+        assert!(consistency_path(0, &all).is_empty()); // m == 0
+        assert!(consistency_path(5, &all).is_empty()); // m > n
+        assert!(consistency_path(4, &all).is_empty()); // m == n
+    }
+
+    #[test]
+    fn verify_consistency_handles_same_size_and_empty_and_rollback() {
+        let all = leaves(4);
+        let r = root(&all);
+        // Same size, same root, empty path: consistent.
+        verify_consistency(4, 4, &r, &r, &[]).unwrap();
+        // Same size but different roots: inconsistent.
+        let other = leaf_hash(b"other");
+        assert!(verify_consistency(4, 4, &r, &other, &[])
+            .unwrap_err()
+            .contains("same-size"));
+        // m == 0: any tree is consistent with the empty tree (empty path).
+        verify_consistency(0, 4, &leaf_hash(b"x"), &r, &[]).unwrap();
+        // m == 0 with a non-empty path: rejected.
+        assert!(verify_consistency(0, 4, &leaf_hash(b"x"), &r, &[r]).is_err());
+        // m > n: a rollback.
+        assert!(verify_consistency(5, 4, &r, &r, &[])
+            .unwrap_err()
+            .contains("rollback"));
+    }
+
+    #[test]
+    fn verify_consistency_rejects_a_wrong_old_or_new_root() {
+        let all = leaves(6);
+        let new_root = root(&all);
+        let m = 3usize;
+        let old_root = root(&all[..m]);
+        let path = consistency_path(m, &all);
+        // Correct proof verifies.
+        verify_consistency(m, all.len(), &old_root, &new_root, &path).unwrap();
+        // A wrong old root does not reproduce.
+        let wrong_old = leaf_hash(b"wrong-old");
+        assert!(verify_consistency(m, all.len(), &wrong_old, &new_root, &path).is_err());
+        // A wrong new root does not reproduce.
+        let wrong_new = leaf_hash(b"wrong-new");
+        assert!(verify_consistency(m, all.len(), &old_root, &wrong_new, &path).is_err());
+        // A truncated path (too short) is rejected.
+        assert!(verify_consistency(m, all.len(), &old_root, &new_root, &[]).is_err());
+    }
+
+    #[test]
+    fn checkpoint_signing_input_is_domain_tagged_and_binds_size_and_root() {
+        let r = root(&leaves(3));
+        let a = checkpoint_signing_input(3, &r);
+        assert!(a.starts_with(b"mfb-log-checkpoint-v1\0"));
+        // Different size or root produce different signing inputs.
+        assert_ne!(a, checkpoint_signing_input(4, &r));
+        assert_ne!(a, checkpoint_signing_input(3, &leaf_hash(b"x")));
+    }
 }

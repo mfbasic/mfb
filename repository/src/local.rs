@@ -79,9 +79,16 @@ impl LocalPaths {
 
 /// Pin the registry id + root fingerprint (plan-10-C2). Written once by
 /// `mfb repo trust`; every later metadata fetch is checked against it.
-pub fn write_root_pin(paths: &LocalPaths, registry_id: &str, root_fingerprint: &str) -> Result<(), String> {
+pub fn write_root_pin(
+    paths: &LocalPaths,
+    registry_id: &str,
+    root_fingerprint: &str,
+) -> Result<(), String> {
     create_private_dir(&paths.home)?;
-    write_private_file(&paths.root_pin_path(), &format!("{registry_id} {root_fingerprint}"))
+    write_private_file(
+        &paths.root_pin_path(),
+        &format!("{registry_id} {root_fingerprint}"),
+    )
 }
 
 /// Read the pinned `(registry_id, root_fingerprint)`, if any.
@@ -114,8 +121,12 @@ pub fn read_snapshot_version(paths: &LocalPaths) -> Result<Option<i64>, String> 
     if !path.is_file() {
         return Ok(None);
     }
-    let value = fs::read_to_string(&path)
-        .map_err(|err| format!("failed to read snapshot version '{}': {err}", path.display()))?;
+    let value = fs::read_to_string(&path).map_err(|err| {
+        format!(
+            "failed to read snapshot version '{}': {err}",
+            path.display()
+        )
+    })?;
     Ok(value.trim().parse::<i64>().ok())
 }
 
@@ -145,17 +156,39 @@ pub fn read_checkpoint(paths: &LocalPaths) -> Result<Option<(i64, String)>, Stri
     Ok(Some((size, root)))
 }
 
-pub fn write_auth_keypair(paths: &LocalPaths, owner: &str, public: &[u8], private: &[u8]) -> Result<(), String> {
+pub fn write_auth_keypair(
+    paths: &LocalPaths,
+    owner: &str,
+    public: &[u8],
+    private: &[u8],
+) -> Result<(), String> {
     create_private_dir(&paths.keys_dir())?;
-    write_private_file(&paths.auth_public_key_path(owner), &crypto::encode_bytes(public))?;
-    write_private_file(&paths.auth_private_key_path(owner), &crypto::encode_bytes(private))?;
+    write_private_file(
+        &paths.auth_public_key_path(owner),
+        &crypto::encode_bytes(public),
+    )?;
+    write_private_file(
+        &paths.auth_private_key_path(owner),
+        &crypto::encode_bytes(private),
+    )?;
     Ok(())
 }
 
-pub fn write_ident_keypair(paths: &LocalPaths, owner: &str, public: &[u8], private: &[u8]) -> Result<(), String> {
+pub fn write_ident_keypair(
+    paths: &LocalPaths,
+    owner: &str,
+    public: &[u8],
+    private: &[u8],
+) -> Result<(), String> {
     create_private_dir(&paths.keys_dir())?;
-    write_private_file(&paths.ident_public_key_path(owner), &crypto::encode_bytes(public))?;
-    write_private_file(&paths.ident_private_key_path(owner), &crypto::encode_bytes(private))?;
+    write_private_file(
+        &paths.ident_public_key_path(owner),
+        &crypto::encode_bytes(public),
+    )?;
+    write_private_file(
+        &paths.ident_private_key_path(owner),
+        &crypto::encode_bytes(private),
+    )?;
     Ok(())
 }
 
@@ -178,13 +211,20 @@ pub fn read_auth_private_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>,
 }
 
 pub fn read_ident_public_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>, String> {
-    read_key_file(&paths.ident_public_key_path(owner), "local ident public key")
+    read_key_file(
+        &paths.ident_public_key_path(owner),
+        "local ident public key",
+    )
 }
 
 pub fn read_ident_private_key(paths: &LocalPaths, owner: &str) -> Result<Vec<u8>, String> {
     let path = paths.ident_private_key_path(owner);
-    let value = fs::read_to_string(&path)
-        .map_err(|err| format!("missing local ident private key '{}': {err}", path.display()))?;
+    let value = fs::read_to_string(&path).map_err(|err| {
+        format!(
+            "missing local ident private key '{}': {err}",
+            path.display()
+        )
+    })?;
     crypto::decode_bytes(value.trim(), "local ident private key")
 }
 
@@ -271,9 +311,18 @@ mod tests {
         write_ident_keypair(&paths, "alice", &ident_public, &ident_private).unwrap();
 
         assert_eq!(read_auth_public_key(&paths, "alice").unwrap(), auth_public);
-        assert_eq!(read_auth_private_key(&paths, "alice").unwrap(), auth_private);
-        assert_eq!(read_ident_public_key(&paths, "alice").unwrap(), ident_public);
-        assert_eq!(read_ident_private_key(&paths, "alice").unwrap(), ident_private);
+        assert_eq!(
+            read_auth_private_key(&paths, "alice").unwrap(),
+            auth_private
+        );
+        assert_eq!(
+            read_ident_public_key(&paths, "alice").unwrap(),
+            ident_public
+        );
+        assert_eq!(
+            read_ident_private_key(&paths, "alice").unwrap(),
+            ident_private
+        );
         #[cfg(unix)]
         {
             assert_eq!(mode(&paths.keys_dir()), 0o700);
@@ -300,6 +349,90 @@ mod tests {
         let err = pin_server_key(&paths, &other_key).unwrap_err();
         assert!(err.contains("does not match the pinned key"), "{err}");
         assert_eq!(read_pinned_server_key(&paths).unwrap(), server_key);
+    }
+
+    #[test]
+    fn from_env_prefers_mfb_home_then_falls_back_to_home() {
+        // MFB_HOME wins outright.
+        std::env::set_var("MFB_HOME", "/tmp/mfb-home-test");
+        let paths = LocalPaths::from_env().unwrap();
+        assert_eq!(paths.keys_dir(), PathBuf::from("/tmp/mfb-home-test/keys"));
+        std::env::remove_var("MFB_HOME");
+
+        // Without MFB_HOME, HOME/.mfb is used.
+        let prior_home = std::env::var("HOME").ok();
+        std::env::set_var("HOME", "/tmp/home-test");
+        let paths = LocalPaths::from_env().unwrap();
+        assert_eq!(paths.keys_dir(), PathBuf::from("/tmp/home-test/.mfb/keys"));
+
+        // With neither, it is an error.
+        std::env::remove_var("HOME");
+        assert!(LocalPaths::from_env()
+            .unwrap_err()
+            .contains("HOME is not set"));
+        if let Some(home) = prior_home {
+            std::env::set_var("HOME", home);
+        }
+    }
+
+    #[test]
+    fn root_pin_round_trips_and_reads_none_when_absent() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+        assert!(read_root_pin(&paths).unwrap().is_none());
+        write_root_pin(&paths, "reg-1", "deadbeef").unwrap();
+        assert_eq!(
+            read_root_pin(&paths).unwrap().unwrap(),
+            ("reg-1".to_string(), "deadbeef".to_string())
+        );
+        #[cfg(unix)]
+        assert_eq!(mode(&paths.root_pin_path()), 0o600);
+    }
+
+    #[test]
+    fn snapshot_version_round_trips_and_reads_none_when_absent() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+        assert!(read_snapshot_version(&paths).unwrap().is_none());
+        write_snapshot_version(&paths, 42).unwrap();
+        assert_eq!(read_snapshot_version(&paths).unwrap(), Some(42));
+        // A non-numeric file parses to None rather than erroring.
+        fs::write(paths.snapshot_version_path(), "not-a-number").unwrap();
+        assert_eq!(read_snapshot_version(&paths).unwrap(), None);
+    }
+
+    #[test]
+    fn checkpoint_round_trips_and_rejects_malformed() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+        assert!(read_checkpoint(&paths).unwrap().is_none());
+        write_checkpoint(&paths, 7, "rootrhex").unwrap();
+        assert_eq!(
+            read_checkpoint(&paths).unwrap().unwrap(),
+            (7, "rootrhex".to_string())
+        );
+        // Malformed contents (missing the size or the root) are errors.
+        fs::write(paths.checkpoint_path(), "notanumber roothex").unwrap();
+        assert!(read_checkpoint(&paths)
+            .unwrap_err()
+            .contains("malformed pinned checkpoint"));
+        fs::write(paths.checkpoint_path(), "5").unwrap();
+        assert!(read_checkpoint(&paths)
+            .unwrap_err()
+            .contains("malformed pinned checkpoint"));
+    }
+
+    #[test]
+    fn read_key_errors_when_missing_or_corrupt() {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+        // Nothing written yet.
+        assert!(read_auth_public_key(&paths, "alice").is_err());
+        assert!(read_auth_private_key(&paths, "alice").is_err());
+        assert!(read_ident_public_key(&paths, "alice").is_err());
+        assert!(read_ident_private_key(&paths, "alice").is_err());
+        assert!(read_pinned_server_key(&paths).is_err());
+        assert!(read_session(&paths, "alice").is_err());
     }
 
     #[test]

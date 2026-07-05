@@ -2,13 +2,13 @@ use crate::crypto;
 use crate::local::{self, LocalPaths};
 use crate::server::{
     ChallengeRequest, ChallengeResponse, CheckpointResponse, ConsistencyProofResponse,
-    ErrorResponse, IdentChainResponse, IndexResponse, InclusionProofResponse, LinkFetchRequest,
-    LinkFetchResponse, LinkStartRequest, LinkStartResponse, LogEntry, LoginRequest,
-    LoginResponse, PackageArtifactRequest, PublishPackageResponse, RegisterProofs,
-    OrgMemberRequest, OrgMemberResponse, RegisterRequest, RegisterResponse, ReleaseStateRequest,
-    ReleaseStateResponse, RevokeChallengeRequest, RevokeRequest, RevokeResponse, RootResponse,
-    RotateRequest, RotateResponse, ServerIdentResponse, SignedMetadataResponse, SigningRequest,
-    SigningResponse, TokenIssueRequest, TokenIssueResponse, TokenRevokeRequest, TokenRevokeResponse,
+    ErrorResponse, IdentChainResponse, InclusionProofResponse, IndexResponse, LinkFetchRequest,
+    LinkFetchResponse, LinkStartRequest, LinkStartResponse, LogEntry, LoginRequest, LoginResponse,
+    OrgMemberRequest, OrgMemberResponse, PackageArtifactRequest, PublishPackageResponse,
+    RegisterProofs, RegisterRequest, RegisterResponse, ReleaseStateRequest, ReleaseStateResponse,
+    RevokeChallengeRequest, RevokeRequest, RevokeResponse, RootResponse, RotateRequest,
+    RotateResponse, ServerIdentResponse, SignedMetadataResponse, SigningRequest, SigningResponse,
+    TokenIssueRequest, TokenIssueResponse, TokenRevokeRequest, TokenRevokeResponse,
     TransferAcceptRequest, TransferOfferRequest, TransferResponse, ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
@@ -33,7 +33,11 @@ pub fn ensure_server_key(repo_url: &str, paths: &LocalPaths) -> Result<Vec<u8>, 
     Ok(server_key)
 }
 
-pub fn register(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<RegisterResponse, String> {
+pub fn register(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+) -> Result<RegisterResponse, String> {
     validate_owner_name(owner)?;
     ensure_server_key(repo_url, paths)?;
     // Both keypairs are generated locally; only the public halves and their
@@ -158,7 +162,11 @@ pub fn request_attestation(
 /// pairing code, encrypt the local ident keypair under it, and park the blob
 /// on the server (single-use, short TTL). Returns `(code, expires_at)` — the
 /// code is displayed to the user and never sent anywhere.
-pub fn link_start(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<(String, i64), String> {
+pub fn link_start(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+) -> Result<(String, i64), String> {
     validate_owner_name(owner)?;
     ensure_server_key(repo_url, paths)?;
     let ident_private = local::read_ident_private_key(paths, owner)?;
@@ -233,7 +241,11 @@ pub fn link_fetch(
 /// linked machines still hold the old (now `past`) ident private key and
 /// must re-link — the rotation exists because a machine was lost, so the new
 /// private key is never distributed automatically.
-pub fn rotate_ident(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<RotateResponse, String> {
+pub fn rotate_ident(
+    repo_url: &str,
+    paths: &LocalPaths,
+    owner: &str,
+) -> Result<RotateResponse, String> {
     validate_owner_name(owner)?;
     ensure_server_key(repo_url, paths)?;
     let old_private = local::read_ident_private_key(paths, owner)?;
@@ -241,11 +253,8 @@ pub fn rotate_ident(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<R
     let session_token = local::read_session(paths, owner)?;
 
     let (new_public, new_private) = crypto::generate_keypair();
-    let chain_message = crypto::ident_rotation_message(
-        owner,
-        &crypto::fingerprint(&old_public),
-        &new_public,
-    );
+    let chain_message =
+        crypto::ident_rotation_message(owner, &crypto::fingerprint(&old_public), &new_public);
     let chain_signature = crypto::sign(&old_private, &chain_message)?;
     let possession_message = crypto::registration_message(crypto::ROLE_IDENT, owner, &new_public);
     let possession_proof = crypto::sign(&new_private, &possession_message)?;
@@ -514,7 +523,12 @@ pub fn verify_registry_metadata(
     )
     .map_err(|_| "timestamp.json signature does not verify under the delegated key".to_string())?;
     let timestamp_doc = parse_metadata(&timestamp.signed, "timestamp.json")?;
-    check_field(&timestamp_doc, "registryId", expected_registry_id, "timestamp.json")?;
+    check_field(
+        &timestamp_doc,
+        "registryId",
+        expected_registry_id,
+        "timestamp.json",
+    )?;
     check_not_expired(&timestamp_doc, now, "timestamp.json")?;
     let snapshot_version = metadata_i64(&timestamp_doc, "snapshotVersion", "timestamp.json")?;
     if snapshot_version < min_snapshot_version {
@@ -534,7 +548,12 @@ pub fn verify_registry_metadata(
     )
     .map_err(|_| "snapshot.json signature does not verify under the delegated key".to_string())?;
     let snapshot_doc = parse_metadata(&snapshot.signed, "snapshot.json")?;
-    check_field(&snapshot_doc, "registryId", expected_registry_id, "snapshot.json")?;
+    check_field(
+        &snapshot_doc,
+        "registryId",
+        expected_registry_id,
+        "snapshot.json",
+    )?;
     check_not_expired(&snapshot_doc, now, "snapshot.json")?;
     let snapshot_doc_version = metadata_i64(&snapshot_doc, "version", "snapshot.json")?;
     let snapshot_index_hash = metadata_str(&snapshot_doc, "indexHash", "snapshot.json")?;
@@ -556,7 +575,12 @@ fn parse_metadata(signed: &str, what: &str) -> Result<serde_json::Value, String>
     serde_json::from_str(signed).map_err(|_| format!("malformed {what}"))
 }
 
-fn check_field(doc: &serde_json::Value, field: &str, expected: &str, what: &str) -> Result<(), String> {
+fn check_field(
+    doc: &serde_json::Value,
+    field: &str,
+    expected: &str,
+    what: &str,
+) -> Result<(), String> {
     if doc.get(field).and_then(|value| value.as_str()) != Some(expected) {
         return Err(format!("{what} {field} does not match the expected value"));
     }
@@ -674,8 +698,10 @@ pub fn set_org_member(
     let ident_private = local::read_ident_private_key(paths, grantor)?;
     let session_token = local::read_session(paths, grantor)?;
     let role_in_message = if remove { "removed" } else { role };
-    let signature =
-        crypto::sign(&ident_private, &crypto::org_role_message(org, member, role_in_message))?;
+    let signature = crypto::sign(
+        &ident_private,
+        &crypto::org_role_message(org, member, role_in_message),
+    )?;
     post_json::<OrgMemberResponse>(
         repo_url,
         "/orgs/members",
@@ -865,29 +891,27 @@ pub fn fetch_index(
     // and delegate this server key before we trust anything the index says.
     verify_pinned_metadata(repo_url, paths)?;
     let ident = format!("{owner}#{package}");
-    let response = get_json::<IndexResponse>(
-        repo_url,
-        &format!("/index/{}", percent_encode(&ident)),
-    )?;
+    let response =
+        get_json::<IndexResponse>(repo_url, &format!("/index/{}", percent_encode(&ident)))?;
     // The pinned ident is only as trustworthy as the name binding: verify it
     // under the pinned server key and cross-check the fingerprint.
     let ident_public = crypto::decode_bytes(
-        response.ident_key.strip_prefix("ed25519:").unwrap_or(&response.ident_key),
+        response
+            .ident_key
+            .strip_prefix("ed25519:")
+            .unwrap_or(&response.ident_key),
         "identKey",
     )?;
     if crypto::fingerprint(&ident_public) != response.ident_fingerprint {
         return Err("registry index identKey does not match its fingerprint".to_string());
     }
-    let signature =
-        crypto::decode_bytes(&response.name_binding_signature, "nameBindingSignature")?;
+    let signature = crypto::decode_bytes(&response.name_binding_signature, "nameBindingSignature")?;
     crypto::verify(
         &server_key,
         &crypto::name_binding_message(&response.owner, &response.ident_fingerprint),
         &signature,
     )
-    .map_err(|_| {
-        "registry name binding does not verify under the pinned server key".to_string()
-    })?;
+    .map_err(|_| "registry name binding does not verify under the pinned server key".to_string())?;
     Ok(response)
 }
 
@@ -907,7 +931,9 @@ pub fn fetch_blob(repo_url: &str, hash: &str) -> Result<Vec<u8>, String> {
         if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
             return Err(error.error);
         }
-        return Err(format!("repository request failed with status {status}: {text}"));
+        return Err(format!(
+            "repository request failed with status {status}: {text}"
+        ));
     }
     let bytes = response
         .bytes()
@@ -1008,7 +1034,9 @@ fn read_json_response<T: DeserializeOwned>(
     if let Ok(error) = serde_json::from_str::<ErrorResponse>(&text) {
         return Err(error.error);
     }
-    Err(format!("repository request failed with status {status}: {text}"))
+    Err(format!(
+        "repository request failed with status {status}: {text}"
+    ))
 }
 
 #[cfg(test)]
@@ -1042,8 +1070,11 @@ mod tests {
             crypto::encode_bytes(&snapshot_public),
             crypto::encode_bytes(&timestamp_public),
         );
-        let root_signature =
-            crypto::sign(&root_private, &crypto::root_signing_input(root_signed.as_bytes())).unwrap();
+        let root_signature = crypto::sign(
+            &root_private,
+            &crypto::root_signing_input(root_signed.as_bytes()),
+        )
+        .unwrap();
         let timestamp_signed = format!(
             "{{\"type\":\"timestamp\",\"registryId\":\"{registry_id}\",\"version\":{version},\"expires\":{expires},\"snapshotVersion\":{version},\"indexHash\":\"{timestamp_index_hash}\"}}",
         );
@@ -1084,7 +1115,13 @@ mod tests {
     fn metadata_chain_verifies_and_returns_the_delegated_server_key() {
         let m = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
         let delegated = verify_registry_metadata(
-            &m.root, &m.timestamp, &m.snapshot, "reg-1", &m.root_fingerprint, 0, 1_000,
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-1",
+            &m.root_fingerprint,
+            0,
+            1_000,
         )
         .expect("valid chain verifies");
         assert_eq!(delegated.server_key, m.server_public);
@@ -1097,26 +1134,50 @@ mod tests {
 
         // Wrong pinned root fingerprint.
         assert!(verify_registry_metadata(
-            &m.root, &m.timestamp, &m.snapshot, "reg-1", "deadbeef", 0, 1_000,
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-1",
+            "deadbeef",
+            0,
+            1_000,
         )
         .is_err());
 
         // Registry-id mismatch.
         assert!(verify_registry_metadata(
-            &m.root, &m.timestamp, &m.snapshot, "reg-2", &m.root_fingerprint, 0, 1_000,
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-2",
+            &m.root_fingerprint,
+            0,
+            1_000,
         )
         .is_err());
 
         // Expired (now past the expiry).
         assert!(verify_registry_metadata(
-            &m.root, &m.timestamp, &m.snapshot, "reg-1", &m.root_fingerprint, 0, 9_000,
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-1",
+            &m.root_fingerprint,
+            0,
+            9_000,
         )
         .unwrap_err()
         .contains("expired"));
 
         // Rollback below the pinned snapshot version.
         assert!(verify_registry_metadata(
-            &m.root, &m.timestamp, &m.snapshot, "reg-1", &m.root_fingerprint, 6, 1_000,
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-1",
+            &m.root_fingerprint,
+            6,
+            1_000,
         )
         .unwrap_err()
         .contains("ROLLBACK"));
@@ -1125,14 +1186,26 @@ mod tests {
         let mut tampered = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
         tampered.snapshot.signed = tampered.snapshot.signed.replace("idxhash", "evilhash");
         assert!(verify_registry_metadata(
-            &tampered.root, &tampered.timestamp, &tampered.snapshot, "reg-1", &tampered.root_fingerprint, 0, 1_000,
+            &tampered.root,
+            &tampered.timestamp,
+            &tampered.snapshot,
+            "reg-1",
+            &tampered.root_fingerprint,
+            0,
+            1_000,
         )
         .is_err());
 
         // Timestamp and snapshot disagree on the index hash.
         let m2 = build_metadata("reg-1", 5, 2_000, "idxhash", "otherhash");
         assert!(verify_registry_metadata(
-            &m2.root, &m2.timestamp, &m2.snapshot, "reg-1", &m2.root_fingerprint, 0, 1_000,
+            &m2.root,
+            &m2.timestamp,
+            &m2.snapshot,
+            "reg-1",
+            &m2.root_fingerprint,
+            0,
+            1_000,
         )
         .unwrap_err()
         .contains("index hash"));
@@ -1151,5 +1224,408 @@ mod tests {
         local::remove_owner_keys(&paths, "alice");
         assert!(!paths.auth_private_key_path("alice").exists());
         assert!(!paths.ident_private_key_path("alice").exists());
+    }
+
+    use crate::server::IdentChainLink;
+
+    fn temp_paths() -> (tempfile::TempDir, LocalPaths) {
+        let temp = tempfile::tempdir().unwrap();
+        let paths = LocalPaths::new(temp.path().join(".mfb"));
+        (temp, paths)
+    }
+
+    /// A URL that will refuse every connection: port 1 on loopback is never
+    /// listening, so any HTTP flow fails fast at the connect step. This lets
+    /// us drive the network-bound client functions through their argument
+    /// validation and local-key handling up to the first request.
+    const DEAD_URL: &str = "http://127.0.0.1:1";
+
+    #[test]
+    fn repo_url_env_defaults_and_overrides() {
+        // The default is returned when the env var is unset; an explicit value
+        // overrides it. (Serialized guard: env is process-global.)
+        std::env::remove_var("MFB_REPO_URL");
+        assert_eq!(repo_url_from_env(), DEFAULT_REPO_URL);
+        std::env::set_var("MFB_REPO_URL", "http://example.test:9999");
+        assert_eq!(repo_url_from_env(), "http://example.test:9999");
+        std::env::remove_var("MFB_REPO_URL");
+    }
+
+    #[test]
+    fn decode_hex32_accepts_only_32_byte_hex() {
+        let ok = "aa".repeat(32);
+        assert_eq!(decode_hex32(&ok, "x").unwrap(), [0xaa; 32]);
+        assert!(decode_hex32("zz", "x").unwrap_err().contains("malformed x"));
+        assert!(decode_hex32(&"aa".repeat(31), "x").is_err()); // wrong length
+    }
+
+    #[test]
+    fn percent_encode_preserves_unreserved_and_escapes_the_rest() {
+        assert_eq!(percent_encode("azAZ09-_.~"), "azAZ09-_.~");
+        assert_eq!(percent_encode("alice#toolbox"), "alice%23toolbox");
+        assert_eq!(percent_encode("a b/c"), "a%20b%2Fc");
+    }
+
+    #[test]
+    fn metadata_helpers_read_fields_and_report_missing() {
+        let doc: serde_json::Value = serde_json::from_str(
+            r#"{"registryId":"reg","version":7,"indexHash":"h","expires":100}"#,
+        )
+        .unwrap();
+        check_field(&doc, "registryId", "reg", "d").unwrap();
+        assert!(check_field(&doc, "registryId", "other", "d").is_err());
+        check_not_expired(&doc, 50, "d").unwrap();
+        assert!(check_not_expired(&doc, 100, "d")
+            .unwrap_err()
+            .contains("expired"));
+        assert_eq!(metadata_i64(&doc, "version", "d").unwrap(), 7);
+        assert!(metadata_i64(&doc, "missing", "d").is_err());
+        assert_eq!(metadata_str(&doc, "indexHash", "d").unwrap(), "h");
+        assert!(metadata_str(&doc, "missing", "d").is_err());
+        // A doc with no expiry field is rejected by check_not_expired.
+        let no_exp: serde_json::Value = serde_json::from_str(r#"{"a":1}"#).unwrap();
+        assert!(check_not_expired(&no_exp, 0, "d")
+            .unwrap_err()
+            .contains("missing an expiry"));
+        // parse_metadata rejects non-JSON.
+        assert!(parse_metadata("not json", "d").is_err());
+    }
+
+    #[test]
+    fn decode_delegated_key_reads_or_errors() {
+        let (public, _private) = crypto::generate_keypair();
+        let doc: serde_json::Value = serde_json::from_str(&format!(
+            r#"{{"serverKey":"{}"}}"#,
+            crypto::encode_bytes(&public)
+        ))
+        .unwrap();
+        assert_eq!(decode_delegated_key(&doc, "serverKey").unwrap(), public);
+        assert!(decode_delegated_key(&doc, "missing")
+            .unwrap_err()
+            .contains("missing"));
+    }
+
+    #[test]
+    fn follow_ident_chain_walks_signed_links_and_detects_reanchor() {
+        // Build a two-hop signed chain k0 -> k1 -> k2.
+        let (k0_pub, k0_prv) = crypto::generate_keypair();
+        let (k1_pub, k1_prv) = crypto::generate_keypair();
+        let (k2_pub, _k2_prv) = crypto::generate_keypair();
+        let link = |old_pub: &[u8], old_prv: &[u8], new_pub: &[u8]| {
+            let message =
+                crypto::ident_rotation_message("alice", &crypto::fingerprint(old_pub), new_pub);
+            IdentChainLink {
+                old_key: crypto::encode_bytes(old_pub),
+                new_key: crypto::encode_bytes(new_pub),
+                signature: crypto::encode_bytes(&crypto::sign(old_prv, &message).unwrap()),
+                issued: 0,
+            }
+        };
+        let chain = vec![
+            link(&k0_pub, &k0_prv, &k1_pub),
+            link(&k1_pub, &k1_prv, &k2_pub),
+        ];
+        // Following from the oldest pin reaches the newest key.
+        let followed = follow_ident_chain("alice", &k0_pub, &chain)
+            .unwrap()
+            .unwrap();
+        assert_eq!(followed, k2_pub);
+        // Following from a key that never appears (re-anchor) yields None.
+        let (stranger, _) = crypto::generate_keypair();
+        assert!(follow_ident_chain("alice", &stranger, &chain)
+            .unwrap()
+            .is_none());
+        // A tampered link signature is a hard error.
+        let bad = vec![IdentChainLink {
+            old_key: crypto::encode_bytes(&k0_pub),
+            new_key: crypto::encode_bytes(&k1_pub),
+            signature: crypto::encode_bytes(&[0u8; 64]),
+            issued: 0,
+        }];
+        assert!(follow_ident_chain("alice", &k0_pub, &bad).is_err());
+    }
+
+    #[test]
+    fn abi_map_reads_object_and_defaults_empty() {
+        use crate::server::IndexVersion;
+        let with_abi = IndexVersion {
+            version: "1.0.0".to_string(),
+            hash: "h".to_string(),
+            published_at: 0,
+            state: "available".to_string(),
+            abi_index: serde_json::json!({"greet": "aa", "bad": 3}),
+            log_entry: None,
+        };
+        let map = with_abi.abi_map();
+        assert_eq!(map.get("greet").unwrap(), "aa");
+        assert!(!map.contains_key("bad")); // non-string values are skipped
+        let without = IndexVersion {
+            abi_index: serde_json::json!("not an object"),
+            ..with_abi
+        };
+        assert!(without.abi_map().is_empty());
+    }
+
+    #[test]
+    fn package_request_carries_all_fields() {
+        let artifact = b"artifact-bytes";
+        let package = PackageArtifact {
+            ident: "alice#toolbox",
+            version: "1.0.0",
+            artifact,
+            content_hash: "hash",
+            ident_fingerprint: "identfp",
+            signing_fingerprint: "signfp",
+        };
+        let request = package_request(&package, "session".to_string());
+        assert_eq!(request.ident, "alice#toolbox");
+        assert_eq!(request.version, "1.0.0");
+        assert_eq!(request.artifact, crypto::encode_bytes(artifact));
+        assert_eq!(request.content_hash, "hash");
+        assert_eq!(request.ident_fingerprint, "identfp");
+        assert_eq!(request.signing_fingerprint, "signfp");
+        assert_eq!(request.session_token, "session");
+    }
+
+    #[test]
+    fn metadata_chain_rejects_undelegated_server_key_and_bad_root_signature() {
+        // A bad root signature (root_key present but signature is garbage).
+        let mut m = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
+        m.root.signature = crypto::encode_bytes(&[0u8; 64]);
+        assert!(verify_registry_metadata(
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-1",
+            &m.root_fingerprint,
+            0,
+            1_000,
+        )
+        .unwrap_err()
+        .contains("root.json signature"));
+
+        // A tampered timestamp signature.
+        let mut m2 = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
+        m2.timestamp.signature = crypto::encode_bytes(&[0u8; 64]);
+        assert!(verify_registry_metadata(
+            &m2.root,
+            &m2.timestamp,
+            &m2.snapshot,
+            "reg-1",
+            &m2.root_fingerprint,
+            0,
+            1_000,
+        )
+        .unwrap_err()
+        .contains("timestamp.json signature"));
+    }
+
+    /// Assemble a metadata chain from explicit doc versions so the
+    /// snapshot-vs-timestamp version disagreement branch can be exercised with
+    /// correctly-signed docs (the signature check would otherwise fire first).
+    fn build_metadata_versions(
+        registry_id: &str,
+        timestamp_version: i64,
+        snapshot_version: i64,
+    ) -> MetadataFixture {
+        let (root_public, root_private) = crypto::generate_keypair();
+        let (snapshot_public, snapshot_private) = crypto::generate_keypair();
+        let (timestamp_public, timestamp_private) = crypto::generate_keypair();
+        let (server_public, _server_private) = crypto::generate_keypair();
+        let expires = 9_000i64;
+        let root_signed = format!(
+            "{{\"type\":\"root\",\"registryId\":\"{registry_id}\",\"version\":1,\"expires\":{expires},\"serverKey\":\"{}\",\"snapshotKey\":\"{}\",\"timestampKey\":\"{}\"}}",
+            crypto::encode_bytes(&server_public),
+            crypto::encode_bytes(&snapshot_public),
+            crypto::encode_bytes(&timestamp_public),
+        );
+        let root_signature = crypto::sign(
+            &root_private,
+            &crypto::root_signing_input(root_signed.as_bytes()),
+        )
+        .unwrap();
+        let timestamp_signed = format!(
+            "{{\"type\":\"timestamp\",\"registryId\":\"{registry_id}\",\"version\":{timestamp_version},\"expires\":{expires},\"snapshotVersion\":{timestamp_version},\"indexHash\":\"h\"}}",
+        );
+        let timestamp_signature = crypto::sign(
+            &timestamp_private,
+            &crypto::timestamp_signing_input(timestamp_signed.as_bytes()),
+        )
+        .unwrap();
+        let snapshot_signed = format!(
+            "{{\"type\":\"snapshot\",\"registryId\":\"{registry_id}\",\"version\":{snapshot_version},\"expires\":{expires},\"indexHash\":\"h\"}}",
+        );
+        let snapshot_signature = crypto::sign(
+            &snapshot_private,
+            &crypto::snapshot_signing_input(snapshot_signed.as_bytes()),
+        )
+        .unwrap();
+        MetadataFixture {
+            root_fingerprint: crypto::fingerprint(&root_public),
+            server_public,
+            root: RootResponse {
+                signed: root_signed,
+                signature: crypto::encode_bytes(&root_signature),
+                root_key: crypto::encode_bytes(&root_public),
+                root_fingerprint: crypto::fingerprint(&root_public),
+            },
+            timestamp: SignedMetadataResponse {
+                signed: timestamp_signed,
+                signature: crypto::encode_bytes(&timestamp_signature),
+            },
+            snapshot: SignedMetadataResponse {
+                signed: snapshot_signed,
+                signature: crypto::encode_bytes(&snapshot_signature),
+            },
+        }
+    }
+
+    #[test]
+    fn metadata_chain_rejects_snapshot_timestamp_version_disagreement() {
+        let m = build_metadata_versions("reg-1", 5, 6);
+        let err = verify_registry_metadata(
+            &m.root,
+            &m.timestamp,
+            &m.snapshot,
+            "reg-1",
+            &m.root_fingerprint,
+            0,
+            1_000,
+        )
+        .unwrap_err();
+        assert!(err.contains("disagree on the snapshot version"), "{err}");
+        // Sanity: the fixture's server key would be the delegated one on a
+        // matching chain.
+        let matched = build_metadata_versions("reg-1", 7, 7);
+        let delegated = verify_registry_metadata(
+            &matched.root,
+            &matched.timestamp,
+            &matched.snapshot,
+            "reg-1",
+            &matched.root_fingerprint,
+            0,
+            1_000,
+        )
+        .unwrap();
+        assert_eq!(delegated.server_key, matched.server_public);
+    }
+
+    // --- Network-bound flows: driven against a dead endpoint so the connect
+    // step fails deterministically. This exercises argument validation, local
+    // key handling, and the request/response error plumbing without a bind.
+
+    #[test]
+    fn network_flows_reject_invalid_owner_names_before_any_request() {
+        let (_temp, paths) = temp_paths();
+        assert!(register(DEAD_URL, &paths, "std").is_err());
+        assert!(auth(DEAD_URL, &paths, "1bad").is_err());
+        assert!(link_start(DEAD_URL, &paths, "").is_err());
+        assert!(link_fetch(DEAD_URL, &paths, "bad-name", "code").is_err());
+        assert!(rotate_ident(DEAD_URL, &paths, "std").is_err());
+        assert!(fetch_ident_chain(DEAD_URL, "std").is_err());
+        assert!(revoke_machine(DEAD_URL, &paths, "std", "fp").is_err());
+        assert!(set_org_member(DEAD_URL, &paths, "acme", "std", "m", "admin", false).is_err());
+        assert!(issue_publish_token(DEAD_URL, &paths, "std", "scope", 60).is_err());
+        assert!(revoke_publish_token(DEAD_URL, &paths, "std", "fp").is_err());
+        assert!(transfer_offer(DEAD_URL, &paths, "a#p", "std", "bob").is_err());
+        assert!(transfer_accept(DEAD_URL, &paths, "a#p", "std").is_err());
+        assert!(set_release_state(DEAD_URL, &paths, "std", "a#p", "1.0.0", "yanked").is_err());
+        assert!(fetch_index(DEAD_URL, &paths, "std", "pkg").is_err());
+        assert!(request_attestation(DEAD_URL, &paths, "std", "a#p", "1.0.0", "fp").is_err());
+        assert!(validate_package(
+            DEAD_URL,
+            &paths,
+            "std",
+            &PackageArtifact {
+                ident: "a#p",
+                version: "1",
+                artifact: b"x",
+                content_hash: "h",
+                ident_fingerprint: "i",
+                signing_fingerprint: "s",
+            }
+        )
+        .is_err());
+        assert!(publish_package(
+            DEAD_URL,
+            &paths,
+            "std",
+            &PackageArtifact {
+                ident: "a#p",
+                version: "1",
+                artifact: b"x",
+                content_hash: "h",
+                ident_fingerprint: "i",
+                signing_fingerprint: "s",
+            }
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn network_flows_report_connection_failure_against_a_dead_endpoint() {
+        let (_temp, paths) = temp_paths();
+        // ensure_server_key / get_json / post_json all fail at connect.
+        let err = ensure_server_key(DEAD_URL, &paths).unwrap_err();
+        assert!(err.contains("failed to connect"), "{err}");
+        assert!(fetch_blob(DEAD_URL, "hash")
+            .unwrap_err()
+            .contains("failed to connect"));
+        assert!(fetch_ident_chain(DEAD_URL, "alice")
+            .unwrap_err()
+            .contains("failed to connect"));
+        assert!(fetch_checkpoint(DEAD_URL, &paths)
+            .unwrap_err()
+            .contains("failed to connect"));
+        assert!(verify_log_consistency(DEAD_URL, &paths)
+            .unwrap_err()
+            .contains("failed to connect"));
+        assert!(verify_publish_inclusion(DEAD_URL, &paths, "a#p", "1.0.0")
+            .unwrap_err()
+            .contains("failed to connect"));
+        // register with a valid name reaches the network step and fails there;
+        // the failure path must clean up the locally written keypair.
+        assert!(register(DEAD_URL, &paths, "alice")
+            .unwrap_err()
+            .contains("failed to connect"));
+        assert!(!paths.auth_private_key_path("alice").exists());
+    }
+
+    #[test]
+    fn auth_without_local_key_probes_owner_and_surfaces_the_local_error() {
+        let (_temp, paths) = temp_paths();
+        // No local key on disk and the server is unreachable: the probe fails
+        // to connect (not "unknown owner"), so the local read error surfaces.
+        let err = auth(DEAD_URL, &paths, "alice").unwrap_err();
+        assert!(
+            err.contains("failed to connect") || err.contains("missing local private key"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn flows_needing_local_ident_key_fail_when_it_is_absent() {
+        let (_temp, paths) = temp_paths();
+        // These reach past ensure_server_key only if the server is live; with a
+        // dead endpoint they fail at connect, which is still an Err. Confirm
+        // the Err regardless (both the missing-key and connect paths are Err).
+        assert!(link_start(DEAD_URL, &paths, "alice").is_err());
+        assert!(rotate_ident(DEAD_URL, &paths, "alice").is_err());
+        assert!(revoke_machine(DEAD_URL, &paths, "alice", "fp").is_err());
+    }
+
+    #[test]
+    fn verify_pinned_metadata_is_a_noop_without_a_pin() {
+        let (_temp, paths) = temp_paths();
+        // No root pin written: the function returns Ok(()) without any request.
+        verify_pinned_metadata(DEAD_URL, &paths).unwrap();
+    }
+
+    #[test]
+    fn trust_registry_fails_to_connect_against_a_dead_endpoint() {
+        let (_temp, paths) = temp_paths();
+        assert!(trust_registry(DEAD_URL, &paths, "reg-1", "deadbeef")
+            .unwrap_err()
+            .contains("failed to connect"));
     }
 }

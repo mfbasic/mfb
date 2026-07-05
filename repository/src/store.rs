@@ -2507,4 +2507,280 @@ mod tests {
         let err = store.complete_challenge(&challenge.id, &signature).unwrap_err();
         assert!(err.contains("expired challenge"));
     }
+
+    #[test]
+    fn complete_challenge_rejects_unknown_id() {
+        let (_temp, store) = test_store();
+        assert!(store
+            .complete_challenge("no-such-id", &[0u8; 64])
+            .unwrap_err()
+            .contains("unknown challenge"));
+    }
+
+    #[test]
+    fn open_repository_rejects_non_file_db_and_non_dir_data() {
+        let temp = tempfile::tempdir().unwrap();
+        // A directory where the DB file should be.
+        let dir_as_db = temp.path().join("db-is-a-dir");
+        fs::create_dir(&dir_as_db).unwrap();
+        match Store::open_repository(&dir_as_db, &temp.path().join("data")) {
+            Ok(_) => panic!("a directory must not be accepted as the DB file"),
+            Err(err) => assert!(err.contains("is not a file"), "{err}"),
+        }
+        // A file where the data directory should be.
+        let file_as_data = temp.path().join("data-is-a-file");
+        fs::write(&file_as_data, b"x").unwrap();
+        match Store::open_repository(&temp.path().join("meta.db"), &file_as_data) {
+            Ok(_) => panic!("a file must not be accepted as the data dir"),
+            Err(err) => assert!(err.contains("is not a directory"), "{err}"),
+        }
+    }
+
+    #[test]
+    fn org_member_removal_and_listing() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "acme");
+        register_keys(&store, "alice");
+        register_keys(&store, "bob");
+
+        // Grant validation rejects a bad role and unknown accounts.
+        assert!(store.grant_org_member("acme", "alice", "superuser").is_err());
+        assert!(store.grant_org_member("nosuchorg", "alice", "admin").is_err());
+        assert!(store.grant_org_member("acme", "nosuch", "admin").is_err());
+
+        store.grant_org_member("acme", "alice", "admin").unwrap();
+        store.grant_org_member("acme", "bob", "publisher").unwrap();
+        // Update an existing member's role (ON CONFLICT path).
+        store.grant_org_member("acme", "alice", "owner").unwrap();
+        assert_eq!(store.org_member_role("acme", "alice").unwrap().as_deref(), Some("owner"));
+
+        let members = store.list_org_members("acme").unwrap();
+        assert_eq!(members.len(), 2);
+        assert!(members.contains(&("alice".to_string(), "owner".to_string())));
+
+        // Removal reports true, then false when there is nothing to remove.
+        assert!(store.remove_org_member("acme", "bob").unwrap());
+        assert!(!store.remove_org_member("acme", "bob").unwrap());
+        assert!(store.remove_org_member("nosuchorg", "bob").is_err());
+        assert!(store.remove_org_member("acme", "nosuch").is_err());
+        assert!(store.org_member_role("acme", "carol").unwrap().is_none());
+    }
+
+    #[test]
+    fn publish_token_issue_validates_scope_and_ttl() {
+        let (_temp, store) = test_store();
+        let keys = register_keys(&store, "alice");
+        let (token_public, token_private) = crypto::generate_keypair();
+        let proof = crypto::sign(
+            &token_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &token_public),
+        )
+        .unwrap();
+
+        // Unknown owner.
+        assert!(store
+            .issue_publish_token("nosuch", &token_public, &proof, "nosuch#pkg", 60)
+            .unwrap_err()
+            .contains("unknown owner"));
+        // Bad proof.
+        assert!(store
+            .issue_publish_token("alice", &token_public, &[0u8; 64], "alice#pkg", 60)
+            .unwrap_err()
+            .contains("invalid token proof"));
+        // Empty and over-long scope.
+        assert!(store
+            .issue_publish_token("alice", &token_public, &proof, "", 60)
+            .unwrap_err()
+            .contains("scope"));
+        assert!(store
+            .issue_publish_token("alice", &token_public, &proof, &"a".repeat(300), 60)
+            .unwrap_err()
+            .contains("scope"));
+        // Bad TTL bounds.
+        assert!(store
+            .issue_publish_token("alice", &token_public, &proof, "alice#pkg", 0)
+            .unwrap_err()
+            .contains("ttl"));
+        assert!(store
+            .issue_publish_token("alice", &token_public, &proof, "alice#pkg", 400 * 24 * 3600)
+            .unwrap_err()
+            .contains("ttl"));
+
+        // A valid issue registers the token key + returns scope/expiry.
+        let (owner, key, expires_at) = store
+            .issue_publish_token("alice", &token_public, &proof, "alice#pkg", 60)
+            .unwrap();
+        assert_eq!(owner.owner_display, "alice");
+        assert_eq!(key.fingerprint, crypto::fingerprint(&token_public));
+        assert!(expires_at > now_unix());
+        // publish_token_for_key reads it back.
+        let (scope, exp, revoked) = store.publish_token_for_key(key.id).unwrap().unwrap();
+        assert_eq!(scope, "alice#pkg");
+        assert_eq!(exp, expires_at);
+        assert!(revoked.is_none());
+        // A non-token key yields None.
+        let auth_key_id = store.owner_with_auth_key("alice").unwrap().unwrap().1.id;
+        assert!(store.publish_token_for_key(auth_key_id).unwrap().is_none());
+
+        // Revoke: true, then false; unknown owner errors.
+        assert!(store.revoke_publish_token("alice", &key.fingerprint).unwrap());
+        assert!(!store.revoke_publish_token("alice", &key.fingerprint).unwrap());
+        assert!(store.revoke_publish_token("nosuch", &key.fingerprint).is_err());
+        let _ = keys;
+    }
+
+    #[test]
+    fn transfer_offer_and_accept_error_branches() {
+        let (_temp, store) = test_store();
+        let alice = register_keys(&store, "alice");
+        register_keys(&store, "bob");
+        let alice_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        store
+            .publish_package_version(alice_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .unwrap();
+
+        // Unknown package.
+        assert!(store
+            .create_transfer_offer("alice#missing", "alice", "bob")
+            .unwrap_err()
+            .contains("unknown package"));
+        // Offering owner mismatch.
+        assert!(store
+            .create_transfer_offer("alice#toolbox", "bob", "alice")
+            .unwrap_err()
+            .contains("does not currently own"));
+        // Unknown recipient.
+        assert!(store
+            .create_transfer_offer("alice#toolbox", "alice", "nosuch")
+            .unwrap_err()
+            .contains("unknown recipient"));
+        // Cannot transfer to self.
+        assert!(store
+            .create_transfer_offer("alice#toolbox", "alice", "alice")
+            .unwrap_err()
+            .contains("current owner"));
+
+        // Accept with no pending offer for the account.
+        assert!(store
+            .accept_transfer("alice#toolbox", "bob")
+            .unwrap_err()
+            .contains("no pending transfer"));
+        assert!(store
+            .accept_transfer("alice#toolbox", "nosuch")
+            .unwrap_err()
+            .contains("unknown recipient"));
+
+        // A real offer then acceptance re-binds the package.
+        store.create_transfer_offer("alice#toolbox", "alice", "bob").unwrap();
+        // Re-offering updates the existing row (ON CONFLICT path).
+        store.create_transfer_offer("alice#toolbox", "alice", "bob").unwrap();
+        store.accept_transfer("alice#toolbox", "bob").unwrap();
+        assert_eq!(
+            store.package_owner("alice#toolbox").unwrap().unwrap().owner_display,
+            "bob"
+        );
+        assert!(store.package_owner("alice#missing").unwrap().is_none());
+        let _ = alice;
+    }
+
+    #[test]
+    fn set_release_state_rejects_unpublished_and_updates_published() {
+        let (_temp, store) = test_store();
+        let keys = register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        assert!(store
+            .set_release_state("alice#toolbox", "1.0.0", "yanked")
+            .unwrap_err()
+            .contains("is not published"));
+        store
+            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .unwrap();
+        store.set_release_state("alice#toolbox", "1.0.0", "deprecated").unwrap();
+        let versions = store.list_package_versions("alice#toolbox").unwrap();
+        assert_eq!(versions[0].state, "deprecated");
+        let _ = keys;
+    }
+
+    #[test]
+    fn index_canonical_hash_changes_with_index_state() {
+        let (_temp, store) = test_store();
+        let keys = register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        let empty = store.index_canonical_hash().unwrap();
+        store
+            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .unwrap();
+        let with_pkg = store.index_canonical_hash().unwrap();
+        assert_ne!(empty, with_pkg);
+        // Deterministic for the same state.
+        assert_eq!(with_pkg, store.index_canonical_hash().unwrap());
+        let _ = keys;
+    }
+
+    #[test]
+    fn registry_config_absent_then_present_after_init() {
+        let (_temp, store) = test_store();
+        assert!(store.registry_config().unwrap().is_none());
+        assert!(store
+            .init_registry_root("", now_unix() + 3600)
+            .unwrap_err()
+            .contains("registry id"));
+        let root_private = store.init_registry_root("reg-1", now_unix() + 3600).unwrap();
+        let config = store.registry_config().unwrap().unwrap();
+        assert_eq!(config.registry_id, "reg-1");
+        assert_eq!(crypto::public_from_private(&root_private).unwrap(), config.root_public);
+        // Re-running bumps the root version (delegation renewal).
+        store.init_registry_root("reg-1", now_unix() + 7200).unwrap();
+        assert!(store.registry_config().unwrap().is_some());
+    }
+
+    #[test]
+    fn add_auth_key_and_rotate_reject_unknown_owner_and_bad_signatures() {
+        let (_temp, store) = test_store();
+        let (public, _private) = crypto::generate_keypair();
+        assert!(store.add_auth_key("nosuch", &public, &[0u8; 64]).is_err());
+        assert!(store.rotate_ident("nosuch", &public, &[0u8; 64], &[0u8; 64]).is_err());
+        assert!(store.reanchor_ident("nosuch", &public).is_err());
+
+        let keys = register_keys(&store, "alice");
+        // A too-short re-anchor key is rejected.
+        assert!(store
+            .reanchor_ident("alice", &[0u8; 10])
+            .unwrap_err()
+            .contains("malformed ident public key"));
+        // A bad chain signature for rotation is rejected.
+        let (new_public, _new_private) = crypto::generate_keypair();
+        assert!(store
+            .rotate_ident("alice", &new_public, &[0u8; 64], &[0u8; 64])
+            .unwrap_err()
+            .contains("invalid ident chain"));
+        let _ = keys;
+    }
+
+    #[test]
+    fn ident_chain_is_empty_before_rotation() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        assert!(store.ident_chain("alice").unwrap().is_empty());
+    }
+
+    #[test]
+    fn package_version_exists_reflects_publishes() {
+        let (_temp, store) = test_store();
+        register_keys(&store, "alice");
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+        assert!(!store.package_version_exists("alice#toolbox", "1.0.0").unwrap());
+        store
+            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .unwrap();
+        assert!(store.package_version_exists("alice#toolbox", "1.0.0").unwrap());
+        // A duplicate publish is rejected.
+        assert!(store
+            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path", "{}")
+            .unwrap_err()
+            .contains("already published"));
+        // publish_log_entry finds the publish; a missing one is None.
+        assert!(store.publish_log_entry("alice#toolbox", "1.0.0").unwrap().is_some());
+        assert!(store.publish_log_entry("alice#toolbox", "9.9.9").unwrap().is_none());
+    }
 }

@@ -591,6 +591,11 @@ pub struct SessionClaims {
 /// by `/validate` and `/publish` so a single upload cannot exhaust memory.
 const MAX_BODY_BYTES: usize = 64 * 1024 * 1024;
 
+// coverage:off — serve() binds a real TCP listener, spawns the background
+// reaper task, and runs the axum accept loop; none of that is reachable under a
+// unit test. The individual route handlers it wires up are tested directly by
+// constructing AppState and calling them, which is where the request/response
+// logic lives.
 pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> Result<SocketAddr, String> {
     let state = AppState {
         store,
@@ -653,6 +658,7 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .map_err(|err| format!("repository server failed: {err}"))?;
     Ok(actual)
 }
+// coverage:on
 
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })

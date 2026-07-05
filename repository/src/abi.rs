@@ -189,7 +189,10 @@ mod tests {
     fn parses_symbol_hash_map_from_container() {
         let payload = container(&[
             (SECTION_STRING_POOL, string_pool(&["greet", "farewell"])),
-            (SECTION_ABI_INDEX, abi_section(&[(0, [0xaa; 32]), (1, [0xbb; 32])])),
+            (
+                SECTION_ABI_INDEX,
+                abi_section(&[(0, [0xaa; 32]), (1, [0xbb; 32])]),
+            ),
         ]);
         let map = parse_abi_index(&payload).unwrap();
         assert_eq!(map.get("greet").unwrap(), &hex::encode([0xaa; 32]));
@@ -203,6 +206,112 @@ mod tests {
     fn non_container_payloads_are_an_empty_index() {
         assert!(parse_abi_index(b"not a container").is_err());
         assert_eq!(abi_index_json(b"MFPCtestpayload"), serde_json::json!({}));
+    }
+
+    #[test]
+    fn missing_string_pool_or_abi_section_is_an_error() {
+        // Only the ABI section present: the string pool is missing.
+        let only_abi = container(&[(SECTION_ABI_INDEX, abi_section(&[]))]);
+        assert!(parse_abi_index(&only_abi)
+            .unwrap_err()
+            .contains("string pool"));
+        // Only the string pool present: the ABI index is missing.
+        let only_pool = container(&[(SECTION_STRING_POOL, string_pool(&["x"]))]);
+        assert!(parse_abi_index(&only_pool)
+            .unwrap_err()
+            .contains("ABI index"));
+    }
+
+    #[test]
+    fn duplicate_section_id_is_rejected() {
+        // Two sections share the string-pool id.
+        let payload = container(&[
+            (SECTION_STRING_POOL, string_pool(&["a"])),
+            (SECTION_STRING_POOL, string_pool(&["b"])),
+        ]);
+        assert!(parse_abi_index(&payload)
+            .unwrap_err()
+            .contains("duplicate MFPC section"));
+    }
+
+    #[test]
+    fn truncated_section_table_and_section_are_rejected() {
+        // A header claiming more sections than the bytes can hold.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MFPC_MAGIC);
+        put_u16(&mut bytes, 2);
+        put_u16(&mut bytes, 0);
+        put_u32(&mut bytes, 0);
+        put_u32(&mut bytes, 100); // 100 sections, but no table follows
+        assert!(parse_abi_index(&bytes)
+            .unwrap_err()
+            .contains("truncated MFPC section table"));
+
+        // A section entry whose offset+length runs past the buffer.
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(MFPC_MAGIC);
+        put_u16(&mut bytes, 2);
+        put_u16(&mut bytes, 0);
+        put_u32(&mut bytes, 0);
+        put_u32(&mut bytes, 1); // one section
+        put_u16(&mut bytes, SECTION_STRING_POOL);
+        put_u16(&mut bytes, 0);
+        put_u32(&mut bytes, 0);
+        put_u64(&mut bytes, 40); // offset well past the buffer
+        put_u64(&mut bytes, 10); // length
+        assert!(parse_abi_index(&bytes)
+            .unwrap_err()
+            .contains("truncated MFPC section"));
+    }
+
+    #[test]
+    fn unsupported_abi_version_and_out_of_range_name_are_rejected() {
+        // ABI section with an unsupported format version.
+        let mut abi = Vec::new();
+        put_u16(&mut abi, 99); // version
+        put_u16(&mut abi, 0);
+        put_u32(&mut abi, 0);
+        let payload = container(&[
+            (SECTION_STRING_POOL, string_pool(&["a"])),
+            (SECTION_ABI_INDEX, abi),
+        ]);
+        assert!(parse_abi_index(&payload)
+            .unwrap_err()
+            .contains("unsupported ABI index format version"));
+
+        // ABI export naming a string index that does not exist.
+        let payload = container(&[
+            (SECTION_STRING_POOL, string_pool(&["a"])), // one string (index 0)
+            (SECTION_ABI_INDEX, abi_section(&[(5, [0u8; 32])])), // names index 5
+        ]);
+        assert!(parse_abi_index(&payload)
+            .unwrap_err()
+            .contains("out-of-range string"));
+    }
+
+    #[test]
+    fn truncated_string_pool_entry_is_rejected() {
+        // A string pool claiming a longer entry than the bytes provide.
+        let mut pool = Vec::new();
+        put_u32(&mut pool, 1); // count = 1
+        put_u32(&mut pool, 50); // length = 50, but no bytes follow
+        let payload = container(&[
+            (SECTION_STRING_POOL, pool),
+            (SECTION_ABI_INDEX, abi_section(&[])),
+        ]);
+        assert!(parse_abi_index(&payload)
+            .unwrap_err()
+            .contains("truncated string pool entry"));
+    }
+
+    #[test]
+    fn read_integer_helpers_report_truncation() {
+        assert!(read_u16(&[0u8], 0).is_err());
+        assert!(read_u32(&[0u8; 2], 0).is_err());
+        assert!(read_u64(&[0u8; 4], 0).is_err());
+        assert_eq!(read_u16(&[2, 0], 0).unwrap(), 2);
+        assert_eq!(read_u32(&[2, 0, 0, 0], 0).unwrap(), 2);
+        assert_eq!(read_u64(&[2, 0, 0, 0, 0, 0, 0, 0], 0).unwrap(), 2);
     }
 }
 
