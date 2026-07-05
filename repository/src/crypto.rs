@@ -121,6 +121,30 @@ pub fn ident_rotation_message(owner: &str, old_fingerprint: &str, new_public: &[
     message
 }
 
+/// Signed-metadata domains (plan-10-C2, TUF-like root of trust). The offline
+/// root delegates the online server/snapshot/timestamp keys; snapshot pins the
+/// index state and timestamp pins the current snapshot, both short-lived.
+pub fn root_signing_input(root_json: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-root-v1\0");
+    message.extend_from_slice(root_json);
+    message
+}
+
+pub fn snapshot_signing_input(snapshot_json: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-snapshot-v1\0");
+    message.extend_from_slice(snapshot_json);
+    message
+}
+
+pub fn timestamp_signing_input(timestamp_json: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-timestamp-v1\0");
+    message.extend_from_slice(timestamp_json);
+    message
+}
+
 /// Ident-signed release-state change (plan-10-C1): the account ident authorizes
 /// a maintainer state transition, binding the exact package, version, and new
 /// state so an auth session alone can never change a release state.

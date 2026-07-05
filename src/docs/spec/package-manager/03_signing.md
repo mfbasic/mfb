@@ -91,6 +91,9 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 | `mfb-repo-ident-rotate-v1\0` | OLD ident key | the rotation chain link naming the successor |
 | `mfb-repo-name-binding-v1\0` | server key | the `/index` name→ident binding (owner + ident fingerprint) |
 | `mfb-repo-release-state-v1\0` | ident key | a `/release-state` change (ident + version + new state) |
+| `mfb-repo-root-v1\0` | offline root key | `root.json` delegating the server/snapshot/timestamp keys |
+| `mfb-repo-snapshot-v1\0` | snapshot key | `snapshot.json` (the index state) |
+| `mfb-repo-timestamp-v1\0` | timestamp key | `timestamp.json` (the current snapshot pointer) |
 | `MFP-PROOF-v1\0` | ident key | the build proof JSON |
 | `MFP-ATTEST-v1\0` | server key | the attestation JSON |
 | `MFP-PACKAGE-v2\0` | one-off signing key | `SHA-256(header signed prefix)` — see container-format |

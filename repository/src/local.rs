@@ -65,6 +65,58 @@ impl LocalPaths {
     pub fn checkpoint_path(&self) -> PathBuf {
         self.home.join("checkpoint")
     }
+
+    /// The pinned signed-metadata root (plan-10-C2): `<registry-id> <root-fingerprint>`.
+    pub fn root_pin_path(&self) -> PathBuf {
+        self.home.join("root-pin")
+    }
+
+    /// The highest snapshot/timestamp version seen (plan-10-C2 rollback defense).
+    pub fn snapshot_version_path(&self) -> PathBuf {
+        self.home.join("snapshot-version")
+    }
+}
+
+/// Pin the registry id + root fingerprint (plan-10-C2). Written once by
+/// `mfb repo trust`; every later metadata fetch is checked against it.
+pub fn write_root_pin(paths: &LocalPaths, registry_id: &str, root_fingerprint: &str) -> Result<(), String> {
+    create_private_dir(&paths.home)?;
+    write_private_file(&paths.root_pin_path(), &format!("{registry_id} {root_fingerprint}"))
+}
+
+/// Read the pinned `(registry_id, root_fingerprint)`, if any.
+pub fn read_root_pin(paths: &LocalPaths) -> Result<Option<(String, String)>, String> {
+    let path = paths.root_pin_path();
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let value = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read root pin '{}': {err}", path.display()))?;
+    let mut parts = value.trim().splitn(2, ' ');
+    let registry_id = parts
+        .next()
+        .ok_or_else(|| "malformed root pin".to_string())?
+        .to_string();
+    let root_fingerprint = parts
+        .next()
+        .ok_or_else(|| "malformed root pin".to_string())?
+        .to_string();
+    Ok(Some((registry_id, root_fingerprint)))
+}
+
+pub fn write_snapshot_version(paths: &LocalPaths, version: i64) -> Result<(), String> {
+    create_private_dir(&paths.home)?;
+    write_private_file(&paths.snapshot_version_path(), &version.to_string())
+}
+
+pub fn read_snapshot_version(paths: &LocalPaths) -> Result<Option<i64>, String> {
+    let path = paths.snapshot_version_path();
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let value = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read snapshot version '{}': {err}", path.display()))?;
+    Ok(value.trim().parse::<i64>().ok())
 }
 
 /// Persist the last-seen log checkpoint.

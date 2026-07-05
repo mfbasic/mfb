@@ -229,6 +229,25 @@ pub struct RevokeResponse {
     pub revoked: bool,
 }
 
+/// Signed-metadata responses (plan-10-C2). Each carries the exact signed JSON
+/// string (`signed`) plus a signature the client verifies over those bytes.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RootResponse {
+    /// The root-signed `root.json` bytes (verified under `rootKey`).
+    pub signed: String,
+    pub signature: String,
+    #[serde(rename = "rootKey")]
+    pub root_key: String,
+    #[serde(rename = "rootFingerprint")]
+    pub root_fingerprint: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct SignedMetadataResponse {
+    pub signed: String,
+    pub signature: String,
+}
+
 /// `POST /release-state` (plan-10-C1): a maintainer sets a published version's
 /// release state. Requires both a live session (auth) and an ident signature
 /// (authority) — an auth session alone can never change a release state.
@@ -431,6 +450,9 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/index/:ident", get(package_index))
         .route("/blob/:hash", get(package_blob))
         .route("/release-state", post(release_state))
+        .route("/root.json", get(root_metadata))
+        .route("/snapshot.json", get(snapshot_metadata))
+        .route("/timestamp.json", get(timestamp_metadata))
         .route("/validate", post(validate_package))
         .route("/publish", post(publish_package))
         .with_state(state);
@@ -655,6 +677,103 @@ async fn package_index(
         server_fingerprint: crypto::fingerprint(&server_public),
         versions,
     }))
+}
+
+/// Snapshot metadata lifetime (plan-10-C2): the snapshot pins the index state
+/// for a week; the timestamp refreshes daily and pins the current snapshot.
+const SNAPSHOT_TTL_SECS: i64 = 7 * 24 * 3600;
+const TIMESTAMP_TTL_SECS: i64 = 24 * 3600;
+
+/// `GET /root.json` (plan-10-C2): the offline-root-signed metadata delegating
+/// the online server/snapshot/timestamp keys. A client pins the root
+/// fingerprint out of band and verifies every other key chains from it.
+async fn root_metadata(
+    State(state): State<AppState>,
+) -> Result<Json<RootResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let Some(config) = state.store.registry_config().map_err(internal)? else {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "registry root of trust is not initialized".to_string(),
+            }),
+        ));
+    };
+    Ok(Json(RootResponse {
+        signed: config.root_json,
+        signature: crypto::encode_bytes(&config.root_signature),
+        root_key: crypto::encode_bytes(&config.root_public),
+        root_fingerprint: crypto::fingerprint(&config.root_public),
+    }))
+}
+
+/// `GET /snapshot.json` (plan-10-C2): the snapshot-key-signed statement of the
+/// current index state (its canonical hash + version + the log checkpoint).
+async fn snapshot_metadata(
+    State(state): State<AppState>,
+) -> Result<Json<SignedMetadataResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let Some(config) = state.store.registry_config().map_err(internal)? else {
+        return Err(metadata_uninitialized());
+    };
+    let version = state.store.log_size().map_err(internal)?;
+    let index_hash = state.store.index_canonical_hash().map_err(internal)?;
+    let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
+    let checkpoint_root = hex::encode(crate::log::root(&leaves));
+    let signed = format!(
+        "{{\"type\":\"snapshot\",\"registryId\":{},\"version\":{},\"expires\":{},\"indexHash\":{},\"checkpoint\":{{\"size\":{},\"rootHash\":{}}}}}",
+        json_str(&config.registry_id),
+        version,
+        now_unix() + SNAPSHOT_TTL_SECS,
+        json_str(&index_hash),
+        leaves.len(),
+        json_str(&checkpoint_root),
+    );
+    let signature = crypto::sign(
+        &config.snapshot_private,
+        &crypto::snapshot_signing_input(signed.as_bytes()),
+    )
+    .map_err(internal)?;
+    Ok(Json(SignedMetadataResponse {
+        signed,
+        signature: crypto::encode_bytes(&signature),
+    }))
+}
+
+/// `GET /timestamp.json` (plan-10-C2): the timestamp-key-signed pointer to the
+/// current snapshot version + index hash. Short-lived, refreshed on demand.
+async fn timestamp_metadata(
+    State(state): State<AppState>,
+) -> Result<Json<SignedMetadataResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let Some(config) = state.store.registry_config().map_err(internal)? else {
+        return Err(metadata_uninitialized());
+    };
+    let version = state.store.log_size().map_err(internal)?;
+    let index_hash = state.store.index_canonical_hash().map_err(internal)?;
+    let signed = format!(
+        "{{\"type\":\"timestamp\",\"registryId\":{},\"version\":{},\"expires\":{},\"snapshotVersion\":{},\"indexHash\":{}}}",
+        json_str(&config.registry_id),
+        version,
+        now_unix() + TIMESTAMP_TTL_SECS,
+        version,
+        json_str(&index_hash),
+    );
+    let signature = crypto::sign(
+        &config.timestamp_private,
+        &crypto::timestamp_signing_input(signed.as_bytes()),
+    )
+    .map_err(internal)?;
+    Ok(Json(SignedMetadataResponse {
+        signed,
+        signature: crypto::encode_bytes(&signature),
+    }))
+}
+
+fn metadata_uninitialized() -> (StatusCode, Json<ErrorResponse>) {
+    (
+        StatusCode::NOT_FOUND,
+        Json(ErrorResponse {
+            error: "registry root of trust is not initialized".to_string(),
+        }),
+    )
 }
 
 /// `POST /release-state` (plan-10-C1): a maintainer moves a published version

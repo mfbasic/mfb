@@ -99,6 +99,9 @@ pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
 
     let repo_url = client::repo_url_from_env();
     let paths = super::local_paths_for_repo(&repo_url)?;
+    // If a signed-metadata root is pinned (plan-10-C2), verify the chain and
+    // that it delegates this registry's server key before installing.
+    client::verify_pinned_metadata(&repo_url, &paths)?;
     // The pinned registry key must be the one the lock was resolved against.
     let server_key = mfb_repository::local::read_pinned_server_key(&paths).map_err(|_| {
         "no pinned registry key; run `mfb repo auth <owner>` against the registry first".to_string()

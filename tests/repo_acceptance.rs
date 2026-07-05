@@ -1221,6 +1221,107 @@ fn repo_resolver_selects_substitute_and_locks_deterministically() {
 }
 
 #[test]
+fn repo_signed_metadata_root_verifies_chain_and_gates_add() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+
+    // Operator ceremony (offline, before serving): initialize the root of
+    // trust. Prints the root fingerprint to pin.
+    let init = Command::new(repo_exe())
+        .args([
+            "init-root",
+            "--dbpath",
+            repo_dir.path().join("meta.db").to_str().unwrap(),
+            "--datapath",
+            repo_dir.path().join("packages").to_str().unwrap(),
+            "--registry-id",
+            "test-registry",
+        ])
+        .output()
+        .expect("init-root");
+    assert!(
+        init.status.success(),
+        "init-root failed: {}",
+        String::from_utf8_lossy(&init.stderr)
+    );
+    let init_stdout = String::from_utf8_lossy(&init.stdout);
+    let root_fingerprint = init_stdout
+        .lines()
+        .find_map(|line| line.strip_prefix("Root fingerprint (pin this out of band): "))
+        .expect("root fingerprint in init-root output")
+        .trim()
+        .to_string();
+
+    let repo = start_repo(repo_dir.path());
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Pinning the correct root fingerprint verifies the whole chain and that
+    // the pinned server key is root-delegated.
+    let trust = run_mfb(
+        &repo,
+        home.path(),
+        &["repo", "trust", "test-registry", &root_fingerprint],
+    );
+    assert!(
+        trust.status.success(),
+        "repo trust failed: {}",
+        String::from_utf8_lossy(&trust.stderr)
+    );
+    assert!(
+        String::from_utf8_lossy(&trust.stdout).contains("metadata chain verified"),
+        "{}",
+        String::from_utf8_lossy(&trust.stdout)
+    );
+
+    // A wrong root fingerprint is refused.
+    let bad_trust = run_mfb(
+        &repo,
+        home.path(),
+        &["repo", "trust", "test-registry", &"0".repeat(64)],
+    );
+    assert!(!bad_trust.status.success());
+
+    // Publish a package, then a metadata-gated add must still succeed (the
+    // chain verifies on the way in).
+    let pkg_dir = work.path().join("meta_pkg");
+    let pkg_arg = pkg_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", pkg_arg]).status.success());
+    let manifest = pkg_dir.join("project.json");
+    let base = std::fs::read_to_string(&manifest).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#meta_pkg\",\n",
+    );
+    std::fs::write(&manifest, &base).unwrap();
+    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+        .status
+        .success());
+
+    let app_dir = work.path().join("meta_consumer");
+    assert!(run_mfb_plain(&["init", app_dir.to_str().unwrap()])
+        .status
+        .success());
+    let add = Command::new(mfb_exe())
+        .args(["pkg", "add", "alice#meta_pkg"])
+        .current_dir(&app_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("metadata-gated add");
+    assert!(
+        add.status.success(),
+        "metadata-gated add failed: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    assert!(app_dir.join("packages/meta_pkg.mfp").is_file());
+}
+
+#[test]
 fn repo_release_state_yank_excludes_floating_but_allows_pin() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

@@ -44,6 +44,25 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
             );
             Ok(())
         }
+        // Pin and verify the signed-metadata root of trust (plan-10-C2).
+        "trust" => {
+            let [_, registry_id, root_fingerprint] = args else {
+                return Err(RepoCommandError::Usage(
+                    "mfb repo trust requires <registry-id> <root-fingerprint>".to_string(),
+                ));
+            };
+            let version = mfb_repository::client::trust_registry(
+                &repo_url,
+                &paths,
+                registry_id,
+                root_fingerprint,
+            )
+            .map_err(RepoCommandError::Failed)?;
+            println!(
+                "Pinned registry `{registry_id}` root {root_fingerprint}; metadata chain verified at snapshot version {version}."
+            );
+            Ok(())
+        }
         // Machine link (plan-23 §3.2). Old machine: `mfb repo link --start
         // <owner>` displays a one-time pairing code. New machine: `mfb repo
         // link <owner>` reads the code from stdin and becomes a full equal.

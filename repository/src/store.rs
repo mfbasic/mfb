@@ -228,6 +228,20 @@ impl Store {
                 state TEXT NOT NULL,
                 created_at INTEGER NOT NULL
             );
+
+            CREATE TABLE IF NOT EXISTS registry_config (
+                id INTEGER PRIMARY KEY CHECK (id = 1),
+                registry_id TEXT NOT NULL,
+                root_version INTEGER NOT NULL,
+                root_public BLOB NOT NULL,
+                root_json TEXT NOT NULL,
+                root_signature BLOB NOT NULL,
+                snapshot_public BLOB NOT NULL,
+                snapshot_private BLOB NOT NULL,
+                timestamp_public BLOB NOT NULL,
+                timestamp_private BLOB NOT NULL,
+                created_at INTEGER NOT NULL
+            );
             "#,
         )
         .map_err(|err| format!("failed to migrate database: {err}"))?;
@@ -1075,6 +1089,137 @@ impl Store {
         })
     }
 
+    /// Operator root ceremony (plan-10-C2): generate the offline root key and
+    /// the online snapshot/timestamp keys, sign a `root.json` that delegates
+    /// the server (attestation), snapshot, and timestamp keys, and persist
+    /// everything **except the root private key**, which is returned for the
+    /// operator to store offline. Re-running bumps the root version and
+    /// re-delegates (root-key renewal / delegated-key rotation). The root
+    /// private key never touches the serving host's database.
+    pub fn init_registry_root(
+        &self,
+        registry_id: &str,
+        expires_at: i64,
+    ) -> Result<Vec<u8>, String> {
+        if registry_id.is_empty() || registry_id.len() > 255 {
+            return Err("registry id must be 1..=255 bytes".to_string());
+        }
+        let (server_public, _server_private) = self.server_keypair()?;
+        let (root_public, root_private) = crypto::generate_keypair();
+        let (snapshot_public, snapshot_private) = crypto::generate_keypair();
+        let (timestamp_public, timestamp_private) = crypto::generate_keypair();
+        let now = now_unix();
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let previous_version: i64 = conn
+            .query_row("SELECT root_version FROM registry_config WHERE id = 1", [], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map_err(|err| format!("failed to read registry config: {err}"))?
+            .unwrap_or(0);
+        let version = previous_version + 1;
+        let root_json = format!(
+            "{{\"type\":\"root\",\"registryId\":{},\"version\":{},\"expires\":{},\"serverKey\":{},\"snapshotKey\":{},\"timestampKey\":{}}}",
+            json_value(registry_id),
+            version,
+            expires_at,
+            json_value(&crypto::encode_bytes(&server_public)),
+            json_value(&crypto::encode_bytes(&snapshot_public)),
+            json_value(&crypto::encode_bytes(&timestamp_public)),
+        );
+        let root_signature =
+            crypto::sign(&root_private, &crypto::root_signing_input(root_json.as_bytes()))?;
+        conn.execute(
+            "INSERT INTO registry_config
+               (id, registry_id, root_version, root_public, root_json, root_signature,
+                snapshot_public, snapshot_private, timestamp_public, timestamp_private, created_at)
+             VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+             ON CONFLICT(id) DO UPDATE SET
+               registry_id = excluded.registry_id,
+               root_version = excluded.root_version,
+               root_public = excluded.root_public,
+               root_json = excluded.root_json,
+               root_signature = excluded.root_signature,
+               snapshot_public = excluded.snapshot_public,
+               snapshot_private = excluded.snapshot_private,
+               timestamp_public = excluded.timestamp_public,
+               timestamp_private = excluded.timestamp_private",
+            params![
+                registry_id,
+                version,
+                root_public,
+                root_json,
+                root_signature,
+                snapshot_public,
+                snapshot_private,
+                timestamp_public,
+                timestamp_private,
+                now,
+            ],
+        )
+        .map_err(|err| format!("failed to store registry root: {err}"))?;
+        Ok(root_private)
+    }
+
+    /// The signed `root.json` and its delegated online keypairs, if the root
+    /// ceremony has been run.
+    pub fn registry_config(&self) -> Result<Option<RegistryConfig>, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row(
+            "SELECT registry_id, root_public, root_json, root_signature,
+                    snapshot_public, snapshot_private, timestamp_public, timestamp_private
+             FROM registry_config WHERE id = 1",
+            [],
+            |row| {
+                Ok(RegistryConfig {
+                    registry_id: row.get(0)?,
+                    root_public: row.get(1)?,
+                    root_json: row.get(2)?,
+                    root_signature: row.get(3)?,
+                    snapshot_public: row.get(4)?,
+                    snapshot_private: row.get(5)?,
+                    timestamp_public: row.get(6)?,
+                    timestamp_private: row.get(7)?,
+                })
+            },
+        )
+        .optional()
+        .map_err(|err| format!("failed to load registry config: {err}"))
+    }
+
+    /// A canonical hash of the whole served index — every `(ident, version,
+    /// hash, state)` tuple, sorted — so a snapshot can attest to the exact
+    /// index state and a mirror serving a stale or partial index is detected.
+    pub fn index_canonical_hash(&self) -> Result<String, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let mut statement = conn
+            .prepare(
+                "SELECT p.ident, pv.version, pv.hash, pv.state
+                 FROM package_versions pv
+                 JOIN packages p ON p.id = pv.package_id",
+            )
+            .map_err(|err| format!("failed to prepare index query: {err}"))?;
+        let rows = statement
+            .query_map([], |row| {
+                let ident: String = row.get(0)?;
+                let version: String = row.get(1)?;
+                let hash: String = row.get(2)?;
+                let state: String = row.get(3)?;
+                Ok(format!("{ident}\u{0}{version}\u{0}{hash}\u{0}{state}\n"))
+            })
+            .map_err(|err| format!("failed to read index: {err}"))?;
+        let mut lines = Vec::new();
+        for row in rows {
+            lines.push(row.map_err(|err| format!("failed to read index row: {err}"))?);
+        }
+        lines.sort();
+        let mut bytes = Vec::new();
+        for line in lines {
+            bytes.extend_from_slice(line.as_bytes());
+        }
+        Ok(hex::encode(crypto::sha256(&bytes)))
+    }
+
     /// Set a published version's release state (plan-10-C1). Updates the
     /// current state, records the transition with a timestamp, and appends one
     /// transparency-log entry — all in a single transaction. Ident-signature
@@ -1266,6 +1411,20 @@ impl Store {
 pub struct LogEntryRef {
     pub index: i64,
     pub leaf_hash: [u8; 32],
+}
+
+/// The signed-metadata root of trust (plan-10-C2): the root-signed `root.json`
+/// plus the online snapshot/timestamp keypairs the server signs metadata with.
+#[derive(Debug, Clone)]
+pub struct RegistryConfig {
+    pub registry_id: String,
+    pub root_public: Vec<u8>,
+    pub root_json: String,
+    pub root_signature: Vec<u8>,
+    pub snapshot_public: Vec<u8>,
+    pub snapshot_private: Vec<u8>,
+    pub timestamp_public: Vec<u8>,
+    pub timestamp_private: Vec<u8>,
 }
 
 /// One published version of a package (plan-10-A `/index`).

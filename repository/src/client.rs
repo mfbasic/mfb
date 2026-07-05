@@ -6,8 +6,9 @@ use crate::server::{
     LinkFetchResponse, LinkStartRequest, LinkStartResponse, LogEntry, LoginRequest,
     LoginResponse, PackageArtifactRequest, PublishPackageResponse, RegisterProofs,
     RegisterRequest, RegisterResponse, ReleaseStateRequest, ReleaseStateResponse,
-    RevokeChallengeRequest, RevokeRequest, RevokeResponse, RotateRequest, RotateResponse,
-    ServerIdentResponse, SigningRequest, SigningResponse, ValidatePackageResponse,
+    RevokeChallengeRequest, RevokeRequest, RevokeResponse, RootResponse, RotateRequest,
+    RotateResponse, ServerIdentResponse, SignedMetadataResponse, SigningRequest, SigningResponse,
+    ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
@@ -460,6 +461,202 @@ fn percent_encode(value: &str) -> String {
     out
 }
 
+/// The root-delegated keys and index state recovered from a verified metadata
+/// chain (plan-10-C2).
+#[derive(Debug)]
+pub struct DelegatedMetadata {
+    /// The root-delegated server (attestation) key. A consumer refuses any
+    /// attestation not signed by this exact key.
+    pub server_key: Vec<u8>,
+    pub snapshot_version: i64,
+    pub index_hash: String,
+}
+
+/// Verify the signed-metadata chain (plan-10-C2): root → timestamp → snapshot.
+/// Rejects a bad root fingerprint, a registry-id mismatch, expired metadata,
+/// an undelegated key, a snapshot/timestamp that disagree, and a version
+/// rollback below `min_snapshot_version`. `now` is passed in for testability.
+pub fn verify_registry_metadata(
+    root: &RootResponse,
+    timestamp: &SignedMetadataResponse,
+    snapshot: &SignedMetadataResponse,
+    expected_registry_id: &str,
+    pinned_root_fingerprint: &str,
+    min_snapshot_version: i64,
+    now: i64,
+) -> Result<DelegatedMetadata, String> {
+    // Root: the pinned fingerprint is the sole trust anchor.
+    let root_key = crypto::decode_bytes(&root.root_key, "rootKey")?;
+    if crypto::fingerprint(&root_key) != pinned_root_fingerprint {
+        return Err("registry root key does not match the pinned root fingerprint".to_string());
+    }
+    let root_signature = crypto::decode_bytes(&root.signature, "root signature")?;
+    crypto::verify(
+        &root_key,
+        &crypto::root_signing_input(root.signed.as_bytes()),
+        &root_signature,
+    )
+    .map_err(|_| "root.json signature does not verify under the root key".to_string())?;
+    let root_doc = parse_metadata(&root.signed, "root.json")?;
+    check_field(&root_doc, "registryId", expected_registry_id, "root.json")?;
+    check_not_expired(&root_doc, now, "root.json")?;
+    let server_key = decode_delegated_key(&root_doc, "serverKey")?;
+    let snapshot_key = decode_delegated_key(&root_doc, "snapshotKey")?;
+    let timestamp_key = decode_delegated_key(&root_doc, "timestampKey")?;
+
+    // Timestamp: signed by the delegated timestamp key, fresh, no rollback.
+    let timestamp_signature = crypto::decode_bytes(&timestamp.signature, "timestamp signature")?;
+    crypto::verify(
+        &timestamp_key,
+        &crypto::timestamp_signing_input(timestamp.signed.as_bytes()),
+        &timestamp_signature,
+    )
+    .map_err(|_| "timestamp.json signature does not verify under the delegated key".to_string())?;
+    let timestamp_doc = parse_metadata(&timestamp.signed, "timestamp.json")?;
+    check_field(&timestamp_doc, "registryId", expected_registry_id, "timestamp.json")?;
+    check_not_expired(&timestamp_doc, now, "timestamp.json")?;
+    let snapshot_version = metadata_i64(&timestamp_doc, "snapshotVersion", "timestamp.json")?;
+    if snapshot_version < min_snapshot_version {
+        return Err(format!(
+            "metadata ROLLBACK: snapshot version {snapshot_version} is below the pinned version {min_snapshot_version}"
+        ));
+    }
+    let timestamp_index_hash = metadata_str(&timestamp_doc, "indexHash", "timestamp.json")?;
+
+    // Snapshot: signed by the delegated snapshot key, fresh, and agrees with
+    // the timestamp on version + index hash.
+    let snapshot_signature = crypto::decode_bytes(&snapshot.signature, "snapshot signature")?;
+    crypto::verify(
+        &snapshot_key,
+        &crypto::snapshot_signing_input(snapshot.signed.as_bytes()),
+        &snapshot_signature,
+    )
+    .map_err(|_| "snapshot.json signature does not verify under the delegated key".to_string())?;
+    let snapshot_doc = parse_metadata(&snapshot.signed, "snapshot.json")?;
+    check_field(&snapshot_doc, "registryId", expected_registry_id, "snapshot.json")?;
+    check_not_expired(&snapshot_doc, now, "snapshot.json")?;
+    let snapshot_doc_version = metadata_i64(&snapshot_doc, "version", "snapshot.json")?;
+    let snapshot_index_hash = metadata_str(&snapshot_doc, "indexHash", "snapshot.json")?;
+    if snapshot_doc_version != snapshot_version {
+        return Err("timestamp and snapshot disagree on the snapshot version".to_string());
+    }
+    if snapshot_index_hash != timestamp_index_hash {
+        return Err("timestamp and snapshot disagree on the index hash".to_string());
+    }
+
+    Ok(DelegatedMetadata {
+        server_key,
+        snapshot_version,
+        index_hash: snapshot_index_hash,
+    })
+}
+
+fn parse_metadata(signed: &str, what: &str) -> Result<serde_json::Value, String> {
+    serde_json::from_str(signed).map_err(|_| format!("malformed {what}"))
+}
+
+fn check_field(doc: &serde_json::Value, field: &str, expected: &str, what: &str) -> Result<(), String> {
+    if doc.get(field).and_then(|value| value.as_str()) != Some(expected) {
+        return Err(format!("{what} {field} does not match the expected value"));
+    }
+    Ok(())
+}
+
+fn check_not_expired(doc: &serde_json::Value, now: i64, what: &str) -> Result<(), String> {
+    let expires = doc
+        .get("expires")
+        .and_then(|value| value.as_i64())
+        .ok_or_else(|| format!("{what} is missing an expiry"))?;
+    if expires <= now {
+        return Err(format!("{what} has expired"));
+    }
+    Ok(())
+}
+
+fn metadata_i64(doc: &serde_json::Value, field: &str, what: &str) -> Result<i64, String> {
+    doc.get(field)
+        .and_then(|value| value.as_i64())
+        .ok_or_else(|| format!("{what} is missing {field}"))
+}
+
+fn metadata_str(doc: &serde_json::Value, field: &str, what: &str) -> Result<String, String> {
+    doc.get(field)
+        .and_then(|value| value.as_str())
+        .map(str::to_string)
+        .ok_or_else(|| format!("{what} is missing {field}"))
+}
+
+fn decode_delegated_key(doc: &serde_json::Value, field: &str) -> Result<Vec<u8>, String> {
+    let encoded = doc
+        .get(field)
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| format!("root.json is missing {field}"))?;
+    crypto::decode_bytes(encoded, field)
+}
+
+/// `mfb repo trust`: fetch and verify the metadata chain, cross-check that the
+/// pinned server key is the root-delegated one, and pin the registry id + root
+/// fingerprint. Returns the pinned snapshot version.
+pub fn trust_registry(
+    repo_url: &str,
+    paths: &LocalPaths,
+    registry_id: &str,
+    root_fingerprint: &str,
+) -> Result<i64, String> {
+    let server_key = ensure_server_key(repo_url, paths)?;
+    let delegated = fetch_and_verify_metadata(repo_url, registry_id, root_fingerprint, 0)?;
+    if delegated.server_key != server_key {
+        return Err(
+            "registry attestation key is not delegated by the pinned root; refusing to trust"
+                .to_string(),
+        );
+    }
+    local::write_root_pin(paths, registry_id, root_fingerprint)?;
+    local::write_snapshot_version(paths, delegated.snapshot_version)?;
+    Ok(delegated.snapshot_version)
+}
+
+/// Verify the pinned metadata chain before trusting the registry, when (and
+/// only when) a root has been pinned via `mfb repo trust` — the signed-metadata
+/// layer is opt-in on top of the plan-23 pinned-server-key anchor. Advances the
+/// pinned snapshot version on success; rejects a rollback.
+pub fn verify_pinned_metadata(repo_url: &str, paths: &LocalPaths) -> Result<(), String> {
+    let Some((registry_id, root_fingerprint)) = local::read_root_pin(paths)? else {
+        return Ok(());
+    };
+    let server_key = ensure_server_key(repo_url, paths)?;
+    let min = local::read_snapshot_version(paths)?.unwrap_or(0);
+    let delegated = fetch_and_verify_metadata(repo_url, &registry_id, &root_fingerprint, min)?;
+    if delegated.server_key != server_key {
+        return Err(
+            "registry attestation key is not delegated by the pinned root; refusing to trust"
+                .to_string(),
+        );
+    }
+    local::write_snapshot_version(paths, delegated.snapshot_version)?;
+    Ok(())
+}
+
+fn fetch_and_verify_metadata(
+    repo_url: &str,
+    registry_id: &str,
+    root_fingerprint: &str,
+    min_snapshot_version: i64,
+) -> Result<DelegatedMetadata, String> {
+    let root = get_json::<RootResponse>(repo_url, "/root.json")?;
+    let timestamp = get_json::<SignedMetadataResponse>(repo_url, "/timestamp.json")?;
+    let snapshot = get_json::<SignedMetadataResponse>(repo_url, "/snapshot.json")?;
+    verify_registry_metadata(
+        &root,
+        &timestamp,
+        &snapshot,
+        registry_id,
+        root_fingerprint,
+        min_snapshot_version,
+        crate::store::now_unix(),
+    )
+}
+
 /// `POST /release-state` (plan-10-C1): a maintainer sets a published version's
 /// release state. Signed with the local ident key (authority) and carrying the
 /// session token (auth); an auth session alone is refused server-side.
@@ -505,6 +702,9 @@ pub fn fetch_index(
 ) -> Result<IndexResponse, String> {
     validate_owner_name(owner)?;
     let server_key = ensure_server_key(repo_url, paths)?;
+    // If a signed-metadata root is pinned (plan-10-C2), the chain must verify
+    // and delegate this server key before we trust anything the index says.
+    verify_pinned_metadata(repo_url, paths)?;
     let ident = format!("{owner}#{package}");
     let response = get_json::<IndexResponse>(
         repo_url,
@@ -655,6 +855,129 @@ fn read_json_response<T: DeserializeOwned>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    struct MetadataFixture {
+        root_fingerprint: String,
+        server_public: Vec<u8>,
+        root: RootResponse,
+        timestamp: SignedMetadataResponse,
+        snapshot: SignedMetadataResponse,
+    }
+
+    /// Build a fully valid metadata chain for the given parameters; individual
+    /// tests then mutate one field to exercise a rejection.
+    fn build_metadata(
+        registry_id: &str,
+        version: i64,
+        expires: i64,
+        index_hash: &str,
+        timestamp_index_hash: &str,
+    ) -> MetadataFixture {
+        let (root_public, root_private) = crypto::generate_keypair();
+        let (snapshot_public, snapshot_private) = crypto::generate_keypair();
+        let (timestamp_public, timestamp_private) = crypto::generate_keypair();
+        let (server_public, _server_private) = crypto::generate_keypair();
+        let root_signed = format!(
+            "{{\"type\":\"root\",\"registryId\":\"{registry_id}\",\"version\":1,\"expires\":{expires},\"serverKey\":\"{}\",\"snapshotKey\":\"{}\",\"timestampKey\":\"{}\"}}",
+            crypto::encode_bytes(&server_public),
+            crypto::encode_bytes(&snapshot_public),
+            crypto::encode_bytes(&timestamp_public),
+        );
+        let root_signature =
+            crypto::sign(&root_private, &crypto::root_signing_input(root_signed.as_bytes())).unwrap();
+        let timestamp_signed = format!(
+            "{{\"type\":\"timestamp\",\"registryId\":\"{registry_id}\",\"version\":{version},\"expires\":{expires},\"snapshotVersion\":{version},\"indexHash\":\"{timestamp_index_hash}\"}}",
+        );
+        let timestamp_signature = crypto::sign(
+            &timestamp_private,
+            &crypto::timestamp_signing_input(timestamp_signed.as_bytes()),
+        )
+        .unwrap();
+        let snapshot_signed = format!(
+            "{{\"type\":\"snapshot\",\"registryId\":\"{registry_id}\",\"version\":{version},\"expires\":{expires},\"indexHash\":\"{index_hash}\"}}",
+        );
+        let snapshot_signature = crypto::sign(
+            &snapshot_private,
+            &crypto::snapshot_signing_input(snapshot_signed.as_bytes()),
+        )
+        .unwrap();
+        MetadataFixture {
+            root_fingerprint: crypto::fingerprint(&root_public),
+            server_public,
+            root: RootResponse {
+                signed: root_signed,
+                signature: crypto::encode_bytes(&root_signature),
+                root_key: crypto::encode_bytes(&root_public),
+                root_fingerprint: crypto::fingerprint(&root_public),
+            },
+            timestamp: SignedMetadataResponse {
+                signed: timestamp_signed,
+                signature: crypto::encode_bytes(&timestamp_signature),
+            },
+            snapshot: SignedMetadataResponse {
+                signed: snapshot_signed,
+                signature: crypto::encode_bytes(&snapshot_signature),
+            },
+        }
+    }
+
+    #[test]
+    fn metadata_chain_verifies_and_returns_the_delegated_server_key() {
+        let m = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
+        let delegated = verify_registry_metadata(
+            &m.root, &m.timestamp, &m.snapshot, "reg-1", &m.root_fingerprint, 0, 1_000,
+        )
+        .expect("valid chain verifies");
+        assert_eq!(delegated.server_key, m.server_public);
+        assert_eq!(delegated.snapshot_version, 5);
+    }
+
+    #[test]
+    fn metadata_chain_rejects_tampering_and_rollback() {
+        let m = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
+
+        // Wrong pinned root fingerprint.
+        assert!(verify_registry_metadata(
+            &m.root, &m.timestamp, &m.snapshot, "reg-1", "deadbeef", 0, 1_000,
+        )
+        .is_err());
+
+        // Registry-id mismatch.
+        assert!(verify_registry_metadata(
+            &m.root, &m.timestamp, &m.snapshot, "reg-2", &m.root_fingerprint, 0, 1_000,
+        )
+        .is_err());
+
+        // Expired (now past the expiry).
+        assert!(verify_registry_metadata(
+            &m.root, &m.timestamp, &m.snapshot, "reg-1", &m.root_fingerprint, 0, 9_000,
+        )
+        .unwrap_err()
+        .contains("expired"));
+
+        // Rollback below the pinned snapshot version.
+        assert!(verify_registry_metadata(
+            &m.root, &m.timestamp, &m.snapshot, "reg-1", &m.root_fingerprint, 6, 1_000,
+        )
+        .unwrap_err()
+        .contains("ROLLBACK"));
+
+        // Tampered snapshot signature.
+        let mut tampered = build_metadata("reg-1", 5, 2_000, "idxhash", "idxhash");
+        tampered.snapshot.signed = tampered.snapshot.signed.replace("idxhash", "evilhash");
+        assert!(verify_registry_metadata(
+            &tampered.root, &tampered.timestamp, &tampered.snapshot, "reg-1", &tampered.root_fingerprint, 0, 1_000,
+        )
+        .is_err());
+
+        // Timestamp and snapshot disagree on the index hash.
+        let m2 = build_metadata("reg-1", 5, 2_000, "idxhash", "otherhash");
+        assert!(verify_registry_metadata(
+            &m2.root, &m2.timestamp, &m2.snapshot, "reg-1", &m2.root_fingerprint, 0, 1_000,
+        )
+        .unwrap_err()
+        .contains("index hash"));
+    }
 
     #[test]
     fn register_duplicate_failure_leaves_no_local_keys() {

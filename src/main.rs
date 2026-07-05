@@ -59,6 +59,8 @@ Repository & Auth:
   repo auth <owner>       Authenticate as a repository owner
   repo link [--start] <owner>
                           Link this (or a new) machine to an account
+  repo trust <registry-id> <root-fingerprint>
+                          Pin and verify a registry's signed-metadata root
   machine revoke <owner> <fingerprint>
                           Revoke a lost machine's auth key
   key rotate <owner>      Rotate the account ident (chained successor)

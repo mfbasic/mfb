@@ -39,6 +39,8 @@ role. [[repository/src/local.rs:keys_dir]]
 $MFB_HOME (or ~/.mfb)/<repo-hash>/
 ├── server.pub                  0600   base64url registry public key (pinned)
 ├── checkpoint                  0600   "<size> <root-hex>" last-seen log head
+├── root-pin                    0600   "<registry-id> <root-fingerprint>" (plan-10-C2)
+├── snapshot-version            0600   highest snapshot version seen (rollback defense)
 ├── keys/                       0700
 │   ├── <owner>.auth.pub        0600   base64url auth public key (per machine)
 │   ├── <owner>.auth.prv        0600   base64url auth private key
@@ -52,6 +54,8 @@ $MFB_HOME (or ~/.mfb)/<repo-hash>/
 | --- | --- | --- |
 | `server.pub` | `server_key_path` | base64url 32-byte registry public key, pinned on first contact |
 | `checkpoint` | `checkpoint_path` | last-seen transparency-log head (`<size> <root-hex>`); rollback/fork detection anchor |
+| `root-pin` | `root_pin_path` | pinned signed-metadata root: `<registry-id> <root-fingerprint>` (plan-10-C2) |
+| `snapshot-version` | `snapshot_version_path` | highest snapshot version seen; metadata rollback defense |
 | `keys/<owner>.auth.pub` | `auth_public_key_path` | base64url 32-byte Ed25519 auth public key |
 | `keys/<owner>.auth.prv` | `auth_private_key_path` | base64url 32-byte Ed25519 auth private (seed) key |
 | `keys/<owner>.ident.pub` | `ident_public_key_path` | base64url 32-byte Ed25519 ident public key |
