@@ -266,14 +266,68 @@ fn repo_signs_package_and_embeds_executable_metadata() {
         String::from_utf8_lossy(&output.stderr)
     );
     let package = std::fs::read(package_dir.join("signed_pkg.mfp")).unwrap();
-    assert_eq!(u16::from_le_bytes([package[20], package[21]]), 1);
-    assert_eq!(
-        u32::from_le_bytes([package[22], package[23], package[24], package[25]]),
-        64
-    );
-    assert!(package
-        .windows(b"alice".len())
-        .any(|window| window == b"alice"));
+    let parsed = mfb_repository::package::parse_mfp_package(&package).expect("parse signed .mfp");
+
+    // Header states v1.0 and carries the full trust chain (plan-23 §4).
+    assert_eq!((parsed.container_major, parsed.container_minor), (1, 0));
+    assert_eq!(parsed.signature_type, 1);
+    assert_eq!(parsed.ident, "alice#signed_pkg");
+    assert!(parsed.ident_key.starts_with("ed25519:"));
+    assert!(parsed.signing_key.starts_with("ed25519:"));
+    assert_ne!(parsed.ident_key, parsed.signing_key);
+
+    // The proof verifies under the machine's local ident public key.
+    let repo_home = mfb_repo_home(&repo, home.path());
+    let ident_public = crypto::decode_bytes(
+        std::fs::read_to_string(repo_home.join("keys/alice.ident.pub"))
+            .unwrap()
+            .trim(),
+        "ident public key",
+    )
+    .unwrap();
+    mfb_repository::package::verify_proof(&parsed, &ident_public).expect("proof verifies");
+
+    // The attestation verifies under the pinned registry key.
+    let server_key = crypto::decode_bytes(
+        std::fs::read_to_string(repo_home.join("server.pub")).unwrap().trim(),
+        "server key",
+    )
+    .unwrap();
+    mfb_repository::package::verify_attestation(
+        &parsed,
+        &server_key,
+        &crypto::fingerprint(&server_key),
+    )
+    .expect("attestation verifies");
+
+    // The prefix signature verifies under the one-off signing key and the
+    // payload hash welds header to payload.
+    mfb_repository::package::verify_package_signature(&parsed).expect("package signature");
+    mfb_repository::package::verify_payload_hash(&parsed).expect("payload hash");
+
+    // The one-off signing key is exactly that: not the ident key, not the
+    // auth key, and its private half is nowhere on disk — the only stored
+    // private keys are the machine's auth and ident keys.
+    let signing_public =
+        mfb_repository::package::decode_metadata_key(&parsed.signing_key, "signingKey").unwrap();
+    let auth_public = crypto::decode_bytes(
+        std::fs::read_to_string(repo_home.join("keys/alice.auth.pub"))
+            .unwrap()
+            .trim(),
+        "auth public key",
+    )
+    .unwrap();
+    assert_ne!(signing_public, ident_public);
+    assert_ne!(signing_public, auth_public);
+    let stored_private_keys: Vec<_> = std::fs::read_dir(repo_home.join("keys"))
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.ends_with(".prv"))
+        .collect();
+    let mut sorted = stored_private_keys.clone();
+    sorted.sort();
+    assert_eq!(sorted, ["alice.auth.prv", "alice.ident.prv"]);
 
     let app_dir = work.path().join("signed_app");
     let app_dir_arg = app_dir.to_str().unwrap();

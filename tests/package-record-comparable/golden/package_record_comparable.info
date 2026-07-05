@@ -2,8 +2,9 @@ Package: package_record_comparable
 Ident: package_record_comparable
 Version: 0.1.0
 Ident Key: <empty>
-Ident Fingerprint: <empty>
-Signing Fingerprint: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
 Author: <empty>
 URL: <empty>
 Path: tests/package-record-comparable/package_record_comparable.mfp
@@ -15,7 +16,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: e881fc7eb408a2cbef3cb92510a3012ee5e46d8c664dd21724f2ff9fd8633809
+  package binary hash: 1ee9e5d2fe00f74dd821f64d1f80d26333a7c943081c1767ab9df776973ed889
+  content hash: a086c20b2e7fe0c709c0bc991a1c588c87c36002ff49780239f441a3fab3532e
   binary representation length: 1726
 
 Manifest:

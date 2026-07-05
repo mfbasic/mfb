@@ -88,24 +88,29 @@ pub struct LoginResponse {
     pub expires_at: i64,
 }
 
+/// `POST /signing` (plan-23 §3.3): an authenticated build pre-registers the
+/// one-off signing key for one exact package+version and receives the
+/// server-signed attestation naming it.
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SigningInfoRequest {
+pub struct SigningRequest {
     pub owner: String,
+    pub ident: String,
+    pub version: String,
+    #[serde(rename = "signingFingerprint")]
+    pub signing_fingerprint: String,
     #[serde(rename = "sessionToken")]
     pub session_token: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct SigningInfoResponse {
+pub struct SigningResponse {
     pub owner: String,
-    #[serde(rename = "identKey")]
-    pub ident_key: String,
-    #[serde(rename = "identFingerprint")]
-    pub ident_fingerprint: String,
-    #[serde(rename = "signingKey")]
-    pub signing_key: String,
-    #[serde(rename = "signingFingerprint")]
-    pub signing_fingerprint: String,
+    /// The exact attestation JSON bytes the server signed (plan-23 §5).
+    pub attestation: String,
+    /// Base64url 64-byte Ed25519 server signature over
+    /// `"MFP-ATTEST-v1\0" || attestation`.
+    #[serde(rename = "attestationSignature")]
+    pub attestation_signature: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -178,7 +183,7 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/accounts/register", post(register))
         .route("/auth/challenge", post(challenge))
         .route("/auth/login", post(login))
-        .route("/keys/signing", post(signing_info))
+        .route("/signing", post(signing))
         .route("/validate", post(validate_package))
         .route("/publish", post(publish_package))
         .with_state(state);
@@ -298,10 +303,38 @@ async fn login(
     }))
 }
 
-async fn signing_info(
+/// Build the exact attestation JSON bytes (plan-23 §5). Field order is fixed;
+/// values are JSON-escaped. No `expires` — an attestation is a statement of
+/// fact at `issued`, true forever; freshness is enforced live at publish.
+pub fn attestation_json(
+    repo_fingerprint: &str,
+    owner: &str,
+    ident: &str,
+    version: &str,
+    ident_fingerprint: &str,
+    signing_fingerprint: &str,
+    issued: i64,
+) -> String {
+    format!(
+        "{{\"repoFingerprint\":{},\"owner\":{},\"ident\":{},\"version\":{},\"identFingerprint\":{},\"signingFingerprint\":{},\"issued\":{}}}",
+        json_str(repo_fingerprint),
+        json_str(owner),
+        json_str(ident),
+        json_str(version),
+        json_str(ident_fingerprint),
+        json_str(signing_fingerprint),
+        issued,
+    )
+}
+
+fn json_str(value: &str) -> String {
+    serde_json::to_string(value).expect("JSON string encoding cannot fail")
+}
+
+async fn signing(
     State(state): State<AppState>,
-    Json(request): Json<SigningInfoRequest>,
-) -> Result<Json<SigningInfoResponse>, (StatusCode, Json<ErrorResponse>)> {
+    Json(request): Json<SigningRequest>,
+) -> Result<Json<SigningResponse>, (StatusCode, Json<ErrorResponse>)> {
     let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
     if claims.sub != request.owner {
         return Err(bad_request("session owner does not match requested owner".to_string()));
@@ -315,16 +348,74 @@ async fn signing_info(
     };
     if owner.id != claims.owner_id || key.fingerprint != claims.auth_fingerprint {
         return Err(bad_request(
-            "session key does not match current signing key".to_string(),
+            "session key does not match current auth key".to_string(),
         ));
     }
-    let public_key = crypto::encode_bytes(&key.public_key);
-    Ok(Json(SigningInfoResponse {
+    // The attestation pins one exact package+version: the ident must belong
+    // to the session owner and the one-off key fingerprint must be
+    // well-formed before the server puts its name on them.
+    let Some((ident_owner, package_part)) = request.ident.split_once('#') else {
+        return Err(bad_request("ident must use <owner>#<package>".to_string()));
+    };
+    if crate::validation::fold_owner(ident_owner) != crate::validation::fold_owner(&request.owner)
+    {
+        return Err(bad_request("ident owner does not match session owner".to_string()));
+    }
+    if package_part.is_empty() || request.ident.len() > 255 {
+        return Err(bad_request("malformed ident".to_string()));
+    }
+    if request.version.is_empty() || request.version.len() > 64 {
+        return Err(bad_request("malformed version".to_string()));
+    }
+    if request.signing_fingerprint.len() != 64
+        || !request
+            .signing_fingerprint
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase())
+    {
+        return Err(bad_request(
+            "signingFingerprint must be 64 lowercase hex characters".to_string(),
+        ));
+    }
+    let Some((_owner, ident_key)) = state
+        .store
+        .owner_with_ident_key(&request.owner)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("owner has no current ident key".to_string()));
+    };
+
+    // Record the request before signing: every attestation the server ever
+    // issues is preceded by its log entry (plan-23 §7).
+    state
+        .store
+        .record_signing_request(
+            owner.id,
+            &request.ident,
+            &request.version,
+            &request.signing_fingerprint,
+        )
+        .map_err(internal)?;
+
+    let (server_public, server_private) = state.store.server_keypair().map_err(internal)?;
+    let attestation = attestation_json(
+        &crypto::fingerprint(&server_public),
+        &owner.owner_display,
+        &request.ident,
+        &request.version,
+        &ident_key.fingerprint,
+        &request.signing_fingerprint,
+        now_unix(),
+    );
+    let signature = crypto::sign(
+        &server_private,
+        &crypto::attestation_signing_input(attestation.as_bytes()),
+    )
+    .map_err(internal)?;
+    Ok(Json(SigningResponse {
         owner: owner.owner_display,
-        ident_key: public_key.clone(),
-        ident_fingerprint: key.fingerprint.clone(),
-        signing_key: public_key,
-        signing_fingerprint: key.fingerprint,
+        attestation,
+        attestation_signature: crypto::encode_bytes(&signature),
     }))
 }
 
@@ -402,13 +493,16 @@ async fn validate_package_request(
     if request.version != package.version {
         diagnostics.push("request version does not match package version".to_string());
     }
-    if request.ident_fingerprint != package.ident_fingerprint {
-        diagnostics.push("request identFingerprint does not match package metadata".to_string());
+    let header_ident_fingerprint = package.ident_fingerprint().unwrap_or_default();
+    let header_signing_fingerprint = package.signing_fingerprint().unwrap_or_default();
+    if request.ident_fingerprint != header_ident_fingerprint {
+        diagnostics.push("request identFingerprint does not match package header".to_string());
     }
-    if request.signing_fingerprint != package.signing_fingerprint {
-        diagnostics.push("request signingFingerprint does not match package metadata".to_string());
+    if request.signing_fingerprint != header_signing_fingerprint {
+        diagnostics.push("request signingFingerprint does not match package header".to_string());
     }
 
+    // §3.4 step 1 — session owner == header owner; ident is <owner>#<package>.
     let Some((owner_part, _package_part)) = package.ident.split_once('#') else {
         diagnostics.push("package ident must use <owner>#<package>".to_string());
         return Ok(invalid_report(hash, diagnostics));
@@ -427,22 +521,58 @@ async fn validate_package_request(
     if owner.id != claims.owner_id || key.fingerprint != claims.auth_fingerprint {
         diagnostics.push("session key does not match current owner key".to_string());
     }
-    let current_public_key = crypto::encode_bytes(&key.public_key);
-    if package.ident_key != format!("ed25519:{current_public_key}") {
-        diagnostics.push("package identKey does not match current owner ident key".to_string());
-    }
-    if package.ident_fingerprint != key.fingerprint {
-        diagnostics.push("package identFingerprint does not match current owner ident key".to_string());
-    }
-    if package.signing_fingerprint != key.fingerprint {
-        diagnostics.push("package signingFingerprint does not match current owner signing key".to_string());
-    }
     if package.author != owner.owner_display {
         diagnostics.push("package author does not match owner name".to_string());
     }
-    if let Err(err) = package::verify_package_signature(&package, &key.public_key) {
+    if package.signature_type != 1 {
+        diagnostics.push("registry publishes require an Ed25519-signed package".to_string());
+        return Ok(invalid_report(hash, diagnostics));
+    }
+
+    // §3.4 steps 2–4 — the attestation verifies under OUR key, names OUR
+    // fingerprint, and pins this exact ident/version/identKey/signingKey.
+    let (server_public, _server_private) = state.store.server_keypair().map_err(internal)?;
+    if let Err(err) = package::verify_attestation(
+        &package,
+        &server_public,
+        &crypto::fingerprint(&server_public),
+    ) {
+        diagnostics.push(format!("attestation verification failed: {err}"));
+    }
+
+    // §3.4 step 5 — the attestation must match the server's CURRENT
+    // name↔ident binding; a stale attestation (pre-rotation) is refused.
+    match state.store.owner_with_ident_key(owner_part).map_err(internal)? {
+        Some((_ident_owner, ident_key)) => {
+            if header_ident_fingerprint != ident_key.fingerprint {
+                diagnostics.push(
+                    "package identKey does not match the owner's current ident key".to_string(),
+                );
+            }
+        }
+        None => diagnostics.push("owner has no current ident key".to_string()),
+    }
+
+    // §3.4 step 6 — the proof verifies under the header identKey and pins
+    // this exact package.
+    match package::decode_metadata_key(&package.ident_key, "identKey") {
+        Ok(ident_public) => {
+            if let Err(err) = package::verify_proof(&package, &ident_public) {
+                diagnostics.push(format!("proof verification failed: {err}"));
+            }
+        }
+        Err(err) => diagnostics.push(err),
+    }
+
+    // §3.4 step 7 — the payload hash welds header to payload and the package
+    // signature verifies under the one-off signing key.
+    if let Err(err) = package::verify_payload_hash(&package) {
+        diagnostics.push(err);
+    }
+    if let Err(err) = package::verify_package_signature(&package) {
         diagnostics.push(format!("package signature verification failed: {err}"));
     }
+
     if state
         .store
         .package_version_exists(&package.ident, &package.version)
@@ -579,6 +709,137 @@ mod tests {
         assert!(decoded.exp - decoded.iat <= 3600);
         assert_eq!(verify_session_token(&store, &token).unwrap().sub, "alice");
         assert!(verify_session_token(&store, "bad.token").is_err());
+    }
+
+    fn open_session(store: &Store, owner_name: &str, private: &[u8]) -> String {
+        let challenge = store.create_challenge(owner_name).unwrap();
+        let message = crypto::challenge_message(&challenge.id, &challenge.nonce);
+        let signature = crypto::sign(private, &message).unwrap();
+        let (owner, key) = store.complete_challenge(&challenge.id, &signature).unwrap();
+        let issued_at = crate::store::now_unix();
+        let expires_at = issued_at + 3600;
+        let jwt_id = Uuid::new_v4().to_string();
+        let claims = SessionClaims {
+            sub: owner.owner_display,
+            owner_id: owner.id,
+            auth_fingerprint: key.fingerprint,
+            iat: issued_at,
+            exp: expires_at,
+            jti: jwt_id.clone(),
+        };
+        let token = encode(
+            &Header::new(Algorithm::HS256),
+            &claims,
+            &EncodingKey::from_secret(&store.server_secret().unwrap()),
+        )
+        .unwrap();
+        store
+            .insert_session(&NewSession {
+                owner_id: owner.id,
+                key_id: key.id,
+                jwt_id,
+                issued_at,
+                expires_at,
+            })
+            .unwrap();
+        token
+    }
+
+    #[tokio::test]
+    async fn signing_requires_session_and_matching_owner_and_issues_attestation() {
+        let temp = tempfile::tempdir().unwrap();
+        let db_path = temp.path().join("meta.db");
+        let data_path = temp.path().join("data");
+        let opened = Store::open_repository(&db_path, &data_path).unwrap();
+        let store = opened.store;
+        let (_public, private) = register_owner_with_keys(&store, "alice");
+        let token = open_session(&store, "alice", &private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: temp.path().join("data"),
+        };
+        let (signing_public, _signing_private) = crypto::generate_keypair();
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+
+        // No/garbage session is refused.
+        let refused = signing(
+            State(state.clone()),
+            Json(SigningRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.2.3".to_string(),
+                signing_fingerprint: signing_fingerprint.clone(),
+                session_token: "bad.token.here".to_string(),
+            }),
+        )
+        .await;
+        assert!(refused.is_err());
+
+        // A session for alice cannot request an attestation naming bob.
+        let refused = signing(
+            State(state.clone()),
+            Json(SigningRequest {
+                owner: "alice".to_string(),
+                ident: "bob#toolbox".to_string(),
+                version: "1.2.3".to_string(),
+                signing_fingerprint: signing_fingerprint.clone(),
+                session_token: token.clone(),
+            }),
+        )
+        .await;
+        let (_status, body) = refused.err().expect("mismatched ident owner refused");
+        assert!(body.error.contains("ident owner does not match"), "{}", body.error);
+
+        // A session for alice cannot pose as bob either.
+        let refused = signing(
+            State(state.clone()),
+            Json(SigningRequest {
+                owner: "bob".to_string(),
+                ident: "bob#toolbox".to_string(),
+                version: "1.2.3".to_string(),
+                signing_fingerprint: signing_fingerprint.clone(),
+                session_token: token.clone(),
+            }),
+        )
+        .await;
+        let (_status, body) = refused.err().expect("mismatched session owner refused");
+        assert!(body.error.contains("session owner does not match"), "{}", body.error);
+
+        // The happy path issues an attestation that verifies under the
+        // server key and pins the exact package, version, and keys.
+        let response = signing(
+            State(state),
+            Json(SigningRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.2.3".to_string(),
+                signing_fingerprint: signing_fingerprint.clone(),
+                session_token: token,
+            }),
+        )
+        .await
+        .expect("attestation issued");
+        let (server_public, _server_private) = store.server_keypair().unwrap();
+        let signature =
+            crypto::decode_bytes(&response.0.attestation_signature, "signature").unwrap();
+        crypto::verify(
+            &server_public,
+            &crypto::attestation_signing_input(response.0.attestation.as_bytes()),
+            &signature,
+        )
+        .expect("attestation verifies under the server key");
+        let attestation: serde_json::Value = serde_json::from_str(&response.0.attestation).unwrap();
+        assert_eq!(attestation["owner"], "alice");
+        assert_eq!(attestation["ident"], "alice#toolbox");
+        assert_eq!(attestation["version"], "1.2.3");
+        assert_eq!(attestation["signingFingerprint"], signing_fingerprint.as_str());
+        assert_eq!(
+            attestation["repoFingerprint"],
+            crypto::fingerprint(&server_public).as_str()
+        );
+        let (_owner, ident_key) = store.owner_with_ident_key("alice").unwrap().unwrap();
+        assert_eq!(attestation["identFingerprint"], ident_key.fingerprint.as_str());
+        assert!(attestation["issued"].is_i64());
     }
 
     #[test]

@@ -2,8 +2,9 @@ Package: native_resource_link_valid
 Ident: native_resource_link_valid
 Version: 0.1.0
 Ident Key: <empty>
-Ident Fingerprint: <empty>
-Signing Fingerprint: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
 Author: <empty>
 URL: <empty>
 Path: tests/native-resource-link-valid/native_resource_link_valid.mfp
@@ -15,7 +16,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 42518f154ffa9d8b742a70044615b0671849c4e7dbf060abb31fae96aa75c387
+  package binary hash: 283435edca7fcb3e80960fa214e53e07ae5354375bca001f630330277a3b2387
+  content hash: 394b12117ee399581f2312a40313056672eea4fbe94e2440aaa0f15053aad6fa
   binary representation length: 1307
 
 Manifest:

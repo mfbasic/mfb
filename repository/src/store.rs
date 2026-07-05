@@ -159,6 +159,15 @@ impl Store {
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS signing_requests (
+                id INTEGER PRIMARY KEY,
+                owner_id INTEGER NOT NULL REFERENCES owners(id),
+                ident TEXT NOT NULL,
+                version TEXT NOT NULL,
+                signing_fingerprint TEXT NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS packages (
                 id INTEGER PRIMARY KEY,
                 ident TEXT NOT NULL UNIQUE,
@@ -299,6 +308,26 @@ impl Store {
         )
         .optional()
         .map_err(|err| format!("failed to load owner: {err}"))
+    }
+
+    /// Record an attestation issuance (plan-23 §3.3 step 2): every `/signing`
+    /// request is logged before the server signs, so a stolen auth session
+    /// requesting attestations always leaves a trace.
+    pub fn record_signing_request(
+        &self,
+        owner_id: i64,
+        ident: &str,
+        version: &str,
+        signing_fingerprint: &str,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.execute(
+            "INSERT INTO signing_requests (owner_id, ident, version, signing_fingerprint, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![owner_id, ident, version, signing_fingerprint, now_unix()],
+        )
+        .map_err(|err| format!("failed to record signing request: {err}"))?;
+        Ok(())
     }
 
     pub fn create_challenge(&self, owner: &str) -> Result<ChallengeRecord, String> {

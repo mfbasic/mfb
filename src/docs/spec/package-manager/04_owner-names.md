@@ -87,10 +87,11 @@ At publish time the owner segment parsed out of the package ident
 a mismatch yields `session owner does not match package ident owner`.
 [[repository/src/server.rs:validate_package_request]]
 
-One endpoint is an exception: `/keys/signing` compares the requested owner
-against the session subject (the registered *display* form) **without**
-folding, so `mfb build --sign` must be given the owner in exactly the case it
-was registered with. [[repository/src/server.rs:signing_info]]
+One endpoint is an exception: `/signing` compares the requested owner against
+the session subject (the registered *display* form) **without** folding, so
+`mfb build --sign` must be given the owner in exactly the case it was
+registered with (the ident's owner segment, by contrast, is folded).
+[[repository/src/server.rs:signing]]
 
 ## Where Validation Runs
 
@@ -102,7 +103,7 @@ a request is sent and again on the server before it touches the store.
 | --- | --- |
 | `client::register` | `POST /accounts/register` — claim a new owner |
 | `client::auth` | `POST /auth/challenge` + `/auth/login` — open a session |
-| `client::signing_info` | `POST /keys/signing` — fetch signing metadata |
+| `client::request_attestation` | `POST /signing` — fetch a build attestation |
 | `client::validate_package` | `POST /validate` — dry-run a publish |
 | `client::publish_package` | `POST /publish` — publish an artifact |
 | `store::register_owner` | server-side insert of the owner + auth key |

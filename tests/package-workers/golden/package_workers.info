@@ -1,9 +1,10 @@
 Package: package_workers
 Ident: tests:package-workers
 Version: 1.0.0
-Ident Key: ed25519-public:test-package-workers-ident
-Ident Fingerprint: sha256:test-package-workers-ident
-Signing Fingerprint: sha256:test-package-workers-signing
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
 Author: <empty>
 URL: <empty>
 Path: tests/package-workers/package_workers.mfp
@@ -15,16 +16,17 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: b8a0092767524bd88160e7e97e2733e7f0c2b3c00af1e6f4aaf820f7ae42152b
-  binary representation length: 2354
+  package binary hash: e21e2b842411a9368e32f2bf3d0e14f339b6e75af859abda16789a15df3a35e2
+  content hash: 14990a96c7b5f1f0f40d0568c33395e31c6b6a95ac8e51fc9bbd340d32c317a3
+  binary representation length: 2233
 
 Manifest:
   name: package_workers
   ident: tests:package-workers
   version: 1.0.0
-  ident key: ed25519-public:test-package-workers-ident
-  ident fingerprint: sha256:test-package-workers-ident
-  signing fingerprint: sha256:test-package-workers-signing
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
   author: <empty>
   url: <empty>
 

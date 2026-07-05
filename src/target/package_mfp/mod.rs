@@ -11,44 +11,84 @@ const BINARY_REPR_MAJOR: u16 = 1;
 const BINARY_REPR_MINOR: u16 = 0;
 const SIGNATURE_UNSIGNED: u16 = 0;
 const SIGNATURE_ED25519: u16 = 1;
-const HEADER_PREFIX_LEN: usize = 26;
 const FLAG_PRE_RELEASE: u32 = 1 << 3;
 
 const NAME_LIMIT: usize = 255;
 const IDENT_LIMIT: usize = 255;
 const VERSION_LIMIT: usize = 64;
-const IDENT_KEY_LIMIT: usize = 255;
-const IDENT_FINGERPRINT_LIMIT: usize = 255;
-const SIGNING_FINGERPRINT_LIMIT: usize = 255;
 const AUTHOR_LIMIT: usize = 512;
 const URL_LIMIT: usize = 2048;
+const KEY_LIMIT: usize = 255;
+const BLOB_LIMIT: usize = 4096;
+
+/// The signing material threaded into a signed package build (plan-23 §3.3):
+/// the account ident key, the one-off per-package signing keypair, the
+/// ident-signed proof, and the server-signed attestation. The one-off private
+/// key lives only in this struct for the duration of the build and is
+/// discarded with it.
+pub struct PackageSigning {
+    /// Ident public key, metadata form (`ed25519:<base64url>`).
+    pub ident_key: String,
+    /// One-off signing public key, metadata form.
+    pub signing_key: String,
+    /// One-off signing private key (never written to disk).
+    pub signing_private: Vec<u8>,
+    /// Proof JSON (plan-23 §5), signed by the ident key.
+    pub proof: String,
+    /// 64-byte ident signature over `"MFP-PROOF-v1\0" || proof`.
+    pub proof_sig: Vec<u8>,
+    /// Attestation JSON (plan-23 §5), signed by the server key.
+    pub attestation: String,
+    /// 64-byte server signature over `"MFP-ATTEST-v1\0" || attestation`.
+    pub attestation_sig: Vec<u8>,
+}
 
 pub fn write_package(
     project_dir: &Path,
     ir: &IrProject,
     metadata: &BinaryReprMetadata,
     packages: &[PathBuf],
-    signing_key: Option<&[u8]>,
+    signing: Option<&PackageSigning>,
 ) -> Result<PathBuf, String> {
     let binary_repr = binary_repr::build_package_binary_repr_bytes(ir, metadata, packages)?;
-    let package = match signing_key {
-        Some(signing_key) => build_signed_package_bytes(metadata, &binary_repr, signing_key)?,
-        None => build_package_bytes(metadata, &binary_repr)?,
-    };
+    let package = build_package_bytes(metadata, &binary_repr, signing)?;
     let path = project_dir.join(format!("{}.mfp", metadata.name));
     fs::write(&path, package)
         .map_err(|err| format!("failed to write '{}': {err}", path.display()))?;
     Ok(path)
 }
 
+/// Serialize the container v1.0 header + payload (plan-23 §4).
+///
+/// Layout: magic, containerMajor=1, containerMinor=0, binaryReprMajor/Minor,
+/// flags, then length-prefixed name/ident/version/author/url/identKey/
+/// signingKey/proof/proofSig/attestation/attestationSig, the raw 32-byte
+/// `packageBinaryHash` (SHA-256 of the payload), `binaryReprLength` (u64),
+/// `signatureType` (u16), `signatureLength` (u32), the signature bytes, and
+/// the payload. The signature is made by the one-off signing key over
+/// `"MFP-PACKAGE-v2\0" || SHA-256(bytes[0 .. signature offset))`, so every
+/// header byte is covered directly and the payload transitively through
+/// `packageBinaryHash`.
 pub fn build_package_bytes(
     metadata: &BinaryReprMetadata,
     package_binary_repr: &[u8],
+    signing: Option<&PackageSigning>,
 ) -> Result<Vec<u8>, String> {
     validate_metadata(metadata)?;
     if !package_binary_repr.starts_with(b"MFPC") {
         return Err("package payload must be the binary representation container".to_string());
     }
+    if let Some(signing) = signing {
+        validate_string("identKey", &signing.ident_key, KEY_LIMIT, true)?;
+        validate_string("signingKey", &signing.signing_key, KEY_LIMIT, true)?;
+        validate_string("proof", &signing.proof, BLOB_LIMIT, true)?;
+        validate_string("attestation", &signing.attestation, BLOB_LIMIT, true)?;
+        if signing.proof_sig.len() != 64 || signing.attestation_sig.len() != 64 {
+            return Err("proof and attestation signatures must be 64 bytes".to_string());
+        }
+    }
+
+    let payload_hash = sha256(package_binary_repr);
 
     let mut bytes = Vec::new();
     bytes.extend_from_slice(&MFP_MAGIC);
@@ -57,139 +97,77 @@ pub fn build_package_bytes(
     put_u16(&mut bytes, BINARY_REPR_MAJOR);
     put_u16(&mut bytes, BINARY_REPR_MINOR);
     put_u32(&mut bytes, container_flags(metadata));
-    put_u16(&mut bytes, SIGNATURE_UNSIGNED);
-    put_u32(&mut bytes, 0);
     put_bytes(&mut bytes, metadata.name.as_bytes());
     put_bytes(&mut bytes, package_ident(metadata).as_bytes());
     put_bytes(&mut bytes, metadata.version.as_bytes());
-    put_bytes(&mut bytes, metadata.ident_key.as_bytes());
-    put_bytes(&mut bytes, metadata.ident_fingerprint.as_bytes());
-    put_bytes(&mut bytes, metadata.signing_fingerprint.as_bytes());
     put_bytes(&mut bytes, metadata.author.as_bytes());
     put_bytes(&mut bytes, metadata.url.as_bytes());
+    match signing {
+        Some(signing) => {
+            put_bytes(&mut bytes, signing.ident_key.as_bytes());
+            put_bytes(&mut bytes, signing.signing_key.as_bytes());
+            put_bytes(&mut bytes, signing.proof.as_bytes());
+            put_bytes(&mut bytes, &signing.proof_sig);
+            put_bytes(&mut bytes, signing.attestation.as_bytes());
+            put_bytes(&mut bytes, &signing.attestation_sig);
+        }
+        None => {
+            // Unsigned local packages carry none of the trust chain.
+            for _ in 0..6 {
+                put_u32(&mut bytes, 0);
+            }
+        }
+    }
+    bytes.extend_from_slice(&payload_hash);
     put_u64(&mut bytes, package_binary_repr.len() as u64);
+    match signing {
+        Some(signing) => {
+            put_u16(&mut bytes, SIGNATURE_ED25519);
+            put_u32(&mut bytes, 64);
+            // The signed prefix ends exactly here, before the signature bytes.
+            let message = mfb_repository::crypto::package_signing_input(&bytes);
+            let signature = mfb_repository::crypto::sign(&signing.signing_private, &message)?;
+            if signature.len() != 64 {
+                return Err("Ed25519 package signature must be 64 bytes".to_string());
+            }
+            bytes.extend_from_slice(&signature);
+        }
+        None => {
+            put_u16(&mut bytes, SIGNATURE_UNSIGNED);
+            put_u32(&mut bytes, 0);
+        }
+    }
     bytes.extend_from_slice(package_binary_repr);
     Ok(bytes)
 }
 
-pub fn build_signed_package_bytes(
-    metadata: &BinaryReprMetadata,
-    package_binary_repr: &[u8],
-    signing_private_key: &[u8],
-) -> Result<Vec<u8>, String> {
-    validate_metadata(metadata)?;
-    if !package_binary_repr.starts_with(b"MFPC") {
-        return Err("package payload must be the binary representation container".to_string());
-    }
-
-    let mut bytes = Vec::new();
-    bytes.extend_from_slice(&MFP_MAGIC);
-    put_u16(&mut bytes, CONTAINER_MAJOR);
-    put_u16(&mut bytes, CONTAINER_MINOR);
-    put_u16(&mut bytes, BINARY_REPR_MAJOR);
-    put_u16(&mut bytes, BINARY_REPR_MINOR);
-    put_u32(&mut bytes, container_flags(metadata));
-    put_u16(&mut bytes, SIGNATURE_ED25519);
-    put_u32(&mut bytes, 64);
-    let signature_start = bytes.len();
-    bytes.resize(bytes.len() + 64, 0);
-    put_bytes(&mut bytes, metadata.name.as_bytes());
-    put_bytes(&mut bytes, package_ident(metadata).as_bytes());
-    put_bytes(&mut bytes, metadata.version.as_bytes());
-    put_bytes(&mut bytes, metadata.ident_key.as_bytes());
-    put_bytes(&mut bytes, metadata.ident_fingerprint.as_bytes());
-    put_bytes(&mut bytes, metadata.signing_fingerprint.as_bytes());
-    put_bytes(&mut bytes, metadata.author.as_bytes());
-    put_bytes(&mut bytes, metadata.url.as_bytes());
-    put_u64(&mut bytes, package_binary_repr.len() as u64);
-    bytes.extend_from_slice(package_binary_repr);
-
-    let hash = package_content_hash(&bytes)?;
-    let message = package_signature_message(
-        &hash,
-        package_ident(metadata).as_bytes(),
-        metadata.version.as_bytes(),
-    );
-    let signature = mfb_repository::crypto::sign(signing_private_key, &message)?;
-    if signature.len() != 64 {
-        return Err("Ed25519 package signature must be 64 bytes".to_string());
-    }
-    bytes[signature_start..signature_start + 64].copy_from_slice(&signature);
-    Ok(bytes)
-}
-
-pub fn package_signature_message(content_hash: &[u8; 32], ident: &[u8], version: &[u8]) -> Vec<u8> {
-    let mut message = Vec::new();
-    message.extend_from_slice(b"MFP-PACKAGE-v1");
-    message.extend_from_slice(content_hash);
-    message.extend_from_slice(ident);
-    message.extend_from_slice(version);
-    message
-}
-
+/// SHA-256 of the whole artifact: the blob/dedup identity used by the
+/// publish flow. With the prefix signature covering the header and
+/// `packageBinaryHash` welding the payload, the file is immutable after
+/// signing, so no signature-zeroing is needed.
 pub fn package_content_hash(bytes: &[u8]) -> Result<[u8; 32], String> {
-    if bytes.len() < HEADER_PREFIX_LEN {
-        return Err("package is too small to be a valid .mfp package".to_string());
+    if bytes.len() < 20 || bytes[0..8] != MFP_MAGIC {
+        return Err("package is not a valid .mfp package".to_string());
     }
-    if bytes[0..8] != MFP_MAGIC {
-        return Err("package does not have the MFP package magic".to_string());
-    }
-    let signature_type = u16::from_le_bytes([bytes[20], bytes[21]]);
-    let signature_length =
-        u32::from_le_bytes([bytes[22], bytes[23], bytes[24], bytes[25]]) as usize;
-    validate_signature_header(signature_type, signature_length)?;
-    let signature_end = HEADER_PREFIX_LEN
-        .checked_add(signature_length)
-        .ok_or_else(|| "invalid .mfp signature length".to_string())?;
-    if signature_end > bytes.len() {
-        return Err("truncated .mfp signature".to_string());
-    }
+    Ok(sha256(bytes))
+}
 
+fn sha256(bytes: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(&bytes[..HEADER_PREFIX_LEN]);
-    if signature_length > 0 {
-        hasher.update(vec![0; signature_length]);
-    }
-    hasher.update(&bytes[signature_end..]);
+    hasher.update(bytes);
     let digest = hasher.finalize();
     let mut hash = [0; 32];
     hash.copy_from_slice(&digest);
-    Ok(hash)
+    hash
 }
 
 fn validate_metadata(metadata: &BinaryReprMetadata) -> Result<(), String> {
     validate_string("name", &metadata.name, NAME_LIMIT, true)?;
     validate_string("ident", package_ident(metadata), IDENT_LIMIT, true)?;
     validate_string("version", &metadata.version, VERSION_LIMIT, true)?;
-    validate_string("identKey", &metadata.ident_key, IDENT_KEY_LIMIT, false)?;
-    validate_string(
-        "identFingerprint",
-        &metadata.ident_fingerprint,
-        IDENT_FINGERPRINT_LIMIT,
-        false,
-    )?;
-    validate_string(
-        "signingFingerprint",
-        &metadata.signing_fingerprint,
-        SIGNING_FINGERPRINT_LIMIT,
-        false,
-    )?;
     validate_string("author", &metadata.author, AUTHOR_LIMIT, false)?;
     validate_string("url", &metadata.url, URL_LIMIT, false)?;
     Ok(())
-}
-
-fn validate_signature_header(signature_type: u16, signature_length: usize) -> Result<(), String> {
-    match (signature_type, signature_length) {
-        (SIGNATURE_UNSIGNED, 0) | (SIGNATURE_ED25519, 64) => Ok(()),
-        (SIGNATURE_UNSIGNED, _) => {
-            Err("unsigned .mfp package must have zero signature length".to_string())
-        }
-        (SIGNATURE_ED25519, _) => {
-            Err("Ed25519 .mfp package must have a 64 byte signature".to_string())
-        }
-        _ => Err(format!("unsupported .mfp signature type {signature_type}")),
-    }
 }
 
 fn package_ident(metadata: &BinaryReprMetadata) -> &str {
@@ -241,117 +219,149 @@ fn put_u64(dst: &mut Vec<u8>, value: u64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mfb_repository::crypto;
 
-    #[test]
-    fn wraps_mfbc_payload_in_unsigned_mfp_container() {
-        let metadata = BinaryReprMetadata {
-            name: "shape".to_string(),
-            ident: "ada#shape".to_string(),
-            version: "1.2.3".to_string(),
-            ident_key: "ed25519:abc".to_string(),
-            ident_fingerprint: "sha256:ident".to_string(),
-            signing_fingerprint: "sha256:signing".to_string(),
-            author: "Ada".to_string(),
-            url: "https://example.invalid/shape".to_string(),
-            dependencies: Vec::new(),
-        };
-        let payload = b"MFPCpayload";
-
-        let package = build_package_bytes(&metadata, payload).expect("package bytes");
-
-        assert!(package.starts_with(&MFP_MAGIC));
-        assert_eq!(&package[8..10], &CONTAINER_MAJOR.to_le_bytes());
-        assert_eq!(&package[10..12], &CONTAINER_MINOR.to_le_bytes());
-        assert_eq!(&package[12..14], &BINARY_REPR_MAJOR.to_le_bytes());
-        assert_eq!(&package[14..16], &BINARY_REPR_MINOR.to_le_bytes());
-        assert!(package.ends_with(payload));
-        let hash = package_content_hash(&package).expect("content hash");
-        assert_ne!(hash, [0; 32]);
-    }
-
-    #[test]
-    fn content_hash_zeroes_signature_bytes_but_covers_header_fields() {
-        let metadata = BinaryReprMetadata {
-            name: "shape".to_string(),
-            ident: "ada#shape".to_string(),
-            version: "1.2.3".to_string(),
-            ident_key: "ed25519:abc".to_string(),
-            ident_fingerprint: "sha256:ident".to_string(),
-            signing_fingerprint: "sha256:signing".to_string(),
-            author: "Ada".to_string(),
-            url: "https://example.invalid/shape".to_string(),
-            dependencies: Vec::new(),
-        };
-        let mut package = build_package_bytes(&metadata, b"MFPCpayload").expect("package bytes");
-        package[20..22].copy_from_slice(&SIGNATURE_ED25519.to_le_bytes());
-        package[22..26].copy_from_slice(&64_u32.to_le_bytes());
-        package.splice(HEADER_PREFIX_LEN..HEADER_PREFIX_LEN, [0x7f; 64]);
-
-        let hash = package_content_hash(&package).expect("content hash");
-        package[HEADER_PREFIX_LEN..HEADER_PREFIX_LEN + 64].fill(0x42);
-        assert_eq!(package_content_hash(&package).expect("content hash"), hash);
-
-        package[16] ^= FLAG_PRE_RELEASE as u8;
-        assert_ne!(package_content_hash(&package).expect("content hash"), hash);
-    }
-
-    #[test]
-    fn rejects_non_binary_repr_payload() {
-        let metadata = BinaryReprMetadata {
+    fn test_metadata() -> BinaryReprMetadata {
+        BinaryReprMetadata {
             name: "shape".to_string(),
             ident: "ada#shape".to_string(),
             version: "1.2.3".to_string(),
             ident_key: String::new(),
             ident_fingerprint: String::new(),
             signing_fingerprint: String::new(),
-            author: String::new(),
-            url: String::new(),
+            author: "Ada".to_string(),
+            url: "https://example.invalid/shape".to_string(),
             dependencies: Vec::new(),
-        };
+        }
+    }
 
-        let err = build_package_bytes(&metadata, b"nope").expect_err("invalid payload");
+    fn test_signing() -> (PackageSigning, Vec<u8>, Vec<u8>) {
+        let (ident_public, ident_private) = crypto::generate_keypair();
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let (server_public, server_private) = crypto::generate_keypair();
+        let proof = format!(
+            "{{\"owner\":\"ada\",\"ident\":\"ada#shape\",\"version\":\"1.2.3\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":1}}",
+            crypto::fingerprint(&ident_public),
+            crypto::fingerprint(&signing_public),
+        );
+        let proof_sig =
+            crypto::sign(&ident_private, &crypto::proof_signing_input(proof.as_bytes())).unwrap();
+        let attestation = format!(
+            "{{\"repoFingerprint\":\"{}\",\"owner\":\"ada\",\"ident\":\"ada#shape\",\"version\":\"1.2.3\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":1}}",
+            crypto::fingerprint(&server_public),
+            crypto::fingerprint(&ident_public),
+            crypto::fingerprint(&signing_public),
+        );
+        let attestation_sig = crypto::sign(
+            &server_private,
+            &crypto::attestation_signing_input(attestation.as_bytes()),
+        )
+        .unwrap();
+        (
+            PackageSigning {
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                signing_private,
+                proof,
+                proof_sig,
+                attestation,
+                attestation_sig,
+            },
+            ident_public,
+            server_public,
+        )
+    }
+
+    #[test]
+    fn wraps_mfbc_payload_in_unsigned_mfp_container() {
+        let package = build_package_bytes(&test_metadata(), b"MFPCpayload", None)
+            .expect("package bytes");
+
+        assert!(package.starts_with(&MFP_MAGIC));
+        assert_eq!(&package[8..10], &CONTAINER_MAJOR.to_le_bytes());
+        assert_eq!(&package[10..12], &CONTAINER_MINOR.to_le_bytes());
+        assert!(package.ends_with(b"MFPCpayload"));
+
+        let parsed = mfb_repository::package::parse_mfp_package(&package).expect("parse");
+        assert_eq!(parsed.name, "shape");
+        assert_eq!(parsed.ident, "ada#shape");
+        assert_eq!(parsed.version, "1.2.3");
+        assert_eq!(parsed.signature_type, 0);
+        assert!(parsed.ident_key.is_empty());
+        assert!(parsed.signing_key.is_empty());
+        // The payload weld holds for unsigned packages too.
+        mfb_repository::package::verify_payload_hash(&parsed).expect("payload hash");
+    }
+
+    #[test]
+    fn signed_package_round_trips_and_verifies() {
+        let (signing, ident_public, server_public) = test_signing();
+        let package = build_package_bytes(&test_metadata(), b"MFPCpayload", Some(&signing))
+            .expect("signed package");
+
+        let parsed = mfb_repository::package::parse_mfp_package(&package).expect("parse");
+        assert_eq!(parsed.container_major, 1);
+        assert_eq!(parsed.container_minor, 0);
+        assert_eq!(parsed.signature_type, 1);
+        assert_eq!(parsed.ident_key, signing.ident_key);
+        assert_eq!(parsed.signing_key, signing.signing_key);
+        assert_eq!(parsed.proof, signing.proof);
+        assert_eq!(parsed.attestation, signing.attestation);
+
+        mfb_repository::package::verify_payload_hash(&parsed).expect("payload hash");
+        mfb_repository::package::verify_package_signature(&parsed).expect("package signature");
+        mfb_repository::package::verify_proof(&parsed, &ident_public).expect("proof");
+        mfb_repository::package::verify_attestation(
+            &parsed,
+            &server_public,
+            &crypto::fingerprint(&server_public),
+        )
+        .expect("attestation");
+    }
+
+    #[test]
+    fn tampering_with_any_header_byte_breaks_the_signature() {
+        let (signing, _ident_public, _server_public) = test_signing();
+        let package = build_package_bytes(&test_metadata(), b"MFPCpayload", Some(&signing))
+            .expect("signed package");
+        let parsed = mfb_repository::package::parse_mfp_package(&package).expect("parse");
+        let prefix_len = parsed.signed_prefix.len();
+
+        // Flip one byte in every signed-prefix position that keeps the
+        // structure parseable (skip length fields would break parsing — a
+        // parse failure is an equally hard refusal, so only assert on the
+        // ones that still parse).
+        let mut verified_flips = 0;
+        for index in 20..prefix_len {
+            let mut tampered = package.clone();
+            tampered[index] ^= 0x01;
+            let Ok(reparsed) = mfb_repository::package::parse_mfp_package(&tampered) else {
+                continue;
+            };
+            assert!(
+                mfb_repository::package::verify_package_signature(&reparsed).is_err()
+                    || mfb_repository::package::verify_payload_hash(&reparsed).is_err(),
+                "flipping signed-prefix byte {index} must break verification"
+            );
+            verified_flips += 1;
+        }
+        assert!(verified_flips > 0);
+
+        // Tampering with the payload breaks the packageBinaryHash weld.
+        let mut tampered = package.clone();
+        let last = tampered.len() - 1;
+        tampered[last] ^= 0x01;
+        let reparsed = mfb_repository::package::parse_mfp_package(&tampered).expect("parse");
+        assert!(mfb_repository::package::verify_payload_hash(&reparsed).is_err());
+    }
+
+    #[test]
+    fn rejects_non_binary_repr_payload() {
+        let err = build_package_bytes(&test_metadata(), b"nope", None)
+            .expect_err("invalid payload");
         assert_eq!(
             err,
             "package payload must be the binary representation container"
         );
-    }
-
-    #[test]
-    fn signed_package_carries_verifiable_ed25519_signature() {
-        let (public, private) = mfb_repository::crypto::generate_keypair();
-        let fingerprint = mfb_repository::crypto::fingerprint(&public);
-        let public = format!("ed25519:{}", mfb_repository::crypto::encode_bytes(&public));
-        let metadata = BinaryReprMetadata {
-            name: "shape".to_string(),
-            ident: "ada#shape".to_string(),
-            version: "1.2.3".to_string(),
-            ident_key: public,
-            ident_fingerprint: fingerprint.clone(),
-            signing_fingerprint: fingerprint,
-            author: "Ada".to_string(),
-            url: "https://example.invalid/shape".to_string(),
-            dependencies: Vec::new(),
-        };
-
-        let package = build_signed_package_bytes(&metadata, b"MFPCpayload", &private)
-            .expect("signed package");
-
-        assert_eq!(
-            u16::from_le_bytes([package[20], package[21]]),
-            SIGNATURE_ED25519
-        );
-        assert_eq!(
-            u32::from_le_bytes([package[22], package[23], package[24], package[25]]),
-            64
-        );
-        let hash = package_content_hash(&package).expect("content hash");
-        let message = package_signature_message(&hash, b"ada#shape", b"1.2.3");
-        let public = mfb_repository::crypto::public_from_private(&private).unwrap();
-        mfb_repository::crypto::verify(
-            &public,
-            &message,
-            &package[HEADER_PREFIX_LEN..HEADER_PREFIX_LEN + 64],
-        )
-        .expect("signature verifies");
     }
 }

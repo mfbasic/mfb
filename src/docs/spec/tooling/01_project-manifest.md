@@ -34,12 +34,15 @@ codes; the commands that consume it are `./mfb spec architecture commands`.
 | `entry` | string | no | entry-point function name; defaults to `"main"` |
 | `author` | string | no | package author metadata |
 | `url` | string | no | package homepage/source URL |
-| `ident` | string | no | publisher identity slug |
-| `identKey` | string | no | publisher identity public key |
-| `identFingerprint` | string | no | publisher identity fingerprint |
-| `signingFingerprint` | string | no | signing-key fingerprint |
+| `ident` | string | no | registry identity `<owner>#<package>`; a `--sign` build requires it to belong to the signing owner and defaults it to `<owner>#<name>` |
 | `packages` | array of objects | no | declared dependencies (see *Dependency Entries*) |
 | `targets` | array | no | build targets; emitted by `mfb init` as `["native"]` |
+
+Identity-chain fields (`identKey` and the key fingerprints) are **not**
+manifest inputs: they are outputs of `mfb build --sign` (plan-23), stamped into
+the package metadata from the signing bundle. A manifest-level `identKey` is
+ignored by the builder. (The per-dependency `identKey` *pin* inside
+`packages[]` is different and load-bearing — see *Dependency Entries*.)
 
 ¹ `kind` is required by `validate_project_manifest`, but a present-and-string
 value that is *neither* `executable` nor `package` only **warns**
@@ -48,15 +51,11 @@ value that is *neither* `executable` nor `package` only **warns**
 
 Only `name`/`version`/`mfb` (required strings), `entry`/`author`/`url` (optional
 strings), `kind`, and `sources` are *validated* by the manifest validator. The
-remaining fields (`ident`/`identKey`/`identFingerprint`/`signingFingerprint`,
-`packages`, `targets`, and the per-source `role`) are read lazily by later
-stages — `package_metadata`, `package_dependencies`, and the source selector —
-and are **not** schema-checked here; an absent or wrong-typed value simply
-defaults rather than erroring. [[src/manifest/mod.rs:validate_project_manifest]] [[src/manifest/package.rs:package_metadata]]
-
-The `ident*`/`signing*` keys are also accepted in snake_case aliases
-(`ident_key`, `ident_fingerprint`, `signing_fingerprint`) when copied into
-package metadata; the camelCase forms are canonical. [[src/manifest/package.rs:package_metadata]]
+remaining fields (`ident`, `packages`, `targets`, and the per-source `role`)
+are read lazily by later stages — `package_metadata`, `package_dependencies`,
+and the source selector — and are **not** schema-checked here; an absent or
+wrong-typed value simply defaults rather than erroring.
+[[src/manifest/mod.rs:validate_project_manifest]] [[src/manifest/package.rs:package_metadata]]
 
 ## Source Entries
 

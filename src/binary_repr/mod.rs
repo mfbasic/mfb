@@ -387,8 +387,7 @@ struct MfpIdentity {
     ident: String,
     version: String,
     ident_key: String,
-    ident_fingerprint: String,
-    signing_fingerprint: String,
+    signing_key: String,
 }
 
 struct DecodedExport {

@@ -2,8 +2,9 @@ Package: package_cleanup_audit
 Ident: package_cleanup_audit
 Version: 0.1.0
 Ident Key: <empty>
-Ident Fingerprint: <empty>
-Signing Fingerprint: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
 Author: <empty>
 URL: <empty>
 Path: tests/package-cleanup-audit/package_cleanup_audit.mfp
@@ -15,7 +16,8 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: a6019b0f1a718a7021e65ca7d85d9bd17f009fc2007ee1fe1af9499b94c771b6
+  package binary hash: 04f193443596abf162ae0d9bd64eb13085ace3c557123210bb0284d9410b23cf
+  content hash: 9a7f7f9205ae6540ad7d2a00a4ca00b761502c6172b9b4e649c063250858d5f7
   binary representation length: 864
 
 Manifest:

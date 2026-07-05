@@ -226,7 +226,24 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     }
     let signing = match &options.sign_owner {
         Some(owner) if options.outputs.is_empty() => {
-            Some(load_build_signing_info(owner).map_err(|err| {
+            // The proof and attestation pin the exact package identity, so the
+            // signed ident/version are fixed here from the validated manifest
+            // (plan-23 §3.3). A manifest without an ident gets the canonical
+            // `<owner>#<name>` (stamped into the header by
+            // apply_signing_metadata so header and proof agree).
+            let version = manifest
+                .get("version")
+                .and_then(|value| value.get::<String>())
+                .expect("validated project version");
+            let manifest_ident = manifest
+                .get("ident")
+                .and_then(|value| value.get::<String>())
+                .cloned()
+                .unwrap_or_default();
+            let ident = signing_ident(owner, project_name, &manifest_ident).map_err(|err| {
+                eprintln!("error: {err}");
+            })?;
+            Some(load_build_signing_info(owner, &ident, version).map_err(|err| {
                 eprintln!("error: {err}");
             })?)
         }
@@ -298,9 +315,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &ir,
                 &metadata,
                 &packages,
-                signing
-                    .as_ref()
-                    .map(|signing| signing.private_key.as_slice()),
+                signing.as_ref().map(|signing| &signing.package_signing),
             )
             .map_err(|err| {
                 eprintln!("error: {err}");
@@ -491,48 +506,151 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
 
 pub(crate) struct BuildSigningInfo {
     pub(crate) owner: String,
-    pub(crate) ident_key: String,
+    /// The signed package identity (`<owner>#<package>`), stamped into the
+    /// header when the manifest declares no ident of its own.
+    pub(crate) ident: String,
     pub(crate) ident_fingerprint: String,
     pub(crate) signing_fingerprint: String,
-    pub(crate) private_key: Vec<u8>,
+    /// The full signing bundle threaded to the package writer: ident key,
+    /// one-off signing keypair, ident-signed proof, server-signed
+    /// attestation. The one-off private key exists only here, in memory,
+    /// and is discarded when the build ends (plan-23 §3.3).
+    pub(crate) package_signing: target::package_mfp::PackageSigning,
     pub(crate) executable_metadata: Vec<u8>,
 }
 
-fn load_build_signing_info(owner: &str) -> Result<BuildSigningInfo, String> {
+/// The identity a `--sign` build signs for: the manifest ident when declared
+/// (which must belong to the signing owner), else `<owner>#<name>`.
+fn signing_ident(owner: &str, name: &str, manifest_ident: &str) -> Result<String, String> {
+    if manifest_ident.is_empty() {
+        return Ok(format!("{owner}#{name}"));
+    }
+    let Some((ident_owner, _)) = manifest_ident.split_once('#') else {
+        return Err(format!(
+            "project ident `{manifest_ident}` must use <owner>#<package> to be signed"
+        ));
+    };
+    if !ident_owner.eq_ignore_ascii_case(owner) {
+        return Err(format!(
+            "project ident `{manifest_ident}` does not belong to owner `{owner}`"
+        ));
+    }
+    Ok(manifest_ident.to_string())
+}
+
+/// Assemble the plan-23 §3.3 signing bundle: generate the one-off signing
+/// keypair, fetch the server attestation pre-registering it for this exact
+/// package+version, and mint the ident-signed proof locally.
+fn load_build_signing_info(
+    owner: &str,
+    ident: &str,
+    version: &str,
+) -> Result<BuildSigningInfo, String> {
     let repo_url = mfb_repository::client::repo_url_from_env();
     let paths = super::local_paths_for_repo(&repo_url)?;
-    let signing_info = mfb_repository::client::signing_info(&repo_url, &paths, owner)?;
-    let private_key = mfb_repository::local::read_auth_private_key(&paths, owner)?;
-    let local_public = mfb_repository::crypto::public_from_private(&private_key)?;
-    let server_signing_public =
-        mfb_repository::crypto::decode_bytes(&signing_info.signing_key, "signingKey")?;
-    if local_public != server_signing_public {
-        return Err("local private key does not match repository signing key".to_string());
+
+    // The account ident key must live on this machine (register or link).
+    let ident_private = mfb_repository::local::read_ident_private_key(&paths, owner)?;
+    let ident_public = mfb_repository::local::read_ident_public_key(&paths, owner)?;
+    if mfb_repository::crypto::public_from_private(&ident_private)? != ident_public {
+        return Err("local ident key files do not match each other".to_string());
     }
-    let local_fingerprint = mfb_repository::crypto::fingerprint(&local_public);
-    if local_fingerprint != signing_info.signing_fingerprint {
+    let ident_fingerprint = mfb_repository::crypto::fingerprint(&ident_public);
+
+    // One-off signing keypair: fresh for this build, discarded with it.
+    let (signing_public, signing_private) = mfb_repository::crypto::generate_keypair();
+    let signing_fingerprint = mfb_repository::crypto::fingerprint(&signing_public);
+
+    // Fetch the attestation (verified against the pinned server key inside
+    // the client) and cross-check that the server's current name↔ident
+    // binding is the ident key this machine holds.
+    let attestation_response = mfb_repository::client::request_attestation(
+        &repo_url,
+        &paths,
+        owner,
+        ident,
+        version,
+        &signing_fingerprint,
+    )?;
+    let attestation_fields: tinyjson::JsonValue = attestation_response
+        .attestation
+        .parse()
+        .map_err(|_| "repository returned a malformed attestation".to_string())?;
+    let attestation_field = |field: &str| -> Option<String> {
+        attestation_fields[field].get::<String>().cloned()
+    };
+    if attestation_field("identFingerprint").as_deref() != Some(ident_fingerprint.as_str()) {
         return Err(
-            "local private key fingerprint does not match repository signing key".to_string(),
+            "repository attestation names a different ident key than this machine holds; \
+             re-link this machine or rotate the ident"
+                .to_string(),
         );
     }
+    if attestation_field("ident").as_deref() != Some(ident)
+        || attestation_field("version").as_deref() != Some(version)
+        || attestation_field("signingFingerprint").as_deref() != Some(signing_fingerprint.as_str())
+    {
+        return Err("repository attestation does not pin the requested package".to_string());
+    }
+    let attestation_sig = mfb_repository::crypto::decode_bytes(
+        &attestation_response.attestation_signature,
+        "attestationSignature",
+    )?;
 
-    let ident_key = format!("ed25519:{}", signing_info.ident_key);
-    let signing_key = format!("ed25519:{}", signing_info.signing_key);
+    // Mint the proof (plan-23 §5) and sign it with the ident key.
+    let issued = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let proof = format!(
+        "{{\"owner\":{},\"ident\":{},\"version\":{},\"identFingerprint\":{},\"signingFingerprint\":{},\"issued\":{}}}",
+        json_string(owner),
+        json_string(ident),
+        json_string(version),
+        json_string(&ident_fingerprint),
+        json_string(&signing_fingerprint),
+        issued,
+    );
+    let proof_sig = mfb_repository::crypto::sign(
+        &ident_private,
+        &mfb_repository::crypto::proof_signing_input(proof.as_bytes()),
+    )?;
+
+    let ident_key = format!(
+        "ed25519:{}",
+        mfb_repository::crypto::encode_bytes(&ident_public)
+    );
+    let signing_key = format!(
+        "ed25519:{}",
+        mfb_repository::crypto::encode_bytes(&signing_public)
+    );
     let executable_metadata = executable_signing_metadata_json(
-        &signing_info.owner,
+        owner,
         &ident_key,
-        &signing_info.ident_fingerprint,
+        &ident_fingerprint,
         &signing_key,
-        &signing_info.signing_fingerprint,
+        &signing_fingerprint,
+        &proof,
+        &mfb_repository::crypto::encode_bytes(&proof_sig),
+        &attestation_response.attestation,
+        &attestation_response.attestation_signature,
     )
     .into_bytes();
 
     Ok(BuildSigningInfo {
-        owner: signing_info.owner,
-        ident_key,
-        ident_fingerprint: signing_info.ident_fingerprint,
-        signing_fingerprint: signing_info.signing_fingerprint,
-        private_key,
+        owner: owner.to_string(),
+        ident: ident.to_string(),
+        ident_fingerprint,
+        signing_fingerprint,
+        package_signing: target::package_mfp::PackageSigning {
+            ident_key,
+            signing_key,
+            signing_private,
+            proof,
+            proof_sig,
+            attestation: attestation_response.attestation,
+            attestation_sig,
+        },
         executable_metadata,
     })
 }
@@ -646,8 +764,14 @@ fn source_is_local(source: &str) -> bool {
     source.is_empty() || source.starts_with("file:") || source.starts_with("local:")
 }
 
-/// Classify an installed `.mfp` (audit-1 PKG-01). Any parse error is treated as
-/// Tampered — a malformed container on the trusted import path is never benign.
+/// Classify an installed `.mfp` (audit-1 PKG-01) by the plan-23 §3.5 chain.
+/// Any parse error is treated as Tampered — a malformed container on the
+/// trusted import path is never benign.
+///
+/// Anchors: the `identKey` pinned in the importing project's `project.json`
+/// (never the file-embedded key) and the registry key pinned as `server.pub`.
+/// The chain walks pinned server key → attestation → pinned ident → proof →
+/// one-off signing key → bytes; any swapped byte or key breaks a link.
 fn classify_installed_package(path: &Path, trust_anchor: Option<&str>) -> PackageVerification {
     let Ok(bytes) = std::fs::read(path) else {
         return PackageVerification::Tampered;
@@ -658,52 +782,99 @@ fn classify_installed_package(path: &Path, trust_anchor: Option<&str>) -> Packag
     if package.signature_type == 0 {
         return PackageVerification::Unsigned;
     }
-    // Signed: the pinned trust anchor is the sole verification key. A signed
-    // package with no pinned anchor cannot be trusted (the file-embedded key is
-    // attacker-controlled), so it is Tampered until the project pins a key.
+    // §3.5 step 1 — the header identKey must be the pinned ident key. A
+    // signed package with no pinned anchor cannot be trusted (the
+    // file-embedded key is attacker-controlled).
     let Some(trust_anchor) = trust_anchor else {
         return PackageVerification::Tampered;
     };
-    let Ok(public_key) = decode_trust_anchor(trust_anchor) else {
+    let Ok(pinned_ident) = decode_trust_anchor(trust_anchor) else {
         return PackageVerification::Tampered;
     };
-    match mfb_repository::package::verify_package_signature(&package, &public_key) {
-        Ok(()) => PackageVerification::Verified,
-        Err(_) => PackageVerification::Tampered,
+    let Ok(header_ident) =
+        mfb_repository::package::decode_metadata_key(&package.ident_key, "identKey")
+    else {
+        return PackageVerification::Tampered;
+    };
+    if header_ident != pinned_ident {
+        return PackageVerification::Tampered;
     }
+    // §3.5 step 2 — the attestation verifies under the pinned registry key
+    // and pins this exact package.
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let Ok(paths) = super::local_paths_for_repo(&repo_url) else {
+        return PackageVerification::Tampered;
+    };
+    let Ok(server_key) = mfb_repository::local::read_pinned_server_key(&paths) else {
+        // Verifying a registry-signed package requires the pinned registry
+        // key; run any `mfb repo` command against the registry to pin it.
+        return PackageVerification::Tampered;
+    };
+    let repo_fingerprint = mfb_repository::crypto::fingerprint(&server_key);
+    if mfb_repository::package::verify_attestation(&package, &server_key, &repo_fingerprint)
+        .is_err()
+    {
+        return PackageVerification::Tampered;
+    }
+    // §3.5 step 3 — the proof verifies under the (pinned) ident key.
+    if mfb_repository::package::verify_proof(&package, &pinned_ident).is_err() {
+        return PackageVerification::Tampered;
+    }
+    // §3.5 steps 4–5 — the package signature verifies under the one-off
+    // signing key over the signed prefix, and the payload hash weld holds.
+    if mfb_repository::package::verify_package_signature(&package).is_err() {
+        return PackageVerification::Tampered;
+    }
+    if mfb_repository::package::verify_payload_hash(&package).is_err() {
+        return PackageVerification::Tampered;
+    }
+    PackageVerification::Verified
 }
 
 /// Decode a pinned trust-anchor public key. Accepts the header key format
 /// (`ed25519:<base64url>`) as well as a bare base64url key.
 fn decode_trust_anchor(value: &str) -> Result<Vec<u8>, String> {
-    let encoded = value.strip_prefix("ed25519:").unwrap_or(value);
-    mfb_repository::crypto::decode_bytes(encoded, "identKey")
+    mfb_repository::package::decode_metadata_key(value, "identKey")
 }
 
 pub(crate) fn apply_signing_metadata(
     metadata: &mut binary_repr::BinaryReprMetadata,
     signing: &BuildSigningInfo,
 ) {
-    metadata.ident_key = signing.ident_key.clone();
+    // The embedded manifest repeats the header identity (plan-23 §4): the
+    // full ident key plus the fingerprints of the header's identKey and
+    // signingKey. The signed ident is stamped too, so a manifest without an
+    // ident of its own still matches the header's `<owner>#<name>`.
+    metadata.ident = signing.ident.clone();
+    metadata.ident_key = signing.package_signing.ident_key.clone();
     metadata.ident_fingerprint = signing.ident_fingerprint.clone();
     metadata.signing_fingerprint = signing.signing_fingerprint.clone();
     metadata.author = signing.owner.clone();
 }
 
+#[allow(clippy::too_many_arguments)]
 fn executable_signing_metadata_json(
     owner: &str,
     ident_key: &str,
     ident_fingerprint: &str,
     signing_key: &str,
     signing_fingerprint: &str,
+    proof: &str,
+    proof_sig: &str,
+    attestation: &str,
+    attestation_sig: &str,
 ) -> String {
     format!(
-        "{{\"format\":\"mfb-signing-v1\",\"owner\":{},\"author\":{},\"identKey\":{},\"identFingerprint\":{},\"signingKey\":{},\"signingFingerprint\":{},\"signatureType\":\"Ed25519\"}}\n",
+        "{{\"format\":\"mfb-signing-v1\",\"owner\":{},\"author\":{},\"identKey\":{},\"identFingerprint\":{},\"signingKey\":{},\"signingFingerprint\":{},\"proof\":{},\"proofSignature\":{},\"attestation\":{},\"attestationSignature\":{},\"signatureType\":\"Ed25519\"}}\n",
         json_string(owner),
         json_string(owner),
         json_string(ident_key),
         json_string(ident_fingerprint),
         json_string(signing_key),
         json_string(signing_fingerprint),
+        json_string(proof),
+        json_string(proof_sig),
+        json_string(attestation),
+        json_string(attestation_sig),
     )
 }

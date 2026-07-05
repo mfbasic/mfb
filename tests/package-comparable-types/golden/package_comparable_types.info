@@ -1,9 +1,10 @@
 Package: package_comparable_types
 Ident: tests:package-comparable-types
 Version: 1.0.0
-Ident Key: ed25519-public:test-package-comparable-types-ident
-Ident Fingerprint: sha256:test-package-comparable-types-ident
-Signing Fingerprint: sha256:test-package-comparable-types-signing
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
 Author: <empty>
 URL: <empty>
 Path: tests/package-comparable-types/package_comparable_types.mfp
@@ -15,16 +16,17 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: f14bbebcaeaf96adc67dd663260fa82abb10863d69512a3623ea52b7e2d8e382
-  binary representation length: 865
+  package binary hash: cff8361097639dac62c2f0a2ec831c6ad86b5bfc4776c86383ac95a3a7992165
+  content hash: 0dd41ee71548cf5ee6ee414608c780daf69ac610bee212d5d19f502da606b1ac
+  binary representation length: 717
 
 Manifest:
   name: package_comparable_types
   ident: tests:package-comparable-types
   version: 1.0.0
-  ident key: ed25519-public:test-package-comparable-types-ident
-  ident fingerprint: sha256:test-package-comparable-types-ident
-  signing fingerprint: sha256:test-package-comparable-types-signing
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
   author: <empty>
   url: <empty>
 

@@ -96,13 +96,15 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
     let repo_url = mfb_repository::client::repo_url_from_env();
     let paths = super::local_paths_for_repo(&repo_url)?;
     let content_hash = package.content_hash_hex();
+    let ident_fingerprint = package.ident_fingerprint()?;
+    let signing_fingerprint = package.signing_fingerprint()?;
     let artifact_request = mfb_repository::client::PackageArtifact {
         ident: &package.ident,
         version: &package.version,
         artifact: &artifact,
         content_hash: &content_hash,
-        ident_fingerprint: &package.ident_fingerprint,
-        signing_fingerprint: &package.signing_fingerprint,
+        ident_fingerprint: &ident_fingerprint,
+        signing_fingerprint: &signing_fingerprint,
     };
 
     let report =
@@ -287,13 +289,22 @@ fn print_package_info(path: &Path) -> Result<(), String> {
     println!("Ident: {}", empty_marker(&header.ident));
     println!("Version: {}", header.version);
     println!("Ident Key: {}", empty_marker(&header.ident_key));
+    println!("Signing Key: {}", empty_marker(&header.signing_key));
     println!(
-        "Ident Fingerprint: {}",
-        empty_marker(&header.ident_fingerprint)
+        "Proof: {}",
+        if header.proof.is_empty() {
+            "<none>"
+        } else {
+            &header.proof
+        }
     );
     println!(
-        "Signing Fingerprint: {}",
-        empty_marker(&header.signing_fingerprint)
+        "Attestation: {}",
+        if header.attestation.is_empty() {
+            "<none>"
+        } else {
+            &header.attestation
+        }
     );
     println!("Author: {}", empty_marker(&header.author));
     println!("URL: {}", empty_marker(&header.url));
@@ -315,6 +326,10 @@ fn print_package_info(path: &Path) -> Result<(), String> {
         signature_type_name(header.signature_type)
     );
     println!("  signature length: {}", header.signature_length);
+    println!(
+        "  package binary hash: {}",
+        hex_bytes(&header.package_binary_hash)
+    );
     println!("  content hash: {}", hex_bytes(&content_hash));
     println!(
         "  binary representation length: {}",

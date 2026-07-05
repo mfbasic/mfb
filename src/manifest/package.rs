@@ -9,15 +9,19 @@ use crate::json_string;
 
 const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
 
+/// Parsed container v1.0 `.mfp` header (plan-23 §4). The reader is hard
+/// v1.0: `containerMajor.containerMinor` must be exactly `1.0`.
 pub(crate) struct MfpHeader {
     pub(crate) name: String,
     pub(crate) ident: String,
     pub(crate) version: String,
-    pub(crate) ident_key: String,
-    pub(crate) ident_fingerprint: String,
-    pub(crate) signing_fingerprint: String,
     pub(crate) author: String,
     pub(crate) url: String,
+    pub(crate) ident_key: String,
+    pub(crate) signing_key: String,
+    pub(crate) proof: String,
+    pub(crate) attestation: String,
+    pub(crate) package_binary_hash: [u8; 32],
     pub(crate) container_major: u16,
     pub(crate) container_minor: u16,
     pub(crate) binary_repr_major: u16,
@@ -99,7 +103,7 @@ fn hex_value(byte: u8) -> Option<u8> {
 pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     let bytes =
         fs::read(path).map_err(|err| format!("failed to read '{}': {err}", path.display()))?;
-    if bytes.len() < 26 {
+    if bytes.len() < 20 {
         return Err(format!(
             "'{}' is too small to be a valid .mfp package",
             path.display()
@@ -113,45 +117,56 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
     }
 
     let container_major = read_u16(&bytes, 8)?;
-    if container_major != 1 {
+    let container_minor = read_u16(&bytes, 10)?;
+    if container_major != 1 || container_minor != 0 {
         return Err(format!(
-            "'{}' uses unsupported MFP container major version {container_major}",
+            "'{}' uses unsupported MFP container version {container_major}.{container_minor} (expected 1.0)",
             path.display()
         ));
     }
-    let container_minor = read_u16(&bytes, 10)?;
     let binary_repr_major = read_u16(&bytes, 12)?;
     let binary_repr_minor = read_u16(&bytes, 14)?;
     let flags = read_u32(&bytes, 16)?;
 
-    let signature_type = read_u16(&bytes, 20)?;
-    let signature_length = read_u32(&bytes, 22)? as usize;
+    let mut offset = 20usize;
+    let name = read_mfp_string(&bytes, &mut offset, "name", 255, true)?;
+    let ident = read_mfp_string(&bytes, &mut offset, "ident", 255, false)?;
+    let version = read_mfp_string(&bytes, &mut offset, "version", 64, true)?;
+    let author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
+    let url = read_mfp_string(&bytes, &mut offset, "url", 2048, false)?;
+    let ident_key = read_mfp_string(&bytes, &mut offset, "identKey", 255, false)?;
+    let signing_key = read_mfp_string(&bytes, &mut offset, "signingKey", 255, false)?;
+    let proof = read_mfp_string(&bytes, &mut offset, "proof", 4096, false)?;
+    let _proof_sig = read_mfp_bytes(&bytes, &mut offset, "proofSig", 64)?;
+    let attestation = read_mfp_string(&bytes, &mut offset, "attestation", 4096, false)?;
+    let _attestation_sig = read_mfp_bytes(&bytes, &mut offset, "attestationSig", 64)?;
+
+    let hash_end = offset
+        .checked_add(32)
+        .ok_or_else(|| "truncated .mfp packageBinaryHash".to_string())?;
+    if hash_end > bytes.len() {
+        return Err("truncated .mfp packageBinaryHash".to_string());
+    }
+    let mut package_binary_hash = [0u8; 32];
+    package_binary_hash.copy_from_slice(&bytes[offset..hash_end]);
+    offset = hash_end;
+
+    let binary_repr_length = read_u64(&bytes, offset)? as usize;
+    offset = offset
+        .checked_add(8)
+        .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
+
+    let signature_type = read_u16(&bytes, offset)?;
+    let signature_length = read_u32(&bytes, offset + 2)? as usize;
     match (signature_type, signature_length) {
         (0, 0) | (1, 64) => {}
         (0, _) => return Err("unsigned .mfp package must have zero signature length".to_string()),
         (1, _) => return Err("Ed25519 .mfp package must have a 64 byte signature".to_string()),
         _ => return Err(format!("unsupported .mfp signature type {signature_type}")),
     }
-
-    let mut offset = 26usize
-        .checked_add(signature_length)
-        .ok_or_else(|| "invalid .mfp signature length".to_string())?;
-    if offset > bytes.len() {
-        return Err("truncated .mfp signature".to_string());
-    }
-
-    let name = read_mfp_string(&bytes, &mut offset, "name", 255, true)?;
-    let ident = read_mfp_string(&bytes, &mut offset, "ident", 255, false)?;
-    let version = read_mfp_string(&bytes, &mut offset, "version", 64, true)?;
-    let ident_key = read_mfp_string(&bytes, &mut offset, "identKey", 255, false)?;
-    let ident_fingerprint = read_mfp_string(&bytes, &mut offset, "identFingerprint", 255, false)?;
-    let signing_fingerprint =
-        read_mfp_string(&bytes, &mut offset, "signingFingerprint", 255, false)?;
-    let author = read_mfp_string(&bytes, &mut offset, "author", 512, false)?;
-    let url = read_mfp_string(&bytes, &mut offset, "url", 2048, false)?;
-    let binary_repr_length = read_u64(&bytes, offset)? as usize;
     offset = offset
-        .checked_add(8)
+        .checked_add(6)
+        .and_then(|offset| offset.checked_add(signature_length))
         .and_then(|offset| offset.checked_add(binary_repr_length))
         .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
     if offset != bytes.len() {
@@ -162,11 +177,13 @@ pub(crate) fn read_mfp_header(path: &Path) -> Result<MfpHeader, String> {
         name,
         ident,
         version,
-        ident_key,
-        ident_fingerprint,
-        signing_fingerprint,
         author,
         url,
+        ident_key,
+        signing_key,
+        proof,
+        attestation,
+        package_binary_hash,
         container_major,
         container_minor,
         binary_repr_major,
@@ -185,6 +202,21 @@ fn read_mfp_string(
     limit: usize,
     required: bool,
 ) -> Result<String, String> {
+    let raw = read_mfp_bytes(bytes, offset, field, limit)?;
+    let value =
+        String::from_utf8(raw).map_err(|_| format!(".mfp {field} is not valid UTF-8"))?;
+    if required && value.is_empty() {
+        return Err(format!(".mfp {field} must not be empty"));
+    }
+    Ok(value)
+}
+
+fn read_mfp_bytes(
+    bytes: &[u8],
+    offset: &mut usize,
+    field: &str,
+    limit: usize,
+) -> Result<Vec<u8>, String> {
     let length = read_u32(bytes, *offset)? as usize;
     *offset = offset
         .checked_add(4)
@@ -201,15 +233,8 @@ fn read_mfp_string(
         return Err(format!("truncated .mfp {field}"));
     }
 
-    let value = std::str::from_utf8(&bytes[*offset..end])
-        .map_err(|_| format!(".mfp {field} is not valid UTF-8"))?
-        .to_string();
+    let value = bytes[*offset..end].to_vec();
     *offset = end;
-
-    if required && value.is_empty() {
-        return Err(format!(".mfp {field} must not be empty"));
-    }
-
     Ok(value)
 }
 
@@ -383,24 +408,10 @@ pub(crate) fn package_metadata(
         .and_then(|value| value.get::<String>())
         .cloned()
         .unwrap_or_default();
-    metadata.ident_key = manifest
-        .get("identKey")
-        .or_else(|| manifest.get("ident_key"))
-        .and_then(|value| value.get::<String>())
-        .cloned()
-        .unwrap_or_default();
-    metadata.ident_fingerprint = manifest
-        .get("identFingerprint")
-        .or_else(|| manifest.get("ident_fingerprint"))
-        .and_then(|value| value.get::<String>())
-        .cloned()
-        .unwrap_or_default();
-    metadata.signing_fingerprint = manifest
-        .get("signingFingerprint")
-        .or_else(|| manifest.get("signing_fingerprint"))
-        .and_then(|value| value.get::<String>())
-        .cloned()
-        .unwrap_or_default();
+    // Identity-chain fields (identKey and the key fingerprints) are outputs
+    // of `--sign` (plan-23 §3.3), stamped by apply_signing_metadata — never
+    // read from the manifest. An unsigned package carries no identity chain,
+    // and the file-embedded key is never a trust root.
     metadata.author = manifest
         .get("author")
         .and_then(|value| value.get::<String>())

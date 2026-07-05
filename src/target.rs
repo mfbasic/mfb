@@ -280,7 +280,7 @@ pub fn write_package(
     ir: &IrProject,
     metadata: &BinaryReprMetadata,
     packages: &[PathBuf],
-    signing_key: Option<&[u8]>,
+    signing: Option<&package_mfp::PackageSigning>,
 ) -> Result<PathBuf, String> {
-    package_mfp::write_package(project_dir, ir, metadata, packages, signing_key)
+    package_mfp::write_package(project_dir, ir, metadata, packages, signing)
 }

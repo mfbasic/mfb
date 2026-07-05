@@ -1,9 +1,10 @@
 Package: package_simple
 Ident: tests:package-simple
 Version: 1.0.0
-Ident Key: ed25519-public:test-package-simple-ident
-Ident Fingerprint: sha256:test-package-simple-ident
-Signing Fingerprint: sha256:test-package-simple-signing
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
 Author: <empty>
 URL: <empty>
 Path: tests/package-simple/package_simple.mfp
@@ -15,16 +16,17 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 2c10c27a252a686c069fcf1ed95fe5a04a2d492a7bb12c9eb8963cbd5787172c
-  binary representation length: 2992
+  package binary hash: 1f80e66830c3504123570c7fc024cc41ab35122a6fe267fb1e9b67341cde94f4
+  content hash: 7ce114154d9d3224606b4f81779dbd2f7b6b14c9ed624ff676f37df5ecc79ca1
+  binary representation length: 2874
 
 Manifest:
   name: package_simple
   ident: tests:package-simple
   version: 1.0.0
-  ident key: ed25519-public:test-package-simple-ident
-  ident fingerprint: sha256:test-package-simple-ident
-  signing fingerprint: sha256:test-package-simple-signing
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
   author: <empty>
   url: <empty>
 

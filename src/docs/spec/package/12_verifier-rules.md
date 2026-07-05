@@ -16,12 +16,40 @@ Current compiler source of truth:
 
 ### Container
 
-* Minimum length (26-byte prefix), `magic`, `containerMajor == 1`.
+* Minimum length (20-byte fixed prefix), `magic`, and **exactly**
+  `containerMajor.containerMinor == 1.0` (hard: no backwards compatibility).
 * Signature-header consistency: `(signatureType, signatureLength)` must be `(0, 0)` or `(1, 64)`; the declared signature length must not run past end-of-file.
 * Exact `binaryReprLength` — the payload must end exactly at end-of-file (no short count, no trailing bytes).
-* Header identity matches the manifest identity (`validate_container_manifest_identity`): `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`.
+* Trust-chain completeness: a signed package must carry `identKey`, `signingKey`, `proof`, `proofSig`, `attestation`, and `attestationSig`; an unsigned package must carry none of them.
+* Header identity matches the manifest identity (`validate_container_manifest_identity`): `name`, `ident`, `version`, `identKey`, and the manifest fingerprints against the fingerprints derived from the header `identKey`/`signingKey`.
 
-The reader does **not** verify the cryptographic signature; that is the package manager's responsibility (`mfb_repository::crypto`) at install/resolve time. It also does not validate the container header `binaryReprMajor`/`binaryReprMinor` fields.
+The import-time reader does **not** verify the cryptographic signature, proof, attestation, or `packageBinaryHash`; that is the package manager's build-time verification chain (below). It also does not validate the container header `binaryReprMajor`/`binaryReprMinor` fields.
+
+### Build-time trust verification (the plan-23 chain)
+
+Before any declared dependency is decoded, merged, or lowered, the build gate
+(`verify_and_report_packages` → `classify_installed_package`,
+audit-1 PKG-01 + plan-23 §3.5) classifies every installed `.mfp` and prints
+`uses <name> - [Verified|Unsigned|Tampered]`. The anchors are the `identKey`
+pinned in the importing project's `project.json` (never the file-embedded key)
+and the registry key pinned as `server.pub` (see *package-manager key-store*).
+For a signed package the chain is, in order — any failure classifies the
+package **Tampered** and fails the build:
+
+1. `header.identKey` equals the pinned ident key.
+2. The attestation verifies under the pinned registry key
+   (`"MFP-ATTEST-v1\0"` domain) and its `repoFingerprint`, `owner`, `ident`,
+   `version`, `identFingerprint`, and `signingFingerprint` all pin this exact
+   package.
+3. The proof verifies under the ident key (`"MFP-PROOF-v1\0"` domain) and its
+   fields pin this exact package.
+4. The package signature verifies under `header.signingKey` over the signed
+   prefix (`"MFP-PACKAGE-v2\0" || SHA-256(prefix)`).
+5. `SHA-256(packageBinaryRepr)` equals `packageBinaryHash`.
+
+`signatureType == 0` (Unsigned) remains allowed for local `file://`/`local:`
+dependencies only; a remote unsigned dependency requires the `--unsigned`
+opt-in. [[src/cli/build.rs:classify_installed_package]]
 
 ### Payload / sections
 

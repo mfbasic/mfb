@@ -81,7 +81,50 @@ Challenge message — proves control of the private key when authenticating agai
 | challenge | separator | 1 NUL |
 | challenge | `nonce` | server-issued raw nonce bytes |
 
-The domain prefix plus the embedded role-specific separator prevent a signature minted for one purpose from being replayed as the other, and prevent either from being replayed as a package signature (the package signature uses its own `"MFP-PACKAGE-v1"` domain — see container-format).
+The domain prefix plus the embedded role-specific separator prevent a signature minted for one purpose from being replayed as the other, and prevent either from being replayed as any other signature in the system. The full set of signing domains:
+
+| Domain (ASCII, `\0` = NUL) | Signer | Signs |
+| --- | --- | --- |
+| `mfb-repo-register-v1\0` | auth / ident key | registration proof-of-possession (role inside the bytes) |
+| `mfb-repo-auth-v1\0` | auth key | login challenge |
+| `MFP-PROOF-v1\0` | ident key | the build proof JSON |
+| `MFP-ATTEST-v1\0` | server key | the attestation JSON |
+| `MFP-PACKAGE-v2\0` | one-off signing key | `SHA-256(header signed prefix)` — see container-format |
+
+[[repository/src/crypto.rs:proof_signing_input]]
+
+## The proof and the attestation
+
+Every signed build carries two JSON statements (plan-23 §5), both pinning the
+**exact** package (`ident` + `version`) and the exact one-off signing key, so a
+leaked one-off key plus its paperwork is worth exactly one already-published
+package — nothing. Neither carries an expiry: they are notarized statements of
+fact at `issued`, true forever; freshness is enforced live at publish time,
+never by a clock inside a shipped file.
+
+```text
+Proof (ident-signed, minted locally at build time):
+{ "owner": "alice",
+  "ident": "alice#toolbox",
+  "version": "1.2.3",
+  "identFingerprint": "<hex sha256 of identKey>",
+  "signingFingerprint": "<hex sha256 of signingKey>",
+  "issued": <UTC unix seconds> }
+
+Attestation (server-signed, fetched per build via POST /signing):
+{ "repoFingerprint": "<hex sha256 of server public key>",
+  "owner": "alice",
+  "ident": "alice#toolbox",
+  "version": "1.2.3",
+  "identFingerprint": "<hex sha256 of identKey>",
+  "signingFingerprint": "<hex sha256 of signingKey>",
+  "issued": <UTC unix seconds> }
+```
+
+The signed bytes are the exact JSON strings as produced (fixed field order, no
+re-serialization); verifiers compare fields after parsing but verify the
+signature over the raw stored bytes.
+[[src/cli/build.rs:load_build_signing_info]][[repository/src/server.rs:attestation_json]]
 
 ### Registration flow
 
@@ -97,50 +140,83 @@ role's message before recording the owner. [[repository/src/server.rs:register]]
 
 `auth` reads the local **auth** private key, derives the public key and its fingerprint, requests a challenge from `/auth/challenge`, signs `challenge_message(challengeId, nonce)`, and posts the signature to `/auth/login` to obtain a session token. [[repository/src/client.rs:auth]]
 
-## `build --sign`: local-key vs repository-key match
+## `build --sign`: the per-build signing flow
 
-`mfb build --sign <owner>` resolves signing material through `load_build_signing_info`, which is only honored for package and executable builds (validate output); other outputs error. [[src/cli/build.rs:load_build_signing_info]]
+`mfb build --sign <owner>` assembles the plan-23 §3.3 signing bundle through
+`load_build_signing_info`, which is only honored for package and executable
+builds (validate output); other outputs error. The server must be reachable —
+every signed build fetches a fresh attestation. [[src/cli/build.rs:load_build_signing_info]]
 
-The match is two-stage and both checks must pass:
+1. Fix the signed identity: the manifest `ident` when declared (it must be
+   `<owner>#<package>` and belong to the signing owner), else the canonical
+   `<owner>#<name>`; the version comes from the validated manifest.
+   [[src/cli/build.rs:signing_ident]]
+2. Read the local **ident** keypair (`<owner>.ident.{prv,pub}`; register or
+   link this machine first) and cross-check the pair.
+3. Generate the **one-off signing keypair** — fresh for this build.
+4. `POST /signing` with `{owner, ident, version, signingFingerprint}` (see
+   repository-protocol). The client verifies the returned attestation
+   signature against the pinned `server.pub` and cross-checks that the
+   attestation pins the requested ident/version/signing fingerprint and that
+   its `identFingerprint` names the ident key this machine holds.
+   [[repository/src/client.rs:request_attestation]]
+5. Mint the **proof** locally (see above) and sign it with the ident key
+   (`MFP-PROOF-v1` domain).
+6. Thread the bundle (`PackageSigning { ident_key, signing_key,
+   signing_private, proof, proof_sig, attestation, attestation_sig }`) to the
+   package writer, which emits the container v1.0 header and makes the prefix
+   signature with the one-off key. The one-off private key exists only in
+   memory for the duration of the build and is **discarded** with it — it is
+   never written to disk. [[src/target/package_mfp/mod.rs:PackageSigning]]
 
-1. Fetch the repository signing info for `owner` (`signing_info` → `/keys/signing`, session-authenticated). [[repository/src/client.rs:signing_info]]
-2. Read the local private key, derive its public key, and decode the repository `signingKey`. If `localPublic != serverSigningPublic`, fail with `local private key does not match repository signing key`. [[src/cli/build.rs:load_build_signing_info]]
-3. Compute `fingerprint(localPublic)`; if it differs from `signingFingerprint`, fail with `local private key fingerprint does not match repository signing key`.
-
-On success it composes the `ed25519:`-prefixed `identKey`/`signingKey` strings, builds the executable-signing JSON, and returns a `BuildSigningInfo { owner, ident_key, ident_fingerprint, signing_fingerprint, private_key, executable_metadata }`. [[src/cli/build.rs:load_build_signing_info]]
-
-For **package** builds the identity fields are stamped into the binary-representation metadata via `apply_signing_metadata` (sets `ident_key`, `ident_fingerprint`, `signing_fingerprint`, `author = owner`), and the loaded private key is passed to `write_package`, which produces the `.mfp` Ed25519 signature (`signatureType = 1`; see container-format). [[src/cli/build.rs:apply_signing_metadata]] For **executable** builds the JSON blob below is embedded instead.
+For **package** builds the identity fields are stamped into the
+binary-representation metadata via `apply_signing_metadata` (sets `ident`,
+`ident_key`, `ident_fingerprint`, `signing_fingerprint`, `author = owner`) so
+the embedded manifest repeats the header identity. [[src/cli/build.rs:apply_signing_metadata]]
+For **executable** builds the JSON blob below is embedded instead.
 
 ## Executable signing metadata (`mfb-signing-v1`)
 
-Executable builds embed a single-line JSON object describing the signer. Field order and the trailing newline are fixed by the formatter; string values are JSON-escaped. [[src/cli/build.rs:executable_signing_metadata_json]]
+Executable builds embed a single-line JSON object describing the signer,
+including the full proof and attestation so the embedded claim is verifiable.
+Field order and the trailing newline are fixed by the formatter; string values
+are JSON-escaped. [[src/cli/build.rs:executable_signing_metadata_json]]
 
 ```json
-{"format":"mfb-signing-v1","owner":"<owner>","author":"<owner>","identKey":"ed25519:<base64>","identFingerprint":"<hex>","signingKey":"ed25519:<base64>","signingFingerprint":"<hex>","signatureType":"Ed25519"}
+{"format":"mfb-signing-v1","owner":"<owner>","author":"<owner>","identKey":"ed25519:<base64>","identFingerprint":"<hex>","signingKey":"ed25519:<base64>","signingFingerprint":"<hex>","proof":"<proof JSON>","proofSignature":"<base64url>","attestation":"<attestation JSON>","attestationSignature":"<base64url>","signatureType":"Ed25519"}
 ```
 
 | Field | Value |
 | --- | --- |
 | `format` | constant `mfb-signing-v1` |
-| `owner` | owner name returned by `/keys/signing` |
+| `owner` | the signing owner name |
 | `author` | same as `owner` |
 | `identKey` | `ed25519:` + base64 ident public key |
 | `identFingerprint` | hex SHA-256 fingerprint of the ident key |
-| `signingKey` | `ed25519:` + base64 signing public key |
-| `signingFingerprint` | hex SHA-256 fingerprint of the signing key |
+| `signingKey` | `ed25519:` + base64 one-off signing public key |
+| `signingFingerprint` | hex SHA-256 fingerprint of the one-off signing key |
+| `proof` | the ident-signed proof JSON |
+| `proofSignature` | base64url 64-byte ident signature over the proof |
+| `attestation` | the server-signed attestation JSON |
+| `attestationSignature` | base64url 64-byte server signature over the attestation |
 | `signatureType` | constant `Ed25519` |
 
 The blob is UTF-8 bytes (`.into_bytes()`) and threaded to `target::write_executable` as the executable signing metadata. [[src/cli/build.rs:load_build_signing_info]]
 
 ## Trust boundary
 
-The binary-representation reader does **not** verify the cryptographic signature at import time — it only checks header/manifest identity agreement and signature-length sanity. Signature verification against a trusted key is the package manager's responsibility at install/resolve time, using `mfb_repository::crypto::verify`. [[repository/src/crypto.rs:verify]] The `.mfp` header `signingFingerprint` names the key expected to verify the package signature; the embedded signed manifest must carry the same identity (see container-format).
+The binary-representation reader does **not** verify the trust chain at import
+time — it only checks header/manifest identity agreement and structural
+sanity. Chain verification (pinned server key → attestation → pinned ident →
+proof → one-off key → bytes) is the package manager's responsibility at
+build/verify time; see `./mfb spec package verifier-rules`.
+[[src/cli/build.rs:classify_installed_package]]
 
 ## See Also
 
-* ./mfb spec package container-format — the `.mfp` Ed25519 signature header, `"MFP-PACKAGE-v1"` signature input, and content-hash coverage
-* ./mfb spec package-manager repository-protocol — the `/accounts/register`, `/auth/challenge`, `/auth/login`, and `/keys/signing` endpoints
-* ./mfb spec package-manager key-store — where the local keypair and session token are stored on disk
+* ./mfb spec package container-format — the container v1.0 header, `"MFP-PACKAGE-v2\0"` prefix signature, and `packageBinaryHash` weld
+* ./mfb spec package verifier-rules — the build-time verification chain
+* ./mfb spec package-manager repository-protocol — the `/accounts/register`, `/auth/challenge`, `/auth/login`, and `/signing` endpoints
+* ./mfb spec package-manager key-store — where the keypairs, pinned server key, and session token are stored on disk
 * ./mfb spec package-manager owner-names — owner-name validation rules used before signing
-* ./mfb spec tooling project-manifest — `identKey`, `identFingerprint`, and `signingFingerprint` fields in the manifest
 * ./mfb spec tooling cli-reference — `mfb build --sign`, `mfb repo register`, and `mfb repo auth`

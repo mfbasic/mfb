@@ -45,7 +45,15 @@ entryFunction     functionId or 0xFFFFFFFF
 entryFlags        u32
 ```
 
-The manifest identity, `identKey`, `identFingerprint`, and `signingFingerprint` must match the `.mfp` header identity, `identKey`, `identFingerprint`, and `signingFingerprint`.
+The manifest repeats the container header identity (plan-23): `packageName`,
+`packageIdent`, `packageVersion`, and `identKey` must equal the header's
+`name`, `ident`, `version`, and `identKey`, and the manifest
+`identFingerprint`/`signingFingerprint` must equal the SHA-256 fingerprints
+**derived from** the header's full `identKey`/`signingKey` (the container
+header no longer carries fingerprint fields). For an unsigned package all five
+identity-chain strings are empty. A signed build stamps these fields from the
+signing bundle (`apply_signing_metadata`); they are never read from the
+project manifest. [[src/binary_repr/reader.rs:validate_container_manifest_identity]][[src/cli/build.rs:apply_signing_metadata]]
 
 Current compiler values (`encode_manifest`):
 

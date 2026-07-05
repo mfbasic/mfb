@@ -1,9 +1,10 @@
 Package: trap_builtin_pkg
 Ident: tests:trap-builtin-pkg
 Version: 0.1.0
-Ident Key: ed25519-public:test-trap-builtin-ident
-Ident Fingerprint: sha256:test-trap-builtin-ident
-Signing Fingerprint: sha256:test-trap-builtin-signing
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
 Author: <empty>
 URL: <empty>
 Path: tests/package-trap-builtin/trap_builtin_pkg.mfp
@@ -15,16 +16,17 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 1808bda282d8d4572d9fac890893e087ec083c1d3307ad9013b17bc9509d4850
-  binary representation length: 1334
+  package binary hash: 385a4424a4716cd28c67d1281b65be126bf37aefb3ceb0f0319620556ff967d6
+  content hash: f4b40ef64e86c0a245f7668df0a392ee9c0f7a7ac8d4b33f5d3d2940657624fc
+  binary representation length: 1222
 
 Manifest:
   name: trap_builtin_pkg
   ident: tests:trap-builtin-pkg
   version: 0.1.0
-  ident key: ed25519-public:test-trap-builtin-ident
-  ident fingerprint: sha256:test-trap-builtin-ident
-  signing fingerprint: sha256:test-trap-builtin-signing
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
   author: <empty>
   url: <empty>
 

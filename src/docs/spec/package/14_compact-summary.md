@@ -8,19 +8,16 @@ A `.mfp` package is a signed binary container followed by architecture-independe
 
 All integers are little-endian. All strings are UTF-8 byte strings with a `u32` byte length. No strings are NUL-terminated.
 
-The container header is:
+The container is **hard version 1.0** (`containerMajor = 1`, `containerMinor
+= 0`, verified exactly). The header is:
 
 ```text
 magic              8 bytes
-containerMajor     u16
-containerMinor     u16
-binaryReprMajor      u16
-binaryReprMinor      u16
+containerMajor     u16   = 1
+containerMinor     u16   = 0
+binaryReprMajor    u16
+binaryReprMinor    u16
 flags              u32
-
-signatureType      u16
-signatureLength    u32
-signature          byte[signatureLength]
 
 nameLength         u32
 name               byte[nameLength]
@@ -31,41 +28,54 @@ ident              byte[identLength]
 versionLength      u32
 version            byte[versionLength]
 
-identKeyLength     u32
-identKey           byte[identKeyLength]
-
-identFingerprintLength u32
-identFingerprint       byte[identFingerprintLength]
-
-signingFingerprintLength u32
-signingFingerprint       byte[signingFingerprintLength]
-
 authorLength       u32
 author             byte[authorLength]
 
 urlLength          u32
 url                byte[urlLength]
 
-binaryReprLength     u64
+identKeyLength     u32
+identKey           byte[identKeyLength]         ident PUBLIC key
 
-packageBinaryRepr    byte[binaryReprLength]
+signingKeyLength   u32
+signingKey         byte[signingKeyLength]       one-off PUBLIC key
+
+proofLength        u32
+proof              byte[proofLength]            JSON, ident-signed
+
+proofSigLength     u32
+proofSig           byte[proofSigLength]         64-byte ident signature
+
+attestationLength  u32
+attestation        byte[attestationLength]      JSON, server-signed
+
+attestationSigLength u32
+attestationSig     byte[attestationSigLength]   64-byte server signature
+
+packageBinaryHash  byte[32]                     SHA-256 of packageBinaryRepr
+
+binaryReprLength   u64
+
+signatureType      u16
+signatureLength    u32
+signature          byte[signatureLength]        by the one-off signing key
+
+packageBinaryRepr  byte[binaryReprLength]
 ```
 
-The package content hash and package signature use the entire `.mfp` file with only the `signature` byte range replaced by zero bytes of the same length:
+The signature is a **prefix signature** by the one-off signing key
+(`signingKey`): it covers every byte before the signature itself, and the
+payload transitively through `packageBinaryHash`:
 
 ```text
-signatureStart = 26
-signatureEnd   = signatureStart + signatureLength
-coveredBytes   = file[0 : signatureStart] || zero[signatureLength] || file[signatureEnd : end]
-contentHash    = SHA-256(coveredBytes)
-signatureInput = "MFP-PACKAGE-v1" || contentHash || ident || version
+signedPrefix   = file[0 : offset of signature]
+signatureInput = "MFP-PACKAGE-v2\0" || SHA-256(signedPrefix)
+contentHash    = SHA-256(entire file)        (blob/dedup identity)
 ```
 
-This covers the magic, container version, binary representation version, flags, signature type, signature length, header metadata, binary representation length, and binary representation. It excludes only the actual signature bytes.
+`signatureType = 0` means unsigned and requires `signatureLength = 0` and every trust-chain field (`identKey`, `signingKey`, `proof`, `proofSig`, `attestation`, `attestationSig`) empty. `signatureType = 1` means Ed25519 and requires `signatureLength = 64` and every trust-chain field present. Unknown signature types reject the package. Whether an unsigned package is *accepted* is package-manager policy (local `file://` dependencies only), not part of this byte format (see `./mfb spec architecture packages`).
 
-`signatureType = 0` means unsigned and requires `signatureLength = 0`. `signatureType = 1` means Ed25519 and requires `signatureLength = 64`. Unknown signature types reject the package. Whether an unsigned or untrusted package is *accepted* is package-manager policy, not part of this byte format (see `./mfb spec architecture packages`).
-
-The binary representation payload must contain a signed package manifest. The manifest package name, ident, version, identKey, identFingerprint, and signingFingerprint must match the header package name, ident, version, identKey, identFingerprint, and signingFingerprint.
+The binary representation payload must contain a signed package manifest. The manifest package name, ident, version, and identKey must match the header, and the manifest ident/signing fingerprints must equal the SHA-256 fingerprints derived from the header `identKey`/`signingKey`.
 
 ### Package Binary Representation
 

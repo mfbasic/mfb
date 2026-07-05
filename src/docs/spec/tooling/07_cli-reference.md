@@ -64,16 +64,21 @@ package).
 | `-mir` | `Mir` | `<name>.mir` (target-neutral machine IR, virtual registers, no `target`/`arch`) |
 | `-regalloc <bump,linear-scan>` / `-regalloc=…` | — | register-allocation strategy; default `linear-scan`. `bump` is the byte-identical reference oracle |
 | `-target os-arch` / `-target=os-arch` | — | native target instead of host (`BuildTarget::parse`) |
-| `--sign owner` / `--sign=owner` | — | sign artifact with owner's repo key; at most one |
+| `--sign owner` / `--sign=owner` | — | sign the artifact as `owner` (one-off key + proof + attestation); at most one |
 | `-app` | — | GUI app-mode runtime; at most one |
 
 `-target` requires a value (`mfb build -target requires os-arch`). `--sign`
 requires a value, accepts at most one (`mfb build accepts at most one --sign
 option`), and is only honored when no output flag is given (package/executable
 builds); combined with any output flag it errors with `mfb build --sign is
-only supported for package and executable builds`. The signing key is resolved
-through `load_build_signing_info`, which cross-checks the local private key
-against the repository's signing key/fingerprint.[[src/cli/build.rs:load_build_signing_info]]
+only supported for package and executable builds`. Signing follows plan-23
+§3.3 and requires the repository to be reachable: the build reads the local
+**ident** key, generates a **one-off signing keypair**, fetches a server
+**attestation** via `POST /signing`, mints the ident-signed **proof**, and
+threads the bundle to the package writer; the one-off private key is discarded
+with the build. The signed ident is the manifest `ident` (which must belong to
+`owner`), else `<owner>#<name>`. See `./mfb spec package-manager signing`.
+[[src/cli/build.rs:load_build_signing_info]]
 
 `-app` is **executable-only** and requires a native target that supports app mode
 (`macos-aarch64`, `linux-aarch64`, or `linux-x86_64`); otherwise it errors before any lowering
@@ -167,8 +172,9 @@ Package: <name>
 Ident: <ident>
 Version: <version>
 Ident Key: <identKey>
-Ident Fingerprint: <fp>
-Signing Fingerprint: <fp>
+Signing Key: <signingKey>
+Proof: <proof JSON or <none>>
+Attestation: <attestation JSON or <none>>
 Author: <author>
 URL: <url>
 Path: <path>
@@ -180,6 +186,7 @@ Container:
   flags: 0x<flags:08x>
   signature type: <unsigned|Ed25519|unknown (n)>
   signature length: <n>
+  package binary hash: <hex>
   content hash: <hex>
   binary representation length: <n>
 

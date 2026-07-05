@@ -174,40 +174,54 @@ pub(super) fn read_package_binary_repr(path: &Path) -> Result<PackageBinaryRepr,
 
 pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, String> {
     const MFP_MAGIC: [u8; 8] = [0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00];
-    if bytes.len() < 26 {
+    if bytes.len() < 20 {
         return Err("package is too small to be a valid .mfp package".to_string());
     }
     if bytes[0..8] != MFP_MAGIC {
         return Err("package does not have the MFP package magic".to_string());
     }
+    // Container v1.0 (plan-23 §4), hard: the reader accepts exactly 1.0.
     let container_major = checked_u16_at(bytes, 8)?;
-    if container_major != 1 {
+    let container_minor = checked_u16_at(bytes, 10)?;
+    if container_major != 1 || container_minor != 0 {
         return Err(format!(
-            "unsupported MFP container major version {container_major}"
+            "unsupported MFP container version {container_major}.{container_minor} (expected 1.0)"
         ));
     }
-    let signature_type = checked_u16_at(bytes, 20)?;
-    let signature_length = checked_u32_at(bytes, 22)? as usize;
-    validate_mfp_signature_header(signature_type, signature_length)?;
-    let mut offset = 26usize
-        .checked_add(signature_length)
-        .ok_or_else(|| "invalid .mfp signature length".to_string())?;
-    if offset > bytes.len() {
-        return Err("truncated .mfp signature".to_string());
-    }
 
+    let mut offset = 20usize;
     let name = read_length_prefixed(bytes, &mut offset, "name")?;
     let ident = read_length_prefixed(bytes, &mut offset, "ident")?;
     let version = read_length_prefixed(bytes, &mut offset, "version")?;
-    let ident_key = read_length_prefixed(bytes, &mut offset, "identKey")?;
-    let ident_fingerprint = read_length_prefixed(bytes, &mut offset, "identFingerprint")?;
-    let signing_fingerprint = read_length_prefixed(bytes, &mut offset, "signingFingerprint")?;
     skip_length_prefixed(bytes, &mut offset, "author")?;
     skip_length_prefixed(bytes, &mut offset, "url")?;
+    let ident_key = read_length_prefixed(bytes, &mut offset, "identKey")?;
+    let signing_key = read_length_prefixed(bytes, &mut offset, "signingKey")?;
+    skip_length_prefixed(bytes, &mut offset, "proof")?;
+    skip_length_prefixed(bytes, &mut offset, "proofSig")?;
+    skip_length_prefixed(bytes, &mut offset, "attestation")?;
+    skip_length_prefixed(bytes, &mut offset, "attestationSig")?;
+    // packageBinaryHash: 32 raw bytes, no length prefix.
+    offset = offset
+        .checked_add(32)
+        .ok_or_else(|| "truncated .mfp packageBinaryHash".to_string())?;
+    if offset > bytes.len() {
+        return Err("truncated .mfp packageBinaryHash".to_string());
+    }
     let binary_repr_length = checked_u64_at(bytes, offset)? as usize;
     offset = offset
         .checked_add(8)
         .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
+    let signature_type = checked_u16_at(bytes, offset)?;
+    let signature_length = checked_u32_at(bytes, offset + 2)? as usize;
+    validate_mfp_signature_header(signature_type, signature_length)?;
+    offset = offset
+        .checked_add(6)
+        .and_then(|offset| offset.checked_add(signature_length))
+        .ok_or_else(|| "invalid .mfp signature length".to_string())?;
+    if offset > bytes.len() {
+        return Err("truncated .mfp signature".to_string());
+    }
     let end = offset
         .checked_add(binary_repr_length)
         .ok_or_else(|| "invalid .mfp binary representation length".to_string())?;
@@ -220,8 +234,7 @@ pub(super) fn mfp_binary_repr_payload(bytes: &[u8]) -> Result<MfpContainer<'_>, 
             ident,
             version,
             ident_key,
-            ident_fingerprint,
-            signing_fingerprint,
+            signing_key,
         },
         binary_repr: &bytes[offset..end],
     })
@@ -251,12 +264,19 @@ pub(super) fn validate_container_manifest_identity(
     let manifest_ident_key = string_at(strings, manifest.ident_key)?;
     let manifest_ident_fingerprint = string_at(strings, manifest.ident_fingerprint)?;
     let manifest_signing_fingerprint = string_at(strings, manifest.signing_fingerprint)?;
+    // The manifest repeats the header identity (plan-23 §4): the full ident
+    // key string plus the SHA-256 fingerprints of the header's identKey and
+    // signingKey (fingerprints are derived, no longer header fields).
+    let header_ident_fingerprint =
+        mfb_repository::package::metadata_key_fingerprint(&identity.ident_key, "identKey")?;
+    let header_signing_fingerprint =
+        mfb_repository::package::metadata_key_fingerprint(&identity.signing_key, "signingKey")?;
     if identity.name != manifest_name
         || identity.ident != manifest_ident
         || identity.version != manifest_version
         || identity.ident_key != manifest_ident_key
-        || identity.ident_fingerprint != manifest_ident_fingerprint
-        || identity.signing_fingerprint != manifest_signing_fingerprint
+        || header_ident_fingerprint != manifest_ident_fingerprint
+        || header_signing_fingerprint != manifest_signing_fingerprint
     {
         return Err(
             "MFP header identity does not match binary representation manifest identity"

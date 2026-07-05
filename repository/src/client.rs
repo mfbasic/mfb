@@ -3,7 +3,7 @@ use crate::local::{self, LocalPaths};
 use crate::server::{
     ChallengeRequest, ChallengeResponse, ErrorResponse, LoginRequest, LoginResponse,
     PackageArtifactRequest, PublishPackageResponse, RegisterProofs, RegisterRequest,
-    RegisterResponse, ServerIdentResponse, SigningInfoRequest, SigningInfoResponse,
+    RegisterResponse, ServerIdentResponse, SigningRequest, SigningResponse,
     ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
@@ -112,21 +112,41 @@ pub fn auth(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<LoginResp
     Ok(login)
 }
 
-pub fn signing_info(
+/// `POST /signing` (plan-23 §3.3): pre-register the one-off signing key for
+/// one exact package+version and fetch the server-signed attestation. The
+/// attestation signature is verified against the pinned server key before it
+/// is returned, so a swapped registry can never hand back paperwork the
+/// consumer chain would later reject.
+pub fn request_attestation(
     repo_url: &str,
     paths: &LocalPaths,
     owner: &str,
-) -> Result<SigningInfoResponse, String> {
+    ident: &str,
+    version: &str,
+    signing_fingerprint: &str,
+) -> Result<SigningResponse, String> {
     validate_owner_name(owner)?;
+    let server_key = ensure_server_key(repo_url, paths)?;
     let session_token = local::read_session(paths, owner)?;
-    post_json::<SigningInfoResponse>(
+    let response = post_json::<SigningResponse>(
         repo_url,
-        "/keys/signing",
-        &SigningInfoRequest {
+        "/signing",
+        &SigningRequest {
             owner: owner.to_string(),
+            ident: ident.to_string(),
+            version: version.to_string(),
+            signing_fingerprint: signing_fingerprint.to_string(),
             session_token,
         },
+    )?;
+    let signature = crypto::decode_bytes(&response.attestation_signature, "attestationSignature")?;
+    crypto::verify(
+        &server_key,
+        &crypto::attestation_signing_input(response.attestation.as_bytes()),
+        &signature,
     )
+    .map_err(|_| "attestation signature does not verify under the pinned server key".to_string())?;
+    Ok(response)
 }
 
 pub struct PackageArtifact<'a> {

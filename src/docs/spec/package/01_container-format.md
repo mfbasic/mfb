@@ -1,12 +1,19 @@
 # Container Format
 
-The `.mfp` container wraps the package binary representation with a signed header that carries package identity, signature, and the metadata a package manager needs to scan files without parsing every table.
+The `.mfp` container wraps the package binary representation with a header that
+carries package identity, the plan-23 trust chain (ident key, one-off signing
+key, ident-signed proof, server-signed attestation), a payload hash that welds
+the header to the payload, and a prefix signature over every header byte.
+
+The container is **hard version 1.0**: readers verify `containerMajor = 1` and
+`containerMinor = 0` exactly, with no backwards compatibility for earlier
+layouts. Packages produced by older writers must be rebuilt.
 
 ## Container layout
 
 ```text
 .mfp file
-  MFPHeader
+  MFPHeader        (signed prefix, then the signature)
   packageBinaryRepr
 ```
 
@@ -14,15 +21,11 @@ The `.mfp` container wraps the package binary representation with a signed heade
 
 ```text
 magic              8 bytes
-containerMajor     u16
-containerMinor     u16
-binaryReprMajor      u16
-binaryReprMinor      u16
+containerMajor     u16      = 1
+containerMinor     u16      = 0
+binaryReprMajor    u16
+binaryReprMinor    u16
 flags              u32
-
-signatureType      u16
-signatureLength    u32
-signature          byte[signatureLength]
 
 nameLength         u32
 name               byte[nameLength]
@@ -33,24 +36,40 @@ ident              byte[identLength]
 versionLength      u32
 version            byte[versionLength]
 
-identKeyLength     u32
-identKey           byte[identKeyLength]
-
-identFingerprintLength u32
-identFingerprint       byte[identFingerprintLength]
-
-signingFingerprintLength u32
-signingFingerprint       byte[signingFingerprintLength]
-
 authorLength       u32
 author             byte[authorLength]
 
 urlLength          u32
 url                byte[urlLength]
 
-binaryReprLength     u64
+identKeyLength     u32
+identKey           byte[identKeyLength]        ident PUBLIC key
 
-packageBinaryRepr    byte[binaryReprLength]
+signingKeyLength   u32
+signingKey         byte[signingKeyLength]      one-off PUBLIC key
+
+proofLength        u32
+proof              byte[proofLength]           JSON, ident-signed at build time
+
+proofSigLength     u32
+proofSig           byte[proofSigLength]        64-byte ident signature
+
+attestationLength  u32
+attestation        byte[attestationLength]     JSON, server-signed per build
+
+attestationSigLength u32
+attestationSig     byte[attestationSigLength]  64-byte server signature
+
+packageBinaryHash  byte[32]                    SHA-256 of packageBinaryRepr
+
+binaryReprLength   u64
+
+signatureType      u16
+signatureLength    u32
+signature          byte[signatureLength]       made by the one-off signing key;
+                                               signs everything above this point
+
+packageBinaryRepr  byte[binaryReprLength]
 ```
 
 Recommended magic:
@@ -67,26 +86,37 @@ The magic is deliberately not plain `"MFP1"` so corrupted text-mode transfers ar
 | Field             | Meaning                                                           |
 | ----------------- | ----------------------------------------------------------------- |
 | `magic`           | File identification bytes.                                        |
-| `containerMajor`  | Major version of the `.mfp` container format.                     |
-| `containerMinor`  | Minor version of the `.mfp` container format.                     |
-| `binaryReprMajor`   | Major version of the package Binary Representation format. The current compiler writes `1` here and the reader **does not validate this field** (see note below). |
-| `binaryReprMinor`   | Minor version of the package Binary Representation format. The current compiler writes `0`. |
+| `containerMajor`  | Major version of the `.mfp` container format. Must be `1`.        |
+| `containerMinor`  | Minor version of the `.mfp` container format. Must be `0`.        |
+| `binaryReprMajor` | Major version of the package Binary Representation format. The current compiler writes `1` here and the reader **does not validate this field** (see note below). |
+| `binaryReprMinor` | Minor version of the package Binary Representation format. The current compiler writes `0`. |
 | `flags`           | Container-level flags. Unknown required flags reject the package. |
-| `signatureType`   | Signature algorithm identifier.                                   |
-| `signatureLength` | Number of bytes in `signature`.                                   |
-| `signature`       | Package signature bytes.                                          |
 | `name`            | Source import name, such as `"sqlite"` or `"geometry"`.           |
 | `ident`           | Registry identity `<owner>#<package>` for resolved packages.      |
 | `version`         | Package version string.                                           |
-| `identKey`        | Owner ident public key for this package ident. |
-| `identFingerprint` | Fingerprint of `identKey`. |
-| `signingFingerprint` | Fingerprint of the package signing key that verifies `signature`. |
 | `author`          | Informational author string.                                      |
 | `url`             | Informational package/project URL.                                |
-| `binaryReprLength`  | Exact byte length of `packageBinaryRepr`.                           |
-| `packageBinaryRepr` | Architecture-independent MFB Binary Representation image. |
+| `identKey`        | The owner's ident public key, metadata form `ed25519:<base64url>`. Empty when unsigned. |
+| `signingKey`      | The one-off per-package signing public key, metadata form. Empty when unsigned. |
+| `proof`           | Proof JSON (see *package-manager signing*): ident-signed statement pinning this exact `ident`, `version`, and both key fingerprints. Empty when unsigned. |
+| `proofSig`        | 64-byte Ed25519 signature over `"MFP-PROOF-v1\0" \|\| proof` by the ident key. Empty when unsigned. |
+| `attestation`     | Attestation JSON: registry-signed statement pinning the same fields plus the registry fingerprint. Empty when unsigned. |
+| `attestationSig`  | 64-byte Ed25519 signature over `"MFP-ATTEST-v1\0" \|\| attestation` by the registry server key. Empty when unsigned. |
+| `packageBinaryHash` | Raw 32-byte SHA-256 of `packageBinaryRepr`. Welds the payload to the signed header. |
+| `binaryReprLength`  | Exact byte length of `packageBinaryRepr`.                       |
+| `signatureType`   | Signature algorithm identifier.                                   |
+| `signatureLength` | Number of bytes in `signature`.                                   |
+| `signature`       | Package signature bytes, made by the **one-off signing key**.     |
+| `packageBinaryRepr` | Architecture-independent MFB Binary Representation image.       |
 
-The header `name`, `ident`, `version`, `identKey`, `identFingerprint`, `signingFingerprint`, `author`, and `url` are for fast package scanning. The binary representation payload must also contain a signed manifest with the same package identity, owner ident key, owner ident fingerprint, and signing fingerprint. A verifier must reject the package if the header identity and binary representation manifest identity do not match.
+The header `name`, `ident`, `version`, `identKey`, `author`, and `url` are for
+fast package scanning. The binary representation payload must also contain a
+signed manifest that repeats the header identity: the same `name`, `ident`,
+`version`, and `identKey`, plus the SHA-256 fingerprints of the header's
+`identKey` and `signingKey` (the fingerprints are derived from the full keys;
+they are no longer header fields). A verifier must reject the package if the
+header identity and binary representation manifest identity do not match.
+[[src/binary_repr/reader.rs:validate_container_manifest_identity]]
 
 ### Two distinct version numbers
 
@@ -99,77 +129,43 @@ In other words, the "version 2" clean break lives in the MFPC payload, not in th
 
 ## Signature coverage
 
-The package content hash and package signature use the same byte representation:
-the entire `.mfp` file with only the `signature` byte range replaced by zero
-bytes of the same length.
-
-More precisely:
-
-```text
-signatureStart = 26
-signatureEnd   = signatureStart + signatureLength
-
-coveredBytes = file[0 : signatureStart]
-             || zero[signatureLength]
-             || file[signatureEnd : end]
-
-contentHash = SHA-256(coveredBytes)
-```
-
-The signature input for `signatureType = 1` is:
+The signature is a **prefix signature**: it covers every byte of the file
+before the signature bytes themselves — from `magic` through
+`signatureType`/`signatureLength` inclusive, including `packageBinaryHash` and
+`binaryReprLength`. The payload is covered transitively through
+`packageBinaryHash`, so the header is welded to the payload, header grafting is
+impossible, and the payload can be streamed and verified separately.
 
 ```text
-"MFP-PACKAGE-v1" || contentHash || ident || version
+signedPrefix = file[0 : offset of signature]
+
+signature input ("MFP-PACKAGE-v2" is ASCII; \0 is one NUL byte):
+
+    "MFP-PACKAGE-v2\0" || SHA-256(signedPrefix)
 ```
 
-`ident` and `version` in the signature input are the raw header field byte
-strings without their length prefixes. The domain string is ASCII and prevents a
-package signature from being replayed as another Ed25519 signature type.
+The signature is made by the **one-off signing key** whose public half is the
+header `signingKey` (see *package-manager signing* for the key model). The
+domain tag prevents a package signature from being replayed as a proof,
+attestation, or any other Ed25519 signature in the system.
+[[repository/src/crypto.rs:package_signing_input]][[src/target/package_mfp/mod.rs:build_package_bytes]]
 
-The covered bytes include:
+Verification must use the raw byte sequence exactly as stored. There is no
+string normalization, metadata canonicalization, JSON normalization, or
+re-serialization before verification.
 
-```text
-magic
-containerMajor
-containerMinor
-binaryReprMajor
-binaryReprMinor
-flags
-signatureType
-signatureLength
-zero[signatureLength]
-nameLength
-name
-identLength
-ident
-versionLength
-version
-identKeyLength
-identKey
-identFingerprintLength
-identFingerprint
-signingFingerprintLength
-signingFingerprint
-authorLength
-author
-urlLength
-url
-binaryReprLength
-packageBinaryRepr
-```
+Proof and attestation signatures are domain-tagged the same way:
+`"MFP-PROOF-v1\0" || proofBytes` (ident key) and
+`"MFP-ATTEST-v1\0" || attestationBytes` (registry server key).
+[[repository/src/crypto.rs:proof_signing_input]]
 
-The covered bytes exclude only the actual signature bytes:
+### Content hash
 
-```text
-signature
-```
-
-This signs the package import name, registry ident, owner ident key, owner ident
-fingerprint, signing fingerprint, version, container format versions, binary representation
-format versions, flags, metadata, and binary representation. `binaryReprLength` is covered, so
-truncation, extension, or binary representation replacement invalidates the signature.
-
-Verification must use the raw byte sequence exactly as stored. There is no string normalization, metadata canonicalization, JSON normalization, or re-serialization before verification.
+The whole-file SHA-256 is the package's blob/dedup identity in the publish
+flow. Because the prefix signature covers the header and `packageBinaryHash`
+covers the payload, a signed file is immutable after signing and the content
+hash needs no signature-zeroing construction.
+[[src/target/package_mfp/mod.rs:package_content_hash]]
 
 ## Signature types
 
@@ -181,12 +177,20 @@ Verification must use the raw byte sequence exactly as stored. There is no strin
 Rules:
 
 * `signatureType = 0` means the package is unsigned.
-* If `signatureType = 0`, then `signatureLength` must be `0`.
+* If `signatureType = 0`, then `signatureLength` must be `0`, and the trust
+  chain fields (`identKey`, `signingKey`, `proof`, `proofSig`, `attestation`,
+  `attestationSig`) must all be empty — an unsigned package carries no
+  identity chain.
 * `signatureType = 1` means Ed25519.
-* If `signatureType = 1`, then `signatureLength` must be `64`.
+* If `signatureType = 1`, then `signatureLength` must be `64`, and every trust
+  chain field must be present (non-empty). A partial chain is malformed.
 * Unknown `signatureType` values reject the package.
 
-These on-disk encoding rules are all the `binary_repr` reader enforces. Whether an unsigned or untrusted package is *accepted* — registry signing requirements, `mfb pkg install` defaults, `allowUnsignedLocal` exceptions, `mfb.lock` recording, and per-ident/key trust policy — is package-manager policy, not part of this byte format. See `./mfb spec architecture packages`.
+Unsigned packages are permitted for local `file://` development dependencies
+only; registry publishes always require the full signed chain. Whether an
+unsigned package is *accepted* is package-manager policy (see the `--unsigned`
+build gate and `./mfb spec architecture packages`); the byte-format rules above
+are enforced by every reader. [[repository/src/package.rs:parse_mfp_package]]
 
 ## Container flags
 
@@ -205,43 +209,46 @@ The reserved-required-flag rule remains normative for forward compatibility: if 
 
 Current compiler source of truth:
 
-- Package/container rejection currently comes from detailed package-reader diagnostics in `src/binary_repr/reader.rs`, `src/target/package_mfp/mod.rs`, and `src/manifest/package.rs`.
+- Package/container rejection currently comes from detailed package-reader diagnostics in `src/binary_repr/reader.rs`, `src/target/package_mfp/mod.rs`, `src/manifest/package.rs`, and `repository/src/package.rs`.
 - These failures are currently surfaced as descriptive `error: ...` strings such as invalid magic, invalid signature header, truncated signature, or unsupported binary representation/container version rather than through a single package rule code path.
 
 ## Container validation
 
-The current container reader (`mfp_binary_repr_payload` in `src/binary_repr/reader.rs`, mirrored by `read_mfp_header` in `src/manifest/package.rs`) rejects an `.mfp` package when:
+The current container readers (`mfp_binary_repr_payload` in `src/binary_repr/reader.rs`, `read_mfp_header` in `src/manifest/package.rs`, and `parse_mfp_package` in `repository/src/package.rs`) reject an `.mfp` package when:
 
-* The file is shorter than the 26-byte fixed prefix. The current compiler reports this as `package is too small to be a valid .mfp package`.
+* The file is shorter than the 20-byte fixed prefix. The current compiler reports this as `package is too small to be a valid .mfp package`.
 * `magic` does not match. The current compiler reports this as `package does not have the MFP package magic`.
-* `containerMajor` is not `1`. The current compiler reports this as `unsupported MFP container major version <n>`.
+* `containerMajor.containerMinor` is not exactly `1.0`. The current compiler reports this as `unsupported MFP container version <maj>.<min> (expected 1.0)`. This check is hard: there is no backwards compatibility with pre-plan-23 layouts.
+* Any length-prefixed field exceeds its limit or runs past the end of the file (`.mfp <field> exceeds the <limit> byte limit` / `truncated .mfp <field>`).
 * `signatureType` is unknown. The current compiler reports this as `unsupported .mfp signature type <n>`.
 * `signatureLength` is invalid for the signature type. The current compiler reports either `unsigned .mfp package must have zero signature length` or `Ed25519 .mfp package must have a 64 byte signature`. [[src/binary_repr/reader.rs:validate_mfp_signature_header]]
 * The declared signature length runs past the end of the file. The current compiler reports this as `truncated .mfp signature`.
 * `binaryReprLength` does not exactly match the remaining byte count, or there are trailing bytes after `packageBinaryRepr`. The current compiler reports both as `invalid .mfp binary representation length`.
-* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`. The identity comparison covers `name`, `ident`, `version`, `identKey`, `identFingerprint`, and `signingFingerprint` (`validate_container_manifest_identity`). [[src/binary_repr/reader.rs:validate_container_manifest_identity]]
+* A signed package is missing any trust chain field, or an unsigned package carries one (`signed .mfp package is missing <field>` / `unsigned .mfp package must not carry <field>`). [[repository/src/package.rs:parse_mfp_package]]
+* The container header identity does not match the embedded binary representation manifest identity. The current compiler reports this as `MFP header identity does not match binary representation manifest identity`. The identity comparison covers `name`, `ident`, `version`, `identKey`, and the fingerprints of the header `identKey`/`signingKey` against the manifest's recorded fingerprints (`validate_container_manifest_identity`). [[src/binary_repr/reader.rs:validate_container_manifest_identity]]
 
 The MFPC payload's own `bcMajor` (which must be `2`) is checked separately when the payload is parsed (`read_binary_repr_package`), reported as `unsupported MFPC major version <n> (expected 2); this package predates the structured Binary Representation format and must be rebuilt`. This is a **clean break** from the old flat opcode payload (`bcMajor = 1`), which is rejected outright.
 
-What the container reader does **not** do:
+What the import-time container reader does **not** do:
 
-* It does **not** verify the cryptographic signature. Signature/trust-policy verification is performed by the package manager layer (`mfb_repository::crypto`) at install/resolve time, not by the binary-representation reader at import time. `package_content_hash` and `build_signed_package_bytes` in `src/target/package_mfp/mod.rs` produce and cover the signature; the import-time reader treats the signature bytes only as a region to skip over. [[src/target/package_mfp/mod.rs:package_content_hash]]
+* It does **not** verify the cryptographic signature, proof, attestation, or `packageBinaryHash`. Trust verification is performed by the package-manager layer at build/install time — the plan-23 verification chain in `classify_installed_package` (see `verifier-rules`) — not by the binary-representation reader at import time. The import-time reader treats the signature bytes only as a region to skip over. [[src/cli/build.rs:classify_installed_package]]
 * It does **not** validate the container header `binaryReprMajor`/`binaryReprMinor` fields.
 
-The `MfpHeader` reader (`read_mfp_header` in `src/manifest/package.rs`) additionally enforces the recommended string-length limits below while reading the header strings, requires `name` and `version` to be non-empty, and requires every header string to be valid UTF-8; the binary-representation reader path does not re-check the limits. [[src/manifest/package.rs:read_mfp_header]]
-
-Recommended limits:
+Recommended limits (enforced by `read_mfp_header` and `parse_mfp_package` while reading; `name`, `ident`, and `version` must be non-empty in the repository reader, and every string field must be valid UTF-8):
 
 ```text
 nameLength                <= 255
 identLength               <= 255
 versionLength             <= 64
-identKeyLength            <= 255
-identFingerprintLength    <= 255
-signingFingerprintLength  <= 255
 authorLength              <= 512
 urlLength                 <= 2048
-binaryReprLength            <= implementation-defined maximum
+identKeyLength            <= 255
+signingKeyLength          <= 255
+proofLength               <= 4096
+proofSigLength            <= 64
+attestationLength         <= 4096
+attestationSigLength      <= 64
+binaryReprLength          <= implementation-defined maximum
 ```
 
 Package names should use the same identifier restrictions as source package names unless the package manager later defines a wider registry naming scheme.

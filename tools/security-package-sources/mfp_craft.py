@@ -25,8 +25,13 @@ from typing import List, Tuple
 
 MFP_MAGIC = bytes([0x4D, 0x46, 0x50, 0x0D, 0x0A, 0x1A, 0x0A, 0x00])
 MFPC_MAGIC = b"MFPC"
-HEADER_PREFIX_LEN = 26
-SIGNATURE_MESSAGE_PREFIX = b"MFP-PACKAGE-v1"
+# Container v1.0 (plan-23 §4): fixed prefix = magic + container/binaryRepr
+# versions + flags; the signature block sits at the END of the header and
+# signs "MFP-PACKAGE-v2\0" || SHA-256(header bytes before the signature).
+HEADER_PREFIX_LEN = 20
+SIGNATURE_DOMAIN = b"MFP-PACKAGE-v2\x00"
+PROOF_DOMAIN = b"MFP-PROOF-v1\x00"
+ATTESTATION_DOMAIN = b"MFP-ATTEST-v1\x00"
 
 # Section ids (mirror src/binary_repr/mod.rs).
 SECTION_MANIFEST = 1
@@ -73,45 +78,59 @@ def _read_u64(data: bytes, off: int) -> int:
 
 @dataclass
 class MfpContainer:
-    """A parsed `.mfp` split into its mutable pieces."""
+    """A parsed container v1.0 `.mfp` split into its mutable pieces."""
 
-    header_prefix: bytes  # bytes[..26], including signature_type/length
-    signature: bytes  # the raw signature region (0 or 64 bytes)
+    header_prefix: bytes  # bytes[..20]: magic, versions, flags
     name: bytes
     ident: bytes
     version: bytes
-    ident_key: bytes
-    ident_fingerprint: bytes
-    signing_fingerprint: bytes
     author: bytes
     url: bytes
+    ident_key: bytes
+    signing_key: bytes
+    proof: bytes
+    proof_sig: bytes
+    attestation: bytes
+    attestation_sig: bytes
+    signature_type: int
+    signature: bytes  # 0 or 64 bytes
     binary_repr: bytes  # the inner MFPC payload
-
-    @property
-    def signature_type(self) -> int:
-        return _read_u16(self.header_prefix, 20)
 
     def with_binary_repr(self, binary_repr: bytes) -> "MfpContainer":
         self.binary_repr = binary_repr
         return self
 
-    def to_bytes(self) -> bytes:
+    def signed_prefix(self) -> bytes:
+        """Every header byte before the signature itself — what the package
+        signature covers. The packageBinaryHash is recomputed from the
+        current payload so structural mutators keep a parseable container."""
         out = bytearray()
         out += self.header_prefix
-        out += self.signature
         for field in (
             self.name,
             self.ident,
             self.version,
-            self.ident_key,
-            self.ident_fingerprint,
-            self.signing_fingerprint,
             self.author,
             self.url,
+            self.ident_key,
+            self.signing_key,
+            self.proof,
+            self.proof_sig,
+            self.attestation,
+            self.attestation_sig,
         ):
             out += _u32(len(field))
             out += field
+        out += hashlib.sha256(self.binary_repr).digest()
         out += _u64(len(self.binary_repr))
+        out += _u16(self.signature_type)
+        out += _u32(len(self.signature))
+        return bytes(out)
+
+    def to_bytes(self) -> bytes:
+        out = bytearray()
+        out += self.signed_prefix()
+        out += self.signature
         out += self.binary_repr
         return bytes(out)
 
@@ -127,64 +146,113 @@ def _read_length_prefixed(data: bytes, off: int) -> Tuple[bytes, int]:
 def parse_mfp(data: bytes) -> MfpContainer:
     if data[:8] != MFP_MAGIC:
         raise ValueError("not a .mfp package")
-    signature_length = _read_u32(data, 22)
     off = HEADER_PREFIX_LEN
-    signature = data[off : off + signature_length]
-    off += signature_length
     name, off = _read_length_prefixed(data, off)
     ident, off = _read_length_prefixed(data, off)
     version, off = _read_length_prefixed(data, off)
-    ident_key, off = _read_length_prefixed(data, off)
-    ident_fingerprint, off = _read_length_prefixed(data, off)
-    signing_fingerprint, off = _read_length_prefixed(data, off)
     author, off = _read_length_prefixed(data, off)
     url, off = _read_length_prefixed(data, off)
+    ident_key, off = _read_length_prefixed(data, off)
+    signing_key, off = _read_length_prefixed(data, off)
+    proof, off = _read_length_prefixed(data, off)
+    proof_sig, off = _read_length_prefixed(data, off)
+    attestation, off = _read_length_prefixed(data, off)
+    attestation_sig, off = _read_length_prefixed(data, off)
+    off += 32  # packageBinaryHash (recomputed on re-serialize)
     binary_repr_length = _read_u64(data, off)
     off += 8
+    signature_type = _read_u16(data, off)
+    signature_length = _read_u32(data, off + 2)
+    off += 6
+    signature = data[off : off + signature_length]
+    off += signature_length
     binary_repr = data[off : off + binary_repr_length]
     return MfpContainer(
         header_prefix=data[:HEADER_PREFIX_LEN],
-        signature=signature,
         name=name,
         ident=ident,
         version=version,
-        ident_key=ident_key,
-        ident_fingerprint=ident_fingerprint,
-        signing_fingerprint=signing_fingerprint,
         author=author,
         url=url,
+        ident_key=ident_key,
+        signing_key=signing_key,
+        proof=proof,
+        proof_sig=proof_sig,
+        attestation=attestation,
+        attestation_sig=attestation_sig,
+        signature_type=signature_type,
+        signature=signature,
         binary_repr=binary_repr,
     )
 
 
-def content_hash(data: bytes) -> bytes:
-    """Recompute the signed content hash: header + zeroed signature + rest."""
-    signature_length = _read_u32(data, 22)
-    signature_end = HEADER_PREFIX_LEN + signature_length
-    hasher = hashlib.sha256()
-    hasher.update(data[:HEADER_PREFIX_LEN])
-    hasher.update(b"\x00" * signature_length)
-    hasher.update(data[signature_end:])
-    return hasher.digest()
-
-
-def sign_container(container: MfpContainer, private_key_bytes: bytes) -> bytes:
-    """Return signed `.mfp` bytes for `container`, signed with an Ed25519 key."""
+def _ed25519(private_key_bytes: bytes):
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-    key = Ed25519PrivateKey.from_private_bytes(private_key_bytes)
+    return Ed25519PrivateKey.from_private_bytes(private_key_bytes)
 
-    # Reserve a 64-byte zeroed signature, set signature_type=1/length=64.
-    header = bytearray(container.header_prefix)
-    header[20:22] = _u16(1)
-    header[22:26] = _u32(64)
-    container.header_prefix = bytes(header)
+
+def _public_raw(private_key_bytes: bytes) -> bytes:
+    from cryptography.hazmat.primitives import serialization
+
+    return _ed25519(private_key_bytes).public_key().public_bytes(
+        serialization.Encoding.Raw, serialization.PublicFormat.Raw
+    )
+
+
+def _b64url(raw: bytes) -> str:
+    import base64
+
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _fingerprint(public_raw: bytes) -> str:
+    return hashlib.sha256(public_raw).hexdigest()
+
+
+def sign_container(
+    container: MfpContainer,
+    ident_private: bytes,
+    server_private: bytes,
+    signing_private: bytes,
+) -> bytes:
+    """Return signed container v1.0 `.mfp` bytes carrying the full plan-23
+    trust chain: identKey + one-off signingKey, an ident-signed proof, a
+    server-signed attestation, and the prefix signature by the one-off key."""
+    ident_public = _public_raw(ident_private)
+    signing_public = _public_raw(signing_private)
+    server_public = _public_raw(server_private)
+    ident_fp = _fingerprint(ident_public)
+    signing_fp = _fingerprint(signing_public)
+    ident = container.ident.decode("utf-8")
+    version = container.version.decode("utf-8")
+    owner = ident.split("#", 1)[0]
+
+    proof = (
+        f'{{"owner":"{owner}","ident":"{ident}","version":"{version}",'
+        f'"identFingerprint":"{ident_fp}","signingFingerprint":"{signing_fp}",'
+        f'"issued":1}}'
+    ).encode("utf-8")
+    proof_sig = _ed25519(ident_private).sign(PROOF_DOMAIN + proof)
+    attestation = (
+        f'{{"repoFingerprint":"{_fingerprint(server_public)}","owner":"{owner}",'
+        f'"ident":"{ident}","version":"{version}",'
+        f'"identFingerprint":"{ident_fp}","signingFingerprint":"{signing_fp}",'
+        f'"issued":1}}'
+    ).encode("utf-8")
+    attestation_sig = _ed25519(server_private).sign(ATTESTATION_DOMAIN + attestation)
+
+    container.ident_key = f"ed25519:{_b64url(ident_public)}".encode("ascii")
+    container.signing_key = f"ed25519:{_b64url(signing_public)}".encode("ascii")
+    container.proof = proof
+    container.proof_sig = proof_sig
+    container.attestation = attestation
+    container.attestation_sig = attestation_sig
+    container.signature_type = 1
     container.signature = b"\x00" * 64
-    unsigned = container.to_bytes()
 
-    digest = content_hash(unsigned)
-    message = SIGNATURE_MESSAGE_PREFIX + digest + container.ident + container.version
-    signature = key.sign(message)
+    message = SIGNATURE_DOMAIN + hashlib.sha256(container.signed_prefix()).digest()
+    signature = _ed25519(signing_private).sign(message)
     assert len(signature) == 64
     container.signature = signature
     return container.to_bytes()
@@ -548,40 +616,40 @@ def mutate_deep_body(data: bytes, depth: int = 300) -> bytes:
 
 # --- signing (PKG-01) -------------------------------------------------------
 #
-# A fixed, test-only Ed25519 private key so the signed fixtures and the trust
-# anchor pinned in the consumer `project.json` are reproducible. NEVER a real
-# signing key — it exists only to make the verification gate demonstrable.
-TEST_PRIVATE_KEY = bytes(range(1, 33))  # 0x01, 0x02, ... 0x20
+# Fixed, test-only Ed25519 private keys so the signed fixtures and the trust
+# anchor pinned in the consumer `project.json` are reproducible. NEVER real
+# keys — they exist only to make the verification gate demonstrable. Under
+# plan-23 the chain needs three: the ident key (the pinned trust anchor), the
+# registry server key (signs the attestation), and the one-off signing key.
+TEST_PRIVATE_KEY = bytes(range(1, 33))  # ident key: 0x01, 0x02, ... 0x20
+TEST_SERVER_PRIVATE_KEY = bytes(range(33, 65))
+TEST_SIGNING_PRIVATE_KEY = bytes(range(65, 97))
 
 
 def test_public_key() -> bytes:
-    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives import serialization
-
-    key = Ed25519PrivateKey.from_private_bytes(TEST_PRIVATE_KEY)
-    return key.public_key().public_bytes(
-        serialization.Encoding.Raw, serialization.PublicFormat.Raw
-    )
+    return _public_raw(TEST_PRIVATE_KEY)
 
 
 def test_ident_key() -> str:
     """The trust anchor to pin in the consumer `project.json` (`identKey`),
     matching the compiler's `ed25519:<base64url-no-pad>` format."""
-    import base64
-
-    encoded = base64.urlsafe_b64encode(test_public_key()).rstrip(b"=").decode("ascii")
-    return f"ed25519:{encoded}"
+    return f"ed25519:{_b64url(test_public_key())}"
 
 
 def mutate_sign_then_tamper(data: bytes) -> bytes:
-    """PKG-01: sign the package with the test key, then flip one body byte so the
-    recomputed content hash no longer matches the signature — a tampered signed
-    package the verifier must classify Tampered."""
-    signed = sign_container(parse_mfp(data), TEST_PRIVATE_KEY)
+    """PKG-01: sign the package with the full test chain, then flip one payload
+    byte AFTER signing so the recorded `packageBinaryHash` (inside the signed
+    prefix) no longer matches the payload — a tampered signed package the
+    verifier must classify Tampered."""
+    signed = sign_container(
+        parse_mfp(data),
+        TEST_PRIVATE_KEY,
+        TEST_SERVER_PRIVATE_KEY,
+        TEST_SIGNING_PRIVATE_KEY,
+    )
     tampered = bytearray(signed)
-    # Flip a byte inside the inner MFBR payload, past the header/signature and
-    # every length field, so the container still parses but the content hash
-    # differs. The last byte of the file is body content.
+    # The last byte of the file is inner MFBR body content: flipping it keeps
+    # the container parseable but breaks the header→payload hash weld.
     tampered[-1] ^= 0xFF
     return bytes(tampered)
 

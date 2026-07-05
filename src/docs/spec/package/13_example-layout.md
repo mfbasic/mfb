@@ -13,19 +13,21 @@ Produces conceptually:
 ```text
 MFPHeader
   magic
-  versions
-  signatureType
-  signatureLength
-  signature
+  versions (container 1.0)
   name = "mathstuff"
   ident = "ada#mathstuff"
   version = "1.0.0"
-  identKey = "ed25519-public:..."
-  identFingerprint = "sha256:..."
-  signingFingerprint = "sha256:..."
   author = "..."
   url = "..."
+  identKey = "ed25519:..."          (empty when unsigned)
+  signingKey = "ed25519:..."        (one-off key; empty when unsigned)
+  proof + proofSig                  (ident-signed; empty when unsigned)
+  attestation + attestationSig      (server-signed; empty when unsigned)
+  packageBinaryHash = SHA-256(packageBinaryRepr)
   binaryReprLength = N
+  signatureType
+  signatureLength
+  signature                         (by the one-off signing key)
 
 packageBinaryRepr
   BinaryReprHeader
@@ -34,9 +36,9 @@ packageBinaryRepr
     "mathstuff"
     "ada#mathstuff"
     "1.0.0"
-    "ed25519-public:..."
-    "sha256:..."
-    "sha256:..."
+    "ed25519:..."
+    "<hex ident fingerprint>"
+    "<hex signing fingerprint>"
     "add"
     "a"
     "b"

@@ -58,7 +58,7 @@ in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:
 | `/accounts/register` | POST | proof signatures | `RegisterRequest` | `RegisterResponse` | `repo register` |
 | `/auth/challenge` | POST | fingerprint match | `ChallengeRequest` | `ChallengeResponse` | `repo auth` (step 1) |
 | `/auth/login` | POST | challenge signature | `LoginRequest` | `LoginResponse` | `repo auth` (step 2) |
-| `/keys/signing` | POST | session token | `SigningInfoRequest` | `SigningInfoResponse` | `build --sign` |
+| `/signing` | POST | session token | `SigningRequest` | `SigningResponse` | `build --sign` |
 | `/validate` | POST | session token | `PackageArtifactRequest` | `ValidatePackageResponse` | `pkg publish` (step 1) |
 | `/publish` | POST | session token | `PackageArtifactRequest` | `PublishPackageResponse` | `pkg publish` (step 2) |
 
@@ -218,37 +218,52 @@ HS256 signature under the server secret, `exp` not in the past
 signature or expiry returns `expired or malformed session token`; an unknown
 `jti` returns `unknown session token`.[[repository/src/server.rs:verify_session_token]]
 
-## Signing Info — `/keys/signing`
+## Attestation Issuance — `POST /signing`
 
-Used by `build --sign` to learn the owner's current ident/signing key before
-signing a `.mfp`. Requires a session token.[[repository/src/client.rs:signing_info]]
+Used by `build --sign` (plan-23 §3.3): an authenticated build pre-registers
+its **one-off signing key** for one exact package+version and receives the
+server-signed **attestation** naming it. Requires a session
+token.[[repository/src/client.rs:request_attestation]]
 
-Request `SigningInfoRequest`:[[repository/src/server.rs:SigningInfoRequest]]
-
-```json
-{ "owner": "alice", "sessionToken": "<JWT>" }
-```
-
-Response `SigningInfoResponse`:[[repository/src/server.rs:SigningInfoResponse]]
+Request `SigningRequest`:[[repository/src/server.rs:SigningRequest]]
 
 ```json
 {
   "owner": "alice",
-  "identKey": "<base64url public key>",
-  "identFingerprint": "<hex>",
-  "signingKey": "<base64url public key>",
-  "signingFingerprint": "<hex>"
+  "ident": "alice#toolbox",
+  "version": "1.2.3",
+  "signingFingerprint": "<hex sha256 of the one-off public key>",
+  "sessionToken": "<JWT>"
 }
 ```
 
-In the reference server the ident and signing keys are the same key, so the two
-`*Key`/`*Fingerprint` pairs carry identical values (bare base64url — the
-`ed25519:` prefix is added client-side when the key is embedded in metadata).
-The server rejects the request if the session `sub` differs from the requested
-owner — an **exact, case-sensitive** string compare against the registered
-display form, unlike the case-folded ident-owner check at publish time — or if
-the session's `owner_id`/`auth_fingerprint` no longer match the current
-key.[[repository/src/server.rs:signing_info]]
+Response `SigningResponse`:[[repository/src/server.rs:SigningResponse]]
+
+```json
+{
+  "owner": "alice",
+  "attestation": "<the exact attestation JSON the server signed>",
+  "attestationSignature": "<base64url 64-byte Ed25519 signature>"
+}
+```
+
+Server checks, each a `400` refusal: the session verifies and its `sub` equals
+the requested owner (an **exact, case-sensitive** string compare against the
+registered display form, unlike the case-folded ident-owner check at publish
+time); the session's `owner_id`/`auth_fingerprint` still match the owner's
+current auth key; `ident` is `<owner>#<package>` whose owner part case-folds
+to the session owner; `version` is 1–64 bytes; `signingFingerprint` is 64
+lowercase hex characters; the owner has a current ident key. The request is
+**recorded before the server signs** (`signing_requests`), so a stolen auth
+session requesting attestations always leaves a trace; the transparency log
+(plan-23-B) builds on this. The attestation JSON and signature domain are
+specified in *signing*. The signature is made with the server's own keypair —
+the key served by `GET /ident`.[[repository/src/server.rs:signing]][[repository/src/store.rs:record_signing_request]]
+
+The client verifies the returned signature against its pinned `server.pub`
+before using the attestation, and refuses an attestation that does not pin the
+requested package or that names a different ident key than the machine
+holds.[[repository/src/client.rs:request_attestation]][[src/cli/build.rs:load_build_signing_info]]
 
 ## Package Artifact Requests
 

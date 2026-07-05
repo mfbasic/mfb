@@ -1,9 +1,10 @@
 Package: package_shape
 Ident: tests:package-shape
 Version: 1.0.0
-Ident Key: ed25519-public:test-package-shape-ident
-Ident Fingerprint: sha256:test-package-shape-ident
-Signing Fingerprint: sha256:test-package-shape-signing
+Ident Key: <empty>
+Signing Key: <empty>
+Proof: <none>
+Attestation: <none>
 Author: <empty>
 URL: <empty>
 Path: tests/package-shape/package_shape.mfp
@@ -15,16 +16,17 @@ Container:
   flags: 0x00000000
   signature type: unsigned
   signature length: 0
-  content hash: 0a324594a520a84d6eaee89a24989043c5ba0799e656867124c1e3b1e0b8293f
-  binary representation length: 3221
+  package binary hash: ecfd0b4ac4b53a6d56ba115018bafc19463bf49fd66058c8ad2f30fc8f5d18c9
+  content hash: 2c5d8b8cd0d7c0478244f53cc1717498cccba4902e5a81f6c6515717d24c85b4
+  binary representation length: 3106
 
 Manifest:
   name: package_shape
   ident: tests:package-shape
   version: 1.0.0
-  ident key: ed25519-public:test-package-shape-ident
-  ident fingerprint: sha256:test-package-shape-ident
-  signing fingerprint: sha256:test-package-shape-signing
+  ident key: <empty>
+  ident fingerprint: <empty>
+  signing fingerprint: <empty>
   author: <empty>
   url: <empty>
 
