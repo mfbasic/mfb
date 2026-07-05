@@ -60,9 +60,7 @@ pub(crate) fn show_spec(args: &[String]) -> Result<(), String> {
         }
         [package_name, topic_name] => {
             if all {
-                return Err(
-                    "mfb spec --all cannot be combined with a subtopic".to_string()
-                );
+                return Err("mfb spec --all cannot be combined with a subtopic".to_string());
             }
             let package = spec::package(package_name)
                 .ok_or_else(|| unknown_spec_package_error(package_name))?;
@@ -220,4 +218,117 @@ fn unknown_spec_package_error(package_name: &str) -> String {
         .collect::<Vec<_>>()
         .join(", ");
     format!("unknown spec topic `{package_name}`\n\nAvailable topics: {packages}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn parse_spec_width_clamps_and_rejects_non_numbers() {
+        assert_eq!(parse_spec_width("40"), Ok(40));
+        // Below/above the clamp bounds are pinned to [20, 1000].
+        assert_eq!(parse_spec_width("5"), Ok(20));
+        assert_eq!(parse_spec_width("100000"), Ok(1000));
+        let err = parse_spec_width("wide").unwrap_err();
+        assert!(err.contains("invalid --width value `wide`"));
+    }
+
+    #[test]
+    fn unknown_spec_package_error_lists_available_topics() {
+        let err = unknown_spec_package_error("nope");
+        assert!(err.contains("unknown spec topic `nope`"));
+        assert!(err.contains("Available topics: "));
+        // A real package name appears in the listing.
+        assert!(err.contains("architecture"));
+    }
+
+    #[test]
+    fn escape_spec_cell_escapes_pipes() {
+        assert_eq!(escape_spec_cell("a|b|c"), "a\\|b\\|c");
+        assert_eq!(escape_spec_cell("plain"), "plain");
+    }
+
+    #[test]
+    fn detect_terminal_width_prefers_columns_env() {
+        // Serialize on the process-global env by using a distinctive value and
+        // restoring it. COLUMNS parses and clamps into [20, 1000].
+        let previous = env::var("COLUMNS").ok();
+        std::env::set_var("COLUMNS", "137");
+        assert_eq!(detect_terminal_width(), 137);
+        std::env::set_var("COLUMNS", "999999");
+        assert_eq!(detect_terminal_width(), 1000);
+        match previous {
+            Some(value) => std::env::set_var("COLUMNS", value),
+            None => std::env::remove_var("COLUMNS"),
+        }
+    }
+
+    #[test]
+    fn show_spec_index_succeeds_with_no_arguments() {
+        assert!(show_spec(&s(&["--width", "80", "--no-color"])).is_ok());
+    }
+
+    #[test]
+    fn show_spec_all_with_no_topic_is_an_error() {
+        let err = show_spec(&s(&["--all"])).unwrap_err();
+        assert!(err.contains("mfb spec --all requires a topic"));
+    }
+
+    #[test]
+    fn show_spec_renders_a_known_package() {
+        assert!(show_spec(&s(&["architecture", "--no-color", "--width=80"])).is_ok());
+        // `--all` expands every subtopic page.
+        assert!(show_spec(&s(&["architecture", "--all", "--no-color"])).is_ok());
+    }
+
+    #[test]
+    fn show_spec_renders_a_known_subtopic() {
+        assert!(show_spec(&s(&["architecture", "native", "--no-color"])).is_ok());
+    }
+
+    #[test]
+    fn show_spec_rejects_unknown_package() {
+        let err = show_spec(&s(&["definitely-not-a-topic"])).unwrap_err();
+        assert!(err.contains("unknown spec topic"));
+    }
+
+    #[test]
+    fn show_spec_rejects_unknown_subtopic() {
+        let err = show_spec(&s(&["architecture", "definitely-not-a-subtopic"])).unwrap_err();
+        assert!(err.contains("unknown topic"));
+    }
+
+    #[test]
+    fn show_spec_rejects_all_with_subtopic() {
+        let err = show_spec(&s(&["architecture", "native", "--all"])).unwrap_err();
+        assert!(err.contains("--all cannot be combined with a subtopic"));
+    }
+
+    #[test]
+    fn show_spec_rejects_too_many_positionals() {
+        let err = show_spec(&s(&["a", "b", "c"])).unwrap_err();
+        assert!(err.contains("at most two arguments"));
+    }
+
+    #[test]
+    fn show_spec_rejects_unknown_option() {
+        let err = show_spec(&s(&["--bogus"])).unwrap_err();
+        assert!(err.contains("unknown option `--bogus`"));
+    }
+
+    #[test]
+    fn show_spec_width_flag_requires_a_value() {
+        let err = show_spec(&s(&["--width"])).unwrap_err();
+        assert!(err.contains("--width requires a number"));
+    }
+
+    #[test]
+    fn show_spec_accepts_color_flag() {
+        assert!(show_spec(&s(&["--color", "architecture"])).is_ok());
+    }
 }

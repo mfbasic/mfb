@@ -1070,6 +1070,10 @@ fn lower_statement(
             }];
             let mut match_locals = locals.clone();
             match_locals.insert(matched_name.clone(), matched_type);
+            // coverage:off -- a `Result OF ...`-typed MATCH scrutinee is rejected
+            // before lowering (TYPE_RESULT_NOT_MATCHABLE; see the
+            // `result-not-matchable-invalid` fixture), so this Result-flag branch
+            // is unreachable from valid source; kept for plan-20 total lowering.
             let match_value = if match_locals[&matched_name].starts_with("Result OF ") {
                 let match_flag_name = make_temp_local_name(context, "match_ok");
                 ops.push(IrOp::Bind {
@@ -1087,6 +1091,7 @@ fn lower_statement(
             } else {
                 IrValue::Local(matched_name.clone())
             };
+            // coverage:on
             ops.push(IrOp::Match {
                 value: match_value,
                 cases: cases
@@ -1681,6 +1686,9 @@ fn lower_match_case(
         MatchPattern::Literal(expression) => {
             IrMatchPattern::Value(lower_expression(expression, locals, context))
         }
+        // coverage:off -- reachable only for a `Result OF ...` scrutinee, which is
+        // rejected before lowering (TYPE_RESULT_NOT_MATCHABLE); kept for plan-20
+        // total lowering when the AST checker is bypassed.
         MatchPattern::Union { type_name, .. } if matched_type.starts_with("Result OF ") => {
             let matched = match type_name.as_str() {
                 "Ok" => "true",
@@ -1692,6 +1700,7 @@ fn lower_match_case(
                 value: matched.to_string(),
             })
         }
+        // coverage:on
         MatchPattern::Union { type_name, .. } => {
             IrMatchPattern::Value(IrValue::Local(type_name.clone()))
         }
@@ -1744,6 +1753,9 @@ fn match_case_binding(
 ) -> Option<(String, String, IrValue)> {
     match pattern {
         MatchPattern::Union { type_name, binding } => {
+            // coverage:off -- a `Result OF ...` scrutinee is rejected before
+            // lowering (TYPE_RESULT_NOT_MATCHABLE); this Ok/Error case binding is
+            // kept only for plan-20 total lowering when the checker is bypassed.
             if let Some(success) = matched_type.strip_prefix("Result OF ") {
                 return match type_name.as_str() {
                     "Ok" => Some((
@@ -1764,6 +1776,7 @@ fn match_case_binding(
                     _ => None,
                 };
             }
+            // coverage:on
             Some((
                 binding.clone(),
                 type_name.clone(),

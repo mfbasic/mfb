@@ -140,7 +140,10 @@ impl ToIrJson for IrType {
                 pad,
                 pad
             ),
+            // coverage:off -- defensive: lowering only ever produces the three
+            // kinds above ("type"/"union"/"enum"); any other kind is a bug.
             _ => unreachable!("known IR type kind"),
+            // coverage:on
         }
     }
 }

@@ -35,3 +35,23 @@ impl Backend for X86_64Backend {
         8
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::code::mir::lower_to_mir;
+
+    #[test]
+    fn backend_selects_and_reports_model_and_padding() {
+        let backend = X86_64Backend;
+        // select() lowers neutral MIR to x86 CodeInstructions.
+        let mir = lower_to_mir(&[CodeInstruction::new("ret")]);
+        let out = backend.select(&mir);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].op.mnemonic(), "ret");
+        // The register model is the SysV x86-64 model (arena_base = r15).
+        assert_eq!(backend.register_model().arena_base(), "r15");
+        // The frame absorbs the 8-byte return address.
+        assert_eq!(backend.frame_call_padding(), 8);
+    }
+}

@@ -1,3 +1,12 @@
+//! `mfb repo`/`key`/`org`/`token`/`machine` account commands.
+//!
+//! coverage:off (success arms) — every non-Usage code path here performs live
+//! HTTP against a registry (register/auth/link/trust/rotate/grant/issue/revoke)
+//! and mutates on-disk key material, so it cannot run in a unit test. The unit
+//! tests below cover the pure argument-shape validation (the `Usage` arms); the
+//! network success paths are exercised by the tests/ registry integration
+//! harness.
+
 use std::io::BufRead;
 
 pub(crate) enum RepoCommandError {
@@ -115,8 +124,7 @@ pub(crate) fn run_key_command(args: &[String]) -> Result<(), RepoCommandError> {
     match args {
         [command, owner] if command == "rotate" => {
             let repo_url = mfb_repository::client::repo_url_from_env();
-            let paths =
-                super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
+            let paths = super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
             let response = mfb_repository::client::rotate_ident(&repo_url, &paths, owner)
                 .map_err(RepoCommandError::Failed)?;
             println!(
@@ -225,15 +233,10 @@ pub(crate) fn run_machine_command(args: &[String]) -> Result<(), RepoCommandErro
     match args {
         [command, owner, fingerprint] if command == "revoke" => {
             let repo_url = mfb_repository::client::repo_url_from_env();
-            let paths =
-                super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
-            let response = mfb_repository::client::revoke_machine(
-                &repo_url,
-                &paths,
-                owner,
-                fingerprint,
-            )
-            .map_err(RepoCommandError::Failed)?;
+            let paths = super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
+            let response =
+                mfb_repository::client::revoke_machine(&repo_url, &paths, owner, fingerprint)
+                    .map_err(RepoCommandError::Failed)?;
             println!(
                 "Revoked auth key {} for owner {}; its sessions are closed.",
                 response.auth_fingerprint, response.owner
@@ -249,5 +252,118 @@ pub(crate) fn run_machine_command(args: &[String]) -> Result<(), RepoCommandErro
         [] => Err(RepoCommandError::Usage(
             "mfb machine requires a subcommand (revoke)".to_string(),
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    fn usage(result: Result<(), RepoCommandError>) -> String {
+        match result {
+            Err(RepoCommandError::Usage(message)) => message,
+            Err(RepoCommandError::Failed(message)) => {
+                panic!("expected a usage error, got failure: {message}")
+            }
+            Ok(()) => panic!("expected a usage error, got Ok"),
+        }
+    }
+
+    // These tests exercise only the pure argument-shape validation of each
+    // subcommand dispatcher: the arms that reject a wrong argument count with a
+    // `Usage` error return before any registry/network call. The success arms
+    // (register/auth/link/trust/rotate/grant/issue/revoke) all perform live
+    // HTTP against a registry and are covered by the tests/ integration harness.
+
+    #[test]
+    fn repo_requires_a_subcommand() {
+        let message = usage(run_repo_command(&s(&[])));
+        assert!(message.contains("register, auth, or link"));
+    }
+
+    #[test]
+    fn repo_register_requires_exactly_one_owner() {
+        assert!(usage(run_repo_command(&s(&["register"]))).contains("exactly one <owner_name>"));
+        assert!(usage(run_repo_command(&s(&["register", "a", "b"])))
+            .contains("exactly one <owner_name>"));
+    }
+
+    #[test]
+    fn repo_auth_requires_exactly_one_owner() {
+        assert!(usage(run_repo_command(&s(&["auth"]))).contains("exactly one <owner_name>"));
+        assert!(
+            usage(run_repo_command(&s(&["auth", "a", "b"]))).contains("exactly one <owner_name>")
+        );
+    }
+
+    #[test]
+    fn repo_trust_requires_registry_and_fingerprint() {
+        assert!(
+            usage(run_repo_command(&s(&["trust"]))).contains("<registry-id> <root-fingerprint>")
+        );
+        assert!(usage(run_repo_command(&s(&["trust", "only-one"])))
+            .contains("<registry-id> <root-fingerprint>"));
+    }
+
+    #[test]
+    fn repo_link_rejects_bad_argument_shapes() {
+        // No arguments at all, or too many after `--start`, are usage errors
+        // that return before any network/stdin interaction. (`link <owner>` and
+        // `link --start <owner>` are the success arms, covered by tests/.)
+        assert!(usage(run_repo_command(&s(&["link"]))).contains("mfb repo link requires"));
+        assert!(usage(run_repo_command(&s(&["link", "--start", "a", "b"])))
+            .contains("mfb repo link requires"));
+    }
+
+    #[test]
+    fn repo_rejects_unknown_command() {
+        assert!(usage(run_repo_command(&s(&["frobnicate"]))).contains("unknown mfb repo command"));
+    }
+
+    #[test]
+    fn key_rotate_requires_exactly_one_owner() {
+        assert!(usage(run_key_command(&s(&["rotate"]))).contains("exactly one <owner_name>"));
+        assert!(
+            usage(run_key_command(&s(&["rotate", "a", "b"]))).contains("exactly one <owner_name>")
+        );
+    }
+
+    #[test]
+    fn key_requires_a_subcommand_and_rejects_unknown() {
+        assert!(usage(run_key_command(&s(&[]))).contains("mfb key requires a subcommand"));
+        assert!(usage(run_key_command(&s(&["bogus"]))).contains("unknown mfb key command"));
+    }
+
+    #[test]
+    fn org_rejects_bad_argument_shapes() {
+        // No subcommand, wrong arity, or a dangling `--as`.
+        assert!(usage(run_org_command(&s(&[]))).contains("mfb org grant"));
+        assert!(usage(run_org_command(&s(&["grant", "org"]))).contains("mfb org grant"));
+        assert!(usage(run_org_command(&s(&["--as"]))).contains("--as requires <grantor>"));
+    }
+
+    #[test]
+    fn token_rejects_bad_argument_shapes() {
+        assert!(usage(run_token_command(&s(&[]))).contains("mfb token issue"));
+        assert!(
+            usage(run_token_command(&s(&["issue", "owner", "scope"]))).contains("mfb token issue")
+        );
+        // A non-integer ttl is a usage error.
+        assert!(
+            usage(run_token_command(&s(&["issue", "owner", "scope", "soon"])))
+                .contains("<ttl-seconds> must be an integer")
+        );
+    }
+
+    #[test]
+    fn machine_rejects_bad_argument_shapes() {
+        assert!(usage(run_machine_command(&s(&[]))).contains("mfb machine requires a subcommand"));
+        assert!(usage(run_machine_command(&s(&["bogus"]))).contains("unknown mfb machine command"));
+        assert!(usage(run_machine_command(&s(&["revoke", "owner"])))
+            .contains("<owner_name> <auth-fingerprint>"));
     }
 }

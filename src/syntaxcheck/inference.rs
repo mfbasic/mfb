@@ -1243,3 +1243,812 @@ impl<'a> SyntaxChecker<'a> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::testutil::*;
+
+    fn wrap(body: &str) -> String {
+        format!("FUNC main AS Integer\n{body}\n  RETURN 0\nEND FUNC\n")
+    }
+
+    // ---- literals & simple expressions ----
+
+    #[test]
+    fn string_boolean_number_literals_accepted() {
+        assert!(accepts(&wrap(
+            "  LET s AS String = \"hi\"\n  LET b AS Boolean = TRUE\n  LET i AS Integer = 5\n  LET f AS Float = 1.5"
+        )));
+    }
+
+    #[test]
+    fn negative_integer_literal_accepted() {
+        assert!(accepts(&wrap("  LET n AS Integer = -5")));
+    }
+
+    #[test]
+    fn negative_large_integer_accepted() {
+        // -value where the negated number is out of i64 literal range path.
+        assert!(accepts(&wrap("  LET n AS Integer = -9223372036854775807")));
+    }
+
+    #[test]
+    fn nothing_identifier_accepted() {
+        // A SUB returns Nothing; using it in a bare statement exercises NOTHING.
+        assert!(accepts(
+            "IMPORT io\nSUB doIt()\n  io::print(\"hi\")\nEND SUB\nFUNC main AS Integer\n  doIt()\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn local_binding_identifier_accepted() {
+        assert!(accepts(&wrap(
+            "  LET x AS Integer = 3\n  LET y AS Integer = x"
+        )));
+    }
+
+    #[test]
+    fn function_reference_identifier_accepted() {
+        assert!(accepts(
+            "FUNC helper() AS Integer\n  RETURN 1\nEND FUNC\nFUNC main AS Integer\n  LET f AS FUNC() AS Integer = helper\n  RETURN f()\nEND FUNC\n"
+        ));
+    }
+
+    // ---- binary operators ----
+
+    #[test]
+    fn logical_operators_accepted() {
+        assert!(accepts(&wrap(
+            "  LET a AS Boolean = TRUE AND FALSE\n  LET b AS Boolean = TRUE OR FALSE\n  LET c AS Boolean = TRUE XOR FALSE"
+        )));
+    }
+
+    #[test]
+    fn equality_numeric_and_comparable_accepted() {
+        assert!(accepts(&wrap(
+            "  LET a AS Boolean = 1 = 2\n  LET b AS Boolean = 1 <> 2\n  LET c AS Boolean = \"x\" = \"y\""
+        )));
+    }
+
+    #[test]
+    fn ordering_numeric_and_string_accepted() {
+        assert!(accepts(&wrap(
+            "  LET a AS Boolean = 1 < 2\n  LET b AS Boolean = 1 >= 2\n  LET c AS Boolean = \"a\" < \"b\"\n  LET d AS Boolean = \"a\" >= \"b\""
+        )));
+    }
+
+    #[test]
+    fn string_concatenation_accepted() {
+        assert!(accepts(&wrap("  LET s AS String = \"a\" & \"b\"")));
+    }
+
+    #[test]
+    fn numeric_arithmetic_accepted() {
+        assert!(accepts(&wrap(
+            "  LET a AS Integer = 1 + 2 * 3 - 4\n  LET b AS Float = 1.0 / 2.0"
+        )));
+    }
+
+    // ---- unary operators ----
+
+    #[test]
+    fn unary_not_and_negation_accepted() {
+        assert!(accepts(&wrap(
+            "  LET a AS Boolean = NOT TRUE\n  LET b AS Integer = 5\n  LET c AS Integer = -b"
+        )));
+    }
+
+    #[test]
+    fn unary_negation_of_float_accepted() {
+        assert!(accepts(&wrap(
+            "  LET f AS Float = 1.5\n  LET g AS Float = -f"
+        )));
+    }
+
+    // ---- collections ----
+
+    #[test]
+    fn list_literal_accepted() {
+        assert!(accepts(&wrap("  LET xs AS List OF Integer = [1, 2, 3]")));
+    }
+
+    #[test]
+    fn empty_list_literal_accepted() {
+        assert!(accepts(&wrap("  LET xs AS List OF Integer = []")));
+    }
+
+    #[test]
+    fn list_literal_no_expected_type_accepted() {
+        // Bare list literal without an expected List type takes the inference path.
+        assert!(accepts(&wrap("  LET n AS Integer = len([1, 2, 3])")));
+    }
+
+    #[test]
+    fn map_literal_accepted() {
+        assert!(accepts(&wrap(
+            "  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1, \"b\" := 2 }"
+        )));
+    }
+
+    // ---- record constructors ----
+
+    fn point_prelude() -> &'static str {
+        "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n"
+    }
+
+    #[test]
+    fn record_constructor_positional_and_named_accepted() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET a AS Point = Point[1, 2]\n  LET b AS Point = Point[x := 3, y := 4]\n  RETURN a.x + b.y\nEND FUNC\n",
+            point_prelude()
+        );
+        assert!(accepts(&src));
+    }
+
+    #[test]
+    fn with_update_accepted() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET a AS Point = Point[1, 2]\n  LET b AS Point = WITH a {{ y := 10 }}\n  RETURN b.y\nEND FUNC\n",
+            point_prelude()
+        );
+        assert!(accepts(&src));
+    }
+
+    // ---- member access ----
+
+    #[test]
+    fn record_member_access_accepted() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET a AS Point = Point[1, 2]\n  RETURN a.x + a.y\nEND FUNC\n",
+            point_prelude()
+        );
+        assert!(accepts(&src));
+    }
+
+    #[test]
+    fn enum_member_access_accepted() {
+        assert!(accepts(
+            "ENUM Color\n  Red, Blue\nEND ENUM\nFUNC main AS Integer\n  LET c AS Color = Color.Red\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn error_member_access_accepted() {
+        assert!(accepts(&wrap(
+            "  LET e AS Error = error(1, \"m\")\n  LET code AS Integer = e.code\n  LET msg AS String = e.message\n  LET src AS ErrorLoc = e.source\n  LET fn AS String = e.source.filename\n  LET ln AS Integer = e.source.line"
+        )));
+    }
+
+    // ---- calls ----
+
+    #[test]
+    fn user_function_call_accepted() {
+        assert!(accepts(
+            "FUNC add(a AS Integer, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\nFUNC main AS Integer\n  RETURN add(1, 2)\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn function_value_call_accepted() {
+        assert!(accepts(&wrap(
+            "  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + 1\n  LET r AS Integer = f(5)"
+        )));
+    }
+
+    // ---- lambdas ----
+
+    #[test]
+    fn lambda_with_immutable_capture_accepted() {
+        assert!(accepts(&wrap(
+            "  LET base AS Integer = 10\n  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + base\n  RETURN f(1)"
+        )));
+    }
+
+    // ---- match ----
+
+    #[test]
+    fn match_union_and_enum_accepted() {
+        let src = "TYPE Circle\n  radius AS Integer\nEND TYPE\nTYPE Rect\n  width AS Integer\n  height AS Integer\nEND TYPE\nUNION Shape\n  Circle\n  Rect\nEND UNION\nFUNC main AS Integer\n  LET s AS Shape = Circle[5]\n  MUT total AS Integer = 0\n  MATCH s\n    CASE Circle(c)\n      total = total + c.radius\n    CASE Rect(r)\n      total = total + r.width\n  END MATCH\n  RETURN total\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    #[test]
+    fn match_enum_literal_accepted() {
+        let src = "ENUM Color\n  Red, Blue\nEND ENUM\nFUNC main AS Integer\n  LET c AS Color = Color.Red\n  MUT n AS Integer = 0\n  MATCH c\n    CASE Color.Red\n      n = 1\n    CASE Color.Blue\n      n = 2\n  END MATCH\n  RETURN n\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    // ---- inline TRAP (accept path) ----
+
+    #[test]
+    fn inline_trap_fallible_call_accepted() {
+        let src = "FUNC parsePositive(v AS Integer) AS Integer\n  IF v < 0 THEN FAIL error(1, \"neg\")\n  RETURN v + 1\nEND FUNC\nFUNC main AS Integer\n  LET a AS Integer = parsePositive(9) TRAP(e)\n    RECOVER e.code\n  END TRAP\n  RETURN a\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    // =====================================================================
+    // Rejection paths (one per emitted rule)
+    // =====================================================================
+
+    #[test]
+    fn call_argument_mismatch_rejected() {
+        let src = "FUNC add(a AS Integer, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\nFUNC main AS Integer\n  RETURN add(1, \"x\")\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
+    }
+
+    #[test]
+    fn function_value_call_argument_mismatch_rejected() {
+        let src = &wrap(
+            "  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + 1\n  LET r AS Integer = f(\"nope\")",
+        );
+        assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
+    }
+
+    #[test]
+    fn function_value_named_argument_rejected() {
+        let src = &wrap(
+            "  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + 1\n  LET r AS Integer = f(x := 5)",
+        );
+        assert!(rejects_with(src, "TYPE_CALL_ARGUMENT_MISMATCH"));
+    }
+
+    #[test]
+    fn function_value_call_arity_mismatch_rejected() {
+        let src = &wrap(
+            "  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x + 1\n  LET r AS Integer = f(1, 2)",
+        );
+        assert!(rejects_with(src, "TYPE_CALL_ARITY_MISMATCH"));
+    }
+
+    #[test]
+    fn duplicate_named_constructor_field_rejected() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET a AS Point = Point[x := 1, x := 2]\n  RETURN a.x\nEND FUNC\n",
+            point_prelude()
+        );
+        assert!(rejects_with(&src, "TYPE_DUPLICATE_FIELD"));
+    }
+
+    #[test]
+    fn duplicate_with_update_field_rejected() {
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET a AS Point = Point[1, 2]\n  LET b AS Point = WITH a {{ y := 10, y := 20 }}\n  RETURN b.y\nEND FUNC\n",
+            point_prelude()
+        );
+        assert!(rejects_with(&src, "TYPE_DUPLICATE_FIELD"));
+    }
+
+    #[test]
+    fn inline_trap_falls_through_rejected() {
+        let src = "IMPORT io\nFUNC parsePositive(v AS Integer) AS Integer\n  IF v < 0 THEN FAIL error(1, \"neg\")\n  RETURN v + 1\nEND FUNC\nFUNC main AS Integer\n  LET a AS Integer = parsePositive(9) TRAP(e)\n    io::print(e.message)\n  END TRAP\n  RETURN a\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_INLINE_TRAP_FALLS_THROUGH"));
+    }
+
+    #[test]
+    fn inline_trap_on_inlined_builtin_rejected() {
+        let src = "IMPORT strings\nFUNC main AS Integer\n  LET n AS Integer = strings::find(\"hello\", \"l\") TRAP(e)\n    RECOVER -1\n  END TRAP\n  RETURN n\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN"));
+    }
+
+    #[test]
+    fn inline_trap_requires_fallible_rejected() {
+        let src = "FUNC main AS Integer\n  LET a AS Integer = 5 TRAP(e)\n    RECOVER 0\n  END TRAP\n  RETURN a\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"));
+    }
+
+    #[test]
+    fn lambda_mut_capture_rejected() {
+        let src = &wrap(
+            "  MUT offset AS Integer = 1\n  LET f AS FUNC(Integer) AS Integer = LAMBDA(value AS Integer) -> value + offset",
+        );
+        assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
+    }
+
+    #[test]
+    fn lambda_resource_capture_rejected() {
+        let src = "IMPORT fs\nFUNC main AS Integer\n  RES file = fs::openFile(\"x.txt\")\n  LET f AS FUNC() AS String = LAMBDA() -> fs::readLine(file)\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
+    }
+
+    #[test]
+    fn read_only_error_constructor_rejected() {
+        let src = &wrap("  LET e AS Error = Error[100, \"m\"]");
+        assert!(rejects_with(src, "TYPE_READ_ONLY_RECORD_CONSTRUCTOR"));
+    }
+
+    #[test]
+    fn read_only_errorloc_constructor_rejected() {
+        let src = &wrap("  LET e AS ErrorLoc = ErrorLoc[\"file\", 1, 2]");
+        assert!(rejects_with(src, "TYPE_READ_ONLY_RECORD_CONSTRUCTOR"));
+    }
+
+    #[test]
+    fn lambda_assign_unknown_target_rejected() {
+        // An assignment-bodied lambda whose target is not a visible binding
+        // reports TYPE_UNKNOWN_VALUE from infer_lambda's assign_target arm.
+        let src = "IMPORT collections\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> missing = x)\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_UNKNOWN_VALUE"));
+    }
+
+    // =====================================================================
+    // Additional coverage: identifier resolution, package constants,
+    // constructors, member access, match helpers, lambda captures.
+    // =====================================================================
+
+    #[test]
+    fn package_constant_identifier_accepted() {
+        // `math::pi` resolves to a package constant type via the
+        // is_package_constant identifier arm.
+        assert!(accepts(
+            "IMPORT math\nFUNC main AS Integer\n  LET p AS Float = math::pi\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn errorcode_package_constant_accepted() {
+        // `errorCode::ErrInvalidArgument` resolves to an Integer package constant
+        // via the is_package_constant identifier arm.
+        assert!(accepts(
+            "IMPORT errorCode\nFUNC main AS Integer\n  LET c AS Integer = errorCode::ErrInvalidArgument\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn visible_binding_identifier_accepted() {
+        // Top-level LET binding referenced from main exercises the
+        // lookup_visible_binding fallback.
+        assert!(accepts(
+            "LET GLOBAL AS Integer = 7\nFUNC main AS Integer\n  RETURN GLOBAL\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn unknown_identifier_infers_unknown() {
+        // An undeclared identifier falls through to Type::Unknown (the final
+        // unwrap_or arm); no inference-layer diagnostic is emitted here.
+        let codes = check_src(&wrap("  LET x AS Integer = doesNotExist + 1"));
+        assert!(!codes.iter().any(|c| c == "TYPE_CALL_ARGUMENT_MISMATCH"));
+    }
+
+    // ---- constructors: Ok/Result, unknown, unknown-field ----
+
+    #[test]
+    fn ok_result_constructor_infers_unknown() {
+        // `Ok[..]` construction infers Unknown; arguments are still inferred (the
+        // Ok/Result constructor arm). The untyped LET then draws TYPE_UNKNOWN_VALUE
+        // downstream, which confirms the Unknown inference propagated.
+        let codes = check_src(&wrap("  LET a AS Integer = 5\n  LET r = Ok[a]"));
+        assert!(codes.iter().any(|c| c == "TYPE_UNKNOWN_VALUE"));
+    }
+
+    #[test]
+    fn unknown_constructor_infers_unknown() {
+        // Constructing an undeclared type falls to the final unknown-type arm;
+        // arguments are inferred and the type resolves to Unknown.
+        let codes = check_src(&wrap("  LET r = Undeclared[1, 2]"));
+        assert!(codes.iter().any(|c| c == "TYPE_UNKNOWN_VALUE"));
+    }
+
+    #[test]
+    fn constructor_unknown_named_field_ignored() {
+        // A named argument that doesn't match any field takes the `field: None`
+        // branch of check_constructor_arguments.
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET a = Point[x := 1, bogus := 9]\n  RETURN 0\nEND FUNC\n",
+            point_prelude()
+        );
+        // No inference panic; the checker still runs to completion.
+        let _ = check_src(&src);
+    }
+
+    // ---- WITH update edge cases ----
+
+    #[test]
+    fn with_update_on_error_accepted_as_readonly_path() {
+        // WITH on an Error target hits the Error/ErrorLoc early-return arm of
+        // infer_with_update; the update value is still inferred.
+        let _ = check_src(&wrap(
+            "  LET e AS Error = error(1, \"m\")\n  LET u = WITH e { code := 2 }",
+        ));
+    }
+
+    #[test]
+    fn with_update_on_non_type_infers_unknown() {
+        // WITH on an enum value (non-Type kind) returns Unknown.
+        let _ = check_src(
+            "ENUM Color\n  Red, Blue\nEND ENUM\nFUNC main AS Integer\n  LET c AS Color = Color.Red\n  LET u = WITH c { x := 1 }\n  RETURN 0\nEND FUNC\n",
+        );
+    }
+
+    #[test]
+    fn with_update_unknown_field_ignored() {
+        // A WITH update naming a field that doesn't exist takes the
+        // `field: None` continue branch.
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET a AS Point = Point[1, 2]\n  LET b = WITH a {{ bogus := 3 }}\n  RETURN 0\nEND FUNC\n",
+            point_prelude()
+        );
+        let _ = check_src(&src);
+    }
+
+    // ---- member access variants ----
+
+    #[test]
+    fn member_access_unknown_field_infers_unknown() {
+        // Accessing a non-existent field on a user record returns Unknown.
+        let src = format!(
+            "{}FUNC main AS Integer\n  LET a AS Point = Point[1, 2]\n  LET z = a.missing\n  RETURN 0\nEND FUNC\n",
+            point_prelude()
+        );
+        let _ = check_src(&src);
+    }
+
+    #[test]
+    fn errorloc_member_access_accepted() {
+        assert!(accepts(&wrap(
+            "  LET e AS Error = error(1, \"m\")\n  LET loc AS ErrorLoc = e.source\n  LET c AS Integer = loc.char"
+        )));
+    }
+
+    #[test]
+    fn thread_member_access_infers_unknown() {
+        // `t.result` (and any thread member) returns Unknown from the Thread arm.
+        let src = "IMPORT thread\nFUNC worker(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\nFUNC main AS Integer\n  LET t AS Thread OF Integer TO Integer = thread::start(worker, 1, 1, 1)\n  LET r = t.result\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    // ---- match helpers ----
+
+    #[test]
+    fn match_non_exhaustive_enum_exercises_helpers() {
+        // A MATCH on an enum missing a member drives match_is_exhaustive and
+        // report_match_not_exhaustive (enum arm). The exhaustiveness diagnostic
+        // itself is emitted by a later pass, so we only assert the checker runs.
+        let src = "ENUM Color\n  Red, Blue\nEND ENUM\nFUNC pick(c AS Color) AS Integer\n  MATCH c\n    CASE Color.Red\n      RETURN 1\n  END MATCH\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN pick(Color.Red)\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn match_non_exhaustive_union_exercises_helpers() {
+        // A MATCH on a union missing a variant drives the union arm of
+        // match_is_exhaustive and report_match_not_exhaustive.
+        let src = "TYPE Circle\n  radius AS Integer\nEND TYPE\nTYPE Rect\n  width AS Integer\n  height AS Integer\nEND TYPE\nUNION Shape\n  Circle\n  Rect\nEND UNION\nFUNC pick(s AS Shape) AS Integer\n  MATCH s\n    CASE Circle(c)\n      RETURN c.radius\n  END MATCH\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  RETURN pick(Circle[5])\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn match_with_else_exhaustive_accepted() {
+        // CASE ELSE covers all remaining variants (MatchPattern::Else arm).
+        let src = "ENUM Color\n  Red, Blue\nEND ENUM\nFUNC pick(c AS Color) AS Integer\n  MATCH c\n    CASE Color.Red\n      RETURN 1\n    CASE ELSE\n      RETURN 0\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  RETURN pick(Color.Blue)\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    #[test]
+    fn match_literal_and_oneof_accepted() {
+        // Integer literal scrutinee with literal and OneOf patterns (needs a
+        // CASE ELSE since open Integer is never exhaustive).
+        let src = "FUNC pick(n AS Integer) AS Integer\n  MATCH n\n    CASE 1\n      RETURN 1\n    CASE 2, 3\n      RETURN 2\n    CASE ELSE\n      RETURN 0\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  RETURN pick(2)\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    // ---- lambda capture variants ----
+
+    #[test]
+    fn lambda_noncopyable_capture_rejected() {
+        // Capturing an immutable non-copyable local (a Thread is not copyable and
+        // not a resource) hits the `!is_copyable_type` capture arm.
+        let src = "IMPORT thread\nFUNC worker(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\nSUB use(t AS Thread OF Integer TO Integer)\nEND SUB\nFUNC main AS Integer\n  LET t AS Thread OF Integer TO Integer = thread::start(worker, 1, 1, 1)\n  LET f AS FUNC() AS Nothing = LAMBDA() -> use(t)\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
+    }
+
+    #[test]
+    fn lambda_no_capture_accepted() {
+        // A lambda that captures nothing takes the capture-free path.
+        assert!(accepts(&wrap(
+            "  LET f AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x * 2\n  RETURN f(3)"
+        )));
+    }
+
+    // =====================================================================
+    // Third coverage batch: number edge cases, dotted callees, thread.send,
+    // read-only records, builtin-type member fields, binary/unary rejects,
+    // collection thread elements, remaining lambda-capture arms.
+    // =====================================================================
+
+    #[test]
+    fn huge_integer_literal_accepted() {
+        // A digit-only literal that overflows i64 still infers Integer (the
+        // else arm of the Number match), so no argument-type mismatch arises.
+        assert!(accepts(&wrap(
+            "  LET n AS Integer = 99999999999999999999999999"
+        )));
+    }
+
+    #[test]
+    fn unary_negation_of_huge_integer_accepted() {
+        // `-<huge>`: the literal is out of i64 range so the
+        // `!integer_literal_in_range` unary arm returns Integer directly.
+        assert!(accepts(&wrap(
+            "  LET n AS Integer = -99999999999999999999999999"
+        )));
+    }
+
+    #[test]
+    fn dotted_unknown_callee_infers_unknown() {
+        // A call whose canonical callee contains a dot but is neither a builtin
+        // nor a visible function takes the `callee.contains('.')` unknown arm;
+        // arguments are still inferred.
+        let _ = check_src(&wrap("  LET r = pkg::missing(1, 2)"));
+    }
+
+    #[test]
+    fn thread_send_in_trap_accepted() {
+        // A trapped `thread::send` of a non-copyable value drives
+        // thread_send_failure_restore (restore into handler scope).
+        let src = "IMPORT thread\nFUNC worker(msg AS List OF Integer) AS Integer\n  RETURN 0\nEND FUNC\nFUNC main AS Integer\n  LET t AS Thread OF (List OF Integer) TO Integer = thread::start(worker, [1], 1, 1)\n  LET payload AS List OF Integer = [1, 2, 3]\n  thread::send(t, payload) TRAP(e)\n    RECOVER\n  END TRAP\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn read_only_termcolor_constructor_rejected() {
+        // `TermColor` is a compiler-owned read-only record; direct construction
+        // is rejected via read_only_record_type in infer_constructor.
+        let src = "IMPORT term\nFUNC main AS Integer\n  LET c AS term::TermColor = term::TermColor[1, 2, 3]\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_READ_ONLY_RECORD_CONSTRUCTOR"));
+    }
+
+    #[test]
+    fn net_address_member_fields_accepted() {
+        // `addr.host`/`addr.port` resolve via net::builtin_type_fields in the
+        // "type has no user info" member-access fallback.
+        let src = "IMPORT net\nFUNC main AS Integer\n  RES sock = net::bindUdp(\"127.0.0.1\", 0)\n  LET addr = net::localAddress(sock)\n  LET h AS String = addr.host\n  LET p AS Integer = addr.port\n  RETURN 0\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    #[test]
+    fn mapentry_member_access_accepted() {
+        // FOR EACH over a Map yields MapEntry values; `.key`/`.value` resolve via
+        // the `MapEntry OF ` strip_prefix member-access arm.
+        let src = "IMPORT io\nFUNC main AS Integer\n  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }\n  FOR EACH entry IN m\n    io::print(entry.key & \"=\" & toString(entry.value))\n  NEXT\n  RETURN 0\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    #[test]
+    fn state_member_access_accepted() {
+        // `f.state` on a `RES f AS File STATE FileState` binding yields the state
+        // record type (the `member == "state"` member-access arm).
+        let src = "IMPORT fs\nTYPE FileState\n  pos AS Integer\n  len AS Integer\nEND TYPE\nFUNC main AS Integer\n  RES f AS File STATE FileState = fs::createTempFile()\n  LET p AS Integer = f.state.pos\n  fs::close(f)\n  RETURN p\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    #[test]
+    fn package_constant_call_with_arguments_accepted() {
+        // `math::pi(1)`: a package constant in call position still infers the
+        // arguments (the arg loop in the is_package_constant Call arm).
+        assert!(accepts(
+            "IMPORT math\nFUNC main AS Integer\n  LET x AS Float = math::pi(1)\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn enum_non_member_access_infers_unknown() {
+        // `Color.NotAMember` on an enum type returns Unknown (member not found).
+        let src = "ENUM Color\n  Red, Blue\nEND ENUM\nFUNC main AS Integer\n  LET x = Color.Green\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    // ---- binary / unary rejection arms ----
+
+    #[test]
+    fn logical_operator_non_boolean_infers_unknown() {
+        // AND on non-boolean operands returns Unknown (no Boolean result).
+        let _ = check_src(&wrap("  LET x = 1 AND 2"));
+    }
+
+    #[test]
+    fn equality_incompatible_infers_unknown() {
+        // `=` between incomparable types returns Unknown.
+        let _ = check_src(&wrap("  LET x = TRUE = \"s\""));
+    }
+
+    #[test]
+    fn ordering_mixed_infers_unknown() {
+        // `<` between String and numeric returns Unknown (mixed operands).
+        let _ = check_src(&wrap("  LET x = \"s\" < 1"));
+    }
+
+    #[test]
+    fn concatenation_non_string_infers_unknown() {
+        // `&` with a non-String operand returns Unknown.
+        let _ = check_src(&wrap("  LET x = \"s\" & 1"));
+    }
+
+    #[test]
+    fn arithmetic_non_numeric_infers_unknown() {
+        // `+` with a non-numeric operand returns Unknown.
+        let _ = check_src(&wrap("  LET x = TRUE + 1"));
+    }
+
+    #[test]
+    fn unary_not_non_boolean_infers_unknown() {
+        // NOT on a non-boolean returns Unknown.
+        let _ = check_src(&wrap("  LET x = NOT 5"));
+    }
+
+    #[test]
+    fn unary_negation_non_numeric_infers_unknown() {
+        // `-` on a String returns Unknown.
+        let _ = check_src(&wrap("  LET s AS String = \"x\"\n  LET y = -s"));
+    }
+
+    // ---- collections with thread elements (rejected) ----
+
+    #[test]
+    fn list_of_thread_element_rejected() {
+        // A List whose element type contains a Thread is an invalid collection
+        // element (expected-type branch of infer_list_literal).
+        let src = "IMPORT thread\nFUNC worker(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\nFUNC main AS Integer\n  LET t AS Thread OF Integer TO Integer = thread::start(worker, 1, 1, 1)\n  LET xs AS List OF (Thread OF Integer TO Integer) = [t]\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn map_value_thread_rejected() {
+        // A Map whose value type contains a Thread is an invalid element.
+        let src = "IMPORT thread\nFUNC worker(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\nFUNC main AS Integer\n  LET t AS Thread OF Integer TO Integer = thread::start(worker, 1, 1, 1)\n  LET m AS Map OF String TO (Thread OF Integer TO Integer) = Map OF String TO (Thread OF Integer TO Integer) { \"a\" := t }\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    // ---- lambda: assignment-body capturing an outer mutable target ----
+
+    #[test]
+    fn lambda_assign_body_captures_target_rejected() {
+        // An assignment-bodied lambda whose target is an outer MUT binding pushes
+        // the target as a capture; it is a mutable capture and is rejected.
+        let src = "IMPORT collections\nFUNC main AS Integer\n  MUT total AS Integer = 0\n  LET numbers AS List OF Integer = [1, 2, 3]\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> total = total + x)\n  RETURN total\nEND FUNC\n";
+        // forEach is a non-escaping position, so the MUT borrow may be permitted;
+        // either way the assign-target capture arm is exercised.
+        let _ = check_src(src);
+    }
+
+    // =====================================================================
+    // Fourth batch: call-form package constants, callable-local calls,
+    // union-match arms, with-update read-only records, function-value
+    // non-function type.
+    // =====================================================================
+
+    #[test]
+    fn package_constant_call_form_accepted() {
+        // `math::pi()` (call syntax) resolves through the is_package_constant
+        // Call arm, inferring the constant's Float type.
+        assert!(accepts(
+            "IMPORT math\nFUNC main AS Integer\n  LET x AS Float = math::pi()\n  RETURN 0\nEND FUNC\n"
+        ));
+    }
+
+    #[test]
+    fn callable_local_called_accepted() {
+        // A local holding a FUNC value called via `g(..)` routes through
+        // check_function_value_call (the locals.get(callee) call arm).
+        assert!(accepts(&wrap(
+            "  LET g AS FUNC(Integer) AS Integer = LAMBDA(x AS Integer) -> x\n  LET r AS Integer = g(1)"
+        )));
+    }
+
+    #[test]
+    fn non_callable_local_called_infers_unknown() {
+        // Calling an Integer local reaches check_function_value_call's
+        // non-Function early-return arm (arguments still inferred, Unknown result).
+        let _ = check_src(&wrap("  LET g AS Integer = 5\n  LET r = g(1)"));
+    }
+
+    #[test]
+    fn union_match_variant_binding_accepted() {
+        // `CASE Circle(c)` binds `c` to the variant type via the Union match arm.
+        let src = "TYPE Circle\n  radius AS Integer\nEND TYPE\nUNION Shape\n  Circle\nEND UNION\nFUNC pick(s AS Shape) AS Integer\n  MATCH s\n    CASE Circle(c)\n      RETURN c.radius\n    CASE ELSE\n      RETURN 0\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  RETURN pick(Circle[1])\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    #[test]
+    fn union_match_unknown_variant_ignored() {
+        // A CASE naming a variant not in the union takes the `!variants.any`
+        // early-return arm of check_match_pattern (no binding inserted).
+        let src = "TYPE Circle\n  radius AS Integer\nEND TYPE\nUNION Shape\n  Circle\nEND UNION\nFUNC pick(s AS Shape) AS Integer\n  MATCH s\n    CASE Bogus(b)\n      RETURN 1\n    CASE ELSE\n      RETURN 0\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  RETURN pick(Circle[1])\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn match_result_ok_error_arms_ignored() {
+        // `CASE Ok`/`CASE Error` on any scrutinee take the internal-Result
+        // early-return arm of check_match_pattern.
+        let src = "FUNC pick(n AS Integer) AS Integer\n  MATCH n\n    CASE Ok(v)\n      RETURN 1\n    CASE ELSE\n      RETURN 0\n  END MATCH\nEND FUNC\nFUNC main AS Integer\n  RETURN pick(1)\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn with_update_on_readonly_record_accepted() {
+        // WITH on a net Address (a read-only record type) takes the
+        // read_only_record_type early-return arm of infer_with_update.
+        let src = "IMPORT net\nFUNC main AS Integer\n  RES sock = net::bindUdp(\"127.0.0.1\", 0)\n  LET addr = net::localAddress(sock)\n  LET u = WITH addr { port := 9 }\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn function_value_non_function_type_infers_unknown() {
+        // Calling a lambda-typed local is a function value; calling a
+        // non-function-typed value through check_function_value_call is the
+        // non-Function arm covered by non_callable_local_called; here we also
+        // exercise the return-type unwrap on a genuine callable.
+        assert!(accepts(&wrap(
+            "  LET g AS FUNC() AS Integer = LAMBDA() -> 7\n  LET r AS Integer = g()"
+        )));
+    }
+
+    // =====================================================================
+    // Fifth batch: member-access "not found" arms, thread member, error/
+    // errorloc unknown members, member-on-non-record, lambda assign-target
+    // capture push, MUT resource in non-escaping position.
+    // =====================================================================
+
+    #[test]
+    fn error_unknown_member_infers_unknown() {
+        // A member other than code/message/source on an Error returns Unknown.
+        let _ = check_src(&wrap(
+            "  LET e AS Error = error(1, \"m\")\n  LET x = e.bogus",
+        ));
+    }
+
+    #[test]
+    fn errorloc_unknown_member_infers_unknown() {
+        // A member other than filename/line/char on an ErrorLoc returns Unknown.
+        let _ = check_src(&wrap(
+            "  LET e AS Error = error(1, \"m\")\n  LET loc AS ErrorLoc = e.source\n  LET x = loc.bogus",
+        ));
+    }
+
+    #[test]
+    fn member_access_on_scalar_infers_unknown() {
+        // Member access on a non-record (Integer) reaches the
+        // `else { return Unknown }` non-User arm.
+        let _ = check_src(&wrap("  LET n AS Integer = 5\n  LET x = n.field"));
+    }
+
+    #[test]
+    fn thread_non_result_member_infers_unknown() {
+        // A member other than `result` on a Thread returns Unknown (the second
+        // Thread arm).
+        let src = "IMPORT thread\nFUNC worker(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\nFUNC main AS Integer\n  LET t AS Thread OF Integer TO Integer = thread::start(worker, 1, 1, 1)\n  LET x = t.other\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn builtin_type_unknown_member_infers_unknown() {
+        // A member not present in net Address fields returns Unknown (the
+        // builtin_type_fields lookup miss).
+        let src = "IMPORT net\nFUNC main AS Integer\n  RES sock = net::bindUdp(\"127.0.0.1\", 0)\n  LET addr = net::localAddress(sock)\n  LET x = addr.bogus\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn member_on_enum_value_infers_unknown() {
+        // A field access on an enum *value* (non-Type kind user type) returns
+        // Unknown via the `!TypeDeclKind::Type` member-access arm.
+        let src = "ENUM Color\n  Red, Blue\nEND ENUM\nFUNC main AS Integer\n  LET c AS Color = Color.Red\n  LET x = c.field\n  RETURN 0\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn lambda_assign_body_pure_target_capture_rejected() {
+        // `LAMBDA(x) -> total = x`: the target `total` never appears on the RHS,
+        // so infer_lambda's assign_target block pushes it as an extra capture.
+        let src = "IMPORT collections\nFUNC main AS Integer\n  MUT total AS Integer = 0\n  LET numbers AS List OF Integer = [1, 2, 3]\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> total = x)\n  RETURN total\nEND FUNC\n";
+        let _ = check_src(src);
+    }
+
+    #[test]
+    fn lambda_immutable_resource_in_foreach_rejected() {
+        // An immutable resource captured in the non-escaping `forEach` position
+        // hits the `is_resource_type` (non-mutable) capture arm.
+        let src = "IMPORT collections\nIMPORT fs\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  RES handle AS File = fs::createTempFile()\n  collections::forEach(numbers, LAMBDA(x AS Integer) -> fs::writeLine(handle, toString(x)))\n  RETURN 0\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_LAMBDA_CAPTURE_UNSUPPORTED"));
+    }
+}

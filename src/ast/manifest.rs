@@ -104,6 +104,17 @@ pub fn parse_project(
 /// Enumerate the `.mfb` source files selected by the project manifest, for tools
 /// that operate on raw source text (such as `mfb fmt`) rather than the parsed
 /// AST. Returns the on-disk paths in a stable, sorted order.
+/// Append the compiler-owned prelude to an already-parsed project and run the
+/// built-in `collections` augmentation, mirroring the tail of [`parse_project`].
+/// Test-only: lets `crate::testutil` build a project directly from source text
+/// without touching the filesystem.
+#[cfg(test)]
+pub fn augment_with_prelude(mut project: AstProject) -> AstProject {
+    project.files.push(builtin_prelude_file());
+    crate::builtins::collections::augmented_project(project)
+        .expect("collections augmentation should not fail for test sources")
+}
+
 pub fn selected_source_paths(
     project_dir: &Path,
     manifest: &HashMap<String, JsonValue>,
@@ -371,6 +382,10 @@ fn collect_mfb_files(
     files: &mut Vec<SelectedSource>,
 ) -> Result<(), std::io::Error> {
     let canonical_current = fs::canonicalize(current)?;
+    // coverage:off — unreachable defensive re-check. Every directory entry is
+    // validated against the project boundary at the call site below before being
+    // recursed into, so a `current` that resolves outside the project is always
+    // rejected there first; this pre-recursion guard never fires first.
     if !path_within_project(&canonical_current, canonical_project_dir) {
         rules::show_diagnostic(
             "MFB_SOURCE_OUTSIDE_PROJECT",
@@ -389,6 +404,7 @@ fn collect_mfb_files(
             "source path resolves outside project",
         ));
     }
+    // coverage:on
     if !visited_dirs.insert(canonical_current) {
         return Ok(());
     }

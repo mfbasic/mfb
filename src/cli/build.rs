@@ -17,8 +17,8 @@ use crate::manifest::validate_project_manifest;
 use crate::monomorph;
 use crate::resolver;
 use crate::rules;
-use crate::target;
 use crate::syntaxcheck;
+use crate::target;
 
 pub(crate) struct BuildOptions {
     pub(crate) location: PathBuf,
@@ -207,7 +207,8 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     // merged and rendered in a single line-ordered pass; otherwise every
     // relocated `ir::verify` rule would print after all of syntaxcheck's,
     // scrambling the source-order sequence the goldens record (plan-20-Z).
-    let syntaxcheck_diagnostics = syntaxcheck::check_project_collect(&options.location, &concrete_ast);
+    let syntaxcheck_diagnostics =
+        syntaxcheck::check_project_collect(&options.location, &concrete_ast);
     let source_ir = ir::lower_project_with_external_functions(
         &concrete_ast,
         entry.clone(),
@@ -243,9 +244,11 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             let ident = signing_ident(owner, project_name, &manifest_ident).map_err(|err| {
                 eprintln!("error: {err}");
             })?;
-            Some(load_build_signing_info(owner, &ident, version).map_err(|err| {
-                eprintln!("error: {err}");
-            })?)
+            Some(
+                load_build_signing_info(owner, &ident, version).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?,
+            )
         }
         Some(_) => {
             eprintln!(
@@ -258,9 +261,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
 
     if options.outputs.is_empty() {
         if project_kind == "executable" {
-            let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
-                eprintln!("error: {err}");
-            })?;
+            let packages =
+                installed_package_files(&options.location, &manifest).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
             let (external_functions, external_params) =
                 external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
@@ -288,9 +292,10 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 println!("Wrote executable to {}", executable_path.display());
             }
         } else if project_kind == "package" {
-            let packages = installed_package_files(&options.location, &manifest).map_err(|err| {
-                eprintln!("error: {err}");
-            })?;
+            let packages =
+                installed_package_files(&options.location, &manifest).map_err(|err| {
+                    eprintln!("error: {err}");
+                })?;
             let (external_functions, external_params) =
                 external_package_function_types_from_files(&packages).map_err(|err| {
                     eprintln!("error: {err}");
@@ -541,6 +546,9 @@ fn signing_ident(owner: &str, name: &str, manifest_ident: &str) -> Result<String
 /// Assemble the plan-23 §3.3 signing bundle: generate the one-off signing
 /// keypair, fetch the server attestation pre-registering it for this exact
 /// package+version, and mint the ident-signed proof locally.
+// coverage:off — reaches a live registry (request_attestation) and requires a
+// registered ident key on the machine; exercised end-to-end by the tests/
+// package-publish integration harness, not a unit test.
 fn load_build_signing_info(
     owner: &str,
     ident: &str,
@@ -576,9 +584,8 @@ fn load_build_signing_info(
         .attestation
         .parse()
         .map_err(|_| "repository returned a malformed attestation".to_string())?;
-    let attestation_field = |field: &str| -> Option<String> {
-        attestation_fields[field].get::<String>().cloned()
-    };
+    let attestation_field =
+        |field: &str| -> Option<String> { attestation_fields[field].get::<String>().cloned() };
     if attestation_field("identFingerprint").as_deref() != Some(ident_fingerprint.as_str()) {
         return Err(
             "repository attestation names a different ident key than this machine holds; \
@@ -656,7 +663,7 @@ fn load_build_signing_info(
 }
 
 /// Result of verifying one installed dependency (audit-1 PKG-01, plan-23 §3.5).
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum PackageVerification {
     /// `signature_type == 1` and the full §3.5 chain verifies against the
     /// pinned trust anchors.
@@ -742,9 +749,7 @@ pub(crate) fn verify_and_report_packages(
             .and_then(|value| value.get::<String>())
             .map(String::as_str);
 
-        let package_file = project_dir
-            .join("packages")
-            .join(format!("{name}.mfp"));
+        let package_file = project_dir.join("packages").join(format!("{name}.mfp"));
         if !package_file.is_file() {
             // A missing dependency is reported by the later install check with a
             // more actionable message; do not emit a verification line for it.
@@ -940,4 +945,460 @@ fn executable_signing_metadata_json(
         json_string(attestation),
         json_string(attestation_sig),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn build_output_from_flag_maps_every_flag() {
+        assert_eq!(BuildOutput::from_flag("-ast"), Some(BuildOutput::Ast));
+        assert_eq!(BuildOutput::from_flag("-ir"), Some(BuildOutput::Ir));
+        assert_eq!(BuildOutput::from_flag("-br"), Some(BuildOutput::BinaryRepr));
+        assert_eq!(BuildOutput::from_flag("-nir"), Some(BuildOutput::NativeIr));
+        assert_eq!(
+            BuildOutput::from_flag("-nplan"),
+            Some(BuildOutput::NativePlan)
+        );
+        assert_eq!(
+            BuildOutput::from_flag("-nobj"),
+            Some(BuildOutput::NativeObjectPlan)
+        );
+        assert_eq!(
+            BuildOutput::from_flag("-ncode"),
+            Some(BuildOutput::NativeCodePlan)
+        );
+        assert_eq!(BuildOutput::from_flag("-mir"), Some(BuildOutput::Mir));
+        assert_eq!(BuildOutput::from_flag("-nope"), None);
+    }
+
+    #[test]
+    fn parse_build_options_defaults() {
+        let options = parse_build_options(vec![]).expect("options");
+        assert_eq!(options.location, PathBuf::from("."));
+        assert!(options.outputs.is_empty());
+        assert!(options.sign_owner.is_none());
+        assert!(!options.app_mode);
+        assert!(!options.allow_unsigned);
+        assert_eq!(options.target, target::BuildTarget::host());
+    }
+
+    #[test]
+    fn parse_build_options_parses_target_both_forms() {
+        let split =
+            parse_build_options(s(&["-target", "linux-aarch64"])).expect("split target form");
+        assert_eq!(split.target.name(), "linux-aarch64");
+        let joined = parse_build_options(s(&["-target=linux-x86_64"])).expect("joined target form");
+        assert_eq!(joined.target.name(), "linux-x86_64");
+    }
+
+    #[test]
+    fn parse_build_options_target_requires_value() {
+        assert!(build_err(&["-target"]).contains("-target requires os-arch"));
+    }
+
+    #[test]
+    fn parse_build_options_target_rejects_malformed() {
+        assert!(parse_build_options(s(&["-target", "nodash"])).is_err());
+    }
+
+    #[test]
+    fn parse_build_options_sign_both_forms_and_conflicts() {
+        let split = parse_build_options(s(&["--sign", "ada"])).expect("split sign");
+        assert_eq!(split.sign_owner.as_deref(), Some("ada"));
+        let joined = parse_build_options(s(&["--sign=bob"])).expect("joined sign");
+        assert_eq!(joined.sign_owner.as_deref(), Some("bob"));
+        assert!(parse_build_options(s(&["--sign", "requires-value"])).is_ok());
+        assert!(parse_build_options(s(&["--sign"])).is_err());
+        // Two --sign options conflict.
+        assert!(parse_build_options(s(&["--sign", "a", "--sign", "b"])).is_err());
+        assert!(parse_build_options(s(&["--sign=a", "--sign=b"])).is_err());
+    }
+
+    #[test]
+    fn parse_build_options_unsigned_flag() {
+        let options = parse_build_options(s(&["--unsigned"])).expect("options");
+        assert!(options.allow_unsigned);
+    }
+
+    #[test]
+    fn parse_build_options_regalloc_both_forms_and_bad_value() {
+        assert!(parse_build_options(s(&["-regalloc"])).is_err());
+        assert!(parse_build_options(s(&["-regalloc", "not-a-strategy"])).is_err());
+        assert!(parse_build_options(s(&["-regalloc=not-a-strategy"])).is_err());
+    }
+
+    fn build_err(args: &[&str]) -> String {
+        match parse_build_options(s(args)) {
+            Ok(_) => panic!("expected an error for {args:?}"),
+            Err(message) => message,
+        }
+    }
+
+    #[test]
+    fn parse_build_options_rejects_unknown_option_and_two_locations() {
+        assert!(build_err(&["-bogus"]).contains("unknown build option `-bogus`"));
+        assert!(build_err(&["one", "two"]).contains("at most one [location]"));
+    }
+
+    #[test]
+    fn parse_build_options_takes_a_positional_location() {
+        let options = parse_build_options(s(&["my/project"])).expect("options");
+        assert_eq!(options.location, PathBuf::from("my/project"));
+    }
+
+    #[test]
+    fn package_verification_labels() {
+        assert_eq!(PackageVerification::Verified.label(), "Verified");
+        assert_eq!(PackageVerification::Unsigned.label(), "Unsigned");
+        assert_eq!(PackageVerification::Tampered.label(), "Tampered");
+    }
+
+    #[test]
+    fn source_is_local_classifies_sources() {
+        assert!(source_is_local(""));
+        assert!(source_is_local("file:packages/x.mfp"));
+        assert!(source_is_local("local:x"));
+        assert!(!source_is_local("ada#shape"));
+        assert!(!source_is_local("https://registry/x"));
+    }
+
+    #[test]
+    fn signing_ident_defaults_to_owner_hash_name() {
+        assert_eq!(
+            signing_ident("ada", "shape", ""),
+            Ok("ada#shape".to_string())
+        );
+        // A declared ident owned by the signer passes through unchanged.
+        assert_eq!(
+            signing_ident("ada", "shape", "ada#shape"),
+            Ok("ada#shape".to_string())
+        );
+        // Case-insensitive owner match.
+        assert_eq!(
+            signing_ident("Ada", "shape", "ada#shape"),
+            Ok("ada#shape".to_string())
+        );
+    }
+
+    #[test]
+    fn signing_ident_rejects_bad_idents() {
+        assert!(signing_ident("ada", "shape", "no-hash")
+            .unwrap_err()
+            .contains("must use <owner>#<package>"));
+        assert!(signing_ident("ada", "shape", "bob#shape")
+            .unwrap_err()
+            .contains("does not belong to owner"));
+    }
+
+    #[test]
+    fn classify_installed_package_reads_unsigned_fixture() {
+        // A valid unsigned package classifies as Unsigned (no signature).
+        let path = Path::new("tests/package-trap-builtin/golden/trap_builtin_pkg.mfp");
+        assert!(path.is_file(), "fixture must exist");
+        let classification = classify_installed_package(path, None);
+        assert_eq!(classification.state, PackageVerification::Unsigned);
+        assert!(classification.refusal.is_none());
+    }
+
+    #[test]
+    fn classify_installed_package_treats_missing_file_as_tampered() {
+        let classification = classify_installed_package(Path::new("/no/such/pkg.mfp"), None);
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        let (rule, _detail) = classification.refusal.expect("refusal");
+        assert_eq!(rule, "PACKAGE_INVALID");
+    }
+
+    #[test]
+    fn classify_installed_package_treats_garbage_as_tampered() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("garbage.mfp");
+        std::fs::write(&path, b"this is not an mfp container").expect("write");
+        let classification = classify_installed_package(&path, None);
+        assert_eq!(classification.state, PackageVerification::Tampered);
+        assert_eq!(
+            classification.refusal.expect("refusal").0,
+            "PACKAGE_INVALID"
+        );
+    }
+
+    #[test]
+    fn verify_and_report_no_packages_is_ok() {
+        let manifest = crate::manifest::parse_project_json(
+            "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{\"root\":\"src\"}]}",
+            Path::new("project.json"),
+        )
+        .expect("manifest");
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert!(verify_and_report_packages(dir.path(), &manifest, false).is_ok());
+    }
+
+    #[test]
+    fn verify_and_report_missing_dependency_file_is_skipped() {
+        // A declared dependency whose .mfp is not installed yet emits no
+        // verification line and does not fail (the install check reports it).
+        let manifest = crate::manifest::parse_project_json(
+            concat!(
+                "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",",
+                "\"sources\":[{\"root\":\"src\"}],",
+                "\"packages\":[{\"name\":\"shape\",\"ident\":\"ada#shape\",\"version\":\"1.0.0\",\"pin\":true,\"source\":\"ada#shape\"}]}"
+            ),
+            Path::new("project.json"),
+        )
+        .expect("manifest");
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert!(verify_and_report_packages(dir.path(), &manifest, false).is_ok());
+    }
+
+    #[test]
+    fn verify_and_report_unsigned_remote_requires_flag() {
+        // An installed unsigned package from a remote source is refused unless
+        // --unsigned is passed.
+        let manifest = crate::manifest::parse_project_json(
+            concat!(
+                "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",",
+                "\"sources\":[{\"root\":\"src\"}],",
+                "\"packages\":[{\"name\":\"trap_builtin_pkg\",\"ident\":\"tests#trap\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"tests#trap\"}]}"
+            ),
+            Path::new("project.json"),
+        )
+        .expect("manifest");
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).expect("packages dir");
+        std::fs::copy(
+            "tests/package-trap-builtin/golden/trap_builtin_pkg.mfp",
+            packages.join("trap_builtin_pkg.mfp"),
+        )
+        .expect("copy fixture");
+        // Remote source, unsigned, no --unsigned -> refused.
+        assert!(verify_and_report_packages(dir.path(), &manifest, false).is_err());
+        // With --unsigned -> allowed.
+        assert!(verify_and_report_packages(dir.path(), &manifest, true).is_ok());
+    }
+
+    #[test]
+    fn verify_and_report_unsigned_local_is_allowed() {
+        let manifest = crate::manifest::parse_project_json(
+            concat!(
+                "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",",
+                "\"sources\":[{\"root\":\"src\"}],",
+                "\"packages\":[{\"name\":\"trap_builtin_pkg\",\"ident\":\"tests#trap\",\"version\":\"0.1.0\",\"pin\":true,\"source\":\"file:packages/trap_builtin_pkg.mfp\"}]}"
+            ),
+            Path::new("project.json"),
+        )
+        .expect("manifest");
+        let dir = tempfile::tempdir().expect("temp dir");
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).expect("packages dir");
+        std::fs::copy(
+            "tests/package-trap-builtin/golden/trap_builtin_pkg.mfp",
+            packages.join("trap_builtin_pkg.mfp"),
+        )
+        .expect("copy fixture");
+        // Local source, unsigned -> allowed without the flag.
+        assert!(verify_and_report_packages(dir.path(), &manifest, false).is_ok());
+    }
+
+    #[test]
+    fn apply_signing_metadata_copies_fields() {
+        let mut metadata =
+            binary_repr::BinaryReprMetadata::new("pkg".to_string(), "1.0.0".to_string());
+        let signing = BuildSigningInfo {
+            owner: "ada".to_string(),
+            ident: "ada#pkg".to_string(),
+            ident_fingerprint: "if".to_string(),
+            signing_fingerprint: "sf".to_string(),
+            package_signing: target::package_mfp::PackageSigning {
+                ident_key: "ed25519:ik".to_string(),
+                signing_key: "ed25519:sk".to_string(),
+                signing_private: Vec::new(),
+                proof: String::new(),
+                proof_sig: Vec::new(),
+                attestation: String::new(),
+                attestation_sig: Vec::new(),
+            },
+            executable_metadata: Vec::new(),
+        };
+        apply_signing_metadata(&mut metadata, &signing);
+        assert_eq!(metadata.ident, "ada#pkg");
+        assert_eq!(metadata.ident_key, "ed25519:ik");
+        assert_eq!(metadata.ident_fingerprint, "if");
+        assert_eq!(metadata.signing_fingerprint, "sf");
+        assert_eq!(metadata.author, "ada");
+    }
+
+    #[test]
+    fn executable_signing_metadata_json_is_valid_json() {
+        let json = executable_signing_metadata_json(
+            "ada", "ik", "if", "sk", "sf", "{}", "psig", "att", "asig",
+        );
+        let parsed: tinyjson::JsonValue = json.parse().expect("valid JSON");
+        let object = parsed
+            .get::<std::collections::HashMap<String, tinyjson::JsonValue>>()
+            .expect("object");
+        assert_eq!(
+            object
+                .get("format")
+                .and_then(|v| v.get::<String>())
+                .map(String::as_str),
+            Some("mfb-signing-v1")
+        );
+        assert_eq!(
+            object
+                .get("owner")
+                .and_then(|v| v.get::<String>())
+                .map(String::as_str),
+            Some("ada")
+        );
+    }
+
+    #[test]
+    fn decode_trust_anchor_accepts_metadata_key_form() {
+        // A malformed key is rejected.
+        assert!(decode_trust_anchor("not-a-key").is_err());
+    }
+
+    fn write_executable_project(dir: &Path) {
+        std::fs::write(
+            dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"targets\": [\"native\"],\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.join("src")).expect("src dir");
+        std::fs::write(
+            dir.join("src").join("main.mfb"),
+            "IMPORT io\n\nSUB main()\n  io::print(\"hi\")\nEND SUB\n",
+        )
+        .expect("source");
+    }
+
+    #[test]
+    fn build_project_validates_a_bad_manifest() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        // No project.json at all -> validate fails, Err(()).
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    #[test]
+    fn build_project_rejects_app_mode_for_non_app_target() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_executable_project(dir.path());
+        // -app against a non-app target (a bare custom os) is rejected.
+        let options = parse_build_options(s(&[
+            "-app",
+            "-target",
+            "freebsd-riscv",
+            dir.path().to_str().unwrap(),
+        ]))
+        .expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    #[test]
+    fn build_project_builds_a_host_executable() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_executable_project(dir.path());
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        // Full front-end + native writer for the host target; no network.
+        build_project(&options).expect("build should succeed");
+    }
+
+    #[test]
+    fn build_project_writes_ast_and_ir_dumps() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_executable_project(dir.path());
+        let options = parse_build_options(s(&["-ast", "-ir", "-br", dir.path().to_str().unwrap()]))
+            .expect("options");
+        build_project(&options).expect("dump build should succeed");
+    }
+
+    fn write_package_project(dir: &Path) {
+        std::fs::write(
+            dir.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"lib\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"package\",\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"package\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.join("src")).expect("src dir");
+        std::fs::write(
+            dir.join("src").join("lib.mfb"),
+            "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n",
+        )
+        .expect("source");
+    }
+
+    #[test]
+    fn build_project_builds_a_package() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_package_project(dir.path());
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        build_project(&options).expect("package build should succeed");
+        assert!(dir.path().join("lib.mfp").is_file());
+    }
+
+    #[test]
+    fn build_project_rejects_native_output_for_a_package() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        write_package_project(dir.path());
+        // A native code dump is unsupported for package projects.
+        let options =
+            parse_build_options(s(&["-ncode", dir.path().to_str().unwrap()])).expect("options");
+        assert!(build_project(&options).is_err());
+    }
+
+    #[test]
+    fn build_project_reports_a_source_error() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"entry\": \"main\",\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(dir.path().join("src")).expect("src dir");
+        // References an unknown package -> resolver/verify error.
+        std::fs::write(
+            dir.path().join("src").join("main.mfb"),
+            "SUB main()\n  nope::bogus()\nEND SUB\n",
+        )
+        .expect("source");
+        let options =
+            parse_build_options(vec![dir.path().to_str().unwrap().to_string()]).expect("options");
+        assert!(build_project(&options).is_err());
+    }
 }

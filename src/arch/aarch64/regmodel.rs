@@ -119,15 +119,15 @@ const INT_CALLER_SAVED: &[&str] = &[
 /// `d8`–`d15` via the call-clobber interference, exactly as before.
 const FP_ALLOCATABLE: &[&str] = &[
     "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d16", "d17", "d18", "d19", "d20", "d21",
-    "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31", "d8", "d9", "d10",
-    "d11", "d12", "d13", "d14", "d15",
+    "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31", "d8", "d9", "d10", "d11",
+    "d12", "d13", "d14", "d15",
 ];
 
 /// Caller-saved FP registers: `d0`–`d7` and `d16`–`d31` (the low 64 bits of
 /// `v0`–`v7` / `v16`–`v31`, the kernel-clobbered set, §4.6).
 const FP_CALLER_SAVED: &[&str] = &[
-    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d16", "d17", "d18", "d19", "d20", "d21", "d22",
-    "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31",
+    "d0", "d1", "d2", "d3", "d4", "d5", "d6", "d7", "d16", "d17", "d18", "d19", "d20", "d21",
+    "d22", "d23", "d24", "d25", "d26", "d27", "d28", "d29", "d30", "d31",
 ];
 
 pub(crate) struct Aarch64RegisterModel;
@@ -219,4 +219,60 @@ pub(crate) fn is_fp_callee_saved(reg: &str) -> bool {
         reg,
         "d8" | "d9" | "d10" | "d11" | "d12" | "d13" | "d14" | "d15"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classification_and_banks() {
+        let m = Aarch64RegisterModel;
+        assert_eq!(m.allocatable(RegClass::Int), INT_ALLOCATABLE);
+        assert_eq!(m.allocatable(RegClass::Fp), FP_ALLOCATABLE);
+        assert_eq!(m.caller_saved(RegClass::Int), INT_CALLER_SAVED);
+        assert_eq!(m.caller_saved(RegClass::Fp), FP_CALLER_SAVED);
+        // class_of recognizes the integer, double, vector, and quad spellings.
+        assert_eq!(m.class_of("x5"), Some(RegClass::Int));
+        assert_eq!(m.class_of("d5"), Some(RegClass::Fp));
+        assert_eq!(m.class_of("v5"), Some(RegClass::Fp));
+        assert_eq!(m.class_of("q5"), Some(RegClass::Fp));
+        // Names the model does not manage return None.
+        assert_eq!(m.class_of("sp"), None);
+        assert_eq!(m.class_of("xzr"), None);
+        assert_eq!(m.class_of("d"), None); // no digits
+    }
+
+    #[test]
+    fn callee_saved_and_pool_bases() {
+        let m = Aarch64RegisterModel;
+        assert!(m.is_callee_saved("x20"));
+        assert!(m.is_callee_saved("d8"));
+        assert!(!m.is_callee_saved("x0"));
+        assert!(!m.is_callee_saved("d0"));
+        assert_eq!(m.spill_slot_bytes(), 16);
+        // AArch64 pins arena_base in x19 and the math-pool base in x2.
+        assert_eq!(m.arena_base(), ARENA_STATE_REGISTER);
+        assert_eq!(m.math_pool_base(), Some("x2"));
+        // The standalone FP callee-saved predicate.
+        assert!(is_fp_callee_saved("d15"));
+        assert!(!is_fp_callee_saved("d16"));
+    }
+
+    #[test]
+    fn spill_reload_move_emitters() {
+        let m = Aarch64RegisterModel;
+        assert_eq!(
+            m.emit_spill(RegClass::Int, "x9", 8).op.mnemonic(),
+            "str_u64"
+        );
+        assert_eq!(m.emit_spill(RegClass::Fp, "d9", 16).op.mnemonic(), "str_q");
+        assert_eq!(
+            m.emit_reload(RegClass::Int, "x9", 8).op.mnemonic(),
+            "ldr_u64"
+        );
+        assert_eq!(m.emit_reload(RegClass::Fp, "d9", 16).op.mnemonic(), "ldr_q");
+        let mv = m.emit_move("x0", "x1");
+        assert_eq!(mv.op.mnemonic(), "mov");
+    }
 }

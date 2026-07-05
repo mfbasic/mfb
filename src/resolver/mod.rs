@@ -1,7 +1,7 @@
 use crate::ast::{
     AstFile, AstProject, ConstructorArg, DocBlock, DocHeaderKind, Expression, Function,
-    FunctionKind, Item, MatchPattern, Statement, TopLevelBinding, TypeDecl, TypeDeclKind, TypeField,
-    Visibility,
+    FunctionKind, Item, MatchPattern, Statement, TopLevelBinding, TypeDecl, TypeDeclKind,
+    TypeField, Visibility,
 };
 use crate::binary_repr;
 use crate::builtins;
@@ -394,11 +394,9 @@ impl<'a> Resolver<'a> {
             .functions
             .get(&function.name)
             .and_then(|functions| {
-                functions
-                    .iter()
-                    .find(|candidate| {
-                        candidate.params == params && candidate.return_type == return_type
-                    })
+                functions.iter().find(|candidate| {
+                    candidate.params == params && candidate.return_type == return_type
+                })
             })
             .cloned()
         {
@@ -507,3 +505,541 @@ mod packages;
 mod resolution;
 
 use packages::{dependency_packages, qualify_package_name, DependencyPackage};
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{CallArg, ConstructorArg, Expression, FunctionKind, Param, Visibility};
+    use crate::manifest::validate_project_manifest;
+
+    fn quiet<T>(f: impl FnOnce() -> T) -> T {
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let out = f();
+        std::panic::set_hook(prev);
+        out
+    }
+
+    fn resolve_fixture(name: &str) -> Result<(), ()> {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join(name);
+        let manifest = validate_project_manifest(&dir.join("project.json"))
+            .expect("fixture manifest is valid");
+        let pname = manifest
+            .get("name")
+            .and_then(|v| v.get::<String>())
+            .cloned()
+            .expect("fixture manifest has a name");
+        let ast = crate::ast::parse_project(&pname, &dir, &manifest).expect("fixture parses");
+        quiet(|| resolve_project(&dir, &manifest, &ast))
+    }
+
+    fn empty_expr() -> Expression {
+        Expression::Number("1".into())
+    }
+
+    fn param(name: &str, type_name: Option<&str>) -> Param {
+        Param {
+            name: name.into(),
+            type_name: type_name.map(str::to_string),
+            resource: false,
+            state_type: None,
+            default: None,
+            line: 1,
+        }
+    }
+
+    fn func(name: &str, params: Vec<Param>) -> Function {
+        Function {
+            kind: FunctionKind::Func,
+            visibility: Visibility::Export,
+            isolated: false,
+            name: name.into(),
+            template_params: Vec::new(),
+            params,
+            return_type: None,
+            return_resource: false,
+            return_state_type: None,
+            body: Vec::new(),
+            trap: None,
+            line: 1,
+        }
+    }
+
+    fn ast_file(path: &str) -> AstFile {
+        AstFile {
+            path: path.into(),
+            imports: Vec::new(),
+            items: Vec::new(),
+            internal: false,
+        }
+    }
+
+    #[test]
+    fn constructor_arg_value_positional_and_named() {
+        let pos = ConstructorArg::Positional(empty_expr());
+        let named = ConstructorArg::Named {
+            name: "x".into(),
+            value: empty_expr(),
+            line: 1,
+        };
+        assert!(matches!(constructor_arg_value(&pos), Expression::Number(_)));
+        assert!(matches!(
+            constructor_arg_value(&named),
+            Expression::Number(_)
+        ));
+    }
+
+    #[test]
+    fn call_arg_value_positional_and_named() {
+        let pos = CallArg::Positional(empty_expr());
+        let named = CallArg::Named {
+            name: "x".into(),
+            value: empty_expr(),
+            line: 1,
+        };
+        assert!(matches!(call_arg_value(&pos), Expression::Number(_)));
+        assert!(matches!(call_arg_value(&named), Expression::Number(_)));
+    }
+
+    #[test]
+    fn overload_types_match_variants() {
+        let f = func(
+            "g",
+            vec![param("a", Some("Integer")), param("b", Some("String"))],
+        );
+        assert!(overload_types_match(
+            &f,
+            &["Integer".to_string(), "String".to_string()]
+        ));
+        assert!(!overload_types_match(&f, &["Integer".to_string()]));
+        assert!(!overload_types_match(
+            &f,
+            &["Integer".to_string(), "Float".to_string()]
+        ));
+    }
+
+    #[test]
+    fn overload_types_match_none_type_name() {
+        let f = func("g", vec![param("a", None)]);
+        assert!(overload_types_match(&f, &[String::new()]));
+        assert!(!overload_types_match(&f, &["Integer".to_string()]));
+    }
+
+    #[test]
+    fn is_c_abi_type_recognizes_and_rejects() {
+        for t in [
+            "CPtr", "CString", "CInt8", "CInt16", "CInt32", "CInt64", "CUInt8", "CUInt16",
+            "CUInt32", "CUInt64", "CFloat", "CDouble",
+        ] {
+            assert!(is_c_abi_type(t), "{t} should be a C ABI type");
+        }
+        assert!(!is_c_abi_type("Integer"));
+        assert!(!is_c_abi_type("CPtrX"));
+        assert!(!is_c_abi_type(""));
+    }
+
+    #[test]
+    fn resource_base_type_strips_state_suffix() {
+        assert_eq!(resource_base_type("Handle STATE Open"), "Handle");
+        assert_eq!(resource_base_type("Handle"), "Handle");
+        assert_eq!(resource_base_type(""), "");
+    }
+
+    #[test]
+    fn visible_from_rules() {
+        let empty = AstProject {
+            name: "p".into(),
+            files: Vec::new(),
+        };
+        let dir = std::path::Path::new(".");
+        let resolver = Resolver::new(dir, &HashMap::new(), &empty);
+        let here = ast_file("a.mfb");
+        assert!(resolver.visible_from(&here, Visibility::Export, "other.mfb"));
+        assert!(resolver.visible_from(&here, Visibility::Package, "other.mfb"));
+        assert!(resolver.visible_from(&here, Visibility::Private, "a.mfb"));
+        assert!(!resolver.visible_from(&here, Visibility::Private, "other.mfb"));
+    }
+
+    #[test]
+    fn top_level_and_function_visibility_lookups() {
+        let file = AstFile {
+            path: "a.mfb".into(),
+            imports: Vec::new(),
+            items: vec![
+                Item::Binding(crate::ast::TopLevelBinding {
+                    mutable: false,
+                    resource: false,
+                    state_type: None,
+                    name: "GLOBAL".into(),
+                    type_name: None,
+                    value: None,
+                    visibility: Visibility::Export,
+                    line: 1,
+                }),
+                Item::Function(func("helper", vec![])),
+            ],
+            internal: false,
+        };
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![file.clone()],
+        };
+        let dir = std::path::Path::new(".");
+        let resolver = Resolver::new(dir, &HashMap::new(), &ast);
+        assert!(resolver.top_level_visible_in_file(&file, "GLOBAL"));
+        assert!(!resolver.top_level_visible_in_file(&file, "MISSING"));
+        assert!(resolver.function_visible_in_file(&file, "helper"));
+        assert!(!resolver.function_visible_in_file(&file, "missingfn"));
+    }
+
+    #[test]
+    fn link_target_signature_lookup() {
+        let dir = std::path::Path::new(".");
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![AstFile {
+                path: "lib.mfb".into(),
+                imports: Vec::new(),
+                items: vec![Item::Link(crate::ast::LinkBlock {
+                    library: "lib".into(),
+                    alias: "db".into(),
+                    functions: vec![crate::ast::LinkFunction {
+                        name: "open".into(),
+                        params: vec![param("path", Some("CString"))],
+                        return_type: Some("CPtr".into()),
+                        return_resource: false,
+                        symbol: "open".into(),
+                        abi: crate::ast::AbiSpec {
+                            slots: Vec::new(),
+                            return_name: "ret".into(),
+                            return_ctype: "CPtr".into(),
+                            line: 3,
+                        },
+                        consts: Vec::new(),
+                        success_on: None,
+                        result: None,
+                        free: None,
+                        line: 3,
+                    }],
+                    line: 1,
+                })],
+                internal: false,
+            }],
+        };
+        let resolver = Resolver::new(dir, &HashMap::new(), &ast);
+        assert!(resolver.link_target_signature("db.open").is_some());
+        assert!(resolver.link_target_signature("db.missing").is_none());
+        assert!(resolver.link_target_signature("other.open").is_none());
+        assert!(resolver.link_target_signature("dbopen").is_none());
+    }
+
+    #[test]
+    fn resolve_valid_fixtures_succeed() {
+        for name in [
+            "parser-hello-world",
+            "control-flow-match",
+            "control-flow-match-when",
+            "control-flow-if",
+            "overload-func-valid",
+            "overload-sub-valid",
+            "doc-block-valid",
+            "native-resource-link-valid",
+            "math_package_valid",
+        ] {
+            assert!(
+                resolve_fixture(name).is_ok(),
+                "fixture `{name}` should resolve"
+            );
+        }
+    }
+
+    #[test]
+    fn validate_project_docs_true_for_valid_docs() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("doc-block-valid");
+        let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
+        let pname = manifest
+            .get("name")
+            .and_then(|v| v.get::<String>())
+            .cloned()
+            .unwrap();
+        let ast = crate::ast::parse_project(&pname, &dir, &manifest).unwrap();
+        assert!(validate_project_docs(&dir, &ast));
+    }
+
+    #[test]
+    fn validate_project_docs_false_for_invalid_docs() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("doc-block-invalid");
+        let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
+        let pname = manifest
+            .get("name")
+            .and_then(|v| v.get::<String>())
+            .cloned()
+            .unwrap();
+        let ast = crate::ast::parse_project(&pname, &dir, &manifest).unwrap();
+        assert!(!quiet(|| validate_project_docs(&dir, &ast)));
+    }
+
+    #[test]
+    fn resolve_invalid_fixtures_fail() {
+        for name in [
+            "collections-cutover-invalid",
+            "doc-block-invalid",
+            "native-link-duplicate-resource-invalid",
+            "native-resource-close-not-native-invalid",
+            "native-resource-close-signature-invalid",
+            "result-not-user-visible-invalid",
+        ] {
+            assert!(
+                resolve_fixture(name).is_err(),
+                "fixture `{name}` should fail to resolve"
+            );
+        }
+    }
+
+    #[test]
+    fn resolve_project_with_no_doc_validation() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("doc-block-valid");
+        let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
+        let pname = manifest
+            .get("name")
+            .and_then(|v| v.get::<String>())
+            .cloned()
+            .unwrap();
+        let ast = crate::ast::parse_project(&pname, &dir, &manifest).unwrap();
+        assert!(quiet(|| resolve_project_with(&dir, &manifest, &ast, false)).is_ok());
+    }
+
+    #[test]
+    fn duplicate_top_level_function_reports() {
+        let f1 = func("dup", vec![param("a", Some("Integer"))]);
+        let f2 = func("dup", vec![param("a", Some("Integer"))]);
+        let mut f3 = func("dup2", vec![param("a", Some("Integer"))]);
+        f3.return_type = Some("Integer".into());
+        let mut f4 = func("dup2", vec![param("a", Some("Integer"))]);
+        f4.return_type = Some("String".into());
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![AstFile {
+                path: "a.mfb".into(),
+                imports: Vec::new(),
+                items: vec![
+                    Item::Function(f1),
+                    Item::Function(f2),
+                    Item::Function(f3),
+                    Item::Function(f4),
+                ],
+                internal: false,
+            }],
+        };
+        let dir = std::path::Path::new(".");
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        assert!(resolver.had_error);
+    }
+
+    #[test]
+    fn reserved_builtin_name_rejected() {
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![AstFile {
+                path: "a.mfb".into(),
+                imports: Vec::new(),
+                items: vec![Item::Function(func("error", vec![]))],
+                internal: false,
+            }],
+        };
+        let dir = std::path::Path::new(".");
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        assert!(resolver.had_error);
+    }
+
+    #[test]
+    fn type_and_resource_names_registered() {
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![AstFile {
+                path: "a.mfb".into(),
+                imports: Vec::new(),
+                items: vec![
+                    Item::Type(crate::ast::TypeDecl {
+                        kind: crate::ast::TypeDeclKind::Type,
+                        visibility: Visibility::Export,
+                        name: "Widget".into(),
+                        template_params: Vec::new(),
+                        fields: Vec::new(),
+                        includes: Vec::new(),
+                        variants: Vec::new(),
+                        members: Vec::new(),
+                        line: 1,
+                    }),
+                    Item::Binding(crate::ast::TopLevelBinding {
+                        mutable: false,
+                        resource: false,
+                        state_type: None,
+                        name: "Widget".into(),
+                        type_name: None,
+                        value: None,
+                        visibility: Visibility::Export,
+                        line: 2,
+                    }),
+                ],
+                internal: false,
+            }],
+        };
+        let dir = std::path::Path::new(".");
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        assert!(resolver.types.contains("Widget"));
+        assert!(resolver.had_error, "duplicate top-level should report");
+    }
+
+    fn binding(name: &str) -> Item {
+        Item::Binding(crate::ast::TopLevelBinding {
+            mutable: false,
+            resource: false,
+            state_type: None,
+            name: name.into(),
+            type_name: None,
+            value: None,
+            visibility: Visibility::Export,
+            line: 1,
+        })
+    }
+
+    #[test]
+    fn function_name_collides_with_prior_binding_reports() {
+        // A FUNC declared after a top-level binding of the same name collides.
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![AstFile {
+                path: "a.mfb".into(),
+                imports: Vec::new(),
+                items: vec![binding("dup"), Item::Function(func("dup", vec![]))],
+                internal: false,
+            }],
+        };
+        let dir = std::path::Path::new(".");
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        assert!(resolver.had_error);
+    }
+
+    #[test]
+    fn binding_name_collides_with_prior_function_reports() {
+        // A binding declared after a FUNC of the same name collides (the
+        // `insert_top_level` function-table branch).
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![AstFile {
+                path: "a.mfb".into(),
+                imports: Vec::new(),
+                items: vec![Item::Function(func("dup", vec![])), binding("dup")],
+                internal: false,
+            }],
+        };
+        let dir = std::path::Path::new(".");
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        assert!(resolver.had_error);
+    }
+
+    #[test]
+    fn alias_function_name_collides_with_prior_binding_reports() {
+        // A FUNC re-export alias whose name matches a prior top-level binding
+        // hits the `insert_alias_function` duplicate branch. The alias also needs
+        // a LINK namespace so its target resolves.
+        let link = Item::Link(crate::ast::LinkBlock {
+            library: "lib".into(),
+            alias: "db".into(),
+            functions: vec![crate::ast::LinkFunction {
+                name: "close".into(),
+                params: vec![param("h", Some("CPtr"))],
+                return_type: Some("Nothing".into()),
+                return_resource: false,
+                symbol: "close".into(),
+                abi: crate::ast::AbiSpec {
+                    slots: Vec::new(),
+                    return_name: "ret".into(),
+                    return_ctype: "CInt32".into(),
+                    line: 2,
+                },
+                consts: Vec::new(),
+                success_on: None,
+                result: None,
+                free: None,
+                line: 2,
+            }],
+            line: 1,
+        });
+        let alias = Item::FuncAlias(crate::ast::FuncAlias {
+            visibility: Visibility::Export,
+            name: "dup".into(),
+            target: "db.close".into(),
+            line: 5,
+        });
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![AstFile {
+                path: "a.mfb".into(),
+                imports: Vec::new(),
+                items: vec![link, binding("dup"), alias],
+                internal: false,
+            }],
+        };
+        let dir = std::path::Path::new(".");
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        assert!(resolver.had_error);
+    }
+
+    #[test]
+    fn alias_function_registers_when_unique() {
+        // A unique alias registers as a callable carrying the target's params.
+        let link = Item::Link(crate::ast::LinkBlock {
+            library: "lib".into(),
+            alias: "db".into(),
+            functions: vec![crate::ast::LinkFunction {
+                name: "close".into(),
+                params: vec![param("h", Some("CPtr"))],
+                return_type: Some("Nothing".into()),
+                return_resource: false,
+                symbol: "close".into(),
+                abi: crate::ast::AbiSpec {
+                    slots: Vec::new(),
+                    return_name: "ret".into(),
+                    return_ctype: "CInt32".into(),
+                    line: 2,
+                },
+                consts: Vec::new(),
+                success_on: None,
+                result: None,
+                free: None,
+                line: 2,
+            }],
+            line: 1,
+        });
+        let alias = Item::FuncAlias(crate::ast::FuncAlias {
+            visibility: Visibility::Export,
+            name: "closeDb".into(),
+            target: "db.close".into(),
+            line: 5,
+        });
+        let ast = AstProject {
+            name: "p".into(),
+            files: vec![AstFile {
+                path: "a.mfb".into(),
+                imports: Vec::new(),
+                items: vec![link, alias],
+                internal: false,
+            }],
+        };
+        let dir = std::path::Path::new(".");
+        let file = ast.files[0].clone();
+        let resolver = quiet(|| Resolver::new(dir, &HashMap::new(), &ast));
+        assert!(!resolver.had_error);
+        assert!(resolver.function_visible_in_file(&file, "closeDb"));
+    }
+}

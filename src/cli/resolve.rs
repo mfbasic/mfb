@@ -75,7 +75,10 @@ pub(crate) fn update(project_dir: &Path) -> Result<(), String> {
     let lock = resolve(&manifest)?;
     print_lock_diff(previous.as_ref(), &lock);
     write_lock(project_dir, &lock)?;
-    println!("Wrote {} resolved package(s) to mfb.lock", lock.packages.len());
+    println!(
+        "Wrote {} resolved package(s) to mfb.lock",
+        lock.packages.len()
+    );
     // Apply the freshly written lock so the working tree matches it.
     install(project_dir)
 }
@@ -134,12 +137,19 @@ pub(crate) fn install(project_dir: &Path) -> Result<(), String> {
                 package.name, package.selected
             ));
         }
-        println!("Installed {} {} ({})", package.name, package.selected, package.state);
+        println!(
+            "Installed {} {} ({})",
+            package.name, package.selected, package.state
+        );
     }
     Ok(())
 }
 
 /// Run the §8.3 resolver and assemble a [`Lock`]. Public for tests.
+// coverage:off — drives the registry (fetch_index/fetch_blob/fetch_checkpoint)
+// across a dependency graph; the pure selection/version logic it calls
+// (select_node, is_superset, compare_versions) is unit-tested directly, and the
+// full resolve is covered by the tests/ package-resolution integration harness.
 pub(crate) fn resolve(
     manifest: &std::collections::HashMap<String, JsonValue>,
 ) -> Result<Lock, String> {
@@ -186,7 +196,11 @@ pub(crate) fn resolve(
             Requirer {
                 who: who_project.clone(),
                 required: anchor.abi_map(),
-                pin: if dep.pin { Some(dep.version.clone()) } else { None },
+                pin: if dep.pin {
+                    Some(dep.version.clone())
+                } else {
+                    None
+                },
             },
         );
         nodes.insert(
@@ -337,7 +351,12 @@ fn select_node(node: &Node) -> Result<Selection, String> {
             .versions
             .iter()
             .find(|version| &&version.version == first)
-            .ok_or_else(|| format!("pinned version `{first}` of `{}` is not published", node.ident))?;
+            .ok_or_else(|| {
+                format!(
+                    "pinned version `{first}` of `{}` is not published",
+                    node.ident
+                )
+            })?;
         if version.state == "blocked" || version.state == "legal-tombstoned" {
             return Err(format!(
                 "pinned version `{first}` of `{}` is {} and cannot be selected",
@@ -382,6 +401,8 @@ fn is_superset(exports: &BTreeMap<String, String>, required: &BTreeMap<String, S
 
 /// Download a selected version's blob (cached by hash) and read its import
 /// edges: `(imported ident, used-symbol hashes, pin)`.
+// coverage:off — fetches a blob from the registry (fetch_blob); reached only
+// from the network-bound resolver, covered by the tests/ integration harness.
 #[allow(clippy::type_complexity)]
 fn load_import_edges(
     repo_url: &str,
@@ -393,8 +414,7 @@ fn load_import_edges(
     }
     let blob = client::fetch_blob(repo_url, hash)?;
     let temp = std::env::temp_dir().join(format!("mfb-resolve-{hash}.mfp"));
-    fs::write(&temp, &blob)
-        .map_err(|err| format!("failed to stage resolver blob: {err}"))?;
+    fs::write(&temp, &blob).map_err(|err| format!("failed to stage resolver blob: {err}"))?;
     let info = binary_repr::read_package_info(&temp);
     let _ = fs::remove_file(&temp);
     let info = info?;
@@ -408,7 +428,11 @@ fn load_import_edges(
                 .into_iter()
                 .map(|symbol| (symbol.name, symbol.sig_hash))
                 .collect();
-            let pin = if import.pin { Some(import.version.clone()) } else { None };
+            let pin = if import.pin {
+                Some(import.version.clone())
+            } else {
+                None
+            };
             (import.package_ident, required, pin)
         })
         .collect::<Vec<_>>();
@@ -478,7 +502,10 @@ fn render_lock(lock: &Lock) -> String {
     let mut out = String::new();
     out.push_str("{\n");
     out.push_str(&format!("  \"lockfileVersion\": {LOCKFILE_VERSION},\n"));
-    out.push_str(&format!("  \"projectHash\": {},\n", json_string(&lock.project_hash)));
+    out.push_str(&format!(
+        "  \"projectHash\": {},\n",
+        json_string(&lock.project_hash)
+    ));
     out.push_str(&format!(
         "  \"repoFingerprint\": {},\n",
         json_string(&lock.repo_fingerprint)
@@ -496,8 +523,14 @@ fn render_lock(lock: &Lock) -> String {
             out.push(',');
         }
         out.push_str("\n    {\n");
-        out.push_str(&format!("      \"name\": {},\n", json_string(&package.name)));
-        out.push_str(&format!("      \"ident\": {},\n", json_string(&package.ident)));
+        out.push_str(&format!(
+            "      \"name\": {},\n",
+            json_string(&package.name)
+        ));
+        out.push_str(&format!(
+            "      \"ident\": {},\n",
+            json_string(&package.ident)
+        ));
         out.push_str(&format!(
             "      \"requested\": {},\n",
             json_string(&package.requested)
@@ -506,7 +539,10 @@ fn render_lock(lock: &Lock) -> String {
             "      \"selected\": {},\n",
             json_string(&package.selected)
         ));
-        out.push_str(&format!("      \"hash\": {},\n", json_string(&package.hash)));
+        out.push_str(&format!(
+            "      \"hash\": {},\n",
+            json_string(&package.hash)
+        ));
         out.push_str(&format!(
             "      \"identKey\": {},\n",
             json_string(&package.ident_key)
@@ -515,7 +551,10 @@ fn render_lock(lock: &Lock) -> String {
             "      \"identFingerprint\": {},\n",
             json_string(&package.ident_fingerprint)
         ));
-        out.push_str(&format!("      \"state\": {}\n", json_string(&package.state)));
+        out.push_str(&format!(
+            "      \"state\": {}\n",
+            json_string(&package.state)
+        ));
         out.push_str("    }");
     }
     if lock.packages.is_empty() {
@@ -611,7 +650,10 @@ mod tests {
         assert_eq!(compare_versions("2.0.0", "2.0.0"), Ordering::Equal);
         // A release outranks the same release with a pre-release suffix.
         assert_eq!(compare_versions("1.0.0", "1.0.0-rc1"), Ordering::Greater);
-        assert_eq!(compare_versions("1.0.0-rc2", "1.0.0-rc1"), Ordering::Greater);
+        assert_eq!(
+            compare_versions("1.0.0-rc2", "1.0.0-rc1"),
+            Ordering::Greater
+        );
     }
 
     #[test]
@@ -630,6 +672,266 @@ mod tests {
         let mut needs_foo_v2 = BTreeMap::new();
         needs_foo_v2.insert("foo".to_string(), "ff".to_string());
         assert!(!is_superset(&exports, &needs_foo_v2));
+    }
+
+    fn index_version(version: &str, state: &str) -> mfb_repository::server::IndexVersion {
+        mfb_repository::server::IndexVersion {
+            version: version.to_string(),
+            hash: format!("hash-{version}"),
+            published_at: 0,
+            state: state.to_string(),
+            abi_index: serde_json::Value::Null,
+            log_entry: None,
+        }
+    }
+
+    fn node_with(
+        versions: Vec<mfb_repository::server::IndexVersion>,
+        requirers: Vec<Requirer>,
+    ) -> Node {
+        let mut map = BTreeMap::new();
+        for (index, requirer) in requirers.into_iter().enumerate() {
+            map.insert(format!("req-{index}"), requirer);
+        }
+        Node {
+            name: "shape".to_string(),
+            ident: "ada#shape".to_string(),
+            index: mfb_repository::server::IndexResponse {
+                ident: "ada#shape".to_string(),
+                owner: "ada".to_string(),
+                ident_key: "ed25519:ik".to_string(),
+                ident_fingerprint: "if".to_string(),
+                name_binding_signature: String::new(),
+                server_fingerprint: "sf".to_string(),
+                versions,
+            },
+            requested: "1.0.0".to_string(),
+            requirers: map,
+            selected: None,
+        }
+    }
+
+    fn select_node_err(node: &Node) -> String {
+        match select_node(node) {
+            Ok(_) => panic!("expected select_node to fail"),
+            Err(message) => message,
+        }
+    }
+
+    fn requirer(who: &str, required: &[(&str, &str)], pin: Option<&str>) -> Requirer {
+        Requirer {
+            who: who.to_string(),
+            required: required
+                .iter()
+                .map(|(name, hash)| (name.to_string(), hash.to_string()))
+                .collect(),
+            pin: pin.map(str::to_string),
+        }
+    }
+
+    #[test]
+    fn read_manifest_reads_and_validates() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            dir.path().join("project.json"),
+            "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{\"root\":\"src\"}]}",
+        )
+        .expect("manifest");
+        let (manifest, _contents) = read_manifest(dir.path()).expect("read manifest");
+        assert_eq!(
+            manifest
+                .get("name")
+                .and_then(|v| v.get::<String>())
+                .map(String::as_str),
+            Some("app")
+        );
+        // A missing manifest is a read error.
+        let empty = tempfile::tempdir().expect("temp dir");
+        assert!(read_manifest(empty.path())
+            .unwrap_err()
+            .contains("failed to read"));
+    }
+
+    #[test]
+    fn install_without_a_lock_errors_before_network() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            dir.path().join("project.json"),
+            "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{\"root\":\"src\"}]}",
+        )
+        .expect("manifest");
+        // No mfb.lock present -> early error, no /blob fetch.
+        assert!(install(dir.path()).unwrap_err().contains("no mfb.lock"));
+    }
+
+    #[test]
+    fn install_with_stale_lock_errors_before_network() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(
+            dir.path().join("project.json"),
+            "{\"name\":\"app\",\"version\":\"0.1.0\",\"mfb\":\"1.0\",\"sources\":[{\"root\":\"src\"}]}",
+        )
+        .expect("manifest");
+        // A lock whose projectHash does not match the current project is stale.
+        std::fs::write(
+            dir.path().join("mfb.lock"),
+            "{\"lockfileVersion\":1,\"projectHash\":\"stale\",\"repoFingerprint\":\"r\",\"checkpoint\":{\"size\":0,\"rootHash\":\"\"},\"packages\":[]}\n",
+        )
+        .expect("lock");
+        assert!(install(dir.path()).unwrap_err().contains("stale"));
+    }
+
+    #[test]
+    fn read_lock_absent_returns_none() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        assert!(read_lock(dir.path()).expect("read").is_none());
+    }
+
+    #[test]
+    fn read_lock_rejects_non_json() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        std::fs::write(dir.path().join("mfb.lock"), "not json").expect("lock");
+        assert!(read_lock(dir.path()).is_err());
+    }
+
+    #[test]
+    fn write_lock_writes_a_readable_lockfile() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let lock = Lock {
+            project_hash: "p".to_string(),
+            repo_fingerprint: "r".to_string(),
+            checkpoint_size: 3,
+            checkpoint_root: "root".to_string(),
+            packages: Vec::new(),
+        };
+        write_lock(dir.path(), &lock).expect("write");
+        assert!(dir.path().join("mfb.lock").is_file());
+        // The written lock round-trips.
+        let reread = read_lock(dir.path()).expect("read").expect("present");
+        assert_eq!(reread.project_hash, "p");
+        assert_eq!(reread.checkpoint_size, 3);
+    }
+
+    #[test]
+    fn select_node_picks_highest_superset_version() {
+        let node = node_with(
+            vec![
+                index_version("1.0.0", "available"),
+                index_version("2.0.0", "available"),
+                index_version("1.5.0", "deprecated"),
+            ],
+            vec![requirer("project", &[], None)],
+        );
+        let selection = select_node(&node).expect("selection");
+        // Highest floating-eligible version with no ABI needs is 2.0.0.
+        assert_eq!(selection.version, "2.0.0");
+    }
+
+    #[test]
+    fn select_node_honors_a_pin() {
+        let node = node_with(
+            vec![
+                index_version("1.0.0", "available"),
+                index_version("2.0.0", "available"),
+            ],
+            vec![requirer("project", &[], Some("1.0.0"))],
+        );
+        let selection = select_node(&node).expect("selection");
+        assert_eq!(selection.version, "1.0.0");
+    }
+
+    #[test]
+    fn select_node_rejects_conflicting_pins() {
+        let node = node_with(
+            vec![
+                index_version("1.0.0", "available"),
+                index_version("2.0.0", "available"),
+            ],
+            vec![
+                requirer("a", &[], Some("1.0.0")),
+                requirer("b", &[], Some("2.0.0")),
+            ],
+        );
+        assert!(select_node_err(&node).contains("conflicting pins"));
+    }
+
+    #[test]
+    fn select_node_rejects_unpublished_pin() {
+        let node = node_with(
+            vec![index_version("1.0.0", "available")],
+            vec![requirer("a", &[], Some("9.9.9"))],
+        );
+        assert!(select_node_err(&node).contains("is not published"));
+    }
+
+    #[test]
+    fn select_node_rejects_blocked_pin() {
+        let node = node_with(
+            vec![index_version("1.0.0", "blocked")],
+            vec![requirer("a", &[], Some("1.0.0"))],
+        );
+        assert!(select_node_err(&node).contains("cannot be selected"));
+    }
+
+    #[test]
+    fn select_node_reports_diamond_conflict() {
+        let node = node_with(
+            vec![index_version("1.0.0", "available")],
+            vec![
+                requirer("a", &[("foo", "aa")], None),
+                requirer("b", &[("foo", "bb")], None),
+            ],
+        );
+        assert!(select_node_err(&node).contains("diamond conflict"));
+    }
+
+    #[test]
+    fn select_node_reports_no_satisfying_version() {
+        // A required symbol no version provides -> no eligible candidate.
+        let node = node_with(
+            vec![index_version("1.0.0", "available")],
+            vec![requirer("a", &[("missing", "zz")], None)],
+        );
+        assert!(select_node_err(&node).contains("no install-eligible version"));
+    }
+
+    #[test]
+    fn print_lock_diff_covers_add_change_keep_and_remove() {
+        let package = |name: &str, ident: &str, selected: &str, state: &str| LockedPackage {
+            name: name.to_string(),
+            ident: ident.to_string(),
+            requested: "1.0.0".to_string(),
+            selected: selected.to_string(),
+            hash: "h".to_string(),
+            ident_key: String::new(),
+            ident_fingerprint: String::new(),
+            state: state.to_string(),
+        };
+        let previous = Lock {
+            project_hash: "p".to_string(),
+            repo_fingerprint: "r".to_string(),
+            checkpoint_size: 0,
+            checkpoint_root: String::new(),
+            packages: vec![
+                package("kept", "a#kept", "1.0.0", "available"),
+                package("bumped", "a#bumped", "1.0.0", "available"),
+                package("gone", "a#gone", "1.0.0", "available"),
+            ],
+        };
+        let next = Lock {
+            project_hash: "p".to_string(),
+            repo_fingerprint: "r".to_string(),
+            checkpoint_size: 0,
+            checkpoint_root: String::new(),
+            packages: vec![
+                package("kept", "a#kept", "1.0.0", "available"),
+                package("bumped", "a#bumped", "2.0.0", "available"),
+                package("added", "a#added", "1.0.0", "available"),
+            ],
+        };
+        // Exercises +/~/keep/- lines; must not panic. Also covers the None-previous path.
+        print_lock_diff(Some(&previous), &next);
+        print_lock_diff(None, &next);
     }
 
     #[test]
@@ -664,10 +966,7 @@ mod tests {
         };
         let rendered = render_lock(&lock);
         // A rebuilt lock renders identically (deterministic resolution).
-        let temp = std::env::temp_dir().join(format!(
-            "mfb-lock-test-{}",
-            lock.project_hash
-        ));
+        let temp = std::env::temp_dir().join(format!("mfb-lock-test-{}", lock.project_hash));
         std::fs::create_dir_all(&temp).unwrap();
         std::fs::write(temp.join("mfb.lock"), &rendered).unwrap();
         let reread = read_lock(&temp).unwrap().unwrap();
@@ -680,17 +979,28 @@ mod tests {
 
 fn print_lock_diff(previous: Option<&Lock>, next: &Lock) {
     let old: BTreeMap<&str, &LockedPackage> = previous
-        .map(|lock| lock.packages.iter().map(|p| (p.ident.as_str(), p)).collect())
+        .map(|lock| {
+            lock.packages
+                .iter()
+                .map(|p| (p.ident.as_str(), p))
+                .collect()
+        })
         .unwrap_or_default();
     println!("Resolution:");
     for package in &next.packages {
         match old.get(package.ident.as_str()) {
-            None => println!("  + {} {} ({})", package.name, package.selected, package.state),
+            None => println!(
+                "  + {} {} ({})",
+                package.name, package.selected, package.state
+            ),
             Some(before) if before.selected != package.selected => println!(
                 "  ~ {} {} -> {} ({})",
                 package.name, before.selected, package.selected, package.state
             ),
-            Some(_) => println!("    {} {} ({})", package.name, package.selected, package.state),
+            Some(_) => println!(
+                "    {} {} ({})",
+                package.name, package.selected, package.state
+            ),
         }
     }
     if let Some(previous) = previous {

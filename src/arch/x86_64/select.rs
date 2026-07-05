@@ -190,9 +190,7 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
     let falls_into = |i: usize| -> bool {
         // The instruction before index i transfers control to i by fall-through
         // unless it ends the block (an unconditional branch or a return).
-        i > 0
-            && instructions[i - 1].op != CodeOp::Branch
-            && instructions[i - 1].op != CodeOp::Ret
+        i > 0 && instructions[i - 1].op != CodeOp::Branch && instructions[i - 1].op != CodeOp::Ret
     };
     let out_boundary = |i: usize, before: Option<AbiBoundary>| -> Option<AbiBoundary> {
         match abi_boundary_of(&instructions[i]) {
@@ -457,10 +455,8 @@ fn remap_x86_abi(instructions: &mut Vec<CodeInstruction>) {
             // clobbering the first before its store — corrupting both spilled values.
             // Pin such a use to its argument register so the store reads the real
             // parameter and `param_home == arg` suppresses a bogus bridge.
-            let is_param_use = !is_def
-                && n <= 7
-                && !boundary_since_entry
-                && !defined_since_entry.contains(&n);
+            let is_param_use =
+                !is_def && n <= 7 && !boundary_since_entry && !defined_since_entry.contains(&n);
             let mapped = if is_def && n < RETS.len() && staged_result_def[i] {
                 staged_live.insert(n);
                 RETS[n].to_string()
@@ -590,7 +586,11 @@ fn x86_float_branch(cond: &str, target: &str) -> Vec<CodeInstruction> {
         "b.le" => vec![br("x86.jbe", target)], // jbe (CF=1 || ZF=1)          {LT,EQ,uno}
         "b.vs" => vec![br("x86.jp", target)], // jp  (PF=1 → unordered/NaN)   {uno}
         "b.vc" => vec![br("x86.jnp", target)], // jnp (PF=0 → ordered)        {LT,EQ,GT}
+        // coverage:off — every flag-branch condition a float compare can precede is
+        // mapped above; a fused `fcmp` cannot carry any other condition, so this is
+        // an unreachable defensive guard.
         other => panic!("unmapped x86 float-compare branch condition '{other}'"),
+        // coverage:on
     }
 }
 
@@ -679,4 +679,347 @@ pub(crate) fn select_x86(instructions: &[MirInstruction]) -> Vec<CodeInstruction
     }
     remap_x86_abi(&mut out);
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::target::shared::code::mir::lower_to_mir;
+
+    /// Select a stream of AArch64 `CodeInstruction`s the way the backend does:
+    /// lower to neutral MIR, then run x86 selection.
+    fn select(instructions: &[CodeInstruction]) -> Vec<CodeInstruction> {
+        select_x86(&lower_to_mir(instructions))
+    }
+
+    fn field<'a>(inst: &'a CodeInstruction, key: &str) -> Option<&'a str> {
+        inst.fields
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn addr_of_becomes_single_rip_relative_lea() {
+        // adrp; add_pageoff fuses to addr_of, which x86 selects as a lone `adrp`
+        // (the RIP-relative lea) — the page-off half is dropped.
+        let out = select(&[
+            CodeInstruction::new("adrp")
+                .field("dst", "x9")
+                .field("symbol", "g"),
+            CodeInstruction::new("add_pageoff")
+                .field("dst", "x9")
+                .field("src", "x9")
+                .field("symbol", "g"),
+        ]);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].op, CodeOp::Adrp);
+        assert_eq!(field(&out[0], "symbol"), Some("g"));
+    }
+
+    #[test]
+    fn integer_fused_compare_splits_into_setter_and_branch() {
+        // cmp; b.hi fuses, then x86 selection re-splits it into cmp + b.hi.
+        let out = select(&[
+            CodeInstruction::new("cmp")
+                .field("lhs", "x9")
+                .field("rhs", "x10"),
+            CodeInstruction::new("b.hi").field("target", "L"),
+        ]);
+        assert_eq!(out.len(), 2);
+        assert_eq!(out[0].op, CodeOp::Cmp);
+        assert_eq!(out[1].op, CodeOp::BranchHi);
+    }
+
+    #[test]
+    fn shared_multi_branch_suppresses_duplicate_setter() {
+        // cmp; b.lo; b.hi — the second branch shares the compare, so only one
+        // `cmp` setter is emitted for the two branches.
+        let out = select(&[
+            CodeInstruction::new("cmp")
+                .field("lhs", "x9")
+                .field("rhs", "x10"),
+            CodeInstruction::new("b.lo").field("target", "less"),
+            CodeInstruction::new("b.hi").field("target", "greater"),
+        ]);
+        let cmps = out.iter().filter(|i| i.op == CodeOp::Cmp).count();
+        assert_eq!(cmps, 1, "the shared branch must not re-emit the compare");
+    }
+
+    #[test]
+    fn float_compare_branch_rewrites_to_x86_ieee_branches() {
+        // fcmp_d; b.mi (IEEE `<`) → cmp setter (FCmpD) then `jp skip; jb; skip:`.
+        let out = select(&[
+            CodeInstruction::new("fcmp_d")
+                .field("lhs", "d0")
+                .field("rhs", "d1"),
+            CodeInstruction::new("b.mi").field("target", "L"),
+        ]);
+        assert_eq!(out[0].op, CodeOp::FCmpD);
+        // Ordered-only form: jp, jb, then a skip label.
+        assert!(out.iter().any(|i| i.op == CodeOp::X86Jp));
+        assert!(out.iter().any(|i| i.op == CodeOp::X86Jb));
+        assert!(out.iter().any(|i| i.op == CodeOp::Label));
+    }
+
+    #[test]
+    fn float_compare_zero_and_all_relations() {
+        // Drive every float-compare relation through x86_float_branch.
+        for (cond, kinds) in [
+            ("b.gt", vec![CodeOp::X86Ja]),
+            ("b.ge", vec![CodeOp::X86Jae]),
+            ("b.eq", vec![CodeOp::X86Je]),
+            ("b.ne", vec![CodeOp::X86Jp, CodeOp::X86Jne]),
+            ("b.hi", vec![CodeOp::X86Jp, CodeOp::X86Ja]),
+            ("b.lt", vec![CodeOp::X86Jb]),
+            ("b.le", vec![CodeOp::X86Jbe]),
+            ("b.vs", vec![CodeOp::X86Jp]),
+            ("b.vc", vec![CodeOp::X86Jnp]),
+            ("b.ls", vec![CodeOp::X86Jbe]),
+            ("b.lo", vec![CodeOp::X86Jb]),
+        ] {
+            let out = select(&[
+                CodeInstruction::new("fcmp_d")
+                    .field("lhs", "d0")
+                    .field("rhs", "d1"),
+                CodeInstruction::new(cond).field("target", "L"),
+            ]);
+            for kind in kinds {
+                assert!(
+                    out.iter().any(|i| i.op == kind),
+                    "cond {cond} should emit {kind:?}"
+                );
+            }
+        }
+        // fcmp_zero_d also routes through the float branch rewrite.
+        let out = select(&[
+            CodeInstruction::new("fcmp_zero_d").field("src", "d0"),
+            CodeInstruction::new("b.gt").field("target", "L"),
+        ]);
+        assert_eq!(out[0].op, CodeOp::FCmpZeroD);
+        assert!(out.iter().any(|i| i.op == CodeOp::X86Ja));
+    }
+
+    #[test]
+    fn sp_zero_and_fp_registers_remap() {
+        // sp → rsp; x31 → the zero register (r14); dN/vN/qN → xmmN.
+        let out = select(&[
+            CodeInstruction::new("mov")
+                .field("dst", "sp")
+                .field("src", "x31"),
+            CodeInstruction::new("fmov_d_from_d")
+                .field("dst", "d3")
+                .field("src", "d5"),
+            CodeInstruction::new("ldr_q")
+                .field("dst", "v2")
+                .field("base", "x9")
+                .field("offset", "0"),
+        ]);
+        assert_eq!(field(&out[0], "dst"), Some("rsp"));
+        assert_eq!(field(&out[0], "src"), Some(ZERO_REGISTER));
+        assert_eq!(field(&out[1], "dst"), Some("xmm3"));
+        assert_eq!(field(&out[1], "src"), Some("xmm5"));
+        assert_eq!(field(&out[2], "dst"), Some("xmm2"));
+    }
+
+    #[test]
+    fn link_register_frame_saves_are_dropped() {
+        // Any instruction naming x30 (the link register) is removed.
+        let out = select(&[
+            CodeInstruction::new("mov")
+                .field("dst", "x30")
+                .field("src", "x9"),
+            CodeInstruction::new("ret"),
+        ]);
+        assert!(!out.iter().any(|i| i.fields.iter().any(|(_, v)| v == "x30")));
+        assert!(out.iter().any(|i| i.op == CodeOp::Ret));
+    }
+
+    #[test]
+    fn call_arguments_map_to_sysv_registers() {
+        // x0..x5 set right before a `bl` are call arguments → rdi, rsi, ….
+        let out = select(&[
+            CodeInstruction::new("mov")
+                .field("dst", "x0")
+                .field("src", "x9"),
+            CodeInstruction::new("mov")
+                .field("dst", "x1")
+                .field("src", "x10"),
+            CodeInstruction::new("bl").field("target", "_mfb_fn"),
+        ]);
+        assert_eq!(field(&out[0], "dst"), Some("rdi"));
+        assert_eq!(field(&out[1], "dst"), Some("rsi"));
+    }
+
+    #[test]
+    fn syscall_arguments_and_number_map() {
+        // x8 (syscall number) → rax; x0/x1 args → rdi/rsi under a `svc` boundary.
+        let out = select(&[
+            CodeInstruction::new("mov")
+                .field("dst", "x8")
+                .field("src", "x9"),
+            CodeInstruction::new("mov")
+                .field("dst", "x0")
+                .field("src", "x10"),
+            CodeInstruction::new("svc"),
+        ]);
+        assert_eq!(field(&out[0], "dst"), Some("rax"));
+        assert_eq!(field(&out[1], "dst"), Some("rdi"));
+    }
+
+    #[test]
+    fn call_result_reads_return_register() {
+        // A use of x0 after a call, not redefined, is the call result → rax.
+        let out = select(&[
+            CodeInstruction::new("bl").field("target", "_mfb_fn"),
+            CodeInstruction::new("mov")
+                .field("dst", "x9")
+                .field("src", "x0"),
+        ]);
+        // The second instruction reads the call result.
+        let read = out.iter().find(|i| i.op == CodeOp::Mov).unwrap();
+        assert_eq!(field(read, "src"), Some("rax"));
+    }
+
+    #[test]
+    fn residual_scratch_registers_map_to_pool() {
+        // A residual high scratch xN (N ≥ 9) with no ABI role maps to a pool reg.
+        let out = select(&[CodeInstruction::new("mov")
+            .field("dst", "x20")
+            .field("src", "x9")]);
+        // x20 lands on rbx (the callee-saved pool head); x9 on a caller-saved reg.
+        assert_eq!(field(&out[0], "dst"), Some("rbx"));
+        assert!(field(&out[0], "src").is_some());
+    }
+
+    #[test]
+    fn return_values_use_return_registers() {
+        // x0/x1 set right before `ret` are return values → rax/rdx.
+        let out = select(&[
+            CodeInstruction::new("mov")
+                .field("dst", "x0")
+                .field("src", "x9"),
+            CodeInstruction::new("mov")
+                .field("dst", "x1")
+                .field("src", "x10"),
+            CodeInstruction::new("ret"),
+        ]);
+        assert_eq!(field(&out[0], "dst"), Some("rax"));
+        assert_eq!(field(&out[1], "dst"), Some("rdx"));
+    }
+
+    #[test]
+    fn incoming_parameter_uses_pin_to_argument_registers() {
+        // A leaf that spills x0/x1 straight to the stack has no downstream boundary;
+        // the param-use path pins each to its SysV argument register (rdi/rsi), so
+        // the store reads the real parameter.
+        let out = select(&[
+            crate::arch::aarch64::abi::label("entry"),
+            CodeInstruction::new("str_u64")
+                .field("src", "x0")
+                .field("base", "sp")
+                .field("offset", "0"),
+            CodeInstruction::new("str_u64")
+                .field("src", "x1")
+                .field("base", "sp")
+                .field("offset", "8"),
+            CodeInstruction::new("ret"),
+        ]);
+        let stores: Vec<_> = out.iter().filter(|i| i.op == CodeOp::StrU64).collect();
+        assert_eq!(field(stores[0], "src"), Some("rdi"));
+        assert_eq!(field(stores[1], "src"), Some("rsi"));
+    }
+
+    #[test]
+    fn branch_following_control_flow_reaches_boundary() {
+        // A value set before an unconditional branch flows to the branch target's
+        // boundary, not whatever sits linearly after the branch.
+        let out = select(&[
+            CodeInstruction::new("mov")
+                .field("dst", "x0")
+                .field("src", "x9"),
+            CodeInstruction::new("b").field("target", "done"),
+            crate::arch::aarch64::abi::label("other"),
+            CodeInstruction::new("bl").field("target", "_mfb_other"),
+            crate::arch::aarch64::abi::label("done"),
+            CodeInstruction::new("ret"),
+        ]);
+        // x0 before the `b done` targets the `ret` boundary → return reg rax.
+        assert_eq!(field(&out[0], "dst"), Some("rax"));
+    }
+
+    #[test]
+    fn error_result_staging_colors_defs_and_uses_as_rets() {
+        // The 4-register error-Result convention: a call delivers x0..x3 (RETS),
+        // an unconditional branch reaches a reset block that reads them, and the
+        // success fall-through re-defines x0/x1. Both the staged defs and the
+        // reset-block result reads must be colored RETS (rax/rdx/rcx/rsi) to agree.
+        let out = select(&[
+            crate::arch::aarch64::abi::label("entry"),
+            CodeInstruction::new("bl").field("target", "_mfb_make_error"),
+            CodeInstruction::new("b").field("target", "stage"),
+            crate::arch::aarch64::abi::label("ok"),
+            CodeInstruction::new("mov")
+                .field("dst", "x0")
+                .field("src", "x9"),
+            CodeInstruction::new("mov")
+                .field("dst", "x1")
+                .field("src", "x10"),
+            crate::arch::aarch64::abi::label("stage"),
+            CodeInstruction::new("str_u64")
+                .field("src", "x1")
+                .field("base", "x19")
+                .field("offset", "32"),
+            CodeInstruction::new("mov")
+                .field("dst", "x20")
+                .field("src", "x2"),
+            CodeInstruction::new("ret"),
+        ]);
+        // The staged def of x0/x1 in the `ok` block is colored RETS (rax/rdx).
+        let ok_defs: Vec<_> = out
+            .iter()
+            .filter(|i| i.op == CodeOp::Mov && matches!(field(i, "src"), Some("rbx") | Some("rsi")))
+            .collect();
+        assert!(ok_defs.iter().any(|i| field(i, "dst") == Some("rax")));
+        assert!(ok_defs.iter().any(|i| field(i, "dst") == Some("rdx")));
+        // The reset block's result read of x1 → rdx (RETS[1]); x2 → rcx (RETS[2]).
+        let store = out.iter().find(|i| i.op == CodeOp::StrU64).unwrap();
+        assert_eq!(field(store, "src"), Some("rdx"));
+        let x2read = out
+            .iter()
+            .find(|i| i.op == CodeOp::Mov && field(i, "dst") == Some("rbx"))
+            .unwrap();
+        assert_eq!(field(x2read, "src"), Some("rcx"));
+    }
+
+    #[test]
+    fn propagated_error_result_reads_rets_across_call() {
+        // A callee returning the 4-register error-Result, whose x2/x3 the caller
+        // does not redefine, reads them from RETS (rcx/rsi) — the propagated-error
+        // is_result path for x2/x3.
+        let out = select(&[
+            CodeInstruction::new("bl").field("target", "_mfb_inner"),
+            CodeInstruction::new("mov")
+                .field("dst", "x20")
+                .field("src", "x2"),
+            CodeInstruction::new("mov")
+                .field("dst", "x21")
+                .field("src", "x3"),
+            CodeInstruction::new("ret"),
+        ]);
+        let reads: Vec<_> = out.iter().filter(|i| i.op == CodeOp::Mov).collect();
+        assert_eq!(field(reads[0], "src"), Some("rcx")); // x2 result → RETS[2]
+        assert_eq!(field(reads[1], "src"), Some("rsi")); // x3 result → RETS[3]
+    }
+
+    #[test]
+    fn high_scratch_register_wraps_the_pool() {
+        // A residual scratch at the high end wraps the 11-entry pool modulo.
+        // x28 → index (28-9)%11 = 8 → r13; x20 → index 0 → rbx.
+        let out = select(&[CodeInstruction::new("mov")
+            .field("dst", "x28")
+            .field("src", "x27")]);
+        assert_eq!(field(&out[0], "dst"), Some("r13"));
+        assert_eq!(field(&out[0], "src"), Some("r12")); // x27 → index 7 → r12
+    }
 }

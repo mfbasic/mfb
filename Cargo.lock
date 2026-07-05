@@ -776,6 +776,7 @@ name = "mfb"
 version = "0.1.0"
 dependencies = [
  "mfb_repository",
+ "serde_json",
  "sha2",
  "tempfile",
  "tinyjson",

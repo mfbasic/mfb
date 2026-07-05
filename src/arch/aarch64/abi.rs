@@ -771,10 +771,172 @@ pub(crate) fn vector_extract_to_x(dst: &str, src: &str, index: u8) -> CodeInstru
 
 /// `fmadd d<dst>, d<lhs>, d<rhs>, d<addend>` — `dst = addend + lhs*rhs` (one round).
 #[allow(dead_code)]
-pub(crate) fn float_multiply_add_d(dst: &str, addend: &str, lhs: &str, rhs: &str) -> CodeInstruction {
+pub(crate) fn float_multiply_add_d(
+    dst: &str,
+    addend: &str,
+    lhs: &str,
+    rhs: &str,
+) -> CodeInstruction {
     CodeInstruction::new("fmadd_d")
         .field("dst", dst)
         .field("addend", addend)
         .field("lhs", lhs)
         .field("rhs", rhs)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn get<'a>(inst: &'a CodeInstruction, key: &str) -> Option<&'a str> {
+        inst.fields
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
+    #[test]
+    fn register_role_helpers() {
+        assert_eq!(argument_register(0).unwrap(), "x0");
+        assert_eq!(argument_register(7).unwrap(), "x7");
+        assert!(argument_register(8).is_err());
+        // Temporary allocations cover the caller-saved run and the callee-saved remap.
+        assert_eq!(temporary_register(8).unwrap(), "x8");
+        assert_eq!(temporary_register(17).unwrap(), "x17");
+        assert_eq!(temporary_register(18).unwrap(), "x20");
+        assert_eq!(temporary_register(26).unwrap(), "x28");
+        assert!(temporary_register(27).is_err());
+        // FP temporaries.
+        assert_eq!(fp_temporary_register(0).unwrap(), "d0");
+        assert_eq!(fp_temporary_register(7).unwrap(), "d7");
+        assert!(fp_temporary_register(8).is_err());
+        // Named ABI registers.
+        assert_eq!(return_register(), "x0");
+        assert_eq!(link_register(), "x30");
+        assert_eq!(stack_pointer(), "sp");
+        assert_eq!(syscall_register(), "x8");
+        assert_eq!(string_length_register(), "x2");
+        assert_eq!(string_data_register(), "x1");
+        assert!(is_callee_saved("x19"));
+        assert!(is_callee_saved("x28"));
+        assert!(!is_callee_saved("x0"));
+        assert!(is_stack_pointer("sp"));
+        assert!(!is_stack_pointer("x0"));
+    }
+
+    #[test]
+    fn instruction_constructors_carry_op_and_fields() {
+        // Each constructor names its op and lays out the expected fields.
+        assert_eq!(label("L").op.mnemonic(), "label");
+        assert_eq!(get(&label("L"), "name"), Some("L"));
+
+        let cases: Vec<(CodeInstruction, &str)> = vec![
+            (move_register("x0", "x1"), "mov"),
+            (move_immediate("x0", "Integer", "3"), "mov_imm"),
+            (add_immediate("x0", "x1", 4), "add_imm"),
+            (subtract_immediate("x0", "x1", 4), "sub_imm"),
+            (add_registers("x0", "x1", "x2"), "add"),
+            (add_registers_set_flags("x0", "x1", "x2"), "adds"),
+            (subtract_registers("x0", "x1", "x2"), "sub"),
+            (subtract_registers_set_flags("x0", "x1", "x2"), "subs"),
+            (and_registers("x0", "x1", "x2"), "and"),
+            (or_registers("x0", "x1", "x2"), "orr"),
+            (exclusive_or_registers("x0", "x1", "x2"), "eor"),
+            (bitwise_not("x0", "x1"), "mvn"),
+            (multiply_registers("x0", "x1", "x2"), "mul"),
+            (signed_multiply_high_registers("x0", "x1", "x2"), "smulh"),
+            (unsigned_multiply_high_registers("x0", "x1", "x2"), "umulh"),
+            (add_carry("x0", "x1", "x2", "x3", "xzr"), "add_carry"),
+            (sub_borrow("x0", "x1", "x2", "x3", "xzr"), "sub_borrow"),
+            (rotate_right_registers("x0", "x1", "x2"), "rorv"),
+            (rotate_right_word_registers("x0", "x1", "x2"), "rorv_w"),
+            (shift_left_variable("x0", "x1", "x2"), "lslv"),
+            (shift_right_variable("x0", "x1", "x2"), "lsrv"),
+            (arithmetic_shift_right_variable("x0", "x1", "x2"), "asrv"),
+            (count_leading_zeros("x0", "x1"), "clz"),
+            (reverse_bits("x0", "x1"), "rbit"),
+            (reverse_bytes_word("x0", "x1"), "rev_w"),
+            (reverse_bytes("x0", "x1"), "rev_x"),
+            (signed_divide_registers("x0", "x1", "x2"), "sdiv"),
+            (unsigned_divide_registers("x0", "x1", "x2"), "udiv"),
+            (multiply_subtract_registers("x0", "x1", "x2", "x3"), "msub"),
+            (shift_left_immediate("x0", "x1", 3), "lsl_imm"),
+            (shift_right_immediate("x0", "x1", 3), "lsr_imm"),
+            (arithmetic_shift_right_immediate("x0", "x1", 3), "asr_imm"),
+            (subtract_stack(16), "sub_sp"),
+            (add_stack(16), "add_sp"),
+            (compare_immediate("x0", "1"), "cmp_imm"),
+            (compare_registers("x0", "x1"), "cmp"),
+            (branch_eq("L"), "b.eq"),
+            (branch_ne("L"), "b.ne"),
+            (branch_ge("L"), "b.ge"),
+            (branch_lt("L"), "b.lt"),
+            (branch_gt("L"), "b.gt"),
+            (branch_le("L"), "b.le"),
+            (branch_vc("L"), "b.vc"),
+            (branch_vs("L"), "b.vs"),
+            (branch_hi("L"), "b.hi"),
+            (branch_lo("L"), "b.lo"),
+            (branch_mi("L"), "b.mi"),
+            (branch_ls("L"), "b.ls"),
+            (branch("L"), "b"),
+            (branch_link("f"), "bl"),
+            (branch_link_register("x0"), "blr"),
+            (branch_self(), "branch_self"),
+            (syscall(), "svc"),
+            (return_(), "ret"),
+            (load_u64("x0", "x1", 8), "ldr_u64"),
+            (load_u32("x0", "x1", 4), "ldr_u32"),
+            (load_u16("x0", "x1", 2), "ldr_u16"),
+            (load_u8("x0", "x1", 1), "ldr_u8"),
+            (store_u64("x0", "x1", 8), "str_u64"),
+            (store_u32("x0", "x1", 4), "str_u32"),
+            (store_u8("x0", "x1", 1), "str_u8"),
+            (load_double("d0", "x1", 8), "ldr_d"),
+            (store_double("d0", "x1", 8), "str_d"),
+            (load_page_address("x0", "g"), "adrp"),
+            (add_page_offset("x0", "x0", "g"), "add_pageoff"),
+            (float_move_x_from_d("x0", "d1"), "fmov_x_from_d"),
+            (float_move_d_from_x("d0", "x1"), "fmov_d_from_x"),
+            (float_move_d_from_d("d0", "d1"), "fmov_d_from_d"),
+            (float_add_d("d0", "d1", "d2"), "fadd_d"),
+            (float_subtract_d("d0", "d1", "d2"), "fsub_d"),
+            (float_multiply_d("d0", "d1", "d2"), "fmul_d"),
+            (float_divide_d("d0", "d1", "d2"), "fdiv_d"),
+            (float_negate_d("d0", "d1"), "fneg_d"),
+            (float_sqrt_d("d0", "d1"), "fsqrt_d"),
+            (float_abs_d("d0", "d1"), "fabs_d"),
+            (float_compare_d("d0", "d1"), "fcmp_d"),
+            (float_compare_zero_d("d0"), "fcmp_zero_d"),
+            (signed_convert_to_float_d("d0", "x1"), "scvtf_d_from_x"),
+            (float_convert_to_signed_x("x0", "d1"), "fcvtzs_x_from_d"),
+            (float_floor_to_signed_x("x0", "d1"), "fcvtms_x_from_d"),
+            (float_ceil_to_signed_x("x0", "d1"), "fcvtps_x_from_d"),
+            (float_round_to_signed_x("x0", "d1"), "fcvtas_x_from_d"),
+            (float_multiply_add_d("d0", "d1", "d2", "d3"), "fmadd_d"),
+        ];
+        for (inst, mnemonic) in cases {
+            assert_eq!(inst.op.mnemonic(), mnemonic);
+        }
+    }
+
+    #[test]
+    fn vector_constructors() {
+        // Loads/stores and the macro-generated three-same/two-misc/shift builders.
+        assert_eq!(vector_load("v0", "x1", 16).op.mnemonic(), "ldr_q");
+        assert_eq!(vector_store("v0", "x1", 16).op.mnemonic(), "str_q");
+        assert_eq!(vector_fadd("v0", "v1", "v2").op.mnemonic(), "fadd_v");
+        assert_eq!(vector_bit("v0", "v1", "v2").op.mnemonic(), "bit_v");
+        assert_eq!(vector_fabs("v0", "v1").op.mnemonic(), "fabs_v");
+        assert_eq!(vector_fcmle_zero("v0", "v1").op.mnemonic(), "fcmle_zero_v");
+        assert_eq!(vector_shl("v0", "v1", 3).op.mnemonic(), "shl_v");
+        assert_eq!(vector_sshr("v0", "v1", 3).op.mnemonic(), "sshr_v");
+        assert_eq!(vector_ushr("v0", "v1", 3).op.mnemonic(), "ushr_v");
+        let dup = vector_dup_from_x("v0", "x1");
+        assert_eq!(dup.op.mnemonic(), "dup_v_from_x");
+        assert_eq!(get(&dup, "src"), Some("x1"));
+        let ext = vector_extract_to_x("x0", "v1", 1);
+        assert_eq!(ext.op.mnemonic(), "umov_x_from_v");
+        assert_eq!(get(&ext, "index"), Some("1"));
+    }
 }

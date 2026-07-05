@@ -38,7 +38,9 @@ pub(crate) fn run_doc_command(args: &[String]) -> i32 {
         index += 1;
     }
     // Like `mfb build`, the path defaults to the current directory.
-    let path = path.map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    let path = path
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."));
     let out_path = out
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("doc.html"));
@@ -100,5 +102,124 @@ fn build_source_doc_page(path: &Path) -> Result<(doc::DocPage, bool), String> {
         let parent = path.parent().unwrap_or_else(|| Path::new("."));
         let valid = resolver::validate_project_docs(parent, &project);
         Ok((doc::from_source(&project), valid))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn s(values: &[&str]) -> Vec<String> {
+        values.iter().map(|value| value.to_string()).collect()
+    }
+
+    #[test]
+    fn run_doc_out_flag_requires_a_file() {
+        assert_eq!(run_doc_command(&s(&["--out"])), 2);
+    }
+
+    #[test]
+    fn run_doc_rejects_unknown_flag() {
+        assert_eq!(run_doc_command(&s(&["--bogus"])), 2);
+    }
+
+    #[test]
+    fn run_doc_rejects_two_paths() {
+        assert_eq!(run_doc_command(&s(&["a.mfb", "b.mfb"])), 2);
+    }
+
+    #[test]
+    fn run_doc_reports_unreadable_path() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let missing = dir.path().join("nope.mfb");
+        // A path that is neither a dir nor readable file surfaces an error exit.
+        assert_eq!(run_doc_command(&s(&[missing.to_str().unwrap()])), 1);
+    }
+
+    #[test]
+    fn build_source_doc_page_renders_a_single_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("lib.mfb");
+        std::fs::write(
+            &file,
+            "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n",
+        )
+        .expect("write source");
+        let (_page, valid) = build_source_doc_page(&file).expect("doc page");
+        assert!(valid);
+    }
+
+    #[test]
+    fn run_doc_command_writes_html_for_a_single_file() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("lib.mfb");
+        std::fs::write(
+            &file,
+            "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n",
+        )
+        .expect("write source");
+        let out = dir.path().join("out.html");
+        let code = run_doc_command(&s(&[
+            file.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ]));
+        assert_eq!(code, 0);
+        assert!(out.is_file());
+        let html = std::fs::read_to_string(&out).unwrap();
+        assert!(html.contains("<"));
+    }
+
+    #[test]
+    fn build_source_doc_page_renders_a_project_directory() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let project = dir.path();
+        std::fs::write(
+            project.join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"lib\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"package\",\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"package\", \"include\": [\"**/*.mfb\"] }]\n",
+                "}\n"
+            ),
+        )
+        .expect("manifest");
+        std::fs::create_dir_all(project.join("src")).expect("src dir");
+        std::fs::write(
+            project.join("src").join("lib.mfb"),
+            "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n",
+        )
+        .expect("source");
+        let (_page, valid) = build_source_doc_page(project).expect("doc page");
+        assert!(valid);
+        // And the full command over the project directory writes HTML.
+        let out = dir.path().join("doc.html");
+        let code = run_doc_command(&s(&[
+            project.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ]));
+        assert_eq!(code, 0);
+        assert!(out.is_file());
+    }
+
+    #[test]
+    fn build_source_doc_page_reports_bad_project_manifest() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        // A directory with an invalid project.json fails validation.
+        std::fs::write(dir.path().join("project.json"), "{ not json").expect("manifest");
+        assert!(build_source_doc_page(dir.path()).is_err());
+    }
+
+    #[test]
+    fn build_source_doc_page_reports_unparseable_source() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let file = dir.path().join("broken.mfb");
+        // Deliberately malformed source so parsing fails.
+        std::fs::write(&file, "FUNC (((\n").expect("write");
+        assert!(build_source_doc_page(&file).is_err());
     }
 }

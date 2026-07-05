@@ -132,3 +132,138 @@ fn hello_world_source() -> String {
 fn package_source() -> String {
     "EXPORT FUNC answer() AS Integer\n  RETURN 42\nEND FUNC\n".to_string()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tinyjson::JsonValue;
+
+    #[test]
+    fn sanitize_project_name_replaces_invalid_characters() {
+        assert_eq!(sanitize_project_name("my-app"), "my_app");
+        assert_eq!(sanitize_project_name("hello world"), "hello_world");
+        // A leading digit is dropped (first char must be a letter/underscore).
+        assert_eq!(sanitize_project_name("1abc"), "abc");
+        assert_eq!(sanitize_project_name("valid_name9"), "valid_name9");
+        // Trailing invalid chars become underscores; a leading invalid char at
+        // index 0 is dropped entirely.
+        assert_eq!(sanitize_project_name("---"), "__");
+        // Only-a-single-invalid-leading-char produces an empty string -> default.
+        assert_eq!(sanitize_project_name("1"), "mfb_project");
+        // Empty input falls back to the default.
+        assert_eq!(sanitize_project_name(""), "mfb_project");
+    }
+
+    #[test]
+    fn project_name_uses_directory_basename() {
+        assert_eq!(project_name(Path::new("/tmp/cool-app")), "cool_app");
+        // A path with no usable file name falls back.
+        assert_eq!(project_name(Path::new("/")), "mfb_project");
+    }
+
+    #[test]
+    fn project_manifest_is_valid_executable_json() {
+        let manifest = project_manifest(Path::new("/tmp/demo"));
+        let parsed: JsonValue = manifest.parse().expect("valid JSON");
+        let object = parsed
+            .get::<std::collections::HashMap<String, JsonValue>>()
+            .expect("object");
+        assert_eq!(
+            object
+                .get("kind")
+                .and_then(|v| v.get::<String>())
+                .map(String::as_str),
+            Some("executable")
+        );
+        assert_eq!(
+            object
+                .get("name")
+                .and_then(|v| v.get::<String>())
+                .map(String::as_str),
+            Some("demo")
+        );
+    }
+
+    #[test]
+    fn package_project_manifest_is_valid_package_json() {
+        let manifest = package_project_manifest(Path::new("/tmp/lib"));
+        let parsed: JsonValue = manifest.parse().expect("valid JSON");
+        let object = parsed
+            .get::<std::collections::HashMap<String, JsonValue>>()
+            .expect("object");
+        assert_eq!(
+            object
+                .get("kind")
+                .and_then(|v| v.get::<String>())
+                .map(String::as_str),
+            Some("package")
+        );
+    }
+
+    #[test]
+    fn init_project_scaffolds_an_executable() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let location = dir.path().join("app");
+        std::fs::create_dir_all(&location).expect("location");
+        init_project(&location).expect("init");
+        assert!(location.join("project.json").is_file());
+        assert!(location.join("src").join("main.mfb").is_file());
+        let source = std::fs::read_to_string(location.join("src").join("main.mfb")).unwrap();
+        assert!(source.contains("io::print"));
+    }
+
+    #[test]
+    fn init_package_project_scaffolds_a_package() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let location = dir.path().join("lib");
+        std::fs::create_dir_all(&location).expect("location");
+        init_package_project(&location).expect("init");
+        assert!(location.join("project.json").is_file());
+        assert!(location.join("src").join("lib.mfb").is_file());
+        let source = std::fs::read_to_string(location.join("src").join("lib.mfb")).unwrap();
+        assert!(source.contains("EXPORT FUNC answer"));
+    }
+
+    #[test]
+    fn init_project_refuses_to_overwrite_existing_files() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let location = dir.path().join("app");
+        std::fs::create_dir_all(&location).expect("location");
+        init_project(&location).expect("first init");
+        // Re-running refuses to clobber the existing project.json.
+        let err = init_project(&location).unwrap_err();
+        assert!(err.contains("refusing to overwrite"));
+    }
+
+    #[test]
+    fn init_reports_create_dir_failure() {
+        // `src` already exists as a *file*, so `create_dir_all(location/src)`
+        // fails and the error closure runs.
+        let dir = tempfile::tempdir().expect("temp dir");
+        let location = dir.path().join("app");
+        std::fs::create_dir_all(&location).expect("location");
+        std::fs::write(location.join("src"), "not a directory").expect("blocker file");
+        assert!(init_project(&location)
+            .unwrap_err()
+            .contains("failed to create source directory"));
+
+        let package_location = dir.path().join("lib");
+        std::fs::create_dir_all(&package_location).expect("location");
+        std::fs::write(package_location.join("src"), "not a directory").expect("blocker file");
+        assert!(init_package_project(&package_location)
+            .unwrap_err()
+            .contains("failed to create source directory"));
+    }
+
+    #[test]
+    fn write_new_file_refuses_existing() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("file.txt");
+        write_new_file(&path, "one".to_string()).expect("first write");
+        assert!(write_new_file(&path, "two".to_string())
+            .unwrap_err()
+            .contains("refusing to overwrite"));
+        // The original contents survive.
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "one");
+    }
+}

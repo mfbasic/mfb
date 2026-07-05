@@ -49,8 +49,8 @@ const INT_CALLEE_SAVED: &[&str] = &["rbx", "rbp", "r12", "r13", "r14", "r15"];
 // the non-commutative `dst == rhs` subsd/divsd case, which has no in-place form),
 // so it is excluded from allocation — mirroring how r14/r15 are reserved for GPR.
 const FP_REGS: &[&str] = &[
-    "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10", "xmm11",
-    "xmm12", "xmm13", "xmm14",
+    "xmm0", "xmm1", "xmm2", "xmm3", "xmm4", "xmm5", "xmm6", "xmm7", "xmm8", "xmm9", "xmm10",
+    "xmm11", "xmm12", "xmm13", "xmm14",
 ];
 
 pub(crate) struct X86_64RegisterModel;
@@ -116,7 +116,9 @@ impl RegisterModel for X86_64RegisterModel {
     }
 
     fn emit_move(&self, dst: &str, src: &str) -> CodeInstruction {
-        CodeInstruction::new("mov").field("dst", dst).field("src", src)
+        CodeInstruction::new("mov")
+            .field("dst", dst)
+            .field("src", src)
     }
 
     fn arena_base(&self) -> &'static str {
@@ -153,5 +155,49 @@ mod tests {
         for reg in m.allocatable(RegClass::Int) {
             assert!(!["rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "rsp", "rbp"].contains(reg));
         }
+    }
+
+    #[test]
+    fn allocatable_and_caller_saved_banks() {
+        let m = X86_64RegisterModel;
+        assert_eq!(m.allocatable(RegClass::Int), INT_ALLOCATABLE);
+        assert_eq!(m.allocatable(RegClass::Fp), FP_REGS);
+        assert_eq!(m.caller_saved(RegClass::Int), INT_CALLER_SAVED);
+        // SysV has no callee-saved xmm, so the FP caller-saved set is the whole file.
+        assert_eq!(m.caller_saved(RegClass::Fp), FP_REGS);
+        // No xmm is callee-saved.
+        assert!(!m.is_callee_saved("xmm0"));
+    }
+
+    #[test]
+    fn spill_reload_move_and_pool_bases() {
+        let m = X86_64RegisterModel;
+        assert_eq!(m.spill_slot_bytes(), 16);
+        // Integer spill/reload use the 64-bit str/ldr; FP use the 128-bit movups.
+        let int_spill = m.emit_spill(RegClass::Int, "rbx", 8);
+        assert_eq!(int_spill.op.mnemonic(), "str_u64");
+        assert_eq!(int_spill.get("src"), Some("rbx"));
+        assert_eq!(int_spill.get("base"), Some("rsp"));
+        assert_eq!(int_spill.get("offset"), Some("8"));
+        assert_eq!(
+            m.emit_spill(RegClass::Fp, "xmm3", 16).op.mnemonic(),
+            "str_q"
+        );
+        let int_reload = m.emit_reload(RegClass::Int, "rbx", 8);
+        assert_eq!(int_reload.op.mnemonic(), "ldr_u64");
+        assert_eq!(int_reload.get("dst"), Some("rbx"));
+        assert_eq!(
+            m.emit_reload(RegClass::Fp, "xmm3", 16).op.mnemonic(),
+            "ldr_q"
+        );
+        let mov = m.emit_move("rax", "rbx");
+        assert_eq!(mov.op.mnemonic(), "mov");
+        assert_eq!(mov.get("dst"), Some("rax"));
+        assert_eq!(mov.get("src"), Some("rbx"));
+        // arena_base is pinned to r15; the math pool base is an allocator vreg.
+        assert_eq!(m.arena_base(), "r15");
+        assert_eq!(m.math_pool_base(), None);
+        // The zero register realizes xzr as r14.
+        assert_eq!(ZERO_REGISTER, "r14");
     }
 }

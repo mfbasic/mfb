@@ -29,7 +29,10 @@ impl<'a> FileParser<'a> {
             let operator = match self.previous().kind {
                 TokenKind::Keyword(Keyword::Or) => "OR",
                 TokenKind::Keyword(Keyword::Xor) => "XOR",
+                // coverage:off — the preceding match_any_keywords guarantees the
+                // previous token is OR or XOR.
                 _ => unreachable!(),
+                // coverage:on
             };
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_and()?;
@@ -91,7 +94,10 @@ impl<'a> FileParser<'a> {
                 TokenKind::LessEqual => "<=",
                 TokenKind::Greater => ">",
                 TokenKind::GreaterEqual => ">=",
+                // coverage:off — the preceding match_any guarantees a comparison
+                // operator token here.
                 _ => unreachable!(),
+                // coverage:on
             };
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_concat()?;
@@ -128,7 +134,9 @@ impl<'a> FileParser<'a> {
             let operator = match self.previous().kind {
                 TokenKind::Plus => "+",
                 TokenKind::Minus => "-",
+                // coverage:off — the preceding match_any guarantees `+` or `-`.
                 _ => unreachable!(),
+                // coverage:on
             };
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_multiplication()?;
@@ -153,7 +161,10 @@ impl<'a> FileParser<'a> {
                 TokenKind::Slash => "/",
                 TokenKind::Keyword(Keyword::Mod) => "MOD",
                 TokenKind::Keyword(Keyword::Div) => "DIV",
+                // coverage:off — the preceding match guards guarantee `*`, `/`,
+                // MOD, or DIV here.
                 _ => unreachable!(),
+                // coverage:on
             };
             let (line, column) = (self.previous().line, self.previous().start);
             let right = self.parse_power()?;
@@ -528,6 +539,8 @@ impl<'a> FileParser<'a> {
             while self.match_kind(TokenKind::Comma) {
                 args.push(self.parse_type_name()?);
             }
+            // coverage:off — `args` is seeded with one parsed type above, so it is
+            // never empty here; this guard is defensive.
             if args.is_empty() {
                 let token = self.peek().clone();
                 self.report(
@@ -537,6 +550,7 @@ impl<'a> FileParser<'a> {
                 );
                 return None;
             }
+            // coverage:on
             name.push_str(" OF ");
             name.push_str(&args.join(", "));
         }
@@ -696,7 +710,11 @@ impl<'a> FileParser<'a> {
         Some(Expression::ListLiteral(values))
     }
 
-    pub(super) fn parse_map_literal(&mut self, key_type: String, value_type: String) -> Option<Expression> {
+    pub(super) fn parse_map_literal(
+        &mut self,
+        key_type: String,
+        value_type: String,
+    ) -> Option<Expression> {
         if !self.consume_kind(TokenKind::LBrace, "Expected `{` after map literal type.") {
             return None;
         }

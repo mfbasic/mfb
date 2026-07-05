@@ -146,8 +146,8 @@ impl Encoder {
             _ => {
                 if let Some(library) = self.imports.get(&target) {
                     // Re-derive as a GOT load so the kind string matches.
-                    let kind = crate::arch::x86_64::reloc::reloc_kind(RelocIntent::GotLoadLo)
-                        .to_string();
+                    let kind =
+                        crate::arch::x86_64::reloc::reloc_kind(RelocIntent::GotLoadLo).to_string();
                     self.relocations.push(EncodedRelocation {
                         offset,
                         target,
@@ -350,7 +350,11 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "rbit" => {
             let dst = reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;
-            let mut b = if dst == src { Vec::new() } else { enc_mov(dst, src) };
+            let mut b = if dst == src {
+                Vec::new()
+            } else {
+                enc_mov(dst, src)
+            };
             // or dst, rdx : REX.W 09 /r (rm=dst, reg=rdx=2)
             let or_dst_rdx = |b: &mut Vec<u8>| {
                 b.push(rex(true, false, false, dst >= 8));
@@ -472,7 +476,11 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let src = reg(field(instruction, "src")?)?;
             let imm = checked_imm32(immediate(field(instruction, "imm")?)?)?;
             // mov dst,src (if different) ; add dst, imm32
-            let mut bytes = if dst == src { Vec::new() } else { enc_mov(dst, src) };
+            let mut bytes = if dst == src {
+                Vec::new()
+            } else {
+                enc_mov(dst, src)
+            };
             bytes.extend_from_slice(&enc_alu_imm32(0, dst, imm)); // /0 = ADD
             Ok(Encoded::plain(bytes))
         }
@@ -480,7 +488,11 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let dst = reg(field(instruction, "dst")?)?;
             let src = reg(field(instruction, "src")?)?;
             let imm = checked_imm32(immediate(field(instruction, "imm")?)?)?;
-            let mut bytes = if dst == src { Vec::new() } else { enc_mov(dst, src) };
+            let mut bytes = if dst == src {
+                Vec::new()
+            } else {
+                enc_mov(dst, src)
+            };
             bytes.extend_from_slice(&enc_alu_imm32(5, dst, imm)); // /5 = SUB
             Ok(Encoded::plain(bytes))
         }
@@ -708,7 +720,7 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             b.extend(enc_shift_imm_reg(5, dst, 63)); // shr dst, 63  → sign bit
             b.extend(enc_shift_imm_reg(4, dst, 63)); // shl dst, 63  → sign << 63
             b.extend(enc_mov_imm64(0, 0x3FE0_0000_0000_0000)); // movabs rax, bits(0.5)
-            // or dst, rax : REX.W 09 /r (rm = dst, reg = rax)
+                                                               // or dst, rax : REX.W 09 /r (rm = dst, reg = rax)
             b.push(rex(true, false, false, dst >= 8));
             b.push(0x09);
             b.push(modrm(0b11, 0, dst));
@@ -723,17 +735,17 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         "ldr_d" => {
             let dst = fp_reg(field(instruction, "dst")?)?;
             let base = reg(field(instruction, "base")?)?;
-            let disp = field(instruction, "offset")?.parse::<i32>().map_err(|_| {
-                "x86 ldr_d: bad offset".to_string()
-            })?;
+            let disp = field(instruction, "offset")?
+                .parse::<i32>()
+                .map_err(|_| "x86 ldr_d: bad offset".to_string())?;
             Ok(Encoded::plain(enc_movsd_mem(0x10, dst, base, disp)))
         }
         "str_d" => {
             let src = fp_reg(field(instruction, "src")?)?;
             let base = reg(field(instruction, "base")?)?;
-            let disp = field(instruction, "offset")?.parse::<i32>().map_err(|_| {
-                "x86 str_d: bad offset".to_string()
-            })?;
+            let disp = field(instruction, "offset")?
+                .parse::<i32>()
+                .map_err(|_| "x86 str_d: bad offset".to_string())?;
             Ok(Encoded::plain(enc_movsd_mem(0x11, src, base, disp)))
         }
 
@@ -782,12 +794,21 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let src = fp_reg(field(instruction, "src")?)?;
             let neg = m == "fneg_v";
             let mut b = enc_sse_rr(Some(0x66), 0x76, 15, 15); // pcmpeqd xmm15,xmm15
-            b.extend(enc_psxlq(if neg { 0x06 } else { 0x02 }, 15, if neg { 63 } else { 1 }));
+            b.extend(enc_psxlq(
+                if neg { 0x06 } else { 0x02 },
+                15,
+                if neg { 63 } else { 1 },
+            ));
             if dst != src {
                 b.extend(enc_movaps(dst, src));
             }
             // xorpd (66 0F 57) / andpd (66 0F 54) dst, xmm15
-            b.extend(enc_sse_rr(Some(0x66), if neg { 0x57 } else { 0x54 }, dst, 15));
+            b.extend(enc_sse_rr(
+                Some(0x66),
+                if neg { 0x57 } else { 0x54 },
+                dst,
+                15,
+            ));
             Ok(Encoded::plain(b))
         }
         // Integer i64 negate: 0 - src (staged through xmm15 so dst may alias src).
@@ -822,7 +843,11 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
                 b.extend(enc_sse38_rr(0x37, dst, 15));
                 b
             } else {
-                let mut b = if dst == lhs { Vec::new() } else { enc_movaps(dst, lhs) };
+                let mut b = if dst == lhs {
+                    Vec::new()
+                } else {
+                    enc_movaps(dst, lhs)
+                };
                 b.extend(enc_sse38_rr(0x37, dst, rhs));
                 b
             };
@@ -857,7 +882,11 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
         }
         "fcmeq_v" => {
             let (dst, lhs, rhs) = three_fp(instruction)?;
-            let mut b = if dst == rhs { enc_movaps(15, rhs) } else { Vec::new() };
+            let mut b = if dst == rhs {
+                enc_movaps(15, rhs)
+            } else {
+                Vec::new()
+            };
             let r = if dst == rhs { 15 } else { rhs };
             if dst != lhs {
                 b.extend(enc_movaps(dst, lhs));
@@ -947,8 +976,16 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
             let shift: u8 = field(instruction, "shift")?
                 .parse()
                 .map_err(|_| "x86 shl_v/ushr_v: bad shift".to_string())?;
-            let mut b = if dst == src { Vec::new() } else { enc_movaps(dst, src) };
-            b.extend(enc_psxlq(if m == "shl_v" { 0x06 } else { 0x02 }, dst, shift));
+            let mut b = if dst == src {
+                Vec::new()
+            } else {
+                enc_movaps(dst, src)
+            };
+            b.extend(enc_psxlq(
+                if m == "shl_v" { 0x06 } else { 0x02 },
+                dst,
+                shift,
+            ));
             Ok(Encoded::plain(b))
         }
         // Broadcast a GPR into both i64 lanes: movq xmm,r64 ; punpcklqdq xmm,xmm.
@@ -1092,7 +1129,11 @@ fn alu3(instruction: &CodeInstruction, opcode: u8) -> Result<Encoded, String> {
         let bytes = match opcode {
             0x29 => {
                 // sub: dst = 0 - rhs = -rhs (neg is in-place, so seed dst=rhs).
-                let mut b = if dst == rhs { Vec::new() } else { enc_mov(dst, rhs) };
+                let mut b = if dst == rhs {
+                    Vec::new()
+                } else {
+                    enc_mov(dst, rhs)
+                };
                 b.extend_from_slice(&enc_neg(dst));
                 b
             }
@@ -1357,9 +1398,20 @@ fn vec3(prefix: u8, opcode: u8, commutative: bool, dst: u8, lhs: u8, rhs: u8) ->
     }
 }
 
-fn vec3_op(instruction: &CodeInstruction, opcode: u8, commutative: bool) -> Result<Encoded, String> {
+fn vec3_op(
+    instruction: &CodeInstruction,
+    opcode: u8,
+    commutative: bool,
+) -> Result<Encoded, String> {
     let (dst, lhs, rhs) = three_fp(instruction)?;
-    Ok(Encoded::plain(vec3(0x66, opcode, commutative, dst, lhs, rhs)))
+    Ok(Encoded::plain(vec3(
+        0x66,
+        opcode,
+        commutative,
+        dst,
+        lhs,
+        rhs,
+    )))
 }
 
 /// Commutative three-byte SSE op (pcmpeqq) with in-place dst handling.
@@ -1453,7 +1505,11 @@ fn enc_imul_rr(dst: u8, src: u8) -> Vec<u8> {
 /// (0=ADD, 5=SUB, 7=CMP). Always uses the imm32 form (6 or 7 bytes) for a
 /// value-independent size.
 fn enc_alu_imm32(digit: u8, rm: u8, imm: i32) -> Vec<u8> {
-    let mut bytes = vec![rex(true, false, false, rm >= 8), 0x81, modrm(0b11, digit, rm)];
+    let mut bytes = vec![
+        rex(true, false, false, rm >= 8),
+        0x81,
+        modrm(0b11, digit, rm),
+    ];
     bytes.extend_from_slice(&imm.to_le_bytes());
     bytes
 }
@@ -1525,7 +1581,10 @@ fn mem_store(instruction: &CodeInstruction, width: MemWidth) -> Result<Encoded, 
             bytes.extend_from_slice(&mem_disp32(src, base, disp));
         }
         MemWidth::U16 => {
+            // coverage:off — `str_u16` has no CodeOp mnemonic, so this arm is
+            // unreachable via the public `CodeInstruction` path.
             return Err("x86 encode: str_u16 unsupported".to_string());
+            // coverage:on
         }
         MemWidth::U8 => {
             // mov [base+disp32], r8 : 0x88 /r. A REX prefix (even empty 0x40) is
@@ -1655,7 +1714,11 @@ fn shift_imm(instruction: &CodeInstruction, digit: u8) -> Result<Encoded, String
     let dst = reg(field(instruction, "dst")?)?;
     let src = reg(field(instruction, "src")?)?;
     let amount = shift(field(instruction, "shift")?)?;
-    let mut bytes = if dst == src { Vec::new() } else { enc_mov(dst, src) };
+    let mut bytes = if dst == src {
+        Vec::new()
+    } else {
+        enc_mov(dst, src)
+    };
     // C1 /digit ib : shift r/m64, imm8
     bytes.push(rex(true, false, false, dst >= 8));
     bytes.push(0xC1);
@@ -1671,18 +1734,18 @@ fn div_seq(instruction: &CodeInstruction, signed: bool) -> Result<Encoded, Strin
     let lhs = reg(field(instruction, "lhs")?)?;
     let rhs = reg(field(instruction, "rhs")?)?;
     let ext = if signed { 7 } else { 6 }; // idiv : F7 /7 ; div : F7 /6
-    // The instruction reserves rax (quotient / low dividend) and rdx (remainder /
-    // high dividend), so a divisor mapped onto either would be destroyed by the
-    // `mov rax,lhs` / `xor rdx,rdx` (or `cqo`) setup before `div` reads it. When
-    // that aliasing happens (`map_scratch_register` freely uses rax/rcx/rdx),
-    // stage the divisor in an 8-byte stack slot and divide from memory instead.
+                                          // The instruction reserves rax (quotient / low dividend) and rdx (remainder /
+                                          // high dividend), so a divisor mapped onto either would be destroyed by the
+                                          // `mov rax,lhs` / `xor rdx,rdx` (or `cqo`) setup before `div` reads it. When
+                                          // that aliasing happens (`map_scratch_register` freely uses rax/rcx/rdx),
+                                          // stage the divisor in an 8-byte stack slot and divide from memory instead.
     let rhs_aliases = rhs == 0 || rhs == 2; // rax / rdx
-    // `div` overwrites rax with the quotient. When the dividend register IS rax
-    // (x0 — the raw draw in math::rand's `raw mod range`) and the quotient is asked
-    // for elsewhere, the caller's rax value would be destroyed even though it is
-    // still live (the following `msub` reads x0 as the minuend). Save rax across
-    // the div and restore it so x0 survives. (For a non-rax dividend, `mov rax,lhs`
-    // leaves the source register intact, so no preservation is needed.)
+                                            // `div` overwrites rax with the quotient. When the dividend register IS rax
+                                            // (x0 — the raw draw in math::rand's `raw mod range`) and the quotient is asked
+                                            // for elsewhere, the caller's rax value would be destroyed even though it is
+                                            // still live (the following `msub` reads x0 as the minuend). Save rax across
+                                            // the div and restore it so x0 survives. (For a non-rax dividend, `mov rax,lhs`
+                                            // leaves the source register intact, so no preservation is needed.)
     let preserve_dividend = lhs == 0 && dst != 0;
     let mut bytes = Vec::new();
     if preserve_dividend {
@@ -1695,7 +1758,7 @@ fn div_seq(instruction: &CodeInstruction, signed: bool) -> Result<Encoded, Strin
     if rhs_aliases {
         // sub rsp,8 ; mov [rsp],rhs   — save the divisor before rax/rdx are set.
         bytes.extend_from_slice(&enc_alu_imm32(5, 4, 8)); // sub rsp, 8
-        // mov [rsp], rhs : REX.W 89 /r, modrm mod=00 rm=100 (SIB base=rsp).
+                                                          // mov [rsp], rhs : REX.W 89 /r, modrm mod=00 rm=100 (SIB base=rsp).
         bytes.push(rex(true, rhs >= 8, false, false));
         bytes.push(0x89);
         bytes.push(modrm(0b00, rhs, 4));

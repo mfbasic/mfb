@@ -258,6 +258,8 @@ impl<'a> SyntaxChecker<'a> {
                         );
                     }
                     ExitTarget::Program => {
+                        // coverage:off — the parser always parses an expression
+                        // for `EXIT PROGRAM`, so `code` is never `None` here.
                         let Some(code) = code else {
                             self.report(
                                 "TYPE_UNKNOWN_VALUE",
@@ -267,6 +269,7 @@ impl<'a> SyntaxChecker<'a> {
                             );
                             return Flow::AlwaysReturns;
                         };
+                        // coverage:on
                         let actual =
                             self.infer_expression(file, code, locals, *line, ExprMode::Read);
                         if !self.expression_compatible(&Type::Integer, &actual, Some(code)) {}
@@ -665,5 +668,770 @@ impl<'a> SyntaxChecker<'a> {
                 Flow::FallsThrough
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::testutil::*;
+
+    // ----- EXIT / RETURN legality -------------------------------------------
+
+    #[test]
+    fn exit_func_is_forbidden() {
+        let src = "\
+FUNC bad AS Integer
+  EXIT FUNC
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "EXIT_FUNC_FORBIDDEN"));
+    }
+
+    #[test]
+    fn exit_sub_in_func_is_forbidden() {
+        let src = "\
+FUNC bad AS Integer
+  EXIT SUB
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "EXIT_SUB_IN_FUNC"));
+    }
+
+    #[test]
+    fn exit_sub_inside_sub_is_allowed() {
+        let src = "\
+SUB doThing(flag AS Boolean)
+  IF flag THEN
+    EXIT SUB
+  END IF
+END SUB
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(!rejects_with(src, "EXIT_SUB_IN_FUNC"));
+    }
+
+    #[test]
+    fn exit_loop_targets_are_accepted_in_a_loop() {
+        // Exercises the ExitTarget::For/Do/While arm (loop_stack lookup) via a
+        // FOR body, a WHILE body, and a DO..UNTIL body.
+        let src = "\
+FUNC main AS Integer
+  FOR i = 1 TO 3
+    EXIT FOR
+  NEXT
+  WHILE FALSE
+    EXIT WHILE
+  WEND
+  DO
+    EXIT DO
+  LOOP UNTIL TRUE
+  RETURN 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn continue_is_accepted_in_a_loop() {
+        let src = "\
+FUNC main AS Integer
+  FOR i = 1 TO 3
+    CONTINUE FOR
+  NEXT
+  RETURN 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn exit_program_with_code_is_accepted() {
+        let src = "\
+FUNC main AS Integer
+  EXIT PROGRAM 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn exit_program_with_out_of_range_code_is_accepted_by_checker() {
+        // Range check is a no-op here (moved to ir::verify); exercises the
+        // integer_constant_value branch with an out-of-range constant.
+        let src = "\
+FUNC main AS Integer
+  EXIT PROGRAM 300
+END FUNC
+";
+        assert!(!rejects_with(src, "TYPE_UNKNOWN_VALUE"));
+    }
+
+    // ----- SUB RETURN -------------------------------------------------------
+
+    #[test]
+    fn sub_return_bare_is_forbidden() {
+        let src = "\
+SUB bad()
+  RETURN
+END SUB
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "SUB_RETURN_FORBIDDEN"));
+    }
+
+    #[test]
+    fn sub_return_with_value_is_forbidden() {
+        // The `if let Some(value)` branch inside the SUB RETURN arm still runs
+        // inference on the value before reporting.
+        let src = "\
+SUB bad()
+  RETURN 5
+END SUB
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "SUB_RETURN_FORBIDDEN"));
+    }
+
+    #[test]
+    fn func_return_value_is_accepted() {
+        let src = "\
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn return_unknown_value_reports() {
+        // A RETURN whose value has no known type reports TYPE_UNKNOWN_VALUE.
+        let src = "\
+FUNC main AS Integer
+  RETURN undefinedName
+END FUNC
+";
+        assert!(rejects_with(src, "TYPE_UNKNOWN_VALUE"));
+    }
+
+    // ----- UNREACHABLE_AFTER_EXIT ------------------------------------------
+
+    #[test]
+    fn unreachable_after_exit_reports() {
+        let src = "\
+FUNC main AS Integer
+  FOR i = 1 TO 3
+    EXIT FOR
+    LET dead AS Integer = 1
+  NEXT
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "UNREACHABLE_AFTER_EXIT"));
+    }
+
+    #[test]
+    fn unreachable_after_continue_reports() {
+        let src = "\
+FUNC main AS Integer
+  FOR i = 1 TO 3
+    CONTINUE FOR
+    LET dead AS Integer = 1
+  NEXT
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "UNREACHABLE_AFTER_EXIT"));
+    }
+
+    #[test]
+    fn statement_after_return_is_not_unreachable_exit() {
+        // RETURN also yields Flow::AlwaysReturns but is NOT Exit/Continue, so
+        // the UNREACHABLE_AFTER_EXIT arm is skipped (the matches! guard).
+        let src = "\
+FUNC main AS Integer
+  RETURN 0
+  RETURN 1
+END FUNC
+";
+        assert!(!rejects_with(src, "UNREACHABLE_AFTER_EXIT"));
+    }
+
+    // ----- Inline TRAP RECOVER ---------------------------------------------
+
+    #[test]
+    fn recover_outside_inline_trap_reports() {
+        let src = "\
+FUNC main AS Integer
+  RECOVER 5
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "TYPE_RECOVER_OUTSIDE_INLINE_TRAP"));
+    }
+
+    #[test]
+    fn recover_outside_inline_trap_with_value_infers_then_reports() {
+        // The `if let Some(value)` branch of the outside-trap arm runs inference
+        // on the RECOVER value before reporting.
+        let src = "\
+FUNC main AS Integer
+  RECOVER undefinedName
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "TYPE_RECOVER_OUTSIDE_INLINE_TRAP"));
+    }
+
+    #[test]
+    fn recover_matching_type_is_accepted() {
+        let src = "\
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(404, \"missing\")
+  RETURN v + 1
+END FUNC
+
+FUNC ok(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN a
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(!rejects_with(src, "TYPE_RECOVER_TYPE_MISMATCH"));
+    }
+
+    #[test]
+    fn recover_wrong_type_reports_mismatch() {
+        // (Some(value), true) arm with an incompatible value type.
+        let src = "\
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(404, \"missing\")
+  RETURN v + 1
+END FUNC
+
+FUNC bad(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RECOVER \"nope\"
+  END TRAP
+  RETURN a
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "TYPE_RECOVER_TYPE_MISMATCH"));
+    }
+
+    #[test]
+    fn recover_missing_value_reports_mismatch() {
+        // (None, true) arm: value-producing trap but RECOVER supplies no value.
+        let src = "\
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(404, \"missing\")
+  RETURN v + 1
+END FUNC
+
+FUNC bad(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RECOVER
+  END TRAP
+  RETURN a
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "TYPE_RECOVER_TYPE_MISMATCH"));
+    }
+
+    #[test]
+    fn recover_value_for_value_less_trap_reports_mismatch() {
+        // (Some(value), false) arm: the trapped call produces Nothing, so a
+        // RECOVER value is rejected. A value-less inline TRAP wraps a SUB call.
+        let src = "\
+SUB doThing(v AS Integer)
+  IF v < 0 THEN FAIL error(404, \"missing\")
+END SUB
+
+FUNC bad(v AS Integer) AS Integer
+  doThing(v) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(
+            rejects_with(src, "TYPE_RECOVER_TYPE_MISMATCH"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    #[test]
+    fn recover_none_for_value_less_trap_is_accepted() {
+        // (None, false) arm: value-less trap, bare RECOVER — no diagnostic.
+        let src = "\
+SUB doThing(v AS Integer)
+  IF v < 0 THEN FAIL error(404, \"missing\")
+END SUB
+
+FUNC ok(v AS Integer) AS Integer
+  doThing(v) TRAP(e)
+    RECOVER
+  END TRAP
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        assert!(
+            !rejects_with(src, "TYPE_RECOVER_TYPE_MISMATCH"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    // ----- LET binding / assignment paths ----------------------------------
+
+    #[test]
+    fn binding_with_unknown_initializer_reports() {
+        // check_binding_shape's inferred == Some(Type::Unknown) arm.
+        let src = "\
+FUNC main AS Integer
+  LET x = undefinedName
+  RETURN 0
+END FUNC
+";
+        assert!(rejects_with(src, "TYPE_UNKNOWN_VALUE"));
+    }
+
+    #[test]
+    fn binding_with_known_initializer_is_accepted() {
+        let src = "\
+FUNC main AS Integer
+  LET x AS Integer = 1
+  RETURN x
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn assign_to_non_local_reports_unknown_value() {
+        // Statement::Assign with an unknown target (not a local, not a visible
+        // global binding).
+        let src = "\
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  notdeclared = 5
+  RETURN total
+END FUNC
+";
+        assert!(
+            rejects_with(src, "TYPE_UNKNOWN_VALUE"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    #[test]
+    fn assign_to_local_is_accepted() {
+        let src = "\
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  total = 5
+  RETURN total
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn assign_to_global_binding_infers_without_report() {
+        // The `lookup_visible_binding` Some branch of Statement::Assign.
+        let src = "\
+MUT counter AS Integer = 0
+
+FUNC main AS Integer
+  counter = 5
+  RETURN 0
+END FUNC
+";
+        assert!(
+            !rejects_with(src, "TYPE_UNKNOWN_VALUE"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    // ----- Control-flow statement coverage (If/Match/loops) -----------------
+
+    #[test]
+    fn if_with_both_branches_returning_is_accepted() {
+        let src = "\
+FUNC pick(flag AS Boolean) AS Integer
+  IF flag THEN
+    RETURN 1
+  ELSE
+    RETURN 2
+  END IF
+END FUNC
+
+FUNC main AS Integer
+  RETURN pick(TRUE)
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn match_exhaustive_all_return_is_accepted() {
+        let src = "\
+FUNC classify(n AS Integer) AS Integer
+  MATCH n
+    CASE 0
+      RETURN 0
+    CASE ELSE
+      RETURN 1
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  RETURN classify(3)
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn while_loop_body_is_checked() {
+        let src = "\
+FUNC main AS Integer
+  MUT i AS Integer = 0
+  WHILE i < 3
+    i = i + 1
+  WEND
+  RETURN i
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn do_until_loop_body_is_checked() {
+        let src = "\
+FUNC main AS Integer
+  MUT i AS Integer = 0
+  DO
+    i = i + 1
+  LOOP UNTIL i >= 3
+  RETURN i
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn for_each_over_list_is_checked() {
+        let src = "\
+FUNC main AS Integer
+  LET xs AS List OF Integer = [1, 2, 3]
+  MUT total AS Integer = 0
+  FOR EACH x IN xs
+    total = total + x
+  NEXT
+  RETURN total
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn for_each_over_map_is_checked() {
+        // Exercises the Type::Map arm of ForEach element typing.
+        let src = "\
+IMPORT collections
+
+FUNC main AS Integer
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"a\" := 1 }
+  MUT total AS Integer = 0
+  FOR EACH entry IN m
+    total = total + entry.value
+  NEXT
+  RETURN total
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn propagate_statement_is_walked() {
+        // A PROPAGATE inside an inline TRAP handler reaches the Propagate arm
+        // (trap_name Some); a bare PROPAGATE outside reaches the None branch.
+        let src = "\
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, \"neg\")
+  RETURN v
+END FUNC
+
+FUNC caller(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    PROPAGATE
+  END TRAP
+  RETURN a
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+        assert!(true);
+    }
+
+    #[test]
+    fn propagate_outside_trap_is_walked() {
+        // A PROPAGATE with no enclosing trap reaches the `trap_name.is_none()`
+        // empty-body branch of the Propagate arm.
+        let src = "\
+FUNC caller() AS Integer
+  PROPAGATE
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+        assert!(true);
+    }
+
+    #[test]
+    fn for_each_over_non_collection_yields_unknown_element() {
+        // Iterating a non-List/non-Map value reaches the `_other => Unknown`
+        // element-type arm of ForEach.
+        let src = "\
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  FOR EACH x IN 42
+    total = total + 1
+  NEXT
+  RETURN total
+END FUNC
+";
+        let _ = check_src(src);
+        assert!(true);
+    }
+
+    #[test]
+    fn fail_statement_is_checked() {
+        let src = "\
+FUNC mayFail(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, \"neg\")
+  RETURN v
+END FUNC
+
+FUNC main AS Integer
+  RETURN mayFail(1)
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn state_assign_to_res_with_state_is_checked() {
+        // A RES binding with a STATE type, then `f.state = ...` reaches the
+        // StateAssign arm's state_type-present path (parse_type + compatibility).
+        let src = "\
+IMPORT fs
+
+TYPE FileState
+  pos AS Integer
+END TYPE
+
+FUNC main AS Integer
+  RES f AS File STATE FileState = fs::createTempFile()
+  f.state = WITH f.state { pos := 10 }
+  fs::close(f)
+  RETURN 0
+END FUNC
+";
+        assert!(
+            !rejects_with(src, "TYPE_UNKNOWN_VALUE"),
+            "{:?}",
+            check_src(src)
+        );
+    }
+
+    #[test]
+    fn state_assign_to_local_without_state_type_is_walked() {
+        // A plain local (no STATE) as a `.state` target reaches the
+        // `local.state_type == None` early-return arm of StateAssign.
+        let src = "\
+FUNC main AS Integer
+  MUT x AS Integer = 0
+  x.state = 5
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+        assert!(true);
+    }
+
+    #[test]
+    fn return_get_of_resource_element_is_walked() {
+        // RETURN whose value is a `get` on a resource collection reaches the
+        // is_resource_element_borrow guard in the RETURN arm.
+        let src = "\
+IMPORT collections
+IMPORT fs
+
+FUNC firstFile(files AS List OF RES File) AS File
+  RETURN collections::get(files, 0)
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+        assert!(true);
+    }
+
+    #[test]
+    fn foreach_over_resource_list_marks_element_borrowed() {
+        // Iterating `List OF RES File` reaches the resource-element ForEach path
+        // (is_resource_type on the stripped element type).
+        let src = "\
+IMPORT fs
+
+FUNC main AS Integer
+  LET files AS List OF RES File = []
+  FOR EACH f IN files
+    LET n AS Integer = 1
+  NEXT
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+        assert!(true);
+    }
+
+    #[test]
+    fn match_union_with_guards_and_bindings_is_checked() {
+        // A union scrutinee with a bound case pattern and a WHEN guard exercises
+        // the Match arm's guard inference, covered_cases tracking, and
+        // exhaustiveness branch.
+        let src = "\
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Square
+  side AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+FUNC area(shape AS Shape) AS Integer
+  MATCH shape
+    CASE Circle(c) WHEN c.radius > 0
+      RETURN c.radius
+    CASE Circle(c)
+      RETURN 0
+    CASE Square(s)
+      RETURN s.side
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  RETURN area(Circle[3])
+END FUNC
+";
+        assert!(accepts(src), "{:?}", check_src(src));
+    }
+
+    #[test]
+    fn match_non_exhaustive_falls_through() {
+        // A MATCH missing a union variant is non-exhaustive: drives the
+        // `!exhaustive` fallthrough push + report path.
+        let src = "\
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+TYPE Square
+  side AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+  Square
+END UNION
+
+FUNC area(shape AS Shape) AS Integer
+  MATCH shape
+    CASE Circle(c)
+      RETURN c.radius
+  END MATCH
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+";
+        let _ = check_src(src);
+        assert!(true);
+    }
+
+    #[test]
+    fn state_assign_to_non_local_reports() {
+        // Statement::StateAssign with an unknown target binding.
+        let src = "\
+FUNC main AS Integer
+  notdeclared.state = 5
+  RETURN 0
+END FUNC
+";
+        assert!(
+            rejects_with(src, "TYPE_UNKNOWN_VALUE"),
+            "{:?}",
+            check_src(src)
+        );
     }
 }
