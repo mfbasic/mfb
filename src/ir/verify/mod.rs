@@ -115,6 +115,11 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_DEFAULT_ARG_ORDER",
     "TYPE_PARAM_REQUIRES_TYPE",
     "TYPE_FUNC_REQUIRES_RETURN_TYPE",
+    "EXIT_NO_MATCHING_LOOP",
+    "CONTINUE_NO_MATCHING_LOOP",
+    "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
+    "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+    "TYPE_SUB_HAS_NO_VALUE",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -344,6 +349,8 @@ struct FnSig {
     optional: usize,
     /// Declared parameter types, positional (for argument-type checking).
     params: Vec<String>,
+    /// `func` or `sub` — a SUB call produces no value (TYPE_SUB_HAS_NO_VALUE).
+    kind: String,
 }
 
 /// The reconstructed typing context: everything the semantic rules need to
@@ -396,6 +403,13 @@ struct TypeEnv {
     /// failure, cascading a TYPE_UNKNOWN_VALUE at the consuming statement even
     /// where lowering stamped a nominal result type. Reset per checked value.
     poisoned: Cell<bool>,
+    /// The enclosing loop kinds, innermost last — an EXIT/CONTINUE must name a
+    /// kind present here. Checking is sequential, so a RefCell stack suffices.
+    loop_stack: RefCell<Vec<crate::ast::LoopKind>>,
+    /// Whether the value about to be checked sits in statement position, where
+    /// a value-less SUB call is legal (typecheck's `allow_value_less_call`).
+    /// Consumed (reset) by the first Call node checked.
+    allow_sub_call: Cell<bool>,
 }
 
 /// Rules whose failure leaves the failing expression's type undeterminable in
@@ -494,6 +508,7 @@ impl TypeEnv {
                         .filter(|p| p.default.is_some())
                         .count(),
                     params: function.params.iter().map(|p| p.type_.clone()).collect(),
+                    kind: function.kind.clone(),
                 },
             );
         }
@@ -546,6 +561,8 @@ impl TypeEnv {
             current_return: RefCell::new(String::new()),
             current_kind: RefCell::new(String::new()),
             poisoned: Cell::new(false),
+            loop_stack: RefCell::new(Vec::new()),
+            allow_sub_call: Cell::new(false),
         }
     }
 
@@ -592,9 +609,24 @@ impl TypeEnv {
         // literal through a synthesized temp (a FOR loop's STEP is always bound
         // to a `$for` temp immediately before its For op in the same op list).
         let mut temp_consts: HashMap<&str, &IrValue> = HashMap::new();
-        for op in ops {
+        let mut exited_at: Option<usize> = None;
+        for (op_index, op) in ops.iter().enumerate() {
             let line = op.loc().line;
             self.current_line.set(line);
+            // Anything after an EXIT/CONTINUE in the same block is unreachable
+            // (typecheck reports each following statement, then stops).
+            if let Some(exit_index) = exited_at {
+                if op_index > exit_index {
+                    self.emit(
+                        "UNREACHABLE_AFTER_EXIT",
+                        "Statement is unreachable after EXIT or CONTINUE.".to_string(),
+                    );
+                    continue;
+                }
+            }
+            if matches!(op, IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. }) {
+                exited_at = Some(op_index);
+            }
             match op {
                 IrOp::Bind {
                     mutable,
@@ -607,7 +639,14 @@ impl TypeEnv {
                     if let Some(value) = value {
                         self.poisoned.set(false);
                         self.check_value_captures(value, closure_slots);
+                        // A `$`-temp bind is the trap machinery capturing a
+                        // *statement-position* call result — a SUB call is
+                        // legal there (`doEffect(v) TRAP(e)`).
+                        if name.starts_with('$') {
+                            self.allow_sub_call.set(true);
+                        }
                         self.check_value(value, locals);
+                        self.allow_sub_call.set(false);
                         // typecheck's cascade: an initializer whose type could
                         // not be determined *because it is erroneous* also gets
                         // TYPE_UNKNOWN_VALUE. Gate on a poisoning rule having
@@ -744,13 +783,49 @@ impl TypeEnv {
                         }
                     }
                 }
-                IrOp::Eval { value, .. }
-                | IrOp::ExitProgram { code: value, .. }
-                | IrOp::Fail { error: value, .. } => {
+                IrOp::Eval { value, .. } => {
+                    self.check_value_captures(value, closure_slots);
+                    // Statement position: a value-less SUB call is legal here.
+                    self.allow_sub_call.set(true);
+                    self.check_value(value, locals);
+                    self.allow_sub_call.set(false);
+                }
+                IrOp::ExitProgram { code: value, .. } => {
+                    self.check_value_captures(value, closure_slots);
+                    self.check_value(value, locals);
+                    // The exit code must be an Integer, and a constant code
+                    // must fit the host's 0..255 exit-status range.
+                    if let Some(actual) = self.infer_type(value, locals) {
+                        if !self.expression_compatible("Integer", &actual, value) {
+                            self.emit(
+                                "TYPE_EXIT_PROGRAM_REQUIRES_INTEGER",
+                                format!("EXIT PROGRAM code has type {actual}, expected Integer."),
+                            );
+                        }
+                    }
+                    if let Some(code) = integer_constant_value(value) {
+                        if !(0..=255).contains(&code) {
+                            self.emit(
+                                "EXIT_PROGRAM_CODE_OUT_OF_RANGE",
+                                "EXIT PROGRAM constant exit code must be in the host range 0..255."
+                                    .to_string(),
+                            );
+                        }
+                    }
+                }
+                IrOp::Fail { error: value, .. } => {
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
                 }
                 IrOp::Return { value, .. } => {
+                    // A SUB produces no value; lowering keeps a SUB's `RETURN
+                    // <value>` so the rejection survives to the IR.
+                    if value.is_some() && *self.current_kind.borrow() == "sub" {
+                        self.emit(
+                            "SUB_RETURN_FORBIDDEN",
+                            "A SUB returns no value; use `EXIT SUB`.".to_string(),
+                        );
+                    }
                     if let Some(value) = value {
                         self.poisoned.set(false);
                         self.check_value_captures(value, closure_slots);
@@ -768,7 +843,28 @@ impl TypeEnv {
                         self.check_literal_range(&ret, value);
                     }
                 }
-                IrOp::ExitLoop { .. } | IrOp::ContinueLoop { .. } => {}
+                IrOp::ExitLoop { kind, .. } => {
+                    if !self.loop_stack.borrow().iter().any(|k| k == kind) {
+                        self.emit(
+                            "EXIT_NO_MATCHING_LOOP",
+                            format!(
+                                "EXIT {} has no matching enclosing loop.",
+                                loop_kind_keyword(*kind)
+                            ),
+                        );
+                    }
+                }
+                IrOp::ContinueLoop { kind, .. } => {
+                    if !self.loop_stack.borrow().iter().any(|k| k == kind) {
+                        self.emit(
+                            "CONTINUE_NO_MATCHING_LOOP",
+                            format!(
+                                "CONTINUE {} has no matching enclosing loop.",
+                                loop_kind_keyword(*kind)
+                            ),
+                        );
+                    }
+                }
                 IrOp::If {
                     condition,
                     then_body,
@@ -846,13 +942,17 @@ impl TypeEnv {
                     }
                 }
                 IrOp::While {
-                    condition, body, ..
+                    kind,
+                    condition,
+                    body,
+                    ..
                 } => {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
                     self.check_condition_boolean("WHILE condition", condition, locals);
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
+                    self.loop_stack.borrow_mut().push(*kind);
                     self.check_ops(
                         body,
                         &mut branch,
@@ -860,6 +960,7 @@ impl TypeEnv {
                         closure_slots,
                         depth + 1,
                     );
+                    self.loop_stack.borrow_mut().pop();
                 }
                 IrOp::For {
                     name,
@@ -926,6 +1027,7 @@ impl TypeEnv {
                     // The loop counter is immutable inside the body (typecheck
                     // registers it `mutable: false`).
                     branch_muts.insert(name.clone(), false);
+                    self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
                     self.check_ops(
                         body,
                         &mut branch,
@@ -933,12 +1035,14 @@ impl TypeEnv {
                         closure_slots,
                         depth + 1,
                     );
+                    self.loop_stack.borrow_mut().pop();
                 }
                 IrOp::DoUntil {
                     body, condition, ..
                 } => {
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
+                    self.loop_stack.borrow_mut().push(crate::ast::LoopKind::Do);
                     self.check_ops(
                         body,
                         &mut branch,
@@ -946,6 +1050,7 @@ impl TypeEnv {
                         closure_slots,
                         depth + 1,
                     );
+                    self.loop_stack.borrow_mut().pop();
                     // The trailing condition is reported at the loop's own line.
                     self.current_line.set(line);
                     self.check_value_captures(condition, closure_slots);
@@ -983,6 +1088,7 @@ impl TypeEnv {
                     branch.insert(name.clone(), type_.clone());
                     // The element binding is an immutable (borrowed) view.
                     branch_muts.insert(name.clone(), false);
+                    self.loop_stack.borrow_mut().push(crate::ast::LoopKind::For);
                     self.check_ops(
                         body,
                         &mut branch,
@@ -990,6 +1096,7 @@ impl TypeEnv {
                         closure_slots,
                         depth + 1,
                     );
+                    self.loop_stack.borrow_mut().pop();
                 }
                 IrOp::Trap { name, body, .. } => {
                     let mut branch = locals.clone();
@@ -1018,6 +1125,22 @@ impl TypeEnv {
                 self.check_member_access(target, member, locals);
             }
             IrValue::Call { target, args, .. } | IrValue::CallResult { target, args, .. } => {
+                // Statement position permits a value-less SUB call; any nested
+                // call (arguments, operands, initializers) is value position.
+                let statement_position = self.allow_sub_call.replace(false);
+                if !statement_position
+                    && self
+                        .functions
+                        .get(target)
+                        .is_some_and(|sig| sig.kind == "sub")
+                {
+                    self.emit(
+                        "TYPE_SUB_HAS_NO_VALUE",
+                        format!(
+                            "SUB `{target}` produces no value; its call is a statement, not an expression."
+                        ),
+                    );
+                }
                 for arg in args {
                     self.check_value(arg, locals);
                 }
@@ -2843,6 +2966,29 @@ fn numeric_literal_is_zero(value: &IrValue) -> bool {
         }
         IrValue::Unary { op, operand, .. } if op == "-" => numeric_literal_is_zero(operand),
         _ => false,
+    }
+}
+
+/// The source keyword for a loop kind — mirrors `typecheck::helpers`.
+fn loop_kind_keyword(kind: crate::ast::LoopKind) -> &'static str {
+    match kind {
+        crate::ast::LoopKind::For => "FOR",
+        crate::ast::LoopKind::Do => "DO",
+        crate::ast::LoopKind::While => "WHILE",
+    }
+}
+
+/// The integer value of a constant expression (possibly negated) — mirrors
+/// `typecheck::helpers::integer_constant_value` on the IR shape.
+fn integer_constant_value(value: &IrValue) -> Option<i128> {
+    match value {
+        IrValue::Const { type_, value } if type_ == "Integer" || type_ == "Byte" => {
+            value.parse::<i128>().ok()
+        }
+        IrValue::Unary { op, operand, .. } if op == "-" => {
+            integer_constant_value(operand).map(|n| -n)
+        }
+        _ => None,
     }
 }
 
