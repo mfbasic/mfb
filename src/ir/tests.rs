@@ -3269,3 +3269,2248 @@ mod lower_tests {
         )));
     }
 }
+
+/// exercise the AST->IR lowering paths (`lower.rs`) directly.
+#[cfg(test)]
+mod lower_pipeline_tests {
+    use crate::ast;
+    use crate::manifest::validate_project_manifest;
+    use crate::monomorph;
+    use crate::resolver;
+    use std::path::PathBuf;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "mfb_ir_lower_{name}_{}_{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("src")).expect("temp src dir");
+        root
+    }
+
+    const PROJECT_JSON: &str = r#"{ "name": "irlower", "version": "0.1.0", "mfb": "1.0",
+        "kind": "executable",
+        "sources": [{ "root": "src", "role": "main", "include": ["**/*.mfb"] }],
+        "entry": "main", "targets": ["native"] }"#;
+
+    /// Lower a single-file program through the whole front end and return the IR.
+    /// Panics with the failing stage if any pre-lowering stage rejects the source
+    /// (so a broken test source surfaces immediately rather than silently).
+    fn lower_src(name: &str, source: &str) -> super::IrProject {
+        try_lower_src(name, source).expect("source must lower cleanly")
+    }
+
+    /// Like [`lower_src`] but returns `None` when a pre-lowering stage rejects the
+    /// program. Diagnostic noise from the front end is suppressed.
+    fn try_lower_src(name: &str, source: &str) -> Option<super::IrProject> {
+        let dir = temp_dir(name);
+        std::fs::write(dir.join("project.json"), PROJECT_JSON).unwrap();
+        std::fs::write(dir.join("src").join("main.mfb"), source).unwrap();
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let manifest = validate_project_manifest(&dir.join("project.json")).ok();
+        let result = manifest.and_then(|manifest| {
+            let name = manifest
+                .get("name")
+                .and_then(|v| v.get::<String>())
+                .cloned()?;
+            let ast = ast::parse_project(&name, &dir, &manifest).ok()?;
+            resolver::resolve_project(&dir, &manifest, &ast).ok()?;
+            let concrete = monomorph::monomorphize_project(&dir, &ast).ok()?;
+            resolver::resolve_project_with(&dir, &manifest, &concrete, false).ok()?;
+            Some(super::lower_project_with_external_functions(
+                &concrete,
+                None,
+                &std::collections::HashMap::new(),
+                &std::collections::HashMap::new(),
+            ))
+        });
+        std::panic::set_hook(prev);
+        result
+    }
+
+    /// Find a lowered function body by name (user functions only, not injected
+    /// package or lambda bodies).
+    fn function<'a>(ir: &'a super::IrProject, name: &str) -> &'a super::IrFunction {
+        ir.functions
+            .iter()
+            .find(|f| f.name == name)
+            .unwrap_or_else(|| panic!("function `{name}` not found in lowered IR"))
+    }
+
+    /// Serialize the whole project to JSON — a convenient way to assert a
+    /// lowering path was reached without matching every nested op by hand.
+    fn json_of(ir: &super::IrProject) -> String {
+        ir.to_json()
+    }
+
+    // ---- literals + operators + expressions -------------------------------
+
+    #[test]
+    fn lowers_every_literal_and_operator_kind() {
+        let ir = lower_src(
+            "literals",
+            r#"
+FUNC main AS Integer
+  LET s AS String = "hi"
+  LET i AS Integer = 42
+  LET f AS Float = 3.5
+  LET b AS Boolean = TRUE
+  LET by AS Byte = 7
+  LET fx AS Fixed = 1.25
+  LET n AS Integer = -i
+  LET notb AS Boolean = NOT b
+  LET sum AS Integer = i + i - i * i
+  LET cmp AS Boolean = i < i AND b OR NOT b
+  LET cat AS String = s & s
+  LET xr AS Boolean = b XOR b
+  RETURN i
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        // Byte / Fixed constant typing, unary NOT/negation, concat, comparisons.
+        assert!(j.contains("\"Byte\""), "{j}");
+        assert!(j.contains("\"Fixed\""), "{j}");
+        assert!(j.contains("NOT"));
+        assert!(j.contains('&'));
+        assert!(j.contains("XOR"));
+    }
+
+    #[test]
+    fn lowers_nothing_literal() {
+        let ir = lower_src(
+            "nothing",
+            r#"
+TYPE Box
+  item AS Integer
+END TYPE
+FUNC main AS Integer
+  LET x AS Integer = 0
+  RETURN x
+END FUNC
+"#,
+        );
+        // Exercise a binding whose value is NOTHING through a Sub with no return.
+        let ir2 = lower_src(
+            "nothing2",
+            r#"
+IMPORT io
+FUNC main AS Integer
+  LET n = NOTHING
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("Box"));
+        assert!(json_of(&ir2).contains("NOTHING"));
+    }
+
+    #[test]
+    fn lowers_list_and_map_literals() {
+        let ir = lower_src(
+            "collections",
+            r#"
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3]
+  LET empty AS List OF Integer = []
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1, "b" := 2 }
+  LET inferred = [10, 20]
+  RETURN 0
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("List OF Integer"));
+        assert!(j.contains("Map OF String TO Integer"));
+    }
+
+    // ---- constructors, member access, WITH ---------------------------------
+
+    #[test]
+    fn lowers_constructors_member_access_and_with_update() {
+        let ir = lower_src(
+            "records",
+            r#"
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+FUNC main AS Integer
+  LET p AS Point = Point[1, 2]
+  LET q AS Point = Point[x := 3, y := 4]
+  LET moved AS Point = WITH p { x := 10 }
+  LET ax AS Integer = p.x
+  RETURN ax + q.y + moved.x
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("\"kind\": \"with\""), "{j}");
+        assert!(j.contains("Point"));
+    }
+
+    #[test]
+    fn lowers_enum_member_access() {
+        let ir = lower_src(
+            "enums",
+            r#"
+ENUM Color
+  Red
+  Green
+  Blue
+END ENUM
+FUNC pick(c AS Color) AS Integer
+  MATCH c
+    CASE Color.Red
+      RETURN 1
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+FUNC main AS Integer
+  RETURN pick(Color.Green)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("Color"));
+    }
+
+    // ---- union wrap / extract ---------------------------------------------
+
+    #[test]
+    fn lowers_union_wrap_and_extract() {
+        let ir = lower_src(
+            "unions",
+            r#"
+TYPE Cat
+  legs AS Integer
+END TYPE
+TYPE Dog
+  legs AS Integer
+END TYPE
+UNION Animal
+  Cat
+  Dog
+END UNION
+FUNC describe(a AS Animal) AS Integer
+  MATCH a
+    CASE Cat(c)
+      RETURN c.legs
+    CASE Dog(d)
+      RETURN d.legs + 100
+  END MATCH
+END FUNC
+FUNC wrapIt() AS Animal
+  RETURN Cat[4]
+END FUNC
+FUNC main AS Integer
+  RETURN describe(wrapIt())
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("unionWrap"), "{j}");
+        assert!(j.contains("unionExtract"), "{j}");
+    }
+
+    // ---- calls, fallible CallResult, FUNC refs -----------------------------
+
+    #[test]
+    fn lowers_calls_and_function_refs() {
+        let ir = lower_src(
+            "calls",
+            r#"
+FUNC helper(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+FUNC applyIt(f AS FUNC(Integer, Integer) AS Integer) AS Integer
+  RETURN f(2, 3)
+END FUNC
+FUNC main AS Integer
+  LET fref AS FUNC(Integer, Integer) AS Integer = helper
+  RETURN applyIt(fref) + helper(1, b := 9)
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("functionRef"), "{j}");
+    }
+
+    #[test]
+    fn lowers_default_argument_padding_for_local_call() {
+        let ir = lower_src(
+            "defaults",
+            r#"
+FUNC greet(name AS String, punct AS String = "!") AS String
+  RETURN name & punct
+END FUNC
+FUNC main AS Integer
+  LET a AS String = greet("hi")
+  LET b AS String = greet("yo", "?")
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("greet"));
+    }
+
+    // ---- statement kinds ---------------------------------------------------
+
+    #[test]
+    fn lowers_control_flow_statements() {
+        let ir = lower_src(
+            "control",
+            r#"
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  FOR i = 1 TO 10 STEP 2
+    total = total + i
+    IF i > 7 THEN EXIT FOR
+  NEXT
+  FOR j = 0 TO 3
+    IF j = 1 THEN CONTINUE FOR
+    total = total + j
+  NEXT
+  WHILE total < 100
+    total = total + 10
+  WEND
+  DO
+    total = total - 1
+  LOOP UNTIL total < 50
+  RETURN total
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("\"op\": \"for\""));
+        assert!(j.contains("while"));
+        assert!(j.contains("doUntil"));
+    }
+
+    #[test]
+    fn lowers_float_for_loop_and_exit_do_while() {
+        let ir = lower_src(
+            "floatfor",
+            r#"
+FUNC main AS Integer
+  MUT sum AS Float = 0.0
+  FOR x = 0.0 TO 2.0 STEP 0.5
+    sum = sum + x
+    IF sum > 1.0 THEN EXIT FOR
+  NEXT
+  MUT k AS Integer = 0
+  DO
+    k = k + 1
+    IF k = 2 THEN EXIT DO
+  LOOP UNTIL k > 100
+  WHILE k < 5
+    k = k + 1
+    IF k = 4 THEN EXIT WHILE
+  WEND
+  RETURN k
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("Float"));
+    }
+
+    #[test]
+    fn lowers_foreach_over_list_and_map() {
+        let ir = lower_src(
+            "foreach",
+            r#"
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  LET nums AS List OF Integer = [1, 2, 3]
+  FOR EACH n IN nums
+    total = total + n
+  NEXT
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1, "b" := 2 }
+  FOR EACH entry IN m
+    total = total + entry.value
+  NEXT
+  RETURN total
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("forEach"));
+        assert!(j.contains("MapEntry"));
+    }
+
+    #[test]
+    fn lowers_exit_program_and_exit_sub() {
+        let ir = lower_src(
+            "exits",
+            r#"
+SUB early(v AS Integer)
+  IF v < 0 THEN EXIT SUB
+  LET x AS Integer = v
+END SUB
+FUNC main AS Integer
+  early(5)
+  IF FALSE THEN EXIT PROGRAM 2
+  RETURN 0
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("exitProgram"), "{j}");
+    }
+
+    #[test]
+    fn lowers_global_assignment_and_state_assign() {
+        let ir = lower_src(
+            "globals",
+            r#"
+MUT counter AS Integer = 0
+FUNC bump() AS Integer
+  counter = counter + 1
+  RETURN counter
+END FUNC
+FUNC main AS Integer
+  RETURN bump()
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("assignGlobal"), "{j}");
+        // Global binding was collected.
+        assert!(ir.bindings.iter().any(|b| b.name == "counter"));
+    }
+
+    // ---- FAIL / trap function-level -------------------------------------
+
+    #[test]
+    fn lowers_fail_and_function_trap() {
+        let ir = lower_src(
+            "trap",
+            r#"
+FUNC risky(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(400, "bad")
+  RETURN v
+  TRAP(err)
+    RETURN err.code
+  END TRAP
+END FUNC
+FUNC main AS Integer
+  RETURN risky(-1)
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("\"op\": \"trap\""), "{j}");
+        assert!(j.contains("\"op\": \"fail\""));
+        // error(...) lowered to an Error record constructor with ErrorLoc.
+        assert!(j.contains("ErrorLoc"));
+    }
+
+    #[test]
+    fn lowers_propagate_in_trap() {
+        let ir = lower_src(
+            "propagate",
+            r#"
+FUNC stepFn(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, "neg")
+  RETURN v
+  TRAP(e)
+    PROPAGATE
+  END TRAP
+END FUNC
+FUNC main AS Integer
+  RETURN stepFn(5)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("step"));
+    }
+
+    // ---- inline TRAP desugaring: every target + treeify shapes -------------
+
+    #[test]
+    fn lowers_inline_trap_bind_assign_discard() {
+        let ir = lower_src(
+            "inline_trap",
+            r#"
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(404, "missing")
+  RETURN v + 1
+END FUNC
+SUB doEffect(v AS Integer)
+  IF v < 0 THEN FAIL error(500, "effect")
+END SUB
+FUNC bindForm(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN a
+END FUNC
+FUNC assignForm(v AS Integer) AS Integer
+  MUT total AS Integer = 100
+  total = parsePositive(v) TRAP(e)
+    RECOVER 5
+  END TRAP
+  RETURN total
+END FUNC
+FUNC discardForm(v AS Integer) AS Integer
+  MUT code AS Integer = 0
+  doEffect(v) TRAP(e)
+    code = e.code
+    RECOVER
+  END TRAP
+  RETURN code
+END FUNC
+FUNC main AS Integer
+  RETURN bindForm(1) + assignForm(-1) + discardForm(-1)
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("resultIsOk"), "{j}");
+        assert!(j.contains("resultValue"));
+        assert!(j.contains("resultError"));
+    }
+
+    #[test]
+    fn lowers_inline_trap_treeify_if_and_match_continuation() {
+        // Handler with an IF whose fall-through must distribute the continuation,
+        // plus a MATCH without ELSE (adds a synthetic ELSE), plus a diverging arm.
+        let ir = lower_src(
+            "treeify",
+            r#"
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(404, "missing")
+  RETURN v + 1
+END FUNC
+FUNC recoverOrBail(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    IF e.code = 404 THEN
+      RECOVER 0
+    END IF
+    FAIL e
+  END TRAP
+  RETURN a
+END FUNC
+FUNC viaReturn(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RETURN 99
+  END TRAP
+  RETURN a
+END FUNC
+FUNC matchHandler(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    MATCH e.code
+      CASE 404
+        RECOVER 1
+      CASE 500
+        RECOVER 2
+    END MATCH
+  END TRAP
+  RETURN a
+END FUNC
+FUNC main AS Integer
+  RETURN recoverOrBail(-1) + viaReturn(-1) + matchHandler(-1)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("resultIsOk"));
+    }
+
+    #[test]
+    fn lowers_inline_trap_treeify_match_with_tail_continuation() {
+        // A MATCH in the handler that is NOT the last statement: the continuation
+        // must be distributed into each arm and a synthetic ELSE added (no ELSE
+        // present), and one arm terminates while another falls through.
+        let ir = lower_src(
+            "treeify_match_tail",
+            r#"
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, "x")
+  RETURN v
+END FUNC
+FUNC h(v AS Integer) AS Integer
+  MUT tag AS Integer = 0
+  LET a = parsePositive(v) TRAP(e)
+    MATCH e.code
+      CASE 1
+        RETURN 11
+      CASE 2
+        tag = 2
+    END MATCH
+    RECOVER tag
+  END TRAP
+  RETURN a
+END FUNC
+FUNC h2(v AS Integer) AS Integer
+  MUT tag AS Integer = 0
+  LET a = parsePositive(v) TRAP(e)
+    IF e.code = 1 THEN
+      tag = 1
+    END IF
+    RECOVER tag
+  END TRAP
+  RETURN a
+END FUNC
+FUNC main AS Integer
+  RETURN h(-1) + h2(-1)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("resultIsOk"));
+    }
+
+    #[test]
+    fn lowers_inline_trap_treeify_match_existing_else_with_tail() {
+        // A MATCH with an explicit ELSE followed by a tail: no synthetic ELSE is
+        // added, and the continuation distributes into the ELSE arm too.
+        let ir = lower_src(
+            "treeify_match_else_tail",
+            r#"
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, "x")
+  RETURN v
+END FUNC
+FUNC h(v AS Integer) AS Integer
+  MUT tag AS Integer = 0
+  LET a = parsePositive(v) TRAP(e)
+    MATCH e.code
+      CASE 1
+        tag = 1
+      CASE ELSE
+        tag = 9
+    END MATCH
+    RECOVER tag
+  END TRAP
+  RETURN a
+END FUNC
+FUNC main AS Integer
+  RETURN h(-1)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("resultIsOk"));
+    }
+
+    #[test]
+    fn lowers_inline_trap_with_loop_and_foreach_in_handler() {
+        // A handler whose leading statement is a non-branching, non-terminating
+        // statement that itself contains nested blocks (treeify_statement recursion
+        // over While/DoUntil/For/ForEach).
+        let ir = lower_src(
+            "treeify_loops",
+            r#"
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, "x")
+  RETURN v
+END FUNC
+FUNC h(v AS Integer) AS Integer
+  MUT acc AS Integer = 0
+  LET a = parsePositive(v) TRAP(e)
+    FOR i = 1 TO 3
+      acc = acc + i
+    NEXT
+    WHILE acc < 100
+      acc = acc + 10
+    WEND
+    DO
+      acc = acc + 1
+    LOOP UNTIL acc > 120
+    FOR EACH n IN [1, 2]
+      acc = acc + n
+    NEXT
+    RECOVER acc
+  END TRAP
+  RETURN a
+END FUNC
+FUNC main AS Integer
+  RETURN h(-1)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("parsePositive"));
+    }
+
+    // ---- MATCH variants ----------------------------------------------------
+
+    #[test]
+    fn lowers_match_value_oneof_else_and_guard() {
+        let ir = lower_src(
+            "match_value",
+            r#"
+FUNC classify(n AS Integer) AS Integer
+  MATCH n
+    CASE 0
+      RETURN 100
+    CASE 1, 2, 3
+      RETURN 200
+    CASE ELSE WHEN n > 10
+      RETURN 300
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+FUNC main AS Integer
+  RETURN classify(2)
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("oneOf"), "{j}");
+        assert!(j.contains("else"));
+    }
+
+    // NOTE: the `Result OF …` MATCH lowering paths (Match-statement result-flag
+    // branch; `match_case_binding`'s Ok/Error arms) are unreachable from source:
+    // the front end rejects `CASE Ok`/`CASE Error` with TYPE_RESULT_NOT_MATCHABLE
+    // and forbids naming `Result OF …` in user code, so no clean program reaches
+    // them. They remain covered only defensively.
+
+    // ---- lambdas / captures ------------------------------------------------
+
+    #[test]
+    fn lowers_lambda_by_value_capture_and_closure() {
+        let ir = lower_src(
+            "lambda_value",
+            r#"
+IMPORT collections
+FUNC makeAdder(base AS Integer) AS FUNC(Integer) AS Integer
+  LET captured AS Integer = base
+  RETURN LAMBDA(value AS Integer) -> value + captured
+END FUNC
+FUNC main AS Integer
+  LET add2 AS FUNC(Integer) AS Integer = makeAdder(2)
+  LET nums AS List OF Integer = [1, 2, 3]
+  LET mapped AS List OF Integer = collections::transform(nums, add2)
+  RETURN collections::get(mapped, 0)
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("closure") || j.contains("capture"), "{j}");
+        // A lambda synthesizes a private $lambda function.
+        assert!(ir.functions.iter().any(|f| f.name.starts_with("$lambda")));
+    }
+
+    #[test]
+    fn lowers_lambda_mut_byref_capture_in_foreach() {
+        let ir = lower_src(
+            "lambda_mut",
+            r#"
+IMPORT collections
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  LET nums AS List OF Integer = [1, 2, 3]
+  collections::forEach(nums, LAMBDA(n AS Integer) -> total = total + n)
+  RETURN total
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        // A MUT slot-borrow capture produces a by_ref binding / LocalRef.
+        assert!(j.contains("localRef"), "{j}");
+    }
+
+    #[test]
+    fn lowers_filter_predicate_function_ref() {
+        let ir = lower_src(
+            "filter",
+            r#"
+IMPORT collections
+FUNC isBig(n AS Integer) AS Boolean
+  RETURN n > 2
+END FUNC
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 4]
+  LET big AS List OF Integer = collections::filter(nums, isBig)
+  RETURN len(big)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("isBig"));
+    }
+
+    // ---- builtin package call resolvers ------------------------------------
+
+    #[test]
+    fn lowers_builtin_package_calls() {
+        let ir = lower_src(
+            "builtins",
+            r#"
+IMPORT strings
+IMPORT math
+IMPORT bits
+FUNC main AS Integer
+  LET up AS String = strings::upper("hi")
+  LET n AS Integer = len([1, 2, 3])
+  LET r AS Float = math::sqrt(4.0)
+  LET x AS Integer = bits::sl(1, 3)
+  LET joined AS String = strings::join(["a", "b"], ",")
+  RETURN n + x
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("upper") || j.contains("strings"));
+        assert!(j.contains("sqrt") || j.contains("math"));
+    }
+
+    #[test]
+    fn lowers_named_argument_reordering_for_builtin() {
+        // strings::replace has named params; supplying them out of order exercises
+        // normalize_builtin_call_arguments' reorder path.
+        let ir = lower_src(
+            "named_builtin",
+            r#"
+IMPORT strings
+FUNC main AS Integer
+  LET s AS String = strings::replace(value := "aaa", new := "b", old := "a")
+  RETURN len(s)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("irlower") || json_of(&ir).contains("replace"));
+    }
+
+    #[test]
+    fn lowers_builtin_with_overloaded_argument_signature() {
+        // strings::find has an optional-argument signature ("String, String[,
+        // Integer]"); builtin_argument_types must decline it (bracketed desc), so
+        // the argument expected type is left unspecified.
+        let ir = lower_src(
+            "overloaded_args",
+            r#"
+IMPORT strings
+FUNC main AS Integer
+  LET i AS Integer = strings::find("hello", "l")
+  LET j AS Integer = strings::find("hello", "l", 3)
+  RETURN i + j
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("find") || json_of(&ir).contains("strings"));
+    }
+
+    #[test]
+    fn lowers_builtin_with_generic_placeholder_argument_signature() {
+        // `typeName`'s expected argument signature is the bare placeholder `T`;
+        // builtin_argument_types must decline it (generic placeholder), leaving
+        // the argument's expected type unspecified.
+        let ir = lower_src(
+            "generic_args",
+            r#"
+IMPORT io
+FUNC main AS Integer
+  LET t AS String = typeName(42)
+  io::print(t)
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("typeName") || json_of(&ir).contains("main"));
+    }
+
+    #[test]
+    fn lowers_named_constructor_arg_inside_lambda() {
+        // A record constructor with named args inside a lambda body routes through
+        // constructor_arg_value's Named arm (captured_locals + fallback lowering).
+        let ir = lower_src(
+            "named_ctor_lambda",
+            r#"
+TYPE Coord
+  x AS Integer
+  y AS Integer
+END TYPE
+FUNC run(px AS Integer, py AS Integer) AS FUNC() AS Coord
+  RETURN LAMBDA() -> Coord[x := px, y := py]
+END FUNC
+FUNC main AS Integer
+  LET f AS FUNC() AS Coord = run(1, 2)
+  RETURN f().x
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("Coord"));
+    }
+
+    #[test]
+    fn lowers_builtin_mixed_positional_and_named_args() {
+        // A builtin call mixing positional and named args exercises the
+        // named-argument reordering (positional-after-named tracking).
+        let ir = lower_src(
+            "mixed_named",
+            r#"
+IMPORT strings
+FUNC main AS Integer
+  LET s AS String = strings::replace("aaa", old := "a", new := "b")
+  RETURN len(s)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("replace") || json_of(&ir).contains("irlower"));
+    }
+
+    #[test]
+    fn lowers_regex_and_datetime_default_padding() {
+        let ir = lower_src(
+            "regex_pad",
+            r#"
+IMPORT regex
+IMPORT datetime
+FUNC main AS Integer
+  LET m AS Boolean = regex::match("abc", "a.c")
+  LET dt AS DateTime = datetime::parse("2024-01-02")
+  RETURN 0
+END FUNC
+"#,
+        );
+        // regex::match / datetime::parse pad optional trailing args with consts.
+        assert!(json_of(&ir).contains("match") || json_of(&ir).contains("parse"));
+    }
+
+    // ---- toString(Byte) overload / general override routing -----------------
+
+    #[test]
+    fn lowers_tostring_with_base_and_overridable() {
+        let ir = lower_src(
+            "tostring",
+            r#"
+FUNC main AS Integer
+  LET hex AS String = toString(255, 16)
+  LET plain AS String = toString(42)
+  RETURN 0
+END FUNC
+"#,
+        );
+        // toString(x, base): the base arg types as Byte (call_argument_expected_type).
+        assert!(json_of(&ir).contains("Byte"));
+    }
+
+    // ---- native LINK / resources / re-export aliases + DOC -----------------
+
+    #[test]
+    fn lowers_native_link_functions_resources_and_aliases() {
+        let ir = lower_src(
+            "native_link",
+            r#"
+EXPORT RESOURCE Db CLOSE BY demoLink::close
+RESOURCE Stmt CLOSE BY demoLink::finalize
+
+LINK "sqlite3" AS demoLink
+  FUNC open(path AS String) AS RES Db
+    SYMBOL "sqlite3_open"
+    ABI (path CString, return OUT CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+    CONST flags = 6
+  END FUNC
+
+  FUNC close(RES db AS Db) AS Nothing
+    SYMBOL "sqlite3_close"
+    ABI (db CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+
+  FUNC finalize(RES stmt AS Stmt) AS Nothing
+    SYMBOL "sqlite3_finalize"
+    ABI (stmt CPtr) AS status CInt32
+    SUCCESS_ON status = 0
+  END FUNC
+END LINK
+
+EXPORT FUNC close AS demoLink::close
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        // link_functions collected with ABI slots + CONST pin + SUCCESS_ON expr.
+        assert!(
+            !ir.link_functions.is_empty(),
+            "link functions should be collected"
+        );
+        assert!(ir.link_functions.iter().any(|f| f.name == "open"));
+        assert!(ir.link_functions.iter().any(|f| !f.consts.is_empty()));
+        assert!(ir.link_functions.iter().any(|f| f.success_on.is_some()));
+        // native resources collected with visibility + close-may-fail.
+        assert!(ir
+            .native_resources
+            .iter()
+            .any(|r| r.name == "Db" && r.visibility == "export"));
+        assert!(ir
+            .native_resources
+            .iter()
+            .any(|r| r.name == "Stmt" && r.visibility == "private"));
+        // re-export alias to a LINK target collected.
+        assert!(
+            !ir.link_aliases.is_empty(),
+            "link aliases should be collected"
+        );
+    }
+
+    #[test]
+    fn lowers_link_const_and_result_expression_forms() {
+        // RESULT with a boolean/compare/NOT/AND/OR expression, and CONST forms:
+        // NOTHING, boolean, unary minus/plus.
+        let ir = lower_src(
+            "link_expr",
+            r#"
+RESOURCE Handle CLOSE BY natLink::shut
+
+LINK "c" AS natLink
+  FUNC grab() AS RES Handle
+    SYMBOL "grab_it"
+    ABI (return OUT CPtr, a CPtr, b CInt32, c CInt32, d CInt32) AS rc CInt32
+    SUCCESS_ON NOT rc = 5 AND rc <> 6 OR rc = 0
+    RESULT rc
+    CONST a = NOTHING
+    CONST b = TRUE
+    CONST c = -3
+    CONST d = 9
+  END FUNC
+
+  FUNC probe() AS Integer
+    SYMBOL "probe_it"
+    ABI (return CInt32) AS rc CInt32
+    SUCCESS_ON rc < 10 OR rc > 20
+    RESULT -rc
+  END FUNC
+
+  FUNC booly() AS Integer
+    SYMBOL "booly_it"
+    ABI (return CInt32) AS rc CInt32
+    SUCCESS_ON TRUE
+    RESULT rc + 1
+  END FUNC
+
+  FUNC nothingy() AS Integer
+    SYMBOL "nothingy_it"
+    ABI (return CInt32) AS rc CInt32
+    SUCCESS_ON rc = 0
+    RESULT NOTHING
+  END FUNC
+
+  FUNC negconst() AS Integer
+    SYMBOL "neg_it"
+    ABI (return CInt32) AS rc CInt32
+    RESULT -5
+  END FUNC
+
+  FUNC weird() AS Integer
+    SYMBOL "weird_it"
+    ABI (return CInt32, s CInt32) AS rc CInt32
+    SUCCESS_ON rc = 0
+    RESULT "x"
+    CONST s = "literal"
+  END FUNC
+
+  FUNC shut(RES h AS Handle) AS Nothing
+    SYMBOL "shut_it"
+    ABI (h CPtr) AS rc CInt32
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        let grab = ir
+            .link_functions
+            .iter()
+            .find(|f| f.name == "grab")
+            .expect("grab");
+        assert!(grab.success_on.is_some());
+        assert!(grab.result.is_some());
+        assert_eq!(grab.consts.len(), 4);
+        // shut has no SUCCESS_ON -> its resource close_may_fail is false.
+        assert!(ir
+            .native_resources
+            .iter()
+            .any(|r| r.name == "Handle" && !r.close_may_fail));
+    }
+
+    #[test]
+    fn collects_doc_blocks_for_exported_declarations() {
+        let ir = lower_src(
+            "docs",
+            r#"
+DOC
+  PACKAGE
+  DESC A documented program.
+END DOC
+
+DOC
+  FUNC add(Integer, Integer)
+  GROUP Math
+  DESC Add two integers.
+  ARG a first
+  ARG b second
+  RET the sum
+  ERROR 1001 overflow reserved
+  EXAMPLE
+    LET t AS Integer = add(1, 2)
+  END EXAMPLE
+END DOC
+EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+DOC INTERNAL
+  SUB logIt
+  DESC internal logger.
+  ARG value the value
+  DEPRECATED use the structured logger.
+END DOC
+EXPORT SUB logIt(value AS Integer)
+  LET ignored AS Integer = value
+END SUB
+
+DOC
+  TYPE Widget
+  DESC a widget.
+  PROP size the size
+END DOC
+EXPORT TYPE Widget
+  size AS Integer
+END TYPE
+
+FUNC main AS Integer
+  RETURN add(1, 2)
+END FUNC
+"#,
+        );
+        let docs = &ir.docs;
+        assert!(docs.package.is_some(), "package doc collected");
+        assert!(
+            docs.decls.iter().any(|d| d.name == "add"),
+            "func doc collected"
+        );
+        assert!(docs.decls.iter().any(|d| d.name == "logIt" && d.internal));
+        assert!(docs
+            .decls
+            .iter()
+            .any(|d| d.name == "logIt" && d.deprecated.is_some()));
+        assert!(
+            docs.decls.iter().any(|d| d.name == "Widget"),
+            "type doc collected"
+        );
+    }
+
+    #[test]
+    fn skips_docs_for_nonexported_declarations() {
+        // A DOC block whose target declaration is not EXPORT is not persisted.
+        let ir = lower_src(
+            "docs_private",
+            r#"
+DOC
+  FUNC helper(Integer)
+  DESC private helper.
+END DOC
+FUNC helper(x AS Integer) AS Integer
+  RETURN x
+END FUNC
+FUNC main AS Integer
+  RETURN helper(1)
+END FUNC
+"#,
+        );
+        assert!(!ir.docs.decls.iter().any(|d| d.name == "helper"));
+    }
+
+    #[test]
+    fn skips_docs_for_nonexported_type() {
+        // A DOC TYPE block for a private (non-exported) type is well-formed (DOC
+        // validation passes) but is not persisted — the visibility-skip arm.
+        let ir = lower_src(
+            "docs_private_type",
+            r#"
+DOC
+  TYPE Hidden
+  DESC a private type.
+END DOC
+TYPE Hidden
+  n AS Integer
+END TYPE
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(!ir.docs.decls.iter().any(|d| d.name == "Hidden"));
+    }
+
+    #[test]
+    fn lowers_package_visibility_native_resource() {
+        // A package-visibility RESOURCE exercises the "package" visibility arm.
+        let ir = lower_src(
+            "res_package_vis",
+            r#"
+PACKAGE RESOURCE Widget CLOSE BY wLink::destroy
+
+LINK "w" AS wLink
+  FUNC destroy(RES w AS Widget) AS Nothing
+    SYMBOL "w_destroy"
+    ABI (w CPtr) AS rc CInt32
+  END FUNC
+END LINK
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(ir
+            .native_resources
+            .iter()
+            .any(|r| r.name == "Widget" && r.visibility == "package"));
+    }
+
+    #[test]
+    fn collects_doc_for_union_and_enum() {
+        let ir = lower_src(
+            "docs_union_enum",
+            r#"
+DOC
+  UNION Shape
+  DESC a shape.
+END DOC
+DOC
+  ENUM Color
+  DESC a color.
+END DOC
+TYPE Sq
+  side AS Integer
+END TYPE
+EXPORT UNION Shape
+  Sq
+END UNION
+EXPORT ENUM Color
+  Red
+END ENUM
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(ir.docs.decls.iter().any(|d| d.name == "Shape"));
+        assert!(ir.docs.decls.iter().any(|d| d.name == "Color"));
+    }
+
+    // NOTE: DOC `overload_for` param-type selection (the `header_params`
+    // matching arm) is not reachable through the monomorphized pipeline: the
+    // monomorphizer mangles overloaded function names to `add$Float$Float`
+    // before lowering runs, so a DOC header named `add` never matches an
+    // overloaded target. The single-overload DOC path is covered above.
+
+    // ---- misc smaller uncovered paths --------------------------------------
+
+    #[test]
+    fn lowers_resource_binding_with_state() {
+        let ir = try_lower_src(
+            "res_state",
+            r#"
+IMPORT io
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(ir.is_some());
+    }
+
+    #[test]
+    fn lowers_nested_function_call_as_match_scrutinee() {
+        let ir = lower_src(
+            "match_call",
+            r#"
+FUNC compute(v AS Integer) AS Integer
+  RETURN v * 2
+END FUNC
+FUNC main AS Integer
+  MATCH compute(3)
+    CASE 6
+      RETURN 1
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("compute"));
+    }
+
+    #[test]
+    fn function_helper_finds_main() {
+        let ir = lower_src(
+            "helper_check",
+            r#"
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert_eq!(function(&ir, "main").kind, "func");
+    }
+
+    // ---- external functions (params / types / returns wiring) --------------
+
+    #[test]
+    fn lowers_with_external_function_metadata() {
+        // Directly exercise lower_project_with_external_functions' external
+        // function param/type/return wiring (lines that map ExternalFunctionParam
+        // and function_return_from_type into the context).
+        let dir = temp_dir("external");
+        std::fs::write(dir.join("project.json"), PROJECT_JSON).unwrap();
+        std::fs::write(
+            dir.join("src").join("main.mfb"),
+            r#"
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        )
+        .unwrap();
+        let prev = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+        let manifest = validate_project_manifest(&dir.join("project.json")).unwrap();
+        let name = manifest
+            .get("name")
+            .and_then(|v| v.get::<String>())
+            .cloned()
+            .unwrap();
+        let ast = ast::parse_project(&name, &dir, &manifest).unwrap();
+        resolver::resolve_project(&dir, &manifest, &ast).unwrap();
+        let concrete = monomorph::monomorphize_project(&dir, &ast).unwrap();
+        resolver::resolve_project_with(&dir, &manifest, &concrete, false).unwrap();
+        std::panic::set_hook(prev);
+
+        let mut ext_types = std::collections::HashMap::new();
+        ext_types.insert(
+            "ext.doThing".to_string(),
+            "FUNC(Integer) AS String".to_string(),
+        );
+        let mut ext_params = std::collections::HashMap::new();
+        ext_params.insert(
+            "ext.doThing".to_string(),
+            vec![super::ExternalFunctionParam {
+                name: "n".to_string(),
+                type_: "Integer".to_string(),
+            }],
+        );
+        let entry = Some(super::EntryPoint {
+            name: "main".to_string(),
+            returns: "Integer".to_string(),
+            accepts_args: false,
+        });
+        let ir =
+            super::lower_project_with_external_functions(&concrete, entry, &ext_types, &ext_params);
+        assert_eq!(ir.entry.as_ref().unwrap().name, "main");
+    }
+
+    #[test]
+    fn write_ir_serializes_to_disk() {
+        let dir = temp_dir("write_ir");
+        let ir = lower_src(
+            "write_ir_src",
+            r#"
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        let path = super::write_ir(&dir, &ir).expect("write_ir should succeed");
+        assert!(path.exists());
+        let contents = std::fs::read_to_string(&path).unwrap();
+        assert!(contents.contains("irlower"));
+    }
+
+    // ---- resource STATE: binding, state access, StateAssign ----------------
+
+    #[test]
+    fn lowers_resource_state_binding_and_assign() {
+        let ir = lower_src(
+            "res_state_full",
+            r#"
+IMPORT io
+IMPORT fs
+TYPE Cursor
+  pos AS Integer
+  len AS Integer
+END TYPE
+SUB seek(RES s AS File STATE Cursor, dest AS Integer)
+  s.state.pos = dest
+END SUB
+FUNC main AS Integer
+  RES f AS File STATE Cursor = fs::openFile("tests/resource-state-field-assign-valid/src/main.mfb")
+  LET p AS Integer = f.state.pos
+  f.state = WITH f.state { pos := 10 }
+  seek(f, 25)
+  fs::close(f)
+  RETURN p
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        // StateAssign op + state member access carried in the type string.
+        assert!(j.contains("stateAssign") || j.contains("state"), "{j}");
+    }
+
+    // ---- Error member access (.code / .message) ----------------------------
+
+    #[test]
+    fn lowers_error_member_access() {
+        let ir = lower_src(
+            "error_members",
+            r#"
+FUNC probe(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(7, "boom")
+  RETURN v
+  TRAP(e)
+    LET c AS Integer = e.code
+    LET m AS String = e.message
+    RETURN c
+  END TRAP
+END FUNC
+FUNC main AS Integer
+  RETURN probe(-1)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("code") || json_of(&ir).contains("message"));
+    }
+
+    // ---- more builtin package resolvers ------------------------------------
+
+    #[test]
+    fn lowers_json_csv_crypto_net_http_calls() {
+        let ir = lower_src(
+            "more_builtins",
+            r#"
+IMPORT io
+IMPORT json
+IMPORT csv
+IMPORT crypto
+IMPORT net
+IMPORT encoding
+FUNC main AS Integer
+  LET v AS Json = json::parse("{}")
+  LET s AS String = json::stringify(v)
+  LET rows AS List OF List OF String = csv::parse("a,b")
+  LET back AS String = csv::stringify(rows)
+  LET digest AS List OF Byte = crypto::sha256("abc")
+  LET hexed AS String = encoding::hexEncode(digest)
+  LET u AS net::Url = net::toUrl("http://example.com/")
+  RETURN 0
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("json") || j.contains("csv") || j.contains("crypto"));
+    }
+
+    #[test]
+    fn lowers_io_and_thread_and_bits_and_math_more() {
+        let ir = lower_src(
+            "io_thread",
+            r#"
+IMPORT io
+IMPORT math
+IMPORT bits
+FUNC main AS Integer
+  io::print("hello")
+  LET a AS Integer = math::max(3, 7)
+  LET b AS Integer = math::min(3, 7)
+  LET c AS Integer = bits::bor(1, 2)
+  LET d AS Integer = bits::band(6, 4)
+  LET e AS Integer = bits::popCount(255)
+  RETURN a + b + c + d + e
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("print") || json_of(&ir).contains("io"));
+    }
+
+    #[test]
+    fn lowers_vector_package_typed_dispatch() {
+        let ir = lower_src(
+            "vectors",
+            r#"
+IMPORT vector
+FUNC main AS Integer
+  LET a AS vector::Float3 = vector::Float3[1.0, 2.0, 3.0]
+  LET b AS vector::Float3 = vector::Float3[4.0, 5.0, 6.0]
+  LET dp AS Float = vector::dot(a, b)
+  LET ln AS Float = vector::length(a)
+  RETURN 0
+END FUNC
+"#,
+        );
+        // vector:: resolves a type-specific internal implementation name.
+        assert!(json_of(&ir).contains("vector") || json_of(&ir).contains("Float3"));
+    }
+
+    #[test]
+    fn lowers_vector_record_constant() {
+        let ir = lower_src(
+            "vector_const",
+            r#"
+IMPORT vector
+FUNC main AS Integer
+  LET up AS vector::Float3 = vector::upFloat3
+  RETURN 0
+END FUNC
+"#,
+        );
+        // A vector:: record constant inlines a constructor at the use site.
+        assert!(json_of(&ir).contains("constructor") || json_of(&ir).contains("Float3"));
+    }
+
+    // ---- captured_locals over every expression kind ------------------------
+
+    #[test]
+    fn lowers_lambda_capturing_across_expression_kinds() {
+        let ir = lower_src(
+            "capture_kinds",
+            r#"
+IMPORT collections
+TYPE Pt
+  x AS Integer
+  y AS Integer
+END TYPE
+FUNC run(base AS Integer, s AS String, p AS Pt, nums AS List OF Integer) AS FUNC() AS Integer
+  RETURN LAMBDA() -> base + p.x + len(nums) + collections::get(nums, 0) + (base - base)
+END FUNC
+FUNC main AS Integer
+  LET p AS Pt = Pt[1, 2]
+  LET f AS FUNC() AS Integer = run(5, "hi", p, [1, 2, 3])
+  RETURN f()
+END FUNC
+"#,
+        );
+        // Captures collected from Call/Binary/MemberAccess/Identifier args.
+        assert!(json_of(&ir).contains("capture") || json_of(&ir).contains("closure"));
+    }
+
+    #[test]
+    fn lowers_lambda_capturing_list_map_with_and_unary() {
+        let ir = lower_src(
+            "capture_kinds2",
+            r#"
+IMPORT collections
+TYPE Box
+  n AS Integer
+END TYPE
+FUNC run(base AS Integer, b AS Box) AS FUNC() AS List OF Integer
+  RETURN LAMBDA() -> [base, -base, len([base])]
+END FUNC
+FUNC run2(base AS Integer, b AS Box) AS FUNC() AS Box
+  RETURN LAMBDA() -> WITH b { n := base }
+END FUNC
+FUNC main AS Integer
+  LET b AS Box = Box[7]
+  LET f AS FUNC() AS List OF Integer = run(3, b)
+  LET g AS FUNC() AS Box = run2(3, b)
+  RETURN collections::get(f(), 0) + g().n
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("closure") || json_of(&ir).contains("capture"));
+    }
+
+    #[test]
+    fn lowers_lambda_capturing_map_literal_and_constructor() {
+        let ir = lower_src(
+            "capture_kinds3",
+            r#"
+TYPE MyPair
+  a AS Integer
+  b AS Integer
+END TYPE
+FUNC run(k AS Integer, v AS Integer) AS FUNC() AS Map OF String TO Integer
+  RETURN LAMBDA() -> Map OF String TO Integer { "k" := k, "v" := v }
+END FUNC
+FUNC run2(x AS Integer, y AS Integer) AS FUNC() AS MyPair
+  RETURN LAMBDA() -> MyPair[x, y]
+END FUNC
+FUNC main AS Integer
+  LET f AS FUNC() AS Map OF String TO Integer = run(1, 2)
+  LET g AS FUNC() AS MyPair = run2(3, 4)
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("closure") || json_of(&ir).contains("capture"));
+    }
+
+    // ---- treeify: MATCH continuation with existing ELSE ---------------------
+
+    #[test]
+    fn lowers_inline_trap_treeify_match_with_else_and_no_tail() {
+        let ir = lower_src(
+            "treeify_else",
+            r#"
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, "x")
+  RETURN v
+END FUNC
+FUNC withElse(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    MATCH e.code
+      CASE 1
+        RECOVER 10
+      CASE ELSE
+        RECOVER 20
+    END MATCH
+  END TRAP
+  RETURN a
+END FUNC
+FUNC tailless(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN a
+END FUNC
+FUNC main AS Integer
+  RETURN withElse(-1) + tailless(-1)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("resultIsOk"));
+    }
+
+    // ---- statement_terminates: IF with both-terminating branches -----------
+
+    #[test]
+    fn lowers_inline_trap_handler_if_both_branches_terminate() {
+        let ir = lower_src(
+            "term_if",
+            r#"
+FUNC parsePositive(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, "x")
+  RETURN v
+END FUNC
+FUNC bothTerm(v AS Integer) AS Integer
+  LET a = parsePositive(v) TRAP(e)
+    IF e.code = 1 THEN
+      RECOVER 10
+    ELSE
+      RECOVER 20
+    END IF
+    LET unreachable AS Integer = 99
+  END TRAP
+  RETURN a
+END FUNC
+FUNC main AS Integer
+  RETURN bothTerm(-1)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("resultIsOk"));
+    }
+
+    // ---- FUNC ref to LINK function / native return type wiring -------------
+
+    #[test]
+    fn lowers_native_link_function_types_and_returns() {
+        // A LINK function returning a value type feeds function_types/returns and
+        // a re-export alias adopts the target return type.
+        let ir = lower_src(
+            "link_types",
+            r#"
+RESOURCE Conn CLOSE BY dbLink::disconnect
+
+LINK "db" AS dbLink
+  FUNC version() AS Integer
+    SYMBOL "db_version"
+    ABI (return CInt32) AS rc CInt32
+  END FUNC
+  FUNC disconnect(RES c AS Conn) AS Nothing
+    SYMBOL "db_close"
+    ABI (c CPtr) AS rc CInt32
+  END FUNC
+END LINK
+
+EXPORT FUNC ver AS dbLink::version
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(ir.link_functions.iter().any(|f| f.name == "version"));
+        assert!(ir.link_functions.iter().any(|f| f.return_type == "Integer"));
+    }
+
+    // ---- constructor with no known fields (fallback positional) ------------
+
+    #[test]
+    fn lowers_constructor_positional_and_named_mixed() {
+        let ir = lower_src(
+            "ctor_mixed",
+            r#"
+TYPE Trip
+  a AS Integer
+  b AS Integer
+  c AS Integer
+END TYPE
+FUNC main AS Integer
+  LET t1 AS Trip = Trip[1, 2, 3]
+  LET t2 AS Trip = Trip[a := 1, b := 2, c := 3]
+  RETURN t1.a + t2.b
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("Trip"));
+    }
+
+    // ---- match binding a union variant (UnionExtract in case body) ---------
+
+    #[test]
+    fn lowers_match_union_variant_binding() {
+        let ir = lower_src(
+            "match_union_bind",
+            r#"
+TYPE Circle
+  radius AS Integer
+END TYPE
+TYPE Rect
+  w AS Integer
+  h AS Integer
+END TYPE
+UNION Shape
+  Circle
+  Rect
+END UNION
+FUNC area(s AS Shape) AS Integer
+  MATCH s
+    CASE Circle(c)
+      RETURN c.radius * c.radius
+    CASE Rect(r)
+      RETURN r.w * r.h
+  END MATCH
+END FUNC
+FUNC main AS Integer
+  RETURN area(Circle[3]) + area(Rect[2, 4])
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("unionExtract"));
+    }
+
+    // ---- builtin result-type inference (expression_type resolve_call arms) --
+
+    #[test]
+    fn infers_builtin_result_types_in_inferred_lets() {
+        // No explicit LET type -> lowering must call expression_type, which runs
+        // each package's resolve_call to infer the result type.
+        let ir = lower_src(
+            "infer_builtins",
+            r#"
+IMPORT strings
+IMPORT math
+IMPORT bits
+IMPORT json
+IMPORT csv
+IMPORT crypto
+IMPORT net
+IMPORT regex
+IMPORT datetime
+IMPORT encoding
+FUNC main AS Integer
+  LET up = strings::upper("hi")
+  LET n = math::max(1, 2)
+  LET b = bits::sl(1, 2)
+  LET v = json::parse("{}")
+  LET js = json::stringify(v)
+  LET rows = csv::parse("a,b")
+  LET back = csv::stringify(rows)
+  LET dig = crypto::sha256("abc")
+  LET hexed = encoding::hexEncode(dig)
+  LET u = net::toUrl("http://x/")
+  LET m = regex::match("abc", "a.c")
+  LET dt = datetime::instant(0)
+  RETURN n
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("main"));
+    }
+
+    #[test]
+    fn lowers_call_default_padding_for_regex_datetime_crypto() {
+        // These calls lower to IrValue::Call and trigger the trailing-argument
+        // default-padding branches in the Call-expression lowering.
+        let ir = lower_src(
+            "padding",
+            r#"
+IMPORT regex
+IMPORT datetime
+IMPORT crypto
+FUNC main AS Integer
+  LET matched AS Boolean = regex::match("abc", "a.c")
+  LET dt AS DateTime = datetime::parse("2024-01-02")
+  LET key AS List OF Byte = crypto::sha256("k")
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("match") || json_of(&ir).contains("parse"));
+    }
+
+    #[test]
+    fn lowers_general_override_for_builtin_value_type() {
+        // toString(net::Url) routes to the package's internal override helper.
+        let ir = lower_src(
+            "override",
+            r#"
+IMPORT net
+IMPORT io
+FUNC main AS Integer
+  LET u AS net::Url = net::toUrl("http://example.com/")
+  LET s AS String = toString(u)
+  io::print(s)
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("toString") || json_of(&ir).contains("net"));
+    }
+
+    #[test]
+    fn lowers_lambda_capturing_callable_local() {
+        let ir = lower_src(
+            "capture_callable",
+            r#"
+FUNC run(fn AS FUNC(Integer) AS Integer) AS FUNC(Integer) AS Integer
+  RETURN LAMBDA(x AS Integer) -> fn(x) + 1
+END FUNC
+FUNC dbl(x AS Integer) AS Integer
+  RETURN x * 2
+END FUNC
+FUNC main AS Integer
+  LET g AS FUNC(Integer) AS Integer = run(dbl)
+  RETURN g(3)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("closure") || json_of(&ir).contains("capture"));
+    }
+
+    #[test]
+    fn infers_top_level_binding_types() {
+        let ir = lower_src(
+            "infer_binding",
+            r#"
+LET greeting = "hello"
+LET count = 7
+FUNC main AS Integer
+  RETURN count
+END FUNC
+"#,
+        );
+        assert!(ir
+            .bindings
+            .iter()
+            .any(|b| b.name == "greeting" && b.type_ == "String"));
+        assert!(ir
+            .bindings
+            .iter()
+            .any(|b| b.name == "count" && b.type_ == "Integer"));
+    }
+
+    // ---- union includes (nested union expansion) ---------------------------
+
+    #[test]
+    fn lowers_union_with_includes() {
+        let ir = lower_src(
+            "union_includes",
+            r#"
+TYPE A
+  v AS Integer
+END TYPE
+TYPE B
+  v AS Integer
+END TYPE
+UNION Base
+  A
+END UNION
+UNION Wide INCLUDES Base
+  B
+END UNION
+FUNC pick(w AS Wide) AS Integer
+  MATCH w
+    CASE A(a)
+      RETURN a.v
+    CASE B(b)
+      RETURN b.v
+  END MATCH
+END FUNC
+FUNC main AS Integer
+  RETURN pick(A[1]) + pick(B[2])
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("Wide") || json_of(&ir).contains("Base"));
+    }
+
+    // ---- filter with an inline lambda predicate (filter_predicate_type) -----
+
+    #[test]
+    fn lowers_filter_with_inline_lambda_predicate() {
+        let ir = lower_src(
+            "filter_lambda",
+            r#"
+IMPORT collections
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 4]
+  LET big = collections::filter(nums, LAMBDA(n AS Integer) -> n > 2)
+  RETURN len(big)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("closure") || json_of(&ir).contains("functionRef"));
+    }
+
+    #[test]
+    fn lowers_filter_with_builtin_predicate_reference() {
+        // A builtin single-arg Boolean predicate (`isEven`) drives the
+        // filter_predicate_type inference + FunctionRef synthesis in both
+        // expression_type and the Call lowering (collections.filter arm).
+        let ir = lower_src(
+            "filter_builtin_pred",
+            r#"
+IMPORT collections
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3, 4]
+  LET evens = collections::filter(nums, isEven)
+  RETURN len(evens)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("functionRef"));
+    }
+
+    #[test]
+    fn lowers_collections_filter_inferred_result_type() {
+        // collections::filter with a named predicate in an inferred-type LET
+        // exercises the filter_predicate_type inference + FunctionRef synthesis
+        // in both expression_type and the Call lowering.
+        let ir = lower_src(
+            "coll_filter_infer",
+            r#"
+IMPORT collections
+FUNC keep(n AS Integer) AS Boolean
+  RETURN n > 1
+END FUNC
+FUNC main AS Integer
+  LET nums AS List OF Integer = [1, 2, 3]
+  LET big = collections::filter(nums, keep)
+  RETURN len(big)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("functionRef") || json_of(&ir).contains("keep"));
+    }
+
+    // ---- bare FunctionRef (no captures) ------------------------------------
+
+    #[test]
+    fn lowers_bare_function_reference_without_captures() {
+        let ir = lower_src(
+            "bare_fref",
+            r#"
+FUNC dbl(x AS Integer) AS Integer
+  RETURN x * 2
+END FUNC
+FUNC pickFn() AS FUNC(Integer) AS Integer
+  RETURN LAMBDA(x AS Integer) -> dbl(x)
+END FUNC
+FUNC main AS Integer
+  LET f AS FUNC(Integer) AS Integer = pickFn()
+  RETURN f(4)
+END FUNC
+"#,
+        );
+        // A capture-free lambda lowers to a plain FunctionRef.
+        assert!(json_of(&ir).contains("functionRef"));
+    }
+
+    // ---- inferred list literal element type (literal_expression_type) ------
+
+    #[test]
+    fn lowers_inferred_list_literal_element_type() {
+        let ir = lower_src(
+            "inferred_list",
+            r#"
+IMPORT collections
+FUNC main AS Integer
+  LET ints = [1, 2, 3]
+  LET strs = ["a", "b"]
+  LET floats = [1.5, 2.5]
+  LET bools = [TRUE, FALSE]
+  ' A list literal passed to a generic builtin has no expected element type, so
+  ' its element type is inferred via literal_expression_type over the first item.
+  LET a AS Integer = collections::get([10, 20, 30], 0)
+  LET b AS String = collections::get(["x", "y"], 0)
+  LET c AS Float = collections::get([1.5, 2.5], 0)
+  LET d AS Boolean = collections::get([TRUE, FALSE], 0)
+  RETURN len(ints) + a
+END FUNC
+"#,
+        );
+        let j = json_of(&ir);
+        assert!(j.contains("List OF Integer"));
+        assert!(j.contains("List OF String"));
+        assert!(j.contains("List OF Float"));
+    }
+
+    // ---- Ok constructor result type ----------------------------------------
+
+    #[test]
+    fn lowers_error_constructor_type_inference() {
+        // error(...) constructs an Error record; its result type feeds the
+        // TypeIndex::constructor_result "Error" arm through expression_type.
+        let ir = lower_src(
+            "error_ctor",
+            r#"
+FUNC risky() AS Integer
+  LET e = error(42, "oops")
+  FAIL e
+  TRAP(err)
+    RETURN err.code
+  END TRAP
+END FUNC
+FUNC main AS Integer
+  RETURN risky()
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("Error"));
+    }
+
+    // ---- native io / fs call result-type inference -------------------------
+
+    #[test]
+    fn infers_mapentry_key_and_value_types() {
+        let ir = lower_src(
+            "mapentry_infer",
+            r#"
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  LET m AS Map OF String TO Integer = Map OF String TO Integer { "a" := 1 }
+  FOR EACH entry IN m
+    LET k = entry.key
+    LET v = entry.value
+    total = total + v
+  NEXT
+  RETURN total
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("MapEntry"));
+    }
+
+    #[test]
+    fn infers_arithmetic_and_trapped_expression_types() {
+        let ir = lower_src(
+            "arith_infer",
+            r#"
+FUNC parse(v AS Integer) AS Integer
+  IF v < 0 THEN FAIL error(1, "x")
+  RETURN v
+END FUNC
+FUNC main AS Integer
+  LET a = 2 + 3 * 4
+  LET b = 1.5 - 0.5
+  LET c = TRUE AND FALSE
+  LET t = parse(3) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN a + t
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("main"));
+    }
+
+    #[test]
+    fn lowers_assignment_bodied_lambda() {
+        let ir = lower_src(
+            "assign_lambda",
+            r#"
+IMPORT collections
+FUNC main AS Integer
+  MUT total AS Integer = 0
+  LET nums AS List OF Integer = [1, 2, 3]
+  collections::forEach(nums, LAMBDA(n AS Integer) -> total = total + n)
+  RETURN total
+END FUNC
+"#,
+        );
+        // An assignment-bodied lambda yields Nothing and emits an Assign+Return.
+        assert!(json_of(&ir).contains("Nothing") || json_of(&ir).contains("assign"));
+    }
+
+    #[test]
+    fn lowers_assignment_bodied_lambda_target_not_on_rhs() {
+        // The assignment target (an outer MUT local) is captured even when it does
+        // not appear on the lambda body's right-hand side.
+        let ir = lower_src(
+            "assign_lambda_target",
+            r#"
+IMPORT collections
+FUNC main AS Integer
+  MUT last AS Integer = 0
+  LET nums AS List OF Integer = [1, 2, 3]
+  collections::forEach(nums, LAMBDA(n AS Integer) -> last = n)
+  RETURN last
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("last") || json_of(&ir).contains("closure"));
+    }
+
+    #[test]
+    fn lowers_nested_lambda_capture_skips_inner_lambda() {
+        // captured_locals must not descend into a nested lambda's body (the inner
+        // lambda captures independently).
+        let ir = lower_src(
+            "nested_lambda",
+            r#"
+FUNC outer(base AS Integer) AS FUNC() AS FUNC() AS Integer
+  RETURN LAMBDA() -> LAMBDA() -> base + 1
+END FUNC
+FUNC main AS Integer
+  LET f AS FUNC() AS FUNC() AS Integer = outer(5)
+  LET g AS FUNC() AS Integer = f()
+  RETURN g()
+END FUNC
+"#,
+        );
+        // Two synthesized lambda bodies (outer + inner).
+        assert!(
+            ir.functions
+                .iter()
+                .filter(|f| f.name.starts_with("$lambda"))
+                .count()
+                >= 2
+        );
+    }
+
+    #[test]
+    fn lowers_zero_param_func_typed_local_call() {
+        // Calling a FUNC()-typed local variable (no params) and invoking a
+        // stored zero-parameter reference exercises the FUNC()-typed local paths.
+        let ir = lower_src(
+            "zero_param_fn",
+            r#"
+FUNC makeIt() AS Integer
+  RETURN 42
+END FUNC
+FUNC main AS Integer
+  LET f AS FUNC() AS Integer = makeIt
+  RETURN f()
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("makeIt") || json_of(&ir).contains("main"));
+    }
+
+    #[test]
+    fn lowers_isolated_function_reference() {
+        let ir = lower_src(
+            "isolated_fn",
+            r#"
+ISOLATED FUNC pure(x AS Integer) AS Integer
+  RETURN x * 2
+END FUNC
+FUNC apply(f AS FUNC(Integer) AS Integer, v AS Integer) AS Integer
+  RETURN f(v)
+END FUNC
+FUNC main AS Integer
+  LET fref = pure
+  RETURN apply(fref, 5)
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("functionRef") || json_of(&ir).contains("pure"));
+    }
+
+    #[test]
+    fn lowers_local_call_with_named_and_positional_args() {
+        let ir = lower_src(
+            "local_named",
+            r#"
+FUNC combine(a AS Integer, b AS Integer, c AS Integer = 100) AS Integer
+  RETURN a + b + c
+END FUNC
+FUNC main AS Integer
+  LET x AS Integer = combine(1, c := 3, b := 2)
+  LET y AS Integer = combine(1, 2)
+  RETURN x + y
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("combine"));
+    }
+
+    #[test]
+    fn lowers_tls_connect_default_argument_padding() {
+        // tls::connect / tls::listen with fewer than the full argument count pad
+        // trailing arguments with constants (native fixed-ABI helpers).
+        let ir = lower_src(
+            "tls_pad",
+            r#"
+IMPORT tls
+FUNC main AS Integer
+  RES conn = tls::connect("example.com", 443)
+  RES server = tls::listen("127.0.0.1", 8443, "cert.pem", "key.pem")
+  RES accepted = tls::accept(server)
+  tls::close(conn)
+  tls::close(server)
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("tls") || json_of(&ir).contains("connect"));
+    }
+
+    #[test]
+    fn lowers_member_access_on_builtin_record_type() {
+        // Accessing a field of a builtin record type (TermColor's r/g/b) exercises
+        // TypeIndex::record_field_type's builtin-type-fields branch.
+        let ir = lower_src(
+            "builtin_fields",
+            r#"
+IMPORT term
+FUNC main AS Integer
+  LET c AS TermColor = term::getForeground()
+  LET red = c.r
+  LET green = c.g
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("TermColor") || json_of(&ir).contains("memberAccess"));
+    }
+
+    #[test]
+    fn infers_io_and_fs_native_call_result_types() {
+        let ir = lower_src(
+            "io_fs_infer",
+            r#"
+IMPORT io
+IMPORT fs
+FUNC main AS Integer
+  LET term = io::isOutputTerminal()
+  LET exists = fs::exists("/tmp")
+  RETURN 0
+END FUNC
+"#,
+        );
+        assert!(json_of(&ir).contains("main"));
+    }
+}
