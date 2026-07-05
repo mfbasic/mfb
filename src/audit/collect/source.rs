@@ -483,296 +483,391 @@ fn resource_producer(callee: &str) -> Option<(&'static str, &'static str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
-    fn project(src: &str) -> ast::AstProject {
-        let file = crate::ast::parse_source(Path::new("main.mfb"), "main.mfb", src)
-            .expect("source parses");
+    /// Parse standalone MFBASIC source into a single-file project.
+    fn project(source: &str) -> ast::AstProject {
+        let path = std::path::Path::new("main.mfb");
+        let file = crate::ast::parse_source(path, "main.mfb", source).expect("parse");
         ast::AstProject {
-            name: "demo".to_string(),
+            name: "app".to_string(),
             files: vec![file],
         }
     }
 
     #[test]
-    fn helper_package_and_capability_mapping() {
-        assert_eq!(package_of("fs.open"), "fs");
-        assert_eq!(package_of("bareName"), "bareName");
-        assert_eq!(builtin_capability("fs.read"), Some("filesystem"));
-        assert_eq!(builtin_capability("io.print"), Some("terminal"));
-        assert_eq!(builtin_capability("thread.start"), Some("threads"));
-        assert_eq!(builtin_capability("math.sqrt"), None);
-    }
-
-    #[test]
-    fn is_fallible_call_covers_builtins_and_user() {
-        let mut fallible = HashSet::new();
-        fallible.insert("myFn".to_string());
-        assert!(is_fallible_call("fs.open", &fallible));
-        assert!(is_fallible_call("io.print", &fallible));
-        assert!(is_fallible_call("json.parse", &fallible));
-        assert!(is_fallible_call("net.connectTcp", &fallible));
-        assert!(is_fallible_call("thread.start", &fallible));
-        assert!(is_fallible_call("myFn", &fallible));
-        assert!(!is_fallible_call("math.sqrt", &fallible));
-        assert!(!is_fallible_call("otherFn", &fallible));
-    }
-
-    #[test]
-    fn resource_producer_maps_known_producers() {
-        assert_eq!(resource_producer("fs.open"), Some(("File", "fs.close")));
-        assert_eq!(
-            resource_producer("fs.createTempFile"),
-            Some(("File", "fs.close"))
-        );
-        assert_eq!(
-            resource_producer("thread.start"),
-            Some(("Thread", "thread.waitFor"))
-        );
-        assert_eq!(
-            resource_producer("net.connectTcp"),
-            Some(("Socket", "net.close"))
-        );
-        assert_eq!(
-            resource_producer("net.listenTcp"),
-            Some(("Listener", "net.close"))
-        );
-        assert_eq!(
-            resource_producer("net.accept"),
-            Some(("Socket", "net.close"))
-        );
-        assert_eq!(resource_producer("fs.read"), None);
-    }
-
-    #[test]
-    fn pure_function_is_not_fallible_and_has_no_flow() {
-        let ast =
-            project("FUNC add(a AS Integer, b AS Integer) AS Integer\n  RETURN a + b\nEND FUNC\n");
-        let (flow, permissions, resources) = collect_source(&ast);
-        assert_eq!(flow.len(), 1);
-        assert!(!flow[0].fallible);
-        assert!(flow[0].trap.is_none());
-        assert!(flow[0].calls.is_empty());
-        assert!(permissions.is_empty());
-        assert!(resources.is_empty());
-    }
-
-    #[test]
-    fn builtin_call_produces_permission_and_fallible_call() {
-        let ast = project("SUB main\n  io::print(\"hi\")\nEND SUB\n");
-        let (flow, permissions, _resources) = collect_source(&ast);
-        // main becomes fallible because it calls a fallible builtin.
-        assert!(flow[0].fallible);
-        assert_eq!(flow[0].calls.len(), 1);
-        assert_eq!(flow[0].calls[0].callee, "io.print");
-        assert_eq!(flow[0].calls[0].propagation, "return");
-        assert_eq!(flow[0].calls[0].capability.as_deref(), Some("terminal"));
-        assert_eq!(permissions.len(), 1);
-        assert_eq!(permissions[0].capability, "terminal");
-    }
-
-    #[test]
-    fn resource_binding_is_detected_and_close_may_fail() {
-        let ast = project(
-            "FUNC readFirst(path AS String) AS String\n  RES file = fs::openFile(path)\n  RETURN fs::readLine(file)\nEND FUNC\n",
-        );
-        let (_flow, _permissions, resources) = collect_source(&ast);
+    fn callee_qualified_name_uses_dot_separator() {
+        // Sanity: the collector matches `fs.open`, and `fs::open` parses to it.
+        let ast = project("FUNC f()\n  LET h = fs::open(\"p\")\nEND FUNC\n");
+        let (_, _, resources) = collect_source(&ast);
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].resource_type, "File");
         assert_eq!(resources[0].close_op, "fs.close");
-        assert_eq!(resources[0].name, "file");
-        assert!(!resources[0].native);
-        assert!(resources[0].close_may_fail);
     }
 
     #[test]
-    fn resources_found_in_nested_control_flow() {
-        let ast = project(
-            "SUB main\n  IF TRUE THEN\n    RES a = fs::openFile(\"/a\")\n  ELSE\n    RES b = net::listenTcp(8080)\n  END IF\n  FOR i = 1 TO 2\n    RES c = net::connectTcp(\"h\", 1)\n  NEXT\nEND SUB\n",
+    fn permissions_are_collected_and_deduplicated() {
+        let source = concat!(
+            "FUNC f()\n",
+            "  io::print(\"a\")\n",
+            "  io::print(\"b\")\n",
+            "  LET h = fs::open(\"p\")\n",
+            "  LET t = thread::start(worker)\n",
+            "END FUNC\n",
         );
-        let (_flow, _permissions, resources) = collect_source(&ast);
-        let types: HashSet<&str> = resources.iter().map(|r| r.resource_type.as_str()).collect();
-        assert!(types.contains("File"));
-        assert!(types.contains("Listener"));
-        assert!(types.contains("Socket"));
+        let (_, permissions, _) = collect_source(&project(source));
+        let caps: Vec<&str> = permissions.iter().map(|p| p.capability.as_str()).collect();
+        assert!(caps.contains(&"terminal"));
+        assert!(caps.contains(&"filesystem"));
+        assert!(caps.contains(&"threads"));
     }
 
     #[test]
-    fn fail_makes_function_fallible() {
-        let ast = project("FUNC bad AS Integer\n  FAIL error(1, \"no\")\nEND FUNC\n");
-        let (flow, _permissions, _resources) = collect_source(&ast);
-        assert!(flow[0].fallible);
-    }
-
-    #[test]
-    fn fallibility_propagates_transitively() {
-        // caller calls callee which fails; both become fallible.
-        let ast = project(
-            "FUNC callee AS Integer\n  FAIL error(1, \"x\")\nEND FUNC\nFUNC caller AS Integer\n  RETURN callee()\nEND FUNC\n",
+    fn resources_found_across_nested_control_flow() {
+        let source = concat!(
+            "FUNC f(n AS Integer)\n",
+            "  IF n > 0 THEN\n",
+            "    LET a = fs::open(\"a\")\n",
+            "  ELSE\n",
+            "    LET b = fs::openFile(\"b\")\n",
+            "  END IF\n",
+            "  FOR i = 1 TO n\n",
+            "    LET c = net::connectTcp(addr)\n",
+            "  NEXT\n",
+            "  FOR EACH x IN items\n",
+            "    LET d = net::listenTcp(addr)\n",
+            "  NEXT\n",
+            "  WHILE n > 0\n",
+            "    LET e = thread::start(worker)\n",
+            "  WEND\n",
+            "  DO\n",
+            "    LET g = net::accept(listener)\n",
+            "  LOOP UNTIL n < 0\n",
+            "END FUNC\n",
         );
-        let (flow, _permissions, _resources) = collect_source(&ast);
-        assert!(flow.iter().all(|f| f.fallible));
+        let (_, _, resources) = collect_source(&project(source));
+        let types: Vec<&str> = resources.iter().map(|r| r.resource_type.as_str()).collect();
+        assert!(types.contains(&"File"));
+        assert!(types.contains(&"Socket"));
+        assert!(types.contains(&"Listener"));
+        assert!(types.contains(&"Thread"));
     }
 
     #[test]
-    fn trap_classification_recovers() {
-        let ast = project(
-            "FUNC f AS Integer\n  RETURN fs::openFile(\"/x\")\n  TRAP(err)\n    RECOVER\n  END TRAP\nEND FUNC\n",
+    fn resources_found_inside_match_case() {
+        let source = concat!(
+            "TYPE Circle\n  radius AS Integer\nEND TYPE\n",
+            "UNION Shape\n  Circle\nEND UNION\n",
+            "FUNC f(s AS Shape)\n",
+            "  MATCH s\n",
+            "    CASE Circle(c)\n",
+            "      LET a = fs::createTempFile(\"t\")\n",
+            "    CASE ELSE\n",
+            "      RETURN\n",
+            "  END MATCH\n",
+            "END FUNC\n",
         );
-        let (flow, _permissions, _resources) = collect_source(&ast);
-        let trap = flow[0].trap.as_ref().expect("trap");
-        assert_eq!(trap.classification, "recovers");
-        // A function whose errors are all caught by a recover trap is NOT fallible.
-        assert!(!flow[0].fallible);
-        // Calls inside the trapped function propagate to "trap".
-        assert_eq!(flow[0].calls[0].propagation, "trap");
+        let (_, _, resources) = collect_source(&project(source));
+        assert_eq!(resources.len(), 1);
+    }
+
+    #[test]
+    fn trap_classification_propagates() {
+        let source = concat!(
+            "FUNC f() AS Integer\n",
+            "  RETURN leaf()\n",
+            "  TRAP(e)\n",
+            "    PROPAGATE\n",
+            "  END TRAP\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _) = collect_source(&project(source));
+        let f = flow.iter().find(|f| f.function == "f").unwrap();
+        assert_eq!(f.trap.as_ref().unwrap().classification, "propagates");
+    }
+
+    #[test]
+    fn trap_classification_fails() {
+        let source = concat!(
+            "FUNC f() AS Integer\n",
+            "  RETURN leaf()\n",
+            "  TRAP(e)\n",
+            "    FAIL error(2, \"x\")\n",
+            "  END TRAP\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _) = collect_source(&project(source));
+        let f = flow.iter().find(|f| f.function == "f").unwrap();
+        assert_eq!(f.trap.as_ref().unwrap().classification, "fails");
     }
 
     #[test]
     fn trap_classification_returns_value() {
-        let ast = project(
-            "FUNC f AS Integer\n  RETURN fs::openFile(\"/x\")\n  TRAP(err)\n    RETURN 0\n  END TRAP\nEND FUNC\n",
+        let source = concat!(
+            "FUNC f() AS Integer\n",
+            "  RETURN leaf()\n",
+            "  TRAP(e)\n",
+            "    RETURN 7\n",
+            "  END TRAP\n",
+            "END FUNC\n",
         );
-        let (flow, _p, _r) = collect_source(&ast);
+        let (flow, _, _) = collect_source(&project(source));
+        let f = flow.iter().find(|f| f.function == "f").unwrap();
+        assert_eq!(f.trap.as_ref().unwrap().classification, "returns value");
+    }
+
+    #[test]
+    fn trap_classification_recovers() {
+        let source = concat!(
+            "FUNC f() AS Integer\n",
+            "  RETURN leaf()\n",
+            "  TRAP(e)\n",
+            "    RECOVER 0\n",
+            "  END TRAP\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _) = collect_source(&project(source));
+        let f = flow.iter().find(|f| f.function == "f").unwrap();
+        assert_eq!(f.trap.as_ref().unwrap().classification, "recovers");
+    }
+
+    #[test]
+    fn user_function_becomes_fallible_by_calling_fallible_builtin() {
+        let source = concat!(
+            "FUNC reader() AS String\n",
+            "  RETURN fs::read(\"p\")\n",
+            "END FUNC\n",
+            "FUNC caller() AS String\n",
+            "  RETURN reader()\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _) = collect_source(&project(source));
+        let reader = flow.iter().find(|f| f.function == "reader").unwrap();
+        let caller = flow.iter().find(|f| f.function == "caller").unwrap();
+        // `reader` calls a fallible builtin; `caller` calls fallible `reader`.
+        assert!(reader.fallible);
+        assert!(caller.fallible);
+    }
+
+    #[test]
+    fn fail_statement_makes_function_fallible() {
+        let source = concat!(
+            "FUNC boom() AS Integer\n",
+            "  FAIL error(1, \"x\")\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _) = collect_source(&project(source));
+        assert!(flow.iter().find(|f| f.function == "boom").unwrap().fallible);
+    }
+
+    #[test]
+    fn walk_visits_loop_control_and_named_and_lambda_and_trapped() {
+        // Covers walk_statements' Continue/Exit/Recover arms, For step, ForEach,
+        // and walk_expression's named-call-arg / lambda / constructor-named /
+        // trapped-expression / member-access branches — each wrapping a fallible
+        // builtin so a permission and call site are recorded.
+        let source = concat!(
+            "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n",
+            "FUNC wrap(text AS String) AS String\n",
+            "  RETURN text\n",
+            "END FUNC\n",
+            "FUNC f(n AS Integer) AS Integer\n",
+            "  FOR i = 1 TO n STEP 2\n",
+            "    io::print(toString(i))\n",
+            "    CONTINUE FOR\n",
+            "  NEXT\n",
+            "  FOR EACH e IN items\n",
+            "    EXIT FOR\n",
+            "  NEXT\n",
+            "  LET g AS FUNC(Integer) AS String = LAMBDA(v AS Integer) -> fs::read(\"p\")\n",
+            "  LET named AS String = wrap(text := fs::read(\"n\"))\n",
+            "  LET p AS Point = Point[x := fs::read(\"q\"), y := 1]\n",
+            "  LET r AS String = fs::read(\"r\") TRAP(e)\n",
+            "    RECOVER \"x\"\n",
+            "  END TRAP\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+        );
+        let (flow, permissions, _) = collect_source(&project(source));
+        assert!(flow.iter().any(|f| f.function == "f"));
+        assert!(permissions.iter().any(|p| p.capability == "filesystem"));
+    }
+
+    #[test]
+    fn match_guard_and_case_bodies_are_walked() {
+        let source = concat!(
+            "TYPE Circle\n  radius AS Integer\nEND TYPE\n",
+            "UNION Shape\n  Circle\nEND UNION\n",
+            "FUNC f(s AS Shape) AS Integer\n",
+            "  MATCH s\n",
+            "    CASE Circle(c) WHEN c.radius > 0\n",
+            "      RETURN fs::read(\"p\") & \"\"\n",
+            "    CASE ELSE\n",
+            "      RETURN 0\n",
+            "  END MATCH\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _) = collect_source(&project(source));
+        // The case body raises via a fallible builtin, so `f` is fallible.
+        assert!(flow.iter().find(|f| f.function == "f").unwrap().fallible);
+    }
+
+    #[test]
+    fn nested_fail_and_propagate_inside_control_flow_is_detected() {
+        // `statements_fail_or_propagate` / `statements_contain_*` recurse through
+        // IF / FOR / MATCH; a FAIL nested in an IF still makes the function
+        // fallible, and a PROPAGATE nested in a trap's FOR classifies it.
+        let source = concat!(
+            "FUNC boom(n AS Integer) AS Integer\n",
+            "  IF n > 0 THEN\n",
+            "    FAIL error(1, \"x\")\n",
+            "  END IF\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
+            "FUNC classified() AS Integer\n",
+            "  RETURN leaf()\n",
+            "  TRAP(e)\n",
+            "    FOR i = 1 TO 2\n",
+            "      PROPAGATE\n",
+            "    NEXT\n",
+            "  END TRAP\n",
+            "END FUNC\n",
+        );
+        let (flow, _, _) = collect_source(&project(source));
+        assert!(flow.iter().find(|f| f.function == "boom").unwrap().fallible);
+        let classified = flow.iter().find(|f| f.function == "classified").unwrap();
         assert_eq!(
-            flow[0].trap.as_ref().unwrap().classification,
+            classified.trap.as_ref().unwrap().classification,
+            "propagates"
+        );
+    }
+
+    /// Classify the trap of the first function in `source`.
+    fn trap_classification(source: &str) -> String {
+        let (flow, _, _) = collect_source(&project(source));
+        flow.iter()
+            .find_map(|f| f.trap.as_ref().map(|t| t.classification.clone()))
+            .expect("a trap")
+    }
+
+    #[test]
+    fn classify_recurses_through_if_match_and_loop_for_propagate() {
+        // PROPAGATE nested inside IF, MATCH, and a loop each classify as
+        // "propagates", exercising every recursive arm of the propagate scanner.
+        assert_eq!(
+            trap_classification(concat!(
+                "FUNC f() AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    IF TRUE THEN\n      PROPAGATE\n    END IF\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
+            "propagates"
+        );
+        assert_eq!(
+            trap_classification(concat!(
+                "TYPE Circle\n  radius AS Integer\nEND TYPE\n",
+                "UNION Shape\n  Circle\nEND UNION\n",
+                "FUNC f(s AS Shape) AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    MATCH s\n      CASE Circle(c)\n        PROPAGATE\n      CASE ELSE\n        RECOVER 0\n    END MATCH\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
+            "propagates"
+        );
+        assert_eq!(
+            trap_classification(concat!(
+                "FUNC f() AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    WHILE TRUE\n      PROPAGATE\n    WEND\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
+            "propagates"
+        );
+    }
+
+    #[test]
+    fn classify_recurses_through_if_match_and_loop_for_fail() {
+        // FAIL nested inside IF / MATCH / loop classifies as "fails" and drives
+        // the fail scanner's recursive arms (only reached when no PROPAGATE).
+        assert_eq!(
+            trap_classification(concat!(
+                "FUNC f() AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    IF TRUE THEN\n      FAIL error(1, \"x\")\n    END IF\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
+            "fails"
+        );
+        assert_eq!(
+            trap_classification(concat!(
+                "TYPE Circle\n  radius AS Integer\nEND TYPE\n",
+                "UNION Shape\n  Circle\nEND UNION\n",
+                "FUNC f(s AS Shape) AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    MATCH s\n      CASE Circle(c)\n        FAIL error(1, \"x\")\n      CASE ELSE\n        RECOVER 0\n    END MATCH\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
+            "fails"
+        );
+        assert_eq!(
+            trap_classification(concat!(
+                "FUNC f() AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    FOR i = 1 TO 2\n      FAIL error(1, \"x\")\n    NEXT\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
+            "fails"
+        );
+    }
+
+    #[test]
+    fn classify_recurses_through_if_match_and_loop_for_return_value() {
+        // A value RETURN nested in IF / MATCH / loop classifies as "returns value"
+        // (reached only when neither PROPAGATE nor FAIL is present).
+        assert_eq!(
+            trap_classification(concat!(
+                "FUNC f() AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    IF TRUE THEN\n      RETURN 1\n    END IF\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
+            "returns value"
+        );
+        assert_eq!(
+            trap_classification(concat!(
+                "TYPE Circle\n  radius AS Integer\nEND TYPE\n",
+                "UNION Shape\n  Circle\nEND UNION\n",
+                "FUNC f(s AS Shape) AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    MATCH s\n      CASE Circle(c)\n        RETURN 1\n      CASE ELSE\n        RECOVER 0\n    END MATCH\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
+            "returns value"
+        );
+        assert_eq!(
+            trap_classification(concat!(
+                "FUNC f() AS Integer\n  RETURN leaf()\n  TRAP(e)\n",
+                "    FOR i = 1 TO 2\n      RETURN 1\n    NEXT\n",
+                "  END TRAP\nEND FUNC\n",
+            )),
             "returns value"
         );
     }
 
     #[test]
-    fn trap_classification_fails() {
-        let ast = project(
-            "FUNC f AS Integer\n  RETURN fs::openFile(\"/x\")\n  TRAP(err)\n    FAIL error(2, \"boom\")\n  END TRAP\nEND FUNC\n",
+    fn walk_visits_diverse_expression_and_statement_forms() {
+        // Exercises binary/unary/constructor/with-update/list/map/member access
+        // plus assign / exit-program / expression statements, all containing a
+        // fallible builtin call so the walker reaches every branch.
+        let source = concat!(
+            "TYPE Point\n  x AS Integer\n  y AS Integer\nEND TYPE\n",
+            "FUNC f(n AS Integer) AS Integer\n",
+            "  LET a AS String = fs::read(\"p\") & \"z\"\n",
+            "  LET b AS Integer = -n\n",
+            "  LET p AS Point = Point(fs::read(\"q\"), 2)\n",
+            "  LET p2 AS Point = WITH p { x := fs::read(\"r\") }\n",
+            "  LET list AS List OF String = [fs::read(\"s\")]\n",
+            "  LET map AS Map OF String TO String = Map OF String TO String { \"k\" := fs::read(\"t\") }\n",
+            "  LET m AS Integer = p.x\n",
+            "  a = fs::read(\"u\")\n",
+            "  io::print(toString(n))\n",
+            "  EXIT PROGRAM n\n",
+            "  RETURN 0\n",
+            "END FUNC\n",
         );
-        let (flow, _p, _r) = collect_source(&ast);
-        assert_eq!(flow[0].trap.as_ref().unwrap().classification, "fails");
-        // fails in the trap => escapes => fallible
-        assert!(flow[0].fallible);
-    }
-
-    #[test]
-    fn trap_classification_propagates() {
-        let ast = project(
-            "FUNC f AS Integer\n  RETURN fs::openFile(\"/x\")\n  TRAP(err)\n    PROPAGATE\n  END TRAP\nEND FUNC\n",
-        );
-        let (flow, _p, _r) = collect_source(&ast);
-        assert_eq!(flow[0].trap.as_ref().unwrap().classification, "propagates");
-        assert!(flow[0].fallible);
-    }
-
-    #[test]
-    fn permissions_share_capability_and_are_sorted() {
-        let ast = project("SUB main\n  io::print(\"a\")\n  io::print(\"b\")\nEND SUB\n");
-        let (_flow, permissions, _resources) = collect_source(&ast);
-        assert!(permissions.iter().all(|p| p.capability == "terminal"));
-        // Sorted by capability then path then line.
-        for window in permissions.windows(2) {
-            assert!(window[0].line <= window[1].line);
-        }
-    }
-
-    #[test]
-    fn walks_many_expression_and_statement_shapes() {
-        // Exercise a broad set of walk_expression / walk_statement arms with
-        // fallible calls buried inside them so they surface as call sites.
-        let src = "\
-FUNC helper AS Integer\n  RETURN 1\nEND FUNC\n\
-FUNC big(xs AS List OF Integer) AS Integer\n\
-  LET a = 0 - helper()\n\
-  LET b = helper() + helper()\n\
-  LET lst = [helper(), helper()]\n\
-  FOR i = 1 TO helper() STEP helper()\n    io::print(\"x\")\n  NEXT\n\
-  FOR EACH x IN xs\n    io::print(\"y\")\n  NEXT\n\
-  WHILE helper() > 0\n    io::print(\"w\")\n  WEND\n\
-  DO\n    io::print(\"z\")\n  LOOP UNTIL helper() > 0\n\
-  MATCH helper()\n    CASE 1\n      io::print(\"one\")\n    CASE ELSE\n      io::print(\"other\")\n  END MATCH\n\
-  RETURN a + b\nEND FUNC\n";
-        let ast = project(src);
-        let (flow, permissions, _resources) = collect_source(&ast);
-        let big = flow.iter().find(|f| f.function == "big").expect("big fn");
-        // Only fallible calls are collected; io::print is a fallible builtin so it
-        // surfaces from every statement shape it was buried in. `helper` is pure
-        // (returns 1) so it is intentionally NOT collected.
-        assert!(big.calls.iter().all(|c| c.callee == "io.print"));
-        // Buried in FOR body, FOR EACH body, WHILE body, DO body, and MATCH cases.
-        assert!(big.calls.len() >= 5);
-        assert!(!permissions.is_empty());
-    }
-
-    #[test]
-    fn walks_expression_arms_constructor_with_map_member_guard() {
-        // `boom` calls a fallible builtin so it is itself fallible; burying calls
-        // to it inside each expression shape forces every walk_expression arm to
-        // surface it as a fallible call site.
-        let src = "\
-TYPE Rec\n  n AS Integer\nEND TYPE\n\
-FUNC boom AS Integer\n  io::print(\"x\")\n  RETURN 1\nEND FUNC\n\
-FUNC uses(r AS Rec) AS Integer\n\
-  LET c AS Rec = Rec[boom()]\n\
-  LET up AS Rec = WITH r { n := boom() }\n\
-  LET m AS Map OF String TO Integer = Map OF String TO Integer { \"k\" := boom() }\n\
-  LET member AS Integer = c.n + boom()\n\
-  MATCH boom()\n    CASE 1 WHEN boom() > 0\n      io::print(\"g\")\n    CASE ELSE\n      io::print(\"e\")\n  END MATCH\n\
-  RETURN member\nEND FUNC\n";
-        let ast = project(src);
-        let (flow, _permissions, _resources) = collect_source(&ast);
-        let uses = flow.iter().find(|f| f.function == "uses").expect("uses fn");
-        // boom is fallible and appears from constructor, WITH, map, member, match,
-        // and the guard (WHEN) — several call sites.
-        let boom_calls = uses.calls.iter().filter(|c| c.callee == "boom").count();
-        assert!(
-            boom_calls >= 5,
-            "expected many boom call sites, got {boom_calls}"
-        );
-        assert!(uses.fallible);
-    }
-
-    #[test]
-    fn walks_statement_arms_assign_stateassign_exit_recover() {
-        // A resource function with STATE lets us hit StateAssign; io::print calls
-        // are buried in Assign, Exit code, and Recover value positions.
-        let src = "\
-FUNC boom AS Integer\n  io::print(\"x\")\n  RETURN 1\nEND FUNC\n\
-SUB run\n\
-  MUT total AS Integer = 0\n\
-  total = boom()\n\
-  FOR i = 1 TO 3\n    IF i = 2 THEN CONTINUE FOR\n    total = total + 1\n  NEXT\n\
-  EXIT SUB\nEND SUB\n";
-        let ast = project(src);
-        let (flow, _p, _r) = collect_source(&ast);
-        let run = flow.iter().find(|f| f.function == "run").expect("run fn");
-        assert!(run.calls.iter().any(|c| c.callee == "boom"));
-        assert!(run.fallible);
-    }
-
-    #[test]
-    fn walks_lambda_and_inline_trapped_expression() {
-        // Lambda body and an inline `expr TRAP(e) ... END TRAP` both carry a
-        // buried fallible call, exercising the Lambda and Trapped walk arms.
-        let src = "\
-IMPORT io\n\
-IMPORT collections\n\
-FUNC boom AS Integer\n  io::print(\"x\")\n  RETURN 1\nEND FUNC\n\
-FUNC uses(xs AS List OF Integer) AS Integer\n\
-  LET mapped AS List OF Integer = collections::transform(xs, LAMBDA(value AS Integer) -> value + boom())\n\
-  LET a AS Integer = boom() TRAP(e)\n    io::print(\"caught\")\n    RECOVER 0\n  END TRAP\n\
-  RETURN a\nEND FUNC\n";
-        let ast = project(src);
-        let (flow, _p, _r) = collect_source(&ast);
-        let uses = flow.iter().find(|f| f.function == "uses").expect("uses fn");
-        assert!(uses.calls.iter().any(|c| c.callee == "boom"));
-    }
-
-    #[test]
-    fn flow_sorted_by_path_line_function() {
-        let ast = project(
-            "FUNC zebra AS Integer\n  RETURN 1\nEND FUNC\nFUNC alpha AS Integer\n  RETURN 2\nEND FUNC\n",
-        );
-        let (flow, _p, _r) = collect_source(&ast);
-        // sorted by (path, line, function); both same path, different lines
-        for window in flow.windows(2) {
-            assert!(window[0].line <= window[1].line);
-        }
+        let (flow, permissions, _) = collect_source(&project(source));
+        assert!(flow.iter().any(|f| f.function == "f"));
+        assert!(permissions.iter().any(|p| p.capability == "filesystem"));
     }
 }

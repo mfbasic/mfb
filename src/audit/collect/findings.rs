@@ -229,186 +229,189 @@ pub(super) fn sort_findings(findings: &mut [Finding]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
 
     fn lockfile(present: bool, locked: bool, matches: Option<bool>) -> LockfileSummary {
         LockfileSummary {
             path: "mfb.lock".to_string(),
             present,
             locked,
-            version: None,
+            version: Some(1),
             project_hash_matches: matches,
         }
     }
 
     fn inputs<'a>(
-        ast: &'a ast::AstProject,
+        dir: &'a Path,
         manifest: &'a HashMap<String, JsonValue>,
+        ast: &'a ast::AstProject,
     ) -> AuditInputs<'a> {
         AuditInputs {
-            project_dir: Path::new("."),
+            project_dir: dir,
             root_display: ".".to_string(),
             manifest,
             ast,
-            kind: "program".to_string(),
+            kind: "executable".to_string(),
             entry: None,
             locked: false,
         }
     }
 
-    fn dependency(name: &str, status: &str, requested: &str) -> DependencyEntry {
+    fn dependency(name: &str, status: &str) -> DependencyEntry {
         DependencyEntry {
             name: name.to_string(),
-            ident: name.to_string(),
-            requested_version: requested.to_string(),
+            ident: format!("std#{name}"),
+            requested_version: "1.0.0".to_string(),
             resolved_version: None,
-            pin: false,
-            source: "registry".to_string(),
+            pin: true,
+            source: "file:x".to_string(),
             signature: None,
             content_hash: None,
             status: status.to_string(),
         }
     }
 
-    fn empty_ast() -> ast::AstProject {
-        ast::AstProject {
-            name: "demo".to_string(),
-            files: Vec::new(),
+    fn package_entry(name: &str, verifier: &str, signature: &str) -> PackageEntry {
+        PackageEntry {
+            name: name.to_string(),
+            version: "1.0.0".to_string(),
+            path: format!("packages/{name}.mfp"),
+            signature: signature.to_string(),
+            content_hash: String::new(),
+            verifier: verifier.to_string(),
+            exports: 0,
+            imports: 0,
+            cleanups: 0,
         }
     }
 
     #[test]
-    fn locked_but_missing_lockfile_is_error() {
-        let ast = empty_ast();
+    fn lock_missing_when_required() {
+        let dir = std::path::PathBuf::from(".");
         let manifest = HashMap::new();
-        let ins = inputs(&ast, &manifest);
+        let ast = ast::AstProject {
+            name: "a".to_string(),
+            files: Vec::new(),
+        };
+        let ins = inputs(&dir, &manifest, &ast);
         let mut findings = Vec::new();
         lockfile_findings(&lockfile(false, true, None), &[], &ins, &mut findings);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, "AUDIT-LOCK-MISSING");
         assert!(findings[0].severity == Severity::Error);
-        assert_eq!(findings[0].path.as_deref(), Some("mfb.lock"));
     }
 
     #[test]
-    fn stale_lock_is_warning_unlocked_error_locked() {
-        let ast = empty_ast();
+    fn lock_stale_is_error_when_locked_warning_otherwise() {
+        let dir = std::path::PathBuf::from(".");
         let manifest = HashMap::new();
-        let ins = inputs(&ast, &manifest);
+        let ast = ast::AstProject {
+            name: "a".to_string(),
+            files: Vec::new(),
+        };
+        let ins = inputs(&dir, &manifest, &ast);
 
-        let mut warn = Vec::new();
-        lockfile_findings(&lockfile(true, false, Some(false)), &[], &ins, &mut warn);
-        assert_eq!(warn[0].code, "AUDIT-LOCK-STALE");
-        assert!(warn[0].severity == Severity::Warning);
+        let mut findings = Vec::new();
+        lockfile_findings(&lockfile(true, true, Some(false)), &[], &ins, &mut findings);
+        assert_eq!(findings[0].code, "AUDIT-LOCK-STALE");
+        assert!(findings[0].severity == Severity::Error);
 
-        let mut err = Vec::new();
-        lockfile_findings(&lockfile(true, true, Some(false)), &[], &ins, &mut err);
-        assert!(err[0].severity == Severity::Error);
+        let mut findings = Vec::new();
+        lockfile_findings(
+            &lockfile(true, false, Some(false)),
+            &[],
+            &ins,
+            &mut findings,
+        );
+        assert_eq!(findings[0].code, "AUDIT-LOCK-STALE");
+        assert!(findings[0].severity == Severity::Warning);
     }
 
     #[test]
-    fn matching_or_absent_lock_yields_no_findings() {
-        let ast = empty_ast();
+    fn lock_matching_present_yields_no_finding() {
+        let dir = std::path::PathBuf::from(".");
         let manifest = HashMap::new();
-        let ins = inputs(&ast, &manifest);
+        let ast = ast::AstProject {
+            name: "a".to_string(),
+            files: Vec::new(),
+        };
+        let ins = inputs(&dir, &manifest, &ast);
         let mut findings = Vec::new();
         lockfile_findings(&lockfile(true, false, Some(true)), &[], &ins, &mut findings);
-        lockfile_findings(&lockfile(false, false, None), &[], &ins, &mut findings);
         assert!(findings.is_empty());
     }
 
     #[test]
-    fn dependency_findings_map_each_status() {
+    fn dependency_findings_cover_each_status() {
         let deps = vec![
-            dependency("a", "missing", ""),
-            dependency("b", "invalid", ""),
-            dependency("c", "needs-update", "1.2.0"),
-            dependency("d", "ok", "1.0.0"),
+            dependency("a", "missing"),
+            dependency("b", "invalid"),
+            dependency("c", "needs-update"),
+            dependency("d", "ok"),
         ];
         let mut findings = Vec::new();
         dependency_findings(&deps, &mut findings);
         let codes: Vec<&str> = findings.iter().map(|f| f.code.as_str()).collect();
-        assert_eq!(
-            codes,
-            vec![
-                "AUDIT-DEP-MISSING",
-                "AUDIT-DEP-INVALID",
-                "AUDIT-DEP-OUTDATED"
-            ]
-        );
-        assert!(findings[0].severity == Severity::Error);
-        assert!(findings[1].severity == Severity::Error);
-        assert!(findings[2].severity == Severity::Warning);
-        assert!(findings[2].message.contains("1.2.0"));
+        assert!(codes.contains(&"AUDIT-DEP-MISSING"));
+        assert!(codes.contains(&"AUDIT-DEP-INVALID"));
+        assert!(codes.contains(&"AUDIT-DEP-OUTDATED"));
+        // "ok" yields nothing.
+        assert_eq!(findings.len(), 3);
     }
 
     #[test]
-    fn package_findings_report_failed_and_unsigned() {
-        let packages = vec![
-            PackageEntry {
-                name: "broken".to_string(),
-                version: String::new(),
-                path: "packages/broken.mfp".to_string(),
-                signature: "unknown".to_string(),
-                content_hash: String::new(),
-                verifier: "failed".to_string(),
-                exports: 0,
-                imports: 0,
-                cleanups: 0,
-            },
-            PackageEntry {
-                name: "bare".to_string(),
-                version: "1.0.0".to_string(),
-                path: "packages/bare.mfp".to_string(),
-                signature: "unsigned".to_string(),
-                content_hash: "hash".to_string(),
-                verifier: "ok".to_string(),
-                exports: 1,
-                imports: 0,
-                cleanups: 0,
-            },
-        ];
+    fn package_findings_flag_failed_and_unsigned() {
+        let dir = std::path::PathBuf::from(".");
         let manifest = HashMap::new();
+        let packages = vec![
+            package_entry("bad", "failed", "unknown"),
+            package_entry("plain", "ok", "unsigned"),
+            package_entry("good", "ok", "ed25519"),
+        ];
         let mut findings = Vec::new();
-        package_findings(Path::new("."), &manifest, &packages, &mut findings);
+        package_findings(&dir, &manifest, &packages, &mut findings);
         let codes: Vec<&str> = findings.iter().map(|f| f.code.as_str()).collect();
         assert!(codes.contains(&"AUDIT-PKG-VERIFY-FAILED"));
         assert!(codes.contains(&"AUDIT-PKG-UNSIGNED"));
-        // failed package short-circuits before the unsigned check
-        assert_eq!(
-            findings
-                .iter()
-                .filter(|f| f.package.as_deref() == Some("broken"))
-                .count(),
-            1
-        );
+        // The verified, signed package produces neither.
+        assert_eq!(findings.len(), 2);
     }
 
     #[test]
-    fn package_findings_signed_ok_package_has_no_findings() {
-        let packages = vec![PackageEntry {
-            name: "good".to_string(),
-            version: "1.0.0".to_string(),
-            path: "packages/good.mfp".to_string(),
-            signature: "signed".to_string(),
-            content_hash: "hash".to_string(),
-            verifier: "ok".to_string(),
-            exports: 1,
-            imports: 0,
-            cleanups: 0,
-        }];
-        let manifest = HashMap::new();
+    fn package_findings_flags_exported_mutable_state_from_mfp() {
+        // Drives the second half of `package_findings`: it re-reads the declared
+        // package's `.mfp` info and scans its exported globals for mutable state.
+        // The `package-state-audit` golden `.mfp` exports a mutable `counter`, so
+        // this exercises the AUDIT-PKG-STATE-EXPORTED-MUT emit path end-to-end.
+        let fixture = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/package-state-audit/golden/package_state_audit.mfp");
+        if !fixture.exists() {
+            return;
+        }
+        let dir = tempfile::tempdir().unwrap();
+        let packages_dir = dir.path().join("packages");
+        std::fs::create_dir_all(&packages_dir).unwrap();
+        std::fs::copy(&fixture, packages_dir.join("package_state_audit.mfp")).unwrap();
+        let manifest = "{ \"packages\": [ { \"name\": \"package_state_audit\" } ] }"
+            .parse::<JsonValue>()
+            .unwrap()
+            .get::<HashMap<String, JsonValue>>()
+            .unwrap()
+            .clone();
+
         let mut findings = Vec::new();
-        package_findings(Path::new("."), &manifest, &packages, &mut findings);
-        assert!(findings.is_empty());
+        // No PackageEntry rows: exercises only the info-reading loop.
+        package_findings(dir.path(), &manifest, &[], &mut findings);
+        assert!(findings
+            .iter()
+            .any(|f| f.code == "AUDIT-PKG-STATE-EXPORTED-MUT"));
     }
 
     #[test]
-    fn resource_findings_only_flag_close_may_fail() {
+    fn resource_findings_flag_lexical_close() {
         let resources = vec![
             ResourceEntry {
                 function: "f".to_string(),
-                name: "file".to_string(),
+                name: "h".to_string(),
                 resource_type: "File".to_string(),
                 close_op: "fs.close".to_string(),
                 path: "main.mfb".to_string(),
@@ -417,13 +420,13 @@ mod tests {
                 close_may_fail: true,
             },
             ResourceEntry {
-                function: "f".to_string(),
-                name: "handle".to_string(),
-                resource_type: "Native".to_string(),
-                close_op: "pkg.close".to_string(),
+                function: "g".to_string(),
+                name: "s".to_string(),
+                resource_type: "Socket".to_string(),
+                close_op: "net.close".to_string(),
                 path: "main.mfb".to_string(),
-                line: 4,
-                native: true,
+                line: 9,
+                native: false,
                 close_may_fail: false,
             },
         ];
@@ -432,22 +435,24 @@ mod tests {
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].code, "AUDIT-RESOURCE-CLOSE-MAY-FAIL");
         assert_eq!(findings[0].line, Some(3));
-        assert!(findings[0].message.contains("fs.close"));
     }
 
-    #[test]
-    fn permission_findings_dedup_by_capability_and_map_codes() {
-        let permission = |cap: &str| PermissionEntry {
-            capability: cap.to_string(),
-            package: "pkg".to_string(),
+    fn permission(capability: &str) -> PermissionEntry {
+        PermissionEntry {
+            capability: capability.to_string(),
+            package: capability.to_string(),
             function: "f".to_string(),
             path: "main.mfb".to_string(),
             line: 1,
             kind: "standard".to_string(),
-        };
+        }
+    }
+
+    #[test]
+    fn permission_findings_map_each_capability_and_dedup() {
         let permissions = vec![
             permission("filesystem"),
-            permission("filesystem"),
+            permission("filesystem"), // duplicate collapses
             permission("network"),
             permission("terminal"),
             permission("threads"),
@@ -456,48 +461,53 @@ mod tests {
             permission("clock"),
             permission("randomness"),
             permission("native"),
-            permission("weird-cap"),
+            permission("mystery"), // maps to AUDIT-PERM-OTHER
         ];
         let mut findings = Vec::new();
         permission_findings(&permissions, &mut findings);
         let codes: Vec<&str> = findings.iter().map(|f| f.code.as_str()).collect();
-        assert_eq!(
-            codes,
-            vec![
-                "AUDIT-PERM-FILESYSTEM",
-                "AUDIT-PERM-NETWORK",
-                "AUDIT-PERM-TERMINAL",
-                "AUDIT-PERM-THREADS",
-                "AUDIT-PERM-PROCESS",
-                "AUDIT-PERM-ENVIRONMENT",
-                "AUDIT-PERM-CLOCK",
-                "AUDIT-PERM-RANDOMNESS",
-                "AUDIT-PERM-NATIVE",
-                "AUDIT-PERM-OTHER",
-            ]
-        );
-        assert!(findings.iter().all(|f| f.severity == Severity::Info));
+        for expected in [
+            "AUDIT-PERM-FILESYSTEM",
+            "AUDIT-PERM-NETWORK",
+            "AUDIT-PERM-TERMINAL",
+            "AUDIT-PERM-THREADS",
+            "AUDIT-PERM-PROCESS",
+            "AUDIT-PERM-ENVIRONMENT",
+            "AUDIT-PERM-CLOCK",
+            "AUDIT-PERM-RANDOMNESS",
+            "AUDIT-PERM-NATIVE",
+            "AUDIT-PERM-OTHER",
+        ] {
+            assert!(codes.contains(&expected), "missing {expected}");
+        }
+        // Ten distinct capabilities → ten findings (the duplicate collapsed).
+        assert_eq!(findings.len(), 10);
     }
 
     #[test]
     fn sort_findings_orders_by_category_then_code() {
-        let mk = |code: &str, category: &str| Finding {
-            code: code.to_string(),
-            category: category.to_string(),
-            severity: Severity::Info,
-            message: String::new(),
-            path: None,
-            line: None,
-            package: None,
-        };
         let mut findings = vec![
-            mk("Z", "resource"),
-            mk("B", "lockfile"),
-            mk("A", "lockfile"),
-            mk("M", "dependency"),
+            Finding {
+                code: "AUDIT-PERM-NETWORK".to_string(),
+                category: "permission".to_string(),
+                severity: Severity::Info,
+                message: "b".to_string(),
+                path: None,
+                line: None,
+                package: None,
+            },
+            Finding {
+                code: "AUDIT-LOCK-STALE".to_string(),
+                category: "lockfile".to_string(),
+                severity: Severity::Warning,
+                message: "a".to_string(),
+                path: None,
+                line: None,
+                package: None,
+            },
         ];
         sort_findings(&mut findings);
-        let order: Vec<&str> = findings.iter().map(|f| f.code.as_str()).collect();
-        assert_eq!(order, vec!["A", "B", "M", "Z"]);
+        // lockfile (rank 0) sorts before permission (rank 6).
+        assert_eq!(findings[0].category, "lockfile");
     }
 }

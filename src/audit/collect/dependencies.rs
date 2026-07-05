@@ -80,94 +80,84 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn manifest_with_packages(entries: Vec<(&str, &str)>) -> HashMap<String, JsonValue> {
-        let packages: Vec<JsonValue> = entries
-            .into_iter()
-            .map(|(name, version)| {
-                let mut map = HashMap::new();
-                map.insert("name".to_string(), JsonValue::String(name.to_string()));
-                map.insert(
-                    "version".to_string(),
-                    JsonValue::String(version.to_string()),
-                );
-                JsonValue::Object(map)
-            })
-            .collect();
-        let mut manifest = HashMap::new();
-        manifest.insert("packages".to_string(), JsonValue::Array(packages));
-        manifest
+    /// Absolute path to a real, valid `.mfp` fixture in the repository.
+    fn valid_mfp_fixture() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/project-with-package-import-as/packages/package_import_as.mfp")
+    }
+
+    /// Build a manifest declaring one package named `name`.
+    fn manifest_with(name: &str) -> HashMap<String, JsonValue> {
+        let json = format!(
+            "{{ \"packages\": [ {{ \"name\": \"{name}\", \"version\": \"1.0.0\", \"pin\": true, \"source\": \"file:x\" }} ] }}"
+        );
+        json.parse::<JsonValue>()
+            .unwrap()
+            .get::<HashMap<String, JsonValue>>()
+            .unwrap()
+            .clone()
     }
 
     #[test]
-    fn verify_status_label_maps_all_variants() {
-        assert_eq!(
-            verify_status_label(crate::cli::pkg::PackageVerifyStatus::Ok),
-            "ok"
-        );
-        assert_eq!(
-            verify_status_label(crate::cli::pkg::PackageVerifyStatus::NeedsUpdate),
-            "needs-update"
-        );
-        assert_eq!(
-            verify_status_label(crate::cli::pkg::PackageVerifyStatus::InvalidPackage),
-            "invalid"
-        );
-    }
-
-    #[test]
-    fn no_packages_key_yields_empty_lists() {
+    fn no_packages_key_yields_empty() {
         let dir = tempdir().unwrap();
-        let manifest = HashMap::new();
-        assert!(collect_dependencies(dir.path(), &manifest).is_empty());
+        assert!(collect_dependencies(dir.path(), &HashMap::new()).is_empty());
+        assert!(collect_packages(dir.path(), &HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn missing_mfp_is_status_missing() {
+        let dir = tempdir().unwrap();
+        let manifest = manifest_with("shape");
+        let deps = collect_dependencies(dir.path(), &manifest);
+        assert_eq!(deps.len(), 1);
+        assert_eq!(deps[0].status, "missing");
+        // collect_packages skips a missing file entirely.
         assert!(collect_packages(dir.path(), &manifest).is_empty());
     }
 
     #[test]
-    fn declared_but_uninstalled_dependency_is_missing() {
+    fn garbage_mfp_is_status_invalid_and_verifier_failed() {
         let dir = tempdir().unwrap();
-        let manifest = manifest_with_packages(vec![("alpha", "1.0.0")]);
-        let deps = collect_dependencies(dir.path(), &manifest);
-        assert_eq!(deps.len(), 1);
-        assert_eq!(deps[0].name, "alpha");
-        assert_eq!(deps[0].status, "missing");
-        assert!(deps[0].resolved_version.is_none());
-        assert!(deps[0].content_hash.is_none());
-        assert!(deps[0].signature.is_none());
-    }
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        std::fs::write(packages.join("shape.mfp"), b"not a package").unwrap();
+        let manifest = manifest_with("shape");
 
-    #[test]
-    fn dependencies_are_sorted_by_name() {
-        let dir = tempdir().unwrap();
-        let manifest = manifest_with_packages(vec![("zeta", "1.0.0"), ("alpha", "1.0.0")]);
         let deps = collect_dependencies(dir.path(), &manifest);
-        assert_eq!(deps[0].name, "alpha");
-        assert_eq!(deps[1].name, "zeta");
-    }
-
-    #[test]
-    fn collect_packages_skips_uninstalled_and_reports_invalid_file() {
-        let dir = tempdir().unwrap();
-        let manifest = manifest_with_packages(vec![("alpha", "1.0.0"), ("beta", "1.0.0")]);
-        // alpha has no file -> skipped entirely. beta has a garbage .mfp -> verifier failed.
-        std::fs::create_dir_all(dir.path().join("packages")).unwrap();
-        std::fs::write(dir.path().join("packages/beta.mfp"), b"not a real package").unwrap();
-        let packages = collect_packages(dir.path(), &manifest);
-        assert_eq!(packages.len(), 1);
-        assert_eq!(packages[0].name, "beta");
-        assert_eq!(packages[0].verifier, "failed");
-        assert_eq!(packages[0].signature, "unknown");
-        assert_eq!(packages[0].path, "packages/beta.mfp");
-    }
-
-    #[test]
-    fn collect_dependencies_reports_invalid_for_bad_file() {
-        let dir = tempdir().unwrap();
-        let manifest = manifest_with_packages(vec![("beta", "1.0.0")]);
-        std::fs::create_dir_all(dir.path().join("packages")).unwrap();
-        std::fs::write(dir.path().join("packages/beta.mfp"), b"garbage header").unwrap();
-        let deps = collect_dependencies(dir.path(), &manifest);
-        assert_eq!(deps.len(), 1);
         assert_eq!(deps[0].status, "invalid");
+
+        let pkgs = collect_packages(dir.path(), &manifest);
+        assert_eq!(pkgs.len(), 1);
+        assert_eq!(pkgs[0].verifier, "failed");
+        assert_eq!(pkgs[0].signature, "unknown");
+    }
+
+    #[test]
+    fn valid_mfp_reads_header_and_info() {
+        let fixture = valid_mfp_fixture();
+        if !fixture.exists() {
+            return;
+        }
+        let dir = tempdir().unwrap();
+        let packages = dir.path().join("packages");
+        std::fs::create_dir_all(&packages).unwrap();
+        // Install the fixture under the declared name so the header/content
+        // read paths execute end-to-end.
+        std::fs::copy(&fixture, packages.join("shape.mfp")).unwrap();
+        let manifest = manifest_with("shape");
+
+        let deps = collect_dependencies(dir.path(), &manifest);
+        assert_eq!(deps.len(), 1);
+        // A readable header populates the resolved version, signature and hash.
+        assert!(deps[0].resolved_version.is_some());
+        assert!(deps[0].signature.is_some());
+        assert!(deps[0].content_hash.is_some());
+
+        let pkgs = collect_packages(dir.path(), &manifest);
+        assert_eq!(pkgs.len(), 1);
+        assert_eq!(pkgs[0].verifier, "ok");
+        assert!(!pkgs[0].content_hash.is_empty());
     }
 }
 

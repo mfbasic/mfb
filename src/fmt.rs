@@ -722,7 +722,8 @@ mod tests {
 
     #[test]
     fn doc_example_source_is_anchored_keeping_relative_indent() {
-        let input = "DOC\nFUNC f\nEXAMPLE\nLET x = 1\nIF x THEN\nwork()\nEND IF\nEND EXAMPLE\nEND DOC\n";
+        let input =
+            "DOC\nFUNC f\nEXAMPLE\nLET x = 1\nIF x THEN\nwork()\nEND IF\nEND EXAMPLE\nEND DOC\n";
         let expected = "DOC\n  FUNC f\n  EXAMPLE\n    LET x = 1\n    IF x THEN\n    work()\n    END IF\n  END EXAMPLE\nEND DOC\n";
         assert_eq!(fmt(input), expected);
     }
@@ -841,5 +842,106 @@ mod tests {
     #[test]
     fn empty_source_stays_empty() {
         assert_eq!(format_source("", 2), "");
+    }
+
+    #[test]
+    fn blank_line_inside_block_is_emitted_empty() {
+        // A whitespace-only physical line inside a block re-emits as empty (not
+        // indented), exercising the empty-first-cased-line branch.
+        let input = "FUNC f()\n   \n  x\nEND FUNC\n";
+        let expected = "FUNC f()\n\n  x\nEND FUNC\n";
+        assert_eq!(fmt(input), expected);
+    }
+
+    #[test]
+    fn missing_trailing_newline_is_added() {
+        // Input without a final newline still ends in one.
+        assert_eq!(fmt("LET x = 1"), "LET x = 1\n");
+    }
+
+    #[test]
+    fn escaped_characters_in_strings_are_preserved() {
+        // Both an escaped quote and a trailing backslash-escape are copied verbatim.
+        let input = "LET s = \"a\\\"b\\\\\"\n";
+        assert_eq!(fmt(input), input);
+    }
+
+    #[test]
+    fn float_literals_are_preserved() {
+        let input = "LET x = 3.14\n";
+        assert_eq!(fmt(input), input);
+    }
+
+    #[test]
+    fn rem_comment_at_statement_start_is_verbatim() {
+        let input = "REM this IF is not a keyword\n";
+        assert_eq!(fmt(input), input);
+    }
+
+    #[test]
+    fn walrus_assignment_operator_is_preserved() {
+        let input = "LET m AS Bag = WITH b { n := b.n + 1 }\n";
+        assert_eq!(fmt(input), input);
+    }
+
+    #[test]
+    fn union_and_enum_open_blocks() {
+        let input = "UNION Shape\nCircle\nEND UNION\nENUM Color\nRed\nEND ENUM\n";
+        let expected = "UNION Shape\n  Circle\nEND UNION\nENUM Color\n  Red\nEND ENUM\n";
+        assert_eq!(fmt(input), expected);
+    }
+
+    #[test]
+    fn sub_declaration_opens_a_block() {
+        let input = "SUB greet()\nio::print(\"hi\")\nEND SUB\n";
+        let expected = "SUB greet()\n  io::print(\"hi\")\nEND SUB\n";
+        assert_eq!(fmt(input), expected);
+    }
+
+    #[test]
+    fn doc_header_keeps_attribute_words() {
+        // `is_doc_start` accepts alphabetic attribute words; `doc_header` keeps them.
+        let input = "DOC INTERNAL\nsome text\nEND DOC\n";
+        let expected = "DOC INTERNAL\n  some text\nEND DOC\n";
+        assert_eq!(fmt(input), expected);
+    }
+
+    #[test]
+    fn doc_block_preserves_blank_lines() {
+        let input = "DOC\nfirst\n\nsecond\nEND DOC\n";
+        let expected = "DOC\n  first\n\n  second\nEND DOC\n";
+        assert_eq!(fmt(input), expected);
+    }
+
+    #[test]
+    fn unterminated_doc_example_is_flushed() {
+        // No END EXAMPLE / END DOC: the pending example source is still emitted,
+        // and its blank line is preserved.
+        let input = "DOC\nEXAMPLE\nLET x = 1\n\nLET y = 2\n";
+        let out = fmt(input);
+        assert!(out.contains("EXAMPLE"));
+        assert!(out.contains("LET x = 1"));
+        assert!(out.contains("LET y = 2"));
+    }
+
+    #[test]
+    fn link_block_preserves_blank_lines() {
+        let input = concat!(
+            "LINK \"lib\" AS link\n",
+            "FUNC f() AS Integer\n",
+            "\n",
+            "SYMBOL \"sym\"\n",
+            "END FUNC\n",
+            "END LINK\n",
+        );
+        let expected = concat!(
+            "LINK \"lib\" AS link\n",
+            "  FUNC f() AS Integer\n",
+            "\n",
+            "    SYMBOL \"sym\"\n",
+            "  END FUNC\n",
+            "END LINK\n",
+        );
+        assert_eq!(fmt(input), expected);
     }
 }

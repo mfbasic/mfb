@@ -221,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    fn run_on_manifest_without_name_returns_three() {
+    fn run_on_manifest_without_required_fields_returns_three() {
         let dir = tempfile::tempdir().unwrap();
         // A syntactically valid manifest that omits required fields fails
         // validation and yields exit code 3.
@@ -235,27 +235,50 @@ mod tests {
     }
 
     #[test]
+    fn run_on_unparseable_source_returns_three() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(
+            dir.path().join("project.json"),
+            concat!(
+                "{\n",
+                "  \"name\": \"app\",\n",
+                "  \"version\": \"0.1.0\",\n",
+                "  \"mfb\": \"1.0\",\n",
+                "  \"kind\": \"executable\",\n",
+                "  \"sources\": [{ \"root\": \"src\", \"role\": \"main\", \"include\": [\"**/*.mfb\"] }],\n",
+                "  \"entry\": \"main\"\n",
+                "}\n"
+            ),
+        )
+        .unwrap();
+        // Unparseable source fails the front-end and yields exit code 3.
+        std::fs::write(src.join("main.mfb"), "FUNC main( AS\n").unwrap();
+        let options = AuditOptions {
+            location: dir.path().to_path_buf(),
+            format: AuditFormat::Text,
+            locked: false,
+        };
+        assert_eq!(run(&options), 3);
+    }
+
+    #[test]
     fn run_on_valid_project_emits_report_and_returns_zero() {
         // Copy a package-free single-file fixture project into a temp dir and
-        // audit it end-to-end (text + json).
-        let src_root = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/func_math_clamp_valid");
-        if !std::path::Path::new(src_root).exists() {
-            // Fixture not present in this checkout; skip.
+        // audit it end-to-end in both formats.
+        let src_root = std::path::Path::new(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/func_math_clamp_valid"
+        ));
+        if !src_root.exists() {
             return;
         }
         let dir = tempfile::tempdir().unwrap();
         let dest = dir.path();
         std::fs::create_dir_all(dest.join("src")).unwrap();
-        std::fs::copy(
-            std::path::Path::new(src_root).join("project.json"),
-            dest.join("project.json"),
-        )
-        .unwrap();
-        std::fs::copy(
-            std::path::Path::new(src_root).join("src/main.mfb"),
-            dest.join("src/main.mfb"),
-        )
-        .unwrap();
+        std::fs::copy(src_root.join("project.json"), dest.join("project.json")).unwrap();
+        std::fs::copy(src_root.join("src/main.mfb"), dest.join("src/main.mfb")).unwrap();
 
         let text_options = AuditOptions {
             location: dest.to_path_buf(),

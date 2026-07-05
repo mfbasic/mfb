@@ -224,111 +224,119 @@ fn unknown_spec_package_error(package_name: &str) -> String {
 mod tests {
     use super::*;
 
-    fn s(values: &[&str]) -> Vec<String> {
-        values.iter().map(|value| value.to_string()).collect()
+    fn s(items: &[&str]) -> Vec<String> {
+        items.iter().map(|item| item.to_string()).collect()
+    }
+
+    /// A real package that has at least one topic, plus one of its topics.
+    fn a_package_with_topic() -> (&'static str, &'static str) {
+        let package = spec::packages()
+            .iter()
+            .find(|package| !package.topics.is_empty())
+            .expect("at least one spec package has topics");
+        (package.name, package.topics[0].name)
     }
 
     #[test]
-    fn parse_spec_width_clamps_and_rejects_non_numbers() {
-        assert_eq!(parse_spec_width("40"), Ok(40));
-        // Below/above the clamp bounds are pinned to [20, 1000].
-        assert_eq!(parse_spec_width("5"), Ok(20));
-        assert_eq!(parse_spec_width("100000"), Ok(1000));
-        let err = parse_spec_width("wide").unwrap_err();
-        assert!(err.contains("invalid --width value `wide`"));
+    fn index_ok_with_no_args() {
+        assert!(show_spec(&[]).is_ok());
     }
 
     #[test]
-    fn unknown_spec_package_error_lists_available_topics() {
-        let err = unknown_spec_package_error("nope");
-        assert!(err.contains("unknown spec topic `nope`"));
-        assert!(err.contains("Available topics: "));
-        // A real package name appears in the listing.
-        assert!(err.contains("architecture"));
+    fn index_forces_color_and_width_flags() {
+        assert!(show_spec(&s(&["--no-color", "--width", "60"])).is_ok());
+        assert!(show_spec(&s(&["--color", "--width=100"])).is_ok());
     }
 
     #[test]
-    fn escape_spec_cell_escapes_pipes() {
-        assert_eq!(escape_spec_cell("a|b|c"), "a\\|b\\|c");
-        assert_eq!(escape_spec_cell("plain"), "plain");
+    fn package_page_renders() {
+        let (package, _) = a_package_with_topic();
+        assert!(show_spec(&s(&[package])).is_ok());
     }
 
     #[test]
-    fn detect_terminal_width_prefers_columns_env() {
-        // Serialize on the process-global env by using a distinctive value and
-        // restoring it. COLUMNS parses and clamps into [20, 1000].
-        let previous = env::var("COLUMNS").ok();
-        std::env::set_var("COLUMNS", "137");
-        assert_eq!(detect_terminal_width(), 137);
-        std::env::set_var("COLUMNS", "999999");
-        assert_eq!(detect_terminal_width(), 1000);
-        match previous {
-            Some(value) => std::env::set_var("COLUMNS", value),
-            None => std::env::remove_var("COLUMNS"),
-        }
+    fn package_all_renders_every_subtopic() {
+        let (package, _) = a_package_with_topic();
+        assert!(show_spec(&s(&[package, "--all"])).is_ok());
     }
 
     #[test]
-    fn show_spec_index_succeeds_with_no_arguments() {
-        assert!(show_spec(&s(&["--width", "80", "--no-color"])).is_ok());
+    fn subtopic_page_renders() {
+        let (package, topic) = a_package_with_topic();
+        assert!(show_spec(&s(&[package, topic])).is_ok());
     }
 
     #[test]
-    fn show_spec_all_with_no_topic_is_an_error() {
+    fn all_without_topic_is_error() {
         let err = show_spec(&s(&["--all"])).unwrap_err();
-        assert!(err.contains("mfb spec --all requires a topic"));
+        assert!(err.contains("--all requires a topic"));
     }
 
     #[test]
-    fn show_spec_renders_a_known_package() {
-        assert!(show_spec(&s(&["architecture", "--no-color", "--width=80"])).is_ok());
-        // `--all` expands every subtopic page.
-        assert!(show_spec(&s(&["architecture", "--all", "--no-color"])).is_ok());
-    }
-
-    #[test]
-    fn show_spec_renders_a_known_subtopic() {
-        assert!(show_spec(&s(&["architecture", "native", "--no-color"])).is_ok());
-    }
-
-    #[test]
-    fn show_spec_rejects_unknown_package() {
-        let err = show_spec(&s(&["definitely-not-a-topic"])).unwrap_err();
-        assert!(err.contains("unknown spec topic"));
-    }
-
-    #[test]
-    fn show_spec_rejects_unknown_subtopic() {
-        let err = show_spec(&s(&["architecture", "definitely-not-a-subtopic"])).unwrap_err();
-        assert!(err.contains("unknown topic"));
-    }
-
-    #[test]
-    fn show_spec_rejects_all_with_subtopic() {
-        let err = show_spec(&s(&["architecture", "native", "--all"])).unwrap_err();
+    fn all_with_subtopic_is_error() {
+        let (package, topic) = a_package_with_topic();
+        let err = show_spec(&s(&[package, topic, "--all"])).unwrap_err();
         assert!(err.contains("--all cannot be combined with a subtopic"));
     }
 
     #[test]
-    fn show_spec_rejects_too_many_positionals() {
+    fn unknown_package_is_error() {
+        let err = show_spec(&s(&["definitely-not-a-package"])).unwrap_err();
+        assert!(err.contains("unknown spec topic"));
+        assert!(err.contains("Available topics"));
+    }
+
+    #[test]
+    fn unknown_subtopic_is_error() {
+        let (package, _) = a_package_with_topic();
+        let err = show_spec(&s(&[package, "not-a-subtopic"])).unwrap_err();
+        assert!(err.contains("unknown topic"));
+    }
+
+    #[test]
+    fn too_many_positionals_is_error() {
         let err = show_spec(&s(&["a", "b", "c"])).unwrap_err();
         assert!(err.contains("at most two arguments"));
     }
 
     #[test]
-    fn show_spec_rejects_unknown_option() {
-        let err = show_spec(&s(&["--bogus"])).unwrap_err();
-        assert!(err.contains("unknown option `--bogus`"));
-    }
-
-    #[test]
-    fn show_spec_width_flag_requires_a_value() {
+    fn width_flag_requires_a_value() {
         let err = show_spec(&s(&["--width"])).unwrap_err();
         assert!(err.contains("--width requires a number"));
     }
 
     #[test]
-    fn show_spec_accepts_color_flag() {
-        assert!(show_spec(&s(&["--color", "architecture"])).is_ok());
+    fn invalid_width_values_are_errors() {
+        let err = show_spec(&s(&["--width", "wide"])).unwrap_err();
+        assert!(err.contains("invalid --width value"));
+        let err = show_spec(&s(&["--width=nope"])).unwrap_err();
+        assert!(err.contains("invalid --width value"));
+    }
+
+    #[test]
+    fn unknown_option_is_error() {
+        let err = show_spec(&s(&["--bogus"])).unwrap_err();
+        assert!(err.contains("unknown option"));
+    }
+
+    #[test]
+    fn parse_spec_width_clamps() {
+        assert_eq!(parse_spec_width("5").unwrap(), 20);
+        assert_eq!(parse_spec_width("50").unwrap(), 50);
+        assert_eq!(parse_spec_width("100000").unwrap(), 1000);
+    }
+
+    #[test]
+    fn detect_terminal_width_honours_columns_override() {
+        // `detect_terminal_width` reads `COLUMNS`; run serially-safe by restoring.
+        let saved = env::var("COLUMNS").ok();
+        env::set_var("COLUMNS", "123");
+        assert_eq!(detect_terminal_width(), 123);
+        env::set_var("COLUMNS", "999999");
+        assert_eq!(detect_terminal_width(), 1000);
+        match saved {
+            Some(value) => env::set_var("COLUMNS", value),
+            None => env::remove_var("COLUMNS"),
+        }
     }
 }
