@@ -8,7 +8,7 @@ GLib / GIO / Cairo call is an ordinary imported C function reached by `bl
 <symbol>` against the imports declared in `app_mode_imports` — there is no
 `objc_msgSend`-style message layer. The container itself (glibc-only ELF, library
 names) is the linker's concern (`./mfb spec linker static-and-dynamic-output`).
-[[src/target/linux_aarch64/gtk/mod.rs:emit_app_program_entry]]
+[[src/target/linux_gtk/mod.rs:emit_app_program_entry]]
 [[src/target/linux_aarch64/plan.rs:app_mode_imports]]
 
 > **SCAFFOLD STATUS — not on-device verified.** This backend mirrors the macOS
@@ -19,14 +19,14 @@ names) is the linker's concern (`./mfb spec linker static-and-dynamic-output`).
 > observable contract of the scaffold *as it stands*, not the eventual target
 > behavior. This status is itself part of the contract: callers must not assume
 > parity with the macOS runtime.
-> [[src/target/linux_aarch64/gtk/mod.rs:emit_app_program_entry]]
+> [[src/target/linux_gtk/mod.rs:emit_app_program_entry]]
 
 ## Emitted functions
 
 `emit_app_program_entry` returns the bootstrap/UI/worker/term set. The standard
 program entry runs separately on the worker thread under
 `code::MACAPP_PROGRAM_SYMBOL`.
-[[src/target/linux_aarch64/gtk/mod.rs:emit_app_program_entry]]
+[[src/target/linux_gtk/mod.rs:emit_app_program_entry]]
 
 | Symbol | Role |
 | --- | --- |
@@ -41,8 +41,8 @@ program entry runs separately on the worker thread under
 | `_mfb_gtkapp_append_idle` | `g_idle_add` callback draining a marshaled chunk |
 | `_mfb_gtkapp_term_*` | term:: grid draw / write / scroll / init / idle swaps |
 
-[[src/target/linux_aarch64/gtk/mod.rs:FINISH_SYMBOL]]
-[[src/target/linux_aarch64/gtk/mod.rs:MAIN_SYMBOL]]
+[[src/target/linux_gtk/mod.rs:FINISH_SYMBOL]]
+[[src/target/linux_gtk/mod.rs:MAIN_SYMBOL]]
 
 ## `_main` → `__libc_start_main` bootstrap
 
@@ -53,7 +53,7 @@ objects (no `crt1.o`), so `_main` hands off to `__libc_start_main`, passing
 `init`/`fini`/`rtld_fini`. `__libc_start_main` runs the C runtime init — including
 every loaded shared library's `DT_INIT_ARRAY` constructors, which boot the
 GLib/GObject type system GTK requires — then calls `main`. It never returns
-(`branch_self` guards the tail). [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_libc_start_trampoline]]
+(`branch_self` guards the tail). [[src/target/linux_gtk/bootstrap.rs:emit_libc_start_trampoline]]
 
 `_mfb_gtkapp_main` then:
 
@@ -67,13 +67,13 @@ GLib/GObject type system GTK requires — then calls `main`. It never returns
    platform-data is valid UTF-8. The loop owns the process until the window closes.
 5. returns 0 → `__libc_start_main` calls `exit(0)`.
 
-[[src/target/linux_aarch64/gtk/bootstrap.rs:emit_main_bootstrap]]
+[[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
 
 ## `activate`: window, widgets, pipe, worker
 
 `on_activate(GtkApplication *app, gpointer)` constructs the UI and spawns the
 worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
-[[src/target/linux_aarch64/gtk/bootstrap.rs:emit_activate_handler]]
+[[src/target/linux_gtk/bootstrap.rs:emit_activate_handler]]
 
 - `gtk_application_window_new(app)` → `ST_WINDOW`; title `"MFBASIC App"`; default
   size 900×640.
@@ -103,7 +103,7 @@ worker (frame 32: `lr@0`, `pthread_t@8`, pipe fds@16, controller@24):
 `spec.language_entry_accepts_args`, it passes `argc=0/argv=NULL` — argv plumbing
 is a `TODO(plan-05)` scaffold gap. The program normally ends via `FINISH_SYMBOL`,
 so the function tail (`return NULL`) is only reached defensively.
-[[src/target/linux_aarch64/gtk/bootstrap.rs:emit_worker_shim]]
+[[src/target/linux_gtk/bootstrap.rs:emit_worker_shim]]
 
 ## `_mfb_gtkapp_state` writable global
 
@@ -112,13 +112,13 @@ the input-mode/line buffer, and the entire term:: grid backing store, so every
 helper reaches them without register preservation. The data object is emitted
 zero-initialized with `align: 8`, layout label
 `mfb.runtime.gtkapp_state.v1 { u64 handles[7]; u64 mode; u64 lineLen; u8 lineBuf[] }`,
-`size = STATE_SIZE`. [[src/target/linux_aarch64/gtk/mod.rs:STATE_SYMBOL]]
-[[src/target/linux_aarch64/gtk/mod.rs:app_mode_data_objects]]
+`size = STATE_SIZE`. [[src/target/linux_gtk/mod.rs:STATE_SYMBOL]]
+[[src/target/linux_gtk/mod.rs:app_mode_data_objects]]
 
 `Asm::state_array`/`load_state`/`store_state` materialize a field address (adrp/add
 of `STATE_SYMBOL` + offset; offsets ≥ 4096 add via `x9`) — `x9` is the address
 scratch, a recurring "load cellH/cur_fg before forming a value in x9" hazard noted
-throughout the term code. [[src/target/linux_aarch64/gtk/mod.rs:state_array]]
+throughout the term code. [[src/target/linux_gtk/mod.rs:state_array]]
 
 ### Header + input fields
 
@@ -135,8 +135,8 @@ throughout the term code. [[src/target/linux_aarch64/gtk/mod.rs:state_array]]
 | 64 | `ST_LINE_LEN` | pending uncommitted line length |
 | 72 | `ST_LINE_BUF` | pending input bytes, `LINE_BUF_CAP = 1024` |
 
-[[src/target/linux_aarch64/gtk/mod.rs:ST_APPLICATION]]
-[[src/target/linux_aarch64/gtk/mod.rs:LINE_BUF_CAP]]
+[[src/target/linux_gtk/mod.rs:ST_APPLICATION]]
+[[src/target/linux_gtk/mod.rs:LINE_BUF_CAP]]
 
 ### term:: surface state and grid
 
@@ -144,8 +144,8 @@ The term:: section starts at `ST_TERM_AREA = ST_LINE_BUF + LINE_BUF_CAP = 1096`.
 Cursor/cell/geometry fields are 8-byte slots; the three parallel per-cell grids
 use a fixed `TERM_MAX_COLS = 160` stride and `TERM_MAX_ROWS = 48` rows (storage is
 static — active `cols`×`rows` are derived from window size + cell metrics and never
-exceed the bounds). [[src/target/linux_aarch64/gtk/mod.rs:ST_TERM_AREA]]
-[[src/target/linux_aarch64/gtk/mod.rs:TERM_MAX_COLS]]
+exceed the bounds). [[src/target/linux_gtk/mod.rs:ST_TERM_AREA]]
+[[src/target/linux_gtk/mod.rs:TERM_MAX_COLS]]
 
 | Offset | Symbol | Field |
 | --- | --- | --- |
@@ -167,8 +167,8 @@ exceed the bounds). [[src/target/linux_aarch64/gtk/mod.rs:ST_TERM_AREA]]
 | 39600 | `ST_TERM_BG` | bg grid, `u32[160*48]` = 30720 B |
 | 70320 | `STATE_SIZE` | total |
 
-[[src/target/linux_aarch64/gtk/mod.rs:ST_TERM_CHARS]]
-[[src/target/linux_aarch64/gtk/mod.rs:STATE_SIZE]]
+[[src/target/linux_gtk/mod.rs:ST_TERM_CHARS]]
+[[src/target/linux_gtk/mod.rs:STATE_SIZE]]
 
 ```text
 _mfb_gtkapp_state layout (70320 bytes, align 8)
@@ -189,7 +189,7 @@ convention so the arena getters agree). `COLOR_SET = 1<<24` marks an explicit
 color (so 0 means "use default" and explicit black stays distinct). `BOLD_FLAG =
 1<<25` and `UNDERLINE_FLAG = 1<<26` ride in the fg word.
 `TERM_DEFAULT_FG = "16777215"` (0xFFFFFF white). Font is `"monospace"` at
-`TERM_FONT_SIZE = "16"`. [[src/target/linux_aarch64/gtk/mod.rs:COLOR_SET]]
+`TERM_FONT_SIZE = "16"`. [[src/target/linux_gtk/mod.rs:COLOR_SET]]
 
 ### Input modes / special keys
 
@@ -201,8 +201,8 @@ into `ST_LINE_BUF`; Enter commits `line + '\n'`; Backspace drops the last byte,
 byte-granular ASCII-correct only per `TODO(plan-05)`; printable keys append and
 echo in LINE_ECHO). Special keyvals: `GDK_KEY_BACKSPACE = 65288`,
 `GDK_KEY_RETURN = 65293`, `GDK_KEY_KP_ENTER = 65421`. Returns TRUE for consumed
-keys, FALSE otherwise. [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_key_pressed_handler]]
-[[src/target/linux_aarch64/gtk/mod.rs:MODE_RAW]]
+keys, FALSE otherwise. [[src/target/linux_gtk/bootstrap.rs:emit_key_pressed_handler]]
+[[src/target/linux_gtk/mod.rs:MODE_RAW]]
 
 ## term:: drawing surface (GtkDrawingArea + Cairo)
 
@@ -210,24 +210,24 @@ keys, FALSE otherwise. [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_key_pres
 thread): paints black, then for each non-space cell draws an optional background
 rect, then the glyph in its fg color and weight, then an optional 2px underline;
 finally a 2px white cursor caret at `(ST_TERM_ROW, ST_TERM_COL)` when
-`ST_TERM_CURSOR_VISIBLE`. [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_draw_helper]]
+`ST_TERM_CURSOR_VISIBLE`. [[src/target/linux_gtk/term_draw.rs:emit_term_draw_helper]]
 
 - `_mfb_gtkapp_term_init` (main thread, at activate) measures the monospace cell
   from Cairo `font_extents.height` (cell H) and `text_extents("M").x_advance`
   (cell W) via a throwaway image surface, then `cols = clamp(900/cellW, 1, 160)`,
   `rows = clamp(640/cellH, 1, 48)` (`TERM_AREA_W=900`, `TERM_AREA_H=640`), and
-  blanks the char grid to spaces. [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_init_helper]]
+  blanks the char grid to spaces. [[src/target/linux_gtk/term_draw.rs:emit_term_init_helper]]
 - `_mfb_gtkapp_term_write(string, newline)` is the worker-side grid writer the io
   helpers call when term:: is active: pure grid mutation (safe off the main
   thread), advancing the cursor, wrapping at `cols`, scrolling via
   `_mfb_gtkapp_term_scroll` at the bottom, then `g_idle_add(redraw_idle)`.
-  [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_write_helper]]
+  [[src/target/linux_gtk/term_draw.rs:emit_term_write_helper]]
 - `_mfb_gtkapp_term_scroll` shifts each grid up one row (memmove) and blanks the
-  last (memset). [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_scroll_helper]]
+  last (memset). [[src/target/linux_gtk/term_draw.rs:emit_term_scroll_helper]]
 - The `term_show_idle` / `term_hide_idle` / `term_redraw_idle` callbacks (each
   `G_SOURCE_REMOVE`) swap the window child to the drawing area / back to the
   scrolled transcript / queue a redraw — all on the main loop.
-  [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_show_idle_helper]]
+  [[src/target/linux_gtk/term_draw.rs:emit_term_show_idle_helper]]
 
 `emit_app_term_helper` dispatches the `term::*` calls. `term::on`/`off` reset
 attributes and toggle `ST_TERM_ACTIVE` plus the arena term-state
@@ -236,18 +236,18 @@ the child swap; `setForeground`/`setBackground` write the arena (no flags) and t
 app current-color field (with `COLOR_SET`); `setBold`/`setUnderline` mirror the
 flag both places; `moveTo` clamps to the grid; `clear` blanks the backing store
 and homes the cursor. The pinned arena base is `ARENA_REG = "x19"` (term helpers
-run on the worker thread). [[src/target/linux_aarch64/gtk/app_io.rs:emit_app_term_helper]]
-[[src/target/linux_aarch64/gtk/mod.rs:ARENA_REG]]
+run on the worker thread). [[src/target/linux_gtk/app_io.rs:emit_app_term_helper]]
+[[src/target/linux_gtk/mod.rs:ARENA_REG]]
 
 > `term::terminalSize` **is** implemented here (`OK({columns@0, rows@8})` from the
 > derived grid size), unlike the `io::terminalSize` divergence below.
-> [[src/target/linux_aarch64/gtk/app_io.rs:emit_app_term_terminal_size]]
+> [[src/target/linux_gtk/app_io.rs:emit_app_term_terminal_size]]
 
 ## io:: redirection
 
 `emit_app_io_write_helper` (print/write/printError/writeError) takes the MFB
 string in `x0` (`[x0]`=len, `x0+8`=UTF-8 bytes). Three paths, in order:
-[[src/target/linux_aarch64/gtk/app_io.rs:emit_app_io_write_helper]]
+[[src/target/linux_gtk/app_io.rs:emit_app_io_write_helper]]
 
 1. `ST_TERM_ACTIVE` set → `_mfb_gtkapp_term_write` (grid render); return OK.
 2. else `ST_TEXT_BUFFER` non-nil → transcript path: copy the bytes (plus a
@@ -263,14 +263,14 @@ write helper, then reads a committed line via `_mfb_rt_io_io_readLine` (which re
 fd 0). `emit_app_io_flush_helper` returns OK immediately (SCAFFOLD: no marshaled
 drain yet). The three `is*Terminal` helpers return `OK(TRUE)`.
 `emit_set_raw_input_mode` (inlined into readChar/readByte) sets `MODE_RAW`.
-[[src/target/linux_aarch64/gtk/app_io.rs:emit_app_io_input_helper]]
-[[src/target/linux_aarch64/gtk/app_io.rs:emit_set_raw_input_mode]]
+[[src/target/linux_gtk/app_io.rs:emit_app_io_input_helper]]
+[[src/target/linux_gtk/app_io.rs:emit_set_raw_input_mode]]
 
 ## Documented divergences from macOS
 
 These are explicit, in-source scaffold simplifications — observable behavior that
 differs from the macOS app runtime:
-[[src/target/linux_aarch64/gtk/app_io.rs:emit_app_io_write_helper]]
+[[src/target/linux_gtk/app_io.rs:emit_app_io_write_helper]]
 
 - **No main-thread marshal in fact** for the transcript-active scaffold path: the
   module doc records that the `g_idle_add`/condvar marshal §6.4 requires "is not
@@ -284,14 +284,14 @@ differs from the macOS app runtime:
   no transcript attached it `_exit(code)`s, and the GUI path parks the worker in
   `pause()` (it must not `_exit` in GUI mode or the window dies). The module doc
   flags the eventual "keep window open" path (§6.7) as not yet realized.
-  [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_finish_helper]]
+  [[src/target/linux_gtk/bootstrap.rs:emit_finish_helper]]
 - **`io::printError` styling.** stderr runs *are* prefixed with `"[stderr] "`
   (`STR_STDERR_PREFIX`) in the transcript chunk, but the module doc notes the
   intended distinct `GtkTextTag` styling is not yet applied.
 - **`io::terminalSize` absent / no interactive resize** (Phase 6 `TODO(plan-05)`),
   even though `term::terminalSize` is implemented.
 
-[[src/target/linux_aarch64/gtk/mod.rs:STR_STDERR_PREFIX]]
+[[src/target/linux_gtk/mod.rs:STR_STDERR_PREFIX]]
 
 ## Libraries
 
@@ -299,7 +299,7 @@ App mode is glibc-only. `lib_for` maps each import to its shared object:
 `libgtk-4.so.1` (gtk_* and GDK), `libgobject-2.0.so.0`, `libglib-2.0.so.0`,
 `libgio-2.0.so.0`, `libc.so.6`, `libpthread.so.0`, `libcairo.so.2`. The relocation
 library field is cosmetic (the linker binds by symbol name) but kept accurate for
-artifact debugging. [[src/target/linux_aarch64/gtk/mod.rs:lib_for]]
+artifact debugging. [[src/target/linux_gtk/mod.rs:lib_for]]
 
 ## See Also
 

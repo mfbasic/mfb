@@ -98,11 +98,12 @@ The host is parsed two ways depending on a leading `[`: [[src/builtins/net_packa
 
 ### Explicit port validation (`__net_parsePort`)
 
-Explicit port text is validated as ASCII digits only, accumulated into an
-`Integer` and bounds-checked: empty text, any non-digit grapheme, or a value
-exceeding 65535 each fail. Digit value is resolved by an explicit `0`–`9`
-cascade in `__net_digitValue`; there is no leading-zero or upper-bound-on-zero
-special handling beyond `<= 65535`. [[src/builtins/net_package.mfb:__net_parsePort]] [[src/builtins/net_package.mfb:__net_digitValue]]
+Explicit port text is validated and bounds-checked: empty text, a leading `+`
+or `-`, any non-digit content, or a value exceeding 65535 each fail. A leading
+sign is rejected up front (ports are unsigned; `toInt`'s signed parse would
+otherwise accept one), then the digits are parsed with `toInt(text, 10)` under
+an inline `TRAP` — a parse failure re-raises as an invalid-port error. There is
+no leading-zero or upper-bound-on-zero special handling beyond `<= 65535`. [[src/builtins/net_package.mfb:__net_parsePort]]
 
 ### Parse failures
 

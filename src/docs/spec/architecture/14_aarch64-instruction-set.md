@@ -261,7 +261,7 @@ umulh x14, x11, x9       ; dst=14, lhs(Rn)=11, rhs(Rm)=9
 ```
 
 This exact word (`0x9BC97D6E`) is the value the encoder's unit test asserts.
-[[src/arch/aarch64/encode/tests.rs:encodes_umulh_adc_and_rorv]]
+[[src/arch/aarch64/encode/tests.rs:encodes_umulh_add_carry_and_rorv]]
 
 ## Multi-word lowerings
 

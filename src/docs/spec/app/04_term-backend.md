@@ -235,13 +235,13 @@ The Linux backend is the analog of the macOS `TermView` but structurally
 different. The drawing area is created up front, held off-window by a ref, and
 swapped in as the window child on `term::on`. The Linux runtime carries
 documented SCAFFOLD-status gaps (e.g. cursor rendering §6.7 and `io::terminalSize`
-/ interactive resize, Phase 6, absent). [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_main_bootstrap]]
+/ interactive resize, Phase 6, absent). [[src/target/linux_gtk/bootstrap.rs:emit_main_bootstrap]]
 
 ### Grid storage — one `_mfb_gtkapp_state` global, parallel static arrays
 
 Unlike macOS's per-view `calloc`'d `TermCell[]`, Linux stores the grid inline in
 the single process-wide `_mfb_gtkapp_state` struct as **three parallel arrays**
-with a fixed stride, so storage is static (no per-resize realloc). [[src/target/linux_aarch64/gtk/mod.rs:ST_TERM_CHARS]]
+with a fixed stride, so storage is static (no per-resize realloc). [[src/target/linux_gtk/mod.rs:ST_TERM_CHARS]]
 
 | Field (relative offsets, after the io/input state) | Meaning |
 |------|---------|
@@ -269,7 +269,7 @@ bits = packed RGB (`r|g<<8|b<<16`, the console convention so the arena getters
 agree); **bit 24 = COLOR_SET** (explicit colour, so 0 means "use default" and
 black is still distinguishable); **bit 25 (fg) = bold**; **bit 26 (fg) =
 underline**. macOS instead carries bold/underline as dedicated `TermCell` bytes
-and treats `bg == 0` as "no background fill". [[src/target/linux_aarch64/gtk/mod.rs:COLOR_SET]]
+and treats `bg == 0` as "no background fill". [[src/target/linux_gtk/mod.rs:COLOR_SET]]
 
 ### Renderer + ops
 
@@ -278,18 +278,18 @@ callback: paint the whole area black (`cairo_paint`), then per active cell fill
 the bg rect (when COLOR_SET) and `cairo_show_text` the glyph using
 `cairo_select_font_face("monospace", …, weight)` at `TERM_FONT_SIZE=16`, in the
 cell's fg colour. `emit_cairo_color` divides each packed channel by 255 into
-`cairo_set_source_rgb`. [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_draw_helper]] [[src/target/linux_aarch64/gtk/term_draw.rs:emit_cairo_color]]
+`cairo_set_source_rgb`. [[src/target/linux_gtk/term_draw.rs:emit_term_draw_helper]] [[src/target/linux_gtk/term_draw.rs:emit_cairo_color]]
 
 The surface swap and redraw run as main-loop idle callbacks (GTK calls must run
 on the main loop): `_mfb_gtkapp_term_show_idle` / `_hide_idle` / `_redraw_idle`.
 The worker-side writer `_mfb_gtkapp_term_write` mutates the grid arrays and
 `_mfb_gtkapp_term_scroll` shifts chars/fg/bg up one row at the bottom edge;
 `_mfb_gtkapp_term_init` derives the geometry once at activate before the worker
-touches the grid. [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_show_idle_helper]] [[src/target/linux_aarch64/gtk/term_draw.rs:emit_term_write_helper]]
+touches the grid. [[src/target/linux_gtk/term_draw.rs:emit_term_show_idle_helper]] [[src/target/linux_gtk/term_draw.rs:emit_term_write_helper]]
 
 Like macOS, the Linux helpers update the shared console term-state global off the
 pinned arena register (`ARENA_REG = x19`) so `isOn` and the attribute getters
-agree across backends. [[src/target/linux_aarch64/gtk/mod.rs:ARENA_REG]]
+agree across backends. [[src/target/linux_gtk/mod.rs:ARENA_REG]]
 
 ## See Also
 

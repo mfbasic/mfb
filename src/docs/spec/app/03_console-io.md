@@ -68,7 +68,7 @@ helper reaches them without register preservation:
 | `ST_PIPE_READ_FD` | 40 | pipe read fd (then `dup2`'d to 0) |
 | `ST_PIPE_WRITE_FD` | 48 | pipe write fd (key handler writes here) |
 
-[[src/target/linux_aarch64/gtk/mod.rs:ST_PIPE_WRITE_FD]]
+[[src/target/linux_gtk/mod.rs:ST_PIPE_WRITE_FD]]
 
 When no window is attached (the macOS `MFB_MACAPP_HEADLESS` test path, or before
 the window exists) there is no transcript/buffer and the write helpers fall back
@@ -80,7 +80,7 @@ Typed keys are captured by a key event handler on the transcript view and
 translated into bytes written to the pipe write fd. macOS overrides
 `keyDown:` on a synthesized `MFBTextView : NSTextView`; Linux installs a GTK
 `key-pressed` controller handler. Both run on the GUI main thread.
-[[src/target/macos_aarch64/app/term_view.rs:emit_key_down_helper]] [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_key_pressed_handler]]
+[[src/target/macos_aarch64/app/term_view.rs:emit_key_down_helper]] [[src/target/linux_gtk/bootstrap.rs:emit_key_pressed_handler]]
 
 The handler dispatches on the current input mode and the key:
 
@@ -96,7 +96,7 @@ The handler dispatches on the current input mode and the key:
 - **Line modes**, Backspace/Delete (macOS `8` / `127`; Linux `GDK_KEY_BackSpace`):
   drop the last character from the line buffer (and, in line-echo mode on macOS,
   from the transcript text storage). The Linux transcript echo-delete is byte-
-  granular and ASCII-only (SCAFFOLD, plan-05). [[src/target/linux_aarch64/gtk/bootstrap.rs:emit_key_pressed_handler]]
+  granular and ASCII-only (SCAFFOLD, plan-05). [[src/target/linux_gtk/bootstrap.rs:emit_key_pressed_handler]]
 
 The macOS handler returns `Nothing`; the Linux handler returns `TRUE` for keys
 it consumes and `FALSE` otherwise (so window shortcuts still fire).
@@ -115,7 +115,7 @@ Linux keeps it in the state global:
 | `ST_LINE_BUF` | 72 | accumulated UTF-8 bytes (cap `LINE_BUF_CAP` = 1024) |
 
 Committing `write()`s `ST_LINE_BUF[0..ST_LINE_LEN]` then a `'\n'` to
-`ST_PIPE_WRITE_FD`, then resets `ST_LINE_LEN` to 0. [[src/target/linux_aarch64/gtk/mod.rs:ST_LINE_BUF]]
+`ST_PIPE_WRITE_FD`, then resets `ST_LINE_LEN` to 0. [[src/target/linux_gtk/mod.rs:ST_LINE_BUF]]
 
 ## Input modes (line vs raw)
 
@@ -130,7 +130,7 @@ waiting.
 | line, echo | `INPUT_MODE_LINE_ECHO` `1` | `MODE_LINE_ECHO` `1` | `io::input` | whole line on Return | typed chars + newline echoed to transcript |
 | raw, no echo | `INPUT_MODE_RAW_NO_ECHO` `2` | `MODE_RAW` `2` | `io::readChar` / `io::readByte` | each key's bytes immediately | none |
 
-[[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_LINE_ECHO]] [[src/target/linux_aarch64/gtk/mod.rs:ST_INPUT_MODE]]
+[[src/target/macos_aarch64/app/mod.rs:INPUT_MODE_LINE_ECHO]] [[src/target/linux_gtk/mod.rs:ST_INPUT_MODE]]
 
 macOS stores the mode as an objc associated object on `NSApplication` under
 `INPUT_MODE_KEY` (ASSIGN); Linux stores it at `ST_INPUT_MODE` (offset 56) in the
