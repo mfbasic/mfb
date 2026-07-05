@@ -19,6 +19,8 @@ mod resolver;
 mod rules;
 mod target;
 mod syntaxcheck;
+#[cfg(test)]
+mod testutil;
 mod unicode_backend;
 mod unicode_runtime_tables;
 
