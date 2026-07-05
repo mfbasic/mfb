@@ -29,7 +29,10 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         }
         [command, rest @ ..] if command == "doc" => run_pkg_doc(rest),
         [command] if command == "verify" => {
-            verify_packages(Path::new(".")).map_err(PkgCommandError::Failed)
+            verify_packages(Path::new("."), false).map_err(PkgCommandError::Failed)
+        }
+        [command, flag] if command == "verify" && flag == "--proof" => {
+            verify_packages(Path::new("."), true).map_err(PkgCommandError::Failed)
         }
         [command, package] if command == "validate" => {
             validate_package_file(Path::new("."), package).map_err(PkgCommandError::Failed)
@@ -47,7 +50,7 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
             "mfb pkg info requires exactly one <package>\n\n{USAGE}"
         ))),
         [command, ..] if command == "verify" => Err(PkgCommandError::Usage(format!(
-            "mfb pkg verify accepts no arguments\n\n{USAGE}"
+            "mfb pkg verify accepts only the optional --proof flag\n\n{USAGE}"
         ))),
         [command, ..] if command == "publish" => Err(PkgCommandError::Usage(format!(
             "mfb pkg publish requires <owner_name> <package>\n\n{USAGE}"
@@ -113,6 +116,16 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         signing_fingerprint: &signing_fingerprint,
     };
 
+    // Refuse to publish into a suspect registry: the checkpoint must verify
+    // under the pinned server key and be append-only relative to the pinned
+    // one (plan-23-B3) BEFORE anything is uploaded.
+    mfb_repository::client::fetch_checkpoint(&repo_url, &paths).map_err(|err| {
+        if err.contains("ROLLBACK") || err.contains("FORK") {
+            crate::rules::show_general_diagnostic("REGISTRY_LOG_ROLLBACK", &err);
+        }
+        err
+    })?;
+
     let report =
         mfb_repository::client::validate_package(&repo_url, &paths, owner, &artifact_request)?;
     print_publish_verify_report(&report);
@@ -125,6 +138,22 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
     println!(
         "Published {}@{} as {}",
         response.ident, response.version, response.hash
+    );
+    println!(
+        "Publish logged at index {} (leaf {})",
+        response.log_entry.index, response.log_entry.leaf_hash
+    );
+    // Verify our own publish landed in the log under a signed,
+    // rollback-checked checkpoint (plan-23-B3).
+    let (_entry, checkpoint) = mfb_repository::client::verify_publish_inclusion(
+        &repo_url,
+        &paths,
+        &response.ident,
+        &response.version,
+    )?;
+    println!(
+        "Inclusion verified against checkpoint (size {}, root {})",
+        checkpoint.size, checkpoint.root_hash
     );
     Ok(())
 }
@@ -347,7 +376,7 @@ fn project_pinned_ident_key(project_dir: &Path, name: &str) -> Option<String> {
     })
 }
 
-fn verify_packages(project_dir: &Path) -> Result<(), String> {
+fn verify_packages(project_dir: &Path, demand_proof: bool) -> Result<(), String> {
     let project_path = project_dir.join("project.json");
     let contents = fs::read_to_string(&project_path)
         .map_err(|err| format!("failed to read '{}': {err}", project_path.display()))?;
@@ -391,7 +420,45 @@ fn verify_packages(project_dir: &Path) -> Result<(), String> {
             }
             let classification =
                 super::build::classify_installed_package(&package_file, anchor.as_deref());
-            format!(" [{}]", classification.state.label())
+            // `--proof` (plan-23-B3): additionally demand a transparency-log
+            // inclusion proof for the package's publish entry, verified
+            // against the signed, rollback-checked checkpoint.
+            let mut suffix = format!(" [{}]", classification.state.label());
+            if demand_proof
+                && classification.state == super::build::PackageVerification::Verified
+                && dependency.ident.contains('#')
+            {
+                let repo_url = mfb_repository::client::repo_url_from_env();
+                let version = read_mfp_header(&package_file)
+                    .map(|header| header.version)
+                    .unwrap_or_default();
+                match super::local_paths_for_repo(&repo_url).and_then(|paths| {
+                    mfb_repository::client::verify_publish_inclusion(
+                        &repo_url,
+                        &paths,
+                        &dependency.ident,
+                        &version,
+                    )
+                }) {
+                    Ok((entry, checkpoint)) => {
+                        suffix.push_str(&format!(
+                            " (log index {} ⊂ checkpoint size {})",
+                            entry.index, checkpoint.size
+                        ));
+                    }
+                    Err(err) => {
+                        rotation_errors.push((
+                            "PACKAGE_ATTESTATION_INVALID",
+                            format!(
+                                "package `{}` has no verifiable publish log entry: {err}",
+                                dependency.name
+                            ),
+                        ));
+                        suffix.push_str(" (no publish proof)");
+                    }
+                }
+            }
+            suffix
         } else {
             String::new()
         };

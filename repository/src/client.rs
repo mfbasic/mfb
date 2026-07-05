@@ -1,11 +1,12 @@
 use crate::crypto;
 use crate::local::{self, LocalPaths};
 use crate::server::{
-    ChallengeRequest, ChallengeResponse, ErrorResponse, IdentChainResponse, LinkFetchRequest,
-    LinkFetchResponse, LinkStartRequest, LinkStartResponse, LoginRequest, LoginResponse,
-    PackageArtifactRequest, PublishPackageResponse, RegisterProofs, RegisterRequest,
-    RegisterResponse, RevokeChallengeRequest, RevokeRequest, RevokeResponse, RotateRequest,
-    RotateResponse, ServerIdentResponse, SigningRequest, SigningResponse,
+    ChallengeRequest, ChallengeResponse, CheckpointResponse, ConsistencyProofResponse,
+    ErrorResponse, IdentChainResponse, InclusionProofResponse, LinkFetchRequest,
+    LinkFetchResponse, LinkStartRequest, LinkStartResponse, LogEntry, LoginRequest,
+    LoginResponse, PackageArtifactRequest, PublishPackageResponse, RegisterProofs,
+    RegisterRequest, RegisterResponse, RevokeChallengeRequest, RevokeRequest, RevokeResponse,
+    RotateRequest, RotateResponse, ServerIdentResponse, SigningRequest, SigningResponse,
     ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
@@ -329,6 +330,134 @@ pub fn revoke_machine(
             ident_signature: crypto::encode_bytes(&signature),
         },
     )
+}
+
+/// Fetch the signed log checkpoint, verify it under the pinned server key,
+/// and enforce append-only growth against the locally pinned checkpoint
+/// (plan-23-B3): a shrunken tree, or a different root at the same size, is a
+/// hard error — never silently re-pinned.
+pub fn fetch_checkpoint(repo_url: &str, paths: &LocalPaths) -> Result<CheckpointResponse, String> {
+    let server_key = ensure_server_key(repo_url, paths)?;
+    let checkpoint = get_json::<CheckpointResponse>(repo_url, "/log/checkpoint")?;
+    let root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
+    let signature = crypto::decode_bytes(&checkpoint.signature, "signature")?;
+    crypto::verify(
+        &server_key,
+        &crate::log::checkpoint_signing_input(checkpoint.size as u64, &root),
+        &signature,
+    )
+    .map_err(|_| "log checkpoint does not verify under the pinned server key".to_string())?;
+    if let Some((pinned_size, pinned_root)) = local::read_checkpoint(paths)? {
+        if checkpoint.size < pinned_size {
+            return Err(format!(
+                "registry log ROLLBACK: checkpoint size {} is smaller than the pinned size {pinned_size}",
+                checkpoint.size
+            ));
+        }
+        if checkpoint.size == pinned_size && checkpoint.root_hash != pinned_root {
+            return Err(
+                "registry log FORK: checkpoint root differs from the pinned root at the same size"
+                    .to_string(),
+            );
+        }
+    }
+    local::write_checkpoint(paths, checkpoint.size, &checkpoint.root_hash)?;
+    Ok(checkpoint)
+}
+
+/// Verify that the publish of `ident@version` is included in the registry
+/// log under the current (verified, rollback-checked) checkpoint. Returns
+/// the log entry and the checkpoint it verified against.
+pub fn verify_publish_inclusion(
+    repo_url: &str,
+    paths: &LocalPaths,
+    ident: &str,
+    version: &str,
+) -> Result<(LogEntry, CheckpointResponse), String> {
+    let checkpoint = fetch_checkpoint(repo_url, paths)?;
+    let entry = get_json::<LogEntry>(
+        repo_url,
+        &format!(
+            "/log/publish?ident={}&version={}",
+            percent_encode(ident),
+            percent_encode(version)
+        ),
+    )?;
+    let proof = get_json::<InclusionProofResponse>(
+        repo_url,
+        &format!("/log/proof/{}?size={}", entry.index, checkpoint.size),
+    )?;
+    if proof.index != entry.index || proof.size != checkpoint.size {
+        return Err("inclusion proof does not match the requested entry".to_string());
+    }
+    let leaf = decode_hex32(&entry.leaf_hash, "leafHash")?;
+    if decode_hex32(&proof.leaf_hash, "leafHash")? != leaf {
+        return Err("inclusion proof leaf does not match the publish entry".to_string());
+    }
+    let root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
+    let mut path = Vec::new();
+    for node in &proof.path {
+        path.push(decode_hex32(node, "proof node")?);
+    }
+    crate::log::verify_inclusion(
+        entry.index as usize,
+        checkpoint.size as usize,
+        &leaf,
+        &path,
+        &root,
+    )?;
+    Ok((entry, checkpoint))
+}
+
+/// Fetch and verify a consistency proof between the pinned checkpoint and
+/// the current one.
+pub fn verify_log_consistency(repo_url: &str, paths: &LocalPaths) -> Result<(), String> {
+    let Some((pinned_size, pinned_root)) = local::read_checkpoint(paths)? else {
+        // Nothing pinned yet: fetch_checkpoint establishes the first pin.
+        fetch_checkpoint(repo_url, paths)?;
+        return Ok(());
+    };
+    let checkpoint = fetch_checkpoint(repo_url, paths)?;
+    let proof = get_json::<ConsistencyProofResponse>(
+        repo_url,
+        &format!("/log/consistency?from={pinned_size}&to={}", checkpoint.size),
+    )?;
+    let old_root = decode_hex32(&pinned_root, "pinned root")?;
+    let new_root = decode_hex32(&checkpoint.root_hash, "rootHash")?;
+    let mut path = Vec::new();
+    for node in &proof.path {
+        path.push(decode_hex32(node, "proof node")?);
+    }
+    crate::log::verify_consistency(
+        pinned_size as usize,
+        checkpoint.size as usize,
+        &old_root,
+        &new_root,
+        &path,
+    )
+}
+
+fn decode_hex32(value: &str, field: &str) -> Result<[u8; 32], String> {
+    let raw = hex::decode(value).map_err(|_| format!("malformed {field}"))?;
+    if raw.len() != 32 {
+        return Err(format!("malformed {field}"));
+    }
+    let mut out = [0u8; 32];
+    out.copy_from_slice(&raw);
+    Ok(out)
+}
+
+fn percent_encode(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char)
+            }
+            _ => out.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    out
 }
 
 pub struct PackageArtifact<'a> {

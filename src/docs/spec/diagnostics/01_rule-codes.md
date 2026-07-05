@@ -87,7 +87,7 @@ unallocated). The scheme leaves room; it does not densely fill it.
 | `3-304` | target/codegen support | 2 |
 | `5-500` | linking | 1 |
 | `6-603` | lockfile | 1 |
-| `6-605` | package container / signing | 8 |
+| `6-605` | package container / signing | 9 |
 | `0-000` | `UNKNOWN_RULE` fallback (synthetic) | 1 |
 
 `EEEE` is the per-subsystem ordinal, generally `0001`-up, but it is **not
@@ -490,6 +490,7 @@ one-off-key → bytes gets its own code, emitted by the build gate
 | `6-605-0006` | `PACKAGE_PAYLOAD_HASH_MISMATCH` | error | package payload does not match the signed packageBinaryHash |
 | `6-605-0007` | `PACKAGE_UNSIGNED_REMOTE` | error | unsigned package from a non-local source requires --unsigned |
 | `6-605-0008` | `PACKAGE_IDENT_REANCHORED` | error | owner ident changed with no chain link from the pinned key; verify out-of-band |
+| `6-605-0009` | `REGISTRY_LOG_ROLLBACK` | error | registry transparency log shrank or forked relative to the pinned checkpoint |
 
 ### `0-000` — Fallback (synthetic)
 

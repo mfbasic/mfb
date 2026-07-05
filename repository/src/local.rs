@@ -59,6 +59,38 @@ impl LocalPaths {
     pub fn session_path(&self, owner: &str) -> PathBuf {
         self.session_dir().join(format!("{owner}.ses"))
     }
+
+    /// The last-seen transparency-log checkpoint (plan-23-B3):
+    /// `<size> <root-hex>`, used to reject registry log rollbacks.
+    pub fn checkpoint_path(&self) -> PathBuf {
+        self.home.join("checkpoint")
+    }
+}
+
+/// Persist the last-seen log checkpoint.
+pub fn write_checkpoint(paths: &LocalPaths, size: i64, root_hex: &str) -> Result<(), String> {
+    create_private_dir(&paths.home)?;
+    write_private_file(&paths.checkpoint_path(), &format!("{size} {root_hex}"))
+}
+
+/// Read the pinned log checkpoint, if any: `(size, root-hex)`.
+pub fn read_checkpoint(paths: &LocalPaths) -> Result<Option<(i64, String)>, String> {
+    let path = paths.checkpoint_path();
+    if !path.is_file() {
+        return Ok(None);
+    }
+    let value = fs::read_to_string(&path)
+        .map_err(|err| format!("failed to read checkpoint '{}': {err}", path.display()))?;
+    let mut parts = value.trim().splitn(2, ' ');
+    let size = parts
+        .next()
+        .and_then(|size| size.parse::<i64>().ok())
+        .ok_or_else(|| "malformed pinned checkpoint".to_string())?;
+    let root = parts
+        .next()
+        .ok_or_else(|| "malformed pinned checkpoint".to_string())?
+        .to_string();
+    Ok(Some((size, root)))
 }
 
 pub fn write_auth_keypair(paths: &LocalPaths, owner: &str, public: &[u8], private: &[u8]) -> Result<(), String> {

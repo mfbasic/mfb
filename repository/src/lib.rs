@@ -1,6 +1,7 @@
 pub mod client;
 pub mod crypto;
 pub mod local;
+pub mod log;
 pub mod package;
 pub mod server;
 pub mod store;

@@ -60,6 +60,10 @@ in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:
 | `/auth/login` | POST | challenge signature | `LoginRequest` | `LoginResponse` | `repo auth` (step 2) |
 | `/signing` | POST | session token | `SigningRequest` | `SigningResponse` | `build --sign` |
 | `/keys/rotate` | POST | session + old-ident signature | `RotateRequest` | `RotateResponse` | `key rotate` |
+| `/log/checkpoint` | GET | none | — | `CheckpointResponse` | checkpoint pin |
+| `/log/proof/<index>` | GET | none | `?size=N` | `InclusionProofResponse` | inclusion proofs |
+| `/log/consistency` | GET | none | `?from=M&to=N` | `ConsistencyProofResponse` | append-only audit |
+| `/log/publish` | GET | none | `?ident=&version=` | `LogEntry` | `pkg verify --proof` |
 | `/idents/<owner>` | GET | none | — | `IdentChainResponse` | pin-follow (`pkg verify`) |
 | `/machines/link` | POST | session token | `LinkStartRequest` | `LinkStartResponse` | `repo link --start` |
 | `/machines/link/fetch` | POST | pairing code + proof | `LinkFetchRequest` | `LinkFetchResponse` | `repo link` |
@@ -273,6 +277,58 @@ The client verifies the returned signature against its pinned `server.pub`
 before using the attestation, and refuses an attestation that does not pin the
 requested package or that names a different ident key than the machine
 holds.[[repository/src/client.rs:request_attestation]][[src/cli/build.rs:load_build_signing_info]]
+
+## Transparency Log — `/log/*`
+
+The registry keeps an append-only, RFC 6962 Merkle-hashed record of every
+state change (plan-23 §7): **every forgery path that remains — a compromised
+server mis-binding names, a stolen auth session requesting attestations — is
+forced to leave a signed entry in this log before the act.**
+
+Entry kinds and the operations that append them (each appends **exactly
+one** entry, inside the same transaction as the state change):
+
+| kind | appended by |
+| --- | --- |
+| `register` | `/accounts/register` |
+| `attestation` | `/signing` |
+| `publish` | `/publish` |
+| `link` | `/machines/link/fetch` (new auth key registered) |
+| `revoke` | `/machines/revoke` |
+| `rotate` | `/keys/rotate` |
+| `reanchor` | `mfb-repo reanchor` (operator) |
+
+[[repository/src/store.rs:append_log_tx]]
+
+Hashing is RFC 6962: leaf hash `SHA-256(0x00 || payload)`, node hash
+`SHA-256(0x01 || left || right)`; the empty tree hashes to `SHA-256("")`.
+Entry indexes are dense and monotonic. The `/publish` response's `logEntry`
+is the real `{ "index": <n>, "leafHash": "<hex>" }` of the publish
+entry.[[repository/src/log.rs:root]]
+
+* `GET /log/checkpoint` → `{"size", "rootHash": "<hex>", "signature"}` — the
+  signed tree head. The signature is by the server key over
+  `"mfb-log-checkpoint-v1\0" || size (LE u64) || root`.
+  [[repository/src/server.rs:log_checkpoint]]
+* `GET /log/proof/<index>[?size=N]` → `{"index", "size", "leafHash",
+  "path": ["<hex>", …]}` — the RFC 6962 audit path for the entry in the tree
+  of `size` (default: current). [[repository/src/server.rs:log_inclusion_proof]]
+* `GET /log/consistency?from=M[&to=N]` → `{"from", "to", "path"}` — the
+  consistency proof between two tree sizes. [[repository/src/server.rs:log_consistency_proof]]
+* `GET /log/publish?ident=<i>&version=<v>` → the publish entry's
+  `{"index", "leafHash"}`. [[repository/src/server.rs:log_publish_entry]]
+
+Client behaviour: the last-seen checkpoint is pinned per repository
+(`~/.mfb/<repo-hash>/checkpoint`, `"<size> <root-hex>"`). Every checkpoint
+fetch verifies the signature under the pinned server key and enforces
+append-only growth — a smaller size is a **ROLLBACK** and the same size with
+a different root is a **FORK**, both hard `REGISTRY_LOG_ROLLBACK` errors that
+never re-pin. `mfb pkg publish` refuses to upload before a verified
+checkpoint fetch and, after publishing, verifies its own publish entry's
+inclusion proof against a fresh checkpoint. `mfb pkg verify --proof`
+additionally demands a verifying inclusion proof for each Verified
+dependency's publish entry.
+[[repository/src/client.rs:fetch_checkpoint]][[repository/src/client.rs:verify_publish_inclusion]]
 
 ## Ident Rotation — `/keys/rotate` + `GET /idents/<owner>`
 

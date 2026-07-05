@@ -25,7 +25,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
 | `pkg add` | `mfb pkg add <url>` | 0 ok; 2 usage; 1 failed |
 | `pkg info` | `mfb pkg info <package>` | 0 ok; 2 usage; 1 failed |
-| `pkg verify` | `mfb pkg verify` | 0 ok; 2 usage (takes no args); 1 failed |
+| `pkg verify` | `mfb pkg verify [--proof]` | 0 ok; 2 usage; 1 failed |
 | `pkg validate` | `mfb pkg validate <package>` | 0 valid; 2 usage; 1 invalid or failed |
 | `pkg publish` | `mfb pkg publish <owner_name> <package>` | 0 ok; 2 usage; 1 failed |
 | `pkg doc` | `mfb pkg doc <name-or-path> [--out file]` | 0 ok; 2 usage; 1 failed |
@@ -180,6 +180,16 @@ Package`. Compiled `.mfp` dependencies additionally get their plan-23 §3.5
 trust state — `[Verified]`, `[Unsigned]`, or `[Tampered]` — verified against
 the dependency's pinned `identKey`; source-package dependencies get no state
 suffix.[[src/cli/pkg.rs:verify_packages]]
+
+With `--proof` (plan-23-B3), each Verified dependency additionally needs a
+transparency-log inclusion proof for its publish entry, verified against the
+signed, rollback-checked checkpoint; success appends
+`(log index <n> ⊂ checkpoint size <s>)` to the line and a missing/unverifiable
+proof appends `(no publish proof)` and fails the command.
+`mfb pkg publish` prints `Publish logged at index <n> (leaf <hex>)` followed by
+`Inclusion verified against checkpoint (size <s>, root <hex>)`, refusing to
+upload at all if the checkpoint fetch detects a rollback or fork
+(`REGISTRY_LOG_ROLLBACK`).[[src/cli/pkg.rs:publish_package_project]]
 
 ## `pkg validate` Output
 

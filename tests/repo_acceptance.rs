@@ -837,6 +837,55 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
         stdout.contains("Published alice#publish_pkg@0.1.0"),
         "{stdout}"
     );
+    // The publish is logged and its inclusion proof verifies against the
+    // signed, rollback-checked checkpoint (plan-23-B3).
+    assert!(stdout.contains("Publish logged at index"), "{stdout}");
+    assert!(
+        stdout.contains("Inclusion verified against checkpoint"),
+        "{stdout}"
+    );
+    let repo_home = mfb_repo_home(&repo, home.path());
+    let checkpoint = std::fs::read_to_string(repo_home.join("checkpoint")).unwrap();
+    let pinned_size: i64 = checkpoint
+        .trim()
+        .split(' ')
+        .next()
+        .unwrap()
+        .parse()
+        .unwrap();
+    assert!(pinned_size >= 3, "register+attestation+publish logged: {checkpoint}");
+
+    // Rollback rejection: poison the pinned checkpoint with a LARGER size —
+    // the next checkpoint fetch must refuse the (apparently shrunken) log.
+    let poisoned = format!(
+        "999999 {}",
+        checkpoint.trim().split(' ').nth(1).unwrap()
+    );
+    std::fs::write(repo_home.join("checkpoint"), &poisoned).unwrap();
+    let package_dir2 = work.path().join("publish_pkg2");
+    let package_dir2_arg = package_dir2.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir2_arg])
+        .status
+        .success());
+    let manifest_path2 = package_dir2.join("project.json");
+    let manifest2 = std::fs::read_to_string(&manifest_path2).unwrap().replace(
+        "  \"version\": \"0.1.0\",\n",
+        "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#publish_pkg2\",\n",
+    );
+    std::fs::write(&manifest_path2, manifest2).unwrap();
+    let rollback = run_mfb(
+        &repo,
+        home.path(),
+        &["pkg", "publish", "alice", package_dir2_arg],
+    );
+    assert!(!rollback.status.success());
+    assert!(
+        String::from_utf8_lossy(&rollback.stderr).contains("ROLLBACK"),
+        "{}",
+        String::from_utf8_lossy(&rollback.stderr)
+    );
+    // Restore the true pin: the next publish verifies again.
+    std::fs::write(repo_home.join("checkpoint"), checkpoint.trim()).unwrap();
     let blobs = std::fs::read_dir(repo_dir.path().join("packages"))
         .unwrap()
         .filter_map(Result::ok)

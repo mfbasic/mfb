@@ -264,8 +264,43 @@ pub struct PublishPackageResponse {
     pub state: String,
     #[serde(rename = "blobStored")]
     pub blob_stored: bool,
+    /// The publish's transparency-log entry (plan-23-B3).
     #[serde(rename = "logEntry")]
-    pub log_entry: String,
+    pub log_entry: LogEntry,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct LogEntry {
+    pub index: i64,
+    #[serde(rename = "leafHash")]
+    pub leaf_hash: String,
+}
+
+/// `GET /log/checkpoint` — the signed tree head (plan-23-B3): size + RFC 6962
+/// root, signed by the server key so a checkpoint cannot be forged and two
+/// consumers can compare views.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CheckpointResponse {
+    pub size: i64,
+    #[serde(rename = "rootHash")]
+    pub root_hash: String,
+    pub signature: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct InclusionProofResponse {
+    pub index: i64,
+    pub size: i64,
+    #[serde(rename = "leafHash")]
+    pub leaf_hash: String,
+    pub path: Vec<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ConsistencyProofResponse {
+    pub from: i64,
+    pub to: i64,
+    pub path: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -300,6 +335,10 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/auth/challenge", post(challenge))
         .route("/auth/login", post(login))
         .route("/signing", post(signing))
+        .route("/log/checkpoint", get(log_checkpoint))
+        .route("/log/proof/:index", get(log_inclusion_proof))
+        .route("/log/consistency", get(log_consistency_proof))
+        .route("/log/publish", get(log_publish_entry))
         .route("/keys/rotate", post(rotate_ident))
         .route("/idents/:owner", get(ident_chain))
         .route("/machines/link", post(link_start))
@@ -379,6 +418,100 @@ async fn challenge(
         challenge_id: challenge.id,
         nonce: crypto::encode_bytes(&challenge.nonce),
         expires_at: challenge.expires_at,
+    }))
+}
+
+async fn log_checkpoint(
+    State(state): State<AppState>,
+) -> Result<Json<CheckpointResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let leaves = state.store.log_leaf_hashes(None).map_err(internal)?;
+    let root = crate::log::root(&leaves);
+    let (_public, private) = state.store.server_keypair().map_err(internal)?;
+    let signature = crypto::sign(
+        &private,
+        &crate::log::checkpoint_signing_input(leaves.len() as u64, &root),
+    )
+    .map_err(internal)?;
+    Ok(Json(CheckpointResponse {
+        size: leaves.len() as i64,
+        root_hash: hex::encode(root),
+        signature: crypto::encode_bytes(&signature),
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct ProofQuery {
+    size: Option<i64>,
+}
+
+async fn log_inclusion_proof(
+    State(state): State<AppState>,
+    axum::extract::Path(index): axum::extract::Path<i64>,
+    axum::extract::Query(query): axum::extract::Query<ProofQuery>,
+) -> Result<Json<InclusionProofResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let leaves = state.store.log_leaf_hashes(query.size).map_err(internal)?;
+    let size = leaves.len() as i64;
+    if index < 0 || index >= size {
+        return Err(bad_request("log entry index is outside the tree".to_string()));
+    }
+    let path = crate::log::inclusion_path(index as usize, &leaves)
+        .into_iter()
+        .map(hex::encode)
+        .collect();
+    Ok(Json(InclusionProofResponse {
+        index,
+        size,
+        leaf_hash: hex::encode(leaves[index as usize]),
+        path,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct ConsistencyQuery {
+    from: i64,
+    to: Option<i64>,
+}
+
+async fn log_consistency_proof(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<ConsistencyQuery>,
+) -> Result<Json<ConsistencyProofResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let leaves = state.store.log_leaf_hashes(query.to).map_err(internal)?;
+    let to = leaves.len() as i64;
+    if query.from < 0 || query.from > to {
+        return Err(bad_request("consistency proof sizes are invalid".to_string()));
+    }
+    let path = crate::log::consistency_path(query.from as usize, &leaves)
+        .into_iter()
+        .map(hex::encode)
+        .collect();
+    Ok(Json(ConsistencyProofResponse {
+        from: query.from,
+        to,
+        path,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+struct PublishEntryQuery {
+    ident: String,
+    version: String,
+}
+
+async fn log_publish_entry(
+    State(state): State<AppState>,
+    axum::extract::Query(query): axum::extract::Query<PublishEntryQuery>,
+) -> Result<Json<LogEntry>, (StatusCode, Json<ErrorResponse>)> {
+    let Some(entry) = state
+        .store
+        .publish_log_entry(&query.ident, &query.version)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("no publish log entry for that package".to_string()));
+    };
+    Ok(Json(LogEntry {
+        index: entry.index,
+        leaf_hash: hex::encode(entry.leaf_hash),
     }))
 }
 
@@ -794,7 +927,10 @@ async fn publish_package(
         published_at: published.published_at,
         state: published.state,
         blob_stored,
-        log_entry: format!("publish:{}", Uuid::new_v4()),
+        log_entry: LogEntry {
+            index: published.log_entry.index,
+            leaf_hash: hex::encode(published.log_entry.leaf_hash),
+        },
     }))
 }
 
@@ -1635,6 +1771,117 @@ mod tests {
                 .is_none(),
             "a re-anchored ident must not be reachable through the chain"
         );
+    }
+
+    #[tokio::test]
+    async fn log_endpoints_serve_verifiable_checkpoints_and_proofs() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "alice");
+        let token = open_session(&store, "alice", &keys.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: temp.path().join("data"),
+        };
+        // Grow the log: register (1) + three attestations (4 total).
+        for version in ["1.0.0", "1.1.0", "1.2.0"] {
+            let (signing_public, _signing_private) = crypto::generate_keypair();
+            real_attestation(&state, &token, version, &crypto::fingerprint(&signing_public))
+                .await;
+        }
+        let checkpoint_small = log_checkpoint(State(state.clone())).await.unwrap().0;
+        assert_eq!(checkpoint_small.size, 4);
+
+        // The checkpoint signature verifies under the server key.
+        let (server_public, _private) = store.server_keypair().unwrap();
+        let root = hex::decode(&checkpoint_small.root_hash).unwrap();
+        let mut root32 = [0u8; 32];
+        root32.copy_from_slice(&root);
+        crypto::verify(
+            &server_public,
+            &crate::log::checkpoint_signing_input(checkpoint_small.size as u64, &root32),
+            &crypto::decode_bytes(&checkpoint_small.signature, "signature").unwrap(),
+        )
+        .expect("checkpoint signature verifies");
+
+        // Every entry has a verifying inclusion proof against the head.
+        for index in 0..checkpoint_small.size {
+            let proof = log_inclusion_proof(
+                State(state.clone()),
+                axum::extract::Path(index),
+                axum::extract::Query(ProofQuery { size: None }),
+            )
+            .await
+            .unwrap()
+            .0;
+            let leaf = {
+                let raw = hex::decode(&proof.leaf_hash).unwrap();
+                let mut leaf = [0u8; 32];
+                leaf.copy_from_slice(&raw);
+                leaf
+            };
+            let path: Vec<[u8; 32]> = proof
+                .path
+                .iter()
+                .map(|node| {
+                    let raw = hex::decode(node).unwrap();
+                    let mut out = [0u8; 32];
+                    out.copy_from_slice(&raw);
+                    out
+                })
+                .collect();
+            crate::log::verify_inclusion(
+                index as usize,
+                checkpoint_small.size as usize,
+                &leaf,
+                &path,
+                &root32,
+            )
+            .unwrap_or_else(|err| panic!("index {index}: {err}"));
+        }
+
+        // Append more entries; the consistency proof ties old head to new.
+        let (signing_public, _signing_private) = crypto::generate_keypair();
+        real_attestation(&state, &token, "2.0.0", &crypto::fingerprint(&signing_public)).await;
+        let checkpoint_big = log_checkpoint(State(state.clone())).await.unwrap().0;
+        assert_eq!(checkpoint_big.size, 5);
+        let proof = log_consistency_proof(
+            State(state.clone()),
+            axum::extract::Query(ConsistencyQuery {
+                from: checkpoint_small.size,
+                to: None,
+            }),
+        )
+        .await
+        .unwrap()
+        .0;
+        let new_root = {
+            let raw = hex::decode(&checkpoint_big.root_hash).unwrap();
+            let mut out = [0u8; 32];
+            out.copy_from_slice(&raw);
+            out
+        };
+        let path: Vec<[u8; 32]> = proof
+            .path
+            .iter()
+            .map(|node| {
+                let raw = hex::decode(node).unwrap();
+                let mut out = [0u8; 32];
+                out.copy_from_slice(&raw);
+                out
+            })
+            .collect();
+        crate::log::verify_consistency(
+            checkpoint_small.size as usize,
+            checkpoint_big.size as usize,
+            &root32,
+            &new_root,
+            &path,
+        )
+        .expect("consistency proof verifies");
     }
 
     #[test]

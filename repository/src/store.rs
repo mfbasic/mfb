@@ -33,6 +33,8 @@ pub struct PublishedVersion {
     pub hash: String,
     pub published_at: i64,
     pub state: String,
+    /// The publish's transparency-log entry (plan-23-B3).
+    pub log_entry: LogEntryRef,
 }
 
 #[derive(Debug, Clone)]
@@ -159,6 +161,14 @@ impl Store {
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS log_entries (
+                idx INTEGER PRIMARY KEY CHECK (idx >= 0),
+                kind TEXT NOT NULL,
+                payload TEXT NOT NULL,
+                leaf_hash BLOB NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS ident_chain (
                 id INTEGER PRIMARY KEY,
                 owner_id INTEGER NOT NULL REFERENCES owners(id),
@@ -271,6 +281,16 @@ impl Store {
         )
         .map_err(|err| format!("failed to register ident key: {err}"))?;
         let ident_key_id = tx.last_insert_rowid();
+        append_log_tx(
+            &tx,
+            "register",
+            &format!(
+                "{{\"owner\":{},\"authFingerprint\":{},\"identFingerprint\":{}}}",
+                json_value(owner),
+                json_value(&auth_fingerprint),
+                json_value(&ident_fingerprint),
+            ),
+        )?;
         tx.commit()
             .map_err(|err| format!("failed to commit registration: {err}"))?;
 
@@ -378,13 +398,36 @@ impl Store {
         version: &str,
         signing_fingerprint: &str,
     ) -> Result<(), String> {
-        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
-        conn.execute(
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start signing transaction: {err}"))?;
+        tx.execute(
             "INSERT INTO signing_requests (owner_id, ident, version, signing_fingerprint, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![owner_id, ident, version, signing_fingerprint, now_unix()],
         )
         .map_err(|err| format!("failed to record signing request: {err}"))?;
+        let owner_display: String = tx
+            .query_row(
+                "SELECT owner_display FROM owners WHERE id = ?1",
+                params![owner_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| format!("failed to load owner: {err}"))?;
+        append_log_tx(
+            &tx,
+            "attestation",
+            &format!(
+                "{{\"owner\":{},\"ident\":{},\"version\":{},\"signingFingerprint\":{}}}",
+                json_value(&owner_display),
+                json_value(ident),
+                json_value(version),
+                json_value(signing_fingerprint),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit signing request: {err}"))?;
         Ok(())
     }
 
@@ -540,14 +583,28 @@ impl Store {
         crypto::verify(public_key, &message, proof)
             .map_err(|_| "invalid auth proof-of-possession signature".to_string())?;
         let fingerprint = crypto::fingerprint(public_key);
-        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
-        conn.execute(
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start link transaction: {err}"))?;
+        tx.execute(
             "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
              VALUES (?1, 'auth', ?2, ?3, 'current', ?4, NULL)",
             params![owner.id, public_key, fingerprint, now_unix()],
         )
         .map_err(|err| format!("failed to register machine auth key: {err}"))?;
-        let key_id = conn.last_insert_rowid();
+        let key_id = tx.last_insert_rowid();
+        append_log_tx(
+            &tx,
+            "link",
+            &format!(
+                "{{\"owner\":{},\"authFingerprint\":{}}}",
+                json_value(&owner.owner_display),
+                json_value(&fingerprint),
+            ),
+        )?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit link: {err}"))?;
         Ok((
             owner,
             KeyRecord {
@@ -609,6 +666,16 @@ impl Store {
             params![owner.id, old_key.id, new_key_id, chain_signature, now],
         )
         .map_err(|err| format!("failed to record ident chain link: {err}"))?;
+        append_log_tx(
+            &tx,
+            "rotate",
+            &format!(
+                "{{\"owner\":{},\"oldIdentFingerprint\":{},\"newIdentFingerprint\":{}}}",
+                json_value(&owner.owner_display),
+                json_value(&old_key.fingerprint),
+                json_value(&fingerprint),
+            ),
+        )?;
         tx.commit()
             .map_err(|err| format!("failed to commit ident rotation: {err}"))?;
         Ok((
@@ -652,6 +719,16 @@ impl Store {
         )
         .map_err(|err| format!("failed to register re-anchored ident key: {err}"))?;
         let key_id = tx.last_insert_rowid();
+        append_log_tx(
+            &tx,
+            "reanchor",
+            &format!(
+                "{{\"owner\":{},\"oldIdentFingerprint\":{},\"newIdentFingerprint\":{}}}",
+                json_value(&owner.owner_display),
+                json_value(&old_key.fingerprint),
+                json_value(&fingerprint),
+            ),
+        )?;
         tx.commit()
             .map_err(|err| format!("failed to commit re-anchor: {err}"))?;
         Ok(KeyRecord {
@@ -722,6 +799,22 @@ impl Store {
             params![now, key_id],
         )
         .map_err(|err| format!("failed to revoke sessions: {err}"))?;
+        let owner_display: String = tx
+            .query_row(
+                "SELECT owner_display FROM owners WHERE id = ?1",
+                params![owner_id],
+                |row| row.get(0),
+            )
+            .map_err(|err| format!("failed to load owner: {err}"))?;
+        append_log_tx(
+            &tx,
+            "revoke",
+            &format!(
+                "{{\"owner\":{},\"authFingerprint\":{}}}",
+                json_value(&owner_display),
+                json_value(fingerprint),
+            ),
+        )?;
         tx.commit()
             .map_err(|err| format!("failed to commit revocation: {err}"))?;
         Ok(true)
@@ -914,6 +1007,16 @@ impl Store {
                 format!("failed to publish package version: {err}")
             }
         })?;
+        let log_entry = append_log_tx(
+            &tx,
+            "publish",
+            &format!(
+                "{{\"ident\":{},\"version\":{},\"hash\":{}}}",
+                json_value(ident),
+                json_value(version),
+                json_value(hash),
+            ),
+        )?;
         tx.commit()
             .map_err(|err| format!("failed to commit publish: {err}"))?;
         Ok(PublishedVersion {
@@ -922,7 +1025,71 @@ impl Store {
             hash: hash.to_string(),
             published_at: now,
             state: "available".to_string(),
+            log_entry,
         })
+    }
+
+    /// The number of transparency-log entries (the tree size).
+    pub fn log_size(&self) -> Result<i64, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        conn.query_row("SELECT COUNT(*) FROM log_entries", [], |row| row.get(0))
+            .map_err(|err| format!("failed to size the log: {err}"))
+    }
+
+    /// The ordered leaf hashes of the first `size` log entries (the whole
+    /// log when `size` is None).
+    pub fn log_leaf_hashes(&self, size: Option<i64>) -> Result<Vec<[u8; 32]>, String> {
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let limit = size.unwrap_or(i64::MAX);
+        let mut statement = conn
+            .prepare("SELECT leaf_hash FROM log_entries WHERE idx < ?1 ORDER BY idx ASC")
+            .map_err(|err| format!("failed to prepare log query: {err}"))?;
+        let rows = statement
+            .query_map(params![limit], |row| row.get::<_, Vec<u8>>(0))
+            .map_err(|err| format!("failed to load log leaves: {err}"))?;
+        let mut leaves = Vec::new();
+        for row in rows {
+            let raw = row.map_err(|err| format!("failed to read log leaf: {err}"))?;
+            let mut leaf = [0u8; 32];
+            if raw.len() != 32 {
+                return Err("malformed log leaf hash".to_string());
+            }
+            leaf.copy_from_slice(&raw);
+            leaves.push(leaf);
+        }
+        Ok(leaves)
+    }
+
+    /// Look up the publish log entry for `ident@version`.
+    pub fn publish_log_entry(&self, ident: &str, version: &str) -> Result<Option<LogEntryRef>, String> {
+        let payload_ident = json_value(ident);
+        let payload_version = json_value(version);
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        // publish payloads are canonical (`{"ident":...,"version":...,"hash":...}`),
+        // so a prefix match on the two identity fields is exact.
+        let prefix = format!("{{\"ident\":{payload_ident},\"version\":{payload_version},");
+        conn.query_row(
+            "SELECT idx, leaf_hash FROM log_entries
+             WHERE kind = 'publish' AND payload LIKE ?1 || '%'
+             ORDER BY idx ASC LIMIT 1",
+            params![prefix],
+            |row| {
+                let index: i64 = row.get(0)?;
+                let raw: Vec<u8> = row.get(1)?;
+                Ok((index, raw))
+            },
+        )
+        .optional()
+        .map_err(|err| format!("failed to load publish log entry: {err}"))?
+        .map(|(index, raw)| {
+            let mut leaf_hash = [0u8; 32];
+            if raw.len() != 32 {
+                return Err("malformed log leaf hash".to_string());
+            }
+            leaf_hash.copy_from_slice(&raw);
+            Ok(LogEntryRef { index, leaf_hash })
+        })
+        .transpose()
     }
 
     #[cfg(test)]
@@ -989,6 +1156,39 @@ impl Store {
         }
         Ok(())
     }
+}
+
+/// A reference to one transparency-log entry (plan-23-B3), returned by every
+/// state-changing operation and surfaced on the wire as `logEntry`.
+#[derive(Debug, Clone)]
+pub struct LogEntryRef {
+    pub index: i64,
+    pub leaf_hash: [u8; 32],
+}
+
+fn json_value(value: &str) -> String {
+    serde_json::to_string(value).expect("JSON string encoding cannot fail")
+}
+
+/// Append one entry to the transparency log inside an existing transaction.
+/// The index is dense and monotonic; the leaf hash is the RFC 6962 leaf hash
+/// of the payload bytes.
+fn append_log_tx(
+    tx: &rusqlite::Transaction<'_>,
+    kind: &str,
+    payload: &str,
+) -> Result<LogEntryRef, String> {
+    let index: i64 = tx
+        .query_row("SELECT COUNT(*) FROM log_entries", [], |row| row.get(0))
+        .map_err(|err| format!("failed to size the log: {err}"))?;
+    let leaf_hash = crate::log::leaf_hash(payload.as_bytes());
+    tx.execute(
+        "INSERT INTO log_entries (idx, kind, payload, leaf_hash, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        params![index, kind, payload, leaf_hash.to_vec(), now_unix()],
+    )
+    .map_err(|err| format!("failed to append log entry: {err}"))?;
+    Ok(LogEntryRef { index, leaf_hash })
 }
 
 pub fn now_unix() -> i64 {
@@ -1337,6 +1537,83 @@ mod tests {
         store
             .complete_revocation_challenge(&challenge.id, &good, &fingerprint)
             .unwrap();
+    }
+
+    #[test]
+    fn every_state_change_appends_exactly_one_log_entry() {
+        let (_temp, store) = test_store();
+        assert_eq!(store.log_size().unwrap(), 0);
+
+        // register
+        let keys = register_keys(&store, "alice");
+        assert_eq!(store.log_size().unwrap(), 1);
+        let owner_id = store.owner_with_ident_key("alice").unwrap().unwrap().0.id;
+
+        // attestation request
+        store
+            .record_signing_request(owner_id, "alice#toolbox", "1.0.0", "fp")
+            .unwrap();
+        assert_eq!(store.log_size().unwrap(), 2);
+
+        // publish
+        store
+            .publish_package_version(owner_id, "alice#toolbox", "1.0.0", "hash", "path")
+            .unwrap();
+        assert_eq!(store.log_size().unwrap(), 3);
+
+        // machine link
+        let (machine_public, machine_private) = crypto::generate_keypair();
+        let proof = crypto::sign(
+            &machine_private,
+            &crypto::registration_message(crypto::ROLE_AUTH, "alice", &machine_public),
+        )
+        .unwrap();
+        let (_owner, machine_key) =
+            store.add_auth_key("alice", &machine_public, &proof).unwrap();
+        assert_eq!(store.log_size().unwrap(), 4);
+
+        // auth revoke
+        assert!(store.revoke_auth_key(owner_id, &machine_key.fingerprint).unwrap());
+        assert_eq!(store.log_size().unwrap(), 5);
+
+        // ident rotation
+        let (new_public, new_private) = crypto::generate_keypair();
+        let chain_signature = crypto::sign(
+            &keys.ident_private,
+            &crypto::ident_rotation_message(
+                "alice",
+                &crypto::fingerprint(&keys.ident_public),
+                &new_public,
+            ),
+        )
+        .unwrap();
+        let possession_proof = crypto::sign(
+            &new_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, "alice", &new_public),
+        )
+        .unwrap();
+        store
+            .rotate_ident("alice", &new_public, &chain_signature, &possession_proof)
+            .unwrap();
+        assert_eq!(store.log_size().unwrap(), 6);
+
+        // re-anchor
+        let (anchor_public, _anchor_private) = crypto::generate_keypair();
+        store.reanchor_ident("alice", &anchor_public).unwrap();
+        assert_eq!(store.log_size().unwrap(), 7);
+
+        // The publish entry is findable and the leaves form a stable tree.
+        let entry = store
+            .publish_log_entry("alice#toolbox", "1.0.0")
+            .unwrap()
+            .expect("publish entry recorded");
+        assert_eq!(entry.index, 2);
+        let leaves = store.log_leaf_hashes(None).unwrap();
+        assert_eq!(leaves.len(), 7);
+        let root = crate::log::root(&leaves);
+        let path = crate::log::inclusion_path(2, &leaves);
+        crate::log::verify_inclusion(2, 7, &entry.leaf_hash, &path, &root)
+            .expect("publish entry inclusion verifies");
     }
 
     #[test]

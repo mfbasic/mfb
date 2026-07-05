@@ -957,6 +957,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "owner ident changed with no chain link from the pinned key; verify out-of-band",
     },
     Rule {
+        code: "6-605-0009",
+        name: "REGISTRY_LOG_ROLLBACK",
+        severity: Severity::Error,
+        message: "registry transparency log shrank or forked relative to the pinned checkpoint",
+    },
+    Rule {
         code: "3-304-0002",
         name: "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
         severity: Severity::Error,
