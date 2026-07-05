@@ -95,6 +95,9 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_ASSIGN_REQUIRES_MUT",
     "TYPE_ASSIGNMENT_MISMATCH",
     "TYPE_FOR_STEP_ZERO",
+    "TYPE_CONDITION_REQUIRES_BOOLEAN",
+    "TYPE_FOR_REQUIRES_NUMERIC",
+    "TYPE_FOR_EACH_REQUIRES_COLLECTION",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -553,6 +556,7 @@ impl TypeEnv {
                 } => {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
+                    self.check_condition_boolean("IF condition", condition, locals);
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
                     self.check_ops(
@@ -603,6 +607,9 @@ impl TypeEnv {
                                 case_locals.insert(name.clone(), type_.clone());
                             }
                             self.check_value(guard, &case_locals);
+                            self.current_line.set(case.loc.line);
+                            self.check_condition_boolean("WHEN guard", guard, &case_locals);
+                            self.current_line.set(line);
                             case_locals = locals.clone();
                         }
                         self.check_ops(
@@ -620,6 +627,7 @@ impl TypeEnv {
                 } => {
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
+                    self.check_condition_boolean("WHILE condition", condition, locals);
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
                     self.check_ops(
@@ -643,15 +651,47 @@ impl TypeEnv {
                         self.check_value_captures(value, closure_slots);
                         self.check_value(value, locals);
                     }
-                    // A literal STEP of zero never advances the counter. The
-                    // step is bound to a `$for` temp just before this op, so
-                    // resolve it through `temp_consts` (a non-literal step is
-                    // left alone, matching typecheck).
-                    let step_value = match step {
-                        IrValue::Local(n) => temp_consts.get(n.as_str()).copied(),
-                        other => Some(other),
-                    };
-                    if step_value.is_some_and(numeric_literal_is_zero) {
+                    // The end/step values are bound to `$for` temps just before
+                    // this op (the temp's own type is the promoted loop type,
+                    // not the original expression's), so resolve each bound
+                    // through `temp_consts` to judge the user's expression.
+                    fn resolve<'v>(
+                        v: &'v IrValue,
+                        temp_consts: &HashMap<&str, &'v IrValue>,
+                    ) -> Option<&'v IrValue> {
+                        match v {
+                            IrValue::Local(n) if n.starts_with('$') => {
+                                temp_consts.get(n.as_str()).copied()
+                            }
+                            other => Some(other),
+                        }
+                    }
+                    // A provably non-numeric bound cannot drive the counter.
+                    for (label, bound) in [("start", start), ("end", end), ("step", step)] {
+                        let Some(bound) = resolve(bound, &temp_consts) else {
+                            continue;
+                        };
+                        let Some(actual) = self.infer_type(bound, locals) else {
+                            continue;
+                        };
+                        // A local the lowering could not type carries the
+                        // literal "Unknown" through the locals map — skip it
+                        // like any other unreconstructable type.
+                        if actual.is_empty() || actual == "Unknown" {
+                            continue;
+                        }
+                        if !matches!(actual.as_str(), "Integer" | "Float" | "Byte" | "Fixed") {
+                            self.emit(
+                                "TYPE_FOR_REQUIRES_NUMERIC",
+                                format!(
+                                    "FOR loop {label} value has type {actual}, expected numeric."
+                                ),
+                            );
+                        }
+                    }
+                    // A literal STEP of zero never advances the counter (a
+                    // non-literal step is left alone, matching typecheck).
+                    if resolve(step, &temp_consts).is_some_and(numeric_literal_is_zero) {
                         self.emit(
                             "TYPE_FOR_STEP_ZERO",
                             "FOR loop STEP must not be zero.".to_string(),
@@ -687,6 +727,7 @@ impl TypeEnv {
                     self.current_line.set(line);
                     self.check_value_captures(condition, closure_slots);
                     self.check_value(condition, locals);
+                    self.check_condition_boolean("LOOP UNTIL condition", condition, locals);
                 }
                 IrOp::ForEach {
                     name,
@@ -697,6 +738,23 @@ impl TypeEnv {
                 } => {
                     self.check_value_captures(iterable, closure_slots);
                     self.check_value(iterable, locals);
+                    // Only a List or Map can be iterated. (`MapEntry OF …` does
+                    // not match the `Map OF ` prefix.)
+                    if let Some(actual) = self.infer_type(iterable, locals) {
+                        let base = resource_base_type(&actual);
+                        // A local the lowering could not type carries the
+                        // literal "Unknown" through the locals map — skip it.
+                        if !base.is_empty()
+                            && base != "Unknown"
+                            && !base.starts_with("List OF ")
+                            && !base.starts_with("Map OF ")
+                        {
+                            self.emit(
+                                "TYPE_FOR_EACH_REQUIRES_COLLECTION",
+                                format!("FOR EACH source has type {actual}, expected List or Map."),
+                            );
+                        }
+                    }
                     let mut branch = locals.clone();
                     let mut branch_muts = muts.clone();
                     branch.insert(name.clone(), type_.clone());
@@ -1810,6 +1868,27 @@ impl TypeEnv {
             self.emit(
                 "TYPE_BINDING_MISMATCH",
                 format!("Binding `{name}` has initializer type {actual}, expected {expected}."),
+            );
+        }
+    }
+
+    /// Reject a control-flow condition (IF/WHILE/LOOP UNTIL/WHEN guard) whose
+    /// type is provably not Boolean — `typecheck`'s
+    /// `TYPE_CONDITION_REQUIRES_BOOLEAN`. `what` is the statement-specific
+    /// message prefix (`"IF condition"`, `"WHEN guard"`, …).
+    fn check_condition_boolean(
+        &self,
+        what: &str,
+        value: &IrValue,
+        locals: &HashMap<String, String>,
+    ) {
+        let Some(actual) = self.infer_type(value, locals) else {
+            return;
+        };
+        if !self.expression_compatible("Boolean", &actual, value) {
+            self.emit(
+                "TYPE_CONDITION_REQUIRES_BOOLEAN",
+                format!("{what} has type {actual}, expected Boolean."),
             );
         }
     }

@@ -1,0 +1,42 @@
+IMPORT io
+
+TYPE Circle
+  radius AS Integer
+END TYPE
+
+UNION Shape
+  Circle
+END UNION
+
+FUNC describe(shape AS Shape) AS Integer
+  MATCH shape
+    CASE Circle(c) WHEN c.radius
+      RETURN 1
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
+
+FUNC main AS Integer
+  IF 1 THEN
+    io::print("no")
+  END IF
+
+  WHILE "loop"
+    io::print("no")
+  WEND
+
+  DO
+    io::print("once")
+  LOOP UNTIL 2.5
+
+  FOR i = "a" TO 10
+    io::print("no")
+  NEXT
+
+  FOR EACH item IN 42
+    io::print("no")
+  NEXT
+
+  RETURN describe(Circle[9])
+END FUNC
