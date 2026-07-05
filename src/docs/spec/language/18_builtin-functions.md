@@ -9,7 +9,7 @@ documentation, e.g. `mfb man <package>`).
 
 These **sixteen** names are the *only* callables a program may use with no
 `IMPORT` and no package qualifier. The resolver treats exactly this set as
-always-in-scope unqualified callables (`src/resolver.rs` `resolve_callable`,
+always-in-scope unqualified callables (`resolve_callable` in `src/resolver/resolution.rs`,
 which whitelists `builtins::general::is_general_call`); the set is defined in
 `src/builtins/general.rs` (`is_general_call`, lines 40–60):
 
@@ -29,8 +29,8 @@ which whitelists `builtins::general::is_general_call`); the set is defined in
 | `isEmpty(value)` / `isNotEmpty(value)` | 1 | `Boolean` | `String`, `List OF T`, `Map OF K TO V` |
 
 > The conversion name is `toInt` (not `toInteger`). String concatenation `&` is a
-> binary **operator** (`src/lexer.rs` `TokenKind::Ampersand`, lowered in
-> `src/syntaxcheck.rs`), not a built-in function — it is not in this set.
+> binary **operator** (`src/lexer.rs` `TokenKind::Ampersand`), not a built-in
+> function — it is not in this set.
 >
 > The `is*` predicates are **inlined** builtins (`src/builtins/general.rs`
 > `builtin_function_id`); they cannot be passed as a function value directly.
@@ -101,8 +101,8 @@ The **general (unqualified) built-ins** — `toString`, `len`, `typeName`, the `
 
 Implementation: overridability is `src/builtins/general.rs` `is_overridable`
 (every general name except `error`); the gap-fill routing is
-`src/monomorph.rs` `resolve_general_builtin_override`, which consults a user
+`resolve_general_builtin_override` in `src/monomorph/lower.rs`, which consults a user
 override **only** when `builtins::general::resolve_call` rejects the argument
 types, so a user overload can never shadow a type the built-in already handles.
 The reserved check is `reserved_builtin_name` (the set is exactly `{ error }`),
-enforced in `src/resolver.rs` `insert_function`.
+enforced in `insert_function` in `src/resolver/mod.rs`.

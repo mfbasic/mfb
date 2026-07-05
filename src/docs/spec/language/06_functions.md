@@ -14,8 +14,8 @@ END SUB
 
 - **Every function may fail.** `FUNC F(...) AS T` yields a `T` on success and an `Error` on failure. A `SUB` yields nothing on success and may still fail (see §7).
 - **Default args** allowed (trailing). A non-default parameter may not follow a
-  defaulted one (`src/syntaxcheck.rs` rejects it: "Parameter … must have a default
-  because an earlier parameter has one").
+  defaulted one (`ir::verify` rejects it with `TYPE_DEFAULT_ARG_ORDER`:
+  "Parameter … must have a default because an earlier parameter has one").
 - **Parameter-count limit (codegen).** The current aarch64 backend passes
   arguments only in registers `x0`–`x7`, so a callable may take **at most 8
   parameters**; a 9th is rejected at code-plan time ("aarch64 code plan cannot
@@ -41,7 +41,7 @@ END SUB
 - **Parameter passing**: arguments are passed as owned values under the memory model (§14). Copyable values are copied when they remain needed by the caller; movable values are moved when ownership can be transferred. Containers own their contents, so passing a container never passes an aliasable reference.
 - **Resource parameters**: a parameter whose type is a `RESOURCE` is handled by compiler-known resource rules (§15). Ordinary resource operations borrow the handle for the duration of the call; close operations consume it. MFBASIC source does not add `BORROW` or `MOVE` parameter keywords.
 - **Collection boundaries freeze mutable buffers.** When a `MUT` collection is passed to a function or returned from a function, it crosses the boundary as an immutable, owned collection value (§14). The compiler may move or freeze the existing buffer when ownership permits; the semantic guarantee is that no caller and callee can secretly share a mutable collection.
-- **Isolated functions**: an exported top-level `FUNC` may be marked `ISOLATED` to declare that it can run as a thread entry point. `ISOLATED` is invalid on `SUB`, lambdas, closures, and local functions — a non-exported or non-`FUNC` declaration marked `ISOLATED` is rejected ("ISOLATED function … must be an exported FUNC declaration", `src/syntaxcheck.rs` `check_function`). `thread::start` further requires its entry point to be an exported `ISOLATED FUNC` from an *imported* package.
+- **Isolated functions**: an exported top-level `FUNC` may be marked `ISOLATED` to declare that it can run as a thread entry point. `ISOLATED` is invalid on `SUB`, lambdas, closures, and local functions — a non-exported or non-`FUNC` declaration marked `ISOLATED` is rejected ("ISOLATED function … must be an exported FUNC declaration", `check_function` in `src/syntaxcheck/mod.rs`). `thread::start` further requires its entry point to be an exported `ISOLATED FUNC` from an *imported* package.
 - **First-class functions & lambdas**:
 
 ```basic

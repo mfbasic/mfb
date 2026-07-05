@@ -7,7 +7,7 @@ The compiler may choose stack storage, inline storage, heap allocation, or destr
 ## 14.1 Copy, move, and freeze
 
 - **Copy** creates an independent value with no shared mutable state. Mutating the destination cannot affect the source.
-- **Move** transfers ownership from one place to another. After a move, the source binding is uninitialized and any later read, write, capture, comparison, print, return, or drop of that binding is a compile-time use-after-move error. [[src/rules/table.rs:602]]
+- **Move** transfers ownership from one place to another. After a move, the source binding is uninitialized and any later read, write, capture, comparison, print, return, or drop of that binding is a compile-time use-after-move error, enforced on the IR by `ir::verify`'s `check_resource_moves`. [[src/rules/table.rs:576]] [[src/ir/verify/mod.rs:check_resource_moves]]
 - **Freeze** converts a mutable collection buffer into an immutable owned collection value. The frozen value may be read and copied or moved according to its element type, but it cannot be mutated through the old mutable buffer.
 
 Primitives, `String`, enums, `Nothing`, records whose fields are copyable, and unions whose active payload is copyable are copyable. `List` and `Map` are copyable only when their element/key/value types are copyable; copying a collection copies its contents. Functions and lambdas are copyable only when their captured environment is copyable. Threads and resource handles are not copyable. [[src/syntaxcheck/resources.rs:is_copyable_type]]

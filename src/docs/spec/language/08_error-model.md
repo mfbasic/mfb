@@ -128,7 +128,7 @@ Because these names still appear in compiler-internal positions, two resolution 
 1. At most one function-level `TRAP` per function, at the bottom, after normal flow.
 2. The trap payload is always `Error`; written `TRAP(err)` with no type. The same spelling is used for the inline and function-level forms.
 3. The function-level trap block is reachable only via `FAIL` (in the body), an auto-propagated failure from a call, or `FAIL`/`PROPAGATE` inside the trap. It is never reached by fall-through.
-4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error (`TYPE_PROPAGATE_REQUIRES_TRAP`); use `FAIL e` instead. `FAIL`'s operand must be `Error`-typed (`TYPE_FAIL_REQUIRES_ERROR`). [[src/rules/table.rs:344]]
+4. `PROPAGATE` is valid inside a function-level `TRAP` or an inline `TRAP` handler (it refers to the current `err`). Elsewhere it is a compile error (`TYPE_PROPAGATE_REQUIRES_TRAP`); use `FAIL e` instead. `FAIL`'s operand must be `Error`-typed (`TYPE_FAIL_REQUIRES_ERROR`). [[src/rules/table.rs:312]] [[src/rules/table.rs:318]]
 5. With no enclosing `TRAP`, any failure (from `FAIL` or an auto-propagated call) becomes the function's failure to its caller.
 6. Every function-level `TRAP` path must end in `RETURN` (for a `FUNC`), `EXIT SUB` (for a `SUB`), `PROPAGATE`, or `FAIL`. Trap fall-through is a compile error.
 7. Every `FUNC` path must end in `RETURN value` or `FAIL error`. Function fall-through is a compile error.

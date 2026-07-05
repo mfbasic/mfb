@@ -86,7 +86,7 @@ List literals use bare square brackets, such as `[1, 2, 3]`, and are parsed sepa
 
 `WITH value { field := expr, ... }` creates a copy of a record with the named fields replaced. The original value is unchanged.
 
-A record type may not contain itself, directly or transitively, except through a `List`, `Map`, or `UNION`. A field is a mandatory owned value with no null or absent form, so a record whose field cycles back to the same record only through other plain records has no base case and can never be constructed. Such a declaration is rejected with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`: [[src/rules/table.rs:668]]
+A record type may not contain itself, directly or transitively, except through a `List`, `Map`, or `UNION`. A field is a mandatory owned value with no null or absent form, so a record whose field cycles back to the same record only through other plain records has no base case and can never be constructed. Such a declaration is rejected with `TYPE_RECURSIVE_RECORD_REQUIRES_INDIRECTION`: [[src/rules/table.rs:642]]
 
 ```basic
 TYPE Node          ' rejected: `next` always demands another Node
@@ -229,7 +229,7 @@ END TYPE
 
 Both are compiler/runtime-generated **read-only** record shapes. A program may
 read their fields, but may **not** construct them with `[...]`, update them with
-`WITH`, or assign to their fields. [[src/rules/table.rs:512]] User-authored errors are created with the
+`WITH`, or assign to their fields. [[src/rules/table.rs:480]] [[src/rules/table.rs:486]] User-authored errors are created with the
 `error` built-in function:
 
 ```basic
@@ -372,7 +372,7 @@ A `MUT` binding may omit its initializer only when its type has a defined defaul
 
 Defaultability is recursive and finite: nested lists, maps, and records are defaultable only when every transitively referenced element, key, value, and field type is also defaultable, and recursive record cycles (legal only through `List`, `Map`, or `UNION`; see §4.2) do not define a default value. Enums, unions, functions, lambdas, threads, and resource handles do not have default values. A `MUT` binding of one of those types must have an initializer.
 
-The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T` is defaultable when `T` is defaultable; a `Map OF K TO V` is defaultable when both `K` and `V` are defaultable. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. [[src/syntaxcheck/resources.rs:is_defaultable_type_with_seen]]
+The exact defaultability predicate is defined as follows. A type is defaultable when it is one of the scalars `Integer`, `Byte`, `Float`, `Fixed`, `Boolean`, the built-in record shapes `Error` and `ErrorLoc`, `String`, `Nothing`, or `Unknown` (the last is treated as defaultable so a prior type error does not cascade). A `List OF T` is defaultable when `T` is defaultable; a `Map OF K TO V` is defaultable when both `K` and `V` are defaultable. A user record `TYPE` is defaultable when every one of its fields is defaultable. Everything else is **not** defaultable: function/lambda types, the internal fallible-result type, resource-plane types (`RES`), `Thread`, `ThreadWorker`, any `TYPE` wrapped as a resource handle, and any `ENUM` or `UNION`. Defaultability is computed with a recursion guard keyed by type name: when a record type is re-entered while still being evaluated, the re-entered occurrence is treated as non-defaultable, which gives recursive record cycles no base case and therefore no default value. This predicate is enforced on the IR by `ir::verify` (`is_defaultable`). [[src/ir/verify/mod.rs:is_defaultable]]
 
 ## 4.11 Comparable and Orderable Types
 

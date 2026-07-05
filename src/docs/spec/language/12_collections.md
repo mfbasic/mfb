@@ -4,7 +4,7 @@ All access is via free functions — **no indexing brackets, no key brackets**. 
 
 List literals use the declared or otherwise expected `List OF T` element type when one is available; otherwise the element type is inferred from the first item. Every element must be compatible with that element type. This allows annotated lists of union members, such as `LET shapes AS List OF Shape = [Circle[5], Rect[2, 3]]`.
 
-**Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec language type-inference`) for the directional compatibility rule. [[src/syntaxcheck/inference.rs:infer_list_literal]]
+**Bare-literal synthesis is asymmetric.** With no expected `List` type, the element type is taken from the **first** element only; every later element must then be *expression-compatible* with that fixed type. The check is one-directional — there is no join or numeric widening across elements — so element order matters. `[1, 2.0]` infers `List OF Integer` and **rejects** `2.0` (`TYPE_LIST_ELEMENT_MISMATCH`), while `[2.0, 1]` infers `List OF Float` and accepts the `Integer`, because an `Integer` is expression-compatible with `Float` but not the reverse. See type-inference (`./mfb spec language type-inference`) for the directional compatibility rule. Element-type inference direction is computed by `infer_list_literal`, but the mismatch itself is rejected on the IR by `ir::verify`. [[src/syntaxcheck/inference.rs:infer_list_literal]] [[src/ir/verify/mod.rs:1488]]
 
 ```basic
 LET list  = [1, 2, 3]                          ' List OF Integer (literal)
@@ -57,13 +57,12 @@ monomorphization and instantiated like any generic function:
 `collections::zip`, `collections::chunks`, `collections::window`,
 `collections::distinct`, `collections::merge`, `collections::partition`.
 
-Comparability/orderability constraints (`src/syntaxcheck.rs`):
+Comparability/orderability constraints (enforced on the IR by `ir::verify`):
 
 - `collections::contains`, `collections::find`, and `collections::replace`
-  require a **comparable** element type, enforced by
-  `check_general_builtin_comparability`.
+  require a **comparable** element type.
 - A `Map OF K TO V` key type `K` must be comparable, enforced by
-  `require_comparable_type` ("Map key type", `src/syntaxcheck.rs`); a resource
+  `ir::verify`'s `check_map_key_comparable` ("Map key type"); a resource
   handle may never be a `Map` key.
 - A type is comparable when it is `Boolean`, `Byte`, `Error`, `ErrorLoc`,
   `Fixed`, `Float`, `Integer`, `Nothing`, `String`, an `ENUM`, or a `TYPE`
@@ -78,7 +77,7 @@ Comparability/orderability constraints (`src/syntaxcheck.rs`):
 `collections::partition` produces a `Partition OF T`. `Pair OF A, B` (fields
 `first`, `second`) and `Partition OF T` (fields `matched`, `unmatched`) are
 compiler-owned generic record templates in the always-in-scope builtin prelude
-(`src/ast.rs`, `builtin_prelude_file`); they are constructed and field-accessed
+(`builtin_prelude_file`, `src/ast/manifest.rs`); they are constructed and field-accessed
 like ordinary records. `MapEntry OF K TO V` (fields `key`, `value`) is the
 compiler-owned record yielded when iterating a `Map` with `FOR EACH`.
 

@@ -1,6 +1,6 @@
 # Type Inference and Assignability
 
-MFBASIC infers expression types in `src/syntaxcheck.rs`. Inference is **partially
+MFBASIC infers expression types in `src/syntaxcheck/inference.rs`. Inference is **partially
 bidirectional**: a single entry point, `infer_expression_with_expected`, threads
 an optional *expected* (contextual) type down to a few syntactic positions, while
 everything else synthesizes types **bottom-up**. There is no general unification,
