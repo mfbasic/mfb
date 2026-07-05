@@ -73,4 +73,16 @@ mod tests {
         // A plain `__`-prefixed name (as a user would type) is not internal.
         assert_eq!(strip_sigil("__regex_match"), None);
     }
+
+    #[test]
+    fn display_name_restores_double_underscore_only_for_internal_names() {
+        // Sigil form maps back to the readable `__` prefix (owned).
+        let shown = display_name("#json_parse");
+        assert_eq!(shown, "__json_parse");
+        assert!(matches!(shown, std::borrow::Cow::Owned(_)));
+        // Non-internal names pass through unchanged (borrowed, no allocation).
+        let plain = display_name("parse");
+        assert_eq!(plain, "parse");
+        assert!(matches!(plain, std::borrow::Cow::Borrowed(_)));
+    }
 }

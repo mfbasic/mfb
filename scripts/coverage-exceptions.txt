@@ -12,3 +12,11 @@
 #
 # This list is populated as Tier-C/D files are triaged; each entry must name the
 # specific syscall/network/subprocess boundary that blocks unit coverage.
+
+# --- Tier-D CLI / registry orchestration (covered by tests/repo_acceptance.rs) ---
+src/cli/pkg.rs        # publish/add/transfer/check-abi drive a live HTTP registry + on-disk key mutation; pure arg parsing/validation is unit-covered
+src/cli/resolve.rs    # resolve/update/install fetch the registry over HTTP; pure lock read/write/diff + version selection is unit-covered
+src/cli/build.rs      # load_build_signing_info requests attestation from a live registry; build_project spawns the system linker; option parsing is unit-covered
+src/cli/repo.rs       # register/auth/link/trust perform live HTTP + key-store mutation; Usage/arg validation is unit-covered
+src/main.rs           # top-level command dispatch spawns subprocess build/link pipelines (plan-12 target 90%); arg/help/manifest parsing is unit-covered
+src/target.rs         # write_executable/nir/plan/object dispatchers invoke per-OS backends that spawn linkers/codesign over a full IrProject; BuildTarget/NativeBuildMode parsing is unit-covered
