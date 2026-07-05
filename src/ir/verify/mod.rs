@@ -335,6 +335,7 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
         }
     }
     env.check_type_declarations(project);
+    env.check_link_functions(project);
     env.diags.take()
 }
 
@@ -2429,6 +2430,163 @@ impl TypeEnv {
         }
         // Nested collections (`List OF List OF RES File`).
         self.check_collection_res_axis(inner);
+    }
+
+    /// Validate the merged LINK table (typecheck's `check_link_function` on the
+    /// IR): C ABI types may not escape into wrapper signatures, every ABI slot
+    /// must bind to a parameter / CONST pin / the `return` result marker, every
+    /// parameter and CONST pin must name a real slot, and a value-producing
+    /// wrapper needs exactly one result marker. Package-path defense: a crafted
+    /// .mfp's link table drives raw C calls, so these are marshaling-safety
+    /// gates. (Spans are function-level here; typecheck keeps the slot-level
+    /// spans on the source path.)
+    fn check_link_functions(&self, project: &IrProject) {
+        fn is_c_abi_type(t: &str) -> bool {
+            matches!(
+                t,
+                "CPtr" | "CString" | "CInt8" | "CInt16" | "CInt32" | "CInt64" | "CUInt8"
+                    | "CUInt16" | "CUInt32" | "CUInt64" | "CFloat" | "CDouble" | "CVoid"
+            )
+        }
+        self.current_file.replace(String::new());
+        self.current_line.set(0);
+        for function in &project.link_functions {
+            let display = format!("{}::{}", function.alias, function.name);
+            for (pname, ptype) in &function.params {
+                if is_c_abi_type(ptype) {
+                    self.emit(
+                        "NATIVE_CPTR_ESCAPE",
+                        format!(
+                            "Native function `{}` parameter `{pname}` uses C ABI type `{ptype}`; raw C types may appear only in ABI slots.",
+                            function.name
+                        ),
+                    );
+                }
+            }
+            if is_c_abi_type(&function.return_type) {
+                self.emit(
+                    "NATIVE_CPTR_ESCAPE",
+                    format!(
+                        "Native function `{}` returns C ABI type `{}`; raw C types may appear only in ABI slots.",
+                        function.name, function.return_type
+                    ),
+                );
+            }
+            let const_slots: HashSet<&str> =
+                function.consts.iter().map(|(slot, _)| slot.as_str()).collect();
+            let param_names: HashSet<&str> =
+                function.params.iter().map(|(n, _)| n.as_str()).collect();
+            let mut result_markers = 0;
+            for slot in &function.abi_slots {
+                if slot.name == "return" {
+                    result_markers += 1;
+                    if !slot.is_out {
+                        self.emit(
+                            "NATIVE_ABI_RESULT_MARKER",
+                            format!(
+                                "Native function `{}` ABI slot `return` must be marked `OUT`.",
+                                function.name
+                            ),
+                        );
+                    }
+                    continue;
+                }
+                if const_slots.contains(slot.name.as_str()) {
+                    if slot.is_out {
+                        self.emit(
+                            "NATIVE_CONST_OUT",
+                            format!(
+                                "Native function `{}` pins ABI slot `{}` with CONST, which cannot also be OUT.",
+                                function.name, slot.name
+                            ),
+                        );
+                    }
+                    continue;
+                }
+                if slot.is_out {
+                    self.emit(
+                        "NATIVE_ABI_UNBOUND_SLOT",
+                        format!(
+                            "Native function `{}` ABI slot `{}` is OUT but is not the `return` result marker.",
+                            function.name, slot.name
+                        ),
+                    );
+                    continue;
+                }
+                if !param_names.contains(slot.name.as_str()) {
+                    self.emit(
+                        "NATIVE_ABI_UNBOUND_SLOT",
+                        format!(
+                            "Native function `{}` ABI slot `{}` does not bind to a parameter, CONST pin, or the result marker.",
+                            function.name, slot.name
+                        ),
+                    );
+                }
+            }
+            if function.abi_return_name == "return" {
+                result_markers += 1;
+            }
+            let wants_result = function.return_resource || function.return_type != "Nothing";
+            if wants_result && result_markers == 0 && function.result.is_none() {
+                self.emit(
+                    "NATIVE_ABI_NO_RESULT",
+                    format!(
+                        "Native function `{}` returns a value but no ABI slot is marked as the result (`return` or `RESULT`).",
+                        function.name
+                    ),
+                );
+            }
+            if result_markers > 1 {
+                self.emit(
+                    "NATIVE_ABI_RESULT_MARKER",
+                    format!(
+                        "Native function `{}` declares more than one `return` result marker.",
+                        function.name
+                    ),
+                );
+            }
+            let abi_slot_names: HashSet<&str> = function
+                .abi_slots
+                .iter()
+                .map(|slot| slot.name.as_str())
+                .collect();
+            for (pname, _) in &function.params {
+                if !abi_slot_names.contains(pname.as_str()) {
+                    self.emit(
+                        "NATIVE_ABI_UNBOUND_PARAM",
+                        format!(
+                            "Native function `{}` parameter `{pname}` has no matching ABI slot.",
+                            function.name
+                        ),
+                    );
+                }
+            }
+            for (slot, _) in &function.consts {
+                if !abi_slot_names.contains(slot.as_str()) {
+                    self.emit(
+                        "NATIVE_CONST_UNKNOWN_SLOT",
+                        format!(
+                            "Native function `{}` CONST pins unknown ABI slot `{slot}`.",
+                            function.name
+                        ),
+                    );
+                }
+            }
+            // The IR's FREE form keeps only slot+symbol (the deallocator's
+            // signature check stays in typecheck): the symbol must be present.
+            if let Some(free) = &function.free {
+                if free.symbol.is_empty() {
+                    self.emit(
+                        "NATIVE_FREE_INVALID",
+                        format!(
+                            "Native function `{}` has a malformed FREE block: it must release the `return` CPtr produced slot through a deallocator taking one CPtr parameter and returning CVoid.",
+                            function.name
+                        ),
+                    );
+                }
+            }
+            let _ = display;
+        }
     }
 
     /// Whether a type contains a resource or thread handle anywhere (mirrors
