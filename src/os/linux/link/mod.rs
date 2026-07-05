@@ -324,7 +324,6 @@ fn symbol_vmaddr(
     })
 }
 
-
 /// The classic SysV/ELF symbol hash, used for `Vernaux.vna_hash`
 /// (plan-linker.md §6.2).
 fn elf_hash(name: &[u8]) -> u32 {

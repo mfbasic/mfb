@@ -100,7 +100,12 @@ pub(super) fn data_const_segment(
 /// constant data and the main-arena global; initprot/maxprot are RW so the global
 /// can be stored to at runtime. Emitted after `__DATA_CONST` to preserve that
 /// segment's index (`rebase_info` hardcodes it).
-pub(super) fn data_segment(bytes: &mut Vec<u8>, file_offset: usize, seg_size: usize, data_len: usize) {
+pub(super) fn data_segment(
+    bytes: &mut Vec<u8>,
+    file_offset: usize,
+    seg_size: usize,
+    data_len: usize,
+) {
     put_u32(bytes, 0x19);
     put_u32(bytes, 72 + 80);
     fixed_name(bytes, "__DATA");

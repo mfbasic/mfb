@@ -106,7 +106,11 @@ fn assemble_groups(items: Vec<(DocDecl, String, bool)>) -> (Vec<DocGroup>, Vec<D
     let mut public: Vec<DocGroup> = Vec::new();
     let mut internal: Vec<DocGroup> = Vec::new();
     for (decl, title, is_internal) in items {
-        let groups = if is_internal { &mut internal } else { &mut public };
+        let groups = if is_internal {
+            &mut internal
+        } else {
+            &mut public
+        };
         match groups.iter_mut().find(|g| g.title == title) {
             Some(group) => group.decls.push(decl),
             None => groups.push(DocGroup {
@@ -122,7 +126,13 @@ fn assemble_groups(items: Vec<(DocDecl, String, bool)>) -> (Vec<DocGroup>, Vec<D
 fn anchor(name: &str, used: &mut HashSet<String>) -> String {
     let base: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     let mut candidate = base.clone();
     let mut n = 2;
@@ -138,7 +148,11 @@ fn anchor(name: &str, used: &mut HashSet<String>) -> String {
 /// only, plan-09-doc.md §3).
 pub fn from_package(docs: PackageDocs, fallback_name: &str) -> DocPage {
     let (package_name, mut pkg_prose, package_deprecated) = match docs.package {
-        Some(package) => (package.name, prose_from_codes(&package.desc), package.deprecated),
+        Some(package) => (
+            package.name,
+            prose_from_codes(&package.desc),
+            package.deprecated,
+        ),
         None => (fallback_name.to_string(), Vec::new(), None),
     };
     let (subtitle, intro) = split_subtitle(&mut pkg_prose);
@@ -191,7 +205,10 @@ pub fn from_source(ast: &AstProject) -> DocPage {
         for item in &file.items {
             match item {
                 Item::Function(function) => {
-                    funcs.entry(function.name.as_str()).or_default().push(function);
+                    funcs
+                        .entry(function.name.as_str())
+                        .or_default()
+                        .push(function);
                 }
                 Item::Type(type_decl) => {
                     let kind = match type_decl.kind {
@@ -226,20 +243,30 @@ pub fn from_source(ast: &AstProject) -> DocPage {
             };
             if doc.header_kind == DocHeaderKind::Package {
                 if pkg_prose.is_empty() && package_deprecated.is_none() {
-                    pkg_prose = doc.desc.iter().map(|p| Prose { kind: p.kind, text: p.text.clone() }).collect();
+                    pkg_prose = doc
+                        .desc
+                        .iter()
+                        .map(|p| Prose {
+                            kind: p.kind,
+                            text: p.text.clone(),
+                        })
+                        .collect();
                     package_deprecated = doc.deprecated.first().map(|(m, _)| m.clone());
                     let _ = &mut package_name;
                 }
                 continue;
             }
-            let Some((kind_str, signature, exported)) =
-                source_decl_meta(doc, &funcs, &type_meta)
+            let Some((kind_str, signature, exported)) = source_decl_meta(doc, &funcs, &type_meta)
             else {
                 continue;
             };
-            let is_internal = !exported
-                || doc.attrs.iter().any(|a| a.eq_ignore_ascii_case("INTERNAL"));
-            let group = doc.groups.first().map(|(n, _)| n.clone()).unwrap_or_default();
+            let is_internal =
+                !exported || doc.attrs.iter().any(|a| a.eq_ignore_ascii_case("INTERNAL"));
+            let group = doc
+                .groups
+                .first()
+                .map(|(n, _)| n.clone())
+                .unwrap_or_default();
             let title = group_title(kind_str, &group);
             let entry = DocDecl {
                 anchor: anchor(&doc.header_name, &mut used),
@@ -248,12 +275,35 @@ pub fn from_source(ast: &AstProject) -> DocPage {
                 member_label: member_label(kind_str),
                 name: doc.header_name.clone(),
                 signature,
-                desc: doc.desc.iter().map(|p| Prose { kind: p.kind, text: p.text.clone() }).collect(),
-                args: doc.args.iter().map(|a| (a.name.clone(), a.desc.clone())).collect(),
-                props: doc.props.iter().map(|p| (p.name.clone(), p.desc.clone())).collect(),
+                desc: doc
+                    .desc
+                    .iter()
+                    .map(|p| Prose {
+                        kind: p.kind,
+                        text: p.text.clone(),
+                    })
+                    .collect(),
+                args: doc
+                    .args
+                    .iter()
+                    .map(|a| (a.name.clone(), a.desc.clone()))
+                    .collect(),
+                props: doc
+                    .props
+                    .iter()
+                    .map(|p| (p.name.clone(), p.desc.clone()))
+                    .collect(),
                 ret: doc.rets.first().map(|(t, _)| t.clone()).unwrap_or_default(),
-                errors: doc.errors.iter().map(|e| (e.code.clone(), e.desc.clone())).collect(),
-                example: doc.examples.first().map(|(t, _)| t.clone()).unwrap_or_default(),
+                errors: doc
+                    .errors
+                    .iter()
+                    .map(|e| (e.code.clone(), e.desc.clone()))
+                    .collect(),
+                example: doc
+                    .examples
+                    .first()
+                    .map(|(t, _)| t.clone())
+                    .unwrap_or_default(),
                 deprecated: doc.deprecated.first().map(|(m, _)| m.clone()),
             };
             items.push((entry, title, is_internal));
@@ -292,7 +342,11 @@ fn source_decl_meta(
                 None => matching.next()?,
             };
             let kind = if want_sub { "sub" } else { "func" };
-            Some((kind, function.signature_line(), function.visibility == Visibility::Export))
+            Some((
+                kind,
+                function.signature_line(),
+                function.visibility == Visibility::Export,
+            ))
         }
         DocHeaderKind::Type | DocHeaderKind::Union | DocHeaderKind::Enum => {
             let (signature, exported, kind) = type_meta.get(doc.header_name.as_str())?;
@@ -388,11 +442,20 @@ fn render_prose(out: &mut String, prose: &[Prose]) {
     }
 }
 
-fn render_table(out: &mut String, heading: &str, name_col: &str, rows: &[(String, String)], code_col: bool) {
+fn render_table(
+    out: &mut String,
+    heading: &str,
+    name_col: &str,
+    rows: &[(String, String)],
+    code_col: bool,
+) {
     if rows.is_empty() {
         return;
     }
-    out.push_str(&format!("        <h4>{}</h4>\n        <table>\n", escape(heading)));
+    out.push_str(&format!(
+        "        <h4>{}</h4>\n        <table>\n",
+        escape(heading)
+    ));
     out.push_str(&format!(
         "          <tr><th>{}</th><th>Description</th></tr>\n",
         escape(name_col)
@@ -412,9 +475,15 @@ fn render_table(out: &mut String, heading: &str, name_col: &str, rows: &[(String
 }
 
 fn render_decl(out: &mut String, decl: &DocDecl) {
-    out.push_str(&format!("      <section id=\"{}\" class=\"section\">\n", decl.anchor));
+    out.push_str(&format!(
+        "      <section id=\"{}\" class=\"section\">\n",
+        decl.anchor
+    ));
     out.push_str("        <div class=\"section-header\">\n");
-    out.push_str(&format!("          <h3><code>{}</code></h3>\n", escape(&decl.name)));
+    out.push_str(&format!(
+        "          <h3><code>{}</code></h3>\n",
+        escape(&decl.name)
+    ));
     out.push_str(&format!(
         "          <span class=\"badge {}\">{}</span>\n",
         decl.badge_class, decl.kind_label
@@ -448,7 +517,10 @@ fn render_decl(out: &mut String, decl: &DocDecl) {
     render_table(out, "Errors", "Code", &decl.errors, true);
     if !decl.example.is_empty() {
         out.push_str("        <div class=\"example\">\n          <div class=\"example-label\">Example</div>\n");
-        out.push_str(&format!("          <pre><code>{}</code></pre>\n        </div>\n", escape(&decl.example)));
+        out.push_str(&format!(
+            "          <pre><code>{}</code></pre>\n        </div>\n",
+            escape(&decl.example)
+        ));
     }
     out.push_str("      </section>\n");
 }
@@ -487,7 +559,9 @@ pub fn render_html(page: &DocPage) -> String {
     let mut out = String::new();
     out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n");
     out.push_str(&format!("  <title>{name} — Documentation</title>\n"));
-    out.push_str(&format!("  <style>{STYLE}</style>\n</head>\n<body>\n  <div class=\"container\">\n"));
+    out.push_str(&format!(
+        "  <style>{STYLE}</style>\n</head>\n<body>\n  <div class=\"container\">\n"
+    ));
 
     // Sidebar.
     out.push_str("    <nav class=\"sidebar\">\n");
@@ -496,7 +570,9 @@ pub fn render_html(page: &DocPage) -> String {
     ));
     if !page.subtitle.is_empty() || !page.intro.is_empty() {
         out.push_str("      <div class=\"nav-section\">\n        <div class=\"nav-section-title\">Overview</div>\n");
-        out.push_str("        <a href=\"#intro\" class=\"nav-item\">Introduction</a>\n      </div>\n");
+        out.push_str(
+            "        <a href=\"#intro\" class=\"nav-item\">Introduction</a>\n      </div>\n",
+        );
     }
     render_sidebar_groups(&mut out, &page.public);
     if !page.internal.is_empty() {
@@ -555,6 +631,325 @@ pub fn render_empty_html(name: &str) -> String {
         internal: Vec::new(),
     };
     render_html(&page)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::binary_repr::{DeclDocEntry, PackageDocEntry, PackageDocs};
+
+    fn decl(kind: &str, name: &str, group: &str, internal: bool) -> DeclDocEntry {
+        DeclDocEntry {
+            kind: kind.to_string(),
+            name: name.to_string(),
+            signature: format!("FUNC {name}()"),
+            group: group.to_string(),
+            desc: Vec::new(),
+            args: Vec::new(),
+            props: Vec::new(),
+            ret: String::new(),
+            errors: Vec::new(),
+            example: String::new(),
+            internal,
+            deprecated: None,
+        }
+    }
+
+    fn parse(src: &str) -> AstProject {
+        let path = std::path::Path::new("doc_test.mfb");
+        let file = crate::ast::parse_source(path, "doc_test.mfb", src).expect("parse source");
+        AstProject {
+            name: "docpkg".to_string(),
+            files: vec![file],
+        }
+    }
+
+    #[test]
+    fn kind_helpers_cover_every_kind() {
+        assert_eq!(kind_label("sub"), "Subroutine");
+        assert_eq!(kind_label("type"), "Type");
+        assert_eq!(kind_label("union"), "Union");
+        assert_eq!(kind_label("enum"), "Enum");
+        assert_eq!(kind_label("func"), "Function");
+        assert_eq!(badge_class("sub"), "function");
+        assert_eq!(badge_class("type"), "type");
+        assert_eq!(badge_class("union"), "union");
+        assert_eq!(badge_class("enum"), "enum");
+        assert_eq!(badge_class("func"), "function");
+        assert_eq!(member_label("type"), Some("Fields"));
+        assert_eq!(member_label("union"), Some("Variants"));
+        assert_eq!(member_label("enum"), Some("Members"));
+        assert_eq!(member_label("func"), None);
+        assert_eq!(group_title("type", "Ignored"), "Types");
+        assert_eq!(group_title("func", "Utilities"), "Utilities");
+        assert_eq!(group_title("func", ""), "Functions");
+    }
+
+    #[test]
+    fn anchor_deduplicates_and_slugifies() {
+        let mut used = HashSet::new();
+        assert_eq!(anchor("Foo Bar!", &mut used), "foo-bar-");
+        assert_eq!(anchor("Foo Bar!", &mut used), "foo-bar--2");
+        assert_eq!(anchor("Foo Bar!", &mut used), "foo-bar--3");
+    }
+
+    #[test]
+    fn escape_and_inline_handle_all_specials() {
+        assert_eq!(escape("&<>\"x"), "&amp;&lt;&gt;&quot;x");
+        // Balanced code span, then leading/trailing escaped text.
+        assert_eq!(inline("a `b<c` d"), "a <code>b&lt;c</code> d");
+        // Unterminated backtick: literal backtick restored, rest escaped.
+        assert_eq!(inline("open `code"), "open `code");
+    }
+
+    #[test]
+    fn from_package_no_package_uses_fallback_and_empty_render() {
+        let docs = PackageDocs::default();
+        let page = from_package(docs, "fallbackName");
+        assert_eq!(page.package_name, "fallbackName");
+        assert!(page.subtitle.is_empty());
+        assert!(page.intro.is_empty());
+        let html = render_html(&page);
+        assert!(html.contains("No documentation is available."));
+        assert!(html.contains("fallbackName — Documentation"));
+    }
+
+    #[test]
+    fn from_package_full_page_renders_every_element() {
+        let package = PackageDocEntry {
+            name: "mypkg".to_string(),
+            desc: vec![
+                (0, "Subtitle line.".to_string()),
+                (1, "warn body".to_string()),
+                (2, "info body".to_string()),
+                (3, "sec body".to_string()),
+            ],
+            deprecated: Some("use other".to_string()),
+        };
+        let mut func = decl("func", "doThing", "Utilities", false);
+        func.desc = vec![(0, "Does a `thing`.".to_string())];
+        func.args = vec![("x".to_string(), "the x".to_string())];
+        func.ret = "the result".to_string();
+        func.errors = vec![("ErrBad".to_string(), "bad input".to_string())];
+        func.example = "doThing(1)".to_string();
+        func.deprecated = Some("gone soon".to_string());
+
+        let mut ty = decl("type", "Widget", "", false);
+        ty.props = vec![("width".to_string(), "in px".to_string())];
+
+        let mut internal_fn = decl("sub", "helper", "Utilities", true);
+        internal_fn.deprecated = Some(String::new());
+
+        let docs = PackageDocs {
+            package: Some(package),
+            decls: vec![func, ty, internal_fn],
+        };
+        let page = from_package(docs, "ignored");
+        assert_eq!(page.package_name, "mypkg");
+        assert_eq!(page.subtitle, "Subtitle line.");
+        assert_eq!(page.intro.len(), 3);
+        assert_eq!(page.package_deprecated.as_deref(), Some("use other"));
+        // public groups: Utilities (func) + Types (type)
+        assert_eq!(page.public.len(), 2);
+        assert_eq!(page.internal.len(), 1);
+
+        let html = render_html(&page);
+        // Package deprecation callout.
+        assert!(html.contains("Deprecated. use other"));
+        // Callouts of all three kinds.
+        assert!(html.contains("callout warning"));
+        assert!(html.contains("callout info"));
+        assert!(html.contains("callout danger"));
+        // Decl-level deprecation (non-empty and empty).
+        assert!(html.contains("Deprecated. gone soon"));
+        assert!(html.contains("This declaration is deprecated."));
+        // Tables: Parameters, Fields, Errors, Returns, Example, code span.
+        assert!(html.contains("<h4>Parameters</h4>"));
+        assert!(html.contains("<h4>Fields</h4>"));
+        assert!(html.contains("<h4>Errors</h4>"));
+        assert!(html.contains("<h4>Returns</h4>"));
+        assert!(html.contains("class=\"error-code\""));
+        assert!(html.contains("example-label"));
+        assert!(html.contains("<code>thing</code>"));
+        // Internal section header and sidebar Internal group.
+        assert!(html.contains("Internal — not part of the public API"));
+        assert!(html.contains(">Internal<"));
+        assert!(html.contains(">Overview<"));
+    }
+
+    #[test]
+    fn render_empty_html_is_valid() {
+        let html = render_empty_html("bare");
+        assert!(html.contains("bare — Documentation"));
+        assert!(html.contains("No documentation is available."));
+    }
+
+    #[test]
+    fn subtitle_without_intro_still_emits_intro_anchor() {
+        let package = PackageDocEntry {
+            name: "p".to_string(),
+            desc: vec![(0, "Only a subtitle.".to_string())],
+            deprecated: None,
+        };
+        let page = from_package(
+            PackageDocs {
+                package: Some(package),
+                decls: Vec::new(),
+            },
+            "p",
+        );
+        let html = render_html(&page);
+        assert!(html.contains("<section id=\"intro\"></section>"));
+        assert!(html.contains("class=\"subtitle\""));
+    }
+
+    #[test]
+    fn from_source_func_type_union_enum_and_package() {
+        let src = "\
+DOC
+  PACKAGE
+  DESC The package summary.
+  INFO be careful
+END DOC
+DOC
+  FUNC greet
+  DESC Greets someone.
+  ARG who the person
+  RET a greeting
+  ERROR ErrX went wrong
+  GROUP Greetings
+  EXAMPLE
+    greet(\"a\")
+  END EXAMPLE
+END DOC
+EXPORT FUNC greet(who AS String) AS String
+  RETURN who
+END FUNC
+DOC
+  SUB shout
+  DESC Shouts.
+END DOC
+SUB shout(msg AS String)
+  io::print(msg)
+END SUB
+DOC
+  TYPE Point
+  DESC A point.
+  PROP x the x
+END DOC
+EXPORT TYPE Point
+  x AS Integer
+END TYPE
+DOC
+  UNION Shape
+END DOC
+EXPORT UNION Shape
+  Circle
+END UNION
+DOC
+  ENUM Color
+END DOC
+EXPORT ENUM Color
+  Red
+END ENUM
+";
+        let ast = parse(src);
+        let page = from_source(&ast);
+        assert_eq!(page.subtitle, "The package summary.");
+        assert_eq!(page.intro.len(), 1);
+        // greet is exported -> public; shout is not exported -> internal.
+        let public_names: Vec<&str> = page
+            .public
+            .iter()
+            .flat_map(|g| g.decls.iter().map(|d| d.name.as_str()))
+            .collect();
+        assert!(public_names.contains(&"greet"));
+        assert!(public_names.contains(&"Point"));
+        assert!(public_names.contains(&"Shape"));
+        assert!(public_names.contains(&"Color"));
+        let internal_names: Vec<&str> = page
+            .internal
+            .iter()
+            .flat_map(|g| g.decls.iter().map(|d| d.name.as_str()))
+            .collect();
+        assert!(internal_names.contains(&"shout"));
+
+        let html = render_html(&page);
+        assert!(html.contains("greet"));
+        assert!(html.contains("went wrong"));
+    }
+
+    #[test]
+    fn from_source_overload_matched_by_params() {
+        let src = "\
+DOC
+  FUNC f(Integer)
+  DESC The integer overload.
+END DOC
+EXPORT FUNC f(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+EXPORT FUNC f(s AS String) AS String
+  RETURN s
+END FUNC
+";
+        let ast = parse(src);
+        let page = from_source(&ast);
+        // Only one documented decl, and its signature is the Integer overload.
+        let decls: Vec<&DocDecl> = page.public.iter().flat_map(|g| &g.decls).collect();
+        assert_eq!(decls.len(), 1);
+        assert!(decls[0].signature.contains("Integer"));
+    }
+
+    #[test]
+    fn from_source_internal_attribute_and_missing_target() {
+        let src = "\
+DOC INTERNAL
+  FUNC hidden
+  DESC Hidden helper.
+END DOC
+EXPORT FUNC hidden() AS Integer
+  RETURN 0
+END FUNC
+DOC
+  FUNC ghost
+  DESC No such function.
+END DOC
+";
+        let ast = parse(src);
+        let page = from_source(&ast);
+        // hidden is exported but marked INTERNAL -> internal section.
+        let internal_names: Vec<&str> = page
+            .internal
+            .iter()
+            .flat_map(|g| g.decls.iter().map(|d| d.name.as_str()))
+            .collect();
+        assert!(internal_names.contains(&"hidden"));
+        // ghost has no matching declaration -> skipped entirely.
+        let all_names: Vec<&str> = page
+            .public
+            .iter()
+            .chain(page.internal.iter())
+            .flat_map(|g| g.decls.iter().map(|d| d.name.as_str()))
+            .collect();
+        assert!(!all_names.contains(&"ghost"));
+    }
+
+    #[test]
+    fn from_source_package_deprecated_no_prose() {
+        let src = "\
+DOC
+  PACKAGE
+  DEPRECATED do not use
+END DOC
+";
+        let ast = parse(src);
+        let page = from_source(&ast);
+        assert_eq!(page.package_deprecated.as_deref(), Some("do not use"));
+        assert!(page.subtitle.is_empty());
+        let html = render_html(&page);
+        assert!(html.contains("Deprecated. do not use"));
+    }
 }
 
 const STYLE: &str = "\

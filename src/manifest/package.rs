@@ -207,8 +207,7 @@ fn read_mfp_string(
     required: bool,
 ) -> Result<String, String> {
     let raw = read_mfp_bytes(bytes, offset, field, limit)?;
-    let value =
-        String::from_utf8(raw).map_err(|_| format!(".mfp {field} is not valid UTF-8"))?;
+    let value = String::from_utf8(raw).map_err(|_| format!(".mfp {field} is not valid UTF-8"))?;
     if required && value.is_empty() {
         return Err(format!(".mfp {field} must not be empty"));
     }
@@ -621,8 +620,7 @@ pub(crate) fn project_json_with_updated_ident_key(
     };
     let mut cursor = array_start + 1;
     while cursor < array_end {
-        let Some(object_start) = contents[cursor..array_end].find('{').map(|at| cursor + at)
-        else {
+        let Some(object_start) = contents[cursor..array_end].find('{').map(|at| cursor + at) else {
             break;
         };
         let Some(object_end) = matching_json_delimiter(contents, object_start, b'{', b'}') else {
@@ -664,8 +662,7 @@ pub(crate) fn project_json_with_updated_ident_key(
             updated.push_str(&contents[object_start + value_end..]);
         } else {
             // No pin recorded yet: append the field before the closing brace.
-            let before_close = object[..object.len() - 1]
-                .trim_end_matches([' ', '\t', '\r', '\n']);
+            let before_close = object[..object.len() - 1].trim_end_matches([' ', '\t', '\r', '\n']);
             let closing = &object[before_close.len()..];
             updated.push_str(&contents[..object_start]);
             updated.push_str(before_close);

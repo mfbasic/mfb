@@ -134,3 +134,147 @@ pub(crate) fn validate_entry_point(
     );
     Err(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn manifest(kind: &str, entry: Option<&str>) -> HashMap<String, JsonValue> {
+        let mut map = HashMap::new();
+        map.insert("kind".to_string(), JsonValue::String(kind.to_string()));
+        if let Some(entry) = entry {
+            map.insert("entry".to_string(), JsonValue::String(entry.to_string()));
+        }
+        map
+    }
+
+    fn project(src: &str) -> ast::AstProject {
+        let path = std::path::Path::new("main.mfb");
+        let file = ast::parse_source(path, "main.mfb", src).expect("parse source");
+        ast::AstProject {
+            name: "demo".to_string(),
+            files: vec![file],
+        }
+    }
+
+    #[test]
+    fn package_kind_returns_none() {
+        let ast = project("FUNC helper() AS Integer\n  RETURN 0\nEND FUNC\n");
+        let result =
+            validate_entry_point(std::path::Path::new("."), &manifest("package", None), &ast);
+        assert!(matches!(result, Ok(None)));
+    }
+
+    #[test]
+    fn func_entry_returning_integer_accepts_no_args() {
+        let ast = project("FUNC main() AS Integer\n  RETURN 0\nEND FUNC\n");
+        let entry = validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &ast,
+        )
+        .expect("ok")
+        .expect("entry");
+        assert_eq!(entry.name, "main");
+        assert_eq!(entry.returns, "Integer");
+        assert!(!entry.accepts_args);
+    }
+
+    #[test]
+    fn sub_entry_accepts_args_parameter() {
+        let ast = project("SUB main(args AS List OF String)\n  LET n AS Integer = 0\nEND SUB\n");
+        let entry = validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &ast,
+        )
+        .expect("ok")
+        .expect("entry");
+        assert_eq!(entry.returns, "Nothing");
+        assert!(entry.accepts_args);
+    }
+
+    #[test]
+    fn func_entry_not_returning_integer_is_error() {
+        let ast = project("FUNC main() AS String\n  RETURN \"x\"\nEND FUNC\n");
+        assert!(validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &ast
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn wrong_arg_type_is_error() {
+        let ast = project("FUNC main(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n");
+        assert!(validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &ast
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn too_many_params_is_error() {
+        let ast = project(
+            "FUNC main(a AS List OF String, b AS Integer) AS Integer\n  RETURN 0\nEND FUNC\n",
+        );
+        assert!(validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &ast
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn args_default_value_is_error() {
+        let ast =
+            project("FUNC main(args AS List OF String = []) AS Integer\n  RETURN 0\nEND FUNC\n");
+        assert!(validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &ast
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn multiple_entries_is_error() {
+        let ast = project(
+            "FUNC main() AS Integer\n  RETURN 0\nEND FUNC\nFUNC main() AS Integer\n  RETURN 1\nEND FUNC\n",
+        );
+        assert!(validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &ast
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn missing_entry_is_error() {
+        let ast = project("FUNC other() AS Integer\n  RETURN 0\nEND FUNC\n");
+        assert!(validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", None),
+            &ast
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn custom_entry_name_is_honored() {
+        let ast = project("FUNC run() AS Integer\n  RETURN 0\nEND FUNC\n");
+        let entry = validate_entry_point(
+            std::path::Path::new("."),
+            &manifest("executable", Some("run")),
+            &ast,
+        )
+        .expect("ok")
+        .expect("entry");
+        assert_eq!(entry.name, "run");
+    }
+}

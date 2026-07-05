@@ -38,7 +38,6 @@ pub(super) fn constructor_arg_field_type<'a>(
     }
 }
 
-
 pub(super) fn unify_type(
     pattern: &str,
     actual: &str,
@@ -168,7 +167,10 @@ pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String
     Some((name.to_string(), split_top_level_commas(rest)))
 }
 
-pub(super) fn substitute_type_params(type_name: &str, substitutions: &HashMap<String, String>) -> String {
+pub(super) fn substitute_type_params(
+    type_name: &str,
+    substitutions: &HashMap<String, String>,
+) -> String {
     if let Some(value) = substitutions.get(type_name) {
         return value.clone();
     }
@@ -339,7 +341,11 @@ pub(super) fn overload_concrete_name(
 /// The internal overload-map key: `name(param,types) AS ReturnType`. The return
 /// type is part of the key so a return-type overload set (§F.1) maps each member
 /// to its own distinct concrete symbol.
-pub(super) fn overload_key(name: &str, params: &[crate::ast::Param], return_type: Option<&str>) -> String {
+pub(super) fn overload_key(
+    name: &str,
+    params: &[crate::ast::Param],
+    return_type: Option<&str>,
+) -> String {
     let params = params
         .iter()
         .map(|param| {
@@ -400,5 +406,338 @@ pub(super) fn constructor_arg_value(argument: &ConstructorArg) -> &Expression {
     match argument {
         ConstructorArg::Positional(value) => value,
         ConstructorArg::Named { value, .. } => value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ast::{FunctionKind, Param, Visibility};
+
+    fn subs(pairs: &[(&str, &str)]) -> HashMap<String, String> {
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
+    fn param(name: &str, type_name: Option<&str>) -> Param {
+        Param {
+            name: name.to_string(),
+            type_name: type_name.map(str::to_string),
+            resource: false,
+            state_type: None,
+            default: None,
+            line: 1,
+        }
+    }
+
+    fn func(name: &str, params: Vec<Param>, return_type: Option<&str>) -> Function {
+        Function {
+            kind: FunctionKind::Func,
+            visibility: Visibility::Private,
+            isolated: false,
+            name: name.to_string(),
+            template_params: Vec::new(),
+            params,
+            return_type: return_type.map(str::to_string),
+            return_resource: false,
+            return_state_type: None,
+            body: Vec::new(),
+            trap: None,
+            line: 1,
+        }
+    }
+
+    #[test]
+    fn unify_binds_and_checks_template_params() {
+        let params = vec!["T".to_string()];
+        let mut s = HashMap::new();
+        // First occurrence binds T -> Integer.
+        assert!(unify_type("T", "Integer", &params, &mut s));
+        assert_eq!(s.get("T").map(String::as_str), Some("Integer"));
+        // Second occurrence must agree.
+        assert!(unify_type("T", "Integer", &params, &mut s));
+        // Conflicting binding fails.
+        assert!(!unify_type("T", "String", &params, &mut s));
+    }
+
+    #[test]
+    fn unify_recurses_into_all_container_shapes() {
+        let params = vec!["T".to_string(), "U".to_string()];
+        let cases = [
+            ("List OF T", "List OF Integer"),
+            ("Result OF T", "Result OF String"),
+            ("Map OF T TO U", "Map OF String TO Integer"),
+            ("MapEntry OF T TO U", "MapEntry OF String TO Integer"),
+            ("Box OF T", "Box OF Integer"),
+            ("FUNC(T) AS U", "FUNC(Integer) AS String"),
+        ];
+        for (pattern, actual) in cases {
+            let mut s = HashMap::new();
+            assert!(
+                unify_type(pattern, actual, &params, &mut s),
+                "unify {pattern} vs {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn unify_rejects_mismatched_container_shapes() {
+        let params = vec!["T".to_string(), "U".to_string()];
+        let cases = [
+            ("List OF T", "Integer"),
+            ("Result OF T", "Integer"),
+            ("Map OF T TO U", "Integer"),
+            ("Map OF T TO U", "Map OF Integer"),
+            ("MapEntry OF T TO U", "Integer"),
+            ("MapEntry OF T TO U", "MapEntry OF Integer"),
+            ("Box OF T", "Other OF Integer"),
+            ("Box OF T, U", "Box OF Integer"),
+            ("FUNC(T) AS U", "FUNC(Integer, String) AS Integer"),
+            ("FUNC(T) AS U", "Integer"),
+        ];
+        for (pattern, actual) in cases {
+            let mut s = HashMap::new();
+            assert!(
+                !unify_type(pattern, actual, &params, &mut s),
+                "expected mismatch {pattern} vs {actual}"
+            );
+        }
+    }
+
+    #[test]
+    fn unify_treats_unknown_actual_as_wildcard_and_matches_concretes() {
+        let params: Vec<String> = Vec::new();
+        let mut s = HashMap::new();
+        assert!(unify_type("Integer", "Integer", &params, &mut s));
+        assert!(unify_type("Integer", "Unknown", &params, &mut s));
+        assert!(!unify_type("Integer", "String", &params, &mut s));
+    }
+
+    #[test]
+    fn func_type_parts_handles_isolated_and_empty_params() {
+        assert_eq!(
+            func_type_parts("FUNC(Integer, String) AS Boolean"),
+            Some((vec!["Integer", "String"], "Boolean"))
+        );
+        assert_eq!(
+            func_type_parts("ISOLATED FUNC() AS Nothing"),
+            Some((Vec::new(), "Nothing"))
+        );
+        assert_eq!(func_type_parts("Integer"), None);
+        assert_eq!(func_type_parts("FUNC(Integer)"), None);
+    }
+
+    #[test]
+    fn user_template_parts_excludes_builtin_shapes() {
+        assert_eq!(
+            user_template_parts("Pair OF Integer, String"),
+            Some((
+                "Pair".to_string(),
+                vec!["Integer".to_string(), "String".to_string()]
+            ))
+        );
+        for builtin in [
+            "List OF Integer",
+            "Map OF Integer TO String",
+            "MapEntry OF Integer TO String",
+            "Result OF Integer",
+            "Thread OF Integer",
+            "ThreadWorker OF Integer",
+            "FUNC(Integer) AS String",
+            "ISOLATED FUNC() AS Nothing",
+        ] {
+            assert_eq!(user_template_parts(builtin), None, "{builtin}");
+        }
+        assert_eq!(user_template_parts("Integer"), None);
+    }
+
+    #[test]
+    fn substitute_type_params_rewrites_every_shape() {
+        let s = subs(&[("T", "Integer"), ("U", "String")]);
+        assert_eq!(substitute_type_params("T", &s), "Integer");
+        assert_eq!(substitute_type_params("List OF T", &s), "List OF Integer");
+        assert_eq!(
+            substitute_type_params("Result OF T", &s),
+            "Result OF Integer"
+        );
+        assert_eq!(
+            substitute_type_params("Map OF T TO U", &s),
+            "Map OF Integer TO String"
+        );
+        assert_eq!(
+            substitute_type_params("MapEntry OF T TO U", &s),
+            "MapEntry OF Integer TO String"
+        );
+        assert_eq!(
+            substitute_type_params("Pair OF T, U", &s),
+            "Pair OF Integer, String"
+        );
+        // Unknown names pass through unchanged.
+        assert_eq!(substitute_type_params("Boolean", &s), "Boolean");
+        // Malformed Map (no TO) falls through to the identity return.
+        assert_eq!(substitute_type_params("Map OF T", &s), "Map OF T");
+    }
+
+    #[test]
+    fn mangle_and_sanitize_encode_types() {
+        assert_eq!(mangle_name("push", &["Integer".into()]), "push$Integer");
+        assert_eq!(
+            mangle_name("f", &["List OF Integer".into(), "String".into()]),
+            "f$List$OF$Integer$String"
+        );
+        assert_eq!(sanitize_type_name("Map OF K TO V"), "Map$OF$K$TO$V");
+        assert_eq!(sanitize_type_name("plain_1"), "plain_1");
+    }
+
+    #[test]
+    fn overload_concrete_name_encodes_params_and_return() {
+        let f = func("g", vec![param("a", Some("Integer"))], Some("String"));
+        // Neither overloaded nor return-disambiguated: bare name.
+        assert_eq!(overload_concrete_name(&f, false, false), "g");
+        // Overloaded by params only.
+        assert_eq!(overload_concrete_name(&f, true, false), "g$Integer");
+        // Return-disambiguated appends the AS <return> segment.
+        assert_eq!(
+            overload_concrete_name(&f, true, true),
+            "g$Integer$AS$String"
+        );
+        // Missing param/return types fall back to Unknown/Nothing.
+        let bare = func("h", vec![param("a", None)], None);
+        assert_eq!(
+            overload_concrete_name(&bare, true, true),
+            "h$Unknown$AS$Nothing"
+        );
+    }
+
+    #[test]
+    fn overload_key_includes_return_type() {
+        let params = vec![param("a", Some("Integer")), param("b", None)];
+        assert_eq!(
+            overload_key("f", &params, Some("Boolean")),
+            "f(Integer,Unknown) AS Boolean"
+        );
+        assert_eq!(overload_key("f", &[], None), "f() AS Nothing");
+    }
+
+    #[test]
+    fn param_types_eq_and_params_match() {
+        let a = func("f", vec![param("x", Some("Integer"))], None);
+        let b = func("f", vec![param("y", Some("Integer"))], Some("String"));
+        let c = func("f", vec![param("z", Some("String"))], None);
+        assert!(param_types_eq(&a, &b));
+        assert!(!param_types_eq(&a, &c));
+        assert!(params_match(&a, &["Integer".to_string()]));
+        assert!(!params_match(&a, &["String".to_string()]));
+        assert!(!params_match(&a, &[]));
+    }
+
+    #[test]
+    fn arg_slot_expected_only_for_call_arguments() {
+        use crate::ast::Expression;
+        let params = [param("a", Some("Integer"))];
+        let call = Expression::Call {
+            callee: "f".to_string(),
+            arguments: Vec::new(),
+            line: 1,
+            column: 1,
+        };
+        assert_eq!(
+            arg_slot_expected(&call, Some(&params), |p| p.first()),
+            Some("Integer")
+        );
+        // Non-call arguments get no contextual type.
+        let lit = Expression::Number("1".to_string());
+        assert_eq!(arg_slot_expected(&lit, Some(&params), |p| p.first()), None);
+        // No params available.
+        assert_eq!(arg_slot_expected(&call, None, |p| p.first()), None);
+    }
+
+    #[test]
+    fn constructor_arg_field_type_positional_and_named() {
+        use crate::ast::Expression;
+        let fields = [
+            TypeField {
+                visibility: None,
+                name: "x".to_string(),
+                type_name: "Integer".to_string(),
+                line: 1,
+            },
+            TypeField {
+                visibility: None,
+                name: "y".to_string(),
+                type_name: "String".to_string(),
+                line: 1,
+            },
+        ];
+        let pos = ConstructorArg::Positional(Expression::Number("1".to_string()));
+        assert_eq!(
+            constructor_arg_field_type(&pos, 1, Some(&fields)),
+            Some("String")
+        );
+        let named = ConstructorArg::Named {
+            name: "x".to_string(),
+            value: Expression::Number("1".to_string()),
+            line: 1,
+        };
+        assert_eq!(
+            constructor_arg_field_type(&named, 0, Some(&fields)),
+            Some("Integer")
+        );
+        // No fields known.
+        assert_eq!(constructor_arg_field_type(&pos, 0, None), None);
+    }
+
+    #[test]
+    fn arg_and_constructor_value_accessors() {
+        use crate::ast::Expression;
+        let pos = CallArg::Positional(Expression::Number("1".to_string()));
+        let named = CallArg::Named {
+            name: "a".to_string(),
+            value: Expression::Number("2".to_string()),
+            line: 1,
+        };
+        assert!(matches!(call_arg_value(&pos), Expression::Number(n) if n == "1"));
+        assert!(matches!(call_arg_value(&named), Expression::Number(n) if n == "2"));
+        let cpos = ConstructorArg::Positional(Expression::Number("3".to_string()));
+        let cnamed = ConstructorArg::Named {
+            name: "a".to_string(),
+            value: Expression::Number("4".to_string()),
+            line: 1,
+        };
+        assert!(matches!(constructor_arg_value(&cpos), Expression::Number(n) if n == "3"));
+        assert!(matches!(constructor_arg_value(&cnamed), Expression::Number(n) if n == "4"));
+    }
+
+    #[test]
+    fn numeric_result_and_loop_promotion() {
+        assert_eq!(
+            numeric_binary_result_type("+", "Integer", "Integer"),
+            "Integer"
+        );
+        assert_eq!(numeric_binary_result_type("+", "Integer", "Float"), "Float");
+        // A Float bound anywhere in a FOR loop promotes the counter type.
+        assert_eq!(
+            promote_loop_numeric_type_name("Integer", "Float", "Integer"),
+            "Float"
+        );
+        assert_eq!(
+            promote_loop_numeric_type_name("Integer", "Integer", "Integer"),
+            "Integer"
+        );
+    }
+
+    #[test]
+    fn split_helpers() {
+        assert_eq!(
+            split_top_level_to("Integer TO String"),
+            Some(("Integer".to_string(), "String".to_string()))
+        );
+        assert_eq!(split_top_level_to("Integer"), None);
+        assert_eq!(
+            split_top_level_commas("Integer, String"),
+            vec!["Integer".to_string(), "String".to_string()]
+        );
     }
 }

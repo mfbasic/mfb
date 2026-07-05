@@ -351,9 +351,7 @@ pub(crate) fn entry_point(manifest: &HashMap<String, JsonValue>) -> &str {
         .unwrap_or("main")
 }
 
-pub(crate) fn validate_packages_array(
-    manifest: &HashMap<String, JsonValue>,
-) -> Result<(), String> {
+pub(crate) fn validate_packages_array(manifest: &HashMap<String, JsonValue>) -> Result<(), String> {
     if manifest
         .get("packages")
         .is_some_and(|value| value.get::<Vec<JsonValue>>().is_none())
@@ -379,5 +377,182 @@ pub(crate) fn fallback_field_position(contents: &str) -> (usize, usize) {
         (1, 1)
     } else {
         (contents.lines().count().max(1), 1)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+    use tempfile::TempDir;
+
+    fn write_manifest(contents: &str) -> (TempDir, std::path::PathBuf) {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("project.json");
+        let mut file = fs::File::create(&path).unwrap();
+        file.write_all(contents.as_bytes()).unwrap();
+        (dir, path)
+    }
+
+    const VALID: &str = "{\n  \"name\": \"demo\",\n  \"version\": \"1.0.0\",\n  \"mfb\": \"1.0\",\n  \"kind\": \"executable\",\n  \"entry\": \"main\",\n  \"author\": \"me\",\n  \"url\": \"https://x\",\n  \"sources\": [ { \"root\": \"src\", \"include\": [\"*.mfb\"], \"exclude\": [\"skip.mfb\"] } ]\n}\n";
+
+    #[test]
+    fn valid_manifest_parses() {
+        let (_dir, path) = write_manifest(VALID);
+        let manifest = validate_project_manifest(&path).expect("valid");
+        assert_eq!(project_kind(&manifest), "executable");
+        assert_eq!(entry_point(&manifest), "main");
+        validate_packages_array(&manifest).expect("no packages ok");
+    }
+
+    #[test]
+    fn missing_file_is_error() {
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("nope.json");
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn unparseable_json_is_error() {
+        let (_dir, path) = write_manifest("{ not json");
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn non_object_root_is_error() {
+        let (_dir, path) = write_manifest("[1, 2, 3]");
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn missing_required_field_is_error() {
+        let (_dir, path) =
+            write_manifest("{\n  \"version\": \"1.0\",\n  \"mfb\": \"1.0\",\n  \"kind\": \"package\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}");
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn wrong_type_field_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": 5,\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn empty_string_field_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"   \",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn optional_field_wrong_type_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\",\n  \"entry\": 3,\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn sources_missing_is_error() {
+        let (_dir, path) =
+            write_manifest("{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\"\n}");
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn sources_wrong_type_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\",\n  \"sources\": \"src\"\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn sources_empty_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\",\n  \"sources\": []\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn source_entry_not_object_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\",\n  \"sources\": [ \"oops\" ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn source_pattern_wrong_type_is_error() {
+        // include is not an array.
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\",\n  \"sources\": [ { \"root\": \"src\", \"include\": \"x\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn source_pattern_non_string_element_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"package\",\n  \"sources\": [ { \"root\": \"src\", \"exclude\": [1] } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn kind_missing_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn kind_wrong_type_is_error() {
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": 7,\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_err());
+    }
+
+    #[test]
+    fn unknown_kind_still_validates_ok() {
+        // An unknown kind only warns; validation succeeds.
+        let (_dir, path) = write_manifest(
+            "{\n  \"name\": \"n\",\n  \"version\": \"1\",\n  \"mfb\": \"1\",\n  \"kind\": \"library\",\n  \"sources\": [ { \"root\": \"src\" } ]\n}",
+        );
+        assert!(validate_project_manifest(&path).is_ok());
+    }
+
+    #[test]
+    fn entry_point_defaults_to_main() {
+        let manifest =
+            parse_project_json("{ \"kind\": \"executable\" }", Path::new("project.json")).unwrap();
+        assert_eq!(entry_point(&manifest), "main");
+    }
+
+    #[test]
+    fn packages_array_wrong_type_is_error() {
+        let manifest =
+            parse_project_json("{ \"packages\": \"x\" }", Path::new("project.json")).unwrap();
+        assert!(validate_packages_array(&manifest).is_err());
+    }
+
+    #[test]
+    fn parse_project_json_rejects_non_object() {
+        assert!(parse_project_json("[]", Path::new("project.json")).is_err());
+        assert!(parse_project_json("{ broken", Path::new("project.json")).is_err());
+    }
+
+    #[test]
+    fn field_position_finds_and_falls_back() {
+        let contents = "{\n  \"name\": \"x\"\n}";
+        assert_eq!(field_position(contents, "name"), (2, 3));
+        assert_eq!(field_position(contents, "absent"), (3, 1));
+        assert_eq!(fallback_field_position(""), (1, 1));
     }
 }

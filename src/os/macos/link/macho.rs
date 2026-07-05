@@ -1,5 +1,5 @@
-use super::*;
 use super::commands::*;
+use super::*;
 
 pub(super) fn encode_mach_o(
     name: &str,

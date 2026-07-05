@@ -603,7 +603,6 @@ impl DynamicPayload {
     }
 }
 
-
 pub(super) fn dynamic_prefix_size(image: &EncodedImage, text_len_with_stubs: usize) -> usize {
     let mut libraries = Vec::<&str>::new();
     for import in &image.imports {
