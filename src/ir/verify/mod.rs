@@ -107,6 +107,8 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_REQUIRES_COMPARABLE",
     "TYPE_MATCH_NOT_EXHAUSTIVE",
     "TYPE_USE_AFTER_MOVE",
+    "TYPE_UNKNOWN_ENUM_MEMBER",
+    "SYMBOL_NOT_CALLABLE",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -1197,6 +1199,22 @@ impl TypeEnv {
         member: &str,
         locals: &HashMap<String, String>,
     ) {
+        // `Enum.Member` selection: the target is the bare enum TYPE name (no
+        // local shadows it), so the member must be one of the enum's declared
+        // members — typecheck's TYPE_UNKNOWN_ENUM_MEMBER.
+        if let IrValue::Local(name) = target {
+            if !locals.contains_key(name) {
+                if let Some(members) = self.enums.get(name) {
+                    if !members.contains(member) {
+                        self.emit(
+                            "TYPE_UNKNOWN_ENUM_MEMBER",
+                            format!("ENUM `{name}` has no member `{member}`."),
+                        );
+                    }
+                    return;
+                }
+            }
+        }
         let Some(type_name) = self.infer_type(target, locals) else {
             return;
         };
@@ -1988,9 +2006,26 @@ impl TypeEnv {
     /// runtime helpers, imports and indirect (function-typed local) calls are
     /// skipped.
     fn check_call_arity(&self, target: &str, argc: usize, locals: &HashMap<String, String>) {
-        if locals.contains_key(target) {
-            // A local of function type — an indirect call; its arity is the
-            // function type's, not a named signature.
+        // Calling something that is not a function — typecheck's
+        // SYMBOL_NOT_CALLABLE: a package constant (`math.pi()`), or a local
+        // binding/parameter of a known non-function type.
+        if builtins::is_package_constant(target) {
+            self.emit(
+                "SYMBOL_NOT_CALLABLE",
+                format!("Package constant `{target}` is not callable."),
+            );
+            return;
+        }
+        if let Some(t) = locals.get(target) {
+            // A local of FUNC type is an indirect call; its arity is the
+            // function type's, not a named signature. Any other *known* local
+            // type is not callable at all.
+            if !t.is_empty() && t != "Unknown" && !t.starts_with("FUNC") {
+                self.emit(
+                    "SYMBOL_NOT_CALLABLE",
+                    format!("Local binding or parameter `{target}` is not callable."),
+                );
+            }
             return;
         }
         let Some(sig) = self.functions.get(target) else {

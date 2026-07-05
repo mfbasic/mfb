@@ -1,0 +1,14 @@
+ENUM Color
+  Red
+  Green
+END ENUM
+
+FUNC main AS Integer
+  LET tint = Color.Purple
+  MATCH tint
+    CASE Color.Red
+      RETURN 1
+    CASE ELSE
+      RETURN 0
+  END MATCH
+END FUNC
