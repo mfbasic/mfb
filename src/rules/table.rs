@@ -951,6 +951,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "unsigned package from a non-local source requires --unsigned",
     },
     Rule {
+        code: "6-605-0008",
+        name: "PACKAGE_IDENT_REANCHORED",
+        severity: Severity::Error,
+        message: "owner ident changed with no chain link from the pinned key; verify out-of-band",
+    },
+    Rule {
         code: "3-304-0002",
         name: "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",
         severity: Severity::Error,

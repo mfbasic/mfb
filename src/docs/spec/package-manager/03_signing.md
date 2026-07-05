@@ -87,6 +87,8 @@ The domain prefix plus the embedded role-specific separator prevent a signature 
 | --- | --- | --- |
 | `mfb-repo-register-v1\0` | auth / ident key | registration proof-of-possession (role inside the bytes) |
 | `mfb-repo-auth-v1\0` | auth key | login challenge |
+| `mfb-repo-revoke-v1\0` | ident key | auth-key revocation (challenge + fingerprint) |
+| `mfb-repo-ident-rotate-v1\0` | OLD ident key | the rotation chain link naming the successor |
 | `MFP-PROOF-v1\0` | ident key | the build proof JSON |
 | `MFP-ATTEST-v1\0` | server key | the attestation JSON |
 | `MFP-PACKAGE-v2\0` | one-off signing key | `SHA-256(header signed prefix)` — see container-format |

@@ -87,6 +87,40 @@ pub(crate) fn run_repo_command(args: &[String]) -> Result<(), RepoCommandError> 
     }
 }
 
+/// `mfb key rotate <owner>` — rotate the account ident (plan-23-B2): the new
+/// ident is chained to the old by an old-ident signature, consumers follow
+/// the chain, and other linked machines must re-link (the new private key is
+/// never distributed automatically — rotations happen because a machine was
+/// lost).
+pub(crate) fn run_key_command(args: &[String]) -> Result<(), RepoCommandError> {
+    match args {
+        [command, owner] if command == "rotate" => {
+            let repo_url = mfb_repository::client::repo_url_from_env();
+            let paths =
+                super::local_paths_for_repo(&repo_url).map_err(RepoCommandError::Failed)?;
+            let response = mfb_repository::client::rotate_ident(&repo_url, &paths, owner)
+                .map_err(RepoCommandError::Failed)?;
+            println!(
+                "Rotated ident for owner {}; new ident fingerprint {}",
+                response.owner, response.ident_fingerprint
+            );
+            println!(
+                "Other linked machines still hold the OLD ident key; run `mfb repo link` from this machine to re-link them."
+            );
+            Ok(())
+        }
+        [command, ..] if command == "rotate" => Err(RepoCommandError::Usage(
+            "mfb key rotate requires exactly one <owner_name>".to_string(),
+        )),
+        [command, ..] => Err(RepoCommandError::Usage(format!(
+            "unknown mfb key command '{command}'"
+        ))),
+        [] => Err(RepoCommandError::Usage(
+            "mfb key requires a subcommand (rotate)".to_string(),
+        )),
+    }
+}
+
 /// `mfb machine revoke <owner> <auth-fingerprint>` — revoke a lost machine's
 /// auth key (plan-23 §3.6). Requires the ident key on this machine.
 pub(crate) fn run_machine_command(args: &[String]) -> Result<(), RepoCommandError> {

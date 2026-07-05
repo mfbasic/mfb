@@ -59,6 +59,8 @@ in any response.[[repository/src/main.rs:parse_args]][[repository/src/server.rs:
 | `/auth/challenge` | POST | fingerprint match | `ChallengeRequest` | `ChallengeResponse` | `repo auth` (step 1) |
 | `/auth/login` | POST | challenge signature | `LoginRequest` | `LoginResponse` | `repo auth` (step 2) |
 | `/signing` | POST | session token | `SigningRequest` | `SigningResponse` | `build --sign` |
+| `/keys/rotate` | POST | session + old-ident signature | `RotateRequest` | `RotateResponse` | `key rotate` |
+| `/idents/<owner>` | GET | none | — | `IdentChainResponse` | pin-follow (`pkg verify`) |
 | `/machines/link` | POST | session token | `LinkStartRequest` | `LinkStartResponse` | `repo link --start` |
 | `/machines/link/fetch` | POST | pairing code + proof | `LinkFetchRequest` | `LinkFetchResponse` | `repo link` |
 | `/machines/revoke/challenge` | POST | none (challenge issuance) | `RevokeChallengeRequest` | `ChallengeResponse` | `machine revoke` (step 1) |
@@ -271,6 +273,84 @@ The client verifies the returned signature against its pinned `server.pub`
 before using the attestation, and refuses an attestation that does not pin the
 requested package or that names a different ident key than the machine
 holds.[[repository/src/client.rs:request_attestation]][[src/cli/build.rs:load_build_signing_info]]
+
+## Ident Rotation — `/keys/rotate` + `GET /idents/<owner>`
+
+Backs `mfb key rotate <owner>` (plan-23-B2, lost/stolen machine: the thief
+holds a copy of the ident key, so revoke the machine's auth key **and**
+rotate the ident). The new ident is chained to the old by an **old-ident
+signature** over the rotation message, so consumers can follow the succession
+without trusting the server:
+
+```text
+"mfb-repo-ident-rotate-v1\0" || owner || "\0" || oldFingerprint || "\0" || newPublicKey
+```
+
+[[repository/src/crypto.rs:ident_rotation_message]]
+
+Request `RotateRequest` (session-authenticated — a rotation needs both the
+old ident key and a live session):[[repository/src/server.rs:rotate_ident]]
+
+```json
+{
+  "owner": "alice",
+  "newIdentKey": "<base64url new ident public key>",
+  "chainSignature": "<base64url OLD-ident signature over the rotation message>",
+  "possessionProof": "<base64url NEW-ident registration proof (role ident)>",
+  "sessionToken": "<JWT>"
+}
+```
+
+The server verifies the chain signature under the **current** ident key and
+the possession proof under the new key, marks the old ident `past`, inserts
+the new ident as `current`, and records the signed chain link. Response:
+`{"owner", "identFingerprint"}` (the new fingerprint). Subsequent
+attestations name the new ident; an attestation issued before the rotation
+names a `past` ident and is refused at publish (§3.4 step 5) — the client
+refetches and rebuilds.[[repository/src/store.rs:rotate_ident]]
+
+The client installs the new ident keypair locally on success. Other linked
+machines still hold the old (now `past`) private key and must **re-link**
+(`repo link`) — the new private key is never distributed automatically,
+because rotations happen precisely when a machine holding the old key is no
+longer trusted.[[repository/src/client.rs:rotate_ident]]
+
+`GET /idents/<owner>` serves the current binding plus the chain, oldest link
+first:[[repository/src/server.rs:ident_chain]]
+
+```json
+{
+  "owner": "alice",
+  "identKey": "<base64url current ident public key>",
+  "identFingerprint": "<hex>",
+  "chain": [
+    { "oldKey": "<base64url>", "newKey": "<base64url>",
+      "signature": "<base64url old-key signature>", "issued": <unix> }
+  ]
+}
+```
+
+Consumer pin-follow (`mfb pkg verify`): when an installed package names an
+ident that differs from the pinned one, the client fetches the chain,
+verifies every link signature locally, and — only if the pinned key chains to
+the package's key — rewrites the `project.json` pin with a notice
+(`notice: owner <o> rotated their ident; updated the pinned identKey ...`).
+Packages published under the old ident still verify against the old pin
+offline (proofs and attestations are statements of fact at `issued`). An
+ident change with **no chain link** from the pin is the re-anchor (or
+impersonation) case: a hard `PACKAGE_IDENT_REANCHORED` error telling the user
+to verify out-of-band; the pin is never updated
+silently.[[src/cli/pkg.rs:follow_rotated_pin]][[repository/src/client.rs:follow_ident_chain]]
+
+### Re-anchor ceremony (operator action)
+
+Total ident loss (all machines + backups) is survivable but deliberately not
+painless: the registry **operator** — after out-of-band verification — binds
+the name to a fresh ident with **no chain link**, using the server binary
+directly (`mfb-repo reanchor --dbpath <db> --datapath <data> --owner <owner>
+--ident-key <base64url>`); there is intentionally no HTTP route. Consumers
+holding the old pin fail hard with the re-anchor warning above until they
+re-verify and re-add.[[repository/src/store.rs:reanchor_ident]][[repository/src/main.rs:parse_reanchor_args]]
 
 ## Machine Link — `/machines/link` + `/machines/link/fetch`
 

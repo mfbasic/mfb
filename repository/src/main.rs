@@ -5,11 +5,61 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process;
 
-const USAGE: &str = "Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>]";
+const USAGE: &str = "\
+Usage: mfb-repo --dbpath <db_path> --datapath <data_path> [--listen <addr:port>]
+       mfb-repo reanchor --dbpath <db_path> --datapath <data_path> --owner <owner> --ident-key <base64url>
+
+`reanchor` is the registry-operator ceremony for a totally lost ident
+(plan-23 §3.6): after out-of-band verification it binds <owner> to the given
+fresh ident public key with NO chain link. Clients holding the old pin fail
+hard with a re-anchor warning instead of silently following.";
 
 #[tokio::main]
 async fn main() {
-    let options = match parse_args(env::args().skip(1).collect()) {
+    let mut args: Vec<String> = env::args().skip(1).collect();
+
+    // Operator subcommand: re-anchor an owner's ident (no server needed).
+    if args.first().map(String::as_str) == Some("reanchor") {
+        args.remove(0);
+        match parse_reanchor_args(args) {
+            Ok((dbpath, datapath, owner, ident_key)) => {
+                let opened = match Store::open_repository(&dbpath, &datapath) {
+                    Ok(opened) => opened,
+                    Err(err) => {
+                        eprintln!("error: {err}");
+                        process::exit(1);
+                    }
+                };
+                let public = match mfb_repository::crypto::decode_bytes(&ident_key, "identKey") {
+                    Ok(public) => public,
+                    Err(err) => {
+                        eprintln!("error: {err}");
+                        process::exit(2);
+                    }
+                };
+                match opened.store.reanchor_ident(&owner, &public) {
+                    Ok(key) => {
+                        println!(
+                            "Re-anchored owner {owner} to ident fingerprint {} (no chain link).",
+                            key.fingerprint
+                        );
+                        println!("Consumers holding the old pin will fail hard until they re-verify out-of-band.");
+                    }
+                    Err(err) => {
+                        eprintln!("error: {err}");
+                        process::exit(1);
+                    }
+                }
+                return;
+            }
+            Err(err) => {
+                eprintln!("error: {err}\n\n{USAGE}");
+                process::exit(2);
+            }
+        }
+    }
+
+    let options = match parse_args(args) {
         Ok(options) => options,
         Err(err) => {
             eprintln!("error: {err}\n\n{USAGE}");
@@ -29,6 +79,31 @@ async fn main() {
         eprintln!("error: {err}");
         process::exit(1);
     }
+}
+
+fn parse_reanchor_args(
+    args: Vec<String>,
+) -> Result<(PathBuf, PathBuf, String, String), String> {
+    let mut dbpath = None;
+    let mut datapath = None;
+    let mut owner = None;
+    let mut ident_key = None;
+    let mut iter = args.into_iter();
+    while let Some(arg) = iter.next() {
+        match arg.as_str() {
+            "--dbpath" => dbpath = Some(PathBuf::from(iter.next().ok_or("--dbpath requires <db_path>")?)),
+            "--datapath" => datapath = Some(PathBuf::from(iter.next().ok_or("--datapath requires <data_path>")?)),
+            "--owner" => owner = Some(iter.next().ok_or("--owner requires <owner>")?),
+            "--ident-key" => ident_key = Some(iter.next().ok_or("--ident-key requires <base64url>")?),
+            _ => return Err(format!("unknown option '{arg}'")),
+        }
+    }
+    Ok((
+        dbpath.ok_or("--dbpath is required")?,
+        datapath.ok_or("--datapath is required")?,
+        owner.ok_or("--owner is required")?,
+        ident_key.ok_or("--ident-key is required")?,
+    ))
 }
 
 struct Options {

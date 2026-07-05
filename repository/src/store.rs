@@ -159,6 +159,15 @@ impl Store {
                 created_at INTEGER NOT NULL
             );
 
+            CREATE TABLE IF NOT EXISTS ident_chain (
+                id INTEGER PRIMARY KEY,
+                owner_id INTEGER NOT NULL REFERENCES owners(id),
+                old_key_id INTEGER NOT NULL REFERENCES keys(id),
+                new_key_id INTEGER NOT NULL REFERENCES keys(id),
+                signature BLOB NOT NULL,
+                created_at INTEGER NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS pairing_blobs (
                 id INTEGER PRIMARY KEY,
                 owner_id INTEGER NOT NULL REFERENCES owners(id),
@@ -547,6 +556,139 @@ impl Store {
                 fingerprint,
             },
         ))
+    }
+
+    /// Rotate the account ident (plan-23-B2): the OLD ident signs the chain
+    /// link naming its successor, and the NEW ident proves possession with a
+    /// role-separated registration proof. The old key becomes `past` and the
+    /// signed link is recorded so consumers can follow the chain.
+    pub fn rotate_ident(
+        &self,
+        owner: &str,
+        new_public: &[u8],
+        chain_signature: &[u8],
+        possession_proof: &[u8],
+    ) -> Result<(OwnerRecord, KeyRecord), String> {
+        validate_owner_name(owner)?;
+        let Some((owner, old_key)) = self.owner_with_ident_key(owner)? else {
+            return Err("unknown owner".to_string());
+        };
+        let chain_message = crypto::ident_rotation_message(
+            &owner.owner_display,
+            &old_key.fingerprint,
+            new_public,
+        );
+        crypto::verify(&old_key.public_key, &chain_message, chain_signature)
+            .map_err(|_| "invalid ident chain signature".to_string())?;
+        let possession_message =
+            crypto::registration_message(crypto::ROLE_IDENT, &owner.owner_display, new_public);
+        crypto::verify(new_public, &possession_message, possession_proof)
+            .map_err(|_| "invalid ident proof-of-possession signature".to_string())?;
+
+        let fingerprint = crypto::fingerprint(new_public);
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start rotation transaction: {err}"))?;
+        tx.execute(
+            "UPDATE keys SET status = 'past', revoked_at = ?1 WHERE id = ?2",
+            params![now, old_key.id],
+        )
+        .map_err(|err| format!("failed to retire ident key: {err}"))?;
+        tx.execute(
+            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
+             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
+            params![owner.id, new_public, fingerprint, now],
+        )
+        .map_err(|err| format!("failed to register rotated ident key: {err}"))?;
+        let new_key_id = tx.last_insert_rowid();
+        tx.execute(
+            "INSERT INTO ident_chain (owner_id, old_key_id, new_key_id, signature, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![owner.id, old_key.id, new_key_id, chain_signature, now],
+        )
+        .map_err(|err| format!("failed to record ident chain link: {err}"))?;
+        tx.commit()
+            .map_err(|err| format!("failed to commit ident rotation: {err}"))?;
+        Ok((
+            owner,
+            KeyRecord {
+                id: new_key_id,
+                public_key: new_public.to_vec(),
+                fingerprint,
+            },
+        ))
+    }
+
+    /// Re-anchor ceremony (plan-23 §3.6, total ident loss): a registry
+    /// OPERATOR action, deliberately not an HTTP route — it runs against the
+    /// database after out-of-band verification. Binds the name to a fresh
+    /// ident with **no chain link**, so clients holding the old pin fail
+    /// hard instead of silently following.
+    pub fn reanchor_ident(&self, owner: &str, new_public: &[u8]) -> Result<KeyRecord, String> {
+        validate_owner_name(owner)?;
+        let Some((owner, old_key)) = self.owner_with_ident_key(owner)? else {
+            return Err("unknown owner".to_string());
+        };
+        if new_public.len() != crypto::PUBLIC_KEY_LEN {
+            return Err("malformed ident public key".to_string());
+        }
+        let fingerprint = crypto::fingerprint(new_public);
+        let now = now_unix();
+        let mut conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to start re-anchor transaction: {err}"))?;
+        tx.execute(
+            "UPDATE keys SET status = 'past', revoked_at = ?1 WHERE id = ?2",
+            params![now, old_key.id],
+        )
+        .map_err(|err| format!("failed to retire ident key: {err}"))?;
+        tx.execute(
+            "INSERT INTO keys (owner_id, role, public_key, fingerprint, status, created_at, revoked_at)
+             VALUES (?1, 'ident', ?2, ?3, 'current', ?4, NULL)",
+            params![owner.id, new_public, fingerprint, now],
+        )
+        .map_err(|err| format!("failed to register re-anchored ident key: {err}"))?;
+        let key_id = tx.last_insert_rowid();
+        tx.commit()
+            .map_err(|err| format!("failed to commit re-anchor: {err}"))?;
+        Ok(KeyRecord {
+            id: key_id,
+            public_key: new_public.to_vec(),
+            fingerprint,
+        })
+    }
+
+    /// The owner's ident chain, oldest link first: each entry carries the
+    /// old/new public keys and the old key's signature over the rotation
+    /// message. An empty chain plus a current key that differs from a
+    /// consumer's pin means the ident was re-anchored.
+    pub fn ident_chain(&self, owner: &str) -> Result<Vec<(Vec<u8>, Vec<u8>, Vec<u8>, i64)>, String> {
+        let folded = fold_owner(owner);
+        let conn = self.conn.lock().map_err(|_| "database lock poisoned".to_string())?;
+        let mut statement = conn
+            .prepare(
+                "SELECT old_keys.public_key, new_keys.public_key, c.signature, c.created_at
+                 FROM ident_chain c
+                 JOIN owners o ON o.id = c.owner_id
+                 JOIN keys old_keys ON old_keys.id = c.old_key_id
+                 JOIN keys new_keys ON new_keys.id = c.new_key_id
+                 WHERE o.owner_folded = ?1 AND o.status = 'active'
+                 ORDER BY c.id ASC",
+            )
+            .map_err(|err| format!("failed to prepare chain query: {err}"))?;
+        let rows = statement
+            .query_map(params![folded], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })
+            .map_err(|err| format!("failed to load ident chain: {err}"))?;
+        let mut chain = Vec::new();
+        for row in rows {
+            chain.push(row.map_err(|err| format!("failed to read ident chain: {err}"))?);
+        }
+        Ok(chain)
     }
 
     /// Revoke a machine's auth key and kill every session opened with it

@@ -608,6 +608,77 @@ fn insert_packages_array(contents: &str, entry: &str) -> Result<String, String> 
     Ok(updated)
 }
 
+/// Rewrite (or insert) the pinned `identKey` of the dependency named `name`
+/// in `project.json`, preserving the file's formatting (plan-23-B2
+/// pin-follow after an ident rotation).
+pub(crate) fn project_json_with_updated_ident_key(
+    contents: &str,
+    name: &str,
+    new_key: &str,
+) -> Result<String, String> {
+    let Some((array_start, array_end)) = json_array_bounds(contents, "packages") else {
+        return Err("could not locate project.json `packages` array".to_string());
+    };
+    let mut cursor = array_start + 1;
+    while cursor < array_end {
+        let Some(object_start) = contents[cursor..array_end].find('{').map(|at| cursor + at)
+        else {
+            break;
+        };
+        let Some(object_end) = matching_json_delimiter(contents, object_start, b'{', b'}') else {
+            return Err("malformed project.json `packages` entry".to_string());
+        };
+        let object = &contents[object_start..=object_end];
+        let is_target = object
+            .parse::<JsonValue>()
+            .ok()
+            .and_then(|value| {
+                value
+                    .get::<HashMap<String, JsonValue>>()
+                    .and_then(|entry| entry.get("name"))
+                    .and_then(|value| value.get::<String>())
+                    .cloned()
+            })
+            .is_some_and(|entry_name| entry_name == name);
+        if !is_target {
+            cursor = object_end + 1;
+            continue;
+        }
+        let mut updated = String::new();
+        if let Some(field_at) = json_field_name_position(object, "identKey")
+            .or_else(|| json_field_name_position(object, "ident_key"))
+        {
+            let field_len = if object[field_at..].starts_with("\"identKey\"") {
+                "\"identKey\"".len()
+            } else {
+                "\"ident_key\"".len()
+            };
+            let colon = find_json_punct(object, field_at + field_len, b':')
+                .ok_or_else(|| "malformed identKey field".to_string())?;
+            let value_start = next_json_string_start(object, colon + 1)
+                .ok_or_else(|| "malformed identKey value".to_string())?;
+            let value_end = json_string_end(object, value_start)
+                .ok_or_else(|| "malformed identKey value".to_string())?;
+            updated.push_str(&contents[..object_start + value_start]);
+            updated.push_str(&json_string(new_key));
+            updated.push_str(&contents[object_start + value_end..]);
+        } else {
+            // No pin recorded yet: append the field before the closing brace.
+            let before_close = object[..object.len() - 1]
+                .trim_end_matches([' ', '\t', '\r', '\n']);
+            let closing = &object[before_close.len()..];
+            updated.push_str(&contents[..object_start]);
+            updated.push_str(before_close);
+            updated.push_str(",\n      \"identKey\": ");
+            updated.push_str(&json_string(new_key));
+            updated.push_str(closing);
+            updated.push_str(&contents[object_end + 1..]);
+        }
+        return Ok(updated);
+    }
+    Err(format!("project.json does not declare package `{name}`"))
+}
+
 fn json_array_bounds(contents: &str, field: &str) -> Option<(usize, usize)> {
     let field_start = json_field_name_position(contents, field)?;
     let colon = find_json_punct(contents, field_start + field.len() + 2, b':')?;

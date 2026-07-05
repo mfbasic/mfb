@@ -650,6 +650,150 @@ fn repo_end_to_end_install_verifies_signed_package() {
 }
 
 #[test]
+fn repo_ident_rotation_follows_pins_and_reanchor_hard_errors() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Build + install a signed package; the consumer pins ident I0.
+    let package_dir = work.path().join("rotating_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["build", "--sign", "alice", package_dir_arg]
+    )
+    .status
+    .success());
+    let mfp_path = package_dir.join("rotating_pkg.mfp");
+    let app_dir = work.path().join("rotating_consumer");
+    let app_dir_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_dir_arg]).status.success());
+    let run_in_consumer = |args: &[&str]| {
+        Command::new(mfb_exe())
+            .args(args)
+            .current_dir(&app_dir)
+            .env("MFB_REPO_URL", &repo.url)
+            .env("MFB_HOME", home.path().join(".mfb"))
+            .output()
+            .expect("run mfb in consumer")
+    };
+    assert!(run_in_consumer(&["pkg", "add", &format!("file://{}", mfp_path.display())])
+        .status
+        .success());
+    let verify = run_in_consumer(&["pkg", "verify"]);
+    assert!(String::from_utf8_lossy(&verify.stdout).contains("[Verified]"));
+
+    // Rotate the ident (I0 -> I1). Packages published under I0 still verify:
+    // the consumer's OFFLINE chain (old pin, old package) is untouched.
+    let rotate = run_mfb(&repo, home.path(), &["key", "rotate", "alice"]);
+    assert!(
+        rotate.status.success(),
+        "key rotate failed: {}",
+        String::from_utf8_lossy(&rotate.stderr)
+    );
+    let build = run_in_consumer(&["build"]);
+    assert!(
+        String::from_utf8_lossy(&build.stdout).contains("uses rotating_pkg - [Verified]"),
+        "old-ident package must still verify after rotation: {}",
+        String::from_utf8_lossy(&build.stdout)
+    );
+
+    // Rebuild under I1 and reinstall: `pkg verify` follows the signed chain,
+    // updates the pin with a notice, and the package verifies.
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["build", "--sign", "alice", package_dir_arg]
+    )
+    .status
+    .success());
+    std::fs::copy(&mfp_path, app_dir.join("packages/rotating_pkg.mfp")).unwrap();
+    let manifest_before = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
+    let verify = run_in_consumer(&["pkg", "verify"]);
+    let stdout = String::from_utf8_lossy(&verify.stdout);
+    assert!(verify.status.success(), "{stdout}");
+    assert!(stdout.contains("notice: owner `alice` rotated their ident"), "{stdout}");
+    assert!(stdout.contains("[Verified]"), "{stdout}");
+    let manifest_after = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
+    assert_ne!(manifest_before, manifest_after, "the pin must be rewritten");
+    // The follow is sticky: a plain build now verifies against the new pin
+    // with no server contact.
+    let build = run_in_consumer(&["build"]);
+    assert!(
+        String::from_utf8_lossy(&build.stdout).contains("uses rotating_pkg - [Verified]"),
+        "{}",
+        String::from_utf8_lossy(&build.stdout)
+    );
+
+    // Re-anchor (operator ceremony, NO chain link) to a fresh ident I2 and
+    // hand alice's machine the new keypair out-of-band.
+    let (anchor_public, anchor_private) = crypto::generate_keypair();
+    let reanchor = Command::new(repo_exe())
+        .args([
+            "reanchor",
+            "--dbpath",
+            repo_dir.path().join("meta.db").to_str().unwrap(),
+            "--datapath",
+            repo_dir.path().join("packages").to_str().unwrap(),
+            "--owner",
+            "alice",
+            "--ident-key",
+            &crypto::encode_bytes(&anchor_public),
+        ])
+        .output()
+        .expect("reanchor");
+    assert!(
+        reanchor.status.success(),
+        "reanchor failed: {}",
+        String::from_utf8_lossy(&reanchor.stderr)
+    );
+    let repo_home = mfb_repo_home(&repo, home.path());
+    std::fs::write(
+        repo_home.join("keys/alice.ident.pub"),
+        crypto::encode_bytes(&anchor_public),
+    )
+    .unwrap();
+    std::fs::write(
+        repo_home.join("keys/alice.ident.prv"),
+        crypto::encode_bytes(&anchor_private),
+    )
+    .unwrap();
+
+    // A package signed by the re-anchored ident does NOT chain from the
+    // consumer's pin: pkg verify hard-errors and leaves the pin alone.
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["build", "--sign", "alice", package_dir_arg]
+    )
+    .status
+    .success());
+    std::fs::copy(&mfp_path, app_dir.join("packages/rotating_pkg.mfp")).unwrap();
+    let manifest_before = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
+    let verify = run_in_consumer(&["pkg", "verify"]);
+    assert!(!verify.status.success());
+    let stderr = String::from_utf8_lossy(&verify.stderr);
+    assert!(
+        stderr.contains("NO chain link"),
+        "expected the re-anchor hard error, got: {stderr}"
+    );
+    let manifest_after = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
+    assert_eq!(manifest_before, manifest_after, "the pin must NOT be updated");
+}
+
+#[test]
 fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

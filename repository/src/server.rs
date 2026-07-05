@@ -160,6 +160,55 @@ pub struct RevokeChallengeRequest {
     pub owner: String,
 }
 
+/// Ident rotation (plan-23-B2): the old ident signs the chain link naming the
+/// new key; the new key proves possession. Requires a live session too, so a
+/// rotation needs both credentials.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RotateRequest {
+    pub owner: String,
+    #[serde(rename = "newIdentKey")]
+    pub new_ident_key: String,
+    /// Base64url old-ident signature over the ident rotation message.
+    #[serde(rename = "chainSignature")]
+    pub chain_signature: String,
+    /// Base64url new-ident proof-of-possession (role-separated registration message).
+    #[serde(rename = "possessionProof")]
+    pub possession_proof: String,
+    #[serde(rename = "sessionToken")]
+    pub session_token: String,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct RotateResponse {
+    pub owner: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: String,
+}
+
+/// `GET /idents/<owner>` — the current name↔ident binding plus the signed
+/// rotation chain, oldest link first. Consumers follow the chain to update
+/// their pins; a current key not reachable from a consumer's pin through the
+/// chain means the ident was re-anchored (hard error client-side).
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IdentChainResponse {
+    pub owner: String,
+    #[serde(rename = "identKey")]
+    pub ident_key: String,
+    #[serde(rename = "identFingerprint")]
+    pub ident_fingerprint: String,
+    pub chain: Vec<IdentChainLink>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct IdentChainLink {
+    #[serde(rename = "oldKey")]
+    pub old_key: String,
+    #[serde(rename = "newKey")]
+    pub new_key: String,
+    pub signature: String,
+    pub issued: i64,
+}
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct RevokeRequest {
     #[serde(rename = "challengeId")]
@@ -251,6 +300,8 @@ pub async fn serve(store: Store, packages_dir: PathBuf, listen: SocketAddr) -> R
         .route("/auth/challenge", post(challenge))
         .route("/auth/login", post(login))
         .route("/signing", post(signing))
+        .route("/keys/rotate", post(rotate_ident))
+        .route("/idents/:owner", get(ident_chain))
         .route("/machines/link", post(link_start))
         .route("/machines/link/fetch", post(link_fetch))
         .route("/machines/revoke/challenge", post(revoke_challenge))
@@ -328,6 +379,71 @@ async fn challenge(
         challenge_id: challenge.id,
         nonce: crypto::encode_bytes(&challenge.nonce),
         expires_at: challenge.expires_at,
+    }))
+}
+
+async fn rotate_ident(
+    State(state): State<AppState>,
+    Json(request): Json<RotateRequest>,
+) -> Result<Json<RotateResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let claims = verify_session_token(&state.store, &request.session_token).map_err(bad_request)?;
+    if claims.sub != request.owner {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    let Some((owner, _key)) = state
+        .store
+        .owner_auth_key_by_fingerprint(&request.owner, &claims.auth_fingerprint)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("session key is not a current auth key".to_string()));
+    };
+    if owner.id != claims.owner_id {
+        return Err(bad_request("session owner does not match requested owner".to_string()));
+    }
+    let new_public =
+        crypto::decode_bytes(&request.new_ident_key, "newIdentKey").map_err(bad_request)?;
+    let chain_signature =
+        crypto::decode_bytes(&request.chain_signature, "chainSignature").map_err(bad_request)?;
+    let possession_proof =
+        crypto::decode_bytes(&request.possession_proof, "possessionProof").map_err(bad_request)?;
+    let (owner, new_key) = state
+        .store
+        .rotate_ident(&request.owner, &new_public, &chain_signature, &possession_proof)
+        .map_err(conflict_or_bad_request)?;
+    Ok(Json(RotateResponse {
+        owner: owner.owner_display,
+        ident_fingerprint: new_key.fingerprint,
+    }))
+}
+
+async fn ident_chain(
+    State(state): State<AppState>,
+    axum::extract::Path(owner): axum::extract::Path<String>,
+) -> Result<Json<IdentChainResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let Some((owner_record, ident_key)) = state
+        .store
+        .owner_with_ident_key(&owner)
+        .map_err(internal)?
+    else {
+        return Err(bad_request("unknown owner".to_string()));
+    };
+    let chain = state
+        .store
+        .ident_chain(&owner)
+        .map_err(internal)?
+        .into_iter()
+        .map(|(old_key, new_key, signature, issued)| IdentChainLink {
+            old_key: crypto::encode_bytes(&old_key),
+            new_key: crypto::encode_bytes(&new_key),
+            signature: crypto::encode_bytes(&signature),
+            issued,
+        })
+        .collect();
+    Ok(Json(IdentChainResponse {
+        owner: owner_record.owner_display,
+        ident_key: crypto::encode_bytes(&ident_key.public_key),
+        ident_fingerprint: ident_key.fingerprint,
+        chain,
     }))
 }
 
@@ -1347,6 +1463,177 @@ mod tests {
                 .any(|diagnostic| diagnostic.contains("unsupported MFP container version")),
             "{:?}",
             report.diagnostics
+        );
+    }
+
+    #[tokio::test]
+    async fn rotation_refuses_stale_attestations_and_serves_the_chain() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "alice");
+        let token = open_session(&store, "alice", &keys.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: temp.path().join("data"),
+        };
+
+        // Build a fully valid package (attestation minted pre-rotation).
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let (attestation, attestation_sig) =
+            real_attestation(&state, &token, "1.0.0", &signing_fingerprint).await;
+        let proof = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"1.0.0\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":1}}",
+            ident_fingerprint, signing_fingerprint,
+        );
+        let proof_sig = crypto::sign(
+            &keys.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                author: "alice".to_string(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof: proof.clone(),
+                proof_sig: proof_sig.clone(),
+                attestation,
+                attestation_sig,
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).unwrap();
+        let request = PackageArtifactRequest {
+            ident: parsed.ident.clone(),
+            version: parsed.version.clone(),
+            artifact: crypto::encode_bytes(&artifact),
+            content_hash: parsed.content_hash_hex(),
+            ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+            session_token: token.clone(),
+        };
+        let report = validate_package_request(&state, &request).await.unwrap();
+        assert!(report.valid, "{:?}", report.diagnostics);
+
+        // Rotate the ident through the handler.
+        let (new_public, new_private) = crypto::generate_keypair();
+        let chain_signature = crypto::sign(
+            &keys.ident_private,
+            &crypto::ident_rotation_message("alice", &ident_fingerprint, &new_public),
+        )
+        .unwrap();
+        let possession_proof = crypto::sign(
+            &new_private,
+            &crypto::registration_message(crypto::ROLE_IDENT, "alice", &new_public),
+        )
+        .unwrap();
+        let rotated = rotate_ident(
+            State(state.clone()),
+            Json(RotateRequest {
+                owner: "alice".to_string(),
+                new_ident_key: crypto::encode_bytes(&new_public),
+                chain_signature: crypto::encode_bytes(&chain_signature),
+                possession_proof: crypto::encode_bytes(&possession_proof),
+                session_token: token.clone(),
+            }),
+        )
+        .await
+        .expect("rotation accepted")
+        .0;
+        assert_eq!(rotated.ident_fingerprint, crypto::fingerprint(&new_public));
+
+        // §3.4 step 5 is now reachable: the same pre-rotation package (its
+        // attestation names the PAST ident) is refused as stale.
+        let report = validate_package_request(&state, &request).await.unwrap();
+        assert!(!report.valid);
+        assert!(
+            report.diagnostics.iter().any(|diagnostic| diagnostic
+                .contains("does not match the owner's current ident key")),
+            "{:?}",
+            report.diagnostics
+        );
+
+        // Refetch + rebuild under the new ident succeeds.
+        let (signing_public2, signing_private2) = crypto::generate_keypair();
+        let signing_fingerprint2 = crypto::fingerprint(&signing_public2);
+        let new_fingerprint = crypto::fingerprint(&new_public);
+        let (attestation2, attestation_sig2) =
+            real_attestation(&state, &token, "1.0.0", &signing_fingerprint2).await;
+        let proof2 = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"1.0.0\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":2}}",
+            new_fingerprint, signing_fingerprint2,
+        );
+        let proof_sig2 = crypto::sign(
+            &new_private,
+            &crypto::proof_signing_input(proof2.as_bytes()),
+        )
+        .unwrap();
+        let rebuilt = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                author: "alice".to_string(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&new_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public2)),
+                proof: proof2,
+                proof_sig: proof_sig2,
+                attestation: attestation2,
+                attestation_sig: attestation_sig2,
+            },
+            &signing_private2,
+        );
+        let reparsed = package::parse_mfp_package(&rebuilt).unwrap();
+        let request = PackageArtifactRequest {
+            ident: reparsed.ident.clone(),
+            version: reparsed.version.clone(),
+            artifact: crypto::encode_bytes(&rebuilt),
+            content_hash: reparsed.content_hash_hex(),
+            ident_fingerprint: reparsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: reparsed.signing_fingerprint().unwrap(),
+            session_token: token.clone(),
+        };
+        let report = validate_package_request(&state, &request).await.unwrap();
+        assert!(report.valid, "{:?}", report.diagnostics);
+
+        // The chain endpoint serves the verifiable link, and a client can
+        // follow it from the old pin to the new key.
+        let chain = ident_chain(State(state.clone()), axum::extract::Path("alice".to_string()))
+            .await
+            .expect("chain served")
+            .0;
+        assert_eq!(chain.ident_fingerprint, crypto::fingerprint(&new_public));
+        assert_eq!(chain.chain.len(), 1);
+        let followed =
+            crate::client::follow_ident_chain("alice", &keys.ident_public, &chain.chain)
+                .unwrap()
+                .expect("chain reaches a successor");
+        assert_eq!(followed, new_public);
+
+        // A re-anchor records NO chain link: following from the (rotated)
+        // current key yields None — the hard-error case for consumers.
+        let (anchor_public, _anchor_private) = crypto::generate_keypair();
+        store.reanchor_ident("alice", &anchor_public).unwrap();
+        let chain = ident_chain(State(state), axum::extract::Path("alice".to_string()))
+            .await
+            .expect("chain served")
+            .0;
+        assert_eq!(chain.ident_fingerprint, crypto::fingerprint(&anchor_public));
+        assert!(
+            crate::client::follow_ident_chain("alice", &new_public, &chain.chain)
+                .unwrap()
+                .is_none(),
+            "a re-anchored ident must not be reachable through the chain"
         );
     }
 

@@ -107,6 +107,20 @@ pub fn package_signing_input(signed_prefix: &[u8]) -> Vec<u8> {
     message
 }
 
+/// Ident chain link (plan-23-B2): the OLD ident key signs the successor,
+/// binding owner, the old key's fingerprint, and the new public key. A chain
+/// of these lets consumers follow a rotation without trusting the server.
+pub fn ident_rotation_message(owner: &str, old_fingerprint: &str, new_public: &[u8]) -> Vec<u8> {
+    let mut message = Vec::new();
+    message.extend_from_slice(b"mfb-repo-ident-rotate-v1\0");
+    message.extend_from_slice(owner.as_bytes());
+    message.push(0);
+    message.extend_from_slice(old_fingerprint.as_bytes());
+    message.push(0);
+    message.extend_from_slice(new_public);
+    message
+}
+
 /// One-time pairing code for a machine link (plan-23 §3.2): 25 random
 /// base32 characters in five groups (~125 bits), displayed on the old
 /// machine and typed on the new. High-entropy so the code-derived key

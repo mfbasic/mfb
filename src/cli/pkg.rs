@@ -361,6 +361,7 @@ fn verify_packages(project_dir: &Path) -> Result<(), String> {
         return Ok(());
     };
 
+    let mut rotation_errors = Vec::new();
     for package in packages {
         let Some(dependency) = project_package_dependency(package) else {
             println!("<invalid> @ <invalid> : Invalid Package");
@@ -373,13 +374,23 @@ fn verify_packages(project_dir: &Path) -> Result<(), String> {
             .join("packages")
             .join(format!("{}.mfp", dependency.name));
         let state = if package_file.is_file() {
-            let anchor = if dependency.ident_key.is_empty() {
+            let mut anchor = if dependency.ident_key.is_empty() {
                 None
             } else {
-                Some(dependency.ident_key.as_str())
+                Some(dependency.ident_key.clone())
             };
+            // Pin-follow (plan-23-B2): an installed package naming a NEWER
+            // CHAINED ident updates the pin automatically with a notice; an
+            // ident change with no chain link is a hard error (re-anchor).
+            if let Some(pinned) = anchor.clone() {
+                match follow_rotated_pin(project_dir, &dependency, &pinned, &package_file) {
+                    Ok(Some(new_pin)) => anchor = Some(new_pin),
+                    Ok(None) => {}
+                    Err((rule, err)) => rotation_errors.push((rule, err)),
+                }
+            }
             let classification =
-                super::build::classify_installed_package(&package_file, anchor);
+                super::build::classify_installed_package(&package_file, anchor.as_deref());
             format!(" [{}]", classification.state.label())
         } else {
             String::new()
@@ -387,7 +398,91 @@ fn verify_packages(project_dir: &Path) -> Result<(), String> {
         println!("{}{state}", package_verify_line(&dependency, &result));
     }
 
-    Ok(())
+    if rotation_errors.is_empty() {
+        Ok(())
+    } else {
+        for (rule, detail) in &rotation_errors {
+            crate::rules::show_general_diagnostic(rule, detail);
+        }
+        Err("package identity verification failed".to_string())
+    }
+}
+
+/// When the installed package's identKey differs from the pin, consult the
+/// registry's signed rotation chain. A verifiable chain from the pin to the
+/// package's key updates `project.json` (with a notice) and returns the new
+/// pin; a missing chain is the re-anchor case and errors loudly.
+fn follow_rotated_pin(
+    project_dir: &Path,
+    dependency: &ProjectPackageDependency,
+    pinned: &str,
+    package_file: &Path,
+) -> Result<Option<String>, (&'static str, String)> {
+    let untrusted = |detail: String| ("PACKAGE_IDENT_KEY_UNTRUSTED", detail);
+    let header = read_mfp_header(package_file).map_err(|err| untrusted(err))?;
+    if header.signature_type == 0 || header.ident_key.is_empty() {
+        return Ok(None);
+    }
+    let pinned_raw = mfb_repository::package::decode_metadata_key(pinned, "identKey")
+        .map_err(untrusted)?;
+    let header_raw = mfb_repository::package::decode_metadata_key(&header.ident_key, "identKey")
+        .map_err(untrusted)?;
+    if pinned_raw == header_raw {
+        return Ok(None);
+    }
+    let Some((owner, _)) = dependency.ident.split_once('#') else {
+        return Ok(None);
+    };
+    let repo_url = mfb_repository::client::repo_url_from_env();
+    let chain = mfb_repository::client::fetch_ident_chain(&repo_url, owner).map_err(|err| {
+        untrusted(format!(
+            "package `{}` is signed by a different ident than the pinned key and the registry \
+             chain could not be fetched: {err}",
+            dependency.name
+        ))
+    })?;
+    match mfb_repository::client::follow_ident_chain(owner, &pinned_raw, &chain.chain)
+        .map_err(untrusted)?
+    {
+        Some(newest) if newest == header_raw => {
+            let new_pin = format!(
+                "ed25519:{}",
+                mfb_repository::crypto::encode_bytes(&newest)
+            );
+            let project_path = project_dir.join("project.json");
+            let contents = fs::read_to_string(&project_path).map_err(|err| {
+                untrusted(format!("failed to read '{}': {err}", project_path.display()))
+            })?;
+            let updated = crate::manifest::package::project_json_with_updated_ident_key(
+                &contents,
+                &dependency.name,
+                &new_pin,
+            )
+            .map_err(untrusted)?;
+            fs::write(&project_path, updated).map_err(|err| {
+                untrusted(format!("failed to write '{}': {err}", project_path.display()))
+            })?;
+            println!(
+                "notice: owner `{owner}` rotated their ident; updated the pinned identKey for `{}` to fingerprint {}",
+                dependency.name,
+                mfb_repository::crypto::fingerprint(&newest),
+            );
+            Ok(Some(new_pin))
+        }
+        Some(_other) => Err(untrusted(format!(
+            "package `{}` is signed by an ident that is neither the pinned key nor its chained successor",
+            dependency.name
+        ))),
+        None => Err((
+            "PACKAGE_IDENT_REANCHORED",
+            format!(
+                "owner `{owner}`'s ident changed with NO chain link from your pinned key \
+                 (a re-anchor or an impersonation). Verify the owner's new identity out-of-band \
+                 before re-adding `{}`; the pin was NOT updated.",
+                dependency.name
+            ),
+        )),
+    }
 }
 
 /// `mfb pkg doc <name-or-path> [--out <file>]` — render HTML from a compiled

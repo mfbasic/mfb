@@ -57,6 +57,7 @@ Repository & Auth:
                           Link this (or a new) machine to an account
   machine revoke <owner> <fingerprint>
                           Revoke a lost machine's auth key
+  key rotate <owner>      Rotate the account ident (chained successor)
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
@@ -111,6 +112,7 @@ Commands:
   link --start        (old machine) display a one-time pairing code
   link                (new machine) enter the pairing code to become an equal
   machine revoke      Revoke a lost machine's auth key (needs the ident key)
+  key rotate          Rotate the account ident; consumers follow the chain
 
 Arguments:
   <owner>             The unique handle for the repository owner";
@@ -310,6 +312,25 @@ fn main() {
                 return;
             }
             if let Err(err) = cli::repo::run_machine_command(&machine_args) {
+                match err {
+                    RepoCommandError::Usage(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(2);
+                    }
+                    RepoCommandError::Failed(message) => {
+                        eprintln!("error: {message}");
+                        process::exit(1);
+                    }
+                }
+            }
+        }
+        Some("key") => {
+            let key_args = args.collect::<Vec<_>>();
+            if key_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{REPO_HELP}");
+                return;
+            }
+            if let Err(err) = cli::repo::run_key_command(&key_args) {
                 match err {
                     RepoCommandError::Usage(message) => {
                         eprintln!("error: {message}");

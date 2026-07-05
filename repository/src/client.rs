@@ -1,11 +1,12 @@
 use crate::crypto;
 use crate::local::{self, LocalPaths};
 use crate::server::{
-    ChallengeRequest, ChallengeResponse, ErrorResponse, LinkFetchRequest, LinkFetchResponse,
-    LinkStartRequest, LinkStartResponse, LoginRequest, LoginResponse, PackageArtifactRequest,
-    PublishPackageResponse, RegisterProofs, RegisterRequest, RegisterResponse,
-    RevokeChallengeRequest, RevokeRequest, RevokeResponse, ServerIdentResponse, SigningRequest,
-    SigningResponse, ValidatePackageResponse,
+    ChallengeRequest, ChallengeResponse, ErrorResponse, IdentChainResponse, LinkFetchRequest,
+    LinkFetchResponse, LinkStartRequest, LinkStartResponse, LoginRequest, LoginResponse,
+    PackageArtifactRequest, PublishPackageResponse, RegisterProofs, RegisterRequest,
+    RegisterResponse, RevokeChallengeRequest, RevokeRequest, RevokeResponse, RotateRequest,
+    RotateResponse, ServerIdentResponse, SigningRequest, SigningResponse,
+    ValidatePackageResponse,
 };
 use crate::validation::validate_owner_name;
 use crate::DEFAULT_REPO_URL;
@@ -221,6 +222,80 @@ pub fn link_fetch(
         auth_fingerprint: response.auth_fingerprint,
         ident_fingerprint: crypto::fingerprint(ident_public),
     })
+}
+
+/// Rotate the account ident (plan-23-B2, `mfb key rotate`): generate a new
+/// ident keypair, sign the chain link with the OLD ident, prove possession
+/// with the NEW one, and install the new keypair locally on success. Other
+/// linked machines still hold the old (now `past`) ident private key and
+/// must re-link — the rotation exists because a machine was lost, so the new
+/// private key is never distributed automatically.
+pub fn rotate_ident(repo_url: &str, paths: &LocalPaths, owner: &str) -> Result<RotateResponse, String> {
+    validate_owner_name(owner)?;
+    ensure_server_key(repo_url, paths)?;
+    let old_private = local::read_ident_private_key(paths, owner)?;
+    let old_public = local::read_ident_public_key(paths, owner)?;
+    let session_token = local::read_session(paths, owner)?;
+
+    let (new_public, new_private) = crypto::generate_keypair();
+    let chain_message = crypto::ident_rotation_message(
+        owner,
+        &crypto::fingerprint(&old_public),
+        &new_public,
+    );
+    let chain_signature = crypto::sign(&old_private, &chain_message)?;
+    let possession_message = crypto::registration_message(crypto::ROLE_IDENT, owner, &new_public);
+    let possession_proof = crypto::sign(&new_private, &possession_message)?;
+
+    let response = post_json::<RotateResponse>(
+        repo_url,
+        "/keys/rotate",
+        &RotateRequest {
+            owner: owner.to_string(),
+            new_ident_key: crypto::encode_bytes(&new_public),
+            chain_signature: crypto::encode_bytes(&chain_signature),
+            possession_proof: crypto::encode_bytes(&possession_proof),
+            session_token,
+        },
+    )?;
+    local::write_ident_keypair(paths, owner, &new_public, &new_private)?;
+    Ok(response)
+}
+
+/// Fetch the owner's current ident binding and the signed rotation chain.
+pub fn fetch_ident_chain(repo_url: &str, owner: &str) -> Result<IdentChainResponse, String> {
+    validate_owner_name(owner)?;
+    get_json::<IdentChainResponse>(repo_url, &format!("/idents/{owner}"))
+}
+
+/// Walk a signed ident chain from `pinned` (plan-23-B2 pin-follow): verify
+/// each link's old-key signature over the rotation message and follow
+/// old→new until the chain is exhausted. Returns the newest chained
+/// successor of `pinned`, or None when `pinned` never appears — the
+/// no-chain-link case (a re-anchor), which callers must treat as a hard
+/// error, never a silent re-pin.
+pub fn follow_ident_chain(
+    owner: &str,
+    pinned: &[u8],
+    chain: &[crate::server::IdentChainLink],
+) -> Result<Option<Vec<u8>>, String> {
+    let mut current = pinned.to_vec();
+    let mut advanced = false;
+    for link in chain {
+        let old_key = crypto::decode_bytes(&link.old_key, "oldKey")?;
+        if old_key != current {
+            continue;
+        }
+        let new_key = crypto::decode_bytes(&link.new_key, "newKey")?;
+        let signature = crypto::decode_bytes(&link.signature, "signature")?;
+        let message =
+            crypto::ident_rotation_message(owner, &crypto::fingerprint(&old_key), &new_key);
+        crypto::verify(&old_key, &message, &signature)
+            .map_err(|_| "invalid ident chain link signature".to_string())?;
+        current = new_key;
+        advanced = true;
+    }
+    Ok(if advanced { Some(current) } else { None })
 }
 
 /// Revoke a (lost) machine's auth key. Authority is the ident key alone: the

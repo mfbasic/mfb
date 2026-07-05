@@ -33,6 +33,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `repo auth` | `mfb repo auth <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `repo link` | `mfb repo link [--start] <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `machine revoke` | `mfb machine revoke <owner_name> <auth-fingerprint>` | 0 ok; 2 usage; 1 failed |
+| `key rotate` | `mfb key rotate <owner_name>` | 0 ok; 2 usage; 1 failed |
 | `audit` | `mfb audit [--format text\|json] [--locked] [path]` | 0 clean; 1 error findings; 2 bad flags; 3 validation failed |
 | `man` | `mfb man [package] [function]` | 0 ok; 2 unknown package/function or >2 args |
 | `spec` | `mfb spec [topic] [subtopic] [--all] [--width N] [--color\|--no-color]` | 0 ok; 2 unknown topic, bad flag, or >2 positionals |
@@ -151,8 +152,11 @@ machine, needs a session) displays a one-time pairing code; `link <owner>`
 key, and installs the decrypted ident keypair — the machine is then a full
 equal. `mfb machine revoke <owner> <auth-fingerprint>` revokes a lost
 machine's auth key with an ident-signed request (no session needed; requires
-the ident key on this machine).[[src/cli/repo.rs:run_machine_command]] The
-registry protocol, signing, and publish detail are
+the ident key on this machine).[[src/cli/repo.rs:run_machine_command]]
+`mfb key rotate <owner>` rotates the account ident: the new key is chained to
+the old by an old-ident signature, consumers follow the chain via
+`pkg verify`, and other linked machines must re-link.[[src/cli/repo.rs:run_key_command]]
+The registry protocol, signing, and publish detail are
 `./mfb spec package-manager repository-protocol`.
 
 ## `pkg verify` Output
