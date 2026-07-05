@@ -1,46 +1,78 @@
 $ mfb audit --format yaml tests/audit-usage
 error: invalid --format value `yaml` (expected text or json)
 
-Usage: mfb <command> <arguments>
+Usage: mfb <command> [arguments]
 
-Commands:
-  help                                 Show this message
-  init <location>                      Create a new MFBASIC executable project
-  init-pkg <location>                  Create a new MFBASIC package project
-  repo register <owner_name>           Register a repository owner
-  repo auth <owner_name>               Authenticate as a repository owner
-  pkg add <url>                        Add a compiled package to the current project
-  pkg info <package>                   Show information about a compiled package
-  pkg verify                           Verify packages declared by project.json
-  pkg publish <owner_name> <package>   Publish a signed package project
-  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package
-  doc [--out file] [location]          Render HTML docs from package or file source
-  fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)
-  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode|-mir]... [-target os-arch] [-app] [location] Validate and build an MFBASIC project (output flags combine; each requested artifact is written in one pass)
-  audit [--format text|json] [--locked] [path] Report audit findings for a project
-  man [package] [function]             Show built-in package and function help
-  spec [topic] [subtopic] [--all]      Show the MFBASIC language specification
+Project Setup:
+  init <path>             Create a new MFBASIC executable project
+  init-pkg <path>         Create a new MFBASIC package project
+
+Package Management:
+  pkg add <url>           Add a compiled package to the current project
+  pkg info <pkg>          Show information about a compiled package
+  pkg verify              Verify packages declared in project.json
+  pkg validate <pkg>      Check an existing package's signatures and structure
+  pkg publish <own> <pkg> Publish a signed package project
+
+Repository & Auth:
+  repo register <owner>   Register a repository owner
+  repo auth <owner>       Authenticate as a repository owner
+  repo link [--start] <owner>
+                          Link this (or a new) machine to an account
+  machine revoke <owner> <fingerprint>
+                          Revoke a lost machine's auth key
+  key rotate <owner>      Rotate the account ident (chained successor)
+
+Build & Development:
+  build [options] [path]  Validate and build an MFBASIC project
+  fmt [options] [path]    Format project source (indentation/capitalization)
+  audit [options] [path]  Report security and code audit findings
+
+Documentation & Reference:
+  doc [options] [path]    Render HTML docs from package or file source
+  pkg doc <pkg> [options] Render HTML docs from a compiled package
+  man [pkg] [func]        Show built-in package and function help
+  spec [topic] [sub]      Show the MFBASIC language specification
+  help                    Show this message
+
+Run 'mfb <command> --help' for more information on a specific command.
 [exit 2]
 $ mfb audit --bogus tests/audit-usage
 error: unknown audit option `--bogus`
 
-Usage: mfb <command> <arguments>
+Usage: mfb <command> [arguments]
 
-Commands:
-  help                                 Show this message
-  init <location>                      Create a new MFBASIC executable project
-  init-pkg <location>                  Create a new MFBASIC package project
-  repo register <owner_name>           Register a repository owner
-  repo auth <owner_name>               Authenticate as a repository owner
-  pkg add <url>                        Add a compiled package to the current project
-  pkg info <package>                   Show information about a compiled package
-  pkg verify                           Verify packages declared by project.json
-  pkg publish <owner_name> <package>   Publish a signed package project
-  pkg doc <name-or-path> [--out file]  Render HTML docs from a compiled package
-  doc [--out file] [location]          Render HTML docs from package or file source
-  fmt [--check] [--indent N] [location] Format project source (indentation and capitalization)
-  build [--sign owner] [-ast|-ir|-br|-nir|-nplan|-nobj|-ncode|-mir]... [-target os-arch] [-app] [location] Validate and build an MFBASIC project (output flags combine; each requested artifact is written in one pass)
-  audit [--format text|json] [--locked] [path] Report audit findings for a project
-  man [package] [function]             Show built-in package and function help
-  spec [topic] [subtopic] [--all]      Show the MFBASIC language specification
+Project Setup:
+  init <path>             Create a new MFBASIC executable project
+  init-pkg <path>         Create a new MFBASIC package project
+
+Package Management:
+  pkg add <url>           Add a compiled package to the current project
+  pkg info <pkg>          Show information about a compiled package
+  pkg verify              Verify packages declared in project.json
+  pkg validate <pkg>      Check an existing package's signatures and structure
+  pkg publish <own> <pkg> Publish a signed package project
+
+Repository & Auth:
+  repo register <owner>   Register a repository owner
+  repo auth <owner>       Authenticate as a repository owner
+  repo link [--start] <owner>
+                          Link this (or a new) machine to an account
+  machine revoke <owner> <fingerprint>
+                          Revoke a lost machine's auth key
+  key rotate <owner>      Rotate the account ident (chained successor)
+
+Build & Development:
+  build [options] [path]  Validate and build an MFBASIC project
+  fmt [options] [path]    Format project source (indentation/capitalization)
+  audit [options] [path]  Report security and code audit findings
+
+Documentation & Reference:
+  doc [options] [path]    Render HTML docs from package or file source
+  pkg doc <pkg> [options] Render HTML docs from a compiled package
+  man [pkg] [func]        Show built-in package and function help
+  spec [topic] [sub]      Show the MFBASIC language specification
+  help                    Show this message
+
+Run 'mfb <command> --help' for more information on a specific command.
 [exit 2]
