@@ -1,0 +1,11 @@
+FUNC greet(name AS String = 42) AS String
+  RETURN name
+END FUNC
+
+SUB log(count AS Integer = "many")
+END SUB
+
+FUNC main AS Integer
+  log()
+  RETURN len(greet())
+END FUNC

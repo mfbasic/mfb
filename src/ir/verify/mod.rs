@@ -101,6 +101,7 @@ pub const RELOCATED_TO_IR_VERIFY: &[&str] = &[
     "TYPE_CONSTRUCTOR_REQUIRES_RECORD",
     "TYPE_CONSTRUCTOR_ARITY_MISMATCH",
     "TYPE_CONSTRUCTOR_ARGUMENT_MISMATCH",
+    "TYPE_DEFAULT_VALUE_MISMATCH",
 ];
 
 /// Diagnostic prefix shared with the structural `verify_package` checks so a
@@ -135,6 +136,22 @@ pub(crate) fn collect_diagnostics(project: &IrProject) -> Vec<Diagnostic> {
             muts.insert(param.name.clone(), false);
             if let Some(default) = &param.default {
                 env.check_value(default, &locals);
+                // A parameter default must match the declared parameter type —
+                // typecheck's TYPE_DEFAULT_VALUE_MISMATCH (skip-if-unknown).
+                let expected = resource_base_type(&param.type_);
+                if !expected.is_empty() && expected != "Unknown" && expected != "Nothing" {
+                    if let Some(actual) = env.infer_type(default, &locals) {
+                        if !env.expression_compatible(expected, &actual, default) {
+                            env.emit(
+                                "TYPE_DEFAULT_VALUE_MISMATCH",
+                                format!(
+                                    "Default value for `{}` has type {actual}, expected {expected}.",
+                                    param.name
+                                ),
+                            );
+                        }
+                    }
+                }
             }
         }
         let closure_slots = env.closure_slot_count(&function.name);
