@@ -38,6 +38,10 @@ pub(crate) struct ProjectPackageDependency {
     pub(crate) version: String,
     pub(crate) pin: bool,
     pub(crate) source: String,
+    /// The pinned owner identKey (plan-23 §3.5 trust anchor), captured on
+    /// first `pkg add` of a signed package (trust-on-first-use). Empty for
+    /// unsigned dependencies.
+    pub(crate) ident_key: String,
 }
 
 pub(crate) fn package_file_url_path(url: &str) -> Result<PathBuf, String> {
@@ -486,6 +490,12 @@ pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPac
         .and_then(|value| value.get::<bool>())
         .copied()
         .unwrap_or(false);
+    let ident_key = package
+        .get("identKey")
+        .or_else(|| package.get("ident_key"))
+        .and_then(|value| value.get::<String>())
+        .cloned()
+        .unwrap_or_default();
 
     if name.trim().is_empty() {
         return None;
@@ -497,6 +507,7 @@ pub(crate) fn project_package_dependency(value: &JsonValue) -> Option<ProjectPac
         version,
         pin,
         source,
+        ident_key,
     })
 }
 
@@ -535,8 +546,16 @@ pub(crate) fn project_json_with_package(
 fn package_dependency_json(dependency: &ProjectPackageDependency, indent: usize) -> String {
     let pad = " ".repeat(indent);
     let field_pad = " ".repeat(indent + 2);
+    let ident_key = if dependency.ident_key.is_empty() {
+        String::new()
+    } else {
+        format!(
+            ",\n{field_pad}\"identKey\": {}",
+            json_string(&dependency.ident_key)
+        )
+    };
     format!(
-        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"ident\": {},\n{field_pad}\"version\": {},\n{field_pad}\"pin\": {},\n{field_pad}\"source\": {}\n{pad}}}",
+        "{pad}{{\n{field_pad}\"name\": {},\n{field_pad}\"ident\": {},\n{field_pad}\"version\": {},\n{field_pad}\"pin\": {},\n{field_pad}\"source\": {}{ident_key}\n{pad}}}",
         json_string(&dependency.name),
         json_string(&dependency.ident),
         json_string(&dependency.version),

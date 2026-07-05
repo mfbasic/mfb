@@ -47,6 +47,7 @@ Package Management:
   pkg add <url>           Add a compiled package to the current project
   pkg info <pkg>          Show information about a compiled package
   pkg verify              Verify packages declared in project.json
+  pkg validate <pkg>      Check an existing package's signatures and structure
   pkg publish <own> <pkg> Publish a signed package project
 
 Repository & Auth:
@@ -461,6 +462,7 @@ mod tests {
             version: "1.0.0".to_string(),
             pin: true,
             source: "file:///tmp/source/shape.mfp".to_string(),
+            ident_key: String::new(),
         };
 
         let updated =
@@ -501,6 +503,7 @@ mod tests {
             version: "1.0.0".to_string(),
             pin: true,
             source: "file:///tmp/source/shape.mfp".to_string(),
+            ident_key: String::new(),
         };
 
         let updated =
@@ -518,6 +521,7 @@ mod tests {
             version: "1.2.3".to_string(),
             pin: true,
             source: "registry:mfb".to_string(),
+            ident_key: String::new(),
         };
         assert_eq!(
             package_dependency_status(&dependency, "shape", "ada#shape", "1.2.3"),
@@ -552,6 +556,7 @@ mod tests {
             version: "1.2.0".to_string(),
             pin: false,
             source: "registry:mfb".to_string(),
+            ident_key: String::new(),
         };
 
         assert_eq!(
@@ -602,6 +607,7 @@ mod tests {
             version: "1.2.3".to_string(),
             pin: false,
             source: "registry:mfb".to_string(),
+            ident_key: String::new(),
         };
 
         assert_eq!(

@@ -87,7 +87,7 @@ unallocated). The scheme leaves room; it does not densely fill it.
 | `3-304` | target/codegen support | 2 |
 | `5-500` | linking | 1 |
 | `6-603` | lockfile | 1 |
-| `6-605` | package container / signing | 2 |
+| `6-605` | package container / signing | 7 |
 | `0-000` | `UNKNOWN_RULE` fallback (synthetic) | 1 |
 
 `EEEE` is the per-subsystem ordinal, generally `0001`-up, but it is **not
@@ -474,10 +474,21 @@ DOC block semantics (resolver):
 
 ### `6-605` — Package container / signing
 
+Codes `0003`–`0007` are the plan-23 §3.5 client verification chain refusals:
+each broken link of pinned-server-key → attestation → pinned-ident → proof →
+one-off-key → bytes gets its own code, emitted by the build gate
+(`verify_and_report_packages`) after the `uses <name> - [Tampered]` line.
+[[src/cli/build.rs:classify_installed_package]]
+
 | code | NAME | severity | message |
 | --- | --- | --- | --- |
 | `6-605-0001` | `PACKAGE_INVALID` | error | package container is malformed or incompatible |
 | `6-605-0002` | `PACKAGE_SIGNATURE_INVALID` | error | package signature, hash, or trust record is missing or invalid |
+| `6-605-0003` | `PACKAGE_IDENT_KEY_UNTRUSTED` | error | package identKey does not match the pinned trust anchor |
+| `6-605-0004` | `PACKAGE_ATTESTATION_INVALID` | error | package attestation is missing, unverifiable, or pins a different package |
+| `6-605-0005` | `PACKAGE_PROOF_INVALID` | error | package proof is missing, unverifiable, or pins a different package |
+| `6-605-0006` | `PACKAGE_PAYLOAD_HASH_MISMATCH` | error | package payload does not match the signed packageBinaryHash |
+| `6-605-0007` | `PACKAGE_UNSIGNED_REMOTE` | error | unsigned package from a non-local source requires --unsigned |
 
 ### `0-000` — Fallback (synthetic)
 

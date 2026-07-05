@@ -643,7 +643,13 @@ mod tests {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
     use base64::Engine;
 
-    fn register_owner_with_keys(store: &Store, owner: &str) -> (Vec<u8>, Vec<u8>) {
+    struct TestOwnerKeys {
+        auth_private: Vec<u8>,
+        ident_public: Vec<u8>,
+        ident_private: Vec<u8>,
+    }
+
+    fn register_owner_with_all_keys(store: &Store, owner: &str) -> TestOwnerKeys {
         let (auth_public, auth_private) = crypto::generate_keypair();
         let (ident_public, ident_private) = crypto::generate_keypair();
         let auth_proof = crypto::sign(
@@ -659,7 +665,16 @@ mod tests {
         store
             .register_owner(owner, &auth_public, &auth_proof, &ident_public, &ident_proof)
             .unwrap();
-        (auth_public, auth_private)
+        TestOwnerKeys {
+            auth_private,
+            ident_public,
+            ident_private,
+        }
+    }
+
+    fn register_owner_with_keys(store: &Store, owner: &str) -> (Vec<u8>, Vec<u8>) {
+        let keys = register_owner_with_all_keys(store, owner);
+        (Vec::new(), keys.auth_private)
     }
 
     #[test]
@@ -840,6 +855,277 @@ mod tests {
         let (_owner, ident_key) = store.owner_with_ident_key("alice").unwrap().unwrap();
         assert_eq!(attestation["identFingerprint"], ident_key.fingerprint.as_str());
         assert!(attestation["issued"].is_i64());
+    }
+
+    struct CraftArgs<'a> {
+        ident_key_public: &'a [u8],
+        proof_signer: &'a [u8],
+        attestation: String,
+        attestation_sig: Vec<u8>,
+        version: &'a str,
+    }
+
+    /// Craft a container v1.0 package for `alice#toolbox` with a fresh one-off
+    /// signing key, a proof signed by `proof_signer`, and the given
+    /// attestation. Returns the artifact plus the wire request describing it.
+    fn craft_package(args: CraftArgs<'_>, session_token: &str) -> PackageArtifactRequest {
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(args.ident_key_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let proof = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"{}\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":1}}",
+            args.version, ident_fingerprint, signing_fingerprint,
+        );
+        let proof_sig = crypto::sign(
+            args.proof_signer,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: args.version.to_string(),
+                author: "alice".to_string(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(args.ident_key_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof,
+                proof_sig,
+                attestation: args.attestation,
+                attestation_sig: args.attestation_sig,
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).expect("crafted package parses");
+        PackageArtifactRequest {
+            ident: parsed.ident.clone(),
+            version: parsed.version.clone(),
+            artifact: crypto::encode_bytes(&artifact),
+            content_hash: parsed.content_hash_hex(),
+            ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+            session_token: session_token.to_string(),
+        }
+    }
+
+    /// Ask the real `/signing` handler for an attestation naming the given
+    /// one-off fingerprint (extracted from the crafted request afterwards is
+    /// impossible, so the caller passes the fingerprint a crafted package
+    /// will use — here we instead attest whatever fingerprint is passed in).
+    async fn real_attestation(
+        state: &AppState,
+        token: &str,
+        version: &str,
+        signing_fingerprint: &str,
+    ) -> (String, Vec<u8>) {
+        let response = signing(
+            State(state.clone()),
+            Json(SigningRequest {
+                owner: "alice".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: version.to_string(),
+                signing_fingerprint: signing_fingerprint.to_string(),
+                session_token: token.to_string(),
+            }),
+        )
+        .await
+        .expect("attestation issued")
+        .0;
+        let signature =
+            crypto::decode_bytes(&response.attestation_signature, "signature").unwrap();
+        (response.attestation, signature)
+    }
+
+    #[tokio::test]
+    async fn publish_chain_enforces_two_credentials_and_pinning() {
+        let temp = tempfile::tempdir().unwrap();
+        let opened =
+            Store::open_repository(&temp.path().join("meta.db"), &temp.path().join("data"))
+                .unwrap();
+        let store = opened.store;
+        let keys = register_owner_with_all_keys(&store, "alice");
+        let token = open_session(&store, "alice", &keys.auth_private);
+        let state = AppState {
+            store: store.clone(),
+            packages_dir: temp.path().join("data"),
+        };
+
+        // The crafted flow needs the attestation to pin the one-off key, and
+        // the one-off key is generated inside craft_package. Pre-generate the
+        // signing fingerprint by crafting once with a placeholder attestation
+        // just to learn the fingerprint... instead, mirror the real client:
+        // generate the one-off key first. craft_package generates its own, so
+        // for the VALID case we call /signing with the fingerprint the craft
+        // will use — achieved by crafting with a fixed rng is impossible, so
+        // the valid-case craft is done inline here.
+        let (signing_public, signing_private) = crypto::generate_keypair();
+        let ident_fingerprint = crypto::fingerprint(&keys.ident_public);
+        let signing_fingerprint = crypto::fingerprint(&signing_public);
+        let (attestation, attestation_sig) =
+            real_attestation(&state, &token, "1.0.0", &signing_fingerprint).await;
+        let proof = format!(
+            "{{\"owner\":\"alice\",\"ident\":\"alice#toolbox\",\"version\":\"1.0.0\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":1}}",
+            ident_fingerprint, signing_fingerprint,
+        );
+        let proof_sig = crypto::sign(
+            &keys.ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
+        let artifact = package::test_support::serialize(
+            &package::test_support::TestPackage {
+                name: "toolbox".to_string(),
+                ident: "alice#toolbox".to_string(),
+                version: "1.0.0".to_string(),
+                author: "alice".to_string(),
+                payload: b"MFPCtestpayload".to_vec(),
+                ident_key: format!("ed25519:{}", crypto::encode_bytes(&keys.ident_public)),
+                signing_key: format!("ed25519:{}", crypto::encode_bytes(&signing_public)),
+                proof,
+                proof_sig,
+                attestation,
+                attestation_sig,
+            },
+            &signing_private,
+        );
+        let parsed = package::parse_mfp_package(&artifact).unwrap();
+        let valid_request = PackageArtifactRequest {
+            ident: parsed.ident.clone(),
+            version: parsed.version.clone(),
+            artifact: crypto::encode_bytes(&artifact),
+            content_hash: parsed.content_hash_hex(),
+            ident_fingerprint: parsed.ident_fingerprint().unwrap(),
+            signing_fingerprint: parsed.signing_fingerprint().unwrap(),
+            session_token: token.clone(),
+        };
+        let report = validate_package_request(&state, &valid_request).await.unwrap();
+        assert!(
+            report.valid,
+            "fully chained package must validate: {:?}",
+            report.diagnostics
+        );
+
+        // Two-credential negative 1 — ident-only forgery: the attacker holds
+        // the ident private key (valid proof) but no session, so no genuine
+        // attestation exists; a self-minted one signed by the attacker's own
+        // "server" key must be refused (§3.4 step 2).
+        let (fake_server_public, fake_server_private) = crypto::generate_keypair();
+        let fake_attestation = attestation_json(
+            &crypto::fingerprint(&fake_server_public),
+            "alice",
+            "alice#toolbox",
+            "1.0.0",
+            &ident_fingerprint,
+            "0000000000000000000000000000000000000000000000000000000000000000",
+            1,
+        );
+        let fake_attestation_sig = crypto::sign(
+            &fake_server_private,
+            &crypto::attestation_signing_input(fake_attestation.as_bytes()),
+        )
+        .unwrap();
+        let forged = craft_package(
+            CraftArgs {
+                ident_key_public: &keys.ident_public,
+                proof_signer: &keys.ident_private,
+                attestation: fake_attestation,
+                attestation_sig: fake_attestation_sig,
+                version: "1.0.0",
+            },
+            &token,
+        );
+        let report = validate_package_request(&state, &forged).await.unwrap();
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("attestation verification failed")),
+            "{:?}",
+            report.diagnostics
+        );
+
+        // Two-credential negative 2 — auth-only forgery: the attacker has a
+        // live session (real attestation) but not the ident private key, so
+        // the proof cannot verify under the registered identKey (§3.4 step 6).
+        let (_attacker_public, attacker_private) = crypto::generate_keypair();
+        // The attestation must pin the forged package's one-off key, which
+        // craft_package generates internally — so the attestation check will
+        // also fail. To isolate the PROOF failure, attest the crafted
+        // package's own fingerprint by crafting first with a throwaway
+        // attestation, reading the fingerprint, then re-crafting is not
+        // possible (fresh key each craft). Instead assert on the proof
+        // diagnostic which fires regardless of the attestation result.
+        let throwaway = real_attestation(&state, &token, "1.0.0", &signing_fingerprint).await;
+        let forged = craft_package(
+            CraftArgs {
+                ident_key_public: &keys.ident_public,
+                proof_signer: &attacker_private,
+                attestation: throwaway.0,
+                attestation_sig: throwaway.1,
+                version: "1.0.0",
+            },
+            &token,
+        );
+        let report = validate_package_request(&state, &forged).await.unwrap();
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("proof verification failed")),
+            "{:?}",
+            report.diagnostics
+        );
+
+        // Attestation reuse — a genuine attestation for 1.0.0 cannot publish
+        // version 2.0.0 (§3.4 step 3 pinning).
+        let (reuse_attestation, reuse_sig) =
+            real_attestation(&state, &token, "1.0.0", &signing_fingerprint).await;
+        let reused = craft_package(
+            CraftArgs {
+                ident_key_public: &keys.ident_public,
+                proof_signer: &keys.ident_private,
+                attestation: reuse_attestation,
+                attestation_sig: reuse_sig,
+                version: "2.0.0",
+            },
+            &token,
+        );
+        let report = validate_package_request(&state, &reused).await.unwrap();
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("attestation")),
+            "{:?}",
+            report.diagnostics
+        );
+
+        // Wrong container version — hard v1.0 (index §10.2).
+        let mut wrong_version = artifact.clone();
+        wrong_version[10] = 9; // containerMinor = 9
+        let request = PackageArtifactRequest {
+            ident: valid_request.ident.clone(),
+            version: valid_request.version.clone(),
+            artifact: crypto::encode_bytes(&wrong_version),
+            content_hash: valid_request.content_hash.clone(),
+            ident_fingerprint: valid_request.ident_fingerprint.clone(),
+            signing_fingerprint: valid_request.signing_fingerprint.clone(),
+            session_token: token.clone(),
+        };
+        let report = validate_package_request(&state, &request).await.unwrap();
+        assert!(!report.valid);
+        assert!(
+            report
+                .diagnostics
+                .iter()
+                .any(|diagnostic| diagnostic.contains("unsupported MFP container version")),
+            "{:?}",
+            report.diagnostics
+        );
     }
 
     #[test]

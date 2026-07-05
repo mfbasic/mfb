@@ -919,6 +919,37 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "package signature, hash, or trust record is missing or invalid",
     },
+    // --- plan-23 §3.5 client verification chain refusals ---
+    Rule {
+        code: "6-605-0003",
+        name: "PACKAGE_IDENT_KEY_UNTRUSTED",
+        severity: Severity::Error,
+        message: "package identKey does not match the pinned trust anchor",
+    },
+    Rule {
+        code: "6-605-0004",
+        name: "PACKAGE_ATTESTATION_INVALID",
+        severity: Severity::Error,
+        message: "package attestation is missing, unverifiable, or pins a different package",
+    },
+    Rule {
+        code: "6-605-0005",
+        name: "PACKAGE_PROOF_INVALID",
+        severity: Severity::Error,
+        message: "package proof is missing, unverifiable, or pins a different package",
+    },
+    Rule {
+        code: "6-605-0006",
+        name: "PACKAGE_PAYLOAD_HASH_MISMATCH",
+        severity: Severity::Error,
+        message: "package payload does not match the signed packageBinaryHash",
+    },
+    Rule {
+        code: "6-605-0007",
+        name: "PACKAGE_UNSIGNED_REMOTE",
+        severity: Severity::Error,
+        message: "unsigned package from a non-local source requires --unsigned",
+    },
     Rule {
         code: "3-304-0002",
         name: "PACKAGE_NATIVE_OUTPUT_UNSUPPORTED",

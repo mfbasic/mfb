@@ -89,6 +89,7 @@ Each element of `packages[]` declares one dependency:
 | `version` | string | `""` | requested version |
 | `pin` | bool | `false` | when true, the installed `.mfp` must match `version` exactly |
 | `source` | string | `""` | origin URL the dependency was added from |
+| `identKey` | string | `""` | the pinned owner ident public key — the plan-23 §3.5 trust anchor. Written by `pkg add` on first add of a signed package (trust-on-first-use); every later build verifies the installed `.mfp` against this pin, never against the file-embedded key. Snake_case `ident_key` is accepted on read. |
 
 `packages` must be an array when present (`validate_packages_array`); each
 element must be an object with a string `name`. An entry whose `name` is absent,

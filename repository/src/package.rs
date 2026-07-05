@@ -353,6 +353,63 @@ fn read_mfp_bytes(
     Ok(value)
 }
 
+/// Test-only container v1.0 builder: serialize a package with an arbitrary
+/// trust chain so server tests can craft forgeries without the compiler's
+/// writer. Mirrors `src/target/package_mfp/mod.rs::build_package_bytes`.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use crate::crypto;
+
+    pub(crate) struct TestPackage {
+        pub name: String,
+        pub ident: String,
+        pub version: String,
+        pub author: String,
+        pub payload: Vec<u8>,
+        pub ident_key: String,
+        pub signing_key: String,
+        pub proof: String,
+        pub proof_sig: Vec<u8>,
+        pub attestation: String,
+        pub attestation_sig: Vec<u8>,
+    }
+
+    fn put_bytes(dst: &mut Vec<u8>, bytes: &[u8]) {
+        dst.extend_from_slice(&(bytes.len() as u32).to_le_bytes());
+        dst.extend_from_slice(bytes);
+    }
+
+    pub(crate) fn serialize(package: &TestPackage, signing_private: &[u8]) -> Vec<u8> {
+        let mut bytes = Vec::new();
+        bytes.extend_from_slice(&[0x4d, 0x46, 0x50, 0x0d, 0x0a, 0x1a, 0x0a, 0x00]);
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // containerMajor
+        bytes.extend_from_slice(&0u16.to_le_bytes()); // containerMinor
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // binaryReprMajor
+        bytes.extend_from_slice(&0u16.to_le_bytes()); // binaryReprMinor
+        bytes.extend_from_slice(&0u32.to_le_bytes()); // flags
+        put_bytes(&mut bytes, package.name.as_bytes());
+        put_bytes(&mut bytes, package.ident.as_bytes());
+        put_bytes(&mut bytes, package.version.as_bytes());
+        put_bytes(&mut bytes, package.author.as_bytes());
+        put_bytes(&mut bytes, b""); // url
+        put_bytes(&mut bytes, package.ident_key.as_bytes());
+        put_bytes(&mut bytes, package.signing_key.as_bytes());
+        put_bytes(&mut bytes, package.proof.as_bytes());
+        put_bytes(&mut bytes, &package.proof_sig);
+        put_bytes(&mut bytes, package.attestation.as_bytes());
+        put_bytes(&mut bytes, &package.attestation_sig);
+        bytes.extend_from_slice(&crypto::sha256(&package.payload));
+        bytes.extend_from_slice(&(package.payload.len() as u64).to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // signatureType
+        bytes.extend_from_slice(&64u32.to_le_bytes()); // signatureLength
+        let signature = crypto::sign(signing_private, &crypto::package_signing_input(&bytes))
+            .expect("test package signature");
+        bytes.extend_from_slice(&signature);
+        bytes.extend_from_slice(&package.payload);
+        bytes
+    }
+}
+
 fn read_u16(bytes: &[u8], offset: usize) -> Result<u16, String> {
     let value = bytes
         .get(offset..offset + 2)

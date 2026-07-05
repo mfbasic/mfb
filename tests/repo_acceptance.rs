@@ -368,6 +368,131 @@ fn repo_signs_package_and_embeds_executable_metadata() {
 }
 
 #[test]
+fn repo_end_to_end_install_verifies_signed_package() {
+    let repo_dir = tempfile::tempdir().unwrap();
+    let home = tempfile::tempdir().unwrap();
+    let work = tempfile::tempdir().unwrap();
+    let repo = start_repo(repo_dir.path());
+
+    assert!(run_mfb(&repo, home.path(), &["repo", "register", "alice"])
+        .status
+        .success());
+    assert!(run_mfb(&repo, home.path(), &["repo", "auth", "alice"])
+        .status
+        .success());
+
+    // Build a signed package.
+    let package_dir = work.path().join("verified_pkg");
+    let package_dir_arg = package_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init-pkg", package_dir_arg])
+        .status
+        .success());
+    assert!(run_mfb(
+        &repo,
+        home.path(),
+        &["build", "--sign", "alice", package_dir_arg],
+    )
+    .status
+    .success());
+    let mfp_path = package_dir.join("verified_pkg.mfp");
+    assert!(mfp_path.is_file());
+
+    // Consumer project: `pkg add` pins the identKey on first use (TOFU).
+    let app_dir = work.path().join("consumer_app");
+    let app_dir_arg = app_dir.to_str().unwrap();
+    assert!(run_mfb_plain(&["init", app_dir_arg]).status.success());
+    let add = Command::new(mfb_exe())
+        .args(["pkg", "add", &format!("file://{}", mfp_path.display())])
+        .current_dir(&app_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("pkg add");
+    assert!(
+        add.status.success(),
+        "pkg add failed: {}",
+        String::from_utf8_lossy(&add.stderr)
+    );
+    let manifest = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
+    assert!(
+        manifest.contains("\"identKey\": \"ed25519:"),
+        "pkg add must pin the identKey: {manifest}"
+    );
+
+    // The consumer build walks the full §3.5 chain and reports Verified.
+    let build = Command::new(mfb_exe())
+        .args(["build"])
+        .current_dir(&app_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("consumer build");
+    let stdout = String::from_utf8_lossy(&build.stdout);
+    assert!(
+        build.status.success(),
+        "consumer build failed: stdout: {stdout}\nstderr: {}",
+        String::from_utf8_lossy(&build.stderr)
+    );
+    assert!(
+        stdout.contains("uses verified_pkg - [Verified]"),
+        "{stdout}"
+    );
+
+    // `pkg verify` reports the same trust state per dependency.
+    let verify = Command::new(mfb_exe())
+        .args(["pkg", "verify"])
+        .current_dir(&app_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("pkg verify");
+    let verify_stdout = String::from_utf8_lossy(&verify.stdout);
+    assert!(verify.status.success(), "{verify_stdout}");
+    assert!(verify_stdout.contains("[Verified]"), "{verify_stdout}");
+
+    // `pkg validate <pkg>` checks the existing package end-to-end.
+    let validate = Command::new(mfb_exe())
+        .args(["pkg", "validate", "verified_pkg"])
+        .current_dir(&app_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("pkg validate");
+    let validate_stdout = String::from_utf8_lossy(&validate.stdout);
+    assert!(
+        validate.status.success(),
+        "pkg validate failed: {validate_stdout}\n{}",
+        String::from_utf8_lossy(&validate.stderr)
+    );
+    assert!(validate_stdout.contains("result: valid"), "{validate_stdout}");
+    assert!(validate_stdout.contains("attestation: OK"), "{validate_stdout}");
+    assert!(validate_stdout.contains("proof: OK"), "{validate_stdout}");
+    assert!(validate_stdout.contains("ident pin: OK"), "{validate_stdout}");
+
+    // Tamper with the installed package: the consumer build must refuse.
+    let installed = app_dir.join("packages/verified_pkg.mfp");
+    let mut bytes = std::fs::read(&installed).unwrap();
+    let last = bytes.len() - 1;
+    bytes[last] ^= 0x01;
+    std::fs::write(&installed, &bytes).unwrap();
+    let build = Command::new(mfb_exe())
+        .args(["build"])
+        .current_dir(&app_dir)
+        .env("MFB_REPO_URL", &repo.url)
+        .env("MFB_HOME", home.path().join(".mfb"))
+        .output()
+        .expect("tampered consumer build");
+    assert!(!build.status.success());
+    let stdout = String::from_utf8_lossy(&build.stdout);
+    let stderr = String::from_utf8_lossy(&build.stderr);
+    assert!(stdout.contains("uses verified_pkg - [Tampered]"), "{stdout}");
+    assert!(
+        stderr.contains("6-605-0006") || stderr.contains("PACKAGE_PAYLOAD_HASH_MISMATCH"),
+        "{stderr}"
+    );
+}
+
+#[test]
 fn repo_publishes_signed_package_and_rejects_duplicate_version() {
     let repo_dir = tempfile::tempdir().unwrap();
     let home = tempfile::tempdir().unwrap();

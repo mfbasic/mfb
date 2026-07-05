@@ -296,20 +296,46 @@ Returns `ValidatePackageResponse`:[[repository/src/server.rs:ValidatePackageResp
 }
 ```
 
-The server verifies the session token, base64url-decodes and parses the `.mfp`,
-recomputes the content hash, and accumulates `diagnostics`. `valid` is true iff
-`diagnostics` is empty. An artifact that fails `.mfp` parsing is reported the
-same way — `200` with `valid: false`, an **empty** `contentHash`, and the parse
-error as the sole diagnostic — not as an HTTP error. Checks include: request
-`contentHash`/`ident`/`version`/
-`identFingerprint`/`signingFingerprint` matching the parsed package; the ident
-shaped as `<owner>#<package>`; the session owner (case-folded) matching the
-ident owner; the session's `owner_id`/`auth_fingerprint` still matching the
-owner's current key; the package `identKey` equal to `ed25519:<current public
-key>`; the
-package fingerprints and `author` matching the registered owner; the embedded
-package signature verifying against the owner's public key; and the
-`ident@version` not already published.[[repository/src/server.rs:validate_package_request]]
+The server verifies the session token, base64url-decodes and parses the `.mfp`
+(container v1.0, hard), recomputes the content hash, and accumulates
+`diagnostics`. `valid` is true iff `diagnostics` is empty. An artifact that
+fails `.mfp` parsing is reported the same way — `200` with `valid: false`, an
+**empty** `contentHash`, and the parse error as the sole diagnostic — not as an
+HTTP error.
+
+The checks run in the plan-23 §3.4 order, each with a distinct diagnostic:
+
+0. Wire integrity — request `contentHash`/`ident`/`version` match the parsed
+   package, and request `identFingerprint`/`signingFingerprint` match the
+   fingerprints derived from the header keys.
+1. Session/owner — the ident is `<owner>#<package>`; the session owner
+   (case-folded) matches the ident owner; the session's
+   `owner_id`/`auth_fingerprint` still match the owner's current auth key;
+   `author` matches the registered display name; the package is
+   Ed25519-signed (unsigned packages can never be published).
+2. The attestation verifies under the **server's own key** and its
+   `repoFingerprint` is ours.
+3. `attestation.ident`/`version` pin this exact package (an attestation cannot
+   be reused for another package or version).
+4. `attestation.signingFingerprint` equals the fingerprint of the header
+   `signingKey` — the package is signed by the key the server was told about.
+5. `attestation.identFingerprint` equals the fingerprint of the header
+   `identKey`, and that fingerprint matches the server's **current**
+   name↔ident binding (a stale attestation from before an ident rotation is
+   refused; the client refetches and rebuilds).
+6. The proof verifies under the header `identKey` and its
+   `owner`/`ident`/`version`/`identFingerprint`/`signingFingerprint` all match
+   the header.
+7. `packageBinaryHash` recomputes over the payload, and the package signature
+   verifies under the header `signingKey` over the signed prefix.
+
+Finally the `ident@version` must not already be
+published.[[repository/src/server.rs:validate_package_request]]
+
+The forgery property this enforces (plan-23 §2): producing a package that
+passes requires the ident private key (step 6) **and** a live authenticated
+session (steps 2–5 — attestations are only issued to sessions). Either
+credential alone fails a step.
 
 ### `/publish`
 

@@ -31,6 +31,12 @@ pub(crate) fn run_pkg_command(args: &[String]) -> Result<(), PkgCommandError> {
         [command] if command == "verify" => {
             verify_packages(Path::new(".")).map_err(PkgCommandError::Failed)
         }
+        [command, package] if command == "validate" => {
+            validate_package_file(Path::new("."), package).map_err(PkgCommandError::Failed)
+        }
+        [command, ..] if command == "validate" => Err(PkgCommandError::Usage(format!(
+            "mfb pkg validate requires exactly one <package>\n\n{USAGE}"
+        ))),
         [command, owner, package] if command == "publish" => {
             publish_package_project(owner, Path::new(package)).map_err(PkgCommandError::Failed)
         }
@@ -148,12 +154,16 @@ fn add_package(project_dir: &Path, url: &str) -> Result<(), String> {
     validate_packages_array(&manifest)?;
 
     let package_filename = format!("{}.mfp", package.name);
+    // Trust-on-first-use (plan-23 §3.5): adding a SIGNED package pins its
+    // identKey in the dependency entry. From then on the pin — never the
+    // file-embedded key — is the trust anchor every build verifies against.
     let dependency = ProjectPackageDependency {
         name: package.name.clone(),
         ident: package.ident.clone(),
         version: package.version.clone(),
         pin: true,
         source: url.to_string(),
+        ident_key: package.ident_key.clone(),
     };
     let updated = project_json_with_package(&contents, &manifest, &dependency)?;
 
@@ -182,6 +192,161 @@ fn add_package(project_dir: &Path, url: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `mfb pkg validate <pkg>` (plan-23 index §10.4): validate an EXISTING
+/// package file — "is this package correct?". Checks the container structure
+/// and, for a signed package, every internally-checkable link of the §3.5
+/// chain: the payload hash weld, the prefix signature under the embedded
+/// signingKey, the proof under the embedded identKey, and the attestation
+/// under the pinned registry key. When the working project declares the
+/// package with a pinned identKey, the pin is checked too. This is not a
+/// pre-signing step; nothing is uploaded.
+fn validate_package_file(project_dir: &Path, target: &str) -> Result<(), String> {
+    let direct = Path::new(target);
+    let package_path = if target.ends_with(".mfp") || direct.is_file() {
+        direct.to_path_buf()
+    } else {
+        let candidate = project_dir.join("packages").join(format!("{target}.mfp"));
+        if candidate.is_file() {
+            candidate
+        } else {
+            return Err(format!(
+                "no package named `{target}` found (looked for '{}')",
+                candidate.display()
+            ));
+        }
+    };
+
+    let bytes = fs::read(&package_path)
+        .map_err(|err| format!("failed to read '{}': {err}", package_path.display()))?;
+    println!("Package validation report for {}:", package_path.display());
+
+    let mut failures = 0usize;
+    let mut check = |name: &str, result: Result<String, String>| match result {
+        Ok(note) if note.is_empty() => println!("  {name}: OK"),
+        Ok(note) => println!("  {name}: OK ({note})"),
+        Err(err) => {
+            println!("  {name}: FAILED ({err})");
+            failures += 1;
+        }
+    };
+
+    let package = match mfb_repository::package::parse_mfp_package(&bytes) {
+        Ok(package) => {
+            check("container", Ok("v1.0".to_string()));
+            package
+        }
+        Err(err) => {
+            check("container", Err(err));
+            return Err("package validation failed".to_string());
+        }
+    };
+    println!("  ident: {}", package.ident);
+    println!("  version: {}", package.version);
+    println!(
+        "  signature type: {}",
+        signature_type_name(package.signature_type)
+    );
+
+    check(
+        "payload hash",
+        mfb_repository::package::verify_payload_hash(&package).map(|()| String::new()),
+    );
+
+    if package.signature_type == 0 {
+        println!("  trust chain: <none> (unsigned package)");
+    } else {
+        check(
+            "package signature",
+            mfb_repository::package::verify_package_signature(&package).and_then(|()| {
+                Ok(format!(
+                    "signingKey {}",
+                    package.signing_fingerprint()?
+                ))
+            }),
+        );
+        check(
+            "proof",
+            mfb_repository::package::decode_metadata_key(&package.ident_key, "identKey")
+                .and_then(|ident_public| {
+                    mfb_repository::package::verify_proof(&package, &ident_public)
+                })
+                .and_then(|()| Ok(format!("identKey {}", package.ident_fingerprint()?))),
+        );
+
+        // The attestation needs the pinned registry key (plan-23 §3.5 step 2).
+        let repo_url = mfb_repository::client::repo_url_from_env();
+        let attestation = super::local_paths_for_repo(&repo_url)
+            .and_then(|paths| mfb_repository::local::read_pinned_server_key(&paths))
+            .map_err(|_| {
+                "no pinned registry key; run `mfb repo auth <owner>` against the registry to pin server.pub"
+                    .to_string()
+            })
+            .and_then(|server_key| {
+                let repo_fingerprint = mfb_repository::crypto::fingerprint(&server_key);
+                mfb_repository::package::verify_attestation(
+                    &package,
+                    &server_key,
+                    &repo_fingerprint,
+                )
+                .map(|()| format!("repoFingerprint {repo_fingerprint}"))
+            });
+        check("attestation", attestation);
+
+        // The pin check runs when the working project declares this package.
+        let pin = project_pinned_ident_key(project_dir, &package.name);
+        match pin {
+            Some(anchor) => {
+                let result = mfb_repository::package::decode_metadata_key(&anchor, "identKey")
+                    .and_then(|pinned| {
+                        let header = mfb_repository::package::decode_metadata_key(
+                            &package.ident_key,
+                            "identKey",
+                        )?;
+                        if header == pinned {
+                            Ok(String::new())
+                        } else {
+                            Err(
+                                "package identKey does not match the identKey pinned in project.json"
+                                    .to_string(),
+                            )
+                        }
+                    });
+                check("ident pin", result);
+            }
+            None => println!("  ident pin: <not declared in project.json>"),
+        }
+    }
+
+    if failures == 0 {
+        println!("  result: valid");
+        Ok(())
+    } else {
+        println!("  result: INVALID ({failures} failed check(s))");
+        Err("package validation failed".to_string())
+    }
+}
+
+/// The `identKey` pinned for `name` in the working project's manifest, if the
+/// project declares that dependency.
+fn project_pinned_ident_key(project_dir: &Path, name: &str) -> Option<String> {
+    let contents = fs::read_to_string(project_dir.join("project.json")).ok()?;
+    let manifest = parse_project_json(&contents, &project_dir.join("project.json")).ok()?;
+    let packages = manifest
+        .get("packages")
+        .and_then(|value| value.get::<Vec<JsonValue>>())?;
+    packages.iter().find_map(|entry| {
+        let object = entry.get::<std::collections::HashMap<String, JsonValue>>()?;
+        if object.get("name")?.get::<String>()? != name {
+            return None;
+        }
+        object
+            .get("identKey")
+            .or_else(|| object.get("ident_key"))
+            .and_then(|value| value.get::<String>())
+            .cloned()
+    })
+}
+
 fn verify_packages(project_dir: &Path) -> Result<(), String> {
     let project_path = project_dir.join("project.json");
     let contents = fs::read_to_string(&project_path)
@@ -202,7 +367,24 @@ fn verify_packages(project_dir: &Path) -> Result<(), String> {
             continue;
         };
         let result = verify_package_dependency(project_dir, &dependency);
-        println!("{}", package_verify_line(&dependency, &result));
+        // Compiled dependencies also get their plan-23 §3.5 trust state,
+        // verified against the pinned identKey (never the embedded key).
+        let package_file = project_dir
+            .join("packages")
+            .join(format!("{}.mfp", dependency.name));
+        let state = if package_file.is_file() {
+            let anchor = if dependency.ident_key.is_empty() {
+                None
+            } else {
+                Some(dependency.ident_key.as_str())
+            };
+            let classification =
+                super::build::classify_installed_package(&package_file, anchor);
+            format!(" [{}]", classification.state.label())
+        } else {
+            String::new()
+        };
+        println!("{}{state}", package_verify_line(&dependency, &result));
     }
 
     Ok(())

@@ -26,6 +26,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `pkg add` | `mfb pkg add <url>` | 0 ok; 2 usage; 1 failed |
 | `pkg info` | `mfb pkg info <package>` | 0 ok; 2 usage; 1 failed |
 | `pkg verify` | `mfb pkg verify` | 0 ok; 2 usage (takes no args); 1 failed |
+| `pkg validate` | `mfb pkg validate <package>` | 0 valid; 2 usage; 1 invalid or failed |
 | `pkg publish` | `mfb pkg publish <owner_name> <package>` | 0 ok; 2 usage; 1 failed |
 | `pkg doc` | `mfb pkg doc <name-or-path> [--out file]` | 0 ok; 2 usage; 1 failed |
 | `repo register` | `mfb repo register <owner_name>` | 0 ok; 2 usage; 1 failed |
@@ -127,10 +128,15 @@ Format/finding catalogue: `./mfb spec tooling audit-format`.
 `run_pkg_command` matches the subcommand by name.[[src/cli/pkg.rs:run_pkg_command]]
 `add <url>` resolves a `file://` `.mfp` URL (only scheme supported; must be
 absolute and end `.mfp`), copies it into `packages/`, and records a pinned
-dependency in `project.json`. `info <package>` prints the package report (below).
-`verify` checks each `project.json` dependency. `publish <owner> <package>`
-rebuilds and signs the package then uploads it. `doc <name-or-path> [--out file]`
-renders a compiled package's doc section (`run_pkg_doc`, default out
+dependency in `project.json` — for a **signed** package the dependency entry
+also pins the header `identKey` on this first add (trust-on-first-use); the
+pin, never the file-embedded key, is the trust anchor every later build
+verifies against (plan-23 §3.5).[[src/cli/pkg.rs:add_package]] `info <package>`
+prints the package report (below). `verify` checks each `project.json`
+dependency. `validate <package>` checks an **existing** `.mfp` — "is this
+package correct?" (below). `publish <owner> <package>` rebuilds and signs the
+package then uploads it. `doc <name-or-path> [--out file]` renders a compiled
+package's doc section (`run_pkg_doc`, default out
 `doc.html`).[[src/cli/pkg.rs:run_pkg_doc]] Each subcommand's arity error and the
 fallthrough `unknown pkg command` exit `2`; runtime failures exit `1`.
 
@@ -152,14 +158,44 @@ dependency missing both a `packages/<name>.mfp` and a source-package
 
 ```text
 <name> @ <declared-version> : <status>
-<name> @ <declared-version> : <status> (<actual-version>)
+<name> @ <declared-version> : <status> (<actual-version>) [<trust-state>]
 ```
 
 (the `(actual)` suffix appears only when the installed version is known). A
 dependency entry that fails to parse prints `<invalid> @ <invalid> : Invalid
-Package`.
+Package`. Compiled `.mfp` dependencies additionally get their plan-23 §3.5
+trust state — `[Verified]`, `[Unsigned]`, or `[Tampered]` — verified against
+the dependency's pinned `identKey`; source-package dependencies get no state
+suffix.[[src/cli/pkg.rs:verify_packages]]
 
-## `pkg info` Output
+## `pkg validate` Output
+
+`validate_package_file` resolves `<package>` like `pkg doc` (a direct `.mfp`
+path, or `packages/<name>.mfp`) and prints one check line per verifiable link
+of the plan-23 §3.5 chain, then `result: valid` or `result: INVALID (<n>
+failed check(s))` (exit 1).[[src/cli/pkg.rs:validate_package_file]]
+
+```text
+Package validation report for <path>:
+  container: OK (v1.0)
+  ident: <ident>
+  version: <version>
+  signature type: <unsigned|Ed25519>
+  payload hash: OK
+  package signature: OK (signingKey <fp>)
+  proof: OK (identKey <fp>)
+  attestation: OK (repoFingerprint <fp>)
+  ident pin: OK | <not declared in project.json>
+  result: valid
+```
+
+An unsigned package reports `trust chain: <none> (unsigned package)` after the
+payload-hash check. The proof and package signature are checked against the
+**embedded** keys (internal consistency — validate answers "is this package
+correct?", not "do I trust this publisher"); the attestation requires the
+pinned `server.pub`, and the `ident pin` line compares against the working
+project's pinned `identKey` when the package is declared there. This command
+is not a pre-publish step; nothing is uploaded (plan-23 index §10.4).
 
 `print_package_info` decodes the `.mfp` header (`read_mfp_header`) and binary
 representation info (`binary_repr::read_package_info`) and prints fixed sections
