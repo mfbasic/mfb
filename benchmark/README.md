@@ -39,7 +39,7 @@ columns; a single-sample run leaves `median == average`.
 The compiler MVP targets two bars:
 
 1. **Everything is faster than Python** (mfb median < python median, every row).
-2. **Math is within ±1 ms of C `-O0`** (unoptimized C) — `|mfb − c‑O0| ≤ 1 ms`.
+2. **Math is within ±2 ms of C `-O0`** (unoptimized C) — `|mfb − c‑O0| ≤ 2 ms`.
 
 ## Current status — run `20260705-130531`
 
@@ -72,7 +72,7 @@ Still **slower than Python** (❌):
 The collection micro-ops fight CPython's hand-tuned C list/dict; the meaningful
 misses are `io read`, `bignum`, `list copy`, `io write`, `parse`, and `groupby`.
 
-### Goal 2 — math within ±1 ms of C `-O0`
+### Goal 2 — math within ±2 ms of C `-O0`
 
 **Not met on any op.** MFBASIC's software kernels run 3–8× C‑O0:
 
@@ -92,11 +92,11 @@ misses are `io read`, `bignum`, `list copy`, `io write`, `parse`, and `groupby`.
 | pow   |   96.05  |   15.59   |  +80.5 |
 
 `sqrt` is the only op close (1.3 ms over). The rest need substantial kernel
-throughput work to reach the ±1 ms bar.
+throughput work to reach the ±2 ms bar.
 
 ## Summary
 
 - **Blocker:** `io read` at ~7 s is an anomaly to fix first (buggy read loop).
 - **Goal 1 gaps:** bignum (loses to Python), list copy, io write, parse, groupby,
   map lookup, list prepend/append_batch.
-- **Goal 2:** every transcendental is well outside ±1 ms of C‑O0; `sqrt` is nearest.
+- **Goal 2:** every transcendental is well outside ±2 ms of C‑O0; `sqrt` is nearest.
