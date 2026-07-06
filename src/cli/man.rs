@@ -6,18 +6,41 @@ use crate::docs::render;
 use crate::USAGE;
 
 pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
-    match args {
+    let mut all = false;
+    let mut positional: Vec<&str> = Vec::new();
+    for arg in args {
+        match arg.as_str() {
+            "--all" => all = true,
+            other if other.starts_with("--") => {
+                return Err(format!("unknown option `{other}`\n\n{USAGE}"));
+            }
+            other => positional.push(other),
+        }
+    }
+
+    match positional.as_slice() {
         [] => {
-            print_man_index();
+            if all {
+                print_man_all();
+            } else {
+                print_man_index();
+            }
             Ok(())
         }
         [package_name] => {
             let package =
                 man::package(package_name).ok_or_else(|| unknown_package_error(package_name))?;
-            print_package_man(package);
+            if all {
+                print_package_all(package);
+            } else {
+                print_package_man(package);
+            }
             Ok(())
         }
         [package_name, function_name] => {
+            if all {
+                return Err("mfb man --all cannot be combined with a function".to_string());
+            }
             let package =
                 man::package(package_name).ok_or_else(|| unknown_package_error(package_name))?;
             let function = man::function(package, function_name).ok_or_else(|| {
@@ -36,8 +59,40 @@ pub(crate) fn show_man(args: &[String]) -> Result<(), String> {
     }
 }
 
+/// A full-width horizontal rule matching the separators `mfb spec --all` uses.
+fn print_man_rule() {
+    println!();
+    println!("{}", "─".repeat(detect_terminal_width()));
+    println!();
+}
+
+/// `mfb man --all`: the whole manual — every package overview followed by all of
+/// its function pages, in the order packages are listed, as one document.
+fn print_man_all() {
+    for (index, package) in man::packages().iter().enumerate() {
+        if index > 0 {
+            print_man_rule();
+        }
+        print_package_all(package);
+    }
+}
+
+/// `mfb man <package> --all`: the package overview followed by the full page for
+/// every function it documents, each separated by a full-width rule.
+fn print_package_all(package: &man::PackageDoc) {
+    print_package_man(package);
+    for function in package.functions {
+        print_man_rule();
+        if let Some(page) = man::function_page(package, function.name) {
+            print_man_page(page);
+        } else {
+            print_function_man(package, function);
+        }
+    }
+}
+
 fn print_man_index() {
-    println!("Usage: mfb man [package] [function]");
+    println!("Usage: mfb man [package] [function] [--all]");
     println!();
     println!("Show help for built-in packages and functions.");
     println!();
@@ -45,6 +100,8 @@ fn print_man_index() {
     println!("  mfb man");
     println!("  mfb man general");
     println!("  mfb man io print");
+    println!("  mfb man io --all");
+    println!("  mfb man --all");
     println!();
     println!("Packages:");
     for package in man::packages() {
@@ -199,6 +256,30 @@ mod tests {
         assert!(show_man(&s(&["io", "print"])).is_ok());
         // A constant reference (math::pi renders as a value, not a call).
         assert!(show_man(&s(&["math", "pi"])).is_ok());
+    }
+
+    #[test]
+    fn show_man_all_renders_the_whole_manual() {
+        assert!(show_man(&s(&["--all"])).is_ok());
+    }
+
+    #[test]
+    fn show_man_all_renders_one_package_in_full() {
+        // `io` has a page plus function pages; `math` carries constants too.
+        assert!(show_man(&s(&["io", "--all"])).is_ok());
+        assert!(show_man(&s(&["math", "--all"])).is_ok());
+    }
+
+    #[test]
+    fn show_man_all_rejects_a_function_argument() {
+        let err = show_man(&s(&["io", "print", "--all"])).unwrap_err();
+        assert!(err.contains("--all cannot be combined with a function"));
+    }
+
+    #[test]
+    fn show_man_rejects_unknown_option() {
+        let err = show_man(&s(&["--bogus"])).unwrap_err();
+        assert!(err.contains("unknown option"));
     }
 
     #[test]
