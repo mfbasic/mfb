@@ -1,13 +1,7 @@
 IMPORT collections
 FUNC main AS Integer
   LET numbers AS List OF Integer = [1, 2, 3]
+  ' collections::get with a non-Integer index is a type error.
   LET value AS Integer = collections::get(numbers, "1")
-  ' collections::get is inline-lowered with no callable symbol, so an inline TRAP
-  ' attached directly to it is rejected (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN),
-  ' even though this call's arguments are well-typed. The supported form is to
-  ' wrap the call in a FUNC and TRAP on that FUNC call instead.
-  LET trapped AS Integer = collections::get(numbers, 0) TRAP(err)
-    RECOVER -1
-  END TRAP
-  RETURN value + trapped
+  RETURN value
 END FUNC

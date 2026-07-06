@@ -672,6 +672,14 @@ impl CodeBuilder<'_> {
                 {
                     return self.lower_inline_conversion_raw(target, args);
                 }
+                // An inline `TRAP` on a fallible inline member (`collections::get`,
+                // `strings::mid`, …) traps the raw `Result` the same way (plan-21-B):
+                // run the member's normal inline lowering under a raw capture so its
+                // domain error redirects to the capture point instead of propagating,
+                // then materialize the `Result OF <success>`.
+                if crate::builtins::inline_builtin_raw_supported(target) {
+                    return self.lower_inline_builtin_raw(target, args);
+                }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
                 // `fs::*`, …) traps the raw `Result`. The runtime helper leaves
                 // that `Result` in the standard tag/value/error registers just
@@ -1255,6 +1263,49 @@ impl CodeBuilder<'_> {
             RESULT_OK_TAG,
         ));
         self.emit(abi::label(&capture));
+        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+    }
+
+    /// Inline `TRAP` on a fallible inline member (plan-21-B): the member-agnostic
+    /// generalization of `lower_inline_conversion_raw`. Run the member's normal
+    /// inline lowering under a `raw_result_capture` so its domain-error exit
+    /// (`emit_error_register_return`) branches to the capture point instead of
+    /// propagating, then on the success fall-through tag the produced value `Ok` and
+    /// materialize a `Result OF <success>`. The success value is a single register
+    /// for every enabled member — `get` yields the element, the mutators
+    /// (`set`/`insert`/`removeAt`) the updated collection pointer, `mid` a String,
+    /// `find` an index — so one fall-through shape covers them all. Only the members
+    /// `inline_builtin_raw_supported` allows reach here.
+    fn lower_inline_builtin_raw(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        let capture = self.label("raw_builtin_done");
+        let previous = self.raw_result_capture.take();
+        self.raw_result_capture = Some(capture.clone());
+        let lowered = match crate::builtins::native_builtin_target(target) {
+            Some("get") => self.lower_collection_get(args),
+            Some("set") => self.lower_collection_set(args),
+            Some("insert") => self.lower_collection_insert(args),
+            Some("removeAt") => self.lower_collection_remove_at(args),
+            Some("find") => self.lower_find(args),
+            Some("mid") => self.lower_mid(args),
+            other => Err(format!(
+                "native raw inline builtin '{target}' ({other:?}) is not supported"
+            )),
+        };
+        self.raw_result_capture = previous;
+        let success = lowered?;
+        // Success fall-through: tag the produced value as the `Ok` result.
+        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
+        self.emit(abi::label(&capture));
+        let success_type = success.type_.clone();
         self.materialize_current_result(&success_type, format!("callResult {target}"), false)
     }
 

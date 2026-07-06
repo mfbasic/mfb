@@ -1,0 +1,33 @@
+IMPORT io
+IMPORT collections
+IMPORT strings
+
+FUNC main AS Integer
+  MUT xs AS List OF Integer = []
+  xs = collections::append(xs, 10)
+  xs = collections::append(xs, 20)
+
+  ' collections::get — success unwraps, out-of-range traps (plan-21-B)
+  LET ok AS Integer = collections::get(xs, 1) TRAP(e)
+    RECOVER -1
+  END TRAP
+  io::print("get-ok=" & toString(ok))
+  LET bad AS Integer = collections::get(xs, 9) TRAP(e)
+    io::print("get-caught: " & e.message)
+    RECOVER -1
+  END TRAP
+  io::print("get-bad=" & toString(bad))
+
+  ' strings::mid — success unwraps, out-of-range traps
+  LET m AS String = strings::mid("hello", 1, 3) TRAP(e)
+    RECOVER "?"
+  END TRAP
+  io::print("mid=" & m)
+
+  ' collections::removeAt — a mutator returns the updated collection through the trap
+  LET removed AS List OF Integer = collections::removeAt(xs, 0) TRAP(e)
+    RECOVER xs
+  END TRAP
+  io::print("removed-len=" & toString(len(removed)))
+  RETURN 0
+END FUNC

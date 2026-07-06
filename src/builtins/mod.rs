@@ -168,9 +168,28 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
 /// `toString`, `typeName`) — the same forms the call lowering dispatches on, so
 /// the gate and the backstop classify identically.
 pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
-    bits::is_bits_call(target)
+    (bits::is_bits_call(target)
         || native_builtin_target(target).is_some()
-        || matches!(target, "len" | "toString" | "typeName")
+        || matches!(target, "len" | "toString" | "typeName"))
+        && !inline_builtin_raw_supported(target)
+}
+
+/// Whether a fallible inline member has a raw-`Result` inline lowering
+/// (`lower_inline_builtin_raw`) so an inline `TRAP` on it compiles and traps the
+/// real runtime error (plan-21-B). These are the index/range members whose failure
+/// raises through the shared `emit_error_register_return` tail (so the
+/// `raw_result_capture` branch already redirects the error to the capture point):
+/// `collections::get`/`set`/`insert`/`removeAt`, `strings::mid`, and `find`
+/// (`collections::find`/`strings::find`). The callback members
+/// (`forEach`/`transform`/`filter`/`reduce`) are excluded — a failing callback
+/// propagates via a plain return, not the capture branch — as are the infallible
+/// members (which the front-end gate rejects as "cannot fail" first). `target` is
+/// the canonical callee (`collections.get`, `strings.mid`, ...).
+pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
+    matches!(
+        native_builtin_target(target),
+        Some("get" | "set" | "insert" | "removeAt" | "find" | "mid")
+    )
 }
 
 /// Whether an inline-lowered built-in callee can raise **no** user-trappable
@@ -363,6 +382,38 @@ mod tests {
         // callees (user functions) are not infallible built-ins.
         assert!(!inline_builtin_is_infallible("myFunc"));
         assert!(!inline_builtin_is_infallible("math.sqrt"));
+    }
+
+    #[test]
+    fn inline_builtin_raw_supported_set() {
+        // The fallible inline members with a raw-`Result` inline lowering
+        // (plan-21-B): an inline TRAP on them compiles instead of being rejected.
+        for c in [
+            "collections.get",
+            "collections.set",
+            "collections.insert",
+            "collections.removeAt",
+            "collections.find",
+            "strings.find",
+            "strings.mid",
+        ] {
+            assert!(inline_builtin_raw_supported(c), "expected raw-supported: {c}");
+            assert!(!inline_trap_unsupported(c), "raw-supported must not be unsupported: {c}");
+        }
+        // Callback members and infallible members are NOT raw-supported.
+        for c in [
+            "collections.forEach",
+            "collections.transform",
+            "collections.filter",
+            "collections.reduce",
+            "collections.contains",
+            "len",
+            "bits.sl",
+        ] {
+            assert!(!inline_builtin_raw_supported(c), "expected NOT raw-supported: {c}");
+        }
+        // Callback members are still unsupported for inline TRAP.
+        assert!(inline_trap_unsupported("collections.forEach"));
     }
 
     #[test]

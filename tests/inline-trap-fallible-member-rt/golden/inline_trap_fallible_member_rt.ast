@@ -1,0 +1,71 @@
+{
+  "project": "inline_trap_fallible_member_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 },
+    { "module": "strings", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 5,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 6 },
+      { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "10" }] }, "line": 7 },
+      { "kind": "assignment", "name": "xs", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "20" }] }, "line": 8 },
+      { "kind": "binding", "mutable": false, "name": "ok", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 11,
+        "expression": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "1" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 12 }
+        ]
+      }, "line": 11 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "get-ok=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "ok" }] } }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "bad", "type": "Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 15,
+        "expression": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "9" }] },
+        "handler": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "get-caught: " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "e" }, "member": "message" } }] }, "line": 16 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 17 }
+        ]
+      }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "get-bad=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "bad" }] } }] }, "line": 19 },
+      { "kind": "binding", "mutable": false, "name": "m", "type": "String", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 22,
+        "expression": { "kind": "call", "callee": "strings.mid", "arguments": [{ "kind": "string", "value": "hello" }, { "kind": "number", "value": "1" }, { "kind": "number", "value": "3" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "string", "value": "?" }, "line": 23 }
+        ]
+      }, "line": 22 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "mid=" }, "right": { "kind": "identifier", "value": "m" } }] }, "line": 25 },
+      { "kind": "binding", "mutable": false, "name": "removed", "type": "List OF Integer", "value": {
+        "kind": "trapped",
+        "binding": "e",
+        "line": 28,
+        "expression": { "kind": "call", "callee": "collections.removeAt", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "0" }] },
+        "handler": [
+        { "kind": "recover", "value": { "kind": "identifier", "value": "xs" }, "line": 29 }
+        ]
+      }, "line": 28 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "removed-len=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "removed" }] }] } }] }, "line": 31 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 32 }
+      ]
+    }
+    ]
+  }
+  ]
+}

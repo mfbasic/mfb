@@ -4,11 +4,5 @@ FUNC main AS Integer
   LET wrongNeedle AS Integer = strings::find("hello", 1)
   LET wrongStart AS Integer = strings::find("hello", "l", "0")
   LET tooMany AS Integer = strings::find("hello", "l", 0, 1)
-  ' strings::find is inline-lowered with no callable symbol, so an inline TRAP
-  ' attached directly to it is rejected (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN),
-  ' even though this call's arguments are well-typed.
-  LET trapped AS Integer = strings::find("hello", "l") TRAP(err)
-    RECOVER -1
-  END TRAP
-  RETURN missing + wrongNeedle + wrongStart + tooMany + trapped
+  RETURN missing + wrongNeedle + wrongStart + tooMany
 END FUNC

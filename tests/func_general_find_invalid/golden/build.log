@@ -47,10 +47,4 @@ tests/func_general_find_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_
      | ^
 tests/func_general_find_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `tooMany` does not have a known type.
-   8 |   ' attached directly to it is rejected (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN),
-   9 |   ' even though this call's arguments are well-typed.
-  10 |   LET trapped AS Integer = strings::find("hello", "l") TRAP(err)
-     | ^
-tests/func_general_find_invalid/src/main.mfb:10 error[2-203-0102 TYPE_INLINE_TRAP_ON_INLINED_BUILTIN]: inline TRAP is not supported on an inline-lowered built-in
-               Inline TRAP is not supported on `strings.find` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead.
 [exit 1]

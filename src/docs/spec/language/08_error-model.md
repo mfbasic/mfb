@@ -138,7 +138,18 @@ Because these names still appear in compiler-internal positions, two resolution 
 11. An inline `TRAP` is legal only as the value of a `LET`/`MUT` binding, an assignment, or a bare expression statement, and traps exactly one expression. The trapped expression must be a fallible call; trapping an expression that cannot fail is a compile error (`TYPE_INLINE_TRAP_REQUIRES_FALLIBLE`). This includes package constants and the inline-lowered built-ins that raise no trappable domain error — `len`, `toString`, `typeName`, every `bits::*` op, and the pure-query / default-returning / growth-only members `collections::contains`/`hasKey`/`keys`/`values`/`sum`/`getOr`/`append`/`prepend`/`removeKey` and `strings::replace`.
 12. Every path through an inline `TRAP` handler must end in `RECOVER` or a diverging statement (`RETURN`, `FAIL`, `PROPAGATE`, or an `EXIT` form). Falling through to `END TRAP` is a compile error.
 13. `RECOVER` is valid only inside an inline `TRAP` handler; it is a compile error in a function-level `TRAP` or anywhere else (`TYPE_RECOVER_OUTSIDE_INLINE_TRAP`). `RECOVER`'s value must be assignable to the trapped expression's success type; it carries a value iff that type is not `Nothing`. Supplying the wrong type, omitting a value when one is required, or supplying a value for a value-less trapped expression is `TYPE_RECOVER_TYPE_MISMATCH`. The handler binding is scoped to the handler block only.
-14. An inline `TRAP` may not yet be attached directly to a **fallible inline-lowered built-in** — the index/range members `collections::get`/`set`/`insert`/`removeAt` and `strings::mid`/`find`, and the callback members `collections::forEach`/`transform`/`filter`/`reduce`. These have their machine code spliced in at the call site and own no callable symbol, so the trap form cannot yet be compiled; it is rejected as `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`. To handle such a call's error, move it into a `FUNC`/`SUB` and attach the inline `TRAP` to that call instead. (Infallible inline built-ins report `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` per rule 11 instead; conversion built-ins like `toInt`, helper-backed built-ins like `fs::*`, and user `FUNC`/`SUB` calls all support inline `TRAP` normally.)
+14. An inline `TRAP` on a fallible inline-lowered index/range member —
+    `collections::get`/`set`/`insert`/`removeAt` and `strings::mid`/`find` — traps
+    the real runtime error (index-out-of-range, range, not-found) just like the
+    conversion built-ins: the happy value auto-unwraps and the handler runs on
+    failure. Only the **callback members** `collections::forEach`/`transform`/
+    `filter`/`reduce` still reject a directly-attached inline `TRAP`
+    (`TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`), because a failing callback propagates
+    through the call rather than the inline error path; move such a call into a
+    `FUNC`/`SUB` and attach the inline `TRAP` to that call instead. (Infallible
+    inline built-ins report `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` per rule 11 instead;
+    conversion built-ins like `toInt`, helper-backed built-ins like `fs::*`, and user
+    `FUNC`/`SUB` calls all support inline `TRAP` normally.)
 
 ## 8.7 Program entry point
 
