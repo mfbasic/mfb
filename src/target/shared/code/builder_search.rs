@@ -805,10 +805,6 @@ impl CodeBuilder<'_> {
         let scratch17 = self.temporary_vreg();
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
-        let scratch22 = self.temporary_vreg();
-        let scratch23 = self.temporary_vreg();
-        let scratch24 = self.temporary_vreg();
-        let scratch25 = self.temporary_vreg();
 
         let data_len_slot = self.allocate_stack_object("mid_list_data_len", 8);
         let result_slot = self.allocate_stack_object("mid_list_result", 8);
@@ -818,10 +814,6 @@ impl CodeBuilder<'_> {
         let length_loop = self.label("mid_list_length_loop");
         let length_done = self.label("mid_list_length_done");
         let alloc_ok = self.label("mid_list_alloc_ok");
-        let copy_loop = self.label("mid_list_copy_loop");
-        let copy_entry = self.label("mid_list_copy_entry");
-        let copy_bytes = self.label("mid_list_copy_bytes");
-        let copy_bytes_done = self.label("mid_list_copy_bytes_done");
         let copy_done = self.label("mid_list_copy_done");
         let invalid_range = self.label("mid_list_invalid_range");
         let done = self.label("mid_list_done");
@@ -1005,85 +997,24 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::multiply_registers(&scratch21, &scratch10, &scratch14));
         self.emit(abi::add_registers(&scratch21, &scratch17, &scratch21));
-        self.emit(abi::move_immediate(&scratch12, "Integer", "0"));
+        // Re-pack the `count` slice entries [start, start+count) into the tight
+        // output: each payload is copied (word loop) from its own valueOffset to
+        // a running destination offset, and each entry's valueOffset rewritten to
+        // its compacted position (plan-25-B B2 — the word-copy payload move,
+        // replacing the original byte-at-a-time loop). This reads each entry's
+        // valueOffset individually, so it stays correct when the source list's
+        // data is not packed in entry order (e.g. after an insert/prepend/set).
         self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
-
-        self.emit(abi::label(&copy_loop));
-        self.emit(abi::compare_registers(&scratch12, &scratch10));
-        self.emit(abi::branch_ge(&copy_done));
-        self.emit(abi::label(&copy_entry));
-        self.emit(abi::move_immediate(
-            &scratch22,
-            "Byte",
-            &COLLECTION_ENTRY_FLAG_USED.to_string(),
-        ));
-        self.emit(abi::store_u8(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_FLAGS,
-        ));
-        self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
-        self.emit(abi::store_u64(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            &scratch22,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
-        ));
-        self.emit(abi::load_u64(
-            &scratch22,
+        self.emit_copy_collection_entries(
             &scratch16,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::load_u64(
-            &scratch23,
-            &scratch16,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
-        self.emit(abi::store_u64(
+            &scratch20,
+            &scratch17,
+            &scratch21,
             &scratch13,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
-        ));
-        self.emit(abi::store_u64(
-            &scratch23,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
-        self.emit(abi::add_registers(&scratch24, &scratch20, &scratch22));
-        self.emit(abi::add_registers(&scratch25, &scratch21, &scratch13));
-
-        self.emit(abi::label(&copy_bytes));
-        self.emit(abi::compare_immediate(&scratch23, "0"));
-        self.emit(abi::branch_eq(&copy_bytes_done));
-        self.emit(abi::load_u8(&scratch22, &scratch24, 0));
-        self.emit(abi::store_u8(&scratch22, &scratch25, 0));
-        self.emit(abi::add_immediate(&scratch24, &scratch24, 1));
-        self.emit(abi::add_immediate(&scratch25, &scratch25, 1));
-        self.emit(abi::subtract_immediate(&scratch23, &scratch23, 1));
-        self.emit(abi::branch(&copy_bytes));
-        self.emit(abi::label(&copy_bytes_done));
-        self.emit(abi::load_u64(
-            &scratch23,
-            &scratch17,
-            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
-        ));
-        self.emit(abi::add_registers(&scratch13, &scratch13, &scratch23));
-        self.emit(abi::add_immediate(
-            &scratch16,
-            &scratch16,
-            COLLECTION_ENTRY_SIZE,
-        ));
-        self.emit(abi::add_immediate(
-            &scratch17,
-            &scratch17,
-            COLLECTION_ENTRY_SIZE,
-        ));
-        self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
-        self.emit(abi::branch(&copy_loop));
+            &scratch10,
+            "mid_list_copy",
+        )?;
+        self.emit(abi::branch(&copy_done));
 
         self.emit(abi::label(&invalid_range));
         self.emit_index_out_of_range_return()?;

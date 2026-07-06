@@ -1,0 +1,67 @@
+IMPORT collections
+IMPORT io
+
+' plan-25-B B1: `x = collections::append(x, sublist)` on a uniquely-owned MUT
+' list appends the sublist in place (amortized O(sublist)), replacing the
+' O(n)-per-call value rebuild that made `flatten`/`append_batch` quadratic.
+' This runtime proof builds a large list two ways and asserts they are equal,
+' covering the growth (realloc) path many times and both fixed- and
+' variable-width payloads.
+FUNC main AS Integer
+  ' Reference: build a 900-element list one element at a time.
+  MUT reference AS List OF Integer = []
+  MUT r AS Integer = 0
+  WHILE r < 900
+    reference = collections::append(reference, r)
+    r = r + 1
+  WEND
+
+  ' Bulk: build the same 900 elements as 300 sublists of 3, appended in place.
+  MUT bulk AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 300
+    LET base AS Integer = i * 3
+    LET part AS List OF Integer = [base, base + 1, base + 2]
+    bulk = collections::append(bulk, part)
+    i = i + 1
+  WEND
+
+  IF len(bulk) <> len(reference) THEN
+    io::print("FAIL length " & toString(len(bulk)))
+    RETURN 1
+  END IF
+
+  MUT mismatch AS Integer = 0
+  MUT j AS Integer = 0
+  WHILE j < len(bulk)
+    IF collections::get(bulk, j) <> collections::get(reference, j) THEN
+      mismatch = mismatch + 1
+    END IF
+    j = j + 1
+  WEND
+  io::print("int len=" & toString(len(bulk)) & " mismatch=" & toString(mismatch))
+
+  ' Variable-width String payloads: append growing sublists in place.
+  MUT words AS List OF String = []
+  MUT w AS Integer = 0
+  WHILE w < 50
+    LET chunk AS List OF String = ["item" & toString(w), "x"]
+    words = collections::append(words, chunk)
+    w = w + 1
+  WEND
+  io::print("words len=" & toString(len(words)))
+  io::print("first=" & collections::get(words, 0))
+  io::print("last=" & collections::get(words, len(words) - 1))
+
+  ' Starting from a non-empty list still appends in place correctly.
+  MUT seed AS List OF Integer = [1, 2, 3]
+  LET tail AS List OF Integer = [4, 5, 6, 7]
+  seed = collections::append(seed, tail)
+  MUT sum AS Integer = 0
+  FOR EACH v IN seed
+    sum = sum + v
+  NEXT
+  io::print("seed len=" & toString(len(seed)) & " sum=" & toString(sum))
+
+  RETURN 0
+END FUNC

@@ -926,7 +926,10 @@ impl CodeBuilder<'_> {
             action_slot,
         ));
         let output_list_type = format!("List OF {output_type}");
-        let output = self.lower_empty_collection(&output_list_type)?;
+        // Pre-size the output to the source's working set so the per-element
+        // append never regrows the entry table (transform emits exactly
+        // count(source) entries) — plan-25-B B2.
+        let output = self.lower_reserved_list(&output_list_type, collection_slot)?;
         let output_slot = self.allocate_stack_object("transform_output", 8);
         let cursor_slot = self.allocate_stack_object("transform_cursor", 8);
         let remaining_slot = self.allocate_stack_object("transform_remaining", 8);
@@ -1016,7 +1019,10 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             action_slot,
         ));
-        let output = self.lower_empty_collection(&collection.type_)?;
+        // Pre-size the output to the source: filter's result is a subset, so the
+        // per-element append regrows neither the entry table nor the data region
+        // (plan-25-B B2).
+        let output = self.lower_reserved_list(&collection.type_, collection_slot)?;
         let output_slot = self.allocate_stack_object("filter_output", 8);
         let cursor_slot = self.allocate_stack_object("filter_cursor", 8);
         let remaining_slot = self.allocate_stack_object("filter_remaining", 8);

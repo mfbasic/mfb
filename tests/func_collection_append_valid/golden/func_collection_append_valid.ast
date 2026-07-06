@@ -39,7 +39,30 @@
         { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "identifier", "value": "name" }] }, "line": 14 }
         ]
       },
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "more" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "moreNames" }] } }, "line": 17 }
+      { "kind": "binding", "mutable": true, "name": "acc", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 20 },
+      { "kind": "binding", "mutable": true, "name": "k", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 21 },
+      {
+        "kind": "while",
+        "loop": "while",
+        "condition": { "kind": "binary", "operator": "<", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "4" } },
+        "line": 22,
+        "body": [
+        { "kind": "binding", "mutable": false, "name": "part", "type": "List OF Integer", "value": { "kind": "list", "values": [{ "kind": "identifier", "value": "k" }, { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "100" } }] }, "line": 23 },
+        { "kind": "assignment", "name": "acc", "value": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "acc" }, { "kind": "identifier", "value": "part" }] }, "line": 24 },
+        { "kind": "assignment", "name": "k", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "k" }, "right": { "kind": "number", "value": "1" } }, "line": 25 }
+        ]
+      },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "acc=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "acc" }] }] } }] }, "line": 27 },
+      {
+        "kind": "forEach",
+        "name": "value",
+        "iterable": { "kind": "identifier", "value": "acc" },
+        "line": 28,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "value" }] }] }, "line": 29 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "more" }] }, "right": { "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "moreNames" }] } }, "line": 32 }
       ]
     }
     ]

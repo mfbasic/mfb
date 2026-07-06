@@ -354,7 +354,10 @@ one), allocates a fresh tight buffer sized for `count - 1` entries and
 `dataLength - removedValueLength` bytes, and copies the surviving entries through
 `emit_copy_collection_entries`, which **re-packs each live payload at a running
 destination offset and rewrites each entry's `valueOffset`** to its compacted
-position. [[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]]
+position. It reads each surviving entry's own `valueOffset` rather than assuming
+the data is packed in entry order, so it stays correct for a list whose data
+region is out of entry order after an `insert`/`prepend`/`set` (whose new payload
+is appended to the data tail). [[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]]
 
 ### Map Updates
 

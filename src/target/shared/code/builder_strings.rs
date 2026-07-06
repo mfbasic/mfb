@@ -344,11 +344,6 @@ impl CodeBuilder<'_> {
         let copy_loop = self.label("replace_list_copy_loop");
         let copy_new = self.label("replace_list_copy_new");
         let copy_old = self.label("replace_list_copy_old");
-        let copy_new_string_loop = self.label("replace_list_copy_new_string_loop");
-        let copy_new_string_done = self.label("replace_list_copy_new_string_done");
-        let copy_new_inline_loop = self.label("replace_list_copy_new_inline_loop");
-        let copy_new_inline_done = self.label("replace_list_copy_new_inline_done");
-        let copy_old_loop = self.label("replace_list_copy_old_loop");
         let copy_done_one = self.label("replace_list_copy_done_one");
         let copy_done = self.label("replace_list_copy_done");
 
@@ -598,29 +593,23 @@ impl CodeBuilder<'_> {
             "String" => {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
                 self.emit(abi::add_immediate(&scratch24, &scratch24, 8));
-                self.emit(abi::label(&copy_new_string_loop));
-                self.emit(abi::compare_immediate(&scratch23, "0"));
-                self.emit(abi::branch_eq(&copy_new_string_done));
-                self.emit(abi::load_u8(&scratch22, &scratch24, 0));
-                self.emit(abi::store_u8(&scratch22, &scratch25, 0));
-                self.emit(abi::add_immediate(&scratch24, &scratch24, 1));
-                self.emit(abi::add_immediate(&scratch25, &scratch25, 1));
-                self.emit(abi::subtract_immediate(&scratch23, &scratch23, 1));
-                self.emit(abi::branch(&copy_new_string_loop));
-                self.emit(abi::label(&copy_new_string_done));
+                self.emit_block_copy_advance(
+                    &scratch25,
+                    &scratch24,
+                    &scratch23,
+                    &scratch22,
+                    "replace_list_copy_new_string",
+                );
             }
             other if self.inline_collection_payload_size(other).is_some() => {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
-                self.emit(abi::label(&copy_new_inline_loop));
-                self.emit(abi::compare_immediate(&scratch23, "0"));
-                self.emit(abi::branch_eq(&copy_new_inline_done));
-                self.emit(abi::load_u8(&scratch22, &scratch24, 0));
-                self.emit(abi::store_u8(&scratch22, &scratch25, 0));
-                self.emit(abi::add_immediate(&scratch24, &scratch24, 1));
-                self.emit(abi::add_immediate(&scratch25, &scratch25, 1));
-                self.emit(abi::subtract_immediate(&scratch23, &scratch23, 1));
-                self.emit(abi::branch(&copy_new_inline_loop));
-                self.emit(abi::label(&copy_new_inline_done));
+                self.emit_block_copy_advance(
+                    &scratch25,
+                    &scratch24,
+                    &scratch23,
+                    &scratch22,
+                    "replace_list_copy_new_inline",
+                );
             }
             _ => {
                 self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), new_slot));
@@ -637,15 +626,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(&scratch24, &scratch20, &scratch22));
         self.emit(abi::add_registers(&scratch25, &scratch21, &scratch13));
-        self.emit(abi::label(&copy_old_loop));
-        self.emit(abi::compare_immediate(&scratch23, "0"));
-        self.emit(abi::branch_eq(&copy_done_one));
-        self.emit(abi::load_u8(&scratch22, &scratch24, 0));
-        self.emit(abi::store_u8(&scratch22, &scratch25, 0));
-        self.emit(abi::add_immediate(&scratch24, &scratch24, 1));
-        self.emit(abi::add_immediate(&scratch25, &scratch25, 1));
-        self.emit(abi::subtract_immediate(&scratch23, &scratch23, 1));
-        self.emit(abi::branch(&copy_old_loop));
+        self.emit_block_copy_advance(
+            &scratch25,
+            &scratch24,
+            &scratch23,
+            &scratch22,
+            "replace_list_copy_old",
+        );
 
         self.emit(abi::label(&copy_done_one));
         self.emit(abi::load_u64(

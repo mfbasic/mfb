@@ -14,4 +14,13 @@ $ tests/func_collection_append_valid/func_collection_append_valid.out
 Ada
 Grace
 Katherine
+acc=8
+0
+100
+1
+101
+2
+102
+3
+103
 [exit 8]

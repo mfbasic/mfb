@@ -74,6 +74,87 @@ impl CodeBuilder<'_> {
         Ok(true)
     }
 
+    /// Recognize `name = collections::append(name, sublist)` — a *bulk*
+    /// list-into-list append — on a uniquely-owned `MUT` list local, and lower it
+    /// as an in-place batch grow (plan-25-B B1): the sublist's elements are
+    /// appended into `name`'s spare capacity (geometric grow only when the whole
+    /// batch does not fit), amortized O(count(sublist)) per call instead of the
+    /// value-semantic rebuild that copies the whole accumulated list every call
+    /// (the O(n²) `flatten`/`append_batch` path). It is the list-RHS sibling of
+    /// [`Self::try_inplace_append_assign`]: that helper commits only for a single
+    /// element of the list's *element* type, so a `List OF T` RHS falls through to
+    /// here. Soundness is identical to the single-element append (value semantics
+    /// + copy insertion give the buffer no live alias; the grow writes only beyond
+    /// the live count). The `append(name, name)` self-alias — where the grow would
+    /// free the RHS out from under the copy — is excluded and takes the value
+    /// path. Returns `true` when handled.
+    pub(super) fn try_inplace_bulk_append_assign(
+        &mut self,
+        name: &str,
+        value: &NirValue,
+        stack_offset: usize,
+        by_ref: bool,
+    ) -> Result<bool, String> {
+        if by_ref {
+            return Ok(false);
+        }
+        let NirValue::Call { target, args, .. } = value else {
+            return Ok(false);
+        };
+        if crate::builtins::native_builtin_target(target) != Some("append") || args.len() != 2 {
+            return Ok(false);
+        }
+        let NirValue::Local(arg0) = &args[0] else {
+            return Ok(false);
+        };
+        if arg0 != name {
+            return Ok(false);
+        }
+        // Exclude the self-alias `append(name, name)`: the grow path frees the old
+        // buffer, so a RHS pointing at the same buffer would read freed memory. The
+        // value path rebuilds correctly from both operands read up front.
+        if let NirValue::Local(arg1) = &args[1] {
+            if arg1 == name {
+                return Ok(false);
+            }
+        }
+        let Some(local) = self.locals.get(name) else {
+            return Ok(false);
+        };
+        let list_type = local.type_.clone();
+        let Some(element_type) = super::list_element_type(&list_type) else {
+            return Ok(false);
+        };
+        if super::CollectionTypeLayout::from_type(&list_type).is_none() {
+            return Ok(false);
+        }
+        // Commit only for a statically-known RHS of the *list* type (not the
+        // element type — that is the single-element fast path). A RHS whose static
+        // type is unknown (a general call result) falls through to the value path.
+        match self.static_type_name(&args[1]) {
+            Some(item_type) if item_type == list_type => {}
+            _ => return Ok(false),
+        }
+        let rhs = self.lower_value(&args[1])?;
+        if rhs.type_ != list_type {
+            return Err(format!(
+                "native bulk append sublist must be {list_type}, got {}",
+                rhs.type_
+            ));
+        }
+        let rhs_slot = self.allocate_stack_object("inplace_bulk_append_rhs", 8);
+        self.emit(abi::store_u64(
+            &rhs.location,
+            abi::stack_pointer(),
+            rhs_slot,
+        ));
+        self.lower_list_bulk_append_in_place(stack_offset, rhs_slot, &list_type, &element_type)?;
+        if let Some(local) = self.locals.get_mut(name) {
+            local.constant = None;
+        }
+        Ok(true)
+    }
+
     /// Recognize `name = collections::set(name, index, item)` on a uniquely-owned
     /// `MUT` **list** local and lower it as an in-place overwrite (plan-02 §4.1).
     /// When the replacement payload fits the target slot (`newLen <= oldLen`, the

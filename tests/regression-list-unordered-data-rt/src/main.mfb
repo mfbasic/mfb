@@ -1,0 +1,67 @@
+IMPORT collections
+IMPORT io
+
+' REGRESSION (plan-25-B): a list produced by insert/prepend/set does NOT pack
+' its data region in entry order — the inserted element's payload is appended to
+' the data tail, so entry[0].valueOffset can exceed later entries' offsets. mid
+' and removeAt must re-pack each payload from its own valueOffset, not assume a
+' contiguous entry-ordered slice (an early bulk-span optimization did, corrupting
+' capture lists in the regex engine). This asserts the value-preserving contract.
+
+FUNC dump(tag AS String, xs AS List OF Integer) AS Integer
+  MUT s AS String = tag & "="
+  FOR EACH v IN xs
+    s = s & toString(v) & ","
+  NEXT
+  io::print(s)
+  RETURN 0
+END FUNC
+
+FUNC main AS Integer
+  ' Build [-1,-1,-1,-1] then set index 0 -> the "5" payload lands at the data
+  ' tail, so the data region is out of entry order.
+  MUT base AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < 4
+    base = collections::append(base, -1)
+    i = i + 1
+  WEND
+  LET a AS List OF Integer = collections::set(base, 0, 5)
+  LET b AS List OF Integer = collections::set(a, 1, 8)
+  LET c AS List OF Integer = collections::set(b, 3, 9)
+  LET z1 AS Integer = dump("c", c)
+
+  ' mid over an out-of-order list.
+  LET m AS List OF Integer = collections::mid(c, 0, 3)
+  LET z2 AS Integer = dump("mid_0_3", m)
+  LET m2 AS List OF Integer = collections::mid(c, 1, 2)
+  LET z3 AS Integer = dump("mid_1_2", m2)
+
+  ' removeAt over an out-of-order list, at the front, middle, and back.
+  LET r0 AS List OF Integer = collections::removeAt(c, 0)
+  LET z4 AS Integer = dump("rm_0", r0)
+  LET r1 AS List OF Integer = collections::removeAt(c, 1)
+  LET z5 AS Integer = dump("rm_1", r1)
+  LET r3 AS List OF Integer = collections::removeAt(c, 3)
+  LET z6 AS Integer = dump("rm_3", r3)
+
+  ' insert into an out-of-order list.
+  LET ins AS List OF Integer = collections::insert(c, 2, 77)
+  LET z7 AS Integer = dump("ins_2", ins)
+
+  ' bulk in-place append onto an out-of-order MUT list.
+  MUT acc AS List OF Integer = collections::set(base, 0, 7)
+  LET tail AS List OF Integer = [100, 200, 300]
+  acc = collections::append(acc, tail)
+  LET z8 AS Integer = dump("acc", acc)
+
+  ' A deep set-chain (mirrors regex capture threading) stays value-correct.
+  MUT caps AS List OF Integer = base
+  MUT k AS Integer = 0
+  WHILE k < 4
+    caps = collections::set(caps, k, k * 10)
+    k = k + 1
+  WEND
+  LET z9 AS Integer = dump("caps", caps)
+  RETURN 0
+END FUNC

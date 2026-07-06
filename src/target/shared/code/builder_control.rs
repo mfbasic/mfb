@@ -260,6 +260,12 @@ impl CodeBuilder<'_> {
                         // (plan-01 §4.2): the helper updates the slot, so skip the
                         // general reassignment path entirely.
                         if !self.try_inplace_append_assign(name, value, stack_offset, by_ref)?
+                            && !self.try_inplace_bulk_append_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                             && !self.try_inplace_set_assign(name, value, stack_offset, by_ref)?
                             && !self.try_inplace_prepend_assign(
                                 name,
