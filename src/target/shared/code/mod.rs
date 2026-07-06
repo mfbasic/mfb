@@ -13,7 +13,6 @@ use super::nir::{
 use super::plan::NativePlan;
 use super::runtime;
 
-
 struct CodeBuilder<'a> {
     current_symbol: String,
     function_symbols: &'a HashMap<String, String>,
@@ -113,6 +112,16 @@ struct CodeBuilder<'a> {
     /// handler's null-guarded frees skip such slots (the per-`LET` zero-init only
     /// guards a binding's *own* trapping initializer, not an earlier jump past it).
     owned_value_slots: Vec<usize>,
+    /// Fresh, freeable-flat heap temporaries produced mid-statement that no owner
+    /// claimed (plan-25 temp-lifetime fix): a call/constructor result used only as
+    /// an argument, arithmetic operand, or discarded `Eval` value. Each is spilled
+    /// to its own slot when produced (`lower_value`) and freed when its enclosing
+    /// statement finishes (`drop_pending_temps_to`), so a hot loop of
+    /// `acc = acc + len(collections::op(...))` frees the interior list every
+    /// iteration instead of accumulating it until the function returns. An owning
+    /// consumer (`lower_value_owned`, `RETURN`, `StateAssign`, thread-spawn move)
+    /// claims its temp so the block is freed exactly once by whoever owns it.
+    pending_temp_frees: Vec<PendingTemp>,
     /// Names of locals whose live buffer is currently being walked by an
     /// enclosing `FOR EACH` (the iterable was a plain `Local`). In-place `set`/
     /// `prepend`/map-`set` that overwrites an *existing* entry's payload would be
@@ -230,6 +239,18 @@ struct OwnedValueCleanup {
     stack_offset: usize,
 }
 
+/// A fresh, freeable-flat heap temporary awaiting a statement-scope free
+/// (plan-25 temp-lifetime fix). `location` is the register the value occupied
+/// when produced — used to recognise (and exempt) the temp an owning consumer
+/// claims; `slot` is the spill holding the block pointer for the eventual
+/// `arena_free`.
+#[derive(Clone)]
+struct PendingTemp {
+    type_: String,
+    slot: usize,
+    location: String,
+}
+
 #[derive(Clone)]
 enum ActiveCleanup {
     Thread(ThreadCleanup),
@@ -289,7 +310,12 @@ struct TypeModel {
 #[allow(clippy::type_complexity)]
 fn pad_no_slots(
     body: (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>),
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>) {
+) -> (
+    CodeFrame,
+    Vec<CodeInstruction>,
+    Vec<CodeRelocation>,
+    Vec<CodeStackSlot>,
+) {
     (body.0, body.1, body.2, Vec::new())
 }
 
@@ -1110,20 +1136,22 @@ fn lower_runtime_helper(
             // App mode routes io output to the AppKit transcript window
             // (plan-04-macos-app.md §5.4) instead of a file descriptor.
             let (frame, instructions, relocations, stack_slots) = if app_mode {
-                pad_no_slots(platform
-                    .emit_app_io_write_helper(
-                        symbol,
-                        stderr,
-                        newline,
-                        term_state_offset,
-                        platform_imports,
-                    )
-                    .ok_or_else(|| {
-                        format!(
-                            "native target '{}' does not support app-mode io helpers",
-                            platform.target()
+                pad_no_slots(
+                    platform
+                        .emit_app_io_write_helper(
+                            symbol,
+                            stderr,
+                            newline,
+                            term_state_offset,
+                            platform_imports,
                         )
-                    })??)
+                        .ok_or_else(|| {
+                            format!(
+                                "native target '{}' does not support app-mode io helpers",
+                                platform.target()
+                            )
+                        })??,
+                )
             } else {
                 lower_io_write_helper(symbol, platform_imports, platform, stderr, newline)?
             };
@@ -1313,14 +1341,16 @@ fn lower_runtime_helper(
             // App mode: the window is the interactive console, so these return
             // TRUE rather than probing a file descriptor (plan §5.4).
             let (frame, instructions, relocations, stack_slots) = if app_mode {
-                pad_no_slots(platform
-                    .emit_app_io_is_terminal_helper(symbol)
-                    .ok_or_else(|| {
-                        format!(
-                            "native target '{}' does not support app-mode io helpers",
-                            platform.target()
-                        )
-                    })??)
+                pad_no_slots(
+                    platform
+                        .emit_app_io_is_terminal_helper(symbol)
+                        .ok_or_else(|| {
+                            format!(
+                                "native target '{}' does not support app-mode io helpers",
+                                platform.target()
+                            )
+                        })??,
+                )
             } else {
                 lower_io_is_terminal_helper(symbol, platform_imports, platform, fd)?
             };
@@ -1387,13 +1417,12 @@ fn lower_runtime_helper(
             })
         }
         "fs.currentDirectory" | "fs.tempDirectory" => {
-            let (frame, instructions, relocations, stack_slots) = if spec.call
-                == "fs.currentDirectory"
-            {
-                lower_fs_current_directory_helper(symbol, platform_imports, platform)?
-            } else {
-                lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
-            };
+            let (frame, instructions, relocations, stack_slots) =
+                if spec.call == "fs.currentDirectory" {
+                    lower_fs_current_directory_helper(symbol, platform_imports, platform)?
+                } else {
+                    lower_fs_temp_directory_helper(symbol, platform_imports, platform)?
+                };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -2178,6 +2207,7 @@ fn lower_direct_builtin_runtime_helper(
         owner_collections: HashSet::new(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
+        pending_temp_frees: Vec::new(),
         for_each_iterable_locals: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
@@ -2254,7 +2284,6 @@ fn lower_direct_builtin_runtime_helper(
     })
 }
 
-
 fn internal_branch(from: &str, to: &str) -> CodeRelocation {
     CodeRelocation {
         from: from.to_string(),
@@ -2282,7 +2311,6 @@ fn external_branch(
         library: Some(library),
     })
 }
-
 
 /// Build the FNV-1a hash buckets for the `Map` whose pointer is in `x0`
 /// (plan-02 Phase 6). Zeroes the `2*capacity`-entry bucket array that sits past
@@ -2559,8 +2587,8 @@ fn lower_map_probe_helper() -> CodeFunction {
         abi::branch_ne(&pnext),
         abi::load_u64("%v16", "%v15", COLLECTION_ENTRY_OFFSET_KEY_OFFSET),
         abi::add_registers("%v16", "%v11", "%v16"), // storedPtr
-        abi::move_register("%v5", "%v21"),        // queryCursor
-        abi::move_register("%v6", "%v22"),        // remaining
+        abi::move_register("%v5", "%v21"),          // queryCursor
+        abi::move_register("%v6", "%v22"),          // remaining
         abi::label(&cloop),
         abi::compare_immediate("%v6", "0"),
         abi::branch_eq(&cmatch),
@@ -2615,10 +2643,10 @@ mod error_constants;
 pub(crate) use error_constants::*;
 mod types;
 pub(crate) use types::*;
-mod validation;
 mod entry_and_arena;
-use entry_and_arena::*;
+mod validation;
 pub(crate) use entry_and_arena::lower_program_entry;
+use entry_and_arena::*;
 pub(crate) use runtime_helpers::lower_thread_trampoline;
 mod codegen_utils;
 use codegen_utils::*;
@@ -2644,8 +2672,6 @@ mod data_objects;
 use data_objects::*;
 mod module_analysis;
 use module_analysis::*;
-#[cfg(test)]
-mod tests;
 mod builder_collection_compare;
 mod builder_collection_layout;
 mod builder_collection_mutate;
@@ -2674,9 +2700,11 @@ mod crypto_ec;
 mod datetime;
 mod link_thunk;
 mod net;
-mod simd_kernel_coeffs;
 mod private;
+mod simd_kernel_coeffs;
 mod term;
+#[cfg(test)]
+mod tests;
 pub(crate) mod tls;
 mod type_utils;
 use type_utils::*;
@@ -2684,9 +2712,9 @@ mod serialization_utils;
 use serialization_utils::*;
 mod function_lowering;
 use function_lowering::*;
+pub(crate) mod mir;
 mod peephole;
 pub(crate) mod regalloc;
-pub(crate) mod mir;
 pub(crate) use mir::MirPlan;
 
 fn native_link_error_messages() -> &'static [(&'static str, &'static str, &'static str)] {
@@ -3016,4 +3044,3 @@ impl FreeListSim {
         }
     }
 }
-

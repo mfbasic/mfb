@@ -305,9 +305,7 @@ pub(super) fn scan_loop_locals(
                 reads(iterable, excluded);
                 scan_loop_locals(body, depth + 1, top_assigns, excluded);
             }
-            NirOp::Trap { body, .. } => {
-                scan_loop_locals(body, depth, top_assigns, excluded)
-            }
+            NirOp::Trap { body, .. } => scan_loop_locals(body, depth, top_assigns, excluded),
         }
     }
 }
@@ -383,6 +381,7 @@ pub(super) fn lower_function(
         resource_owners: function.resource_owners.clone(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
+        pending_temp_frees: Vec::new(),
         for_each_iterable_locals: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
@@ -586,6 +585,7 @@ pub(super) fn lower_builtin_function_wrapper(
         owner_collections: HashSet::new(),
         owned_list_heads: HashMap::new(),
         owned_value_slots: Vec::new(),
+        pending_temp_frees: Vec::new(),
         for_each_iterable_locals: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,

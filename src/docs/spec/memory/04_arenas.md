@@ -26,7 +26,7 @@ reclaim independently of the main thread (see `./mfb spec threading`).
 
 ## Arena-State Layout
 
-The arena-state structure is `ARENA_STATE_SIZE` = **1144 bytes**: [[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]]
+The arena-state structure is `ARENA_STATE_SIZE` = **1680 bytes**: [[src/target/shared/code/error_constants.rs:ARENA_STATE_SIZE]]
 
 ```text
 ArenaState (at x19)
@@ -47,11 +47,16 @@ ArenaState (at x19)
                               ; 16, 32, …, 2048 (class = size/16 - 1); 0 = empty
   +1128 U64  carvePtr         ; designated-victim carve chunk: current pointer
   +1136 U64  carveSize        ; remaining bytes in the carve chunk (0 = none)
+  +1144 U64  outPtr           ; opt-in stdout buffer base, NULL until first use
+  +1152 U64  outFilled        ; pending bytes held in the stdout buffer
+  +1160 U64  outEnabled       ; io::setBuffered flag (0 = unbuffered default)
+  +1168 U64  largeBin[64]     ; segregated large-block bin heads, hashed by exact
+                              ; size (index = (size >> 4) & 63); chunks > 2048; 0 = empty
 ```
 
 `blockHead` anchors the unmap walk; `freeListHead`, the 128 `quickBin` heads,
-and the `carvePtr`/`carveSize` designated victim anchor allocation (see the
-small-request fast paths below). The
+the 64 `largeBin` heads, and the `carvePtr`/`carveSize` designated victim anchor
+allocation (see the small- and large-request fast paths below). The
 cleanup-failure triple records diagnostics if reclamation of a value fails during
 teardown, and the two RNG words at 88/96 give each arena (hence each thread) an
 independent `math::rand` stream seeded at startup. The `fillRngLo`/`fillRngHi`
@@ -188,15 +193,21 @@ source as ordinary language-level errors (see the language spec §14.3.1).
 `arena_free` (symbol `_mfb_arena_free`) takes the chunk pointer in `x0` and its
 byte `size` in `x1` and returns nothing; [[src/target/shared/code/entry_and_arena.rs:lower_arena_free]] like every runtime helper it
 clobbers all caller-saved integer registers (it carries a frame, saves the link
-register, and calls both `arena_insert_free` and `arena_fill_random`). `size` is
+register, and calls `arena_fill_random`). `size` is
 normalized exactly as `arena_alloc` normalizes it (zero → 1, rounded up to 16),
 so the freed extent matches the live chunk that was handed out. A chunk of
 2048 bytes or less then **parks on its exact-size quick bin** — an O(1) head
 push, no list walk (`quickBin[size/16 - 1]`; bin nodes reuse the `FreeNode`
 overlay, so a later flush hands them straight to the coalescing insert). A
-larger chunk is inserted into the address-ordered free-list
-(`_mfb_arena_insert_free`, the same ordered insert the grow path uses) and
-**coalesced** with the address-adjacent free neighbor on either side. Either
+larger chunk (> 2048) instead **parks on its hashed large-block bin** —
+`largeBin[(size >> 4) & 63]`, also an O(1) head push (plan-25-A). Routing large
+frees through the address-ordered `arena_insert_free` grew that list without
+bound under heavy large-list churn (a 1000-element `List` frees ~40 KB per op),
+so both the insert and every later first-fit walk went quadratic; the segregated
+size bin keeps the general list short and makes a same-size large reuse O(1). A
+large alloc scans its bin for an *exact*-size node before the first-fit walk;
+a colliding different-size chunk is skipped (recovered when the bins drain
+through the coalescing insert at flush-before-grow). Either
 way the chunk is then entropy-scrubbed (see *Entropy Fill*) over
 `[ptr+16, ptr+size)` — every payload byte past the 16-byte `FreeNode` overlay
 just written, so the scrub can never destroy live free-list metadata. A

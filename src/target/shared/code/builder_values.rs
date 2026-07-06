@@ -13,7 +13,84 @@ impl CodeBuilder<'_> {
         }
         let result = self.lower_value_inner(value);
         self.current_loc = saved_loc;
+        if let Ok(result) = &result {
+            self.register_pending_temp(value, result);
+        }
         result
+    }
+
+    /// Register a freshly produced, freeable-flat heap value as a statement-scope
+    /// temporary to be freed unless an owner claims it (plan-25 temp-lifetime
+    /// fix). Only *fresh arena blocks* qualify — exactly the values copy-insertion
+    /// treats as ownable without a copy: not an aliasing source / static string
+    /// (`value_needs_owning_copy`), not runtime-managed (thread-owned), and a
+    /// freeable-flat type. The block pointer is spilled to a fresh slot so the
+    /// eventual `arena_free` survives the intervening register clobbers; the live
+    /// register in `result` is left untouched for the immediate consumer.
+    fn register_pending_temp(&mut self, value: &NirValue, result: &ValueResult) {
+        if !self.is_freeable_flat_value(&result.type_)
+            || self.value_needs_owning_copy(value)
+            || Self::value_is_runtime_managed(value)
+        {
+            return;
+        }
+        // A bare `String` result is conservatively NOT freed here (plan-25). A
+        // record/union/Result/collection temp is a self-contained fresh arena
+        // block (a nested `String` field is byte-inlined, so one `arena_free`
+        // reclaims it), but a *standalone* `String` produced by a call may be a
+        // shared rodata constant NOT loaded through the tracked static-string
+        // path, or a borrowed view into an argument — indistinguishable from a
+        // fresh block at this point, and freeing one is a wild `arena_free` that
+        // corrupts the arena. String temps therefore leak until scope exit as
+        // they did pre-plan-25; the benchmark's poison is large *list* temps,
+        // which are freed.
+        if result.type_ == "String" {
+            return;
+        }
+        let slot = self.allocate_stack_object("pending_temp", 8);
+        self.emit(abi::store_u64(&result.location, abi::stack_pointer(), slot));
+        self.pending_temp_frees.push(PendingTemp {
+            type_: result.type_.clone(),
+            slot,
+            location: result.location.clone(),
+        });
+    }
+
+    /// Exempt the just-produced temporary from the statement-scope free because an
+    /// owning consumer (a binding, a `RETURN`, a resource `STATE` store, a
+    /// thread-spawn move) now owns its block and will free it exactly once. The
+    /// outermost node's temp is always the most recently registered, so matching
+    /// the tail entry's origin register is precise.
+    pub(super) fn claim_pending_temp(&mut self, result: &ValueResult) {
+        if self
+            .pending_temp_frees
+            .last()
+            .is_some_and(|temp| temp.location == result.location)
+        {
+            self.pending_temp_frees.pop();
+        }
+    }
+
+    /// Free every pending temporary registered above `watermark`, most-recent
+    /// first (the scope-drop convention). Reuses the owned-value drop (null-guard +
+    /// type-sized `arena_free`).
+    pub(super) fn drop_pending_temps_to(&mut self, watermark: usize) -> Result<(), String> {
+        while self.pending_temp_frees.len() > watermark {
+            let temp = self.pending_temp_frees.pop().expect("watermark within bounds");
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_: temp.type_,
+                stack_offset: temp.slot,
+            })?;
+        }
+        Ok(())
+    }
+
+    /// Discard pending temporaries above `watermark` WITHOUT freeing them: used on
+    /// control-transfer statements (`RETURN`/`EXIT`/`CONTINUE`/`Fail`) where the
+    /// statement branches away (a returned temp is moved to the caller; any
+    /// interior temp's free would be unreachable dead code after the branch).
+    pub(super) fn clear_pending_temps_to(&mut self, watermark: usize) {
+        self.pending_temp_frees.truncate(watermark);
     }
 
     /// Lower a value that is being stored into a longer-lived or independently
@@ -37,6 +114,10 @@ impl CodeBuilder<'_> {
                 text: result.text,
             });
         }
+        // A fresh value returned unchanged becomes this owner's block; claim its
+        // pending-temp registration so the statement-scope free never double-frees
+        // what scope-drop (or the consuming store) now owns (plan-25).
+        self.claim_pending_temp(&result);
         Ok(result)
     }
 

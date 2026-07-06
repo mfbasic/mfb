@@ -647,6 +647,14 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
     let bin_scan = vregs.next();
     let bin_scan_end = vregs.next();
     let bin_rem = vregs.next();
+    // Segregated large-block bins (plan-25-A): a large request pops an exact-size
+    // node from its hashed bin before falling to the first-fit walk.
+    let lg_mask = vregs.next();
+    let lg_slot = vregs.next();
+    let lg_link = vregs.next();
+    let lg_cur = vregs.next();
+    let lg_next = vregs.next();
+    let lg_msize = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         abi::compare_immediate("x1", "0"),
@@ -695,7 +703,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::compare_immediate(&eff_align, &ARENA_MIN_CHUNK.to_string()),
         abi::branch_hi("arena_alloc_walk"),
         abi::compare_immediate(&size, &ARENA_QUICK_BIN_MAX.to_string()),
-        abi::branch_hi("arena_alloc_walk"),
+        abi::branch_hi("arena_alloc_large_bin"),
         abi::shift_right_immediate(&bin_class, &size, 4),
         abi::shift_left_immediate(&bin_class, &bin_class, 3),
         abi::add_registers(&bin_slot, ARENA_STATE_REGISTER, &bin_class),
@@ -788,6 +796,44 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
         abi::move_register("x1", &bin_head),
         abi::branch("arena_alloc_ret"),
+        // --- Segregated large-block bin pop (plan-25-A) ------------------------
+        // A large request (size > QUICK_BIN_MAX, eff_align ≤ 16 — larger aligns
+        // branched straight to the walk above) first scans its hashed bin for an
+        // EXACT-size free node and returns it whole (no split) in O(1) amortized.
+        // Diverting large frees off the address-ordered list (see arena_free)
+        // keeps that list short, so both a bin hit here and a bin miss's
+        // fall-through walk stay cheap under heavy large-list churn — the
+        // benchmark's ~30× inflation was this list growing without bound. The
+        // scan is an exact match because free and alloc normalize `size`
+        // identically, so a reused chunk round-trips to the same bin; a chunk of
+        // a different colliding size is simply skipped (it stays parked and is
+        // recovered by the large flush-before-grow drain).
+        abi::label("arena_alloc_large_bin"),
+        abi::shift_right_immediate(&lg_slot, &size, 4),
+        abi::move_immediate(&lg_mask, "Integer", &(ARENA_LARGE_BIN_COUNT - 1).to_string()),
+        abi::and_registers(&lg_slot, &lg_slot, &lg_mask),
+        abi::shift_left_immediate(&lg_slot, &lg_slot, 3),
+        abi::add_registers(&lg_slot, ARENA_STATE_REGISTER, &lg_slot),
+        // lg_link tracks the address of the word that points at lg_cur (the bin
+        // head cell first, then each visited node's `next` at +0), so an
+        // exact-size hit unlinks in O(1) whether it is the head or mid-list.
+        abi::add_immediate(&lg_link, &lg_slot, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::load_u64(&lg_cur, &lg_link, 0),
+        abi::label("arena_alloc_large_scan"),
+        abi::compare_immediate(&lg_cur, "0"),
+        abi::branch_eq("arena_alloc_walk"),
+        abi::load_u64(&lg_msize, &lg_cur, 8),
+        abi::compare_registers(&lg_msize, &size),
+        abi::branch_eq("arena_alloc_large_hit"),
+        abi::move_register(&lg_link, &lg_cur),
+        abi::load_u64(&lg_cur, &lg_cur, 0),
+        abi::branch("arena_alloc_large_scan"),
+        abi::label("arena_alloc_large_hit"),
+        abi::load_u64(&lg_next, &lg_cur, 0),
+        abi::store_u64(&lg_next, &lg_link, 0),
+        abi::move_immediate(abi::return_register(), "Integer", RESULT_OK_TAG),
+        abi::move_register("x1", &lg_cur),
+        abi::branch("arena_alloc_ret"),
         // --- First-fit walk over the address-ordered free-list -----------------
         abi::label("arena_alloc_walk"),
         abi::load_u64(&cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
@@ -806,7 +852,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::branch_lo("arena_alloc_walk_next"), // align overflow → skip
         abi::bitwise_not(&align_notmask, &align_mask),
         abi::and_registers(&aligned, &aligned, &align_notmask), // aligned
-        abi::add_registers(&end_needed, &aligned, &size), // end_needed
+        abi::add_registers(&end_needed, &aligned, &size),       // end_needed
         abi::compare_registers(&end_needed, &aligned),
         abi::branch_lo("arena_alloc_walk_next"), // size overflow → skip
         abi::add_registers(&cur_end, &cur, &cur_size), // cur_end
@@ -848,7 +894,11 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&next_node, &prev, 0),
         abi::branch("arena_alloc_found_dv_take"),
         abi::label("arena_alloc_found_dv_head"),
-        abi::store_u64(&next_node, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::store_u64(
+            &next_node,
+            ARENA_STATE_REGISTER,
+            ARENA_FREE_LIST_HEAD_OFFSET,
+        ),
         abi::label("arena_alloc_found_dv_take"),
         abi::move_register(&bin_head, &cur),
         abi::subtract_registers(&bin_rem, &cur_end, &cur),
@@ -967,7 +1017,11 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         // swept chunk.
         abi::label("arena_alloc_flush_done"),
         abi::move_immediate(&flush_slot, "Integer", "0"), // prev
-        abi::load_u64(&flush_node, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::load_u64(
+            &flush_node,
+            ARENA_STATE_REGISTER,
+            ARENA_FREE_LIST_HEAD_OFFSET,
+        ),
         abi::label("arena_alloc_sweep_loop"),
         abi::compare_immediate(&flush_node, "0"),
         abi::branch_eq("arena_alloc_sweep_done"),
@@ -981,7 +1035,11 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::store_u64(&flush_next, &flush_slot, 0),
         abi::branch("arena_alloc_sweep_binpush"),
         abi::label("arena_alloc_sweep_unlink_head"),
-        abi::store_u64(&flush_next, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET),
+        abi::store_u64(
+            &flush_next,
+            ARENA_STATE_REGISTER,
+            ARENA_FREE_LIST_HEAD_OFFSET,
+        ),
         abi::label("arena_alloc_sweep_binpush"),
         // … and push it onto its exact-size bin (node.size at +8 is intact).
         abi::shift_right_immediate(&bin_scan, &flush_offset, 4),
@@ -1070,7 +1128,7 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         // (the 32-byte header always separates blocks), so no coalescing is
         // required here.
         abi::load_u64(&ins_cur, ARENA_STATE_REGISTER, ARENA_FREE_LIST_HEAD_OFFSET), // cur
-        abi::move_immediate(&ins_prev, "Integer", "0"),                            // prev
+        abi::move_immediate(&ins_prev, "Integer", "0"),                             // prev
         abi::label("arena_alloc_ins_loop"),
         abi::compare_immediate(&ins_cur, "0"),
         abi::branch_eq("arena_alloc_ins_do"),
@@ -1104,7 +1162,10 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         abi::label("arena_alloc_ret"),
         abi::return_(),
     ]);
-    let relocations = vec![internal_branch(ARENA_ALLOC_SYMBOL, ARENA_FILL_RANDOM_SYMBOL)];
+    let relocations = vec![internal_branch(
+        ARENA_ALLOC_SYMBOL,
+        ARENA_FILL_RANDOM_SYMBOL,
+    )];
     Ok(finalize_vreg_helper(
         "runtime.arena_alloc",
         ARENA_ALLOC_SYMBOL,
@@ -1370,8 +1431,8 @@ pub(super) fn lower_arena_insert_free() -> CodeFunction {
         abi::move_immediate(&merged, "Integer", "0"),
         abi::compare_immediate(&prev, "0"),
         abi::branch_eq("insert_check_next"),
-        abi::load_u64(&t1, &prev, 8),         // prev.size
-        abi::add_registers(&t2, &prev, &t1),  // prev_end
+        abi::load_u64(&t1, &prev, 8),        // prev.size
+        abi::add_registers(&t2, &prev, &t1), // prev_end
         abi::compare_registers(&t2, "x0"),
         abi::branch_ne("insert_check_next"),
         // prev is address-adjacent: absorb the chunk into prev.
@@ -1479,7 +1540,7 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         // {next, size} overlay, so a flush can hand them straight to
         // `arena_insert_free`.
         abi::compare_immediate(&size, &ARENA_QUICK_BIN_MAX.to_string()),
-        abi::branch_hi("arena_free_coalesce"),
+        abi::branch_hi("arena_free_large_bin"),
         abi::shift_right_immediate(&bin_class, &size, 4),
         abi::shift_left_immediate(&bin_class, &bin_class, 3),
         abi::add_registers(&bin_slot, ARENA_STATE_REGISTER, &bin_class),
@@ -1488,13 +1549,25 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         abi::store_u64(&size, &ptr, 8),
         abi::store_u64(&ptr, &bin_slot, ARENA_QUICK_BIN_BASE_OFFSET - 8),
         abi::branch("arena_free_scrub"),
-        // Larger chunks coalesce into the address-ordered list (writes the
-        // FreeNode {next, size} words at ptr+0/+8, or nothing on a
-        // double-free / adjacent merge) …
-        abi::label("arena_free_coalesce"),
-        abi::move_register("x0", &ptr),
-        abi::move_register("x1", &size),
-        abi::branch_link(ARENA_INSERT_FREE_SYMBOL),
+        // A larger chunk (> ARENA_QUICK_BIN_MAX) parks on its hashed large-block
+        // bin (plan-25-A): an O(1) head push keyed by `(size >> 4) & (COUNT-1)`,
+        // no address-ordered walk. This is the master benchmark fix — routing
+        // large frees through `arena_insert_free` grew the coalescing list
+        // without bound (every large 1000-element list op frees ~40 KB), so both
+        // the insert here and every later alloc walk went quadratic. Bin nodes
+        // reuse the FreeNode {next, size} overlay so the flush-before-grow drain
+        // can hand them straight to `arena_insert_free` when coalescing is
+        // needed. The chunk is still scrubbed below.
+        abi::label("arena_free_large_bin"),
+        abi::shift_right_immediate(&bin_class, &size, 4),
+        abi::move_immediate(&mask, "Integer", &(ARENA_LARGE_BIN_COUNT - 1).to_string()),
+        abi::and_registers(&bin_class, &bin_class, &mask),
+        abi::shift_left_immediate(&bin_class, &bin_class, 3),
+        abi::add_registers(&bin_slot, ARENA_STATE_REGISTER, &bin_class),
+        abi::load_u64(&bin_head, &bin_slot, ARENA_LARGE_BIN_BASE_OFFSET),
+        abi::store_u64(&bin_head, &ptr, 0),
+        abi::store_u64(&size, &ptr, 8),
+        abi::store_u64(&ptr, &bin_slot, ARENA_LARGE_BIN_BASE_OFFSET),
         // … then scrub only [ptr+16, ptr+size), preserving the freshly written
         // node words. A 16-byte chunk is all node — nothing to scrub.
         abi::label("arena_free_scrub"),
@@ -1511,10 +1584,7 @@ pub(super) fn lower_arena_free() -> CodeFunction {
         ARENA_FREE_SYMBOL,
         "Nothing",
         instructions,
-        vec![
-            internal_branch(ARENA_FREE_SYMBOL, ARENA_INSERT_FREE_SYMBOL),
-            internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL),
-        ],
+        vec![internal_branch(ARENA_FREE_SYMBOL, ARENA_FILL_RANDOM_SYMBOL)],
     )
 }
 
@@ -2004,4 +2074,3 @@ fn emit_write_integer_to_stderr_with_labels(
     instructions.push(abi::add_stack(64));
     Ok(())
 }
-

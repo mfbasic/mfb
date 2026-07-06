@@ -50,12 +50,13 @@ impl CodeBuilder<'_> {
         match self.regalloc_kind {
             regalloc::RegallocKind::BumpAndReset => {
                 // The bump oracle replays a per-statement `d0`–`d7` sequence.
-                let physical = abi::fp_temporary_register(self.next_fp_register).map_err(|err| {
-                    format!(
-                        "{err} while lowering native function '{}'",
-                        self.current_symbol
-                    )
-                })?;
+                let physical =
+                    abi::fp_temporary_register(self.next_fp_register).map_err(|err| {
+                        format!(
+                            "{err} while lowering native function '{}'",
+                            self.current_symbol
+                        )
+                    })?;
                 self.next_fp_register += 1;
                 self.fp_vreg_eager.push(physical);
             }
@@ -111,10 +112,14 @@ impl CodeBuilder<'_> {
                 offset: *offset as i32,
             });
         }
-        self.stack_size = spill_base
-            + outcome.spill_slots.len() * backend.register_model().spill_slot_bytes();
+        self.stack_size =
+            spill_base + outcome.spill_slots.len() * backend.register_model().spill_slot_bytes();
         for register in outcome.extra_callee_saved {
-            if !self.used_callee_saved.iter().any(|saved| *saved == register) {
+            if !self
+                .used_callee_saved
+                .iter()
+                .any(|saved| *saved == register)
+            {
                 self.used_callee_saved.push(register);
             }
         }
@@ -264,7 +269,13 @@ impl CodeBuilder<'_> {
     /// `dst = lhs + rhs` for an allocation size, branching to `overflow` on
     /// unsigned wrap. `dst` may alias `lhs` but must not alias `rhs` (the wrap
     /// test compares the sum against `rhs`).
-    pub(super) fn emit_checked_size_add(&mut self, dst: &str, lhs: &str, rhs: &str, overflow: &str) {
+    pub(super) fn emit_checked_size_add(
+        &mut self,
+        dst: &str,
+        lhs: &str,
+        rhs: &str,
+        overflow: &str,
+    ) {
         self.emit(abi::add_registers(dst, lhs, rhs));
         self.emit(abi::compare_registers(dst, rhs));
         self.emit(abi::branch_lo(overflow));
@@ -395,7 +406,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), message_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, 0));
         self.emit(abi::add_immediate(&scratch9, &scratch9, 9));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            msg_block_slot,
+        ));
         // source block size + offset: 0 (sentinel) when null, else its flat
         // ErrorLoc block size at the 8-aligned offset past the message block.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
@@ -408,28 +423,52 @@ impl CodeBuilder<'_> {
             "Integer",
             &ERROR_OBJECT_SIZE.to_string(),
         ));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            msg_block_slot,
+        ));
         self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), src_off_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            src_off_slot,
+        ));
         self.emit_align_offset_slot(src_off_slot, 8);
         // size = src_off + src_block
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), src_off_slot));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_block_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            src_block_slot,
+        ));
         self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         self.emit(abi::branch(&src_size_done));
         self.emit(abi::label(&src_null_size));
         // No source: offset sentinel 0, size = 24 + msg_block.
         self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), src_off_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            src_off_slot,
+        ));
         self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), src_block_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            src_block_slot,
+        ));
         self.emit(abi::move_immediate(
             &scratch8,
             "Integer",
             &ERROR_OBJECT_SIZE.to_string(),
         ));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            msg_block_slot,
+        ));
         self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         self.emit(abi::label(&src_size_done));
@@ -468,8 +507,16 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch9, "x1", 8));
         self.emit(abi::add_immediate(&scratch10, "x1", ERROR_OBJECT_SIZE));
-        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), message_slot));
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), msg_block_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            message_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            msg_block_slot,
+        ));
         self.emit_copy_bytes(&scratch10, &scratch11, &scratch12, "error_msg_copy");
         // source-offset @16; inline source block when present.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
@@ -482,7 +529,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), src_off_slot));
         self.emit(abi::add_registers(&scratch10, "x1", &scratch9));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), source_slot));
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), src_block_slot));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            src_block_slot,
+        ));
         self.emit_copy_bytes(&scratch10, &scratch11, &scratch12, "error_src_copy");
         self.emit(abi::branch(&src_fill_done));
         self.emit(abi::label(&src_null_fill));
@@ -523,7 +574,11 @@ impl CodeBuilder<'_> {
             source_raw_slot,
         ));
         // Deep-copy the message into the caller arena.
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), message_raw_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            message_raw_slot,
+        ));
         let copied_message = self.copy_value_to_current_arena("String", &scratch9)?;
         self.emit(abi::store_u64(
             &copied_message,
@@ -534,7 +589,11 @@ impl CodeBuilder<'_> {
         // error originated in `waitFor` itself (no worker origin).
         let own = self.label("worker_error_own_origin");
         let done = self.label("worker_error_source_done");
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_raw_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            source_raw_slot,
+        ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&own));
         let copied_source = self.copy_value_to_current_arena("ErrorLoc", &scratch9)?;
@@ -749,7 +808,11 @@ impl CodeBuilder<'_> {
         ));
         // Success results carry no error source.
         self.emit(abi::move_immediate(&scratch9, "Integer", "0"));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), slots.source));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            slots.source,
+        ));
         Ok(())
     }
 
@@ -984,6 +1047,28 @@ impl CodeBuilder<'_> {
             .is_some_and(|local| Self::is_thread_type(&local.type_))
         {
             self.deactivate_thread_cleanup(name);
+        }
+    }
+
+    /// A thread `start`/`send`/`emit`/`transferResource`/`emitResource` moves its
+    /// data argument (`args[1]`) across the arena boundary. If that argument was a
+    /// fresh heap temporary, claim it so the statement-scope free never reclaims a
+    /// block the worker/queue may still reference — conservatively preserving the
+    /// pre-plan-25 behaviour (these cross-arena values were never freed by the
+    /// sender). A `Local` data argument is an aliasing source that was never
+    /// registered, so this is a no-op for it (plan-25).
+    pub(super) fn claim_moved_thread_arg_temp(&mut self, target: &str, arg_values: &[ValueResult]) {
+        if matches!(
+            target,
+            "thread.start"
+                | "thread.send"
+                | "thread.emit"
+                | "thread.transferResource"
+                | "thread.emitResource"
+        ) {
+            if let Some(arg) = arg_values.get(1) {
+                self.claim_pending_temp(arg);
+            }
         }
     }
 
@@ -1314,7 +1399,11 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         // x1 = node pointer.
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), resource_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            resource_slot,
+        ));
         self.emit(abi::store_u64(&scratch9, "x1", 0));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), head_slot));
         self.emit(abi::store_u64(&scratch10, "x1", 8));
@@ -1339,7 +1428,11 @@ impl CodeBuilder<'_> {
         let done_label = self.label("owned_list_seed_done");
         let scratch9 = self.temporary_vreg();
         self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), remaining_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            remaining_slot,
+        ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done_label));
         let item = self.load_collection_loop_item(collection_slot, cursor_slot, element_type)?;
@@ -1363,7 +1456,11 @@ impl CodeBuilder<'_> {
         let scratch9 = self.temporary_vreg();
         let scratch10 = self.temporary_vreg();
         self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), cleanup.head_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            cleanup.head_slot,
+        ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&done_label));
         // Advance the head past this node before the call, which clobbers

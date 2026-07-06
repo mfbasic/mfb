@@ -193,7 +193,21 @@ pub(crate) const ARENA_CARVE_SIZE_OFFSET: usize = ARENA_CARVE_PTR_OFFSET + 8;
 pub(crate) const ARENA_OUT_PTR_OFFSET: usize = ARENA_CARVE_SIZE_OFFSET + 8;
 pub(crate) const ARENA_OUT_FILLED_OFFSET: usize = ARENA_OUT_PTR_OFFSET + 8;
 pub(crate) const ARENA_OUT_ENABLED_OFFSET: usize = ARENA_OUT_FILLED_OFFSET + 8;
-pub(crate) const ARENA_STATE_SIZE: usize = ARENA_OUT_ENABLED_OFFSET + 8;
+/// Segregated large-block bins (plan-25-A): `ARENA_LARGE_BIN_COUNT` singly linked
+/// bin heads, hashed by the chunk's exact byte size, for chunks *larger* than
+/// `ARENA_QUICK_BIN_MAX` (which the 128 direct-indexed quick bins cannot cover
+/// without a bin per 16-byte class). A large free pushes its chunk onto
+/// `large_bin[(size >> 4) & (COUNT - 1)]` in O(1); a same-size large alloc scans
+/// that one short bin list for an *exact*-size node and pops it in O(1)
+/// amortized — so repetitive large-list churn (the benchmark's poison: a
+/// 1000-element `List` frees ~40 KB per op) never walks the address-ordered
+/// free-list. Bin nodes reuse the `FreeNode {next@0, size@8}` overlay; the count
+/// is a power of two so the index is a mask, not a modulo. Appended after the
+/// stdout-buffer words so every historical offset is unchanged.
+pub(crate) const ARENA_LARGE_BIN_COUNT: usize = 64;
+pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET + 8;
+pub(crate) const ARENA_STATE_SIZE: usize =
+    ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
 /// Capacity of the lazily-allocated stdout output buffer, in bytes.
 pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
 /// Internal helper that drains the per-arena stdout buffer to fd 1 (plan-14-A):

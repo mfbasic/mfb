@@ -1,6 +1,21 @@
 use super::*;
 
 impl CodeBuilder<'_> {
+    /// Whether a statement unconditionally branches away (so the fall-through
+    /// statement-scope temp free would be unreachable): `RETURN`, `EXIT`,
+    /// `CONTINUE`, program exit, or `Fail`. A returned/failed fresh temp is moved
+    /// to the target and must not be freed here.
+    fn op_transfers_control(op: &NirOp) -> bool {
+        matches!(
+            op,
+            NirOp::Return { .. }
+                | NirOp::ExitLoop { .. }
+                | NirOp::ContinueLoop { .. }
+                | NirOp::ExitProgram { .. }
+                | NirOp::Fail { .. }
+        )
+    }
+
     pub(super) fn lower_ops(&mut self, ops: &[NirOp]) -> Result<(), String> {
         let cleanup_scope_start = self.active_cleanups.len();
         self.cleanup_scope_starts.push(cleanup_scope_start);
@@ -12,6 +27,10 @@ impl CodeBuilder<'_> {
     fn lower_ops_inner(&mut self, ops: &[NirOp], cleanup_scope_start: usize) -> Result<(), String> {
         let zero_slot = self.temporary_vreg();
         for op in ops {
+            // Fresh interior heap temporaries produced while lowering this
+            // statement are freed when it finishes (plan-25 temp-lifetime fix), so
+            // a hot loop body does not accumulate them until the function returns.
+            let temp_watermark = self.pending_temp_frees.len();
             let result = (|| -> Result<(), String> {
                 match op {
                     NirOp::Bind {
@@ -69,7 +88,11 @@ impl CodeBuilder<'_> {
                         // freeing an uninitialized pointer.
                         if owns_freeable_value {
                             self.emit(abi::move_immediate(&zero_slot, "Integer", "0"));
-                            self.emit(abi::store_u64(&zero_slot, abi::stack_pointer(), stack_offset));
+                            self.emit(abi::store_u64(
+                                &zero_slot,
+                                abi::stack_pointer(),
+                                stack_offset,
+                            ));
                         }
                         if let Some(value) = value {
                             // Deep-copy aliasing sources so this binding owns an
@@ -238,7 +261,12 @@ impl CodeBuilder<'_> {
                         // general reassignment path entirely.
                         if !self.try_inplace_append_assign(name, value, stack_offset, by_ref)?
                             && !self.try_inplace_set_assign(name, value, stack_offset, by_ref)?
-                            && !self.try_inplace_prepend_assign(name, value, stack_offset, by_ref)?
+                            && !self.try_inplace_prepend_assign(
+                                name,
+                                value,
+                                stack_offset,
+                                by_ref,
+                            )?
                             && !self.try_inplace_concat_assign(name, value, stack_offset, by_ref)?
                         {
                             // Reassignment installs a fresh independent block; the old
@@ -338,7 +366,11 @@ impl CodeBuilder<'_> {
                                 ));
                                 self.store_value_at(&store_value, &slot_pointer, 0);
                             } else {
-                                self.store_value_at(&store_value, abi::stack_pointer(), stack_offset);
+                                self.store_value_at(
+                                    &store_value,
+                                    abi::stack_pointer(),
+                                    stack_offset,
+                                );
                             }
                             // A reference local never folds to a constant (see Bind).
                             let constant = if by_ref {
@@ -369,6 +401,11 @@ impl CodeBuilder<'_> {
                             })?
                             .stack_offset;
                         let result = self.lower_value(value)?;
+                        // The raw block pointer is stored into the resource's STATE
+                        // slot (below), so this store takes ownership — claim the
+                        // temp so the statement-scope free never reclaims a block the
+                        // resource still points at (plan-25).
+                        self.claim_pending_temp(&result);
                         // Observation boundary: a `Float` resource STATE payload
                         // must be finite (plan-17).
                         self.observe_float(value, &result)?;
@@ -622,6 +659,14 @@ impl CodeBuilder<'_> {
                 Ok(())
             })();
             result.map_err(|err| format!("{err} while lowering {}", nir_op_context(op)))?;
+            // A control-transfer statement branches away, so any interior-temp free
+            // would be unreachable and a returned/moved temp belongs to the target;
+            // just forget them. Every other statement frees its interior temps here.
+            if Self::op_transfers_control(op) {
+                self.clear_pending_temps_to(temp_watermark);
+            } else {
+                self.drop_pending_temps_to(temp_watermark)?;
+            }
             self.reset_temporary_registers();
         }
         let scope_returns = self.current_block_returns();
@@ -758,7 +803,6 @@ impl CodeBuilder<'_> {
         self.clear_local_constants();
         Ok(())
     }
-
 
     /// Reset a `String` local's capacity shadow to 0 ("tight, no spare") after any
     /// non-self-append bind/assign installs a fresh tight buffer. Keeps the shadow
@@ -964,16 +1008,36 @@ impl CodeBuilder<'_> {
         } else {
             false
         };
-        self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
-        self.emit(abi::load_u64(&remaining, &collection, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::add_immediate(&cursor, &collection, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(
+            &collection,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64(
+            &remaining,
+            &collection,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::add_immediate(
+            &cursor,
+            &collection,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::store_u64(&cursor, abi::stack_pointer(), cursor_slot));
-        self.emit(abi::store_u64(&remaining, abi::stack_pointer(), remaining_slot));
+        self.emit(abi::store_u64(
+            &remaining,
+            abi::stack_pointer(),
+            remaining_slot,
+        ));
 
         let loop_label = self.label("for_each_loop");
         let end_label = self.label("for_each_end");
         self.emit(abi::label(&loop_label));
-        self.emit(abi::load_u64(&remaining, abi::stack_pointer(), remaining_slot));
+        self.emit(abi::load_u64(
+            &remaining,
+            abi::stack_pointer(),
+            remaining_slot,
+        ));
         self.emit(abi::compare_immediate(&remaining, "0"));
         self.emit(abi::branch_eq(&end_label));
         self.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
@@ -990,8 +1054,17 @@ impl CodeBuilder<'_> {
                 &cursor,
                 COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
             ));
-            self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
-            let key_value = self.emit_load_collection_payload(key_type, &collection, &payload_off, &payload_len)?;
+            self.emit(abi::load_u64(
+                &collection,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
+            let key_value = self.emit_load_collection_payload(
+                key_type,
+                &collection,
+                &payload_off,
+                &payload_len,
+            )?;
             self.emit(abi::store_u64(
                 &key_value,
                 abi::stack_pointer(),
@@ -1008,8 +1081,17 @@ impl CodeBuilder<'_> {
                 &cursor,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
-            self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
-            let item_value = self.emit_load_collection_payload(value_type, &collection, &payload_off, &payload_len)?;
+            self.emit(abi::load_u64(
+                &collection,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
+            let item_value = self.emit_load_collection_payload(
+                value_type,
+                &collection,
+                &payload_off,
+                &payload_len,
+            )?;
             self.emit(abi::store_u64(
                 &item_value,
                 abi::stack_pointer(),
@@ -1020,7 +1102,11 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 entry_payload_slot,
             ));
-            self.emit(abi::store_u64(&payload_off, abi::stack_pointer(), local_slot));
+            self.emit(abi::store_u64(
+                &payload_off,
+                abi::stack_pointer(),
+                local_slot,
+            ));
         } else {
             let item_value_type = item_value_type.ok_or_else(|| {
                 format!(
@@ -1038,9 +1124,17 @@ impl CodeBuilder<'_> {
                 &cursor,
                 COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
             ));
-            self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
-            let item_value =
-                self.emit_load_collection_payload(item_value_type, &collection, &payload_off, &payload_len)?;
+            self.emit(abi::load_u64(
+                &collection,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
+            let item_value = self.emit_load_collection_payload(
+                item_value_type,
+                &collection,
+                &payload_off,
+                &payload_len,
+            )?;
             self.emit(abi::store_u64(
                 &item_value,
                 abi::stack_pointer(),
@@ -1050,9 +1144,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&cursor, abi::stack_pointer(), cursor_slot));
         self.emit(abi::add_immediate(&cursor, &cursor, COLLECTION_ENTRY_SIZE));
         self.emit(abi::store_u64(&cursor, abi::stack_pointer(), cursor_slot));
-        self.emit(abi::load_u64(&remaining, abi::stack_pointer(), remaining_slot));
+        self.emit(abi::load_u64(
+            &remaining,
+            abi::stack_pointer(),
+            remaining_slot,
+        ));
         self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
-        self.emit(abi::store_u64(&remaining, abi::stack_pointer(), remaining_slot));
+        self.emit(abi::store_u64(
+            &remaining,
+            abi::stack_pointer(),
+            remaining_slot,
+        ));
 
         let previous = self.locals.insert(
             name.to_string(),
@@ -1092,8 +1194,14 @@ impl CodeBuilder<'_> {
 /// (`[a, b, …]`); otherwise `None`. Used to recognize the in-place self-append
 /// idiom `name = name & …` (plan-02 §4.1). `&` is string concatenation, so a
 /// match guarantees `name` is a `String` local.
-pub(super) fn string_self_append_operands<'v>(value: &'v NirValue, name: &str) -> Option<Vec<&'v NirValue>> {
-    let NirValue::Binary { op, left, right, .. } = value else {
+pub(super) fn string_self_append_operands<'v>(
+    value: &'v NirValue,
+    name: &str,
+) -> Option<Vec<&'v NirValue>> {
+    let NirValue::Binary {
+        op, left, right, ..
+    } = value
+    else {
         return None;
     };
     if op != "&" {
@@ -1107,7 +1215,9 @@ pub(super) fn string_self_append_operands<'v>(value: &'v NirValue, name: &str) -
                 operands.reverse();
                 return Some(operands);
             }
-            NirValue::Binary { op, left, right, .. } if op == "&" => {
+            NirValue::Binary {
+                op, left, right, ..
+            } if op == "&" => {
                 operands.push(right.as_ref());
                 cursor = left.as_ref();
             }

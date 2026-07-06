@@ -44,7 +44,10 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
         for (index, slot) in arg_slots.iter().enumerate() {
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(&abi::argument_register(index)?, &scratch9));
+            self.emit(abi::move_register(
+                &abi::argument_register(index)?,
+                &scratch9,
+            ));
         }
         Ok(arg_values)
     }
@@ -267,6 +270,9 @@ impl CodeBuilder<'_> {
         }
 
         let arg_values = self.emit_raw_call(symbol, args, "runtime_call_arg")?;
+        // A moved cross-arena data argument (e.g. `thread.start`) must not be freed
+        // by this statement's temp cleanup (plan-25).
+        self.claim_moved_thread_arg_temp(target, &arg_values);
 
         // An inline `TRAP` traps the raw `Result`: do not auto-propagate on
         // error; materialize the outcome (with the success value copied into the
@@ -363,6 +369,9 @@ impl CodeBuilder<'_> {
             arg_slots.push(slot);
             self.reset_temporary_registers();
         }
+        // The message argument is copied into the destination arena below and then
+        // moved; keep the statement-scope temp cleanup off it (plan-25).
+        self.claim_moved_thread_arg_temp(target, &arg_values);
 
         self.reset_temporary_registers();
         let saved_arena_slot = self.allocate_stack_object("runtime_thread_send_saved_arena", 8);
@@ -401,11 +410,18 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             copied_message_slot,
         ));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), arg_slots[1]));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            arg_slots[1],
+        ));
 
         for (index, slot) in arg_slots.iter().enumerate() {
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), *slot));
-            self.emit(abi::move_register(&abi::argument_register(index)?, &scratch9));
+            self.emit(abi::move_register(
+                &abi::argument_register(index)?,
+                &scratch9,
+            ));
         }
         self.emit_symbol_call(symbol);
 
@@ -460,5 +476,4 @@ impl CodeBuilder<'_> {
         self.emit_load_static_string_symbol(register, &symbol);
         Ok(())
     }
-
 }
