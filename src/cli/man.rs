@@ -191,18 +191,18 @@ fn is_constant(function: &man::FunctionDoc) -> bool {
 }
 
 fn man_entry_heading(package: &man::PackageDoc) -> &'static str {
-    if package.name == "types" {
-        "TOPICS"
-    } else {
-        "FUNCTIONS"
+    match package.name {
+        "types" => "TOPICS",
+        "tour" => "COMPARISONS",
+        _ => "FUNCTIONS",
     }
 }
 
 fn man_entry_name(package: &man::PackageDoc) -> &'static str {
-    if package.name == "types" {
-        "topic"
-    } else {
-        "function"
+    match package.name {
+        "types" => "topic",
+        "tour" => "language",
+        _ => "function",
     }
 }
 
@@ -359,6 +359,15 @@ mod tests {
         };
         assert_eq!(man_entry_heading(&types), "TOPICS");
         assert_eq!(man_entry_name(&types), "topic");
+        let tour = man::PackageDoc {
+            name: "tour",
+            summary: "",
+            usage: "",
+            page: None,
+            functions: &[],
+        };
+        assert_eq!(man_entry_heading(&tour), "COMPARISONS");
+        assert_eq!(man_entry_name(&tour), "language");
         let io = man::PackageDoc {
             name: "io",
             summary: "",

@@ -219,6 +219,8 @@ More: `mfb man thread`.
 
 ## Where to go next
 
+- Coming from another language? `mfb man tour c`, `java`, `go`, `typescript`,
+  or `python` walk the same ideas in your language's terms.
 - `mfb man` — the package index; `mfb man <package> <function>` for any
   built-in.
 - `mfb spec language` — the full language specification, including a complete
