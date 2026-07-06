@@ -303,6 +303,15 @@ pub(crate) fn reverse_bytes(dst: &str, src: &str) -> CodeInstruction {
         .field("src", src)
 }
 
+/// `sxtw Xd, Wn` — sign-extend the low 32 bits of `src` into the 64-bit `dst`.
+/// Narrows a C `int` return (AAPCS64 leaves x-bits[63:32] unspecified) so a
+/// subsequent 64-bit `cmp`/`b.lt` sign-check is correct (bug-04).
+pub(crate) fn sign_extend_word(dst: &str, src: &str) -> CodeInstruction {
+    CodeInstruction::new("sxtw")
+        .field("dst", dst)
+        .field("src", src)
+}
+
 pub(crate) fn signed_divide_registers(dst: &str, lhs: &str, rhs: &str) -> CodeInstruction {
     CodeInstruction::new("sdiv")
         .field("dst", dst)

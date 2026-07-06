@@ -142,6 +142,10 @@ impl Encoder {
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "src")?)?,
             ),
+            "sxtw" => self.emit_sxtw(
+                reg(field(instruction, "dst")?)?,
+                reg(field(instruction, "src")?)?,
+            ),
             "sdiv" => self.emit_sdiv(
                 reg(field(instruction, "dst")?)?,
                 reg(field(instruction, "lhs")?)?,
@@ -686,6 +690,12 @@ impl Encoder {
     /// 64-bit `CLZ Xd, Xn` — count leading zeros.
     fn emit_clz(&mut self, rd: u8, rn: u8) -> Result<(), String> {
         self.emit_word(0xdac0_1000 | ((rn as u32) << 5) | rd as u32)
+    }
+
+    /// `SXTW Xd, Wn` — alias of `SBFM Xd, Xn, #0, #31` (sf=1, N=1, immr=0,
+    /// imms=31). Sign-extends the low 32 bits of `rn` into the 64-bit `rd`.
+    fn emit_sxtw(&mut self, rd: u8, rn: u8) -> Result<(), String> {
+        self.emit_word(0x9340_7c00 | ((rn as u32) << 5) | rd as u32)
     }
 
     /// 64-bit `RBIT Xd, Xn` — reverse bit order.

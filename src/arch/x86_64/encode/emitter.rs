@@ -316,6 +316,19 @@ pub(super) fn encode_instruction(instruction: &CodeInstruction) -> Result<Encode
                 modrm(0b11, dst, src),
             ]))
         }
+        // sxtw: sign-extend low 32 bits into 64. `movsxd r64, r/m32`
+        // (REX.W 0x63 /r). AArch64 emits this to narrow a C `int` return before a
+        // signed compare (bug-04); on x86 the same abstract op keeps the seam
+        // encodable, though the x86 `cmp_imm` is already 32-bit.
+        "sxtw" => {
+            let dst = reg(field(instruction, "dst")?)?;
+            let src = reg(field(instruction, "src")?)?;
+            Ok(Encoded::plain(vec![
+                rex(true, dst >= 8, false, src >= 8),
+                0x63,
+                modrm(0b11, dst, src),
+            ]))
+        }
         // rev_w / rev_x: byte-reverse a 32/64-bit value (`bswap`, 0F C8+rd; the
         // 64-bit form takes REX.W). AArch64 `rev` has dst/src, x86 `bswap` is
         // in-place, so copy first when they differ.

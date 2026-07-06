@@ -132,7 +132,7 @@ macro_rules! mir_ops {
 mir_ops!(
     mirror {
         Label, Mov, MovImm, Add, Adds, Sub, Subs, And, Orr, Eor, Mvn, Mul, Lslv, Lsrv, Asrv, Clz,
-        Rbit, SDiv, UDiv, MSub, LslImm, LsrImm, AsrImm, AddImm, SubImm, SubSp, AddSp, CmpImm, Cmp,
+        Rbit, Sxtw, SDiv, UDiv, MSub, LslImm, LsrImm, AsrImm, AddImm, SubImm, SubSp, AddSp, CmpImm, Cmp,
         BranchEq, BranchNe, BranchGe, BranchLt, BranchGt, BranchLe, BranchVc, BranchVs, BranchHi,
         BranchLo, BranchMi, BranchLs, Branch, BranchSelf, Ret,
         // x86-only float-compare branches, synthesized by `select_x86` *after*

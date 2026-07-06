@@ -133,6 +133,24 @@ fn encodes_fmov_d_from_d() {
 }
 
 #[test]
+fn encodes_sxtw() {
+    // `sxtw Xd, Wn` = `SBFM Xd, Xn, #0, #31` (sf=1, N=1, immr=0, imms=31).
+    // Guards bug-04: narrows a C `int` return before the 64-bit flush sign-check.
+    let mut encoder = fresh_encoder();
+    for inst in [
+        CodeInstruction::new("sxtw").field("dst", "x0").field("src", "x0"),
+        CodeInstruction::new("sxtw").field("dst", "x3").field("src", "x1"),
+    ] {
+        encoder.emit_instruction(&inst).unwrap();
+    }
+    let mut expected = Vec::new();
+    for word in [0x9340_7c00_u32, 0x9340_7c23] {
+        expected.extend_from_slice(&word.to_le_bytes());
+    }
+    assert_eq!(encoder.text, expected);
+}
+
+#[test]
 fn encodes_fabs_d() {
     // FABS (scalar, double) d5, d3 — checked against `as -arch arm64`.
     assert_eq!(

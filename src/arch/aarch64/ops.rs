@@ -37,6 +37,12 @@ pub(crate) enum CodeOp {
     Rbit,
     RevW,
     RevX,
+    /// `sxtw Xd, Wn` — sign-extend the low 32 bits of `src` into the full 64-bit
+    /// `dst`. Used to narrow a C function's `int` return (whose upper 32 bits are
+    /// ABI-undefined per AAPCS64) before a 64-bit signed compare — see the flush
+    /// `fsync` check (bug-04). The aarch64 `cmp_imm` is 64-bit, so a raw `-1`
+    /// left with cleared upper bits would otherwise read as positive.
+    Sxtw,
     SDiv,
     UDiv,
     MSub,
@@ -216,6 +222,7 @@ impl CodeOp {
             CodeOp::Rbit => "rbit",
             CodeOp::RevW => "rev_w",
             CodeOp::RevX => "rev_x",
+            CodeOp::Sxtw => "sxtw",
             CodeOp::SDiv => "sdiv",
             CodeOp::UDiv => "udiv",
             CodeOp::MSub => "msub",
@@ -361,6 +368,7 @@ impl CodeOp {
             "rbit" => Ok(CodeOp::Rbit),
             "rev_w" => Ok(CodeOp::RevW),
             "rev_x" => Ok(CodeOp::RevX),
+            "sxtw" => Ok(CodeOp::Sxtw),
             "sdiv" => Ok(CodeOp::SDiv),
             "udiv" => Ok(CodeOp::UDiv),
             "msub" => Ok(CodeOp::MSub),
@@ -516,6 +524,7 @@ mod tests {
             CodeOp::Rbit,
             CodeOp::RevW,
             CodeOp::RevX,
+            CodeOp::Sxtw,
             CodeOp::SDiv,
             CodeOp::UDiv,
             CodeOp::MSub,

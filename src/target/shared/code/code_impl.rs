@@ -48,9 +48,12 @@ impl CodeInstruction {
             | CodeOp::FSubD
             | CodeOp::FMulD
             | CodeOp::FDivD => &["dst", "lhs", "rhs"],
-            CodeOp::Mvn | CodeOp::Clz | CodeOp::Rbit | CodeOp::RevW | CodeOp::RevX => {
-                &["dst", "src"]
-            }
+            CodeOp::Mvn
+            | CodeOp::Clz
+            | CodeOp::Rbit
+            | CodeOp::RevW
+            | CodeOp::RevX
+            | CodeOp::Sxtw => &["dst", "src"],
             CodeOp::MSub => &["dst", "lhs", "rhs", "minuend"],
             // Explicit-carry add/sub (plan-00-G §4): two writes (`dst`,
             // `carry_out`/`borrow_out`) plus the carry-in/borrow-in value.
