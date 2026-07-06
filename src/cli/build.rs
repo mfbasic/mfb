@@ -183,7 +183,13 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         .get("name")
         .and_then(|value| value.get::<String>())
         .expect("validated project name");
-    let ast = ast::parse_project(project_name, &options.location, &manifest)?;
+    let mut ast = ast::parse_project(project_name, &options.location, &manifest)?;
+    // plan-24-C: rename file-local PRIVATE top-level declarations to unique
+    // `#<hash>$name` internal names (and rewrite their in-file references) BEFORE
+    // resolving, so same-named privates in different files never collide and every
+    // later stage sees globally-unique names. Returns shadow warnings (rendered
+    // with the other diagnostics below) and a should-never-fire hash-collision.
+    let scope_diagnostics = crate::scope_privates::scope_privates(&mut ast);
     resolver::resolve_project(&options.location, &manifest, &ast)?;
     let concrete_ast = monomorph::monomorphize_project(&options.location, &ast)?;
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
@@ -228,7 +234,8 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     diagnostics.extend(syntaxcheck::export_in_executable_diagnostics(
         is_package, &ast,
     ));
-    let had_error = !diagnostics.is_empty();
+    diagnostics.extend(scope_diagnostics);
+    let had_error = diagnostics.iter().any(|d| crate::rules::is_error(&d.rule));
     crate::rules::render_pending(diagnostics);
     if had_error {
         return Err(());

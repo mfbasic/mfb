@@ -1,0 +1,7 @@
+PRIVATE FUNC secret(n AS Integer) AS Integer
+  RETURN n * 10
+END FUNC
+
+FUNC fromA(n AS Integer) AS Integer
+  RETURN secret(n)
+END FUNC

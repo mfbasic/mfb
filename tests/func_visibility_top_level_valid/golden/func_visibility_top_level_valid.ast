@@ -10,7 +10,7 @@
     {
       "kind": "func",
       "visibility": "private",
-      "name": "privateDouble",
+      "name": "#45a7d15ac6b4f562$privateDouble",
       "line": 3,
       "params": [
       { "name": "value", "type": "Integer", "default": null }
@@ -30,7 +30,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "privateDouble", "arguments": [{ "kind": "identifier", "value": "value" }] }, "right": { "kind": "number", "value": "1" } }, "line": 8 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "call", "callee": "#45a7d15ac6b4f562$privateDouble", "arguments": [{ "kind": "identifier", "value": "value" }] }, "right": { "kind": "number", "value": "1" } }, "line": 8 }
       ]
     },
     {
@@ -49,7 +49,7 @@
     {
       "kind": "sub",
       "visibility": "private",
-      "name": "privateTrace",
+      "name": "#45a7d15ac6b4f562$privateTrace",
       "line": 15,
       "params": [
       { "name": "value", "type": "Integer", "default": null }
@@ -69,7 +69,7 @@
       ],
       "returnType": null,
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "privateTrace", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 20 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "#45a7d15ac6b4f562$privateTrace", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 20 }
       ]
     },
     {

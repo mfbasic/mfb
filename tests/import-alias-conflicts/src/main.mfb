@@ -3,7 +3,7 @@ IMPORT math AS dup
 IMPORT strings AS io
 IMPORT json AS helper
 
-PRIVATE FUNC helper() AS Integer
+FUNC helper() AS Integer
   RETURN 0
 END FUNC
 

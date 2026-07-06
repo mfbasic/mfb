@@ -38,12 +38,52 @@ pub fn strip_sigil(name: &str) -> Option<&str> {
 }
 
 /// Render an internal name for a user-facing diagnostic. The untypeable sigil is
-/// mapped back to the readable `__` prefix so error messages never expose it.
-/// Non-internal names are returned unchanged.
+/// mapped back to the readable `__` prefix so error messages never expose it. A
+/// file-scoped PRIVATE name (`#<hash>$name`, see [`mangle_private`]) demangles to
+/// its plain source name. Non-internal names are returned unchanged.
 pub fn display_name(name: &str) -> std::borrow::Cow<'_, str> {
     match strip_sigil(name) {
-        Some(rest) => std::borrow::Cow::Owned(format!("__{rest}")),
+        Some(rest) => match strip_private_hash(rest) {
+            Some(plain) => std::borrow::Cow::Owned(plain.to_string()),
+            None => std::borrow::Cow::Owned(format!("__{rest}")),
+        },
         None => std::borrow::Cow::Borrowed(name),
+    }
+}
+
+/// Width of the hex file-scope hash embedded in a mangled PRIVATE name.
+const FILE_HASH_HEX_LEN: usize = 16;
+
+/// 64-bit FNV-1a of a project-relative source path, rendered as 16 lowercase hex
+/// digits. Deterministic and machine-independent (the path is project-relative
+/// and `/`-normalized), so native goldens stay reproducible.
+pub fn file_scope_hash(project_relative_path: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in project_relative_path.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{hash:016x}")
+}
+
+/// Mangle a file-local PRIVATE top-level name to an untypeable, file-unique
+/// internal name `#<hash>$<name>`. The leading `#` sigil makes it unforgeable by
+/// user code; the `<hash>` (see [`file_scope_hash`]) ties it to its declaring
+/// file so same-named privates in different files never collide downstream. `$`
+/// is the monomorphizer's existing mangle separator, so the name survives to
+/// native codegen unchanged.
+pub fn mangle_private(file_hash: &str, name: &str) -> String {
+    format!("{INTERNAL_SIGIL}{file_hash}${name}")
+}
+
+/// If `rest` (a sigil-stripped name) is a mangled PRIVATE name `<hash>$<plain>`,
+/// return `<plain>`; otherwise `None`.
+fn strip_private_hash(rest: &str) -> Option<&str> {
+    let (hash, plain) = rest.split_once('$')?;
+    if hash.len() == FILE_HASH_HEX_LEN && hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(plain)
+    } else {
+        None
     }
 }
 
@@ -72,6 +112,27 @@ mod tests {
         assert_eq!(strip_sigil(&internal), Some("regex_match"));
         // A plain `__`-prefixed name (as a user would type) is not internal.
         assert_eq!(strip_sigil("__regex_match"), None);
+    }
+
+    #[test]
+    fn file_scope_hash_is_deterministic_and_16_hex() {
+        let a = file_scope_hash("src/a.mfb");
+        let b = file_scope_hash("src/b.mfb");
+        assert_eq!(a.len(), 16);
+        assert!(a.bytes().all(|c| c.is_ascii_hexdigit()));
+        assert_ne!(a, b);
+        assert_eq!(a, file_scope_hash("src/a.mfb"));
+    }
+
+    #[test]
+    fn mangle_private_round_trips_through_display_name() {
+        let hash = file_scope_hash("src/helpers.mfb");
+        let mangled = mangle_private(&hash, "helper");
+        assert_eq!(mangled, format!("#{hash}$helper"));
+        // A mangled PRIVATE name demangles to its plain source name for diagnostics.
+        assert_eq!(display_name(&mangled), "helper");
+        // A plain sigil name (builtin internal) still maps to the `__` form.
+        assert_eq!(display_name("#json_parse"), "__json_parse");
     }
 
     #[test]

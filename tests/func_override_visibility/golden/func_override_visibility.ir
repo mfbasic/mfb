@@ -33,7 +33,7 @@
     ]
   },
   {
-    "name": "len$Tag",
+    "name": "#45a7d15ac6b4f562$len",
     "line": 13,
     "visibility": "private",
     "kind": "func",
@@ -55,7 +55,7 @@
     ],
     "returns": "String",
     "body": [
-    { "op": "return", "line": 19, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString$Tag", "args": [{ "kind": "local", "name": "t" }] }, "right": { "kind": "const", "type": "String", "value": " len=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "len$Tag", "args": [{ "kind": "local", "name": "t" }] }] } } }
+    { "op": "return", "line": 19, "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "toString$Tag", "args": [{ "kind": "local", "name": "t" }] }, "right": { "kind": "const", "type": "String", "value": " len=" } }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "#45a7d15ac6b4f562$len", "args": [{ "kind": "local", "name": "t" }] }] } } }
     ]
   },
   {

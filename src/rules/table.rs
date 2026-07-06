@@ -254,6 +254,18 @@ pub(super) const RULES: &[Rule] = &[
         message: "function name is a reserved built-in and may not be redeclared",
     },
     Rule {
+        code: "2-201-0017",
+        name: "PRIVATE_SHADOWS_PUBLIC",
+        severity: Severity::Warn,
+        message: "PRIVATE declaration shadows a PUBLIC declaration of the same name within its file",
+    },
+    Rule {
+        code: "2-201-0018",
+        name: "PRIVATE_PATH_HASH_COLLISION",
+        severity: Severity::Error,
+        message: "internal: two source file paths produced the same file-scope hash",
+    },
+    Rule {
         code: "2-203-0001",
         name: "TYPE_BINARY_OPERATOR_MISMATCH",
         severity: Severity::Error,

@@ -1,0 +1,3 @@
+FUNC helper(n AS Integer) AS Integer
+  RETURN n * 2
+END FUNC

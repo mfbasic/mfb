@@ -7,7 +7,12 @@ namespaces. Additional packages are introduced only through the importing
 project's `project.json` `packages` array.
 
 Visibility (`Visibility` enum in `src/ast.rs`; default is `Public`):
-- `PRIVATE` — file-local (opt in explicitly).
+- `PRIVATE` — file-local (opt in explicitly). A `PRIVATE` top-level declaration is
+  scoped to its own file: two files may each declare a `PRIVATE` symbol of the same
+  name without colliding (the compiler renames each to a file-unique internal name
+  before resolution). Where a file's own `PRIVATE` declaration shares a name with a
+  project `PUBLIC` declaration, the `PRIVATE` one wins *within that file* and the
+  compiler emits a `PRIVATE_SHADOWS_PUBLIC` warning.
 - `PUBLIC` (default) — visible to all files in the same package, hidden from importers.
 - `EXPORT` — visible to importers. `EXPORT` is the flag that writes a symbol into
   the compiled `.mfp` public API, so it is **valid only in a `kind: "package"`

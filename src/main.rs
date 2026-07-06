@@ -17,6 +17,7 @@ mod numeric;
 mod os;
 mod resolver;
 mod rules;
+mod scope_privates;
 mod target;
 mod syntaxcheck;
 #[cfg(test)]

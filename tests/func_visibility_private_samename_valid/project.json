@@ -1,0 +1,1 @@
+{"name":"func_visibility_private_samename_valid","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src"}],"entry":"main","targets":["native"]}

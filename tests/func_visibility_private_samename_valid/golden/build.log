@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/func_visibility_private_samename_valid
+Wrote AST to tests/func_visibility_private_samename_valid/func_visibility_private_samename_valid.ast
+Wrote IR to tests/func_visibility_private_samename_valid/func_visibility_private_samename_valid.ir
+[exit 0]

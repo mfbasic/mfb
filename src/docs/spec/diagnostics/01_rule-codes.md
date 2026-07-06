@@ -293,6 +293,8 @@ entire registry; every other rule is `error`. [[src/rules/table.rs:RULES]]
 | `2-201-0014` | `SYMBOL_UNKNOWN_IMPORT` | error | package-qualified symbol uses an unknown import |
 | `2-201-0015` | `SYMBOL_UNKNOWN_TYPE` | error | type name could not be resolved |
 | `2-201-0016` | `SYMBOL_RESERVED_BUILTIN_NAME` | error | function name is a reserved built-in and may not be redeclared |
+| `2-201-0017` | `PRIVATE_SHADOWS_PUBLIC` | warn | PRIVATE declaration shadows a PUBLIC declaration of the same name within its file |
+| `2-201-0018` | `PRIVATE_PATH_HASH_COLLISION` | error | internal: two source file paths produced the same file-scope hash |
 
 ### `2-203` — Type checking, ownership, and native ABI
 

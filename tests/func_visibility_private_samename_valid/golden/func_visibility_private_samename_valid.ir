@@ -1,0 +1,80 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_visibility_private_samename_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "#0fd20d0660c720e8$secret",
+    "line": 1,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 1, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "10" } } }
+    ]
+  },
+  {
+    "name": "fromA",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 5, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 6, "value": { "kind": "call", "type": "Integer", "target": "#0fd20d0660c720e8$secret", "args": [{ "kind": "local", "name": "n" }] } }
+    ]
+  },
+  {
+    "name": "#dbd8d822f3f13711$secret",
+    "line": 1,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 1, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "100" } } }
+    ]
+  },
+  {
+    "name": "fromB",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 5, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 6, "value": { "kind": "call", "type": "Integer", "target": "#dbd8d822f3f13711$secret", "args": [{ "kind": "local", "name": "n" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "a=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fromA", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "b=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "fromB", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
+    { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

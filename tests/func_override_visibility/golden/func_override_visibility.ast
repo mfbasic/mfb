@@ -32,7 +32,7 @@
     {
       "kind": "func",
       "visibility": "private",
-      "name": "len",
+      "name": "#45a7d15ac6b4f562$len",
       "line": 13,
       "params": [
       { "name": "t", "type": "Tag", "default": null }
@@ -52,7 +52,7 @@
       ],
       "returnType": "String",
       "body": [
-      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] }, "right": { "kind": "string", "value": " len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "len", "arguments": [{ "kind": "identifier", "value": "t" }] }] } }, "line": 19 }
+      { "kind": "return", "value": { "kind": "binary", "operator": "&", "left": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "t" }] }, "right": { "kind": "string", "value": " len=" } }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "#45a7d15ac6b4f562$len", "arguments": [{ "kind": "identifier", "value": "t" }] }] } }, "line": 19 }
       ]
     }
     ]

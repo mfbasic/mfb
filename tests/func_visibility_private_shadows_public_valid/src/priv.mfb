@@ -1,0 +1,7 @@
+PRIVATE FUNC helper(n AS Integer) AS Integer
+  RETURN n + 1000
+END FUNC
+
+FUNC localUse(n AS Integer) AS Integer
+  RETURN helper(n)
+END FUNC

@@ -24,7 +24,7 @@
     ]
   },
   {
-    "name": "helperBump",
+    "name": "#45a7d15ac6b4f562$helperBump",
     "line": 8,
     "visibility": "private",
     "kind": "func",
@@ -46,7 +46,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "return", "line": 14, "value": { "kind": "call", "type": "Integer", "target": "helperBump", "args": [{ "kind": "local", "name": "value" }] } }
+    { "op": "return", "line": 14, "value": { "kind": "call", "type": "Integer", "target": "#45a7d15ac6b4f562$helperBump", "args": [{ "kind": "local", "name": "value" }] } }
     ]
   },
   {

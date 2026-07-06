@@ -1,0 +1,67 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_visibility_private_shadows_public_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 4, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "pubcall=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "helper", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
+    { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "binary", "type": "String", "op": "&", "left": { "kind": "const", "type": "String", "value": "privcall=" }, "right": { "kind": "call", "type": "String", "target": "toString", "args": [{ "kind": "call", "type": "Integer", "target": "localUse", "args": [{ "kind": "const", "type": "Integer", "value": "5" }] }] } }] } },
+    { "op": "return", "line": 6, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "#ccfb4cb8c48d7726$helper",
+    "line": 1,
+    "visibility": "private",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 1, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "1000" } } }
+    ]
+  },
+  {
+    "name": "localUse",
+    "line": 5,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 5, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 6, "value": { "kind": "call", "type": "Integer", "target": "#ccfb4cb8c48d7726$helper", "args": [{ "kind": "local", "name": "n" }] } }
+    ]
+  },
+  {
+    "name": "helper",
+    "line": 1,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "n", "line": 1, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 2, "value": { "kind": "binary", "type": "Integer", "op": "*", "left": { "kind": "local", "name": "n" }, "right": { "kind": "const", "type": "Integer", "value": "2" } } }
+    ]
+  }
+  ]
+}

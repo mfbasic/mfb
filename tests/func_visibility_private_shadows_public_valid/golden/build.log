@@ -1,0 +1,6 @@
+$ mfb build -ast -ir tests/func_visibility_private_shadows_public_valid
+src/priv.mfb:1 warn[2-201-0017 PRIVATE_SHADOWS_PUBLIC]: PRIVATE declaration shadows a PUBLIC declaration of the same name within its file
+               PRIVATE `helper` shadows a PUBLIC declaration of the same name within this file.
+Wrote AST to tests/func_visibility_private_shadows_public_valid/func_visibility_private_shadows_public_valid.ast
+Wrote IR to tests/func_visibility_private_shadows_public_valid/func_visibility_private_shadows_public_valid.ir
+[exit 0]

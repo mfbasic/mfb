@@ -1,0 +1,7 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print("pubcall=" & toString(helper(5)))
+  io::print("privcall=" & toString(localUse(5)))
+  RETURN 0
+END FUNC

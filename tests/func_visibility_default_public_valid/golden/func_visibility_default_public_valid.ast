@@ -22,7 +22,7 @@
     {
       "kind": "func",
       "visibility": "private",
-      "name": "helperBump",
+      "name": "#45a7d15ac6b4f562$helperBump",
       "line": 8,
       "params": [
       { "name": "value", "type": "Integer", "default": null }
@@ -42,7 +42,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "return", "value": { "kind": "call", "callee": "helperBump", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 14 }
+      { "kind": "return", "value": { "kind": "call", "callee": "#45a7d15ac6b4f562$helperBump", "arguments": [{ "kind": "identifier", "value": "value" }] }, "line": 14 }
       ]
     }
     ]

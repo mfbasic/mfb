@@ -1,0 +1,80 @@
+{
+  "project": "func_visibility_private_shadows_public_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 3,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "pubcall=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "helper", "arguments": [{ "kind": "number", "value": "5" }] }] } }] }, "line": 4 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "privcall=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "localUse", "arguments": [{ "kind": "number", "value": "5" }] }] } }] }, "line": 5 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 6 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/priv.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "private",
+      "name": "#ccfb4cb8c48d7726$helper",
+      "line": 1,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "1000" } }, "line": 2 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "localUse",
+      "line": 5,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "#ccfb4cb8c48d7726$helper", "arguments": [{ "kind": "identifier", "value": "n" }] }, "line": 6 }
+      ]
+    }
+    ]
+  },
+  {
+    "path": "src/pub.mfb",
+    "imports": [
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "helper",
+      "line": 1,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "*", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "2" } }, "line": 2 }
+      ]
+    }
+    ]
+  }
+  ]
+}

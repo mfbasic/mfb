@@ -105,6 +105,13 @@ pub fn show_general_diagnostic(rule_name: &str, detailed_message: &str) {
     eprintln!("               {}", detailed_message);
 }
 
+/// Whether a diagnostic rule is `Error` severity (as opposed to `Warn`/`Info`).
+/// Lets a collected diagnostic stream fail the build only on real errors while
+/// still rendering warnings.
+pub fn is_error(rule_name: &str) -> bool {
+    matches!(rule_for(rule_name).severity, Severity::Error)
+}
+
 fn rule_for(rule_name: &str) -> &'static Rule {
     RULES
         .iter()

@@ -1,0 +1,7 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print("a=" & toString(fromA(5)))
+  io::print("b=" & toString(fromB(5)))
+  RETURN 0
+END FUNC
