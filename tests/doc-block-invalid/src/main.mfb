@@ -22,7 +22,7 @@ DOC
   GROUP A
   GROUP B
 END DOC
-EXPORT SUB noisy()
+SUB noisy()
   LET x AS Integer = 0
 END SUB
 
@@ -36,7 +36,7 @@ DOC
   FUNC add
   DESC A duplicate DOC block for add.
 END DOC
-EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer
+FUNC add(a AS Integer, b AS Integer) AS Integer
   RETURN a + b
 END FUNC
 

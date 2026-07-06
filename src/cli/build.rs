@@ -220,6 +220,14 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         return Err(());
     };
     diagnostics.extend(verify_diagnostics);
+    // EXPORT is only valid in a package project (it is the `.mfp` export flag);
+    // in an executable a top-level EXPORT is an error. Checked here because the
+    // manifest `kind` is known at the build boundary (see
+    // `syntaxcheck::export_in_executable_diagnostics`).
+    let is_package = crate::manifest::project_kind(&manifest) == "package";
+    diagnostics.extend(syntaxcheck::export_in_executable_diagnostics(
+        is_package, &ast,
+    ));
     let had_error = !diagnostics.is_empty();
     crate::rules::render_pending(diagnostics);
     if had_error {

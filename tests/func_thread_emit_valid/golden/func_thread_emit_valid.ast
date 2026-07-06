@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "export",
+      "visibility": "public",
       "name": "worker",
       "line": 3,
       "params": [

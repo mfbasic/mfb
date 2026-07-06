@@ -1,7 +1,7 @@
 $ mfb build -ast -ir tests/func_thread_result_invalid
 uses thread_workers - [Unsigned]
    3 | 
-   4 | EXPORT ISOLATED FUNC badWorker(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+   4 | ISOLATED FUNC badWorker(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
    5 |   LET workerResult AS Integer = w.result
      | ^
 tests/func_thread_result_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
@@ -19,7 +19,7 @@ tests/func_thread_result_invalid/src/main.mfb:11 error[2-203-0043 TYPE_UNKNOWN_V
 tests/func_thread_result_invalid/src/main.mfb:12 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `wrongType` does not have a known type.
    3 | 
-   4 | EXPORT ISOLATED FUNC badWorker(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+   4 | ISOLATED FUNC badWorker(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
    5 |   LET workerResult AS Integer = w.result
      | ^
 tests/func_thread_result_invalid/src/main.mfb:5 error[2-203-0072 TYPE_THREAD_RESULT_REMOVED]: the thread result field is removed; use thread::waitFor

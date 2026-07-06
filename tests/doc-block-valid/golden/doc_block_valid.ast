@@ -10,7 +10,7 @@
     { "kind": "doc", "header": "FUNC", "name": "add", "signature": ["Integer", "Integer"], "attrs": [], "desc": [{ "kind": "desc", "text": "Add two integers and return the sum." }, { "kind": "info", "text": "This is the integer overload." }, { "kind": "warn", "text": "Overflow is not checked." }], "deprecated": [], "group": ["Math"], "args": [{ "name": "a", "desc": "The first addend." }, { "name": "b", "desc": "The second addend." }], "ret": ["The sum of `a` and `b`."], "errors": [{ "code": "1001", "desc": "Reserved overflow code (not emitted in v1)." }], "props": [], "example": ["LET total AS Integer = add(2, 3)"], "line": 8 },
     {
       "kind": "func",
-      "visibility": "export",
+      "visibility": "public",
       "name": "add",
       "line": 22,
       "params": [
@@ -25,7 +25,7 @@
     { "kind": "doc", "header": "FUNC", "name": "add", "signature": ["Float", "Float"], "attrs": [], "desc": [{ "kind": "desc", "text": "Add two floats and return the sum." }, { "kind": "sec", "text": "Do not add untrusted non-finite values." }], "deprecated": [], "group": ["Math"], "args": [{ "name": "a", "desc": "The first addend." }, { "name": "b", "desc": "The second addend." }], "ret": ["The floating-point sum."], "errors": [], "props": [], "example": [], "line": 26 },
     {
       "kind": "func",
-      "visibility": "export",
+      "visibility": "public",
       "name": "add",
       "line": 35,
       "params": [
@@ -40,7 +40,7 @@
     { "kind": "doc", "header": "SUB", "name": "logIt", "signature": null, "attrs": ["INTERNAL"], "desc": [{ "kind": "desc", "text": "Internal logging helper, exported for tests." }], "deprecated": ["Use the structured logger instead."], "group": [], "args": [{ "name": "value", "desc": "The value to log." }], "ret": [], "errors": [], "props": [], "example": [], "line": 39 },
     {
       "kind": "sub",
-      "visibility": "export",
+      "visibility": "public",
       "name": "logIt",
       "line": 45,
       "params": [
@@ -54,7 +54,7 @@
     { "kind": "doc", "header": "TYPE", "name": "Point", "signature": null, "attrs": [], "desc": [{ "kind": "desc", "text": "A two-dimensional point." }], "deprecated": [], "group": [], "args": [], "ret": [], "errors": [], "props": [{ "name": "x", "desc": "The horizontal coordinate." }, { "name": "y", "desc": "The vertical coordinate." }], "example": [], "line": 49 },
     {
       "kind": "type",
-      "visibility": "export",
+      "visibility": "public",
       "name": "Point",
       "line": 55,
       "fields": [

@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "export",
+      "visibility": "public",
       "name": "Tag",
       "line": 3,
       "fields": [
@@ -18,7 +18,7 @@
     },
     {
       "kind": "func",
-      "visibility": "export",
+      "visibility": "public",
       "name": "toString",
       "line": 8,
       "params": [
@@ -44,7 +44,7 @@
     },
     {
       "kind": "func",
-      "visibility": "export",
+      "visibility": "public",
       "name": "describe",
       "line": 18,
       "params": [

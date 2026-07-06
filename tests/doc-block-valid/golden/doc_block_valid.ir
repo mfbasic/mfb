@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 55,
-    "visibility": "export",
+    "visibility": "public",
     "name": "Point",
     "fields": [
     { "visibility": null, "line": 56, "name": "x", "type": "Integer" },
@@ -23,7 +23,7 @@
   {
     "name": "add$Integer$Integer",
     "line": 22,
-    "visibility": "export",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 22, "type": "Integer", "default": null },
@@ -37,7 +37,7 @@
   {
     "name": "add$Float$Float",
     "line": 35,
-    "visibility": "export",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 35, "type": "Float", "default": null },
@@ -51,7 +51,7 @@
   {
     "name": "logIt",
     "line": 45,
-    "visibility": "export",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "value", "line": 45, "type": "Integer", "default": null }

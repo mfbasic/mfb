@@ -2,7 +2,7 @@ $ mfb build -ast -ir tests/func_thread_start_invalid
 uses thread_workers - [Unsigned]
   10 | END FUNC
   11 | 
-  12 | EXPORT ISOLATED FUNC localBadMessage(t AS ThreadWorker OF BadStartMessage TO Integer, seed AS String) AS Integer
+  12 | ISOLATED FUNC localBadMessage(t AS ThreadWorker OF BadStartMessage TO Integer, seed AS String) AS Integer
      | ^
 tests/func_thread_start_invalid/src/main.mfb:12 error[2-203-0063 TYPE_THREAD_NOT_SENDABLE]: thread boundary type is not sendable
                Thread message type requires a thread-sendable type, got `BadStartMessage`.

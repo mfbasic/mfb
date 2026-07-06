@@ -19,7 +19,7 @@ DOC
     LET total AS Integer = add(2, 3)
   END EXAMPLE
 END DOC
-EXPORT FUNC add(a AS Integer, b AS Integer) AS Integer
+FUNC add(a AS Integer, b AS Integer) AS Integer
   RETURN a + b
 END FUNC
 
@@ -32,7 +32,7 @@ DOC
   ARG b The second addend.
   RET The floating-point sum.
 END DOC
-EXPORT FUNC add(a AS Float, b AS Float) AS Float
+FUNC add(a AS Float, b AS Float) AS Float
   RETURN a + b
 END FUNC
 
@@ -42,7 +42,7 @@ DOC INTERNAL
   ARG value The value to log.
   DEPRECATED Use the structured logger instead.
 END DOC
-EXPORT SUB logIt(value AS Integer)
+SUB logIt(value AS Integer)
   LET ignored AS Integer = value
 END SUB
 
@@ -52,7 +52,7 @@ DOC
   PROP x The horizontal coordinate.
   PROP y The vertical coordinate.
 END DOC
-EXPORT TYPE Point
+TYPE Point
   x AS Integer
   y AS Integer
 END TYPE

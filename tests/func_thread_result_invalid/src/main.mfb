@@ -1,7 +1,7 @@
 IMPORT thread
 IMPORT thread_workers
 
-EXPORT ISOLATED FUNC badWorker(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+ISOLATED FUNC badWorker(w AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   LET workerResult AS Integer = w.result
   RETURN len(seed) + workerResult
 END FUNC

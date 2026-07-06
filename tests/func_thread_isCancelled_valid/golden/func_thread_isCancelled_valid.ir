@@ -13,7 +13,7 @@
   {
     "name": "worker",
     "line": 3,
-    "visibility": "export",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 3, "type": "ThreadWorker OF Nothing TO Integer", "default": null },

@@ -35,7 +35,7 @@
     },
     {
       "kind": "func",
-      "visibility": "export",
+      "visibility": "public",
       "name": "exportValue",
       "line": 11,
       "params": [
@@ -74,7 +74,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "export",
+      "visibility": "public",
       "name": "exportTrace",
       "line": 23,
       "params": [

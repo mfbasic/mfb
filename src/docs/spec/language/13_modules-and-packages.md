@@ -9,7 +9,11 @@ project's `project.json` `packages` array.
 Visibility (`Visibility` enum in `src/ast.rs`; default is `Public`):
 - `PRIVATE` — file-local (opt in explicitly).
 - `PUBLIC` (default) — visible to all files in the same package, hidden from importers.
-- `EXPORT` — visible to importers.
+- `EXPORT` — visible to importers. `EXPORT` is the flag that writes a symbol into
+  the compiled `.mfp` public API, so it is **valid only in a `kind: "package"`
+  project**; a top-level `EXPORT` in an executable is rejected with
+  `EXPORT_IN_EXECUTABLE` (use `PUBLIC` — the default — for project-wide visibility
+  in an executable).
 
 Within a single build, `PUBLIC` and `EXPORT` are treated **identically** by
 `visible_from` (`src/resolver/mod.rs`, `src/syntaxcheck/mod.rs`): both are visible across
@@ -21,7 +25,8 @@ cross-file reference to a `PRIVATE` declaration fails unless the declaration is
 
 Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` (`effective_field_visibility`, `src/syntaxcheck/helpers.rs`) — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types.
 
-Only exported top-level `FUNC` declarations may use `ISOLATED`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
+Only project-visible top-level `FUNC` declarations may use `ISOLATED` — i.e.
+`PUBLIC` (the default) or `EXPORT`, not `PRIVATE`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
 
 Exported top-level `MUT` is allowed only when written explicitly as `EXPORT MUT`; it is package state visible to importers and must be surfaced by audit tooling. A top-level `MUT` without `EXPORT` is private or package-local according to its visibility annotation and remains discouraged for shared state.
 

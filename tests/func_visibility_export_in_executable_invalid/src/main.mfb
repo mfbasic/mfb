@@ -1,0 +1,10 @@
+' EXPORT is only valid in a package project (it is the .mfp public-API flag).
+' In an executable it is rejected with EXPORT_IN_EXECUTABLE; project-wide
+' visibility here is PUBLIC (the default).
+EXPORT FUNC leaked() AS Integer
+  RETURN 1
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

@@ -674,6 +674,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "inline TRAP is not supported on an inline-lowered built-in",
     },
     Rule {
+        code: "2-203-0103",
+        name: "EXPORT_IN_EXECUTABLE",
+        severity: Severity::Error,
+        message: "EXPORT is only valid in a package project; use PUBLIC (the default) in an executable",
+    },
+    Rule {
         code: "2-203-0070",
         name: "TYPE_RESULT_NOT_USER_VISIBLE",
         severity: Severity::Error,

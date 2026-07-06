@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 3,
-    "visibility": "export",
+    "visibility": "public",
     "name": "Tag",
     "fields": [
     { "visibility": null, "line": 4, "name": "id", "type": "Integer" }
@@ -22,7 +22,7 @@
   {
     "name": "toString$Tag",
     "line": 8,
-    "visibility": "export",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 8, "type": "Tag", "default": null }
@@ -48,7 +48,7 @@
   {
     "name": "describe",
     "line": 18,
-    "visibility": "export",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 18, "type": "Tag", "default": null }

@@ -150,6 +150,52 @@ pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
     }
 }
 
+/// `EXPORT` is only meaningful in a package project — it is the flag that writes a
+/// symbol into the compiled `.mfp` public API. An executable produces no `.mfp`,
+/// so a top-level `EXPORT` declaration there is an error (`EXPORT_IN_EXECUTABLE`);
+/// project-wide visibility inside an executable is `PUBLIC` (the default). This
+/// runs in the build pipeline, where the manifest `kind` is known, so it does not
+/// thread through `SyntaxChecker` (keeping `check_project_collect`'s callers, and
+/// their inline `EXPORT ISOLATED` unit-test sources, unaffected).
+pub fn export_in_executable_diagnostics(
+    is_package: bool,
+    ast: &AstProject,
+) -> Vec<crate::rules::PendingDiagnostic> {
+    if is_package {
+        return Vec::new();
+    }
+    let mut diagnostics = Vec::new();
+    for file in &ast.files {
+        // Skip toolchain-provided source: injected builtin packages
+        // (`AstFile::internal`) and the synthetic prelude (`<builtin …>` path),
+        // which legitimately carry EXPORT declarations.
+        if file.internal || file.path.starts_with('<') {
+            continue;
+        }
+        for item in &file.items {
+            let (visibility, line) = match item {
+                Item::Binding(binding) => (binding.visibility, binding.line),
+                Item::Function(function) => (function.visibility, function.line),
+                Item::Type(type_decl) => (type_decl.visibility, type_decl.line),
+                Item::Resource(resource) => (resource.visibility, resource.line),
+                Item::FuncAlias(alias) => (alias.visibility, alias.line),
+                Item::Link(_) | Item::Doc(_) => continue,
+            };
+            if matches!(visibility, Visibility::Export) {
+                diagnostics.push(crate::rules::PendingDiagnostic {
+                    rule: "EXPORT_IN_EXECUTABLE".to_string(),
+                    detail: "EXPORT is only valid in a package project; use PUBLIC (the \
+                             default) in an executable."
+                        .to_string(),
+                    path: std::path::PathBuf::from(&file.path),
+                    line,
+                });
+            }
+        }
+    }
+    diagnostics
+}
+
 struct SyntaxChecker<'a> {
     project_dir: &'a Path,
     ast: &'a AstProject,
@@ -1567,12 +1613,13 @@ impl<'a> SyntaxChecker<'a> {
     pub(super) fn check_function(&mut self, file: &AstFile, function: &Function) {
         if function.isolated
             && (!matches!(function.kind, FunctionKind::Func)
-                || !matches!(function.visibility, Visibility::Export))
+                || matches!(function.visibility, Visibility::Private))
         {
             self.report(
                 "TYPE_CALL_ARGUMENT_MISMATCH",
                 &format!(
-                    "ISOLATED function `{}` must be an exported FUNC declaration.",
+                    "ISOLATED function `{}` must be a project-visible FUNC declaration \
+                     (PUBLIC — the default — or EXPORT, not PRIVATE).",
                     function.name
                 ),
                 file,
@@ -2023,9 +2070,12 @@ mod checker_tests {
     // ---- check_function -----------------------------------------------------
 
     #[test]
-    fn isolated_non_export_func_rejected() {
+    fn isolated_private_func_rejected() {
+        // ISOLATED requires a project-visible FUNC (PUBLIC — the default — or
+        // EXPORT); an explicit PRIVATE ISOLATED is rejected. (An unmarked ISOLATED
+        // FUNC is PUBLIC and accepted — exercised by the thread acceptance tests.)
         assert!(rejects_with(
-            "ISOLATED FUNC w(x AS Integer) AS Integer\n  RETURN x\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
+            "PRIVATE ISOLATED FUNC w(x AS Integer) AS Integer\n  RETURN x\nEND FUNC\nFUNC main AS Integer\n  RETURN 0\nEND FUNC\n",
             "TYPE_CALL_ARGUMENT_MISMATCH"
         ));
     }

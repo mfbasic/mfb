@@ -1,6 +1,6 @@
 IMPORT thread
 
-EXPORT ISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
+ISOLATED FUNC worker(t AS ThreadWorker OF String TO Integer, seed AS String) AS Integer
   thread::send(t, seed)
   thread::send(t, "immediate", 0)
   thread::send(t, "timed", 1)

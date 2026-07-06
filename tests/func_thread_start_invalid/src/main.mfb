@@ -5,11 +5,11 @@ TYPE BadStartMessage
   handle AS Thread OF String TO Integer
 END TYPE
 
-EXPORT ISOLATED FUNC localWorker(t AS Thread OF String TO Integer, seed AS String) AS Integer
+ISOLATED FUNC localWorker(t AS Thread OF String TO Integer, seed AS String) AS Integer
   RETURN len(seed)
 END FUNC
 
-EXPORT ISOLATED FUNC localBadMessage(t AS ThreadWorker OF BadStartMessage TO Integer, seed AS String) AS Integer
+ISOLATED FUNC localBadMessage(t AS ThreadWorker OF BadStartMessage TO Integer, seed AS String) AS Integer
   RETURN len(seed)
 END FUNC
 

@@ -1,0 +1,1 @@
+{"name":"func_visibility_export_in_executable_invalid","version":"0.1.0","mfb":"1.0","kind":"executable","sources":[{"root":"src"}],"entry":"main","targets":["native"]}

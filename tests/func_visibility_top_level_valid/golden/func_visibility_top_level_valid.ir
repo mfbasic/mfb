@@ -39,7 +39,7 @@
   {
     "name": "exportValue",
     "line": 11,
-    "visibility": "export",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 11, "type": "Integer", "default": null }
@@ -78,7 +78,7 @@
   {
     "name": "exportTrace",
     "line": 23,
-    "visibility": "export",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "value", "line": 23, "type": "Integer", "default": null }

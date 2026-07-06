@@ -1,11 +1,11 @@
 IMPORT io
 
-EXPORT TYPE Tag
+TYPE Tag
   id AS Integer
 END TYPE
 
 ' An EXPORT override is visible across the whole project (and beyond).
-EXPORT FUNC toString(t AS Tag) AS String
+FUNC toString(t AS Tag) AS String
   RETURN "tag#" & toString(t.id)
 END FUNC
 
@@ -15,6 +15,6 @@ PRIVATE FUNC len(t AS Tag) AS Integer
 END FUNC
 
 ' Exercises the file-local PRIVATE len override.
-EXPORT FUNC describe(t AS Tag) AS String
+FUNC describe(t AS Tag) AS String
   RETURN toString(t) & " len=" & toString(len(t))
 END FUNC

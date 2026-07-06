@@ -8,7 +8,7 @@ PUBLIC FUNC packageValue(value AS Integer) AS Integer
   RETURN privateDouble(value) + 1
 END FUNC
 
-EXPORT FUNC exportValue(value AS Integer) AS Integer
+FUNC exportValue(value AS Integer) AS Integer
   RETURN value + 3
 END FUNC
 
@@ -20,6 +20,6 @@ PUBLIC SUB packageTrace(value AS Integer)
   privateTrace(value)
 END SUB
 
-EXPORT SUB exportTrace(value AS Integer)
+SUB exportTrace(value AS Integer)
   io::print("export=" & toString(value))
 END SUB
