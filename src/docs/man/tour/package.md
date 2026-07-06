@@ -2,16 +2,29 @@
 
 A one-page tour of the MFBASIC language
 
-MFBASIC is a modern, functional dialect of BASIC: immutable by default, no
-objects, package-level imports, and an implicit error model. Values are owned
-and reclaimed deterministically at scope exit — no garbage collector, no
-reference counting, no user-visible free. This page walks the whole language
-once; every heading ends with where to read more.
+MFBASIC is a modern, functional dialect of BASIC built around value
+ownership: every value has a single owner and is reclaimed deterministically
+when its scope exits — no garbage collector, no reference counting, no
+user-visible free. Bindings are immutable by default, there are no objects,
+and errors propagate automatically. This page walks the whole language once;
+every heading ends with where to read more.
+
+## MFBASIC at a glance
+
+- Immutable by default
+- Value ownership with deterministic cleanup
+- Checked arithmetic — overflow fails, never wraps
+- Pattern matching over closed unions
+- Automatic error propagation, built in
+- No exceptions
+- No garbage collector
+- No null
 
 ## Hello, world
 
 A program starts at `main`. Built-in packages are brought in with `IMPORT` and
-called with the `::` separator; a few core functions (`len`, `toString`,
+called with the `::` separator; a package holds free functions and types —
+there are no classes or methods. A few core functions (`len`, `toString`,
 `error`, ...) are always in scope without an import.
 
 ```
@@ -44,10 +57,11 @@ Scalars are `Integer`, `Float`, `Fixed`, `Boolean`, `String`, and `Byte`.
 Integer arithmetic is checked (overflow fails, never wraps) and an observed
 `Float` is never NaN or infinity.
 
-Data is pure. A record (`TYPE`) carries fields and no behavior; a `UNION`
-groups existing record types into one closed sum; an `ENUM` names a fixed set
-of members. Constructors use square brackets — brackets are never used for
-indexing — and `WITH` builds an updated copy without touching the original.
+Data has no attached behavior: a record (`TYPE`) carries only fields; a
+`UNION` groups existing record types into one closed sum; an `ENUM` names a
+fixed set of members. Constructors use square brackets — brackets are never
+used for indexing — and `WITH` builds an updated copy without touching the
+original.
 
 ```
 TYPE Circle
@@ -92,8 +106,9 @@ FOR EACH item IN items
 NEXT
 ```
 
-`MATCH` is the pattern form: it binds union member payloads and matches enum
-members and literals, and exhaustiveness is checked at compile time.
+`MATCH` is the pattern form and the replacement for `SELECT CASE`: it
+deconstructs unions by binding member payloads, matches enum members and
+literals, and its exhaustiveness is checked at compile time.
 
 ```
 MATCH s
@@ -139,11 +154,11 @@ More: `mfb man lambda`.
 
 ## Errors
 
-Every call either produces its value or fails with an `Error`. Success
-auto-unwraps into the binding; failure auto-propagates to the nearest `TRAP`
-or to the caller. There is no TRY, no exceptions, and no Option/Maybe —
-absence is an `Error` with a semantic code. Fail explicitly with
-`FAIL error(code, message)`.
+Every call either produces its value or fails with an `Error`. A successful
+call evaluates directly to its value; failure auto-propagates to the nearest
+`TRAP` or to the caller. There is no TRY, no exceptions, no null, and no
+Option/Maybe — absence is an `Error` with a semantic code. Fail explicitly
+with `FAIL error(code, message)`.
 
 A function-level `TRAP` at the bottom of a `FUNC`/`SUB` handles every error
 from the body:
@@ -180,7 +195,8 @@ More: `mfb man errors`.
 A resource is bound with `RES` and has exactly one live owner. It is closed
 automatically by lexical drop on every exit path — normal scope exit,
 `RETURN`, `FAIL`, propagated errors, and `TRAP` routing. Plain values follow
-the same ownership model, so cleanup is deterministic everywhere.
+the same ownership model, so cleanup is deterministic everywhere: when a scope
+exits, its bindings are dropped in reverse declaration order.
 
 ```
 FUNC firstLine(path AS String) AS String
