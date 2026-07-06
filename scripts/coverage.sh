@@ -20,16 +20,23 @@ IGNORE='(^|/)(target|tests)/|repository/target/|_runtime_tables\.rs$|/code/priva
 
 # Instrument + run the suite, holding the profile for later report passes.
 # --no-fail-fast: keep running (and collecting coverage from) every test binary
-# even if one fails, so an environment-flaky integration test (e.g. a pty/TTY
-# winsize probe that the sandbox doesn't honor) can't zero out the whole report.
-# A test-failure exit code must not abort the script (profile data is still
-# written); a genuine compile failure surfaces below when the report steps find
-# no profile. `|| true` keeps `set -e` from stopping here.
+# even if one fails, so a single failing target still contributes its coverage
+# to the merged profile.
+#
+# We DO NOT swallow the exit code. A failing test must fail this script (and the
+# CI job) loudly — masking it with `|| true` previously hid real defects (a test
+# that SIGABRTs mid-run silently drops its whole binary's profile and zeroes
+# coverage for everything it covered). We still generate the reports from the
+# profile that was collected, then exit with the suite's status so the failure
+# is not buried. `set -e` must not abort before the reports, so capture the code.
+status=0
 cargo llvm-cov --workspace --all-targets --no-fail-fast \
   --ignore-filename-regex "$IGNORE" \
-  --no-report || true
+  --no-report || status=$?
 
-# Human-readable + tooling reports from the held profile.
+# Human-readable + tooling reports from the held profile. If the run produced no
+# profile at all (e.g. a compile failure), these error out and `set -e` fails the
+# script here — which is still a loud, non-zero exit, so nothing is masked.
 cargo llvm-cov report \
   --ignore-filename-regex "$IGNORE" \
   --html --output-dir target/coverage
@@ -43,3 +50,6 @@ cargo llvm-cov report \
 echo "HTML:      target/coverage/html/index.html"
 echo "lcov:      target/coverage/lcov.info"
 echo "cobertura: target/coverage/cobertura.xml"
+
+# Surface the suite's exit status: a failing/aborting test now fails the job.
+exit "$status"
