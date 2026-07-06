@@ -805,9 +805,12 @@ impl CodeBuilder<'_> {
         let scratch17 = self.temporary_vreg();
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
+        let scratch22 = self.temporary_vreg();
 
         let data_len_slot = self.allocate_stack_object("mid_list_data_len", 8);
+        let disordered_slot = self.allocate_stack_object("mid_list_disordered", 8);
         let result_slot = self.allocate_stack_object("mid_list_result", 8);
+        let mid_unordered = self.label("mid_list_unordered");
         let valid_start = self.label("mid_list_valid_start");
         let valid_count = self.label("mid_list_valid_count");
         let range_ok = self.label("mid_list_range_ok");
@@ -861,7 +864,25 @@ impl CodeBuilder<'_> {
             &scratch8,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::add_registers(&scratch16, &scratch16, &scratch15));
+        self.emit(abi::add_registers(&scratch16, &scratch16, &scratch15)); // src entry[start]
+
+        // Order/tightness probe folded into the length loop: `expected` (scratch11)
+        // tracks where the next payload should begin if the slice is a contiguous
+        // ordered span; any entry whose valueOffset differs sets `disordered_slot`.
+        // A sorted `fs::listDirectory` result permutes entry records without moving
+        // the data, so its slice is out of order and takes the per-entry fallback.
+        let mid_ordered_ok = self.label("mid_list_ordered_ok");
+        self.emit(abi::move_immediate(&scratch14, "Integer", "0"));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            disordered_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch16,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        )); // expected = entry[start].valueOffset
 
         self.emit(abi::label(&length_loop));
         self.emit(abi::compare_registers(&scratch13, &scratch10));
@@ -871,6 +892,21 @@ impl CodeBuilder<'_> {
             &scratch16,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch16,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        )); // vo
+        self.emit(abi::compare_registers(&scratch9, &scratch11));
+        self.emit(abi::branch_eq(&mid_ordered_ok));
+        self.emit(abi::move_immediate(&scratch14, "Integer", "1"));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            disordered_slot,
+        ));
+        self.emit(abi::label(&mid_ordered_ok));
+        self.emit(abi::add_registers(&scratch11, &scratch9, &scratch17)); // expected = vo + vl
         self.emit(abi::load_u64(
             &scratch20,
             abi::stack_pointer(),
@@ -997,13 +1033,50 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::multiply_registers(&scratch21, &scratch10, &scratch14));
         self.emit(abi::add_registers(&scratch21, &scratch17, &scratch21));
-        // Re-pack the `count` slice entries [start, start+count) into the tight
-        // output: each payload is copied (word loop) from its own valueOffset to
-        // a running destination offset, and each entry's valueOffset rewritten to
-        // its compacted position (plan-25-B B2 — the word-copy payload move,
-        // replacing the original byte-at-a-time loop). This reads each entry's
-        // valueOffset individually, so it stays correct when the source list's
-        // data is not packed in entry order (e.g. after an insert/prepend/set).
+        // Fast path — an in-order, gap-free slice (the probe found no disorder) is
+        // a single contiguous data span: copy `dataLen` bytes from
+        // `src.data + srcBaseOffset` (the first slice entry's valueOffset) with one
+        // block copy, and copy the entry span verbatim with each valueOffset shifted
+        // down by `srcBaseOffset` so the slice repacks from 0 (plan-25-B). A slice
+        // that failed the probe (a permuted / gappy source) takes the per-entry
+        // re-pack fallback, which reads each entry's own valueOffset.
+        self.emit(abi::load_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            disordered_slot,
+        ));
+        self.emit(abi::compare_immediate(&scratch13, "0"));
+        self.emit(abi::branch_ne(&mid_unordered));
+        self.emit(abi::load_u64(
+            &scratch13,
+            &scratch16,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        )); // srcBaseOffset
+        self.emit(abi::add_registers(&scratch20, &scratch20, &scratch13)); // src.data + srcBaseOffset
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
+        self.emit_block_copy_advance(
+            &scratch21,
+            &scratch20,
+            &scratch14,
+            &scratch22,
+            "mid_list_data",
+        );
+        self.emit_bulk_copy_entries_shift(
+            &scratch16,
+            &scratch17,
+            &scratch10,
+            Some((&scratch13, true)),
+            "mid_list_entries",
+        );
+        self.emit(abi::branch(&copy_done));
+
+        // Fallback: per-entry re-pack for an out-of-order / gappy source (scratch20
+        // still holds the un-advanced src data base).
+        self.emit(abi::label(&mid_unordered));
         self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
         self.emit_copy_collection_entries(
             &scratch16,

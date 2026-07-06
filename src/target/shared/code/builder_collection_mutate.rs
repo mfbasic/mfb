@@ -1808,11 +1808,14 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         )); // oldLen
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), need_slot)); // need
-                                                                               // need > oldLen (unsigned) → rebuild; else overwrite in place.
+                                                                               // Only a same-size replacement overwrites in place (offsets unchanged, no
+                                                                               // gap). Any size change — grow OR shrink — rebuilds via removeAt + insert,
+                                                                               // which produces a tight buffer; a shrink that overwrote in place would
+                                                                               // leave dead space between payloads (plan-25-B).
         self.emit(abi::compare_registers(&scratch14, &scratch9));
-        self.emit(abi::branch_hi(&rebuild));
+        self.emit(abi::branch_ne(&rebuild));
 
-        // --- Overwrite: write the payload at valueOffset, patch valueLength. ---
+        // --- Overwrite: same-size payload at valueOffset (valueLength unchanged). ---
         self.emit_copy_payload_to_collection(buffer_slot, need_slot, &item, voffset_slot)?;
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));

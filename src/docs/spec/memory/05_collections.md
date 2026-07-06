@@ -311,12 +311,14 @@ iterable — an overwrite of an existing entry is observable to the snapshotting
 iterator, unlike a beyond-`count` append, so that case takes the value path.
 [[src/target/shared/code/builder_collection_mutate.rs:lower_list_set_in_place]]
 
-- **`List`.** When the replacement payload fits the target slot
-  (`newValueLength <= oldValueLength` — always true for fixed-width elements and
+- **`List`.** When the replacement payload is the **same size**
+  (`newValueLength == oldValueLength` — always true for fixed-width elements and
   same-size records/strings) the value bytes are overwritten at the entry's
-  `valueOffset` and `valueLength` is patched: no allocation, no copy. A longer
-  payload falls back to the value-semantic rebuild (`removeAt` + `insert`). An
-  out-of-range index fails with `ErrIndexOutOfRange`, like the value path.
+  `valueOffset` in place: no allocation, no copy, offsets unchanged. **Any** size
+  change — grow *or* shrink — falls back to the value-semantic rebuild
+  (`removeAt` + `insert`), which produces a tight buffer; a shrink that overwrote
+  in place would leave dead space between payloads. An out-of-range index fails
+  with `ErrIndexOutOfRange`, like the value path.
 - **`Map`.** `lower_map_set_in_place` locates the key with the same hash probe as
   `get` (linear-scan fallback for non-probe key types), which also lazily builds
   the bucket index so a build-via-`set` loop stays O(n). A hit whose new
