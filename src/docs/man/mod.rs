@@ -27,6 +27,7 @@ pub(crate) struct FunctionDoc {
 /// bits the filesystem can't express. Dropping a `.txt`/`.md` file adds a topic
 /// with no edit here; a brand-new package needs one row.
 const PACKAGE_ORDER: &[(&str, &str)] = &[
+    ("tour", "mfb man tour"),
     ("types", "mfb man types [topic]"),
     ("flow", "mfb man flow [topic]"),
     ("errors", "mfb man errors"),

@@ -104,9 +104,22 @@ fn print_man_index() {
     println!("  mfb man --all");
     println!();
     println!("Packages:");
+    println!();
+    print_package_table();
+}
+
+/// Render the package index as a two-column table, reusing the same width-aware
+/// box-drawing table renderer that `mfb man <page>` uses for Markdown pages.
+fn print_package_table() {
+    let mut markdown = String::from("| Package | Description |\n| --- | --- |\n");
     for package in man::packages() {
-        println!("  {:<8} {}", package.name, package.summary);
+        markdown.push_str(&format!("| {} | {} |\n", package.name, package.summary));
     }
+    let style = render::Style {
+        width: detect_terminal_width(),
+        color: std::io::stdout().is_terminal(),
+    };
+    println!("{}", render::render(&markdown, &style));
 }
 
 fn print_package_man(package: &man::PackageDoc) {
