@@ -2903,60 +2903,131 @@ impl CodeBuilder<'_> {
         ));
         self.emit_write_list_header_from_registers(&layout, "x1", &scratch13, &scratch15);
 
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64(&scratch13, "x1", COLLECTION_OFFSET_COUNT));
+        // Copy phase (no allocations, so registers hold across it). removeAt
+        // punches a single contiguous hole in the data region — the removed
+        // payload `[holeOffset, holeOffset + holeLen)`. Everything before it stays;
+        // everything after shifts left by `holeLen`. So the payloads move as two
+        // verbatim block copies (before-hole, after-hole) whatever order the data
+        // region is in, the entry table copies as two verbatim spans (prefix
+        // `[0..index)`, suffix `[index+1..count)`), and a single cheap pass fixes
+        // each surviving `valueOffset` that sat past the hole — no per-payload copy
+        // (plan-25-B B2). Testing each entry's own offset keeps it correct for a
+        // list whose data is out of entry order after an insert/prepend/set.
+        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot)); // source
+        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot)); // index
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
-        self.emit(abi::multiply_registers(&scratch21, &scratch13, &scratch16));
-        self.emit(abi::add_registers(&scratch21, &scratch17, &scratch21));
-        self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
+        // removed entry = source + HEADER + index*ENTRY; grab the hole span.
+        self.emit(abi::multiply_registers(&scratch11, &scratch10, &scratch16));
         self.emit(abi::add_immediate(
             &scratch12,
             &scratch8,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
-        self.emit_copy_collection_entries(
+        self.emit(abi::add_registers(&scratch12, &scratch12, &scratch11));
+        // scratch23 = holeOffset (removedValueOffset); scratch14 = holeLen.
+        self.emit(abi::load_u64(
+            &scratch23,
             &scratch12,
-            &scratch20,
-            &scratch17,
-            &scratch21,
-            &scratch13,
-            &scratch10,
-            "list_remove_prefix",
-        )?;
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
         self.emit(abi::load_u64(
             &scratch14,
+            &scratch12,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
+
+        // --- Entry table: two verbatim spans (no per-copy offset shift). ---
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        )); // src.entry[0]
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE)); // dst.entry[0]
+                                                                                 // Prefix [0..index): index*ENTRY bytes. Advances scratch17 -> dst.entry[index]
+                                                                                 // and scratch12 -> src.entry[index] (the removed entry).
+        self.emit(abi::multiply_registers(&scratch15, &scratch10, &scratch16));
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch12,
+            &scratch15,
+            &scratch22,
+            "list_remove_prefix_e",
+        );
+        // Suffix [index+1..count): skip the removed src entry, copy suffixCount*ENTRY.
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch12,
+            COLLECTION_ENTRY_SIZE,
+        )); // src.entry[index+1]
+        self.emit(abi::load_u64(
+            &scratch11,
             &scratch8,
             COLLECTION_OFFSET_COUNT,
         ));
-        self.emit(abi::subtract_registers(&scratch14, &scratch14, &scratch10));
-        self.emit(abi::subtract_immediate(&scratch14, &scratch14, 1));
-        self.emit(abi::add_immediate(&scratch15, &scratch10, 1));
-        self.emit(abi::multiply_registers(&scratch15, &scratch15, &scratch16));
-        self.emit(abi::add_immediate(
-            &scratch12,
-            &scratch8,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::add_registers(&scratch12, &scratch12, &scratch15));
-        self.emit_collection_data_pointer(&scratch20, &scratch8);
-        self.emit_copy_collection_entries(
-            &scratch12,
-            &scratch20,
+        self.emit(abi::subtract_registers(&scratch11, &scratch11, &scratch10));
+        self.emit(abi::subtract_immediate(&scratch11, &scratch11, 1)); // suffixCount
+        self.emit(abi::multiply_registers(&scratch15, &scratch11, &scratch16));
+        self.emit_block_copy_advance(
             &scratch17,
+            &scratch12,
+            &scratch15,
+            &scratch22,
+            "list_remove_suffix_e",
+        );
+
+        // --- Data region: two verbatim blocks around the hole. ---
+        self.emit_collection_data_pointer(&scratch20, &scratch8); // src data base (capacity-based)
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit_collection_data_pointer(&scratch21, "x1"); // dst data base (tight)
+                                                             // Before-hole [0, holeOffset): advances scratch21 -> dst.data[holeOffset]
+                                                             // and scratch20 -> src.data[holeOffset].
+        self.emit(abi::move_register(&scratch15, &scratch23)); // holeOffset (copy consumes it)
+        self.emit_block_copy_advance(
             &scratch21,
-            &scratch13,
+            &scratch20,
+            &scratch15,
+            &scratch22,
+            "list_remove_prefix_d",
+        );
+        // After-hole [holeOffset+holeLen, dataLength) -> dst.data[holeOffset]. Skip
+        // the removed span in the source, then copy the tail.
+        self.emit(abi::add_registers(&scratch20, &scratch20, &scratch14));
+        self.emit(abi::load_u64(
+            &scratch15,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::subtract_registers(&scratch15, &scratch15, &scratch23));
+        self.emit(abi::subtract_registers(&scratch15, &scratch15, &scratch14)); // tailLen
+        self.emit_block_copy_advance(
+            &scratch21,
+            &scratch20,
+            &scratch15,
+            &scratch22,
+            "list_remove_suffix_d",
+        );
+
+        // --- Fix up each surviving entry whose payload sat past the hole. ---
+        self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
+        self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE)); // dst.entry[0]
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::subtract_immediate(&scratch11, &scratch11, 1)); // survivor count
+        self.emit_offset_compaction_fixup(
+            &scratch17,
+            &scratch11,
+            &scratch23,
             &scratch14,
-            "list_remove_suffix",
-        )?;
+            "list_remove_fix",
+        );
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
         self.emit_index_out_of_range_return()?;
@@ -3268,6 +3339,62 @@ impl CodeBuilder<'_> {
             location: result,
             text: format!("reserved list {output_type}"),
         })
+    }
+
+    /// Compact `count` list entries at `entry_base` in place after a single
+    /// removed data span `[hole_offset, hole_offset + hole_len)` has been closed
+    /// by two verbatim data-block copies (plan-25-B B2 `removeAt`): subtract
+    /// `hole_len` from each entry's `valueOffset` iff its payload sat **past** the
+    /// hole (`valueOffset > hole_offset`), leaving the offsets of payloads before
+    /// the hole unchanged. This tests each entry's own offset, not its list index,
+    /// so it is correct whatever order the data region is in — a list built with
+    /// `insert`/`prepend`/`set` packs the spliced payload at the data tail, so
+    /// `entry[0]` can point past the hole and must shift while a later entry does
+    /// not. Only the one shifting field is touched (no payload move); `entry_base`
+    /// and `count` are clobbered.
+    pub(super) fn emit_offset_compaction_fixup(
+        &mut self,
+        entry_base: &str,
+        count: &str,
+        hole_offset: &str,
+        hole_len: &str,
+        label_prefix: &str,
+    ) {
+        let value_offset = self.temporary_vreg();
+        let loop_label = self.label(&format!("{label_prefix}_loop"));
+        let skip_label = self.label(&format!("{label_prefix}_skip"));
+        let done_label = self.label(&format!("{label_prefix}_done"));
+        self.emit(abi::label(&loop_label));
+        self.emit(abi::compare_immediate(count, "0"));
+        self.emit(abi::branch_eq(&done_label));
+        self.emit(abi::load_u64(
+            &value_offset,
+            entry_base,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::compare_registers(&value_offset, hole_offset));
+        // Offsets are small non-negative data positions, so the signed compare is
+        // equivalent to unsigned here; `<= hole_offset` means before the hole.
+        self.emit(abi::branch_le(&skip_label));
+        self.emit(abi::subtract_registers(
+            &value_offset,
+            &value_offset,
+            hole_len,
+        ));
+        self.emit(abi::store_u64(
+            &value_offset,
+            entry_base,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
+        self.emit(abi::label(&skip_label));
+        self.emit(abi::add_immediate(
+            entry_base,
+            entry_base,
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::subtract_immediate(count, count, 1));
+        self.emit(abi::branch(&loop_label));
+        self.emit(abi::label(&done_label));
     }
 
     pub(super) fn emit_copy_collection_entries(

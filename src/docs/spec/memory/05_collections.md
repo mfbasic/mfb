@@ -350,14 +350,22 @@ inserted argument is first normalized to a singleton list.
 
 `List` `removeAt` is **not** an in-place shift either, and leaves **no** dead
 space. `lower_list_remove_at` validates the index (`ErrIndexOutOfRange` on a bad
-one), allocates a fresh tight buffer sized for `count - 1` entries and
-`dataLength - removedValueLength` bytes, and copies the surviving entries through
-`emit_copy_collection_entries`, which **re-packs each live payload at a running
-destination offset and rewrites each entry's `valueOffset`** to its compacted
-position. It reads each surviving entry's own `valueOffset` rather than assuming
-the data is packed in entry order, so it stays correct for a list whose data
-region is out of entry order after an `insert`/`prepend`/`set` (whose new payload
-is appended to the data tail). [[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]]
+one) and allocates a fresh tight buffer sized for `count - 1` entries and
+`dataLength - removedValueLength` bytes. Removing one entry punches a **single
+contiguous hole** in the data region — the removed payload
+`[removedValueOffset, removedValueOffset + removedValueLength)` — so the copy is
+four block moves, not a per-payload re-pack: the entry table copies as two
+verbatim spans (prefix `[0..index)`, suffix `[index+1..count)`), and the data
+region copies as two verbatim blocks (the bytes before the hole, then the bytes
+after it shifted left by `removedValueLength`). A final cheap pass over the
+survivors subtracts `removedValueLength` from every `valueOffset` that lay **past**
+the hole (`valueOffset > removedValueOffset`) — testing each entry's own offset,
+not its list index, so it is correct whatever order the data region is in (a list
+built with `insert`/`prepend`/`set` packs the spliced payload at the data tail, so
+`entry[0]` can point past the hole and shift while a later entry does not). The
+data region keeps its existing order minus the hole rather than being re-packed
+into list order; the observable value and tight sizing are unchanged.
+[[src/target/shared/code/builder_collection_mutate.rs:lower_list_remove_at]]
 
 ### Map Updates
 
