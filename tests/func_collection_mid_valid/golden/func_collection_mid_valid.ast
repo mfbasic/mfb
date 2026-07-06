@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "printIntegers",
       "line": 4,
       "params": [
@@ -32,7 +32,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "printStrings",
       "line": 11,
       "params": [
@@ -54,7 +54,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 18,
       "params": [

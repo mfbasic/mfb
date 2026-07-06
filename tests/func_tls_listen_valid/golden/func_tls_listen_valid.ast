@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "serveOnce",
       "line": 8,
       "params": [
@@ -27,7 +27,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 16,
       "params": [

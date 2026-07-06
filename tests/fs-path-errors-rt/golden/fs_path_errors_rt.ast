@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "readMissing",
       "line": 4,
       "params": [
@@ -23,7 +23,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "openMissing",
       "line": 7,
       "params": [
@@ -38,7 +38,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "delMissing",
       "line": 12,
       "params": [
@@ -52,7 +52,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 17,
       "params": [

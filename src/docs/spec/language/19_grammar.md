@@ -50,7 +50,7 @@ declaration    = topLetDecl | topMutDecl
                | funcDecl | subDecl | typeDecl | unionDecl | enumDecl
                | resourceDecl | funcAlias | linkDecl ;
 
-declVis        = [ "EXPORT" | "PACKAGE" | "PRIVATE" ] ;
+declVis        = [ "EXPORT" | "PUBLIC" | "PRIVATE" ] ;
 funcIso        = [ "ISOLATED" ] ;
 
 topLetDecl     = declVis "LET" ident [ "AS" type ] "=" expr ;

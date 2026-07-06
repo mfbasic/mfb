@@ -26,7 +26,7 @@
   {
     "name": "packageValue",
     "line": 7,
-    "visibility": "package",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 7, "type": "Integer", "default": null }
@@ -65,7 +65,7 @@
   {
     "name": "packageTrace",
     "line": 19,
-    "visibility": "package",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "value", "line": 19, "type": "Integer", "default": null }
@@ -91,7 +91,7 @@
   {
     "name": "main",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

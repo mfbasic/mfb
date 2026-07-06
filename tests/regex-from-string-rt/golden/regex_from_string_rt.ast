@@ -12,7 +12,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "render",
       "line": 10,
       "params": [
@@ -47,7 +47,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 24,
       "params": [

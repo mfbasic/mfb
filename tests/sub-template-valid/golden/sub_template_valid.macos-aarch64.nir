@@ -17,7 +17,7 @@
   "functions": [
   {
     "name": "main",
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "isolated": false,
     "params": [
@@ -31,7 +31,7 @@
   },
   {
     "name": "consume$Integer",
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "isolated": false,
     "params": [
@@ -43,7 +43,7 @@
   },
   {
     "name": "consume$String",
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "isolated": false,
     "params": [

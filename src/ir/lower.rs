@@ -474,7 +474,7 @@ fn native_resources(ast: &AstProject) -> Vec<IrNativeResource> {
                     name: resource.name.clone(),
                     visibility: match resource.visibility {
                         crate::ast::Visibility::Export => "export",
-                        crate::ast::Visibility::Package => "package",
+                        crate::ast::Visibility::Public => "public",
                         crate::ast::Visibility::Private => "private",
                     }
                     .to_string(),

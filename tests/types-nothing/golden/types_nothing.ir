@@ -13,7 +13,7 @@
   {
     "name": "literalNothing",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -25,7 +25,7 @@
   {
     "name": "fallthroughSub",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -37,7 +37,7 @@
   {
     "name": "bareReturnSub",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -50,7 +50,7 @@
   {
     "name": "explicitReturnSub",
     "line": 16,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -63,7 +63,7 @@
   {
     "name": "callSubAsNothing",
     "line": 21,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -78,7 +78,7 @@
   {
     "name": "main",
     "line": 28,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

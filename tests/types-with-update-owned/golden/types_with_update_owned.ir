@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Payload",
     "fields": [
     { "visibility": null, "line": 4, "name": "label", "type": "String" },
@@ -24,7 +24,7 @@
   {
     "name": "promote",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "seed", "line": 9, "type": "Integer", "default": null }
@@ -38,7 +38,7 @@
   {
     "name": "rewrite",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 14, "type": "Payload", "default": null },
@@ -52,7 +52,7 @@
   {
     "name": "occupy",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "seed", "line": 18, "type": "Integer", "default": null }
@@ -66,7 +66,7 @@
   {
     "name": "readAfterCalls",
     "line": 23,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 23, "type": "Payload", "default": null }
@@ -83,7 +83,7 @@
   {
     "name": "main",
     "line": 31,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -13,7 +13,7 @@
   {
     "name": "greet",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 4, "type": "String", "default": null },
@@ -28,7 +28,7 @@
   {
     "name": "main",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

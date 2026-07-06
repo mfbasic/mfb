@@ -13,7 +13,7 @@
   {
     "name": "printParts",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "parts", "line": 4, "type": "List OF String", "default": null }
@@ -37,7 +37,7 @@
   {
     "name": "main",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

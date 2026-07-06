@@ -13,7 +13,7 @@
   {
     "name": "describe",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "db", "line": 9, "type": "demo.Db", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "main",
     "line": 13,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

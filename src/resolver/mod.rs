@@ -490,7 +490,7 @@ impl<'a> Resolver<'a> {
 
     fn visible_from(&self, file: &AstFile, visibility: Visibility, owner_file_path: &str) -> bool {
         match visibility {
-            Visibility::Export | Visibility::Package => true,
+            Visibility::Export | Visibility::Public => true,
             Visibility::Private => file.path == owner_file_path,
         }
     }
@@ -657,7 +657,7 @@ mod tests {
         let resolver = Resolver::new(dir, &HashMap::new(), &empty);
         let here = ast_file("a.mfb");
         assert!(resolver.visible_from(&here, Visibility::Export, "other.mfb"));
-        assert!(resolver.visible_from(&here, Visibility::Package, "other.mfb"));
+        assert!(resolver.visible_from(&here, Visibility::Public, "other.mfb"));
         assert!(resolver.visible_from(&here, Visibility::Private, "a.mfb"));
         assert!(!resolver.visible_from(&here, Visibility::Private, "other.mfb"));
     }

@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Person",
       "line": 10,
       "fields": [
@@ -20,7 +20,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Wrapper",
       "line": 15,
       "fields": [
@@ -30,7 +30,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 20,
       "params": [

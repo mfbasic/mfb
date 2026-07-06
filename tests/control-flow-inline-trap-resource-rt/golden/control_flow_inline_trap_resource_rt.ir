@@ -13,7 +13,7 @@
   {
     "name": "openThenFail",
     "line": 6,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 6, "type": "String", "default": null }
@@ -27,7 +27,7 @@
   {
     "name": "main",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

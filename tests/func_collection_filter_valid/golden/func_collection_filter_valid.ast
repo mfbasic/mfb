@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "isLarge",
       "line": 4,
       "params": [
@@ -23,7 +23,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "isAda",
       "line": 8,
       "params": [
@@ -36,7 +36,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 12,
       "params": [

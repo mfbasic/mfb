@@ -13,7 +13,7 @@
   {
     "name": "useOnce",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "path", "line": 4, "type": "String", "default": null }
@@ -37,7 +37,7 @@
   {
     "name": "main",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

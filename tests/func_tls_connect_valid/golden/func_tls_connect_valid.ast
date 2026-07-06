@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "ioRound",
       "line": 6,
       "params": [
@@ -29,7 +29,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 16,
       "params": [

@@ -13,7 +13,7 @@
   {
     "name": "main",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -41,7 +41,7 @@
   {
     "name": "rowByteByte",
     "line": 23,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -61,7 +61,7 @@
   {
     "name": "rowByteInteger",
     "line": 35,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -81,7 +81,7 @@
   {
     "name": "rowByteFixed",
     "line": 47,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -101,7 +101,7 @@
   {
     "name": "rowByteFloat",
     "line": 59,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -121,7 +121,7 @@
   {
     "name": "rowIntegerByte",
     "line": 71,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -141,7 +141,7 @@
   {
     "name": "rowIntegerInteger",
     "line": 83,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -161,7 +161,7 @@
   {
     "name": "rowIntegerFixed",
     "line": 95,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -181,7 +181,7 @@
   {
     "name": "rowIntegerFloat",
     "line": 107,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -201,7 +201,7 @@
   {
     "name": "rowFixedByte",
     "line": 119,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -221,7 +221,7 @@
   {
     "name": "rowFixedInteger",
     "line": 131,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -241,7 +241,7 @@
   {
     "name": "rowFixedFixed",
     "line": 143,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -261,7 +261,7 @@
   {
     "name": "rowFixedFloat",
     "line": 155,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -281,7 +281,7 @@
   {
     "name": "rowFloatByte",
     "line": 167,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -301,7 +301,7 @@
   {
     "name": "rowFloatInteger",
     "line": 179,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -321,7 +321,7 @@
   {
     "name": "rowFloatFixed",
     "line": 191,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -341,7 +341,7 @@
   {
     "name": "rowFloatFloat",
     "line": 203,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],

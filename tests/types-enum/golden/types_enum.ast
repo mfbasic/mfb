@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "enum",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Color",
       "line": 3,
       "members": [
@@ -20,7 +20,7 @@
     },
     {
       "kind": "enum",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Mode",
       "line": 7,
       "members": [
@@ -30,7 +30,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "colorScore",
       "line": 11,
       "params": [
@@ -73,7 +73,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "colorFallback",
       "line": 22,
       "params": [
@@ -108,7 +108,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "modeScore",
       "line": 31,
       "params": [
@@ -143,7 +143,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 40,
       "params": [

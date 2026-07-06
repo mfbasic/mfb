@@ -13,7 +13,7 @@
   {
     "name": "parsePositive",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 3, "type": "Integer", "default": null }
@@ -36,7 +36,7 @@
   {
     "name": "doEffect",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "v", "line": 8, "type": "Integer", "default": null }
@@ -58,7 +58,7 @@
   {
     "name": "happy",
     "line": 13,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -85,7 +85,7 @@
   {
     "name": "recovered",
     "line": 21,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -112,7 +112,7 @@
   {
     "name": "viaAssign",
     "line": 29,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 29, "type": "Integer", "default": null }
@@ -141,7 +141,7 @@
   {
     "name": "recoverOrBail",
     "line": 38,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 38, "type": "Integer", "default": null }
@@ -179,7 +179,7 @@
   {
     "name": "viaReturn",
     "line": 47,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 47, "type": "Integer", "default": null }
@@ -207,7 +207,7 @@
   {
     "name": "viaSub",
     "line": 55,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 55, "type": "Integer", "default": null }
@@ -233,7 +233,7 @@
   {
     "name": "main",
     "line": 64,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -22,7 +22,7 @@
     },
     {
       "kind": "func",
-      "visibility": "package",
+      "visibility": "public",
       "name": "packageValue",
       "line": 7,
       "params": [
@@ -61,7 +61,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "package",
+      "visibility": "public",
       "name": "packageTrace",
       "line": 19,
       "params": [
@@ -95,7 +95,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 3,
       "params": [

@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Dot",
       "line": 10,
       "fields": [
@@ -19,7 +19,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Tag",
       "line": 14,
       "fields": [
@@ -28,7 +28,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Boxed",
       "line": 18,
       "fields": [
@@ -38,7 +38,7 @@
     },
     {
       "kind": "union",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Shape",
       "line": 23,
       "includes": [],
@@ -50,7 +50,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "describe",
       "line": 29,
       "params": [
@@ -93,7 +93,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 40,
       "params": [

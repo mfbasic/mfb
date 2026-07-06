@@ -8,7 +8,7 @@
     "items": [
     {
       "kind": "enum",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Color",
       "line": 1,
       "members": [
@@ -18,7 +18,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Circle",
       "line": 5,
       "fields": [
@@ -27,7 +27,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Point",
       "line": 9,
       "fields": [
@@ -36,7 +36,7 @@
     },
     {
       "kind": "union",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Shape",
       "line": 13,
       "includes": [],
@@ -47,7 +47,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "enumAll",
       "line": 18,
       "params": [
@@ -82,7 +82,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "enumPartialWithElse",
       "line": 27,
       "params": [
@@ -117,7 +117,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "unionAll",
       "line": 36,
       "params": [
@@ -152,7 +152,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "unionPartialWithElse",
       "line": 45,
       "params": [
@@ -187,7 +187,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 54,
       "params": [

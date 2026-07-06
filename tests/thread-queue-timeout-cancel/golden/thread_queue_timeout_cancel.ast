@@ -11,7 +11,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fullQueueScenario",
       "line": 5,
       "params": [
@@ -47,7 +47,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "cancelScenario",
       "line": 22,
       "params": [
@@ -94,7 +94,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "expectInterruptedWaitFor",
       "line": 44,
       "params": [
@@ -125,7 +125,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "receiveCancelScenario",
       "line": 55,
       "params": [
@@ -175,7 +175,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "outboundCancelScenario",
       "line": 75,
       "params": [
@@ -225,7 +225,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 95,
       "params": [

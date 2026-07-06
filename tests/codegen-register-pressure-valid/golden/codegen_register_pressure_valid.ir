@@ -13,7 +13,7 @@
   {
     "name": "deep",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "n", "line": 8, "type": "Integer", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "main",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

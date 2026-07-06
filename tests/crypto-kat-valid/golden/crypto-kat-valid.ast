@@ -12,7 +12,7 @@
     "items": [
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 9,
       "params": [

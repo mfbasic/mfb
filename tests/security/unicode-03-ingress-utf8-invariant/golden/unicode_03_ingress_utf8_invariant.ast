@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "tryDecode",
       "line": 14,
       "params": [
@@ -23,7 +23,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 20,
       "params": [

@@ -13,7 +13,7 @@
   {
     "name": "fromString",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 3, "type": "String", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "fromInteger",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 7, "type": "Integer", "default": null }
@@ -39,7 +39,7 @@
   {
     "name": "fromFixed",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 11, "type": "Fixed", "default": null }
@@ -52,7 +52,7 @@
   {
     "name": "main",
     "line": 15,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

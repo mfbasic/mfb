@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "usegetBold",
       "line": 3,
       "params": [
@@ -21,7 +21,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 7,
       "params": [

@@ -13,7 +13,7 @@
   {
     "name": "usegetForeground",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -26,7 +26,7 @@
   {
     "name": "main",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

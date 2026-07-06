@@ -13,7 +13,7 @@
   {
     "name": "main",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "args", "line": 1, "type": "List OF String", "default": null }

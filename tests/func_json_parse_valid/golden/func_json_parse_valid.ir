@@ -116,7 +116,7 @@
   {
     "kind": "type",
     "line": 38,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#json_Node",
     "fields": [
     { "visibility": null, "line": 39, "name": "value", "type": "Json" },
@@ -126,7 +126,7 @@
   {
     "kind": "type",
     "line": 43,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#json_StringNode",
     "fields": [
     { "visibility": null, "line": 44, "name": "value", "type": "String" },
@@ -138,7 +138,7 @@
   {
     "name": "printStringByteLen",
     "line": 5,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 5, "type": "Json", "default": null }
@@ -176,7 +176,7 @@
   {
     "name": "main",
     "line": 15,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -200,7 +200,7 @@
   {
     "name": "#json_backspaceChar",
     "line": 48,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -213,7 +213,7 @@
   {
     "name": "#json_formfeedChar",
     "line": 53,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -226,7 +226,7 @@
   {
     "name": "#json_get",
     "line": 58,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 58, "type": "Json", "default": null },
@@ -278,7 +278,7 @@
   {
     "name": "#json_getOr",
     "line": 74,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 74, "type": "Json", "default": null },
@@ -341,7 +341,7 @@
   {
     "name": "#json_stringify",
     "line": 94,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 94, "type": "Json", "default": null }
@@ -477,7 +477,7 @@
   {
     "name": "#json_stringifyNumber",
     "line": 140,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 140, "type": "Float", "default": null }
@@ -522,7 +522,7 @@
   {
     "name": "#json_isInvalidNumberText",
     "line": 155,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 155, "type": "String", "default": null }
@@ -575,7 +575,7 @@
   {
     "name": "#json_trimFloatText",
     "line": 171,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 171, "type": "String", "default": null }
@@ -598,7 +598,7 @@
   {
     "name": "#json_trimFloatTextAt",
     "line": 178,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 178, "type": "String", "default": null },
@@ -643,7 +643,7 @@
   {
     "name": "#json_escapeString",
     "line": 192,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 192, "type": "String", "default": null }
@@ -757,7 +757,7 @@
   {
     "name": "#json_escapeRawControlChar",
     "line": 220,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 220, "type": "String", "default": null }
@@ -770,7 +770,7 @@
   {
     "name": "#json_escapeRawControlCharAt",
     "line": 224,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 224, "type": "String", "default": null },
@@ -804,7 +804,7 @@
   {
     "name": "#json_controlEscape",
     "line": 234,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "codePoint", "line": 234, "type": "Integer", "default": null }
@@ -867,7 +867,7 @@
   {
     "name": "#json_unicodeControlEscape",
     "line": 249,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "codePoint", "line": 249, "type": "Integer", "default": null }
@@ -882,7 +882,7 @@
   {
     "name": "#json_hexDigit",
     "line": 255,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 255, "type": "Integer", "default": null }
@@ -1055,7 +1055,7 @@
   {
     "name": "#json_parse",
     "line": 292,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 292, "type": "String", "default": null }
@@ -1081,7 +1081,7 @@
   {
     "name": "#json_parseValue",
     "line": 302,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 302, "type": "List OF String", "default": null },
@@ -1175,7 +1175,7 @@
   {
     "name": "#json_parseArray",
     "line": 334,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 334, "type": "List OF String", "default": null },
@@ -1212,7 +1212,7 @@
   {
     "name": "#json_parseArrayItems",
     "line": 347,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 347, "type": "List OF String", "default": null },
@@ -1277,7 +1277,7 @@
   {
     "name": "#json_parseObject",
     "line": 378,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 378, "type": "List OF String", "default": null },
@@ -1314,7 +1314,7 @@
   {
     "name": "#json_parseObjectItems",
     "line": 391,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 391, "type": "List OF String", "default": null },
@@ -1425,7 +1425,7 @@
   {
     "name": "#json_parseString",
     "line": 440,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 440, "type": "List OF String", "default": null },
@@ -1492,7 +1492,7 @@
   {
     "name": "#json_isRawControlChar",
     "line": 465,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 465, "type": "String", "default": null }
@@ -1505,7 +1505,7 @@
   {
     "name": "#json_isRawControlCharAt",
     "line": 469,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 469, "type": "String", "default": null },
@@ -1539,7 +1539,7 @@
   {
     "name": "#json_parseEscape",
     "line": 479,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 479, "type": "List OF String", "default": null },
@@ -1574,7 +1574,7 @@
   {
     "name": "#json_decodeEscape",
     "line": 490,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 490, "type": "String", "default": null }
@@ -1667,7 +1667,7 @@
   {
     "name": "#json_parseUnicodeEscape",
     "line": 512,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 512, "type": "List OF String", "default": null },
@@ -1744,7 +1744,7 @@
   {
     "name": "#json_parseHexQuad",
     "line": 537,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 537, "type": "List OF String", "default": null },
@@ -1784,7 +1784,7 @@
   {
     "name": "#json_isHighSurrogate",
     "line": 550,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 550, "type": "Integer", "default": null }
@@ -1797,7 +1797,7 @@
   {
     "name": "#json_isLowSurrogate",
     "line": 554,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 554, "type": "Integer", "default": null }
@@ -1810,7 +1810,7 @@
   {
     "name": "#json_codePointToString",
     "line": 558,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 558, "type": "Integer", "default": null }
@@ -1843,7 +1843,7 @@
   {
     "name": "#json_parseNumber",
     "line": 572,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 572, "type": "List OF String", "default": null },
@@ -1870,7 +1870,7 @@
   {
     "name": "#json_collectNumber",
     "line": 582,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 582, "type": "List OF String", "default": null },
@@ -1936,7 +1936,7 @@
   {
     "name": "#json_toNumber",
     "line": 604,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 604, "type": "String", "default": null }
@@ -1957,7 +1957,7 @@
   {
     "name": "#json_validNumber",
     "line": 611,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 611, "type": "String", "default": null }
@@ -2200,7 +2200,7 @@
   {
     "name": "#json_consumeDigits",
     "line": 696,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 696, "type": "List OF String", "default": null },
@@ -2234,7 +2234,7 @@
   {
     "name": "#json_expectLiteral",
     "line": 706,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 706, "type": "List OF String", "default": null },
@@ -2250,7 +2250,7 @@
   {
     "name": "#json_expectLiteralAt",
     "line": 711,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 711, "type": "List OF String", "default": null },
@@ -2298,7 +2298,7 @@
   {
     "name": "#json_skipWhitespace",
     "line": 726,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 726, "type": "List OF String", "default": null },
@@ -2332,7 +2332,7 @@
   {
     "name": "#json_isWhitespace",
     "line": 736,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 736, "type": "String", "default": null }
@@ -2385,7 +2385,7 @@
   {
     "name": "#json_isDigit",
     "line": 752,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 752, "type": "String", "default": null }
@@ -2398,7 +2398,7 @@
   {
     "name": "#json_isNonZeroDigit",
     "line": 756,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 756, "type": "String", "default": null }
@@ -2411,7 +2411,7 @@
   {
     "name": "#encoding_byteChar",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 18, "type": "Integer", "default": null }
@@ -2425,7 +2425,7 @@
   {
     "name": "#encoding_lowBits",
     "line": 24,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 24, "type": "Integer", "default": null },
@@ -2449,7 +2449,7 @@
   {
     "name": "#encoding_fromCodepoint",
     "line": 32,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 32, "type": "Integer", "default": null }
@@ -2534,7 +2534,7 @@
   {
     "name": "#encoding_utf8Valid",
     "line": 75,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 75, "type": "List OF Byte", "default": null }
@@ -2684,7 +2684,7 @@
   {
     "name": "#encoding_codepoints",
     "line": 139,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 139, "type": "String", "default": null }
@@ -2764,7 +2764,7 @@
   {
     "name": "#encoding_utf8EncodeBytes",
     "line": 182,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 182, "type": "String", "default": null }
@@ -2777,7 +2777,7 @@
   {
     "name": "#encoding_utf8EncodeInts",
     "line": 186,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 186, "type": "String", "default": null }
@@ -2802,7 +2802,7 @@
   {
     "name": "#encoding_utf8DecodeBytes",
     "line": 195,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 195, "type": "List OF Byte", "default": null }
@@ -2825,7 +2825,7 @@
   {
     "name": "#encoding_utf8DecodeInts",
     "line": 202,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 202, "type": "List OF Integer", "default": null }
@@ -2869,7 +2869,7 @@
   {
     "name": "#encoding_utf16Encode",
     "line": 218,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 218, "type": "String", "default": null }
@@ -2911,7 +2911,7 @@
   {
     "name": "#encoding_utf16Decode",
     "line": 238,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 238, "type": "List OF Integer", "default": null }
@@ -2994,7 +2994,7 @@
   {
     "name": "#encoding_utf32Encode",
     "line": 274,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 274, "type": "String", "default": null }
@@ -3007,7 +3007,7 @@
   {
     "name": "#encoding_utf32Decode",
     "line": 278,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 278, "type": "List OF Integer", "default": null }
@@ -3051,7 +3051,7 @@
   {
     "name": "#encoding_hexDigit",
     "line": 294,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "d", "line": 294, "type": "Integer", "default": null }
@@ -3064,7 +3064,7 @@
   {
     "name": "#encoding_hexValue",
     "line": 298,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 298, "type": "Integer", "default": null }
@@ -3107,7 +3107,7 @@
   {
     "name": "#encoding_hexEncode",
     "line": 311,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 311, "type": "List OF Byte", "default": null }
@@ -3133,7 +3133,7 @@
   {
     "name": "#encoding_hexDecode",
     "line": 321,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 321, "type": "String", "default": null }
@@ -3184,7 +3184,7 @@
   {
     "name": "#encoding_baseEncode",
     "line": 347,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 347, "type": "List OF Byte", "default": null },
@@ -3257,7 +3257,7 @@
   {
     "name": "#encoding_baseDecodeBits",
     "line": 375,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "values", "line": 375, "type": "List OF Integer", "default": null },
@@ -3298,7 +3298,7 @@
   {
     "name": "#encoding_base64Value",
     "line": 393,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 393, "type": "Integer", "default": null },
@@ -3391,7 +3391,7 @@
   {
     "name": "#encoding_base32Value",
     "line": 421,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 421, "type": "Integer", "default": null }
@@ -3434,7 +3434,7 @@
   {
     "name": "#encoding_base64Encode",
     "line": 434,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 434, "type": "List OF Byte", "default": null }
@@ -3447,7 +3447,7 @@
   {
     "name": "#encoding_base64UrlEncode",
     "line": 438,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 438, "type": "List OF Byte", "default": null }
@@ -3460,7 +3460,7 @@
   {
     "name": "#encoding_base32Encode",
     "line": 442,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 442, "type": "List OF Byte", "default": null }
@@ -3473,7 +3473,7 @@
   {
     "name": "#encoding_base64Symbols",
     "line": 449,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 449, "type": "String", "default": null },
@@ -3536,7 +3536,7 @@
   {
     "name": "#encoding_base64Decode",
     "line": 476,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 476, "type": "String", "default": null }
@@ -3573,7 +3573,7 @@
   {
     "name": "#encoding_base64UrlDecode",
     "line": 490,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 490, "type": "String", "default": null }
@@ -3598,7 +3598,7 @@
   {
     "name": "#encoding_base32Decode",
     "line": 499,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 499, "type": "String", "default": null }
@@ -3682,7 +3682,7 @@
   {
     "name": "#encoding_isUnreserved",
     "line": 536,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 536, "type": "Integer", "default": null }
@@ -3735,7 +3735,7 @@
   {
     "name": "#encoding_isAlphaNum",
     "line": 552,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 552, "type": "Integer", "default": null }
@@ -3778,7 +3778,7 @@
   {
     "name": "#encoding_percentByte",
     "line": 565,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 565, "type": "Integer", "default": null }
@@ -3791,7 +3791,7 @@
   {
     "name": "#encoding_percentEncode",
     "line": 569,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 569, "type": "String", "default": null }
@@ -3828,7 +3828,7 @@
   {
     "name": "#encoding_percentDecodeBytes",
     "line": 586,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 586, "type": "String", "default": null },
@@ -3913,7 +3913,7 @@
   {
     "name": "#encoding_percentDecode",
     "line": 622,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 622, "type": "String", "default": null }
@@ -3926,7 +3926,7 @@
   {
     "name": "#encoding_formUrlEncode",
     "line": 626,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 626, "type": "String", "default": null }
@@ -3973,7 +3973,7 @@
   {
     "name": "#encoding_formUrlDecode",
     "line": 645,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 645, "type": "String", "default": null }
@@ -3986,7 +3986,7 @@
   {
     "name": "#encoding_htmlEscape",
     "line": 651,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 651, "type": "String", "default": null }
@@ -4005,7 +4005,7 @@
   {
     "name": "#encoding_htmlEntity",
     "line": 663,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 663, "type": "String", "default": null }
@@ -4458,7 +4458,7 @@
   {
     "name": "#encoding_parseDecimal",
     "line": 799,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 799, "type": "String", "default": null }
@@ -4507,7 +4507,7 @@
   {
     "name": "#encoding_parseHex",
     "line": 819,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 819, "type": "String", "default": null }
@@ -4556,7 +4556,7 @@
   {
     "name": "#encoding_htmlUnescape",
     "line": 839,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 839, "type": "String", "default": null }
@@ -4664,7 +4664,7 @@
   {
     "name": "#encoding_uleb128Encode",
     "line": 890,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 890, "type": "Integer", "default": null }
@@ -4713,7 +4713,7 @@
   {
     "name": "#encoding_uleb128Decode",
     "line": 911,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 911, "type": "List OF Byte", "default": null }
@@ -4784,7 +4784,7 @@
   {
     "name": "#encoding_sleb128Encode",
     "line": 939,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 939, "type": "Integer", "default": null }
@@ -4844,7 +4844,7 @@
   {
     "name": "#encoding_sleb128Decode",
     "line": 965,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 965, "type": "List OF Byte", "default": null }
@@ -4925,7 +4925,7 @@
   {
     "name": "#encoding_varintEncode",
     "line": 996,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 996, "type": "Integer", "default": null }
@@ -4965,7 +4965,7 @@
   {
     "name": "#encoding_varintDecode",
     "line": 1015,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 1015, "type": "List OF Byte", "default": null }
@@ -4979,7 +4979,7 @@
   {
     "name": "#encoding_punyAdapt",
     "line": 1022,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "delta", "line": 1022, "type": "Integer", "default": null },
@@ -5018,7 +5018,7 @@
   {
     "name": "#encoding_punyDigit",
     "line": 1039,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "d", "line": 1039, "type": "Integer", "default": null }
@@ -5041,7 +5041,7 @@
   {
     "name": "#encoding_punyValue",
     "line": 1047,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 1047, "type": "Integer", "default": null }
@@ -5084,7 +5084,7 @@
   {
     "name": "#encoding_punyThreshold",
     "line": 1060,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "k", "line": 1060, "type": "Integer", "default": null },
@@ -5118,7 +5118,7 @@
   {
     "name": "#encoding_punyEncodeLabel",
     "line": 1071,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "points", "line": 1071, "type": "List OF Integer", "default": null }
@@ -5263,7 +5263,7 @@
   {
     "name": "#encoding_punyDecodeLabel",
     "line": 1134,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "label", "line": 1134, "type": "String", "default": null }
@@ -5451,7 +5451,7 @@
   {
     "name": "#encoding_labelHasNonAscii",
     "line": 1224,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "points", "line": 1224, "type": "List OF Integer", "default": null }
@@ -5483,7 +5483,7 @@
   {
     "name": "#encoding_punycodeEncode",
     "line": 1233,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "domain", "line": 1233, "type": "String", "default": null }
@@ -5531,7 +5531,7 @@
   {
     "name": "#encoding_punycodeDecode",
     "line": 1253,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "asciiDomain", "line": 1253, "type": "String", "default": null }

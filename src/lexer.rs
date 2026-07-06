@@ -97,7 +97,7 @@ pub enum Keyword {
     End,
     Enum,
     Export,
-    Package,
+    Public,
     Program,
     Private,
     Propagate,
@@ -673,8 +673,8 @@ fn keyword(value: &str) -> Option<Keyword> {
         Some(Keyword::Enum)
     } else if value.eq_ignore_ascii_case("EXPORT") {
         Some(Keyword::Export)
-    } else if value.eq_ignore_ascii_case("PACKAGE") {
-        Some(Keyword::Package)
+    } else if value.eq_ignore_ascii_case("PUBLIC") {
+        Some(Keyword::Public)
     } else if value.eq_ignore_ascii_case("PROGRAM") {
         Some(Keyword::Program)
     } else if value.eq_ignore_ascii_case("PRIVATE") {
@@ -750,7 +750,7 @@ pub fn keyword_lexeme(keyword: Keyword) -> &'static str {
         Keyword::End => "end",
         Keyword::Enum => "enum",
         Keyword::Export => "export",
-        Keyword::Package => "package",
+        Keyword::Public => "public",
         Keyword::Program => "program",
         Keyword::Private => "private",
         Keyword::Propagate => "propagate",
@@ -925,7 +925,7 @@ mod tests {
             "end",
             "enum",
             "export",
-            "package",
+            "public",
             "program",
             "private",
             "propagate",

@@ -13,7 +13,7 @@
   {
     "name": "cellText",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "cell", "line": 9, "type": "SqlValue", "default": null }
@@ -59,7 +59,7 @@
   {
     "name": "main",
     "line": 20,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

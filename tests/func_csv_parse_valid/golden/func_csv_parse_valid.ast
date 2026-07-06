@@ -12,7 +12,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "crChar",
       "line": 8,
       "params": [
@@ -25,7 +25,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "dump",
       "line": 13,
       "params": [
@@ -59,7 +59,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 25,
       "params": [

@@ -13,7 +13,7 @@
   {
     "name": "parsePositive",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 1, "type": "Integer", "default": null }
@@ -36,7 +36,7 @@
   {
     "name": "main",
     "line": 6,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

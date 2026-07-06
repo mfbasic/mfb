@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 20,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Flags",
     "fields": [
     { "visibility": null, "line": 21, "name": "ci", "type": "Boolean" },
@@ -24,7 +24,7 @@
   {
     "kind": "type",
     "line": 29,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Range",
     "fields": [
     { "visibility": null, "line": 30, "name": "lo", "type": "String" },
@@ -34,7 +34,7 @@
   {
     "kind": "type",
     "line": 33,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Single",
     "fields": [
     { "visibility": null, "line": 34, "name": "ch", "type": "String" }
@@ -43,7 +43,7 @@
   {
     "kind": "type",
     "line": 36,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Short",
     "fields": [
     { "visibility": null, "line": 37, "name": "kind", "type": "Integer" }
@@ -52,7 +52,7 @@
   {
     "kind": "type",
     "line": 39,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Prop",
     "fields": [
     { "visibility": null, "line": 40, "name": "name", "type": "String" },
@@ -62,7 +62,7 @@
   {
     "kind": "union",
     "line": 43,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_ClassItem",
     "includes": [],
     "variants": [
@@ -101,7 +101,7 @@
   {
     "kind": "type",
     "line": 51,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Lit",
     "fields": [
     { "visibility": null, "line": 52, "name": "ch", "type": "String" },
@@ -111,7 +111,7 @@
   {
     "kind": "type",
     "line": 55,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Any",
     "fields": [
     { "visibility": null, "line": 56, "name": "dotall", "type": "Boolean" }
@@ -120,7 +120,7 @@
   {
     "kind": "type",
     "line": 58,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Class",
     "fields": [
     { "visibility": null, "line": 59, "name": "neg", "type": "Boolean" },
@@ -131,7 +131,7 @@
   {
     "kind": "type",
     "line": 63,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Anchor",
     "fields": [
     { "visibility": null, "line": 64, "name": "kind", "type": "Integer" },
@@ -141,7 +141,7 @@
   {
     "kind": "type",
     "line": 67,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Concat",
     "fields": [
     { "visibility": null, "line": 68, "name": "parts", "type": "List OF #regex_Node" }
@@ -150,7 +150,7 @@
   {
     "kind": "type",
     "line": 70,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Alt",
     "fields": [
     { "visibility": null, "line": 71, "name": "opts", "type": "List OF #regex_Node" }
@@ -159,7 +159,7 @@
   {
     "kind": "type",
     "line": 73,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Repeat",
     "fields": [
     { "visibility": null, "line": 74, "name": "child", "type": "#regex_Node" },
@@ -171,7 +171,7 @@
   {
     "kind": "type",
     "line": 79,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Group",
     "fields": [
     { "visibility": null, "line": 80, "name": "child", "type": "#regex_Node" },
@@ -181,7 +181,7 @@
   {
     "kind": "union",
     "line": 83,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Node",
     "includes": [],
     "variants": [
@@ -254,7 +254,7 @@
   {
     "kind": "type",
     "line": 95,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_ContDone",
     "fields": [
     { "visibility": null, "line": 96, "name": "dummy", "type": "Boolean" }
@@ -263,7 +263,7 @@
   {
     "kind": "type",
     "line": 98,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_ContSeq",
     "fields": [
     { "visibility": null, "line": 99, "name": "parts", "type": "List OF #regex_Node" },
@@ -274,7 +274,7 @@
   {
     "kind": "type",
     "line": 103,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_ContCap",
     "fields": [
     { "visibility": null, "line": 104, "name": "slot", "type": "Integer" },
@@ -284,7 +284,7 @@
   {
     "kind": "type",
     "line": 107,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_ContRep",
     "fields": [
     { "visibility": null, "line": 108, "name": "rep", "type": "#regex_Repeat" },
@@ -296,7 +296,7 @@
   {
     "kind": "union",
     "line": 113,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Cont",
     "includes": [],
     "variants": [
@@ -339,7 +339,7 @@
   {
     "kind": "type",
     "line": 120,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Result",
     "fields": [
     { "visibility": null, "line": 121, "name": "ok", "type": "Boolean" },
@@ -350,7 +350,7 @@
   {
     "kind": "type",
     "line": 126,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Ctx",
     "fields": [
     { "visibility": null, "line": 127, "name": "text", "type": "List OF String" },
@@ -361,7 +361,7 @@
   {
     "kind": "type",
     "line": 132,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Program",
     "fields": [
     { "visibility": null, "line": 133, "name": "root", "type": "#regex_Node" },
@@ -372,7 +372,7 @@
   {
     "kind": "type",
     "line": 139,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Parse",
     "fields": [
     { "visibility": null, "line": 140, "name": "node", "type": "#regex_Node" },
@@ -384,7 +384,7 @@
   {
     "kind": "type",
     "line": 145,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Paren",
     "fields": [
     { "visibility": null, "line": 146, "name": "isDir", "type": "Boolean" },
@@ -398,7 +398,7 @@
   {
     "kind": "type",
     "line": 153,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Count",
     "fields": [
     { "visibility": null, "line": 154, "name": "lo", "type": "Integer" },
@@ -409,7 +409,7 @@
   {
     "kind": "type",
     "line": 158,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_LitScalar",
     "fields": [
     { "visibility": null, "line": 159, "name": "ch", "type": "String" },
@@ -419,7 +419,7 @@
   {
     "kind": "type",
     "line": 162,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_PropParse",
     "fields": [
     { "visibility": null, "line": 163, "name": "name", "type": "String" },
@@ -430,7 +430,7 @@
   {
     "kind": "type",
     "line": 167,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Endpoint",
     "fields": [
     { "visibility": null, "line": 168, "name": "kind", "type": "Integer" },
@@ -442,7 +442,7 @@
   {
     "kind": "type",
     "line": 173,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_FlagSpec",
     "fields": [
     { "visibility": null, "line": 174, "name": "flags", "type": "#regex_Flags" },
@@ -454,7 +454,7 @@
   {
     "kind": "type",
     "line": 179,
-    "visibility": "private",
+    "visibility": "public",
     "name": "#regex_Name",
     "fields": [
     { "visibility": null, "line": 180, "name": "name", "type": "String" },
@@ -466,7 +466,7 @@
   {
     "name": "tryMatch",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pattern", "line": 8, "type": "String", "default": null }
@@ -490,7 +490,7 @@
   {
     "name": "main",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -528,7 +528,7 @@
   {
     "name": "#regex_chr",
     "line": 188,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 188, "type": "Integer", "default": null }
@@ -572,7 +572,7 @@
   {
     "name": "#regex_scalarToCp",
     "line": 205,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 205, "type": "String", "default": null }
@@ -596,7 +596,7 @@
   {
     "name": "#regex_toScalars",
     "line": 213,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 213, "type": "String", "default": null }
@@ -623,7 +623,7 @@
   {
     "name": "#regex_makeCtx",
     "line": 228,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 228, "type": "String", "default": null }
@@ -648,7 +648,7 @@
   {
     "name": "#regex_catIsLetter",
     "line": 241,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "cat", "line": 241, "type": "String", "default": null }
@@ -661,7 +661,7 @@
   {
     "name": "#regex_catIsMark",
     "line": 245,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "cat", "line": 245, "type": "String", "default": null }
@@ -674,7 +674,7 @@
   {
     "name": "#regex_isSpaceCp",
     "line": 249,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "cp", "line": 249, "type": "Integer", "default": null },
@@ -718,7 +718,7 @@
   {
     "name": "#regex_isWordCp",
     "line": 262,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "cp", "line": 262, "type": "Integer", "default": null },
@@ -792,7 +792,7 @@
   {
     "name": "#regex_isWord",
     "line": 284,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "cp", "line": 284, "type": "Integer", "default": null }
@@ -805,7 +805,7 @@
   {
     "name": "#regex_shorthandMatch",
     "line": 289,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "kind", "line": 289, "type": "Integer", "default": null },
@@ -870,7 +870,7 @@
   {
     "name": "#regex_isGcName",
     "line": 309,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 309, "type": "String", "default": null }
@@ -963,7 +963,7 @@
   {
     "name": "#regex_scriptCanon",
     "line": 337,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "low", "line": 337, "type": "String", "default": null }
@@ -1076,7 +1076,7 @@
   {
     "name": "#regex_scriptTest",
     "line": 371,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 371, "type": "String", "default": null },
@@ -1380,7 +1380,7 @@
   {
     "name": "#regex_isScriptName",
     "line": 462,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "low", "line": 462, "type": "String", "default": null }
@@ -1393,7 +1393,7 @@
   {
     "name": "#regex_propTest",
     "line": 467,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 467, "type": "String", "default": null },
@@ -1508,7 +1508,7 @@
   {
     "name": "#regex_canonProp",
     "line": 503,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 503, "type": "String", "default": null }
@@ -1675,7 +1675,7 @@
   {
     "name": "#regex_classMatchOne",
     "line": 560,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "items", "line": 560, "type": "List OF #regex_ClassItem", "default": null },
@@ -1779,7 +1779,7 @@
   {
     "name": "#regex_propMatchItem",
     "line": 584,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 584, "type": "String", "default": null },
@@ -1805,7 +1805,7 @@
   {
     "name": "#regex_classMatch",
     "line": 592,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "cls", "line": 592, "type": "#regex_Class", "default": null },
@@ -1891,7 +1891,7 @@
   {
     "name": "#regex_wordBoundary",
     "line": 622,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pos", "line": 622, "type": "Integer", "default": null },
@@ -1927,7 +1927,7 @@
   {
     "name": "#regex_anchorMatch",
     "line": 634,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "anchor", "line": 634, "type": "#regex_Anchor", "default": null },
@@ -2032,7 +2032,7 @@
   {
     "name": "#regex_fail",
     "line": 669,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -2045,7 +2045,7 @@
   {
     "name": "#regex_setCap",
     "line": 674,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "caps", "line": 674, "type": "List OF Integer", "default": null },
@@ -2060,7 +2060,7 @@
   {
     "name": "#regex_charEq",
     "line": 678,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 678, "type": "String", "default": null },
@@ -2085,7 +2085,7 @@
   {
     "name": "#regex_matchNode",
     "line": 685,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "node", "line": 685, "type": "#regex_Node", "default": null },
@@ -2252,7 +2252,7 @@
   {
     "name": "#regex_matchAlt",
     "line": 728,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "opts", "line": 728, "type": "List OF #regex_Node", "default": null },
@@ -2291,7 +2291,7 @@
   {
     "name": "#regex_matchRep",
     "line": 739,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "rep", "line": 739, "type": "#regex_Repeat", "default": null },
@@ -2381,7 +2381,7 @@
   {
     "name": "#regex_matchCont",
     "line": 766,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 766, "type": "#regex_Cont", "default": null },
@@ -2462,7 +2462,7 @@
   {
     "name": "#regex_initCaps",
     "line": 787,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "groups", "line": 787, "type": "Integer", "default": null }
@@ -2488,7 +2488,7 @@
   {
     "name": "#regex_tryAt",
     "line": 798,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "prog", "line": 798, "type": "#regex_Program", "default": null },
@@ -2505,7 +2505,7 @@
   {
     "name": "#regex_searchFrom",
     "line": 804,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "prog", "line": 804, "type": "#regex_Program", "default": null },
@@ -2541,7 +2541,7 @@
   {
     "name": "#regex_isDigit",
     "line": 820,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 820, "type": "String", "default": null }
@@ -2554,7 +2554,7 @@
   {
     "name": "#regex_isNameStart",
     "line": 824,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 824, "type": "String", "default": null }
@@ -2587,7 +2587,7 @@
   {
     "name": "#regex_isNameCont",
     "line": 834,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 834, "type": "String", "default": null }
@@ -2600,7 +2600,7 @@
   {
     "name": "#regex_isAsciiPunct",
     "line": 838,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 838, "type": "String", "default": null }
@@ -2653,7 +2653,7 @@
   {
     "name": "#regex_isPatSpace",
     "line": 854,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ch", "line": 854, "type": "String", "default": null }
@@ -2676,7 +2676,7 @@
   {
     "name": "#regex_parseIntClamp",
     "line": 861,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 861, "type": "String", "default": null }
@@ -2707,7 +2707,7 @@
   {
     "name": "#regex_parseHexEscape",
     "line": 876,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 876, "type": "List OF String", "default": null },
@@ -2826,7 +2826,7 @@
   {
     "name": "#regex_parseLiteralEscape",
     "line": 917,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 917, "type": "List OF String", "default": null },
@@ -2963,7 +2963,7 @@
   {
     "name": "#regex_parseProp",
     "line": 959,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 959, "type": "List OF String", "default": null },
@@ -3043,7 +3043,7 @@
   {
     "name": "#regex_shortKind",
     "line": 990,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "e", "line": 990, "type": "String", "default": null }
@@ -3116,7 +3116,7 @@
   {
     "name": "#regex_parsePosix",
     "line": 1013,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1013, "type": "List OF String", "default": null },
@@ -3187,7 +3187,7 @@
   {
     "name": "#regex_posixProp",
     "line": 1040,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 1040, "type": "String", "default": null }
@@ -3330,7 +3330,7 @@
   {
     "name": "#regex_parseClassEndpoint",
     "line": 1084,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1084, "type": "List OF String", "default": null },
@@ -3404,7 +3404,7 @@
   {
     "name": "#regex_parseClass",
     "line": 1112,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1112, "type": "List OF String", "default": null },
@@ -3555,7 +3555,7 @@
   {
     "name": "#regex_isCountedAt",
     "line": 1177,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1177, "type": "List OF String", "default": null },
@@ -3648,7 +3648,7 @@
   {
     "name": "#regex_parseCounted",
     "line": 1205,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1205, "type": "List OF String", "default": null },
@@ -3719,7 +3719,7 @@
   {
     "name": "#regex_parseFlagSpec",
     "line": 1236,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1236, "type": "List OF String", "default": null },
@@ -3900,7 +3900,7 @@
   {
     "name": "#regex_parseName",
     "line": 1300,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1300, "type": "List OF String", "default": null },
@@ -3947,7 +3947,7 @@
   {
     "name": "#regex_parseNamedGroup",
     "line": 1316,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1316, "type": "List OF String", "default": null },
@@ -3990,7 +3990,7 @@
   {
     "name": "#regex_parseParen",
     "line": 1331,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1331, "type": "List OF String", "default": null },
@@ -4180,7 +4180,7 @@
   {
     "name": "#regex_parseEscapeAtom",
     "line": 1399,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1399, "type": "List OF String", "default": null },
@@ -4283,7 +4283,7 @@
   {
     "name": "#regex_parseAtom",
     "line": 1439,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1439, "type": "List OF String", "default": null },
@@ -4356,7 +4356,7 @@
   {
     "name": "#regex_parseQuantSuffix",
     "line": 1463,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1463, "type": "List OF String", "default": null },
@@ -4486,7 +4486,7 @@
   {
     "name": "#regex_parseConcat",
     "line": 1513,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1513, "type": "List OF String", "default": null },
@@ -4625,7 +4625,7 @@
   {
     "name": "#regex_parseAlt",
     "line": 1570,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pat", "line": 1570, "type": "List OF String", "default": null },
@@ -4676,7 +4676,7 @@
   {
     "name": "#regex_compile",
     "line": 1594,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "pattern", "line": 1594, "type": "String", "default": null }
@@ -4703,7 +4703,7 @@
   {
     "name": "#regex_allDigits",
     "line": 1609,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 1609, "type": "String", "default": null }
@@ -4745,7 +4745,7 @@
   {
     "name": "#regex_lookupNum",
     "line": 1621,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "num", "line": 1621, "type": "Integer", "default": null },
@@ -4783,7 +4783,7 @@
   {
     "name": "#regex_lookupName",
     "line": 1633,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 1633, "type": "String", "default": null },
@@ -4809,7 +4809,7 @@
   {
     "name": "#regex_lookupRef",
     "line": 1640,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ref", "line": 1640, "type": "String", "default": null },
@@ -4835,7 +4835,7 @@
   {
     "name": "#regex_expand",
     "line": 1647,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "repl", "line": 1647, "type": "String", "default": null },
@@ -4999,7 +4999,7 @@
   {
     "name": "#regex_match",
     "line": 1724,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 1724, "type": "String", "default": null },
@@ -5016,7 +5016,7 @@
   {
     "name": "#regex_find",
     "line": 1731,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 1731, "type": "String", "default": null },
@@ -5054,7 +5054,7 @@
   {
     "name": "#regex_findAll",
     "line": 1744,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 1744, "type": "String", "default": null },
@@ -5132,7 +5132,7 @@
   {
     "name": "#regex_replace",
     "line": 1777,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 1777, "type": "String", "default": null },
@@ -5206,7 +5206,7 @@
   {
     "name": "#regex_genCat",
     "line": 1820,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "cp", "line": 1820, "type": "Integer", "default": null }
@@ -46209,7 +46209,7 @@
   {
     "name": "#encoding_byteChar",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 18, "type": "Integer", "default": null }
@@ -46223,7 +46223,7 @@
   {
     "name": "#encoding_lowBits",
     "line": 24,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 24, "type": "Integer", "default": null },
@@ -46247,7 +46247,7 @@
   {
     "name": "#encoding_fromCodepoint",
     "line": 32,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 32, "type": "Integer", "default": null }
@@ -46332,7 +46332,7 @@
   {
     "name": "#encoding_utf8Valid",
     "line": 75,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 75, "type": "List OF Byte", "default": null }
@@ -46482,7 +46482,7 @@
   {
     "name": "#encoding_codepoints",
     "line": 139,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 139, "type": "String", "default": null }
@@ -46562,7 +46562,7 @@
   {
     "name": "#encoding_utf8EncodeBytes",
     "line": 182,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 182, "type": "String", "default": null }
@@ -46575,7 +46575,7 @@
   {
     "name": "#encoding_utf8EncodeInts",
     "line": 186,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 186, "type": "String", "default": null }
@@ -46600,7 +46600,7 @@
   {
     "name": "#encoding_utf8DecodeBytes",
     "line": 195,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 195, "type": "List OF Byte", "default": null }
@@ -46623,7 +46623,7 @@
   {
     "name": "#encoding_utf8DecodeInts",
     "line": 202,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 202, "type": "List OF Integer", "default": null }
@@ -46667,7 +46667,7 @@
   {
     "name": "#encoding_utf16Encode",
     "line": 218,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 218, "type": "String", "default": null }
@@ -46709,7 +46709,7 @@
   {
     "name": "#encoding_utf16Decode",
     "line": 238,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 238, "type": "List OF Integer", "default": null }
@@ -46792,7 +46792,7 @@
   {
     "name": "#encoding_utf32Encode",
     "line": 274,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 274, "type": "String", "default": null }
@@ -46805,7 +46805,7 @@
   {
     "name": "#encoding_utf32Decode",
     "line": 278,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 278, "type": "List OF Integer", "default": null }
@@ -46849,7 +46849,7 @@
   {
     "name": "#encoding_hexDigit",
     "line": 294,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "d", "line": 294, "type": "Integer", "default": null }
@@ -46862,7 +46862,7 @@
   {
     "name": "#encoding_hexValue",
     "line": 298,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 298, "type": "Integer", "default": null }
@@ -46905,7 +46905,7 @@
   {
     "name": "#encoding_hexEncode",
     "line": 311,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 311, "type": "List OF Byte", "default": null }
@@ -46931,7 +46931,7 @@
   {
     "name": "#encoding_hexDecode",
     "line": 321,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 321, "type": "String", "default": null }
@@ -46982,7 +46982,7 @@
   {
     "name": "#encoding_baseEncode",
     "line": 347,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 347, "type": "List OF Byte", "default": null },
@@ -47055,7 +47055,7 @@
   {
     "name": "#encoding_baseDecodeBits",
     "line": 375,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "values", "line": 375, "type": "List OF Integer", "default": null },
@@ -47096,7 +47096,7 @@
   {
     "name": "#encoding_base64Value",
     "line": 393,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 393, "type": "Integer", "default": null },
@@ -47189,7 +47189,7 @@
   {
     "name": "#encoding_base32Value",
     "line": 421,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 421, "type": "Integer", "default": null }
@@ -47232,7 +47232,7 @@
   {
     "name": "#encoding_base64Encode",
     "line": 434,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 434, "type": "List OF Byte", "default": null }
@@ -47245,7 +47245,7 @@
   {
     "name": "#encoding_base64UrlEncode",
     "line": 438,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 438, "type": "List OF Byte", "default": null }
@@ -47258,7 +47258,7 @@
   {
     "name": "#encoding_base32Encode",
     "line": 442,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 442, "type": "List OF Byte", "default": null }
@@ -47271,7 +47271,7 @@
   {
     "name": "#encoding_base64Symbols",
     "line": 449,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 449, "type": "String", "default": null },
@@ -47334,7 +47334,7 @@
   {
     "name": "#encoding_base64Decode",
     "line": 476,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 476, "type": "String", "default": null }
@@ -47371,7 +47371,7 @@
   {
     "name": "#encoding_base64UrlDecode",
     "line": 490,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 490, "type": "String", "default": null }
@@ -47396,7 +47396,7 @@
   {
     "name": "#encoding_base32Decode",
     "line": 499,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 499, "type": "String", "default": null }
@@ -47480,7 +47480,7 @@
   {
     "name": "#encoding_isUnreserved",
     "line": 536,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 536, "type": "Integer", "default": null }
@@ -47533,7 +47533,7 @@
   {
     "name": "#encoding_isAlphaNum",
     "line": 552,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 552, "type": "Integer", "default": null }
@@ -47576,7 +47576,7 @@
   {
     "name": "#encoding_percentByte",
     "line": 565,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 565, "type": "Integer", "default": null }
@@ -47589,7 +47589,7 @@
   {
     "name": "#encoding_percentEncode",
     "line": 569,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 569, "type": "String", "default": null }
@@ -47626,7 +47626,7 @@
   {
     "name": "#encoding_percentDecodeBytes",
     "line": 586,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 586, "type": "String", "default": null },
@@ -47711,7 +47711,7 @@
   {
     "name": "#encoding_percentDecode",
     "line": 622,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 622, "type": "String", "default": null }
@@ -47724,7 +47724,7 @@
   {
     "name": "#encoding_formUrlEncode",
     "line": 626,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 626, "type": "String", "default": null }
@@ -47771,7 +47771,7 @@
   {
     "name": "#encoding_formUrlDecode",
     "line": 645,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 645, "type": "String", "default": null }
@@ -47784,7 +47784,7 @@
   {
     "name": "#encoding_htmlEscape",
     "line": 651,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 651, "type": "String", "default": null }
@@ -47803,7 +47803,7 @@
   {
     "name": "#encoding_htmlEntity",
     "line": 663,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 663, "type": "String", "default": null }
@@ -48256,7 +48256,7 @@
   {
     "name": "#encoding_parseDecimal",
     "line": 799,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 799, "type": "String", "default": null }
@@ -48305,7 +48305,7 @@
   {
     "name": "#encoding_parseHex",
     "line": 819,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 819, "type": "String", "default": null }
@@ -48354,7 +48354,7 @@
   {
     "name": "#encoding_htmlUnescape",
     "line": 839,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 839, "type": "String", "default": null }
@@ -48462,7 +48462,7 @@
   {
     "name": "#encoding_uleb128Encode",
     "line": 890,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 890, "type": "Integer", "default": null }
@@ -48511,7 +48511,7 @@
   {
     "name": "#encoding_uleb128Decode",
     "line": 911,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 911, "type": "List OF Byte", "default": null }
@@ -48582,7 +48582,7 @@
   {
     "name": "#encoding_sleb128Encode",
     "line": 939,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 939, "type": "Integer", "default": null }
@@ -48642,7 +48642,7 @@
   {
     "name": "#encoding_sleb128Decode",
     "line": 965,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 965, "type": "List OF Byte", "default": null }
@@ -48723,7 +48723,7 @@
   {
     "name": "#encoding_varintEncode",
     "line": 996,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 996, "type": "Integer", "default": null }
@@ -48763,7 +48763,7 @@
   {
     "name": "#encoding_varintDecode",
     "line": 1015,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "data", "line": 1015, "type": "List OF Byte", "default": null }
@@ -48777,7 +48777,7 @@
   {
     "name": "#encoding_punyAdapt",
     "line": 1022,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "delta", "line": 1022, "type": "Integer", "default": null },
@@ -48816,7 +48816,7 @@
   {
     "name": "#encoding_punyDigit",
     "line": 1039,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "d", "line": 1039, "type": "Integer", "default": null }
@@ -48839,7 +48839,7 @@
   {
     "name": "#encoding_punyValue",
     "line": 1047,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "c", "line": 1047, "type": "Integer", "default": null }
@@ -48882,7 +48882,7 @@
   {
     "name": "#encoding_punyThreshold",
     "line": 1060,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "k", "line": 1060, "type": "Integer", "default": null },
@@ -48916,7 +48916,7 @@
   {
     "name": "#encoding_punyEncodeLabel",
     "line": 1071,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "points", "line": 1071, "type": "List OF Integer", "default": null }
@@ -49061,7 +49061,7 @@
   {
     "name": "#encoding_punyDecodeLabel",
     "line": 1134,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "label", "line": 1134, "type": "String", "default": null }
@@ -49249,7 +49249,7 @@
   {
     "name": "#encoding_labelHasNonAscii",
     "line": 1224,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "points", "line": 1224, "type": "List OF Integer", "default": null }
@@ -49281,7 +49281,7 @@
   {
     "name": "#encoding_punycodeEncode",
     "line": 1233,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "domain", "line": 1233, "type": "String", "default": null }
@@ -49329,7 +49329,7 @@
   {
     "name": "#encoding_punycodeDecode",
     "line": 1253,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "asciiDomain", "line": 1253, "type": "String", "default": null }

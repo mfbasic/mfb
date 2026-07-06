@@ -402,7 +402,7 @@ pub enum FunctionKind {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Visibility {
     Private,
-    Package,
+    Public,
     Export,
 }
 

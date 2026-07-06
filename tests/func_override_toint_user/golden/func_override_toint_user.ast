@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Money",
       "line": 3,
       "fields": [
@@ -18,7 +18,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "toInt",
       "line": 7,
       "params": [
@@ -31,7 +31,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 11,
       "params": [

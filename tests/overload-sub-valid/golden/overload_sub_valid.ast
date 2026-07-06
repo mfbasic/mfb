@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "log",
       "line": 8,
       "params": [
@@ -22,7 +22,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "log",
       "line": 12,
       "params": [
@@ -35,7 +35,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "log",
       "line": 17,
       "params": [
@@ -49,7 +49,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 21,
       "params": [

@@ -29,7 +29,7 @@
   {
     "name": "roundTrip",
     "line": 6,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "href", "line": 6, "type": "String", "default": null }
@@ -56,7 +56,7 @@
   {
     "name": "main",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -73,7 +73,7 @@
   {
     "name": "#net_indexOf",
     "line": 25,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 25, "type": "String", "default": null },
@@ -99,7 +99,7 @@
   {
     "name": "#net_slice",
     "line": 34,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 34, "type": "String", "default": null },
@@ -124,7 +124,7 @@
   {
     "name": "#net_defaultPort",
     "line": 41,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "scheme", "line": 41, "type": "String", "default": null }
@@ -147,7 +147,7 @@
   {
     "name": "#net_authorityEnd",
     "line": 49,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "rest", "line": 49, "type": "String", "default": null }
@@ -194,7 +194,7 @@
   {
     "name": "#net_parsePort",
     "line": 70,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 70, "type": "String", "default": null }
@@ -252,7 +252,7 @@
   {
     "name": "#net_toUrl",
     "line": 86,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "href", "line": 86, "type": "String", "default": null }
@@ -435,7 +435,7 @@
   {
     "name": "#net_urlToString",
     "line": 177,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 177, "type": "Url", "default": null }

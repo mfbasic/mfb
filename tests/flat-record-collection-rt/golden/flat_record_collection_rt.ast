@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Bag",
       "line": 10,
       "fields": [
@@ -20,7 +20,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Person",
       "line": 15,
       "fields": [
@@ -29,7 +29,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Team",
       "line": 19,
       "fields": [
@@ -39,7 +39,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "sumItems",
       "line": 24,
       "params": [
@@ -62,7 +62,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 32,
       "params": [

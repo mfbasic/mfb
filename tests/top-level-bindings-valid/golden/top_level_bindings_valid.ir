@@ -8,8 +8,8 @@
     "accepts_args": false
   },
   "bindings": [
-  { "name": "base", "line": 1, "visibility": "private", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
-  { "name": "counter", "line": 2, "visibility": "private", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
+  { "name": "base", "line": 1, "visibility": "public", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "1" } },
+  { "name": "counter", "line": 2, "visibility": "public", "mutable": true, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "0" } }
   ],
   "types": [
   ],
@@ -17,7 +17,7 @@
   {
     "name": "bump",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -30,7 +30,7 @@
   {
     "name": "main",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

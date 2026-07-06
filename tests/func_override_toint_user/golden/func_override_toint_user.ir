@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Money",
     "fields": [
     { "visibility": null, "line": 4, "name": "cents", "type": "Integer" }
@@ -22,7 +22,7 @@
   {
     "name": "toInt$Money",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "m", "line": 7, "type": "Money", "default": null }
@@ -35,7 +35,7 @@
   {
     "name": "main",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

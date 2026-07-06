@@ -13,7 +13,7 @@
   {
     "name": "makeError",
     "line": 6,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "code", "line": 6, "type": "Integer", "default": null },
@@ -27,7 +27,7 @@
   {
     "name": "main",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

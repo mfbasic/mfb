@@ -13,7 +13,7 @@
   {
     "name": "foobar",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],

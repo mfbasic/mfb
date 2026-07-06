@@ -11,7 +11,7 @@
     "items": [
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "one",
       "line": 9,
       "params": [
@@ -28,7 +28,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 16,
       "params": [

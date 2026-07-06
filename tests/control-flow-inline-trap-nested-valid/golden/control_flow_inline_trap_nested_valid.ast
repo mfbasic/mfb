@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "parsePositive",
       "line": 3,
       "params": [
@@ -32,7 +32,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "inner",
       "line": 9,
       "params": [
@@ -55,7 +55,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "outer",
       "line": 14,
       "params": [
@@ -68,7 +68,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "withBothTraps",
       "line": 20,
       "params": [
@@ -97,7 +97,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "nestedHandler",
       "line": 31,
       "params": [
@@ -128,7 +128,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "viaPropagate",
       "line": 42,
       "params": [
@@ -150,7 +150,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "catchesPropagated",
       "line": 49,
       "params": [
@@ -172,7 +172,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 56,
       "params": [

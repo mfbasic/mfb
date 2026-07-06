@@ -187,7 +187,7 @@ pub struct BinaryReprTypeVariant {
 #[derive(Clone, Copy, Eq, PartialEq)]
 pub enum BinaryReprTypeVisibility {
     Private,
-    Package,
+    Public,
     Export,
 }
 

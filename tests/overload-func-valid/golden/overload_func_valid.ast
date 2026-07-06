@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "describe",
       "line": 9,
       "params": [
@@ -22,7 +22,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "describe",
       "line": 13,
       "params": [
@@ -35,7 +35,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "describe",
       "line": 17,
       "params": [
@@ -58,7 +58,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "combine",
       "line": 25,
       "params": [
@@ -72,7 +72,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "combine",
       "line": 29,
       "params": [
@@ -87,7 +87,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 33,
       "params": [

@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/func_visibility_default_public_valid
+Wrote AST to tests/func_visibility_default_public_valid/func_visibility_default_public_valid.ast
+Wrote IR to tests/func_visibility_default_public_valid/func_visibility_default_public_valid.ir
+[exit 0]

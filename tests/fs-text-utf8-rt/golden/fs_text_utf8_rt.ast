@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "readText1",
       "line": 4,
       "params": [
@@ -23,7 +23,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "readAll1",
       "line": 7,
       "params": [
@@ -36,7 +36,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "readLine1",
       "line": 10,
       "params": [
@@ -49,7 +49,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "codeOf",
       "line": 14,
       "params": [
@@ -121,7 +121,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 37,
       "params": [

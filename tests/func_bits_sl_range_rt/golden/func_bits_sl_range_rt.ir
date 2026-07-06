@@ -13,7 +13,7 @@
   {
     "name": "doShift",
     "line": 5,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 5, "type": "Integer", "default": null },
@@ -27,7 +27,7 @@
   {
     "name": "attempt",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "count", "line": 9, "type": "Integer", "default": null }
@@ -60,7 +60,7 @@
   {
     "name": "main",
     "line": 22,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

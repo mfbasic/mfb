@@ -13,7 +13,7 @@
   {
     "name": "openTwo",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -30,7 +30,7 @@
   {
     "name": "main",
     "line": 17,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -241,6 +241,12 @@ impl<'a> Monomorphizer<'a> {
             .collect::<Vec<_>>();
 
         if let Some(first_file) = files.first_mut() {
+            // Generated instantiations (monomorphized generic functions/types) are
+            // emitted into the FIRST file, but their rewritten call/use sites can
+            // live in ANY file. With `Public` as the default visibility, a template
+            // with no modifier (e.g. the `collections::` internals) instantiates to
+            // a `Public` concrete function, which resolves project-wide — so no
+            // widening is needed here.
             let mut generated_types = self
                 .concrete_types
                 .into_values()

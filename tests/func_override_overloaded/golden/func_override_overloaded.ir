@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Grid",
     "fields": [
     { "visibility": null, "line": 4, "name": "cells", "type": "List OF Integer" }
@@ -20,7 +20,7 @@
   {
     "kind": "type",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Ring",
     "fields": [
     { "visibility": null, "line": 8, "name": "items", "type": "List OF Integer" }
@@ -31,7 +31,7 @@
   {
     "name": "len$Grid",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "g", "line": 12, "type": "Grid", "default": null }
@@ -44,7 +44,7 @@
   {
     "name": "len$Ring",
     "line": 16,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "r", "line": 16, "type": "Ring", "default": null }
@@ -57,7 +57,7 @@
   {
     "name": "main",
     "line": 20,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

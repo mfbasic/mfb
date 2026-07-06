@@ -13,7 +13,7 @@
   {
     "name": "printList",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "values", "line": 3, "type": "List OF String", "default": null }
@@ -36,7 +36,7 @@
   {
     "name": "main",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

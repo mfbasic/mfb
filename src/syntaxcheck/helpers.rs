@@ -57,7 +57,7 @@ pub(super) fn effective_field_visibility(
 ) -> Visibility {
     declared.unwrap_or(match containing_visibility {
         Visibility::Export => Visibility::Export,
-        Visibility::Package | Visibility::Private => Visibility::Package,
+        Visibility::Public | Visibility::Private => Visibility::Public,
     })
 }
 
@@ -841,9 +841,9 @@ END FUNC
         // type (inherits Package) drive both arms of effective_field_visibility;
         // an explicit field visibility drives the `declared.unwrap_or` Some path.
         let src = "\
-EXPORT TYPE Public
+EXPORT TYPE Exported
   a AS Integer
-  PACKAGE b AS Integer
+  PUBLIC b AS Integer
 END TYPE
 
 TYPE Local
@@ -851,7 +851,7 @@ TYPE Local
 END TYPE
 
 FUNC main AS Integer
-  LET p = Public[1, 2]
+  LET p = Exported[1, 2]
   LET q = Local[3]
   RETURN 0
 END FUNC

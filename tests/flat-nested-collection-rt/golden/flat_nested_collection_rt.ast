@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Grid",
       "line": 10,
       "fields": [
@@ -19,7 +19,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 14,
       "params": [

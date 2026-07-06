@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "stringLens",
       "line": 3,
       "params": [
@@ -36,7 +36,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "listLens",
       "line": 24,
       "params": [
@@ -54,7 +54,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "mapLens",
       "line": 36,
       "params": [
@@ -72,7 +72,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 48,
       "params": [

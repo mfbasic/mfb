@@ -13,7 +13,7 @@
   {
     "name": "parseOr",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 11, "type": "String", "default": null }
@@ -41,7 +41,7 @@
   {
     "name": "readOr",
     "line": 20,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "path", "line": 20, "type": "String", "default": null }
@@ -69,7 +69,7 @@
   {
     "name": "elementAt",
     "line": 29,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "xs", "line": 29, "type": "List OF Integer", "default": null },
@@ -83,7 +83,7 @@
   {
     "name": "main",
     "line": 33,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

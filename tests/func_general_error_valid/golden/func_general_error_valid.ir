@@ -13,7 +13,7 @@
   {
     "name": "load",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "path", "line": 4, "type": "String", "default": null }
@@ -36,7 +36,7 @@
   {
     "name": "reload",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "path", "line": 12, "type": "String", "default": null }
@@ -49,7 +49,7 @@
   {
     "name": "divide",
     "line": 17,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 17, "type": "Integer", "default": null },
@@ -63,7 +63,7 @@
   {
     "name": "show",
     "line": 21,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "label", "line": 21, "type": "String", "default": null },
@@ -78,7 +78,7 @@
   {
     "name": "main",
     "line": 26,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -183,7 +183,7 @@ mod tests {
                     "Orphan",
                     "unknown.close",
                     false,
-                    Visibility::Package,
+                    Visibility::Public,
                     3,
                 ))],
             )],

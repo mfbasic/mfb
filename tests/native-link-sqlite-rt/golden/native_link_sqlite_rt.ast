@@ -7,8 +7,8 @@
     { "module": "io", "line": 7 }
     ],
     "items": [
-    { "kind": "resource", "visibility": "private", "name": "Db", "closeFn": "sql.close", "threadSendable": false, "line": 9 },
-    { "kind": "resource", "visibility": "private", "name": "Stmt", "closeFn": "sql.finalize", "threadSendable": false, "line": 10 },
+    { "kind": "resource", "visibility": "public", "name": "Db", "closeFn": "sql.close", "threadSendable": false, "line": 9 },
+    { "kind": "resource", "visibility": "public", "name": "Stmt", "closeFn": "sql.finalize", "threadSendable": false, "line": 10 },
     {
       "kind": "link",
       "library": "sqlite3",
@@ -279,7 +279,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 73,
       "params": [

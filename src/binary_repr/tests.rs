@@ -154,7 +154,7 @@ mod fixtures {
             },
             IrBinding {
                 name: "gPkg".to_string(),
-                visibility: "package".to_string(),
+                visibility: "public".to_string(),
                 mutable: false,
                 type_: "String".to_string(),
                 value: None,
@@ -1344,7 +1344,7 @@ mod reader_tests {
         for (code, expected) in [
             (0u32, BinaryReprTypeVisibility::Export),
             (1, BinaryReprTypeVisibility::Private),
-            (2, BinaryReprTypeVisibility::Package),
+            (2, BinaryReprTypeVisibility::Public),
             (3, BinaryReprTypeVisibility::Export),
         ] {
             let mut payload = Vec::new();
@@ -1518,7 +1518,7 @@ mod builder_tests {
         // Globals report visibility strings.
         let visibilities: Vec<&str> = info.globals.iter().map(|g| g.visibility.as_str()).collect();
         assert!(visibilities.contains(&"private"));
-        assert!(visibilities.contains(&"package"));
+        assert!(visibilities.contains(&"public"));
         assert!(visibilities.contains(&"export"));
     }
 
@@ -2678,7 +2678,7 @@ mod gap_tests {
         project.types = vec![
             IrType {
                 kind: "union".to_string(),
-                visibility: "package".to_string(),
+                visibility: "public".to_string(),
                 name: "Base".to_string(),
                 fields: vec![],
                 includes: vec![],

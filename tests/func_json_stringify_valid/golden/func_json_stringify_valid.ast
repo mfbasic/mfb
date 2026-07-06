@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "backspaceChar",
       "line": 4,
       "params": [
@@ -23,7 +23,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "formfeedChar",
       "line": 9,
       "params": [
@@ -36,7 +36,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "controlChar",
       "line": 14,
       "params": [
@@ -50,7 +50,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "controlChars",
       "line": 19,
       "params": [
@@ -73,7 +73,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 26,
       "params": [

@@ -13,7 +13,7 @@
   {
     "name": "main",
     "line": 6,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],
@@ -27,7 +27,7 @@
   {
     "name": "consume$Integer",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "value", "line": 3, "type": "Integer", "default": null }
@@ -39,7 +39,7 @@
   {
     "name": "consume$String",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "value", "line": 3, "type": "String", "default": null }

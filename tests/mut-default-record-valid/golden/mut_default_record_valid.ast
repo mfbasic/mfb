@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Inner",
       "line": 3,
       "fields": [
@@ -19,7 +19,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Outer",
       "line": 8,
       "fields": [
@@ -29,7 +29,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 13,
       "params": [

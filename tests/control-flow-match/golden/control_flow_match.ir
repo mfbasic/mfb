@@ -11,7 +11,7 @@
   {
     "kind": "enum",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Color",
     "members": [
     { "name": "Red" },
@@ -21,7 +21,7 @@
   {
     "kind": "type",
     "line": 5,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Circle",
     "fields": [
     { "visibility": null, "line": 6, "name": "radius", "type": "Integer" }
@@ -30,7 +30,7 @@
   {
     "kind": "type",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Point",
     "fields": [
     { "visibility": null, "line": 10, "name": "value", "type": "Nothing" }
@@ -39,7 +39,7 @@
   {
     "kind": "union",
     "line": 13,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Shape",
     "includes": [],
     "variants": [
@@ -64,7 +64,7 @@
   {
     "name": "enumAll",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "color", "line": 18, "type": "Color", "default": null }
@@ -100,7 +100,7 @@
   {
     "name": "enumPartialWithElse",
     "line": 27,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "color", "line": 27, "type": "Color", "default": null }
@@ -136,7 +136,7 @@
   {
     "name": "unionAll",
     "line": 36,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "shape", "line": 36, "type": "Shape", "default": null }
@@ -174,7 +174,7 @@
   {
     "name": "unionPartialWithElse",
     "line": 45,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "shape", "line": 45, "type": "Shape", "default": null }
@@ -211,7 +211,7 @@
   {
     "name": "main",
     "line": 54,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

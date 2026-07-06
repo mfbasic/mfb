@@ -532,7 +532,7 @@ pub(super) fn decode_type_field(
     let visibility = match cursor_u32(payload, offset)? {
         0 => BinaryReprTypeVisibility::Export,
         1 => BinaryReprTypeVisibility::Private,
-        2 => BinaryReprTypeVisibility::Package,
+        2 => BinaryReprTypeVisibility::Public,
         3 => BinaryReprTypeVisibility::Export,
         other => return Err(format!("unsupported type field visibility {other}")),
     };

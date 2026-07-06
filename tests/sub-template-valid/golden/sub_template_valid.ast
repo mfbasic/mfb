@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "consume",
       "templateParams": ["T"],
       "line": 3,
@@ -22,7 +22,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 6,
       "params": [

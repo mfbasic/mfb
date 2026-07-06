@@ -11,7 +11,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "doDecode",
       "line": 5,
       "params": [
@@ -24,7 +24,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "attempt",
       "line": 9,
       "params": [
@@ -58,7 +58,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 23,
       "params": [

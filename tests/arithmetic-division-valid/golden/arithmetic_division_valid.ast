@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 3,
       "params": [
@@ -27,7 +27,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "integerDivisionAndMod",
       "line": 13,
       "params": [
@@ -44,7 +44,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "byteDivision",
       "line": 22,
       "params": [
@@ -58,7 +58,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fixedDivision",
       "line": 28,
       "params": [
@@ -82,7 +82,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fixedMod",
       "line": 37,
       "params": [
@@ -106,7 +106,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "floatDivisionAndMod",
       "line": 46,
       "params": [
@@ -122,7 +122,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "mixedFloatFixedMod",
       "line": 54,
       "params": [

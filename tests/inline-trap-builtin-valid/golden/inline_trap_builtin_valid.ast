@@ -11,7 +11,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "parseOr",
       "line": 11,
       "params": [
@@ -33,7 +33,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "readOr",
       "line": 20,
       "params": [
@@ -55,7 +55,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "elementAt",
       "line": 29,
       "params": [
@@ -69,7 +69,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 33,
       "params": [

@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Grid",
     "fields": [
     { "visibility": null, "line": 11, "name": "rows", "type": "List OF List OF Integer" }
@@ -22,7 +22,7 @@
   {
     "name": "main",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

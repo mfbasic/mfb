@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Circle",
     "fields": [
     { "visibility": null, "line": 2, "name": "radius", "type": "Integer" }
@@ -20,7 +20,7 @@
   {
     "kind": "type",
     "line": 5,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Rect",
     "fields": [
     { "visibility": null, "line": 6, "name": "width", "type": "Integer" },
@@ -30,7 +30,7 @@
   {
     "kind": "union",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Shape",
     "includes": [],
     "variants": [
@@ -56,7 +56,7 @@
   {
     "name": "parsePositive",
     "line": 15,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 15, "type": "Integer", "default": null }
@@ -79,7 +79,7 @@
   {
     "name": "main",
     "line": 20,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

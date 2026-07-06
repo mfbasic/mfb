@@ -412,8 +412,8 @@ impl<'a> FileParser<'a> {
     pub(super) fn parse_visibility(&mut self) -> Option<Visibility> {
         if self.match_keyword(Keyword::Private) {
             Some(Visibility::Private)
-        } else if self.match_keyword(Keyword::Package) {
-            Some(Visibility::Package)
+        } else if self.match_keyword(Keyword::Public) {
+            Some(Visibility::Public)
         } else if self.match_keyword(Keyword::Export) {
             Some(Visibility::Export)
         } else {
@@ -490,7 +490,7 @@ impl<'a> FileParser<'a> {
         if matches!(
             self.tokens.get(index).map(|token| &token.kind),
             Some(TokenKind::Keyword(
-                Keyword::Private | Keyword::Package | Keyword::Export
+                Keyword::Private | Keyword::Public | Keyword::Export
             ))
         ) {
             index += 1;
@@ -530,7 +530,7 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn parse_top_level_resource(&mut self) -> Option<ResourceDecl> {
-        let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
+        let visibility = self.parse_visibility().unwrap_or(Visibility::Public);
         let keyword = self.advance().clone(); // the `RESOURCE` contextual keyword
         let Some(name) = self.consume_identifier("Resource name must be an identifier.") else {
             self.synchronize();
@@ -564,7 +564,7 @@ impl<'a> FileParser<'a> {
     }
 
     pub(super) fn parse_top_level_func_alias(&mut self) -> Option<FuncAlias> {
-        let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
+        let visibility = self.parse_visibility().unwrap_or(Visibility::Public);
         let func_token = self.advance().clone(); // FUNC
         let Some(name) = self.consume_identifier("Function alias name must be an identifier.")
         else {

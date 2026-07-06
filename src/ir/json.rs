@@ -909,7 +909,7 @@ pub(super) fn loop_kind_name(kind: LoopKind) -> &'static str {
 pub(crate) fn visibility_name(visibility: Visibility) -> &'static str {
     match visibility {
         Visibility::Private => "private",
-        Visibility::Package => "package",
+        Visibility::Public => "public",
         Visibility::Export => "export",
     }
 }

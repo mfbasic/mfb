@@ -13,7 +13,7 @@
   {
     "name": "ifOnly",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "flag", "line": 3, "type": "Boolean", "default": null }
@@ -36,7 +36,7 @@
   {
     "name": "ifElse",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "flag", "line": 10, "type": "Boolean", "default": null }
@@ -59,7 +59,7 @@
   {
     "name": "ifElseIf",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "first", "line": 18, "type": "Boolean", "default": null },
@@ -93,7 +93,7 @@
   {
     "name": "ifElseIfElse",
     "line": 27,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "first", "line": 27, "type": "Boolean", "default": null },
@@ -127,7 +127,7 @@
   {
     "name": "inlineIfElse",
     "line": 37,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "flag", "line": 37, "type": "Boolean", "default": null }
@@ -150,7 +150,7 @@
   {
     "name": "inlineIfAssign",
     "line": 41,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "flag", "line": 41, "type": "Boolean", "default": null }
@@ -175,7 +175,7 @@
   {
     "name": "main",
     "line": 47,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

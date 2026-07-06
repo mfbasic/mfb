@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "alwaysFail",
       "line": 4,
       "params": [
@@ -22,7 +22,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "propagateOnce",
       "line": 8,
       "params": [
@@ -37,7 +37,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "trapPropagate",
       "line": 14,
       "params": [
@@ -68,7 +68,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 23,
       "params": [

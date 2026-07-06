@@ -30,7 +30,7 @@
   {
     "name": "main",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

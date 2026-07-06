@@ -13,7 +13,7 @@
   {
     "name": "openNoFollow",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 4, "type": "String", "default": null }
@@ -28,7 +28,7 @@
   {
     "name": "main",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

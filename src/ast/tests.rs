@@ -1125,7 +1125,7 @@ MUT counter AS Integer = 0
 RES handle AS File STATE Integer
 
 EXPORT TYPE Point OF T
-  PACKAGE x AS T
+  PUBLIC x AS T
   y AS Integer
 END TYPE
 
@@ -1205,7 +1205,7 @@ END DOC
     assert!(json.contains("\"code\": \"MFB_BAD\""));
     assert!(json.contains("\"example\": [\"greet(\\\"x\\\")\"]"));
     // The PACKAGE-visibility field prefix and OUT ABI slot.
-    assert!(json.contains("\"visibility\": \"package\""));
+    assert!(json.contains("\"visibility\": \"public\""));
     assert!(json.contains("\"out\": true"));
 }
 
@@ -1357,9 +1357,9 @@ fn function_signature_line_renders_visibility_isolated_and_params() {
     );
 
     // A SUB has no return clause; a PACKAGE bare param has no `AS`.
-    let file = parse_file("PACKAGE SUB g(a)\nEND SUB\n");
+    let file = parse_file("PRIVATE SUB g(a)\nEND SUB\n");
     let g = function(&file, "g");
-    assert_eq!(g.signature_line(), "PACKAGE SUB g(a)");
+    assert_eq!(g.signature_line(), "PRIVATE SUB g(a)");
 
     // A private FUNC with no explicit return type defaults to Nothing.
     let file = parse_file("FUNC h()\nEND FUNC\n");
@@ -1375,11 +1375,11 @@ fn type_decl_signature_line_covers_all_kinds_and_visibility() {
     };
     assert_eq!(decl.signature_line(), "EXPORT TYPE T");
 
-    let file = parse_file("PACKAGE UNION U\n  T\nEND UNION\n");
+    let file = parse_file("PRIVATE UNION U\n  T\nEND UNION\n");
     let Item::Type(decl) = &file.items[0] else {
         panic!("union");
     };
-    assert_eq!(decl.signature_line(), "PACKAGE UNION U");
+    assert_eq!(decl.signature_line(), "PRIVATE UNION U");
 
     let file = parse_file("ENUM E\n  A, B\nEND ENUM\n");
     let Item::Type(decl) = &file.items[0] else {

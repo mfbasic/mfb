@@ -13,7 +13,7 @@
   {
     "name": "parsePositive",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 3, "type": "Integer", "default": null }
@@ -36,7 +36,7 @@
   {
     "name": "inner",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 9, "type": "Integer", "default": null }
@@ -59,7 +59,7 @@
   {
     "name": "outer",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 14, "type": "Integer", "default": null }
@@ -72,7 +72,7 @@
   {
     "name": "withBothTraps",
     "line": 20,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 20, "type": "Integer", "default": null }
@@ -108,7 +108,7 @@
   {
     "name": "nestedHandler",
     "line": 31,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 31, "type": "Integer", "default": null }
@@ -151,7 +151,7 @@
   {
     "name": "viaPropagate",
     "line": 42,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 42, "type": "Integer", "default": null }
@@ -179,7 +179,7 @@
   {
     "name": "catchesPropagated",
     "line": 49,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 49, "type": "Integer", "default": null }
@@ -207,7 +207,7 @@
   {
     "name": "main",
     "line": 56,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -13,7 +13,7 @@
   {
     "name": "leaf",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -25,7 +25,7 @@
   {
     "name": "relay",
     "line": 5,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -45,7 +45,7 @@
   {
     "name": "main",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

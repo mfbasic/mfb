@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Point",
     "fields": [
     { "visibility": null, "line": 4, "name": "x", "type": "Integer" },
@@ -21,7 +21,7 @@
   {
     "kind": "type",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Flags",
     "fields": [
     { "visibility": null, "line": 9, "name": "label", "type": "String" },
@@ -34,7 +34,7 @@
   {
     "name": "sumPoint",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 14, "type": "Point", "default": null }
@@ -47,7 +47,7 @@
   {
     "name": "describeFlags",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 18, "type": "Flags", "default": null }
@@ -60,7 +60,7 @@
   {
     "name": "main",
     "line": 22,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

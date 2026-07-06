@@ -8,7 +8,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "parsePositive",
       "line": 1,
       "params": [
@@ -31,7 +31,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 6,
       "params": [

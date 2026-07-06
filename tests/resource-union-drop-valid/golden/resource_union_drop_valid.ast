@@ -11,7 +11,7 @@
     "items": [
     {
       "kind": "union",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Stream",
       "line": 5,
       "includes": [],
@@ -22,7 +22,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "writeVia",
       "line": 12,
       "params": [
@@ -59,7 +59,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 22,
       "params": [

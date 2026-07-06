@@ -78,7 +78,7 @@ io::print(toString(v.x))                      ' field read
 
 Field access uses `.`: `value.fieldName`. It is compile-time checked, and the right side is a field identifier, not a variable or string.
 
-Record fields may have visibility. A public field can be read, constructed, and updated anywhere the record type is visible. A `PACKAGE` field can be used only by files in the declaring package. A `PRIVATE` field can be used only in the declaring source file. Outside code that cannot see a field also cannot set it in a constructor, read it with `.`, or update it with `WITH`; such records are opaque across that boundary and must be constructed or modified through exported package functions.
+Record fields may have visibility. A public field can be read, constructed, and updated anywhere the record type is visible. A `PUBLIC` field can be used only by files in the declaring package. A `PRIVATE` field can be used only in the declaring source file. Outside code that cannot see a field also cannot set it in a constructor, read it with `.`, or update it with `WITH`; such records are opaque across that boundary and must be constructed or modified through exported package functions.
 
 Constructors use square brackets: `TypeName[...]`. Brackets are never used for indexing, so constructor syntax does not conflict with collection access.
 

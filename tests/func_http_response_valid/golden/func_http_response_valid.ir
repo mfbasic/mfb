@@ -8,7 +8,7 @@
     "accepts_args": false
   },
   "bindings": [
-  { "name": "#HTTP_MAX_RESPONSE", "line": 26, "visibility": "private", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "67108864" } }
+  { "name": "#HTTP_MAX_RESPONSE", "line": 26, "visibility": "public", "mutable": false, "type": "Integer", "value": { "kind": "const", "type": "Integer", "value": "67108864" } }
   ],
   "types": [
   {
@@ -46,7 +46,7 @@
   {
     "name": "main",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -72,7 +72,7 @@
   {
     "name": "#http_indexOf",
     "line": 31,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 31, "type": "String", "default": null },
@@ -98,7 +98,7 @@
   {
     "name": "#http_slice",
     "line": 39,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 39, "type": "String", "default": null },
@@ -123,7 +123,7 @@
   {
     "name": "#http_defaultPort",
     "line": 46,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "scheme", "line": 46, "type": "String", "default": null }
@@ -146,7 +146,7 @@
   {
     "name": "#http_crlf",
     "line": 56,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -159,7 +159,7 @@
   {
     "name": "#http_normalizeMethod",
     "line": 63,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "method", "line": 63, "type": "String", "default": null }
@@ -192,7 +192,7 @@
   {
     "name": "#http_hostHeader",
     "line": 73,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "url", "line": 73, "type": "Url", "default": null }
@@ -215,7 +215,7 @@
   {
     "name": "#http_requestTarget",
     "line": 80,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "url", "line": 80, "type": "Url", "default": null }
@@ -249,7 +249,7 @@
   {
     "name": "#http_headerValue",
     "line": 92,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "headers", "line": 92, "type": "Map OF String TO String", "default": null },
@@ -284,7 +284,7 @@
   {
     "name": "#http_isExtraHeader",
     "line": 104,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "name", "line": 104, "type": "String", "default": null }
@@ -348,7 +348,7 @@
   {
     "name": "#http_buildRequest",
     "line": 120,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "method", "line": 120, "type": "String", "default": null },
@@ -411,7 +411,7 @@
   {
     "name": "#http_hexToInt",
     "line": 149,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 149, "type": "String", "default": null }
@@ -459,7 +459,7 @@
   {
     "name": "#http_decToInt",
     "line": 164,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 164, "type": "String", "default": null }
@@ -507,7 +507,7 @@
   {
     "name": "#http_dechunk",
     "line": 178,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "raw", "line": 178, "type": "String", "default": null }
@@ -581,7 +581,7 @@
   {
     "name": "#http_parseStatusLine",
     "line": 210,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "line", "line": 210, "type": "String", "default": null }
@@ -635,7 +635,7 @@
   {
     "name": "#http_parseResponse",
     "line": 234,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "raw", "line": 234, "type": "String", "default": null }
@@ -710,7 +710,7 @@
   {
     "name": "#http_decodeBody",
     "line": 271,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "status", "line": 271, "type": "Integer", "default": null },
@@ -746,7 +746,7 @@
   {
     "name": "#http_exchangeTcp",
     "line": 284,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "url", "line": 284, "type": "Url", "default": null },
@@ -818,7 +818,7 @@
   {
     "name": "#http_exchangeTls",
     "line": 308,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "url", "line": 308, "type": "Url", "default": null },
@@ -890,7 +890,7 @@
   {
     "name": "#http_exchange",
     "line": 332,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "url", "line": 332, "type": "Url", "default": null },
@@ -914,7 +914,7 @@
   {
     "name": "#http_read",
     "line": 341,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "url", "line": 341, "type": "Url", "default": null },
@@ -932,7 +932,7 @@
   {
     "name": "#http_write",
     "line": 348,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "url", "line": 348, "type": "Url", "default": null },
@@ -951,7 +951,7 @@
   {
     "name": "#net_indexOf",
     "line": 25,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 25, "type": "String", "default": null },
@@ -977,7 +977,7 @@
   {
     "name": "#net_slice",
     "line": 34,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 34, "type": "String", "default": null },
@@ -1002,7 +1002,7 @@
   {
     "name": "#net_defaultPort",
     "line": 41,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "scheme", "line": 41, "type": "String", "default": null }
@@ -1025,7 +1025,7 @@
   {
     "name": "#net_authorityEnd",
     "line": 49,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "rest", "line": 49, "type": "String", "default": null }
@@ -1072,7 +1072,7 @@
   {
     "name": "#net_parsePort",
     "line": 70,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "text", "line": 70, "type": "String", "default": null }
@@ -1130,7 +1130,7 @@
   {
     "name": "#net_toUrl",
     "line": 86,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "href", "line": 86, "type": "String", "default": null }
@@ -1313,7 +1313,7 @@
   {
     "name": "#net_urlToString",
     "line": 177,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 177, "type": "Url", "default": null }

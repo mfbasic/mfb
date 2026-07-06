@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Person",
       "line": 14,
       "fields": [
@@ -20,7 +20,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Team",
       "line": 19,
       "fields": [
@@ -30,7 +30,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "makePerson",
       "line": 25,
       "params": [
@@ -45,7 +45,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "nameOf",
       "line": 32,
       "params": [
@@ -58,7 +58,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "churn",
       "line": 38,
       "params": [
@@ -86,7 +86,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 51,
       "params": [

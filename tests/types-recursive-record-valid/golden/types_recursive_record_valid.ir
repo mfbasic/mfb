@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Tree",
     "fields": [
     { "visibility": null, "line": 2, "name": "value", "type": "Integer" },
@@ -21,7 +21,7 @@
   {
     "kind": "type",
     "line": 6,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ConfigJsonNull",
     "fields": [
     { "visibility": null, "line": 7, "name": "value", "type": "Nothing" }
@@ -30,7 +30,7 @@
   {
     "kind": "type",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ConfigJsonBool",
     "fields": [
     { "visibility": null, "line": 11, "name": "value", "type": "Boolean" }
@@ -39,7 +39,7 @@
   {
     "kind": "type",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ConfigJsonNum",
     "fields": [
     { "visibility": null, "line": 15, "name": "value", "type": "Float" }
@@ -48,7 +48,7 @@
   {
     "kind": "type",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ConfigJsonStr",
     "fields": [
     { "visibility": null, "line": 19, "name": "value", "type": "String" }
@@ -57,7 +57,7 @@
   {
     "kind": "type",
     "line": 22,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ConfigJsonArr",
     "fields": [
     { "visibility": null, "line": 23, "name": "items", "type": "List OF ConfigJson" }
@@ -66,7 +66,7 @@
   {
     "kind": "type",
     "line": 26,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ConfigJsonObj",
     "fields": [
     { "visibility": null, "line": 27, "name": "fields", "type": "Map OF String TO ConfigJson" }
@@ -75,7 +75,7 @@
   {
     "kind": "union",
     "line": 30,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ConfigJson",
     "includes": [],
     "variants": [
@@ -128,7 +128,7 @@
   {
     "name": "main",
     "line": 39,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

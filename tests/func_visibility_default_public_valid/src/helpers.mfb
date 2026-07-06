@@ -1,0 +1,15 @@
+' No visibility modifier: PUBLIC is the default, so this function is visible to
+' every file in the project. A sibling file (main.mfb) can call it directly.
+FUNC helperDouble(value AS Integer) AS Integer
+  RETURN value * 2
+END FUNC
+
+' An explicit PRIVATE function stays file-local: only helpers.mfb may call it.
+PRIVATE FUNC helperBump(value AS Integer) AS Integer
+  RETURN value + 1
+END FUNC
+
+' A public wrapper (default visibility) exposes the private helper's result.
+FUNC helperBumped(value AS Integer) AS Integer
+  RETURN helperBump(value)
+END FUNC

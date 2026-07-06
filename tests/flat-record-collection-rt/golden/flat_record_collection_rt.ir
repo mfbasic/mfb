@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Bag",
     "fields": [
     { "visibility": null, "line": 11, "name": "items", "type": "List OF Integer" },
@@ -21,7 +21,7 @@
   {
     "kind": "type",
     "line": 15,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Person",
     "fields": [
     { "visibility": null, "line": 16, "name": "name", "type": "String" }
@@ -30,7 +30,7 @@
   {
     "kind": "type",
     "line": 19,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Team",
     "fields": [
     { "visibility": null, "line": 20, "name": "members", "type": "List OF Person" },
@@ -42,7 +42,7 @@
   {
     "name": "sumItems",
     "line": 24,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "b", "line": 24, "type": "Bag", "default": null }
@@ -66,7 +66,7 @@
   {
     "name": "main",
     "line": 32,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -13,7 +13,7 @@
   {
     "name": "describe$Integer",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 9, "type": "Integer", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "describe$String",
     "line": 13,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 13, "type": "String", "default": null }
@@ -39,7 +39,7 @@
   {
     "name": "describe$Boolean",
     "line": 17,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 17, "type": "Boolean", "default": null }
@@ -62,7 +62,7 @@
   {
     "name": "combine$Integer$Integer",
     "line": 25,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 25, "type": "Integer", "default": null },
@@ -76,7 +76,7 @@
   {
     "name": "combine$Integer$Integer$Integer",
     "line": 29,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 29, "type": "Integer", "default": null },
@@ -91,7 +91,7 @@
   {
     "name": "main",
     "line": 33,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -13,7 +13,7 @@
   {
     "name": "churn",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "rounds", "line": 18, "type": "Integer", "default": null }
@@ -104,7 +104,7 @@
   {
     "name": "main",
     "line": 53,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

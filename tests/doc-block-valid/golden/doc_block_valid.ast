@@ -65,7 +65,7 @@
     { "kind": "doc", "header": "FUNC", "name": "helper", "signature": null, "attrs": [], "desc": [{ "kind": "desc", "text": "A non-exported helper, implicitly internal." }], "deprecated": [], "group": [], "args": [], "ret": [], "errors": [], "props": [], "example": [], "line": 60 },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "helper",
       "line": 64,
       "params": [
@@ -77,7 +77,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 68,
       "params": [

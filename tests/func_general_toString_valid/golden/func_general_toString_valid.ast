@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "integerText",
       "line": 3,
       "params": [
@@ -22,7 +22,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "byteText",
       "line": 7,
       "params": [
@@ -35,7 +35,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "boolText",
       "line": 11,
       "params": [
@@ -48,7 +48,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "stringText",
       "line": 15,
       "params": [
@@ -61,7 +61,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fixedText",
       "line": 19,
       "params": [
@@ -74,7 +74,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fixedTextWithPrecision",
       "line": 23,
       "params": [
@@ -88,7 +88,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "floatText",
       "line": 27,
       "params": [
@@ -101,7 +101,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "floatTextWithPrecision",
       "line": 31,
       "params": [
@@ -115,7 +115,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "byteListText",
       "line": 35,
       "params": [
@@ -128,7 +128,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 39,
       "params": [

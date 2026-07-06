@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Person",
     "fields": [
     { "visibility": null, "line": 15, "name": "name", "type": "String" },
@@ -21,7 +21,7 @@
   {
     "kind": "type",
     "line": 19,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Team",
     "fields": [
     { "visibility": null, "line": 20, "name": "lead", "type": "Person" },
@@ -33,7 +33,7 @@
   {
     "name": "makePerson",
     "line": 25,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "n", "line": 25, "type": "String", "default": null },
@@ -48,7 +48,7 @@
   {
     "name": "nameOf",
     "line": 32,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 32, "type": "Person", "default": null }
@@ -61,7 +61,7 @@
   {
     "name": "churn",
     "line": 38,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "rounds", "line": 38, "type": "Integer", "default": null }
@@ -89,7 +89,7 @@
   {
     "name": "main",
     "line": 51,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

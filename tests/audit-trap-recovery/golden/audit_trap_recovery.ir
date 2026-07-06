@@ -13,7 +13,7 @@
   {
     "name": "leaf",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -25,7 +25,7 @@
   {
     "name": "propagates",
     "line": 5,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -45,7 +45,7 @@
   {
     "name": "reraises",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -65,7 +65,7 @@
   {
     "name": "recovers",
     "line": 19,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -85,7 +85,7 @@
   {
     "name": "main",
     "line": 26,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -6,20 +6,20 @@ Directories inside a source root do not create package boundaries or package
 namespaces. Additional packages are introduced only through the importing
 project's `project.json` `packages` array.
 
-Visibility (`Visibility` enum in `src/ast.rs`; default is `Private`):
-- `PRIVATE` (default) — file-local.
-- `PACKAGE` — visible to all files in the same package, hidden from importers.
+Visibility (`Visibility` enum in `src/ast.rs`; default is `Public`):
+- `PRIVATE` — file-local (opt in explicitly).
+- `PUBLIC` (default) — visible to all files in the same package, hidden from importers.
 - `EXPORT` — visible to importers.
 
-Within a single build, `PACKAGE` and `EXPORT` are treated **identically** by
+Within a single build, `PUBLIC` and `EXPORT` are treated **identically** by
 `visible_from` (`src/resolver/mod.rs`, `src/syntaxcheck/mod.rs`): both are visible across
-files in the project, and only `PRIVATE` is file-local. The `PACKAGE`/`EXPORT`
+files in the project, and only `PRIVATE` is file-local. The `PUBLIC`/`EXPORT`
 distinction matters only for what is written into the compiled `.mfp` package
 (the exported-symbol flag), not for in-project name resolution. This is why a
 cross-file reference to a `PRIVATE` declaration fails unless the declaration is
-`PACKAGE`/`EXPORT` or the project is built as a single file.
+`PUBLIC`/`EXPORT` or the project is built as a single file.
 
-Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PACKAGE`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PACKAGE`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PACKAGE` (`effective_field_visibility`, `src/syntaxcheck/helpers.rs`) — i.e. the containing type's visibility, capped at `PACKAGE` for non-exported types.
+Top-level `LET`, `MUT`, `FUNC`, `SUB`, `TYPE`, `UNION`, and `ENUM` may use `PRIVATE`, `PUBLIC`, or `EXPORT`. Fields in `TYPE` declarations may also use `PRIVATE`, `PUBLIC`, or `EXPORT`; omitted field visibility defaults to `EXPORT` when the containing type is `EXPORT`, otherwise to `PUBLIC` (`effective_field_visibility`, `src/syntaxcheck/helpers.rs`) — i.e. the containing type's visibility, capped at `PUBLIC` for non-exported types.
 
 Only exported top-level `FUNC` declarations may use `ISOLATED`. Imported package constructors are addressed as `package::identifier` when constructing values, but constructors for records with hidden fields are callable only from scopes that can see every required field.
 

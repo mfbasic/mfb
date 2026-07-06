@@ -7,7 +7,7 @@
     ],
     "items": [
     { "kind": "resource", "visibility": "export", "name": "Db", "closeFn": "demoLink.close", "threadSendable": false, "line": 3 },
-    { "kind": "resource", "visibility": "private", "name": "Stmt", "closeFn": "demoLink.finalize", "threadSendable": false, "line": 4 },
+    { "kind": "resource", "visibility": "public", "name": "Stmt", "closeFn": "demoLink.finalize", "threadSendable": false, "line": 4 },
     {
       "kind": "link",
       "library": "sqlite3",

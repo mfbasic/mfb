@@ -13,7 +13,7 @@
   {
     "name": "main",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],

@@ -13,7 +13,7 @@
   {
     "name": "sumList",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "xs", "line": 9, "type": "List OF Integer", "default": null }
@@ -37,7 +37,7 @@
   {
     "name": "twice",
     "line": 17,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "x", "line": 17, "type": "Integer", "default": null }
@@ -50,7 +50,7 @@
   {
     "name": "odd",
     "line": 21,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "x", "line": 21, "type": "Integer", "default": null }
@@ -63,7 +63,7 @@
   {
     "name": "main",
     "line": 25,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

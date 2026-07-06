@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Payload",
       "line": 3,
       "fields": [
@@ -20,7 +20,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "promote",
       "line": 9,
       "params": [
@@ -34,7 +34,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "rewrite",
       "line": 14,
       "params": [
@@ -48,7 +48,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "occupy",
       "line": 18,
       "params": [
@@ -62,7 +62,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "readAfterCalls",
       "line": 23,
       "params": [
@@ -79,7 +79,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 31,
       "params": [

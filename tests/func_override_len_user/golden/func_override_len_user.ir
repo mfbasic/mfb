@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Ring",
     "fields": [
     { "visibility": null, "line": 4, "name": "items", "type": "List OF Integer" }
@@ -22,7 +22,7 @@
   {
     "name": "len$Ring",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "r", "line": 7, "type": "Ring", "default": null }
@@ -35,7 +35,7 @@
   {
     "name": "isEmpty$Ring",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "r", "line": 11, "type": "Ring", "default": null }
@@ -48,7 +48,7 @@
   {
     "name": "isNotEmpty$Ring",
     "line": 15,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "r", "line": 15, "type": "Ring", "default": null }
@@ -61,7 +61,7 @@
   {
     "name": "main",
     "line": 19,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

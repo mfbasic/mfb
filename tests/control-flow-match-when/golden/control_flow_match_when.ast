@@ -8,7 +8,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Circle",
       "line": 1,
       "fields": [
@@ -17,7 +17,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Rect",
       "line": 5,
       "fields": [
@@ -27,7 +27,7 @@
     },
     {
       "kind": "union",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Shape",
       "line": 10,
       "includes": [],
@@ -38,7 +38,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "score",
       "line": 15,
       "params": [
@@ -89,7 +89,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 28,
       "params": [

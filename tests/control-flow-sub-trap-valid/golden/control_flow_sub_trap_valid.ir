@@ -13,7 +13,7 @@
   {
     "name": "viaReturn",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "flag", "line": 1, "type": "Boolean", "default": null }
@@ -44,7 +44,7 @@
   {
     "name": "viaTrapReturn",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "flag", "line": 12, "type": "Boolean", "default": null }
@@ -75,7 +75,7 @@
   {
     "name": "main",
     "line": 23,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Ring",
       "line": 3,
       "fields": [
@@ -18,7 +18,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "len",
       "line": 7,
       "params": [
@@ -31,7 +31,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "isEmpty",
       "line": 11,
       "params": [
@@ -44,7 +44,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "isNotEmpty",
       "line": 15,
       "params": [
@@ -57,7 +57,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 19,
       "params": [

@@ -43,7 +43,7 @@
   {
     "name": "makePair",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "n", "line": 7, "type": "Integer", "default": null },
@@ -57,7 +57,7 @@
   {
     "name": "main",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

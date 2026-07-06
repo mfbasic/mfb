@@ -11,7 +11,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "parsePreLocal",
       "line": 14,
       "params": [
@@ -34,7 +34,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "parsePostLocal",
       "line": 28,
       "params": [
@@ -57,7 +57,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "parseInnerBlock",
       "line": 41,
       "params": [
@@ -90,7 +90,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 55,
       "params": [

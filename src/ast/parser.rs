@@ -64,7 +64,7 @@ impl<'a> FileParser<'a> {
             }
 
             if self.check_top_level_binding_start() {
-                let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
+                let visibility = self.parse_visibility().unwrap_or(Visibility::Public);
                 if let Some(binding) = self.parse_top_level_binding(visibility) {
                     items.push(Item::Binding(binding));
                 }
@@ -81,7 +81,7 @@ impl<'a> FileParser<'a> {
             }
 
             if self.check_top_level_item_start() {
-                let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
+                let visibility = self.parse_visibility().unwrap_or(Visibility::Public);
                 if let Some(function) = self.parse_function() {
                     items.push(Item::Function(Function {
                         visibility,
@@ -109,7 +109,7 @@ impl<'a> FileParser<'a> {
             }
 
             if self.check_top_level_type_start() {
-                let visibility = self.parse_visibility().unwrap_or(Visibility::Private);
+                let visibility = self.parse_visibility().unwrap_or(Visibility::Public);
                 if let Some(type_decl) = self.parse_type_decl() {
                     items.push(Item::Type(TypeDecl {
                         visibility,
@@ -176,7 +176,7 @@ impl<'a> FileParser<'a> {
 
     pub(super) fn check_visibility(&self) -> bool {
         self.check_keyword(Keyword::Private)
-            || self.check_keyword(Keyword::Package)
+            || self.check_keyword(Keyword::Public)
             || self.check_keyword(Keyword::Export)
     }
 

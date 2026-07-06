@@ -110,7 +110,7 @@ pub(super) fn package_info(package: &PackageBinaryRepr) -> Result<BinaryReprPack
         .iter()
         .map(|global| {
             let visibility = match (global.flags >> 1) & 0b11 {
-                1 => "package",
+                1 => "public",
                 2 => "export",
                 _ => "private",
             };

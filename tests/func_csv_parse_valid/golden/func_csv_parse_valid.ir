@@ -13,7 +13,7 @@
   {
     "name": "crChar",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -26,7 +26,7 @@
   {
     "name": "dump",
     "line": 13,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "label", "line": 13, "type": "String", "default": null },
@@ -62,7 +62,7 @@
   {
     "name": "main",
     "line": 25,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -85,7 +85,7 @@
   {
     "name": "#csv_crChar",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -98,7 +98,7 @@
   {
     "name": "#csv_parse",
     "line": 23,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 23, "type": "String", "default": null }
@@ -242,7 +242,7 @@
   {
     "name": "#csv_isDoubledQuote",
     "line": 92,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 92, "type": "List OF String", "default": null },
@@ -277,7 +277,7 @@
   {
     "name": "#csv_separatorLength",
     "line": 105,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "chars", "line": 105, "type": "List OF String", "default": null },
@@ -343,7 +343,7 @@
   {
     "name": "#csv_stringify",
     "line": 129,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 129, "type": "List OF List OF String", "default": null }
@@ -379,7 +379,7 @@
   {
     "name": "#csv_stringifyRow",
     "line": 143,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "row", "line": 143, "type": "List OF String", "default": null }
@@ -415,7 +415,7 @@
   {
     "name": "#csv_encodeField",
     "line": 157,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "field", "line": 157, "type": "String", "default": null }
@@ -438,7 +438,7 @@
   {
     "name": "#csv_needsQuote",
     "line": 164,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "field", "line": 164, "type": "String", "default": null }
@@ -491,7 +491,7 @@
   {
     "name": "#csv_quoteField",
     "line": 180,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "field", "line": 180, "type": "String", "default": null }

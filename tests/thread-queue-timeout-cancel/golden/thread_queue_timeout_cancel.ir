@@ -13,7 +13,7 @@
   {
     "name": "fullQueueScenario",
     "line": 5,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 5, "type": "Thread OF String TO Integer", "default": null }
@@ -56,7 +56,7 @@
   {
     "name": "cancelScenario",
     "line": 22,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 22, "type": "Thread OF String TO Integer", "default": null }
@@ -110,7 +110,7 @@
   {
     "name": "expectInterruptedWaitFor",
     "line": 44,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 44, "type": "Thread OF String TO Integer", "default": null }
@@ -142,7 +142,7 @@
   {
     "name": "receiveCancelScenario",
     "line": 55,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 55, "type": "Thread OF String TO Integer", "default": null }
@@ -192,7 +192,7 @@
   {
     "name": "outboundCancelScenario",
     "line": 75,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 75, "type": "Thread OF String TO Integer", "default": null }
@@ -242,7 +242,7 @@
   {
     "name": "main",
     "line": 95,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

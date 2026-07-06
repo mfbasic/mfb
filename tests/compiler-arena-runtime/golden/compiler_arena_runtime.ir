@@ -13,7 +13,7 @@
   {
     "name": "join",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "left", "line": 3, "type": "String", "default": null },
@@ -27,7 +27,7 @@
   {
     "name": "wrap",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 7, "type": "String", "default": null }
@@ -40,7 +40,7 @@
   {
     "name": "main",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

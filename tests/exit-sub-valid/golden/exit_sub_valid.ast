@@ -8,7 +8,7 @@
     "items": [
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "guard",
       "line": 1,
       "params": [
@@ -31,7 +31,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "swallow",
       "line": 8,
       "params": [
@@ -61,7 +61,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 18,
       "params": [

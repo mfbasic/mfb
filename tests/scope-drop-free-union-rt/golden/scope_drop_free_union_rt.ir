@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Dot",
     "fields": [
     { "visibility": null, "line": 12, "name": "x", "type": "Integer" }
@@ -20,7 +20,7 @@
   {
     "kind": "type",
     "line": 15,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Tag",
     "fields": [
     { "visibility": null, "line": 16, "name": "name", "type": "String" }
@@ -29,7 +29,7 @@
   {
     "kind": "union",
     "line": 19,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Shape",
     "includes": [],
     "variants": [
@@ -54,7 +54,7 @@
   {
     "name": "describe",
     "line": 24,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 24, "type": "Shape", "default": null }
@@ -92,7 +92,7 @@
   {
     "name": "churn",
     "line": 33,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "rounds", "line": 33, "type": "Integer", "default": null }
@@ -130,7 +130,7 @@
   {
     "name": "main",
     "line": 49,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Grid",
       "line": 3,
       "fields": [
@@ -18,7 +18,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Ring",
       "line": 7,
       "fields": [
@@ -27,7 +27,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "len",
       "line": 12,
       "params": [
@@ -40,7 +40,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "len",
       "line": 16,
       "params": [
@@ -53,7 +53,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 20,
       "params": [

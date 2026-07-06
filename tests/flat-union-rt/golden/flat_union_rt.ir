@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Dot",
     "fields": [
     { "visibility": null, "line": 11, "name": "x", "type": "Integer" }
@@ -20,7 +20,7 @@
   {
     "kind": "type",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Tag",
     "fields": [
     { "visibility": null, "line": 15, "name": "name", "type": "String" }
@@ -29,7 +29,7 @@
   {
     "kind": "type",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Boxed",
     "fields": [
     { "visibility": null, "line": 19, "name": "dot", "type": "Dot" },
@@ -39,7 +39,7 @@
   {
     "kind": "union",
     "line": 23,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Shape",
     "includes": [],
     "variants": [
@@ -72,7 +72,7 @@
   {
     "name": "describe",
     "line": 29,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 29, "type": "Shape", "default": null }
@@ -119,7 +119,7 @@
   {
     "name": "main",
     "line": 40,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

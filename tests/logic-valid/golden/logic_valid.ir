@@ -13,7 +13,7 @@
   {
     "name": "markTrue",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "label", "line": 3, "type": "String", "default": null }
@@ -27,7 +27,7 @@
   {
     "name": "markFalse",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "label", "line": 8, "type": "String", "default": null }
@@ -41,7 +41,7 @@
   {
     "name": "main",
     "line": 13,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

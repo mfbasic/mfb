@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Circle",
     "fields": [
     { "visibility": null, "line": 4, "name": "radius", "type": "Integer" }
@@ -20,7 +20,7 @@
   {
     "kind": "type",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Rect",
     "fields": [
     { "visibility": null, "line": 8, "name": "w", "type": "Integer" },
@@ -30,7 +30,7 @@
   {
     "kind": "type",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Point",
     "fields": [
     { "visibility": null, "line": 13, "name": "value", "type": "Nothing" }
@@ -39,7 +39,7 @@
   {
     "kind": "type",
     "line": 16,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Triangle",
     "fields": [
     { "visibility": null, "line": 17, "name": "a", "type": "Integer" },
@@ -50,7 +50,7 @@
   {
     "kind": "union",
     "line": 22,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Shape",
     "includes": [],
     "variants": [
@@ -81,7 +81,7 @@
   {
     "kind": "union",
     "line": 28,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ExtraShape",
     "includes": ["Shape"],
     "variants": [
@@ -99,7 +99,7 @@
   {
     "kind": "type",
     "line": 32,
-    "visibility": "private",
+    "visibility": "public",
     "name": "ShapeBag",
     "fields": [
     { "visibility": null, "line": 33, "name": "shapes", "type": "List OF Shape" }
@@ -110,7 +110,7 @@
   {
     "name": "shapeScore",
     "line": 36,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 36, "type": "Shape", "default": null }
@@ -157,7 +157,7 @@
   {
     "name": "extraScore",
     "line": 47,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 47, "type": "ExtraShape", "default": null }
@@ -213,7 +213,7 @@
   {
     "name": "listScore",
     "line": 60,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "shapes", "line": 60, "type": "List OF Shape", "default": null }
@@ -237,7 +237,7 @@
   {
     "name": "main",
     "line": 68,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "load",
       "line": 4,
       "params": [
@@ -32,7 +32,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "reload",
       "line": 12,
       "params": [
@@ -45,7 +45,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "divide",
       "line": 17,
       "params": [
@@ -59,7 +59,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "show",
       "line": 21,
       "params": [
@@ -74,7 +74,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 26,
       "params": [

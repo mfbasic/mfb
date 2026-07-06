@@ -6,11 +6,11 @@
     "imports": [
     ],
     "items": [
-    { "kind": "binding", "visibility": "private", "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "number", "value": "1" }, "line": 1 },
-    { "kind": "binding", "visibility": "private", "mutable": true, "name": "counter", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 2 },
+    { "kind": "binding", "visibility": "public", "mutable": false, "name": "base", "type": "Integer", "value": { "kind": "number", "value": "1" }, "line": 1 },
+    { "kind": "binding", "visibility": "public", "mutable": true, "name": "counter", "type": "Integer", "value": { "kind": "number", "value": "0" }, "line": 2 },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "bump",
       "line": 4,
       "params": [
@@ -23,7 +23,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 9,
       "params": [

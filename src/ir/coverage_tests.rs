@@ -377,7 +377,7 @@ fn full_project() -> IrProject {
         }),
         bindings: vec![IrBinding {
             name: "g".to_string(),
-            visibility: "package".to_string(),
+            visibility: "public".to_string(),
             mutable: true,
             type_: "Integer".to_string(),
             value: Some(c("Integer", "0")),
@@ -672,7 +672,7 @@ fn decode_rejects_unknown_value_tag() {
     let mut project = empty_project("val");
     project.bindings = vec![IrBinding {
         name: "g".to_string(),
-        visibility: "package".to_string(),
+        visibility: "public".to_string(),
         mutable: false,
         type_: "Integer".to_string(),
         value: Some(c("Integer", "1")),
@@ -717,7 +717,7 @@ fn decode_rejects_depth_limit() {
             let mut project = empty_project("deep");
             project.bindings = vec![IrBinding {
                 name: "g".to_string(),
-                visibility: "package".to_string(),
+                visibility: "public".to_string(),
                 mutable: false,
                 type_: "Boolean".to_string(),
                 value: Some(v),
@@ -944,7 +944,7 @@ fn prefix_and_apply_identity_rewrite_all_reference_shapes() {
     )];
     consumer.bindings = vec![IrBinding {
         name: "b".to_string(),
-        visibility: "package".to_string(),
+        visibility: "public".to_string(),
         mutable: false,
         type_: "Integer".to_string(),
         value: Some(IrValue::Global("pkg.gv".to_string())),
@@ -1000,7 +1000,7 @@ fn merge_package_dedups_by_name_and_carries_link_tables() {
     base.functions = vec![fn_body("shared", vec![])];
     base.bindings = vec![IrBinding {
         name: "gshared".to_string(),
-        visibility: "package".to_string(),
+        visibility: "public".to_string(),
         mutable: false,
         type_: "Integer".to_string(),
         value: None,
@@ -1027,7 +1027,7 @@ fn merge_package_dedups_by_name_and_carries_link_tables() {
     pkg.bindings = base.bindings.clone();
     pkg.bindings.push(IrBinding {
         name: "gunique".to_string(),
-        visibility: "package".to_string(),
+        visibility: "public".to_string(),
         mutable: false,
         type_: "Integer".to_string(),
         value: None,
@@ -1187,7 +1187,7 @@ fn loop_kind_name_covers_all_kinds() {
 fn visibility_name_covers_all_visibilities() {
     use crate::ast::Visibility;
     assert_eq!(visibility_name(Visibility::Private), "private");
-    assert_eq!(visibility_name(Visibility::Package), "package");
+    assert_eq!(visibility_name(Visibility::Public), "public");
     assert_eq!(visibility_name(Visibility::Export), "export");
 }
 

@@ -13,7 +13,7 @@
   {
     "name": "double",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 4, "type": "Integer", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "label",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 8, "type": "Integer", "default": null }
@@ -39,7 +39,7 @@
   {
     "name": "main",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

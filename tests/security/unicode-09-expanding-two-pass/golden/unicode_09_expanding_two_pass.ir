@@ -13,7 +13,7 @@
   {
     "name": "upperOf",
     "line": 16,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 16, "type": "String", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "lowerOf",
     "line": 20,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 20, "type": "String", "default": null }
@@ -39,7 +39,7 @@
   {
     "name": "nfcOf",
     "line": 24,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 24, "type": "String", "default": null }
@@ -52,7 +52,7 @@
   {
     "name": "byteLen",
     "line": 28,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 28, "type": "String", "default": null }
@@ -65,7 +65,7 @@
   {
     "name": "graphemeCount",
     "line": 32,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "s", "line": 32, "type": "String", "default": null }
@@ -78,7 +78,7 @@
   {
     "name": "main",
     "line": 36,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -9,7 +9,7 @@ Application packages do not repeat a dependency's `LINK` block. They import the 
 * A source package that declares `LINK` is a binding package. It may also include ordinary MFBASIC wrapper code, validation, and higher-level helpers around the native symbols.
 
 ```basic
-' The native resource type is declared at PACKAGE scope. `EXPORT` makes it
+' The native resource type is declared at PUBLIC scope. `EXPORT` makes it
 ' nameable by importers as `sqlite::Db`; `CLOSE BY` names its registered close
 ' op — a native LINK function declared below.
 EXPORT RESOURCE Db CLOSE BY sqlite::close

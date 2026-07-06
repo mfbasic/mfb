@@ -13,7 +13,7 @@
   {
     "name": "fromString",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 3, "type": "String", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "fromByte",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 7, "type": "Byte", "default": null }
@@ -39,7 +39,7 @@
   {
     "name": "fromFloat",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 11, "type": "Float", "default": null }
@@ -52,7 +52,7 @@
   {
     "name": "fromFixed",
     "line": 15,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 15, "type": "Fixed", "default": null }
@@ -65,7 +65,7 @@
   {
     "name": "negativeFloat",
     "line": 19,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 19, "type": "Float", "default": null }
@@ -78,7 +78,7 @@
   {
     "name": "negativeFixed",
     "line": 23,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 23, "type": "Fixed", "default": null }
@@ -91,7 +91,7 @@
   {
     "name": "printInt",
     "line": 27,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 27, "type": "Integer", "default": null }
@@ -105,7 +105,7 @@
   {
     "name": "fromBase",
     "line": 32,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 32, "type": "String", "default": null },
@@ -119,7 +119,7 @@
   {
     "name": "main",
     "line": 36,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

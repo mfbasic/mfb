@@ -13,7 +13,7 @@
   {
     "name": "pF",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "label", "line": 3, "type": "String", "default": null },
@@ -39,7 +39,7 @@
   {
     "name": "main",
     "line": 11,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

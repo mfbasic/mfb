@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fromString",
       "line": 3,
       "params": [
@@ -22,7 +22,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fromInteger",
       "line": 7,
       "params": [
@@ -35,7 +35,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fromFloat",
       "line": 11,
       "params": [
@@ -48,7 +48,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 15,
       "params": [

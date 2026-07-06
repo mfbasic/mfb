@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Point",
     "fields": [
     { "visibility": null, "line": 4, "name": "x", "type": "Integer" },
@@ -23,7 +23,7 @@
   {
     "name": "toString$Point",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 9, "type": "Point", "default": null }
@@ -36,7 +36,7 @@
   {
     "name": "toString$List$OF$Point",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "ps", "line": 14, "type": "List OF Point", "default": null }
@@ -72,7 +72,7 @@
   {
     "name": "main",
     "line": 28,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

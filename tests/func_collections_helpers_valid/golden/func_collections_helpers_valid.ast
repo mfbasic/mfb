@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "isPos",
       "line": 4,
       "params": [
@@ -23,7 +23,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "neg",
       "line": 8,
       "params": [
@@ -36,7 +36,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "addN",
       "line": 12,
       "params": [
@@ -50,7 +50,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "keyMod",
       "line": 16,
       "params": [
@@ -63,7 +63,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "idn",
       "line": 20,
       "params": [
@@ -76,7 +76,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "dbl",
       "line": 24,
       "params": [
@@ -89,7 +89,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "pl",
       "line": 28,
       "params": [
@@ -113,7 +113,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "twoValues",
       "line": 36,
       "params": [
@@ -125,7 +125,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 40,
       "params": [

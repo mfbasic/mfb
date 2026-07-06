@@ -159,7 +159,7 @@ pub(super) fn lower_project_with_external_functions(
             }
             flags |= match binding.visibility.as_str() {
                 "private" => 0 << 1,
-                "package" => 1 << 1,
+                "public" => 1 << 1,
                 "export" => 2 << 1,
                 _ => 0,
             };

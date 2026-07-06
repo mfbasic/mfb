@@ -13,7 +13,7 @@
   {
     "name": "alwaysFail",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -25,7 +25,7 @@
   {
     "name": "propagateOnce",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "path", "line": 8, "type": "String", "default": null }
@@ -40,7 +40,7 @@
   {
     "name": "trapPropagate",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "path", "line": 14, "type": "String", "default": null }
@@ -72,7 +72,7 @@
   {
     "name": "main",
     "line": 23,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

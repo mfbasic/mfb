@@ -8,7 +8,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "leaf",
       "line": 1,
       "params": [
@@ -20,7 +20,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "relay",
       "line": 5,
       "params": [
@@ -39,7 +39,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 12,
       "params": [

@@ -13,7 +13,7 @@
   {
     "name": "findAt",
     "line": 13,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 13, "type": "String", "default": null },
@@ -28,7 +28,7 @@
   {
     "name": "midOf",
     "line": 17,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 17, "type": "String", "default": null },
@@ -43,7 +43,7 @@
   {
     "name": "main",
     "line": 21,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Point",
     "fields": [
     { "visibility": null, "line": 5, "name": "x", "type": "Integer" },
@@ -23,7 +23,7 @@
   {
     "name": "printBoolean",
     "line": 9,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 9, "type": "Boolean", "default": null }
@@ -37,7 +37,7 @@
   {
     "name": "main",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

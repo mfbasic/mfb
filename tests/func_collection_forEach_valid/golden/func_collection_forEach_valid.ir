@@ -13,7 +13,7 @@
   {
     "name": "printInteger",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "value", "line": 4, "type": "Integer", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "printString",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "value", "line": 8, "type": "String", "default": null }
@@ -39,7 +39,7 @@
   {
     "name": "main",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Dot",
       "line": 11,
       "fields": [
@@ -19,7 +19,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Tag",
       "line": 15,
       "fields": [
@@ -28,7 +28,7 @@
     },
     {
       "kind": "union",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Shape",
       "line": 19,
       "includes": [],
@@ -39,7 +39,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "describe",
       "line": 24,
       "params": [
@@ -74,7 +74,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "churn",
       "line": 33,
       "params": [
@@ -112,7 +112,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 49,
       "params": [

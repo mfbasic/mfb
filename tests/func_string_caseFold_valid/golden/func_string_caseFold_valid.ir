@@ -13,7 +13,7 @@
   {
     "name": "foldValue",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "value", "line": 4, "type": "String", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "main",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

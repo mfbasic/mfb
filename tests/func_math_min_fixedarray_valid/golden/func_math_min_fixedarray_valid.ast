@@ -10,7 +10,7 @@
     "items": [
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "pX",
       "line": 3,
       "params": [
@@ -35,7 +35,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 11,
       "params": [

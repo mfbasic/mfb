@@ -11,7 +11,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "badDate",
       "line": 5,
       "params": [
@@ -32,7 +32,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "badMonth",
       "line": 14,
       "params": [
@@ -53,7 +53,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "badHour",
       "line": 23,
       "params": [
@@ -74,7 +74,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "badOffset",
       "line": 32,
       "params": [
@@ -95,7 +95,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "badParse",
       "line": 41,
       "params": [
@@ -116,7 +116,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "badIso",
       "line": 50,
       "params": [
@@ -137,7 +137,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 59,
       "params": [

@@ -562,7 +562,7 @@ mod binary_repr_tests {
             }),
             bindings: vec![IrBinding {
                 name: "g".to_string(),
-                visibility: "package".to_string(),
+                visibility: "public".to_string(),
                 mutable: false,
                 type_: "Integer".to_string(),
                 value: Some(sample_value()),
@@ -932,7 +932,7 @@ mod binary_repr_tests {
         let mut project = project_named("nulls", vec![fn_named("main", vec![])]);
         project.bindings.push(IrBinding {
             name: "g".to_string(),
-            visibility: "package".to_string(),
+            visibility: "public".to_string(),
             mutable: true,
             type_: "Integer".to_string(),
             value: None,
@@ -970,7 +970,7 @@ mod binary_repr_tests {
     #[test]
     fn visibility_name_maps_all_variants() {
         assert_eq!(visibility_name(Visibility::Private), "private");
-        assert_eq!(visibility_name(Visibility::Package), "package");
+        assert_eq!(visibility_name(Visibility::Public), "public");
         assert_eq!(visibility_name(Visibility::Export), "export");
     }
 }
@@ -3077,10 +3077,10 @@ mod lower_tests {
 
     #[test]
     fn native_resource_visibility_variants() {
-        // A package-visible and a private RESOURCE exercise the package/private
+        // A public and a private RESOURCE exercise the public/private
         // arms of native_resources' visibility mapping.
-        let src = "PACKAGE RESOURCE Db CLOSE BY lib::close\n\
-             RESOURCE Cache CLOSE BY lib::freeCache\n\
+        let src = "PUBLIC RESOURCE Db CLOSE BY lib::close\n\
+             PRIVATE RESOURCE Cache CLOSE BY lib::freeCache\n\
              LINK \"c\" AS lib\n\
                FUNC open() AS RES Db\n\
                  SYMBOL \"open\"\n\
@@ -3105,7 +3105,7 @@ mod lower_tests {
         if let Some(ir) = try_lower_src(src) {
             let db = ir.native_resources.iter().find(|r| r.name == "Db");
             let cache = ir.native_resources.iter().find(|r| r.name == "Cache");
-            assert!(db.is_some_and(|r| r.visibility == "package"));
+            assert!(db.is_some_and(|r| r.visibility == "public"));
             assert!(cache.is_some_and(|r| r.visibility == "private"));
         }
     }
@@ -4335,7 +4335,7 @@ END FUNC
             "native_link",
             r#"
 EXPORT RESOURCE Db CLOSE BY demoLink::close
-RESOURCE Stmt CLOSE BY demoLink::finalize
+PRIVATE RESOURCE Stmt CLOSE BY demoLink::finalize
 
 LINK "sqlite3" AS demoLink
   FUNC open(path AS String) AS RES Db
@@ -4587,7 +4587,7 @@ END FUNC
         let ir = lower_src(
             "res_package_vis",
             r#"
-PACKAGE RESOURCE Widget CLOSE BY wLink::destroy
+PUBLIC RESOURCE Widget CLOSE BY wLink::destroy
 
 LINK "w" AS wLink
   FUNC destroy(RES w AS Widget) AS Nothing
@@ -4604,7 +4604,7 @@ END FUNC
         assert!(ir
             .native_resources
             .iter()
-            .any(|r| r.name == "Widget" && r.visibility == "package"));
+            .any(|r| r.name == "Widget" && r.visibility == "public"));
     }
 
     #[test]

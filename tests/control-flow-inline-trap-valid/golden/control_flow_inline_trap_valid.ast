@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "parsePositive",
       "line": 3,
       "params": [
@@ -32,7 +32,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "doEffect",
       "line": 8,
       "params": [
@@ -54,7 +54,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "happy",
       "line": 13,
       "params": [
@@ -75,7 +75,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "recovered",
       "line": 21,
       "params": [
@@ -96,7 +96,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "viaAssign",
       "line": 29,
       "params": [
@@ -119,7 +119,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "recoverOrBail",
       "line": 38,
       "params": [
@@ -151,7 +151,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "viaReturn",
       "line": 47,
       "params": [
@@ -173,7 +173,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "viaSub",
       "line": 55,
       "params": [
@@ -197,7 +197,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 64,
       "params": [

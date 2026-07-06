@@ -11,7 +11,7 @@
   {
     "kind": "type",
     "line": 6,
-    "visibility": "private",
+    "visibility": "public",
     "name": "Cursor",
     "fields": [
     { "visibility": null, "line": 7, "name": "pos", "type": "Integer" }
@@ -22,7 +22,7 @@
   {
     "name": "main",
     "line": 12,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

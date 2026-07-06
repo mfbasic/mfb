@@ -13,7 +13,7 @@
   {
     "name": "tryDecode",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "bytes", "line": 14, "type": "List OF Byte", "default": null }
@@ -27,7 +27,7 @@
   {
     "name": "main",
     "line": 20,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

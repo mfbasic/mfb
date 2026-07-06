@@ -13,7 +13,7 @@
   {
     "name": "serveOnce",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "listener", "line": 8, "type": "TlsListener", "default": null }
@@ -30,7 +30,7 @@
   {
     "name": "main",
     "line": 16,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

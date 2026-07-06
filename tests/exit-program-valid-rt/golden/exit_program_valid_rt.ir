@@ -13,7 +13,7 @@
   {
     "name": "leave",
     "line": 3,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "code", "line": 3, "type": "Integer", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "main",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

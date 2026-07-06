@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Circle",
       "line": 3,
       "fields": [
@@ -18,7 +18,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Rect",
       "line": 7,
       "fields": [
@@ -28,7 +28,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Point",
       "line": 12,
       "fields": [
@@ -37,7 +37,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Triangle",
       "line": 16,
       "fields": [
@@ -48,7 +48,7 @@
     },
     {
       "kind": "union",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Shape",
       "line": 22,
       "includes": [],
@@ -60,7 +60,7 @@
     },
     {
       "kind": "union",
-      "visibility": "private",
+      "visibility": "public",
       "name": "ExtraShape",
       "line": 28,
       "includes": ["Shape"],
@@ -70,7 +70,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "ShapeBag",
       "line": 32,
       "fields": [
@@ -79,7 +79,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "shapeScore",
       "line": 36,
       "params": [
@@ -122,7 +122,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "extraScore",
       "line": 47,
       "params": [
@@ -173,7 +173,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "listScore",
       "line": 60,
       "params": [
@@ -196,7 +196,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 68,
       "params": [

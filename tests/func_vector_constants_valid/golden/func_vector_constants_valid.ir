@@ -112,7 +112,7 @@
   {
     "name": "main",
     "line": 5,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],
@@ -166,7 +166,7 @@
   {
     "name": "#vector_isqrtFloor",
     "line": 70,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "n", "line": 70, "type": "Integer", "default": null }
@@ -201,7 +201,7 @@
   {
     "name": "#vector_isqrtRound",
     "line": 86,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "n", "line": 86, "type": "Integer", "default": null }
@@ -225,7 +225,7 @@
   {
     "name": "#vector_angleFixed_integer2",
     "line": 96,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 96, "type": "Integer2", "default": null },
@@ -255,7 +255,7 @@
   {
     "name": "#vector_angleFixed_integer3",
     "line": 109,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 109, "type": "Integer3", "default": null },
@@ -285,7 +285,7 @@
   {
     "name": "#vector_angleFixed_integer4",
     "line": 122,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 122, "type": "Integer4", "default": null },
@@ -315,7 +315,7 @@
   {
     "name": "#vector_length_float2",
     "line": 137,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 137, "type": "Float2", "default": null }
@@ -328,7 +328,7 @@
   {
     "name": "#vector_dot_float2",
     "line": 141,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 141, "type": "Float2", "default": null },
@@ -342,7 +342,7 @@
   {
     "name": "#vector_distance_float2",
     "line": 145,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 145, "type": "Float2", "default": null },
@@ -358,7 +358,7 @@
   {
     "name": "#vector_length_float3",
     "line": 151,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 151, "type": "Float3", "default": null }
@@ -371,7 +371,7 @@
   {
     "name": "#vector_dot_float3",
     "line": 155,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 155, "type": "Float3", "default": null },
@@ -385,7 +385,7 @@
   {
     "name": "#vector_distance_float3",
     "line": 159,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 159, "type": "Float3", "default": null },
@@ -402,7 +402,7 @@
   {
     "name": "#vector_length_float4",
     "line": 166,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 166, "type": "Float4", "default": null }
@@ -415,7 +415,7 @@
   {
     "name": "#vector_dot_float4",
     "line": 170,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 170, "type": "Float4", "default": null },
@@ -429,7 +429,7 @@
   {
     "name": "#vector_distance_float4",
     "line": 174,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 174, "type": "Float4", "default": null },
@@ -447,7 +447,7 @@
   {
     "name": "#vector_length_fixed2",
     "line": 182,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 182, "type": "Fixed2", "default": null }
@@ -460,7 +460,7 @@
   {
     "name": "#vector_dot_fixed2",
     "line": 186,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 186, "type": "Fixed2", "default": null },
@@ -474,7 +474,7 @@
   {
     "name": "#vector_distance_fixed2",
     "line": 190,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 190, "type": "Fixed2", "default": null },
@@ -490,7 +490,7 @@
   {
     "name": "#vector_length_fixed3",
     "line": 196,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 196, "type": "Fixed3", "default": null }
@@ -503,7 +503,7 @@
   {
     "name": "#vector_dot_fixed3",
     "line": 200,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 200, "type": "Fixed3", "default": null },
@@ -517,7 +517,7 @@
   {
     "name": "#vector_distance_fixed3",
     "line": 204,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 204, "type": "Fixed3", "default": null },
@@ -534,7 +534,7 @@
   {
     "name": "#vector_length_fixed4",
     "line": 211,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 211, "type": "Fixed4", "default": null }
@@ -547,7 +547,7 @@
   {
     "name": "#vector_dot_fixed4",
     "line": 215,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 215, "type": "Fixed4", "default": null },
@@ -561,7 +561,7 @@
   {
     "name": "#vector_distance_fixed4",
     "line": 219,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 219, "type": "Fixed4", "default": null },
@@ -579,7 +579,7 @@
   {
     "name": "#vector_length_integer2",
     "line": 227,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 227, "type": "Integer2", "default": null }
@@ -593,7 +593,7 @@
   {
     "name": "#vector_dot_integer2",
     "line": 232,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 232, "type": "Integer2", "default": null },
@@ -607,7 +607,7 @@
   {
     "name": "#vector_distance_integer2",
     "line": 236,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 236, "type": "Integer2", "default": null },
@@ -624,7 +624,7 @@
   {
     "name": "#vector_length_integer3",
     "line": 243,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 243, "type": "Integer3", "default": null }
@@ -638,7 +638,7 @@
   {
     "name": "#vector_dot_integer3",
     "line": 248,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 248, "type": "Integer3", "default": null },
@@ -652,7 +652,7 @@
   {
     "name": "#vector_distance_integer3",
     "line": 252,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 252, "type": "Integer3", "default": null },
@@ -670,7 +670,7 @@
   {
     "name": "#vector_length_integer4",
     "line": 260,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 260, "type": "Integer4", "default": null }
@@ -684,7 +684,7 @@
   {
     "name": "#vector_dot_integer4",
     "line": 265,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 265, "type": "Integer4", "default": null },
@@ -698,7 +698,7 @@
   {
     "name": "#vector_distance_integer4",
     "line": 269,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 269, "type": "Integer4", "default": null },
@@ -717,7 +717,7 @@
   {
     "name": "#vector_normalize_float2",
     "line": 280,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 280, "type": "Float2", "default": null }
@@ -743,7 +743,7 @@
   {
     "name": "#vector_cross_float2",
     "line": 290,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 290, "type": "Float2", "default": null }
@@ -756,7 +756,7 @@
   {
     "name": "#vector_normalize_float3",
     "line": 294,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 294, "type": "Float3", "default": null }
@@ -783,7 +783,7 @@
   {
     "name": "#vector_cross_float3",
     "line": 305,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 305, "type": "Float3", "default": null },
@@ -800,7 +800,7 @@
   {
     "name": "#vector_normalize_float4",
     "line": 312,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 312, "type": "Float4", "default": null }
@@ -828,7 +828,7 @@
   {
     "name": "#vector_cross_float4",
     "line": 324,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 324, "type": "Float4", "default": null },
@@ -853,7 +853,7 @@
   {
     "name": "#vector_normalize_fixed2",
     "line": 338,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 338, "type": "Fixed2", "default": null }
@@ -879,7 +879,7 @@
   {
     "name": "#vector_cross_fixed2",
     "line": 348,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 348, "type": "Fixed2", "default": null }
@@ -892,7 +892,7 @@
   {
     "name": "#vector_normalize_fixed3",
     "line": 352,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 352, "type": "Fixed3", "default": null }
@@ -919,7 +919,7 @@
   {
     "name": "#vector_cross_fixed3",
     "line": 363,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 363, "type": "Fixed3", "default": null },
@@ -936,7 +936,7 @@
   {
     "name": "#vector_normalize_fixed4",
     "line": 370,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 370, "type": "Fixed4", "default": null }
@@ -964,7 +964,7 @@
   {
     "name": "#vector_cross_fixed4",
     "line": 382,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 382, "type": "Fixed4", "default": null },
@@ -989,7 +989,7 @@
   {
     "name": "#vector_normalize_integer2",
     "line": 396,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 396, "type": "Integer2", "default": null }
@@ -1017,7 +1017,7 @@
   {
     "name": "#vector_cross_integer2",
     "line": 408,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 408, "type": "Integer2", "default": null }
@@ -1030,7 +1030,7 @@
   {
     "name": "#vector_normalize_integer3",
     "line": 412,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 412, "type": "Integer3", "default": null }
@@ -1059,7 +1059,7 @@
   {
     "name": "#vector_cross_integer3",
     "line": 425,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 425, "type": "Integer3", "default": null },
@@ -1076,7 +1076,7 @@
   {
     "name": "#vector_normalize_integer4",
     "line": 432,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 432, "type": "Integer4", "default": null }
@@ -1106,7 +1106,7 @@
   {
     "name": "#vector_cross_integer4",
     "line": 446,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 446, "type": "Integer4", "default": null },
@@ -1131,7 +1131,7 @@
   {
     "name": "#vector_reflect_float2",
     "line": 462,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 462, "type": "Float2", "default": null },
@@ -1149,7 +1149,7 @@
   {
     "name": "#vector_project_float2",
     "line": 470,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 470, "type": "Float2", "default": null },
@@ -1177,7 +1177,7 @@
   {
     "name": "#vector_reject_float2",
     "line": 481,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 481, "type": "Float2", "default": null },
@@ -1192,7 +1192,7 @@
   {
     "name": "#vector_angle_float2",
     "line": 486,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 486, "type": "Float2", "default": null },
@@ -1220,7 +1220,7 @@
   {
     "name": "#vector_reflect_float3",
     "line": 497,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 497, "type": "Float3", "default": null },
@@ -1239,7 +1239,7 @@
   {
     "name": "#vector_project_float3",
     "line": 506,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 506, "type": "Float3", "default": null },
@@ -1268,7 +1268,7 @@
   {
     "name": "#vector_reject_float3",
     "line": 518,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 518, "type": "Float3", "default": null },
@@ -1283,7 +1283,7 @@
   {
     "name": "#vector_angle_float3",
     "line": 523,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 523, "type": "Float3", "default": null },
@@ -1311,7 +1311,7 @@
   {
     "name": "#vector_reflect_float4",
     "line": 534,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 534, "type": "Float4", "default": null },
@@ -1331,7 +1331,7 @@
   {
     "name": "#vector_project_float4",
     "line": 544,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 544, "type": "Float4", "default": null },
@@ -1361,7 +1361,7 @@
   {
     "name": "#vector_reject_float4",
     "line": 557,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 557, "type": "Float4", "default": null },
@@ -1376,7 +1376,7 @@
   {
     "name": "#vector_angle_float4",
     "line": 562,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 562, "type": "Float4", "default": null },
@@ -1404,7 +1404,7 @@
   {
     "name": "#vector_reflect_fixed2",
     "line": 573,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 573, "type": "Fixed2", "default": null },
@@ -1422,7 +1422,7 @@
   {
     "name": "#vector_project_fixed2",
     "line": 581,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 581, "type": "Fixed2", "default": null },
@@ -1450,7 +1450,7 @@
   {
     "name": "#vector_reject_fixed2",
     "line": 592,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 592, "type": "Fixed2", "default": null },
@@ -1465,7 +1465,7 @@
   {
     "name": "#vector_angle_fixed2",
     "line": 597,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 597, "type": "Fixed2", "default": null },
@@ -1493,7 +1493,7 @@
   {
     "name": "#vector_reflect_fixed3",
     "line": 608,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 608, "type": "Fixed3", "default": null },
@@ -1512,7 +1512,7 @@
   {
     "name": "#vector_project_fixed3",
     "line": 617,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 617, "type": "Fixed3", "default": null },
@@ -1541,7 +1541,7 @@
   {
     "name": "#vector_reject_fixed3",
     "line": 629,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 629, "type": "Fixed3", "default": null },
@@ -1556,7 +1556,7 @@
   {
     "name": "#vector_angle_fixed3",
     "line": 634,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 634, "type": "Fixed3", "default": null },
@@ -1584,7 +1584,7 @@
   {
     "name": "#vector_reflect_fixed4",
     "line": 645,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 645, "type": "Fixed4", "default": null },
@@ -1604,7 +1604,7 @@
   {
     "name": "#vector_project_fixed4",
     "line": 655,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 655, "type": "Fixed4", "default": null },
@@ -1634,7 +1634,7 @@
   {
     "name": "#vector_reject_fixed4",
     "line": 668,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 668, "type": "Fixed4", "default": null },
@@ -1649,7 +1649,7 @@
   {
     "name": "#vector_angle_fixed4",
     "line": 673,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 673, "type": "Fixed4", "default": null },
@@ -1677,7 +1677,7 @@
   {
     "name": "#vector_reflect_integer2",
     "line": 684,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 684, "type": "Integer2", "default": null },
@@ -1695,7 +1695,7 @@
   {
     "name": "#vector_project_integer2",
     "line": 692,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 692, "type": "Integer2", "default": null },
@@ -1723,7 +1723,7 @@
   {
     "name": "#vector_reject_integer2",
     "line": 703,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 703, "type": "Integer2", "default": null },
@@ -1738,7 +1738,7 @@
   {
     "name": "#vector_angle_integer2",
     "line": 708,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 708, "type": "Integer2", "default": null },
@@ -1752,7 +1752,7 @@
   {
     "name": "#vector_reflect_integer3",
     "line": 712,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 712, "type": "Integer3", "default": null },
@@ -1771,7 +1771,7 @@
   {
     "name": "#vector_project_integer3",
     "line": 721,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 721, "type": "Integer3", "default": null },
@@ -1800,7 +1800,7 @@
   {
     "name": "#vector_reject_integer3",
     "line": 733,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 733, "type": "Integer3", "default": null },
@@ -1815,7 +1815,7 @@
   {
     "name": "#vector_angle_integer3",
     "line": 738,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 738, "type": "Integer3", "default": null },
@@ -1829,7 +1829,7 @@
   {
     "name": "#vector_reflect_integer4",
     "line": 742,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 742, "type": "Integer4", "default": null },
@@ -1849,7 +1849,7 @@
   {
     "name": "#vector_project_integer4",
     "line": 752,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 752, "type": "Integer4", "default": null },
@@ -1879,7 +1879,7 @@
   {
     "name": "#vector_reject_integer4",
     "line": 765,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 765, "type": "Integer4", "default": null },
@@ -1894,7 +1894,7 @@
   {
     "name": "#vector_angle_integer4",
     "line": 770,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 770, "type": "Integer4", "default": null },
@@ -1908,7 +1908,7 @@
   {
     "name": "#vector_lerp_float2",
     "line": 776,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 776, "type": "Float2", "default": null },
@@ -1926,7 +1926,7 @@
   {
     "name": "#vector_lerp_unclamped_float2",
     "line": 783,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 783, "type": "Float2", "default": null },
@@ -1943,7 +1943,7 @@
   {
     "name": "#vector_slerp_float2",
     "line": 789,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 789, "type": "Float2", "default": null },
@@ -1974,7 +1974,7 @@
   {
     "name": "#vector_clamp_length_float2",
     "line": 802,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 802, "type": "Float2", "default": null },
@@ -2012,7 +2012,7 @@
   {
     "name": "#vector_lerp_float3",
     "line": 816,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 816, "type": "Float3", "default": null },
@@ -2031,7 +2031,7 @@
   {
     "name": "#vector_lerp_unclamped_float3",
     "line": 824,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 824, "type": "Float3", "default": null },
@@ -2049,7 +2049,7 @@
   {
     "name": "#vector_slerp_float3",
     "line": 831,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 831, "type": "Float3", "default": null },
@@ -2081,7 +2081,7 @@
   {
     "name": "#vector_clamp_length_float3",
     "line": 845,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 845, "type": "Float3", "default": null },
@@ -2120,7 +2120,7 @@
   {
     "name": "#vector_lerp_float4",
     "line": 860,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 860, "type": "Float4", "default": null },
@@ -2140,7 +2140,7 @@
   {
     "name": "#vector_lerp_unclamped_float4",
     "line": 869,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 869, "type": "Float4", "default": null },
@@ -2159,7 +2159,7 @@
   {
     "name": "#vector_slerp_float4",
     "line": 877,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 877, "type": "Float4", "default": null },
@@ -2192,7 +2192,7 @@
   {
     "name": "#vector_clamp_length_float4",
     "line": 892,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 892, "type": "Float4", "default": null },
@@ -2232,7 +2232,7 @@
   {
     "name": "#vector_lerp_fixed2",
     "line": 908,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 908, "type": "Fixed2", "default": null },
@@ -2251,7 +2251,7 @@
   {
     "name": "#vector_lerp_unclamped_fixed2",
     "line": 916,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 916, "type": "Fixed2", "default": null },
@@ -2269,7 +2269,7 @@
   {
     "name": "#vector_slerp_fixed2",
     "line": 923,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 923, "type": "Fixed2", "default": null },
@@ -2301,7 +2301,7 @@
   {
     "name": "#vector_clamp_length_fixed2",
     "line": 937,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 937, "type": "Fixed2", "default": null },
@@ -2339,7 +2339,7 @@
   {
     "name": "#vector_lerp_fixed3",
     "line": 951,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 951, "type": "Fixed3", "default": null },
@@ -2359,7 +2359,7 @@
   {
     "name": "#vector_lerp_unclamped_fixed3",
     "line": 960,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 960, "type": "Fixed3", "default": null },
@@ -2378,7 +2378,7 @@
   {
     "name": "#vector_slerp_fixed3",
     "line": 968,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 968, "type": "Fixed3", "default": null },
@@ -2411,7 +2411,7 @@
   {
     "name": "#vector_clamp_length_fixed3",
     "line": 983,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 983, "type": "Fixed3", "default": null },
@@ -2450,7 +2450,7 @@
   {
     "name": "#vector_lerp_fixed4",
     "line": 998,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 998, "type": "Fixed4", "default": null },
@@ -2471,7 +2471,7 @@
   {
     "name": "#vector_lerp_unclamped_fixed4",
     "line": 1008,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1008, "type": "Fixed4", "default": null },
@@ -2491,7 +2491,7 @@
   {
     "name": "#vector_slerp_fixed4",
     "line": 1017,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1017, "type": "Fixed4", "default": null },
@@ -2525,7 +2525,7 @@
   {
     "name": "#vector_clamp_length_fixed4",
     "line": 1033,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1033, "type": "Fixed4", "default": null },
@@ -2565,7 +2565,7 @@
   {
     "name": "#vector_lerp_integer2",
     "line": 1049,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1049, "type": "Integer2", "default": null },
@@ -2583,7 +2583,7 @@
   {
     "name": "#vector_lerp_unclamped_integer2",
     "line": 1056,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1056, "type": "Integer2", "default": null },
@@ -2600,7 +2600,7 @@
   {
     "name": "#vector_slerp_integer2",
     "line": 1062,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1062, "type": "Integer2", "default": null },
@@ -2632,7 +2632,7 @@
   {
     "name": "#vector_clamp_length_integer2",
     "line": 1076,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1076, "type": "Integer2", "default": null },
@@ -2671,7 +2671,7 @@
   {
     "name": "#vector_lerp_integer3",
     "line": 1091,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1091, "type": "Integer3", "default": null },
@@ -2690,7 +2690,7 @@
   {
     "name": "#vector_lerp_unclamped_integer3",
     "line": 1099,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1099, "type": "Integer3", "default": null },
@@ -2708,7 +2708,7 @@
   {
     "name": "#vector_slerp_integer3",
     "line": 1106,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1106, "type": "Integer3", "default": null },
@@ -2741,7 +2741,7 @@
   {
     "name": "#vector_clamp_length_integer3",
     "line": 1121,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1121, "type": "Integer3", "default": null },
@@ -2781,7 +2781,7 @@
   {
     "name": "#vector_lerp_integer4",
     "line": 1137,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1137, "type": "Integer4", "default": null },
@@ -2801,7 +2801,7 @@
   {
     "name": "#vector_lerp_unclamped_integer4",
     "line": 1146,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1146, "type": "Integer4", "default": null },
@@ -2820,7 +2820,7 @@
   {
     "name": "#vector_slerp_integer4",
     "line": 1154,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1154, "type": "Integer4", "default": null },
@@ -2854,7 +2854,7 @@
   {
     "name": "#vector_clamp_length_integer4",
     "line": 1170,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1170, "type": "Integer4", "default": null },
@@ -2895,7 +2895,7 @@
   {
     "name": "#vector_scale_float2",
     "line": 1189,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1189, "type": "Float2", "default": null },
@@ -2911,7 +2911,7 @@
   {
     "name": "#vector_min_float2",
     "line": 1195,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1195, "type": "Float2", "default": null },
@@ -2927,7 +2927,7 @@
   {
     "name": "#vector_max_float2",
     "line": 1201,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1201, "type": "Float2", "default": null },
@@ -2943,7 +2943,7 @@
   {
     "name": "#vector_abs_float2",
     "line": 1207,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1207, "type": "Float2", "default": null }
@@ -2958,7 +2958,7 @@
   {
     "name": "#vector_scale_float3",
     "line": 1213,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1213, "type": "Float3", "default": null },
@@ -2975,7 +2975,7 @@
   {
     "name": "#vector_min_float3",
     "line": 1220,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1220, "type": "Float3", "default": null },
@@ -2992,7 +2992,7 @@
   {
     "name": "#vector_max_float3",
     "line": 1227,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1227, "type": "Float3", "default": null },
@@ -3009,7 +3009,7 @@
   {
     "name": "#vector_abs_float3",
     "line": 1234,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1234, "type": "Float3", "default": null }
@@ -3025,7 +3025,7 @@
   {
     "name": "#vector_scale_float4",
     "line": 1241,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1241, "type": "Float4", "default": null },
@@ -3043,7 +3043,7 @@
   {
     "name": "#vector_min_float4",
     "line": 1249,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1249, "type": "Float4", "default": null },
@@ -3061,7 +3061,7 @@
   {
     "name": "#vector_max_float4",
     "line": 1257,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1257, "type": "Float4", "default": null },
@@ -3079,7 +3079,7 @@
   {
     "name": "#vector_abs_float4",
     "line": 1265,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1265, "type": "Float4", "default": null }
@@ -3096,7 +3096,7 @@
   {
     "name": "#vector_scale_fixed2",
     "line": 1273,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1273, "type": "Fixed2", "default": null },
@@ -3112,7 +3112,7 @@
   {
     "name": "#vector_min_fixed2",
     "line": 1279,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1279, "type": "Fixed2", "default": null },
@@ -3128,7 +3128,7 @@
   {
     "name": "#vector_max_fixed2",
     "line": 1285,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1285, "type": "Fixed2", "default": null },
@@ -3144,7 +3144,7 @@
   {
     "name": "#vector_abs_fixed2",
     "line": 1291,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1291, "type": "Fixed2", "default": null }
@@ -3159,7 +3159,7 @@
   {
     "name": "#vector_scale_fixed3",
     "line": 1297,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1297, "type": "Fixed3", "default": null },
@@ -3176,7 +3176,7 @@
   {
     "name": "#vector_min_fixed3",
     "line": 1304,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1304, "type": "Fixed3", "default": null },
@@ -3193,7 +3193,7 @@
   {
     "name": "#vector_max_fixed3",
     "line": 1311,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1311, "type": "Fixed3", "default": null },
@@ -3210,7 +3210,7 @@
   {
     "name": "#vector_abs_fixed3",
     "line": 1318,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1318, "type": "Fixed3", "default": null }
@@ -3226,7 +3226,7 @@
   {
     "name": "#vector_scale_fixed4",
     "line": 1325,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1325, "type": "Fixed4", "default": null },
@@ -3244,7 +3244,7 @@
   {
     "name": "#vector_min_fixed4",
     "line": 1333,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1333, "type": "Fixed4", "default": null },
@@ -3262,7 +3262,7 @@
   {
     "name": "#vector_max_fixed4",
     "line": 1341,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1341, "type": "Fixed4", "default": null },
@@ -3280,7 +3280,7 @@
   {
     "name": "#vector_abs_fixed4",
     "line": 1349,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1349, "type": "Fixed4", "default": null }
@@ -3297,7 +3297,7 @@
   {
     "name": "#vector_scale_integer2",
     "line": 1357,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1357, "type": "Integer2", "default": null },
@@ -3313,7 +3313,7 @@
   {
     "name": "#vector_min_integer2",
     "line": 1363,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1363, "type": "Integer2", "default": null },
@@ -3329,7 +3329,7 @@
   {
     "name": "#vector_max_integer2",
     "line": 1369,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1369, "type": "Integer2", "default": null },
@@ -3345,7 +3345,7 @@
   {
     "name": "#vector_abs_integer2",
     "line": 1375,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1375, "type": "Integer2", "default": null }
@@ -3360,7 +3360,7 @@
   {
     "name": "#vector_scale_integer3",
     "line": 1381,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1381, "type": "Integer3", "default": null },
@@ -3377,7 +3377,7 @@
   {
     "name": "#vector_min_integer3",
     "line": 1388,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1388, "type": "Integer3", "default": null },
@@ -3394,7 +3394,7 @@
   {
     "name": "#vector_max_integer3",
     "line": 1395,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1395, "type": "Integer3", "default": null },
@@ -3411,7 +3411,7 @@
   {
     "name": "#vector_abs_integer3",
     "line": 1402,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1402, "type": "Integer3", "default": null }
@@ -3427,7 +3427,7 @@
   {
     "name": "#vector_scale_integer4",
     "line": 1409,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1409, "type": "Integer4", "default": null },
@@ -3445,7 +3445,7 @@
   {
     "name": "#vector_min_integer4",
     "line": 1417,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1417, "type": "Integer4", "default": null },
@@ -3463,7 +3463,7 @@
   {
     "name": "#vector_max_integer4",
     "line": 1425,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "a", "line": 1425, "type": "Integer4", "default": null },
@@ -3481,7 +3481,7 @@
   {
     "name": "#vector_abs_integer4",
     "line": 1433,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1433, "type": "Integer4", "default": null }
@@ -3498,7 +3498,7 @@
   {
     "name": "#vector_toString_float2",
     "line": 1443,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1443, "type": "Float2", "default": null }
@@ -3511,7 +3511,7 @@
   {
     "name": "#vector_toString_float3",
     "line": 1447,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1447, "type": "Float3", "default": null }
@@ -3524,7 +3524,7 @@
   {
     "name": "#vector_toString_float4",
     "line": 1451,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1451, "type": "Float4", "default": null }
@@ -3537,7 +3537,7 @@
   {
     "name": "#vector_toString_fixed2",
     "line": 1455,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1455, "type": "Fixed2", "default": null }
@@ -3550,7 +3550,7 @@
   {
     "name": "#vector_toString_fixed3",
     "line": 1459,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1459, "type": "Fixed3", "default": null }
@@ -3563,7 +3563,7 @@
   {
     "name": "#vector_toString_fixed4",
     "line": 1463,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1463, "type": "Fixed4", "default": null }
@@ -3576,7 +3576,7 @@
   {
     "name": "#vector_toString_integer2",
     "line": 1467,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1467, "type": "Integer2", "default": null }
@@ -3589,7 +3589,7 @@
   {
     "name": "#vector_toString_integer3",
     "line": 1471,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1471, "type": "Integer3", "default": null }
@@ -3602,7 +3602,7 @@
   {
     "name": "#vector_toString_integer4",
     "line": 1475,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1475, "type": "Integer4", "default": null }
@@ -3615,7 +3615,7 @@
   {
     "name": "#vector_perpendicular_float2",
     "line": 1481,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1481, "type": "Float2", "default": null }
@@ -3628,7 +3628,7 @@
   {
     "name": "#vector_rotate_2d_float2",
     "line": 1485,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1485, "type": "Float2", "default": null },
@@ -3646,7 +3646,7 @@
   {
     "name": "#vector_perpendicular_fixed2",
     "line": 1493,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1493, "type": "Fixed2", "default": null }
@@ -3659,7 +3659,7 @@
   {
     "name": "#vector_rotate_2d_fixed2",
     "line": 1497,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1497, "type": "Fixed2", "default": null },
@@ -3678,7 +3678,7 @@
   {
     "name": "#vector_perpendicular_integer2",
     "line": 1506,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1506, "type": "Integer2", "default": null }
@@ -3691,7 +3691,7 @@
   {
     "name": "#vector_rotate_2d_integer2",
     "line": 1510,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "v", "line": 1510, "type": "Integer2", "default": null },

@@ -1033,7 +1033,7 @@ impl<'a> SyntaxChecker<'a> {
             type_: self.parse_type(&field.type_),
             visibility: match field.visibility {
                 BinaryReprTypeVisibility::Private => Visibility::Private,
-                BinaryReprTypeVisibility::Package => Visibility::Package,
+                BinaryReprTypeVisibility::Public => Visibility::Public,
                 BinaryReprTypeVisibility::Export => Visibility::Export,
             },
         }
@@ -1339,7 +1339,7 @@ impl<'a> SyntaxChecker<'a> {
             imported_package_export: false,
             // A LINK block is package-local; its functions are reachable from any
             // file of the declaring package via the alias namespace.
-            visibility: Visibility::Package,
+            visibility: Visibility::Public,
             owner_file_path: owner_file_path.to_string(),
         }
     }
@@ -1740,7 +1740,7 @@ impl<'a> SyntaxChecker<'a> {
         owner_file_path: &str,
     ) -> bool {
         match visibility {
-            Visibility::Export | Visibility::Package => true,
+            Visibility::Export | Visibility::Public => true,
             Visibility::Private => file.path == owner_file_path,
         }
     }

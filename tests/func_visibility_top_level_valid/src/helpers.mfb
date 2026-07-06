@@ -4,7 +4,7 @@ PRIVATE FUNC privateDouble(value AS Integer) AS Integer
   RETURN value * 2
 END FUNC
 
-PACKAGE FUNC packageValue(value AS Integer) AS Integer
+PUBLIC FUNC packageValue(value AS Integer) AS Integer
   RETURN privateDouble(value) + 1
 END FUNC
 
@@ -16,7 +16,7 @@ PRIVATE SUB privateTrace(value AS Integer)
   io::print("private=" & toString(value))
 END SUB
 
-PACKAGE SUB packageTrace(value AS Integer)
+PUBLIC SUB packageTrace(value AS Integer)
   privateTrace(value)
 END SUB
 

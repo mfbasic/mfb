@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "literalNothing",
       "line": 3,
       "params": [
@@ -21,7 +21,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fallthroughSub",
       "line": 7,
       "params": [
@@ -33,7 +33,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "bareReturnSub",
       "line": 11,
       "params": [
@@ -46,7 +46,7 @@
     },
     {
       "kind": "sub",
-      "visibility": "private",
+      "visibility": "public",
       "name": "explicitReturnSub",
       "line": 16,
       "params": [
@@ -59,7 +59,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "callSubAsNothing",
       "line": 21,
       "params": [
@@ -74,7 +74,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 28,
       "params": [

@@ -1257,7 +1257,7 @@ impl RecordUpdate {
 fn visibility_name(visibility: Visibility) -> &'static str {
     match visibility {
         Visibility::Private => "private",
-        Visibility::Package => "package",
+        Visibility::Public => "public",
         Visibility::Export => "export",
     }
 }
@@ -1266,8 +1266,10 @@ fn visibility_name(visibility: Visibility) -> &'static str {
 /// rendering a declaration signature for documentation.
 fn visibility_prefix(visibility: Visibility) -> &'static str {
     match visibility {
-        Visibility::Private => "",
-        Visibility::Package => "PACKAGE ",
+        // `PUBLIC` is the default visibility, so it is omitted from rendered
+        // source; the explicit non-default modifiers (`PRIVATE`, `EXPORT`) render.
+        Visibility::Public => "",
+        Visibility::Private => "PRIVATE ",
         Visibility::Export => "EXPORT ",
     }
 }

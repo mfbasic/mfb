@@ -13,7 +13,7 @@
   {
     "name": "guard",
     "line": 1,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "flag", "line": 1, "type": "Boolean", "default": null }
@@ -36,7 +36,7 @@
   {
     "name": "swallow",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "flag", "line": 8, "type": "Boolean", "default": null }
@@ -67,7 +67,7 @@
   {
     "name": "main",
     "line": 18,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     ],

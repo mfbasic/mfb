@@ -13,7 +13,7 @@
   {
     "name": "logLine",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "sub",
     "params": [
     { "name": "f", "line": 4, "type": "File", "default": null },
@@ -27,7 +27,7 @@
   {
     "name": "main",
     "line": 8,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

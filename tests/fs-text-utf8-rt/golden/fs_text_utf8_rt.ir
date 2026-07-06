@@ -13,7 +13,7 @@
   {
     "name": "readText1",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 4, "type": "String", "default": null }
@@ -26,7 +26,7 @@
   {
     "name": "readAll1",
     "line": 7,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 7, "type": "String", "default": null }
@@ -39,7 +39,7 @@
   {
     "name": "readLine1",
     "line": 10,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 10, "type": "String", "default": null }
@@ -52,7 +52,7 @@
   {
     "name": "codeOf",
     "line": 14,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "p", "line": 14, "type": "String", "default": null },
@@ -133,7 +133,7 @@
   {
     "name": "main",
     "line": 37,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

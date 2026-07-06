@@ -13,7 +13,7 @@
   {
     "name": "doubleWaitCloses",
     "line": 4,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     { "name": "t", "line": 4, "type": "Thread OF Nothing TO Integer", "default": null }
@@ -46,7 +46,7 @@
   {
     "name": "main",
     "line": 17,
-    "visibility": "private",
+    "visibility": "public",
     "kind": "func",
     "params": [
     ],

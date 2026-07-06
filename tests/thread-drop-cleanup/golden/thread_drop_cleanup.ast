@@ -12,7 +12,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "completedScopeDrop",
       "line": 6,
       "params": [
@@ -33,7 +33,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "runningEarlyReturnDrop",
       "line": 13,
       "params": [
@@ -46,7 +46,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "reassignmentDrop",
       "line": 18,
       "params": [
@@ -72,7 +72,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "autoTrapDrop",
       "line": 27,
       "params": [
@@ -93,7 +93,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "failTrapDrop",
       "line": 36,
       "params": [
@@ -113,7 +113,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "makeThread",
       "line": 44,
       "params": [
@@ -126,7 +126,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "returnedThreadStillLive",
       "line": 49,
       "params": [
@@ -151,7 +151,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 57,
       "params": [

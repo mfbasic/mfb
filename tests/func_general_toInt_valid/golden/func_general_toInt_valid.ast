@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fromString",
       "line": 3,
       "params": [
@@ -22,7 +22,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fromByte",
       "line": 7,
       "params": [
@@ -35,7 +35,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fromFloat",
       "line": 11,
       "params": [
@@ -48,7 +48,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fromFixed",
       "line": 15,
       "params": [
@@ -61,7 +61,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "negativeFloat",
       "line": 19,
       "params": [
@@ -74,7 +74,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "negativeFixed",
       "line": 23,
       "params": [
@@ -87,7 +87,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "printInt",
       "line": 27,
       "params": [
@@ -101,7 +101,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "fromBase",
       "line": 32,
       "params": [
@@ -115,7 +115,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 36,
       "params": [

@@ -1,0 +1,10 @@
+IMPORT io
+
+' Calls unmarked (default-PUBLIC) functions defined in the sibling file
+' helpers.mfb — with no PUBLIC/PACKAGE marker required. This is the behavioral
+' proof of PUBLIC-by-default cross-file visibility.
+FUNC main AS Integer
+  io::print("double=" & toString(helperDouble(21)))
+  io::print("bumped=" & toString(helperBumped(41)))
+  RETURN 0
+END FUNC

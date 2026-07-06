@@ -9,7 +9,7 @@
     "items": [
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Point",
       "line": 3,
       "fields": [
@@ -19,7 +19,7 @@
     },
     {
       "kind": "type",
-      "visibility": "private",
+      "visibility": "public",
       "name": "Flags",
       "line": 8,
       "fields": [
@@ -30,7 +30,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "sumPoint",
       "line": 14,
       "params": [
@@ -43,7 +43,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "describeFlags",
       "line": 18,
       "params": [
@@ -56,7 +56,7 @@
     },
     {
       "kind": "func",
-      "visibility": "private",
+      "visibility": "public",
       "name": "main",
       "line": 22,
       "params": [
