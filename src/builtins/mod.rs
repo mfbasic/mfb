@@ -173,6 +173,46 @@ pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
         || matches!(target, "len" | "toString" | "typeName")
 }
 
+/// Whether an inline-lowered built-in callee can raise **no** user-trappable
+/// domain error, so an inline `TRAP` on it should report the accurate
+/// `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` ("this expression cannot fail") rather than
+/// the "move it into a FUNC/SUB" message (plan-21-A). The fallibility census is
+/// grounded in each member's `lower_*` method: a member is infallible here iff no
+/// success-relevant path emits a domain error (`emit_index_out_of_range_return` /
+/// `emit_not_found_return` / range / invalid-format). Allocation OOM does **not**
+/// count as trappable (umbrella Open Decision), so growth-only mutators
+/// (`append`/`prepend`) are infallible.
+///
+/// Infallible: `len`, `toString`, `typeName`, every `bits::*` op, and the
+/// pure-query / default-returning / OOM-only members `contains`, `hasKey`, `keys`,
+/// `values`, `sum`, `getOr`, `append`, `prepend`, `removeKey`, `replace`.
+///
+/// Fallible (NOT infallible — still rejected as unsupported until plan-21-B):
+/// index members `get`/`set`/`insert`/`removeAt`, `strings::mid`, `find` (negative
+/// start raises), and the callback members `forEach`/`transform`/`filter`/`reduce`
+/// (a failing callback propagates a real error). `target` is the canonical callee
+/// (`collections.get`, `strings.mid`, `bits.sl`) or a bare general-builtin name.
+pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
+    if bits::is_bits_call(target) || matches!(target, "len" | "toString" | "typeName") {
+        return true;
+    }
+    matches!(
+        native_builtin_target(target),
+        Some(
+            "contains"
+                | "hasKey"
+                | "keys"
+                | "values"
+                | "sum"
+                | "getOr"
+                | "append"
+                | "prepend"
+                | "removeKey"
+                | "replace"
+        )
+    )
+}
+
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     general::call_return_type_name(name)
         .or_else(|| collections::call_return_type_name(name))
@@ -279,6 +319,51 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn inline_builtin_fallibility_census() {
+        // Infallible-for-TRAP: raise no user-trappable domain error (plan-21-A).
+        for c in [
+            "len",
+            "toString",
+            "typeName",
+            "bits.sl",
+            "bits.sr",
+            "collections.contains",
+            "collections.hasKey",
+            "collections.keys",
+            "collections.values",
+            "collections.sum",
+            "collections.getOr",
+            "collections.append",
+            "collections.prepend",
+            "collections.removeKey",
+            "strings.replace",
+        ] {
+            assert!(inline_builtin_is_infallible(c), "expected infallible: {c}");
+        }
+        // Fallible inline members: a real domain error (index/range/not-found) or a
+        // failing callback — still rejected as unsupported until plan-21-B.
+        for c in [
+            "collections.get",
+            "collections.set",
+            "collections.insert",
+            "collections.removeAt",
+            "collections.find",
+            "strings.mid",
+            "strings.find",
+            "collections.forEach",
+            "collections.transform",
+            "collections.filter",
+            "collections.reduce",
+        ] {
+            assert!(!inline_builtin_is_infallible(c), "expected fallible: {c}");
+        }
+        // Every inline member is classified one way or the other, and non-inline
+        // callees (user functions) are not infallible built-ins.
+        assert!(!inline_builtin_is_infallible("myFunc"));
+        assert!(!inline_builtin_is_infallible("math.sqrt"));
+    }
 
     #[test]
     fn is_builtin_import_cases() {

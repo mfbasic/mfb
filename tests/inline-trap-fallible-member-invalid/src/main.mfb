@@ -1,0 +1,10 @@
+IMPORT collections
+
+FUNC main AS Integer
+  MUT xs AS List OF Integer = []
+  collections::append(xs, 1)
+  LET v AS Integer = collections::get(xs, 9) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN v
+END FUNC

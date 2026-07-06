@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/inline-trap-infallible-builtin-invalid
+   4 |   MUT xs AS List OF Integer = []
+   5 |   collections::append(xs, 1)
+   6 |   LET n AS Integer = len(xs) TRAP(e)
+     | ^
+tests/inline-trap-infallible-builtin-invalid/src/main.mfb:6 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a fallible call; this expression cannot fail.
+[exit 1]

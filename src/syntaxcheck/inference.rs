@@ -89,8 +89,16 @@ impl<'a> SyntaxChecker<'a> {
                     }
                     _ => None,
                 };
+                // A call is fallible-for-inline-TRAP unless it is a package constant
+                // or an inline-lowered built-in that raises no trappable domain error
+                // (plan-21-A): the latter route to the accurate "cannot fail"
+                // diagnostic below, and only genuinely-fallible inline members reach
+                // the "unsupported inline built-in" report.
                 let fallible = match &trapped_callee {
-                    Some(canonical) => !builtins::is_package_constant(canonical),
+                    Some(canonical) => {
+                        !builtins::is_package_constant(canonical)
+                            && !builtins::inline_builtin_is_infallible(canonical)
+                    }
                     None => false,
                 };
                 // A failed `thread.send` returns ownership of the sent value to

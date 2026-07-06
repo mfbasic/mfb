@@ -1,0 +1,10 @@
+IMPORT collections
+
+FUNC main AS Integer
+  MUT xs AS List OF Integer = []
+  collections::append(xs, 1)
+  LET n AS Integer = len(xs) TRAP(e)
+    RECOVER 0
+  END TRAP
+  RETURN n
+END FUNC

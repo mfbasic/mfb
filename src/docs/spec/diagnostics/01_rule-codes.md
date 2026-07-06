@@ -377,8 +377,8 @@ Scheme*).
 | `2-203-0066` | `TYPE_INLINE_TRAP_FALLS_THROUGH` | error | inline TRAP handler path neither recovers nor diverges |
 | `2-203-0067` | `TYPE_RECOVER_TYPE_MISMATCH` | error | RECOVER value does not match the trapped expression's success type |
 | `2-203-0068` | `TYPE_RECOVER_OUTSIDE_INLINE_TRAP` | error | RECOVER is valid only inside an inline TRAP handler |
-| `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a fallible call |
-| `2-203-0102` | `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN` | error | inline TRAP is not supported on an inline-lowered built-in |
+| `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a fallible call (a package constant or an infallible inline-lowered built-in cannot fail) |
+| `2-203-0102` | `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN` | error | inline TRAP is not supported on a fallible inline-lowered built-in |
 | `2-203-0103` | `EXPORT_IN_EXECUTABLE` | error | EXPORT is only valid in a package project; use PUBLIC (the default) in an executable |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |

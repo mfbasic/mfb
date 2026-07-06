@@ -51,6 +51,6 @@ tests/func_bits_sl_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: 
   10 |   ' even though the call's arguments are well-typed.
   11 |   LET t AS Integer = bits::sl(8, 1) TRAP(err)
      | ^
-tests/func_bits_sl_invalid/src/main.mfb:11 error[2-203-0102 TYPE_INLINE_TRAP_ON_INLINED_BUILTIN]: inline TRAP is not supported on an inline-lowered built-in
-               Inline TRAP is not supported on `bits.sl` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead.
+tests/func_bits_sl_invalid/src/main.mfb:11 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
+               Inline TRAP requires a fallible call; this expression cannot fail.
 [exit 1]
