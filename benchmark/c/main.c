@@ -21,11 +21,14 @@
 #include <string.h>
 #include <time.h>
 
-static int RUN = 10;
+#include "bench.h"
+#include "list.h"
+
+int RUN = 10;
 
 /* ----- timing + statistics --------------------------------------------- */
 
-static long long now_ns(void) {
+long long now_ns(void) {
   struct timespec ts;
   clock_gettime(CLOCK_MONOTONIC, &ts);
   return (long long)ts.tv_sec * 1000000000LL + ts.tv_nsec;
@@ -46,7 +49,7 @@ static int cmp_ll(const void *a, const void *b) {
 }
 
 /* Record one benchmark from its per-run elapsed nanosecond samples. */
-static void record(const char *group, const char *name, long long *times, int n) {
+void record(const char *group, const char *name, long long *times, int n) {
   qsort(times, n, sizeof(long long), cmp_ll);
   double med;
   if (n % 2)
@@ -83,7 +86,7 @@ static void print_results(void) {
 }
 
 /* A fresh times buffer for a test; sized to RUN. */
-static long long *alloc_times(void) {
+long long *alloc_times(void) {
   return malloc((size_t)RUN * sizeof(long long));
 }
 
@@ -275,199 +278,7 @@ MATH_KERNEL(test_log10, "log10", log10(v), 0.001, 0.005)
 MATH_KERNEL(test_pow, "pow", pow(v, 1.5), 0.001, 0.005)
 MATH_KERNEL(test_sqrt, "sqrt", sqrt(v), 0.001, 0.005)
 
-/* ===================================================================== */
-/* GROUP: list (realloc-growable native arrays)                          */
-/* ===================================================================== */
-
-static void test_list_append(void) {
-  long long *t = alloc_times();
-  long checksum = 0;
-  for (int r = 0; r < RUN; r++) {
-    long long t0 = now_ns();
-    int *nums = NULL; int len = 0, cap = 0;
-    for (int i = 0; i < 1000; i++) {
-      if (len == cap) { cap = cap ? cap * 2 : 1; nums = realloc(nums, cap * sizeof(int)); }
-      nums[len++] = i;
-    }
-    checksum = len;
-    t[r] = now_ns() - t0;
-    free(nums);
-  }
-  fprintf(stderr, "list_append = %ld\n", checksum);
-  record("list", "append", t, RUN);
-  free(t);
-}
-
-static void test_list_append_batch(void) {
-  int ten[10] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-  long long *t = alloc_times();
-  long checksum = 0;
-  for (int r = 0; r < RUN; r++) {
-    long long t0 = now_ns();
-    int *nums = NULL; int len = 0, cap = 0;
-    for (int i = 0; i < 100; i++) {
-      if (len + 10 > cap) {
-        cap = cap ? cap * 2 : 10;
-        while (cap < len + 10) cap *= 2;
-        nums = realloc(nums, cap * sizeof(int));
-      }
-      memcpy(nums + len, ten, 10 * sizeof(int));
-      len += 10;
-    }
-    checksum = len;
-    t[r] = now_ns() - t0;
-    free(nums);
-  }
-  fprintf(stderr, "list_append_batch = %ld\n", checksum);
-  record("list", "append_batch", t, RUN);
-  free(t);
-}
-
-static void test_list_prepend(void) {
-  long long *t = alloc_times();
-  long checksum = 0;
-  for (int r = 0; r < RUN; r++) {
-    long long t0 = now_ns();
-    int *nums = NULL; int len = 0, cap = 0;
-    for (int i = 0; i < 1000; i++) {
-      if (len == cap) { cap = cap ? cap * 2 : 1; nums = realloc(nums, cap * sizeof(int)); }
-      memmove(nums + 1, nums, len * sizeof(int));
-      nums[0] = i; len++;
-    }
-    checksum = len;
-    t[r] = now_ns() - t0;
-    free(nums);
-  }
-  fprintf(stderr, "list_prepend = %ld\n", checksum);
-  record("list", "prepend", t, RUN);
-  free(t);
-}
-
-typedef struct { int n; char *s; } CopyRec;
-
-static void test_list_copy(void) {
-  char buf[16];
-  char **strs = malloc(1000 * sizeof(char *));
-  CopyRec *recs = malloc(1000 * sizeof(CopyRec));
-  for (int i = 0; i < 1000; i++) {
-    snprintf(buf, sizeof buf, "%d", i);
-    strs[i] = strdup(buf);
-    recs[i].n = i; recs[i].s = strdup(buf);
-  }
-  long long *t = alloc_times();
-  long checksum = 0;
-  for (int r = 0; r < RUN; r++) {
-    long long t0 = now_ns();
-    long acc = 0;
-    for (int i = 0; i < 1000; i++) {
-      char **c = malloc(1000 * sizeof(char *));
-      memcpy(c, strs, 1000 * sizeof(char *));
-      acc += 1000;
-      free(c);
-    }
-    for (int i = 0; i < 1000; i++) {
-      CopyRec *c = malloc(1000 * sizeof(CopyRec));
-      memcpy(c, recs, 1000 * sizeof(CopyRec));
-      acc += 1000;
-      free(c);
-    }
-    checksum = acc;
-    t[r] = now_ns() - t0;
-  }
-  fprintf(stderr, "list_copy = %ld\n", checksum);
-  record("list", "copy", t, RUN);
-  for (int i = 0; i < 1000; i++) { free(strs[i]); free(recs[i].s); }
-  free(strs); free(recs); free(t);
-}
-
-static void test_list_distinct(void) {
-  long long *t = alloc_times();
-  long checksum = 0;
-  int *nums = malloc(5000 * sizeof(int));
-  int *unique = malloc(5000 * sizeof(int));
-  for (int r = 0; r < RUN; r++) {
-    for (int i = 0; i < 5000; i++) nums[i] = i % 1000;
-    long long t0 = now_ns();
-    int ulen = 0;
-    for (int i = 0; i < 5000; i++) {
-      int seen = 0;
-      for (int k = 0; k < ulen; k++) { if (unique[k] == nums[i]) { seen = 1; break; } }
-      if (!seen) unique[ulen++] = nums[i];
-    }
-    checksum = ulen;
-    t[r] = now_ns() - t0;
-  }
-  fprintf(stderr, "list_distinct = %ld\n", checksum);
-  record("list", "distinct", t, RUN);
-  free(nums); free(unique); free(t);
-}
-
-#define GB_KEYS 100
-static void test_list_groupby(void) {
-  long long *t = alloc_times();
-  long checksum = 0;
-  for (int r = 0; r < RUN; r++) {
-    long long t0 = now_ns();
-    int *bucket[GB_KEYS]; int len[GB_KEYS] = {0}, cap[GB_KEYS] = {0};
-    for (int i = 0; i < 2000; i++) {
-      int k = i % GB_KEYS;
-      if (len[k] == cap[k]) {
-        cap[k] = cap[k] ? cap[k] * 2 : 1;
-        bucket[k] = realloc(len[k] ? bucket[k] : NULL, cap[k] * sizeof(int));
-      }
-      bucket[k][len[k]++] = i;
-    }
-    int groups = 0;
-    for (int k = 0; k < GB_KEYS; k++) if (len[k] > 0) groups++;
-    checksum = groups;
-    for (int k = 0; k < GB_KEYS; k++) if (cap[k]) free(bucket[k]);
-    t[r] = now_ns() - t0;
-  }
-  fprintf(stderr, "list_groupby = %ld\n", checksum);
-  record("list", "groupby", t, RUN);
-  free(t);
-}
-
-static void test_list_set(void) {
-  long long *t = alloc_times();
-  long checksum = 0;
-  int nums[200];
-  for (int r = 0; r < RUN; r++) {
-    for (int i = 0; i < 200; i++) nums[i] = i;
-    long long t0 = now_ns();
-    for (int pass = 0; pass < 10; pass++)
-      for (int j = 0; j < 200; j++) nums[j] = nums[j] + 1;
-    t[r] = now_ns() - t0;
-    long sum = 0;
-    for (int j = 0; j < 200; j++) sum += nums[j];
-    checksum = sum;
-  }
-  fprintf(stderr, "list_set = %ld\n", checksum);
-  record("list", "set", t, RUN);
-  free(t);
-}
-
-static int cmp_int(const void *a, const void *b) {
-  int x = *(const int *)a, y = *(const int *)b;
-  return (x > y) - (x < y);
-}
-
-static void test_list_sort(void) {
-  long long *t = alloc_times();
-  long checksum = 0;
-  int base[50], tmp[50];
-  for (int r = 0; r < RUN; r++) {
-    for (int i = 0; i < 50; i++) base[i] = rand() % 1000001;
-    long long t0 = now_ns();
-    for (int i = 0; i < 50; i++) tmp[i] = base[i];
-    qsort(tmp, 50, sizeof(int), cmp_int);
-    t[r] = now_ns() - t0;
-    checksum = tmp[0];
-  }
-  fprintf(stderr, "list_sort = %ld\n", checksum);
-  record("list", "sort", t, RUN);
-  free(t);
-}
+/* GROUP: list lives in list.c (see run_list_group). */
 
 /* ===================================================================== */
 /* GROUP: map (open-addressing hash tables)                              */
@@ -877,14 +688,7 @@ int main(int argc, char **argv) {
   test_asin(); test_acos(); test_atan();
   test_exp(); test_log(); test_log10(); test_pow(); test_sqrt();
 
-  test_list_append();
-  test_list_append_batch();
-  test_list_prepend();
-  test_list_copy();
-  test_list_distinct();
-  test_list_groupby();
-  test_list_set();
-  test_list_sort();
+  run_list_group();
 
   test_map_set();
   test_map_lookup();

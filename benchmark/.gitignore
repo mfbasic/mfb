@@ -2,3 +2,4 @@
 *.out
 *.mfp
 mfb/packages/
+python/__pycache__/

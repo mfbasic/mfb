@@ -1,0 +1,743 @@
+' List-group benchmarks (collections:: over lists). Split from main.mfb.
+IMPORT io
+IMPORT collections
+IMPORT datetime
+IMPORT math
+
+' ===========================================================================
+' GROUP: list
+' ===========================================================================
+
+FUNC test_list_append(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 999
+      nums = collections::append(nums, i)
+    NEXT
+    checksum = len(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_append = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "append", times))
+END FUNC
+
+FUNC test_list_append_batch(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET ten AS List OF Integer = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 99
+      nums = collections::append(nums, ten)
+    NEXT
+    checksum = len(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_append_batch = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "append_batch", times))
+END FUNC
+
+FUNC test_list_prepend(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 999
+      nums = collections::prepend(nums, i)
+    NEXT
+    checksum = len(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_prepend = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "prepend", times))
+END FUNC
+
+TYPE CopyRec
+  n AS Integer
+  s AS String
+END TYPE
+
+FUNC copyStrings(xs AS List OF String) AS List OF String
+  RETURN xs
+END FUNC
+
+FUNC copyRecs(xs AS List OF CopyRec) AS List OF CopyRec
+  RETURN xs
+END FUNC
+
+FUNC test_list_copy(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT strs AS List OF String = []
+  MUT recs AS List OF CopyRec = []
+  FOR i = 0 TO 999
+    strs = collections::append(strs, toString(i))
+    recs = collections::append(recs, CopyRec[i, toString(i)])
+  NEXT
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR i = 0 TO 999
+      LET c AS List OF String = copyStrings(strs)
+      acc = acc + len(c)
+    NEXT
+    FOR i = 0 TO 999
+      LET cr AS List OF CopyRec = copyRecs(recs)
+      acc = acc + len(cr)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_copy = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "copy", times))
+END FUNC
+
+FUNC test_list_distinct(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 4999
+      nums = collections::append(nums, i - (i / 1000) * 1000)
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET unique AS List OF Integer = collections::distinct(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = len(unique)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_distinct = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "distinct", times))
+END FUNC
+
+FUNC bucketKey(n AS Integer) AS Integer
+  RETURN n - (n / 100) * 100
+END FUNC
+
+FUNC identity(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC test_list_groupby(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 1999
+      nums = collections::append(nums, i)
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(nums, bucketKey, identity)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = len(groups)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_groupby = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "groupby", times))
+END FUNC
+
+FUNC test_list_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 199
+      nums = collections::append(nums, i)
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    FOR pass = 0 TO 9
+      FOR j = 0 TO 199
+        LET v AS Integer = collections::get(nums, j)
+        nums = collections::set(nums, j, v + 1)
+      NEXT
+    NEXT
+    LET t1 AS Integer = datetime::monotonicNanos()
+    MUT sumv AS Integer = 0
+    FOR j = 0 TO 199
+      sumv = sumv + collections::get(nums, j)
+    NEXT
+    checksum = sumv
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_set = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "set", times))
+END FUNC
+
+FUNC test_list_sort(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    MUT base AS List OF Integer = []
+    FOR i = 0 TO 49
+      base = collections::append(base, math::rand(0, 1000000))
+    NEXT
+    LET t0 AS Integer = datetime::monotonicNanos()
+    LET sorted AS List OF Integer = collections::sort(base)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    checksum = collections::get(sorted, 0)
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_sort = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "sort", times))
+END FUNC
+
+' --- shared helpers + predicates for the remaining collections:: list ops ---
+
+MUT forEachAcc AS Integer = 0
+
+FUNC buildRange(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 0 TO n - 1
+    xs = collections::append(xs, i)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC buildPos(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 1 TO n
+    xs = collections::append(xs, i)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC buildNeg(n AS Integer) AS List OF Integer
+  MUT xs AS List OF Integer = []
+  FOR i = 1 TO n
+    xs = collections::append(xs, 0 - i)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC buildNested(outer AS Integer, inner AS Integer) AS List OF List OF Integer
+  LET row AS List OF Integer = buildRange(inner)
+  MUT xs AS List OF List OF Integer = []
+  FOR i = 0 TO outer - 1
+    xs = collections::append(xs, row)
+  NEXT
+  RETURN xs
+END FUNC
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC isEvenN(n AS Integer) AS Boolean
+  RETURN n - (n / 2) * 2 = 0
+END FUNC
+
+FUNC ge999(n AS Integer) AS Boolean
+  RETURN n >= 999
+END FUNC
+
+FUNC le5(n AS Integer) AS Boolean
+  RETURN n <= 5
+END FUNC
+
+FUNC addFn(acc AS Integer, n AS Integer) AS Integer
+  RETURN acc + n
+END FUNC
+
+FUNC doubleFn(n AS Integer) AS Integer
+  RETURN n + n
+END FUNC
+
+FUNC keyNeg(n AS Integer) AS Integer
+  RETURN 0 - n
+END FUNC
+
+SUB bumpAcc(n AS Integer)
+  forEachAcc = forEachAcc + n
+END SUB
+
+FUNC test_list_all(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET pos AS List OF Integer = buildPos(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      IF collections::all(pos, isPos) THEN
+        acc = acc + 1
+      END IF
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_all = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "all", times))
+END FUNC
+
+FUNC test_list_any(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET neg AS List OF Integer = buildNeg(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      IF NOT collections::any(neg, isPos) THEN
+        acc = acc + 1
+      END IF
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_any = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "any", times))
+END FUNC
+
+FUNC test_list_chunks(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      LET parts AS List OF List OF Integer = collections::chunks(base, 10)
+      acc = acc + len(parts)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_chunks = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "chunks", times))
+END FUNC
+
+FUNC test_list_contains(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      IF NOT collections::contains(base, 1000) THEN
+        acc = acc + 1
+      END IF
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_contains = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "contains", times))
+END FUNC
+
+FUNC test_list_drop(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      acc = acc + len(collections::drop(base, 500))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_drop = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "drop", times))
+END FUNC
+
+FUNC test_list_filter(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      acc = acc + len(collections::filter(base, isEvenN))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_filter = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "filter", times))
+END FUNC
+
+FUNC test_list_find(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      acc = acc + collections::find(base, 999)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_find = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "find", times))
+END FUNC
+
+FUNC test_list_findIndex(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      acc = acc + collections::findIndex(base, ge999)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_findIndex = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "findIndex", times))
+END FUNC
+
+FUNC test_list_findLastIndex(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      acc = acc + collections::findLastIndex(base, le5)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_findLastIndex = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "findLastIndex", times))
+END FUNC
+
+FUNC test_list_flatten(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET nested AS List OF List OF Integer = buildNested(100, 10)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      acc = acc + len(collections::flatten(nested))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_flatten = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "flatten", times))
+END FUNC
+
+FUNC test_list_forEach(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    forEachAcc = 0
+    FOR k = 0 TO 199
+      collections::forEach(base, bumpAcc)
+    NEXT
+    checksum = forEachAcc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_forEach = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "forEach", times))
+END FUNC
+
+FUNC test_list_get(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR pass = 0 TO 99
+      FOR i = 0 TO 999
+        acc = acc + collections::get(base, i)
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_get = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "get", times))
+END FUNC
+
+FUNC test_list_getOr(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR pass = 0 TO 99
+      FOR i = 0 TO 999
+        acc = acc + collections::getOr(base, i, 0)
+      NEXT
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_getOr = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "getOr", times))
+END FUNC
+
+FUNC test_list_insert(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = []
+    FOR i = 0 TO 999
+      nums = collections::insert(nums, len(nums) / 2, i)
+    NEXT
+    checksum = len(nums)
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_insert = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "insert", times))
+END FUNC
+
+FUNC test_list_mid(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      acc = acc + len(collections::mid(base, 250, 500))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_mid = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "mid", times))
+END FUNC
+
+FUNC test_list_partition(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      LET p AS Partition OF Integer = collections::partition(base, isEvenN)
+      acc = acc + len(p.matched)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_partition = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "partition", times))
+END FUNC
+
+FUNC test_list_reduce(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      acc = acc + collections::reduce(base, 0, addFn)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_reduce = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "reduce", times))
+END FUNC
+
+FUNC test_list_reduceRight(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      acc = acc + collections::reduceRight(base, 0, addFn)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_reduceRight = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "reduceRight", times))
+END FUNC
+
+FUNC test_list_removeAt(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT nums AS List OF Integer = base
+    MUT cnt AS Integer = 0
+    WHILE len(nums) > 0
+      nums = collections::removeAt(nums, 0)
+      cnt = cnt + 1
+    WEND
+    checksum = cnt
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_removeAt = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "removeAt", times))
+END FUNC
+
+FUNC test_list_replace(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      acc = acc + len(collections::replace(base, 500, 500))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_replace = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "replace", times))
+END FUNC
+
+FUNC test_list_sortBy(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(500)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      LET s AS List OF Integer = collections::sortBy(base, keyNeg)
+      acc = acc + collections::get(s, 0)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_sortBy = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "sortBy", times))
+END FUNC
+
+FUNC test_list_sum(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 999
+      acc = acc + collections::sum(base)
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_sum = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "sum", times))
+END FUNC
+
+FUNC test_list_take(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 499
+      acc = acc + len(collections::take(base, 500))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_take = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "take", times))
+END FUNC
+
+FUNC test_list_transform(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 199
+      acc = acc + len(collections::transform(base, doubleFn))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_transform = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "transform", times))
+END FUNC
+
+FUNC test_list_window(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 99
+      acc = acc + len(collections::window(base, 10))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_window = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "window", times))
+END FUNC
+
+FUNC test_list_zip(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
+  LET base AS List OF Integer = buildRange(1000)
+  MUT times AS List OF Integer = []
+  MUT checksum AS Integer = 0
+  FOR r = 0 TO run - 1
+    LET t0 AS Integer = datetime::monotonicNanos()
+    MUT acc AS Integer = 0
+    FOR k = 0 TO 99
+      acc = acc + len(collections::zip(base, base))
+    NEXT
+    checksum = acc
+    LET t1 AS Integer = datetime::monotonicNanos()
+    times = collections::append(times, t1 - t0)
+  NEXT
+  io::printError("list_zip = " & toString(checksum))
+  RETURN collections::append(tests, makeResult("list", "zip", times))
+END FUNC
+

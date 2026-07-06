@@ -749,191 +749,6 @@ FUNC test_sqrt(run AS Integer, tests AS List OF BenchResult) AS List OF BenchRes
   RETURN collections::append(tests, makeResult("math", "sqrt", times))
 END FUNC
 
-' ===========================================================================
-' GROUP: list
-' ===========================================================================
-
-FUNC test_list_append(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT nums AS List OF Integer = []
-    FOR i = 0 TO 999
-      nums = collections::append(nums, i)
-    NEXT
-    checksum = len(nums)
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("list_append = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("list", "append", times))
-END FUNC
-
-FUNC test_list_append_batch(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  LET ten AS List OF Integer = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT nums AS List OF Integer = []
-    FOR i = 0 TO 99
-      nums = collections::append(nums, ten)
-    NEXT
-    checksum = len(nums)
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("list_append_batch = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("list", "append_batch", times))
-END FUNC
-
-FUNC test_list_prepend(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT nums AS List OF Integer = []
-    FOR i = 0 TO 999
-      nums = collections::prepend(nums, i)
-    NEXT
-    checksum = len(nums)
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("list_prepend = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("list", "prepend", times))
-END FUNC
-
-TYPE CopyRec
-  n AS Integer
-  s AS String
-END TYPE
-
-FUNC copyStrings(xs AS List OF String) AS List OF String
-  RETURN xs
-END FUNC
-
-FUNC copyRecs(xs AS List OF CopyRec) AS List OF CopyRec
-  RETURN xs
-END FUNC
-
-FUNC test_list_copy(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT strs AS List OF String = []
-  MUT recs AS List OF CopyRec = []
-  FOR i = 0 TO 999
-    strs = collections::append(strs, toString(i))
-    recs = collections::append(recs, CopyRec[i, toString(i)])
-  NEXT
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    LET t0 AS Integer = datetime::monotonicNanos()
-    MUT acc AS Integer = 0
-    FOR i = 0 TO 999
-      LET c AS List OF String = copyStrings(strs)
-      acc = acc + len(c)
-    NEXT
-    FOR i = 0 TO 999
-      LET cr AS List OF CopyRec = copyRecs(recs)
-      acc = acc + len(cr)
-    NEXT
-    checksum = acc
-    LET t1 AS Integer = datetime::monotonicNanos()
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("list_copy = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("list", "copy", times))
-END FUNC
-
-FUNC test_list_distinct(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    MUT nums AS List OF Integer = []
-    FOR i = 0 TO 4999
-      nums = collections::append(nums, i - (i / 1000) * 1000)
-    NEXT
-    LET t0 AS Integer = datetime::monotonicNanos()
-    LET unique AS List OF Integer = collections::distinct(nums)
-    LET t1 AS Integer = datetime::monotonicNanos()
-    checksum = len(unique)
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("list_distinct = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("list", "distinct", times))
-END FUNC
-
-FUNC bucketKey(n AS Integer) AS Integer
-  RETURN n - (n / 100) * 100
-END FUNC
-
-FUNC identity(n AS Integer) AS Integer
-  RETURN n
-END FUNC
-
-FUNC test_list_groupby(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    MUT nums AS List OF Integer = []
-    FOR i = 0 TO 1999
-      nums = collections::append(nums, i)
-    NEXT
-    LET t0 AS Integer = datetime::monotonicNanos()
-    LET groups AS Map OF Integer TO List OF Integer = collections::groupBy(nums, bucketKey, identity)
-    LET t1 AS Integer = datetime::monotonicNanos()
-    checksum = len(groups)
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("list_groupby = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("list", "groupby", times))
-END FUNC
-
-FUNC test_list_set(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    MUT nums AS List OF Integer = []
-    FOR i = 0 TO 199
-      nums = collections::append(nums, i)
-    NEXT
-    LET t0 AS Integer = datetime::monotonicNanos()
-    FOR pass = 0 TO 9
-      FOR j = 0 TO 199
-        LET v AS Integer = collections::get(nums, j)
-        nums = collections::set(nums, j, v + 1)
-      NEXT
-    NEXT
-    LET t1 AS Integer = datetime::monotonicNanos()
-    MUT sumv AS Integer = 0
-    FOR j = 0 TO 199
-      sumv = sumv + collections::get(nums, j)
-    NEXT
-    checksum = sumv
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("list_set = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("list", "set", times))
-END FUNC
-
-FUNC test_list_sort(run AS Integer, tests AS List OF BenchResult) AS List OF BenchResult
-  MUT times AS List OF Integer = []
-  MUT checksum AS Integer = 0
-  FOR r = 0 TO run - 1
-    MUT base AS List OF Integer = []
-    FOR i = 0 TO 49
-      base = collections::append(base, math::rand(0, 1000000))
-    NEXT
-    LET t0 AS Integer = datetime::monotonicNanos()
-    LET sorted AS List OF Integer = collections::sort(base)
-    LET t1 AS Integer = datetime::monotonicNanos()
-    checksum = collections::get(sorted, 0)
-    times = collections::append(times, t1 - t0)
-  NEXT
-  io::printError("list_sort = " & toString(checksum))
-  RETURN collections::append(tests, makeResult("list", "sort", times))
-END FUNC
 
 ' ===========================================================================
 ' GROUP: map
@@ -1530,6 +1345,32 @@ FUNC main(args AS List OF String) AS Integer
   tests = test_list_groupby(run, tests)
   tests = test_list_set(run, tests)
   tests = test_list_sort(run, tests)
+  tests = test_list_all(run, tests)
+  tests = test_list_any(run, tests)
+  tests = test_list_chunks(run, tests)
+  tests = test_list_contains(run, tests)
+  tests = test_list_drop(run, tests)
+  tests = test_list_filter(run, tests)
+  tests = test_list_find(run, tests)
+  tests = test_list_findIndex(run, tests)
+  tests = test_list_findLastIndex(run, tests)
+  tests = test_list_flatten(run, tests)
+  tests = test_list_forEach(run, tests)
+  tests = test_list_get(run, tests)
+  tests = test_list_getOr(run, tests)
+  tests = test_list_insert(run, tests)
+  tests = test_list_mid(run, tests)
+  tests = test_list_partition(run, tests)
+  tests = test_list_reduce(run, tests)
+  tests = test_list_reduceRight(run, tests)
+  tests = test_list_removeAt(run, tests)
+  tests = test_list_replace(run, tests)
+  tests = test_list_sortBy(run, tests)
+  tests = test_list_sum(run, tests)
+  tests = test_list_take(run, tests)
+  tests = test_list_transform(run, tests)
+  tests = test_list_window(run, tests)
+  tests = test_list_zip(run, tests)
 
   tests = test_map_set(run, tests)
   tests = test_map_lookup(run, tests)

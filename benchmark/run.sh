@@ -42,8 +42,8 @@ echo "==> building mfb benchmark"
 mfb_out="$here/mfb/benchmark.out"
 
 echo "==> building c benchmark (-O0 and -O2)"
-cc -O0 -o "$here/c/bench-O0.out" "$here/c/main.c" -lm -lpthread
-cc -O2 -o "$here/c/bench-O2.out" "$here/c/main.c" -lm -lpthread
+cc -O0 -o "$here/c/bench-O0.out" "$here/c/main.c" "$here/c/list.c" -lm -lpthread
+cc -O2 -o "$here/c/bench-O2.out" "$here/c/main.c" "$here/c/list.c" -lm -lpthread
 
 # One shared timestamp for every log written by this run.
 ts="$(date +%Y%m%d-%H%M%S)"

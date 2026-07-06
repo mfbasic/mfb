@@ -16,6 +16,7 @@ base-2^28 limb-list arithmetic as the other two.
 import csv
 import io
 import json
+import list as listbench
 import math
 import os
 import re
@@ -289,133 +290,6 @@ def test_pow():
 
 def test_sqrt():
     _math_kernel("sqrt", sqrt, 0.001, 0.005)
-
-
-# ===================================================================== #
-# GROUP: list                                                           #
-# ===================================================================== #
-
-def test_list_append():
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        t0 = now_ns()
-        nums = []
-        for i in range(1000):
-            nums.append(i)
-        checksum = len(nums)
-        times.append(now_ns() - t0)
-    print("list_append = %d" % checksum, file=sys.stderr)
-    record("list", "append", times)
-
-
-def test_list_append_batch():
-    ten = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        t0 = now_ns()
-        nums = []
-        for _i in range(100):
-            nums.extend(ten)
-        checksum = len(nums)
-        times.append(now_ns() - t0)
-    print("list_append_batch = %d" % checksum, file=sys.stderr)
-    record("list", "append_batch", times)
-
-
-def test_list_prepend():
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        t0 = now_ns()
-        nums = []
-        for i in range(1000):
-            nums.insert(0, i)
-        checksum = len(nums)
-        times.append(now_ns() - t0)
-    print("list_prepend = %d" % checksum, file=sys.stderr)
-    record("list", "prepend", times)
-
-
-def test_list_copy():
-    strs = [str(i) for i in range(1000)]
-    recs = [(i, str(i)) for i in range(1000)]
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        t0 = now_ns()
-        acc = 0
-        for _i in range(1000):
-            c = list(strs)
-            acc += len(c)
-        for _i in range(1000):
-            cr = list(recs)
-            acc += len(cr)
-        checksum = acc
-        times.append(now_ns() - t0)
-    print("list_copy = %d" % checksum, file=sys.stderr)
-    record("list", "copy", times)
-
-
-def test_list_distinct():
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        nums = [i % 1000 for i in range(5000)]
-        t0 = now_ns()
-        unique = []
-        for v in nums:
-            if v not in unique:
-                unique.append(v)
-        checksum = len(unique)
-        times.append(now_ns() - t0)
-    print("list_distinct = %d" % checksum, file=sys.stderr)
-    record("list", "distinct", times)
-
-
-def test_list_groupby():
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        nums = list(range(2000))
-        t0 = now_ns()
-        groups = {}
-        for v in nums:
-            groups.setdefault(v % 100, []).append(v)
-        checksum = len(groups)
-        times.append(now_ns() - t0)
-    print("list_groupby = %d" % checksum, file=sys.stderr)
-    record("list", "groupby", times)
-
-
-def test_list_set():
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        nums = list(range(200))
-        t0 = now_ns()
-        for _pass in range(10):
-            for j in range(200):
-                nums[j] = nums[j] + 1
-        times.append(now_ns() - t0)
-        checksum = sum(nums)
-    print("list_set = %d" % checksum, file=sys.stderr)
-    record("list", "set", times)
-
-
-def test_list_sort():
-    import random
-    times = []
-    checksum = 0
-    for _ in range(RUN):
-        base = [random.randint(0, 1000000) for _ in range(50)]
-        t0 = now_ns()
-        s = sorted(base)
-        times.append(now_ns() - t0)
-        checksum = s[0]
-    print("list_sort = %d" % checksum, file=sys.stderr)
-    record("list", "sort", times)
 
 
 # ===================================================================== #
@@ -862,14 +736,7 @@ def main():
     test_asin(); test_acos(); test_atan()
     test_exp(); test_log(); test_log10(); test_pow(); test_sqrt()
 
-    test_list_append()
-    test_list_append_batch()
-    test_list_prepend()
-    test_list_copy()
-    test_list_distinct()
-    test_list_groupby()
-    test_list_set()
-    test_list_sort()
+    listbench.run_all(RUN, now_ns, record)
 
     test_map_set()
     test_map_lookup()
