@@ -281,6 +281,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR));
         self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED));
         self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED));
+        // The transparent read buffer (plan-14-C) is a cache, not copied: a moved
+        // handle starts with an empty cache. These words are inert for non-File
+        // resources.
+        self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_READ_PTR));
+        self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_READ_POS));
+        self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_READ_FILL));
+        self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_READ_AT_EOF));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)

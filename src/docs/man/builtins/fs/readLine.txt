@@ -37,6 +37,14 @@ DESCRIPTION
   The function only reads from and repositions file; it does not close it and
   has no other side effects.
 
+  Reads are served from a transparent per-handle block buffer: internally the
+  file is read in blocks and lines are handed out from that buffer, so a loop over
+  a large file runs in linear time rather than re-reading the remainder for every
+  line. This is invisible — the lines, terminators, EOF point, and errors are
+  identical to an unbuffered read. A whole-file read (fs::readAll, fs::readAllBytes)
+  or a write (fs::writeAll) on the same handle transparently reconciles the buffer
+  first, so mixing them with fs::readLine sees the exact logical position.
+
   Thread cancellation is cooperative. The current runtime does not
   asynchronously interrupt arbitrary host file reads; workers that need prompt
   cancellation around blocking file descriptors should check thread::isCancelled

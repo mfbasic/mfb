@@ -32,7 +32,12 @@ pub(super) fn lower_fs_file_drain(
         abi::move_register(abi::string_length_register(), "%v2"),
     ];
     let mut relocations = Vec::new();
-    platform.emit_write(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_write(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::move_register("%v5", abi::return_register()),
         abi::compare_immediate("%v5", "0"),
@@ -166,7 +171,15 @@ fn emit_append_to_file_buffer(
 /// `fs::isBuffered(file)` (plan-14-B §4.5): report whether this handle is buffered.
 pub(super) fn lower_fs_is_buffered_helper(
     symbol: &str,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     let yes = format!("{symbol}_yes");
     let done = format!("{symbol}_done");
     let mut instructions = vec![
@@ -191,7 +204,15 @@ pub(super) fn lower_fs_is_buffered_helper(
 /// or off. Disabling drains any pending bytes first, then clears the flag.
 pub(super) fn lower_fs_set_buffered_helper(
     symbol: &str,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     let enable = format!("{symbol}_enable");
     let done = format!("{symbol}_done");
     // x0 = File*, x1 = enabled (Boolean).
@@ -224,7 +245,15 @@ pub(super) fn lower_fs_set_buffered_helper(
 /// unbuffered.
 pub(super) fn lower_fs_flush_helper(
     symbol: &str,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     let flush_error = format!("{symbol}_flush_error");
     let done = format!("{symbol}_done");
     // x0 = File*.
@@ -239,7 +268,12 @@ pub(super) fn lower_fs_flush_helper(
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
     ]);
-    push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, &mut instructions, &mut relocations);
+    push_error_message_address(
+        symbol,
+        ERR_OUTPUT_SYMBOL,
+        &mut instructions,
+        &mut relocations,
+    );
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
     Ok((frame, instructions, relocations, stack_slots))
@@ -348,8 +382,22 @@ pub(super) fn lower_fs_open_helper(
     emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"r", &read, symbol);
     emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"read", &read, symbol);
     emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"w", &write, symbol);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"write", &write, symbol);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"rw", &read_write, symbol);
+    emit_branch_if_ascii_literal(
+        &mut instructions,
+        &mode,
+        &mode_len,
+        b"write",
+        &write,
+        symbol,
+    );
+    emit_branch_if_ascii_literal(
+        &mut instructions,
+        &mode,
+        &mode_len,
+        b"rw",
+        &read_write,
+        symbol,
+    );
     emit_branch_if_ascii_literal(
         &mut instructions,
         &mode,
@@ -359,7 +407,14 @@ pub(super) fn lower_fs_open_helper(
         symbol,
     );
     emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"a", &append, symbol);
-    emit_branch_if_ascii_literal(&mut instructions, &mode, &mode_len, b"append", &append, symbol);
+    emit_branch_if_ascii_literal(
+        &mut instructions,
+        &mode,
+        &mode_len,
+        b"append",
+        &append,
+        symbol,
+    );
     instructions.extend([
         abi::branch(&invalid),
         abi::label(&read),
@@ -424,6 +479,11 @@ pub(super) fn lower_fs_open_helper(
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR),
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED),
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED),
+        // Transparent read buffer (plan-14-C): empty cache at the fd's position.
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_PTR),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_POS),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_FILL),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_AT_EOF),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -560,7 +620,12 @@ pub(super) fn lower_fs_close_helper(
             abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
             abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
         ]);
-        push_error_message_address(symbol, ERR_OUTPUT_SYMBOL, &mut instructions, &mut relocations);
+        push_error_message_address(
+            symbol,
+            ERR_OUTPUT_SYMBOL,
+            &mut instructions,
+            &mut relocations,
+        );
     }
     instructions.extend([abi::label(&done), abi::return_()]);
     let (frame, stack_slots) = finalize_vreg_body(&mut instructions, &[]);
@@ -571,7 +636,15 @@ pub(super) fn lower_fs_write_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // Vreg-allocated (plan-00-G Phase 2). fd / remaining / cursor are loop-carried
     // across the `write` syscall, so the allocator spills them.
     let loop_label = format!("{symbol}_write_loop");
@@ -594,6 +667,21 @@ pub(super) fn lower_fs_write_all_helper(
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
+    ];
+    let mut relocations = Vec::new();
+    // Reconcile the read buffer (plan-14-C) before writing: on a read+write handle
+    // a write after fs::readLine must land at the true fd position, not the block
+    // read-ahead. A no-op when nothing was read-buffered.
+    emit_reconcile_read_buffer(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &file,
+        "wa",
+    )?;
+    instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         abi::load_u64(&remaining, &data, 0),
         abi::add_immediate(&cursor, &data, 8),
@@ -603,8 +691,7 @@ pub(super) fn lower_fs_write_all_helper(
         abi::load_u64(&buf_enabled, &file, FILE_OFFSET_BUF_ENABLED),
         abi::compare_immediate(&buf_enabled, "0"),
         abi::branch_eq(&loop_label),
-    ];
-    let mut relocations = Vec::new();
+    ]);
     emit_append_to_file_buffer(
         symbol,
         platform_imports,
@@ -673,7 +760,15 @@ pub(super) fn lower_fs_read_all_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // Vreg-allocated (plan-00-G Phase 2). fd (across the seeks + read loop), the
     // seek positions/length (across the alloc), and the result string (across the
     // read loop + UTF-8 validation) are vregs the allocator spills.
@@ -702,12 +797,25 @@ pub(super) fn lower_fs_read_all_helper(
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
+    ];
+    let mut relocations = Vec::new();
+    // Reconcile the read buffer (plan-14-C): a whole-file read after fs::readLine
+    // must see the true fd position, not the block read-ahead.
+    emit_reconcile_read_buffer(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &file,
+        "readall",
+    )?;
+    instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), &fd),
         abi::move_immediate("x1", "Integer", "0"),
         abi::move_immediate("x2", "Integer", "1"),
-    ];
-    let mut relocations = Vec::new();
+    ]);
     platform.emit_seek_file(
         symbol,
         platform_imports,
@@ -849,7 +957,15 @@ pub(super) fn lower_fs_write_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // Vreg-allocated (plan-00-G Phase 2). Writes the byte-List's data region;
     // fd/remaining/cursor are loop-carried across the `write` syscall (spilled).
     let loop_label = format!("{symbol}_write_loop");
@@ -873,6 +989,19 @@ pub(super) fn lower_fs_write_all_bytes_helper(
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
+    ];
+    let mut relocations = Vec::new();
+    // Reconcile the read buffer (plan-14-C) before writing (see fs::writeAll).
+    emit_reconcile_read_buffer(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &file,
+        "wab",
+    )?;
+    instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         abi::load_u64(&remaining, &bytes, COLLECTION_OFFSET_DATA_LENGTH),
         abi::add_immediate(&cursor, &bytes, COLLECTION_HEADER_SIZE),
@@ -885,8 +1014,7 @@ pub(super) fn lower_fs_write_all_bytes_helper(
         abi::load_u64(&buf_enabled, &file, FILE_OFFSET_BUF_ENABLED),
         abi::compare_immediate(&buf_enabled, "0"),
         abi::branch_eq(&loop_label),
-    ];
-    let mut relocations = Vec::new();
+    ]);
     emit_append_to_file_buffer(
         symbol,
         platform_imports,
@@ -955,7 +1083,15 @@ pub(super) fn lower_fs_read_all_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // Vreg-allocated (plan-00-G Phase 2). fd (across seeks + read loop), seek
     // positions/length (across the alloc), the collection and its data-region base
     // (across the read loop) are spilled vregs; the entry-init loop makes no call.
@@ -990,12 +1126,25 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         abi::load_u64(&closed_flag, &file, FILE_OFFSET_CLOSED),
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
+    ];
+    let mut relocations = Vec::new();
+    // Reconcile the read buffer (plan-14-C): a whole-file read after fs::readLine
+    // must see the true fd position, not the block read-ahead.
+    emit_reconcile_read_buffer(
+        symbol,
+        platform_imports,
+        platform,
+        &mut instructions,
+        &mut relocations,
+        &file,
+        "readall",
+    )?;
+    instructions.extend([
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), &fd),
         abi::move_immediate("x1", "Integer", "0"),
         abi::move_immediate("x2", "Integer", "1"),
-    ];
-    let mut relocations = Vec::new();
+    ]);
     platform.emit_seek_file(
         symbol,
         platform_imports,
@@ -1082,7 +1231,11 @@ pub(super) fn lower_fs_read_all_bytes_helper(
         abi::store_u64("x31", &entry_cursor, COLLECTION_ENTRY_OFFSET_KEY_LENGTH),
         abi::store_u64(&idx, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET),
         abi::move_immediate(&scratch, "Integer", "1"),
-        abi::store_u64(&scratch, &entry_cursor, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH),
+        abi::store_u64(
+            &scratch,
+            &entry_cursor,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ),
         abi::add_immediate(&entry_cursor, &entry_cursor, COLLECTION_ENTRY_SIZE),
         abi::add_immediate(&idx, &idx, 1),
         abi::branch(&entry_loop),
@@ -1151,7 +1304,15 @@ pub(super) fn lower_fs_eof_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // Vreg-allocated (plan-00-G Phase 2). fd is held across the three seeks, the
     // start position across the second/third — both spilled vregs.
     let closed = format!("{symbol}_closed");
@@ -1165,6 +1326,8 @@ pub(super) fn lower_fs_eof_helper(
     let start = vregs.next();
     let end = vregs.next();
     let closed_flag = vregs.next();
+    let read_pos = vregs.next();
+    let read_fill = vregs.next();
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
@@ -1172,6 +1335,14 @@ pub(super) fn lower_fs_eof_helper(
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
+        // Buffer-aware (plan-14-C): unconsumed bytes in the read buffer
+        // (READ_POS < READ_FILL) mean not-EOF, whatever the raw fd position. When
+        // the buffer is fully consumed the fd sits at the logical position, so the
+        // fd-vs-size check below is exact.
+        abi::load_u64(&read_pos, &file, FILE_OFFSET_READ_POS),
+        abi::load_u64(&read_fill, &file, FILE_OFFSET_READ_FILL),
+        abi::compare_registers(&read_pos, &read_fill),
+        abi::branch_lt(&not_eof),
         abi::move_register(abi::return_register(), &fd),
         abi::move_immediate("x1", "Integer", "0"),
         abi::move_immediate("x2", "Integer", "1"),
@@ -1247,49 +1418,188 @@ pub(super) fn lower_fs_eof_helper(
     Ok((frame, instructions, relocations, stack_slots))
 }
 
+/// Append `count` bytes from `src` to the growing line accumulator `temp`
+/// (plan-14-C `fs::readLine`). The accumulator is an arena block whose line bytes
+/// live at `temp+8` (an 8-byte slack header keeps the layout the result-build tail
+/// reads) with `line_len` valid data bytes and `temp_cap` total capacity. When the
+/// append would overflow, the block is doubled (or grown to exactly fit), the
+/// existing `line_len` bytes copied over, and `temp`/`temp_cap` reassigned; the old
+/// block is left to the arena's bulk reclaim (the grow path is rare — only a line
+/// spanning a refill). `line_len` is advanced by `count`. On OOM branches to
+/// `alloc_error`. Internal scratch uses `%v50`..`%v56`; `tag` disambiguates labels.
+fn emit_append_to_line_accumulator(
+    symbol: &str,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    temp: &str,
+    temp_cap: &str,
+    line_len: &str,
+    src: &str,
+    count: &str,
+    tag: &str,
+    alloc_error: &str,
+) {
+    let fits = format!("{symbol}_acc_{tag}_fits");
+    let cap_ok = format!("{symbol}_acc_{tag}_cap_ok");
+    let grow_copy = format!("{symbol}_acc_{tag}_grow_copy");
+    let grow_copy_done = format!("{symbol}_acc_{tag}_grow_copy_done");
+    let copy = format!("{symbol}_acc_{tag}_copy");
+    let copy_done = format!("{symbol}_acc_{tag}_copy_done");
+    instructions.extend([
+        // needed = 8 (slack header) + line_len + count
+        abi::add_registers("%v50", line_len, count),
+        abi::add_immediate("%v50", "%v50", 8),
+        abi::compare_registers("%v50", temp_cap),
+        abi::branch_ls(&fits),
+        // grow: new_cap = max(temp_cap * 2, needed)
+        abi::add_registers("%v51", temp_cap, temp_cap),
+        abi::compare_registers("%v51", "%v50"),
+        abi::branch_ge(&cap_ok),
+        abi::move_register("%v51", "%v50"),
+        abi::label(&cap_ok),
+        abi::move_register("%v52", temp), // stash old block
+        abi::move_register(abi::return_register(), "%v51"),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
+    ]);
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
+    instructions.extend([
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_ne(alloc_error),
+        // copy the existing line_len bytes from old(+8) to new(+8)
+        abi::add_immediate("%v53", "%v52", 8),
+        abi::add_immediate("%v54", "x1", 8),
+        abi::move_register("%v55", line_len),
+        abi::label(&grow_copy),
+        abi::compare_immediate("%v55", "0"),
+        abi::branch_eq(&grow_copy_done),
+        abi::load_u8("%v56", "%v53", 0),
+        abi::store_u8("%v56", "%v54", 0),
+        abi::add_immediate("%v53", "%v53", 1),
+        abi::add_immediate("%v54", "%v54", 1),
+        abi::subtract_immediate("%v55", "%v55", 1),
+        abi::branch(&grow_copy),
+        abi::label(&grow_copy_done),
+        abi::move_register(temp, "x1"),
+        abi::move_register(temp_cap, "%v51"),
+        abi::label(&fits),
+        // dst = temp + 8 + line_len; copy `count` bytes from src.
+        abi::add_immediate("%v53", temp, 8),
+        abi::add_registers("%v53", "%v53", line_len),
+        abi::move_register("%v54", src),
+        abi::move_register("%v55", count),
+        abi::label(&copy),
+        abi::compare_immediate("%v55", "0"),
+        abi::branch_eq(&copy_done),
+        abi::load_u8("%v56", "%v54", 0),
+        abi::store_u8("%v56", "%v53", 0),
+        abi::add_immediate("%v54", "%v54", 1),
+        abi::add_immediate("%v53", "%v53", 1),
+        abi::subtract_immediate("%v55", "%v55", 1),
+        abi::branch(&copy),
+        abi::label(&copy_done),
+        abi::add_registers(line_len, line_len, count),
+    ]);
+}
+
+/// Reconcile the transparent read buffer before an operation that observes or
+/// moves the true fd position — whole-file `fs::readAll`/`readAllBytes` and
+/// `fs::writeAll`/`writeAllBytes` (plan-14-C §3). After `fs::readLine` the fd sits
+/// ahead of the logical read position by `READ_FILL - READ_POS` unconsumed
+/// read-ahead bytes; rewind the fd by that amount (`lseek(fd, -(fill-pos), CUR)`)
+/// and invalidate the buffer so the following operation sees the true position. A
+/// no-op when the buffer is empty (the common unbuffered path). `file` is the
+/// record vreg; internal scratch uses `%v60`..`%v62`; `tag` disambiguates labels.
+fn emit_reconcile_read_buffer(
+    symbol: &str,
+    platform_imports: &HashMap<String, String>,
+    platform: &dyn CodegenPlatform,
+    instructions: &mut Vec<CodeInstruction>,
+    relocations: &mut Vec<CodeRelocation>,
+    file: &str,
+    tag: &str,
+) -> Result<(), String> {
+    let reconciled = format!("{symbol}_reconcile_{tag}_done");
+    instructions.extend([
+        abi::load_u64("%v60", file, FILE_OFFSET_READ_POS),
+        abi::load_u64("%v61", file, FILE_OFFSET_READ_FILL),
+        abi::subtract_registers("%v61", "%v61", "%v60"), // unconsumed = fill - pos
+        abi::compare_immediate("%v61", "0"),
+        abi::branch_le(&reconciled),
+        // lseek(fd, -(unconsumed), SEEK_CUR) to rewind the read-ahead.
+        abi::load_u64("%v62", file, FILE_OFFSET_FD),
+        abi::move_register(abi::return_register(), "%v62"),
+        abi::subtract_registers("x1", "x31", "%v61"), // -unconsumed
+        abi::move_immediate("x2", "Integer", "1"),     // SEEK_CUR
+    ]);
+    platform.emit_seek_file(symbol, platform_imports, instructions, relocations)?;
+    instructions.extend([
+        // Invalidate the buffer (empty cache at the now-reconciled fd position).
+        abi::store_u64("x31", file, FILE_OFFSET_READ_POS),
+        abi::store_u64("x31", file, FILE_OFFSET_READ_FILL),
+        abi::store_u64("x31", file, FILE_OFFSET_READ_AT_EOF),
+        abi::label(&reconciled),
+    ]);
+    Ok(())
+}
 
 pub(super) fn lower_fs_read_line_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
-    // Vreg-allocated (plan-00-G Phase 2). fd / start / the temp buffer / line_len /
-    // the result string are held across various seek/alloc/read/validate calls and
-    // become spilled vregs; the in-memory newline scan and the byte copy make no call.
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    // Transparent block read buffer (plan-14-C): serve lines from the per-`File`
+    // read block (`READ_PTR[READ_POS..READ_FILL]`) and refill with one `read()` when
+    // it is exhausted, accumulating a line that spans blocks into a growing arena
+    // buffer. O(N) per file vs the old seek-to-EOF/read-whole-remaining O(N²). The
+    // fd position runs ahead of the logical read position by the unconsumed buffer;
+    // whole-file reads and writes reconcile that separately.
     let closed = format!("{symbol}_closed");
     let seek_error = format!("{symbol}_seek_error");
     let eof_error = format!("{symbol}_eof_error");
-    let temp_alloc_ok = format!("{symbol}_temp_alloc_ok");
-    let read_loop = format!("{symbol}_read_loop");
-    let read_done = format!("{symbol}_read_done");
     let read_error = format!("{symbol}_read_error");
+    let have_read_buf = format!("{symbol}_have_read_buf");
+    let line_loop = format!("{symbol}_line_loop");
     let scan_loop = format!("{symbol}_scan_loop");
-    let scan_no_newline = format!("{symbol}_scan_no_newline");
-    let scan_newline = format!("{symbol}_scan_newline");
-    let trim_done = format!("{symbol}_trim_done");
+    let scan_found = format!("{symbol}_scan_found");
+    let scan_no_nl = format!("{symbol}_scan_no_nl");
+    let refill = format!("{symbol}_refill");
+    let refill_at_eof = format!("{symbol}_refill_at_eof");
+    let set_eof = format!("{symbol}_set_eof");
+    let emit_line = format!("{symbol}_emit_line");
+    let build_result = format!("{symbol}_build_result");
     let result_alloc_ok = format!("{symbol}_result_alloc_ok");
     let copy_loop = format!("{symbol}_copy_loop");
     let copy_done = format!("{symbol}_copy_done");
     let alloc_error = format!("{symbol}_alloc_error");
     let done = format!("{symbol}_done");
+    let cap = FILE_READ_BUFFER_CAPACITY.to_string();
 
     let mut vregs = Vregs::new();
     let file = vregs.next();
     let fd = vregs.next();
-    let start = vregs.next();
-    let end = vregs.next();
-    let length = vregs.next();
-    let temp = vregs.next();
-    let line_len = vregs.next();
-    let consumed = vregs.next();
-    let result = vregs.next();
-    let remaining = vregs.next();
-    let cursor = vregs.next();
-    let scan_ptr = vregs.next();
-    let scan_rem = vregs.next();
-    let byte = vregs.next();
-    let scratch = vregs.next();
     let closed_flag = vregs.next();
+    let read_ptr = vregs.next();
+    let read_pos = vregs.next();
+    let read_fill = vregs.next();
+    let temp = vregs.next();
+    let temp_cap = vregs.next();
+    let line_len = vregs.next();
+    let scan_i = vregs.next();
+    let scan_win = vregs.next();
+    let win_ptr = vregs.next();
+    let byte = vregs.next();
+    let trim_ptr = vregs.next();
+    let result = vregs.next();
+    let mut relocations = Vec::new();
     let mut instructions = vec![
         abi::label("entry"),
         abi::move_register(&file, abi::return_register()),
@@ -1297,142 +1607,139 @@ pub(super) fn lower_fs_read_line_helper(
         abi::compare_immediate(&closed_flag, "0"),
         abi::branch_ne(&closed),
         abi::load_u64(&fd, &file, FILE_OFFSET_FD),
-        abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate("x1", "Integer", "0"),
-        abi::move_immediate("x2", "Integer", "1"),
+        // Ensure the read block is allocated (lazily, on first incremental read).
+        abi::load_u64(&read_ptr, &file, FILE_OFFSET_READ_PTR),
+        abi::compare_immediate(&read_ptr, "0"),
+        abi::branch_ne(&have_read_buf),
+        abi::move_immediate(abi::return_register(), "Integer", &cap),
+        abi::move_immediate("x1", "Integer", "8"),
+        abi::branch_link(ARENA_ALLOC_SYMBOL),
     ];
-    let mut relocations = Vec::new();
-    platform.emit_seek_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&seek_error),
-        abi::move_register(&start, abi::return_register()),
-        abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate("x1", "Integer", "0"),
-        abi::move_immediate("x2", "Integer", "2"),
-    ]);
-    platform.emit_seek_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&seek_error),
-        abi::move_register(&end, abi::return_register()),
-        abi::move_register(abi::return_register(), &fd),
-        abi::move_register("x1", &start),
-        abi::move_immediate("x2", "Integer", "0"),
-    ]);
-    platform.emit_seek_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&seek_error),
-        abi::compare_registers(&end, &start),
-        abi::branch_le(&eof_error),
-        abi::subtract_registers(&length, &end, &start),
-        abi::add_immediate(abi::return_register(), &length, 9),
+        abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
+        abi::branch_ne(&alloc_error),
+        abi::store_u64("x1", &file, FILE_OFFSET_READ_PTR),
+        abi::move_register(&read_ptr, "x1"),
+        // READ_POS/READ_FILL/READ_AT_EOF are already 0 from the open-time zeroing.
+        abi::label(&have_read_buf),
+        // Allocate a small growing line accumulator (line bytes at temp+8).
+        abi::move_immediate(abi::return_register(), "Integer", "32"),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     instructions.extend([
         abi::compare_immediate(abi::return_register(), RESULT_OK_TAG),
-        abi::branch_eq(&temp_alloc_ok),
-        abi::branch(&alloc_error),
-        abi::label(&temp_alloc_ok),
+        abi::branch_ne(&alloc_error),
         abi::move_register(&temp, "x1"),
-        abi::store_u64(&length, &temp, 0),
-        abi::move_register(&remaining, &length),
-        abi::add_immediate(&cursor, &temp, 8),
-        abi::label(&read_loop),
-        abi::compare_immediate(&remaining, "0"),
-        abi::branch_eq(&read_done),
-        abi::move_register(abi::return_register(), &fd),
-        abi::move_register("x1", &cursor),
-        abi::move_register("x2", &remaining),
-    ]);
-    platform.emit_read_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_le(&read_error),
-        abi::add_registers(&cursor, &cursor, abi::return_register()),
-        abi::subtract_registers(&remaining, &remaining, abi::return_register()),
-        abi::branch(&read_loop),
-        abi::label(&read_done),
-        abi::add_immediate(&scan_ptr, &temp, 8),
-        abi::move_register(&scan_rem, &length),
+        abi::move_immediate(&temp_cap, "Integer", "32"),
         abi::move_immediate(&line_len, "Integer", "0"),
-        abi::move_immediate(&consumed, "Integer", "0"),
+        abi::label(&line_loop),
+        abi::load_u64(&read_pos, &file, FILE_OFFSET_READ_POS),
+        abi::load_u64(&read_fill, &file, FILE_OFFSET_READ_FILL),
+        abi::compare_registers(&read_pos, &read_fill),
+        abi::branch_ge(&refill),
+        // Scan READ_PTR[read_pos..read_fill] for '\n'.
+        abi::add_registers(&win_ptr, &read_ptr, &read_pos),
+        abi::subtract_registers(&scan_win, &read_fill, &read_pos),
+        abi::move_immediate(&scan_i, "Integer", "0"),
         abi::label(&scan_loop),
-        abi::compare_immediate(&scan_rem, "0"),
-        abi::branch_eq(&scan_no_newline),
-        abi::load_u8(&byte, &scan_ptr, 0),
-        abi::add_immediate(&consumed, &consumed, 1),
+        abi::compare_registers(&scan_i, &scan_win),
+        abi::branch_eq(&scan_no_nl),
+        abi::load_u8(&byte, &win_ptr, 0),
         abi::compare_immediate(&byte, "10"),
-        abi::branch_eq(&scan_newline),
-        abi::add_immediate(&line_len, &line_len, 1),
-        abi::add_immediate(&scan_ptr, &scan_ptr, 1),
-        abi::subtract_immediate(&scan_rem, &scan_rem, 1),
+        abi::branch_eq(&scan_found),
+        abi::add_immediate(&scan_i, &scan_i, 1),
+        abi::add_immediate(&win_ptr, &win_ptr, 1),
         abi::branch(&scan_loop),
-        abi::label(&scan_no_newline),
-        abi::move_register(&consumed, &line_len),
-        abi::branch(&trim_done),
-        abi::label(&scan_newline),
-        abi::compare_immediate(&line_len, "0"),
-        abi::branch_eq(&trim_done),
-        abi::subtract_immediate(&scratch, &scan_ptr, 1),
-        abi::load_u8(&byte, &scratch, 0),
-        abi::compare_immediate(&byte, "13"),
-        abi::branch_ne(&trim_done),
-        abi::subtract_immediate(&line_len, &line_len, 1),
-        abi::label(&trim_done),
-        abi::add_registers("x1", &start, &consumed),
-        abi::move_register(abi::return_register(), &fd),
-        abi::move_immediate("x2", "Integer", "0"),
+        abi::label(&scan_found),
+        // Append the line bytes [win_start..'\n') — win_ptr has advanced to the '\n',
+        // so re-derive the start = read_ptr + read_pos.
+        abi::add_registers(&win_ptr, &read_ptr, &read_pos),
     ]);
-    platform.emit_seek_file(
+    emit_append_to_line_accumulator(
         symbol,
-        platform_imports,
         &mut instructions,
         &mut relocations,
-    )?;
+        &temp,
+        &temp_cap,
+        &line_len,
+        &win_ptr,
+        &scan_i,
+        "found",
+        &alloc_error,
+    );
+    instructions.extend([
+        // Consume the line + its '\n': read_pos += scan_i + 1.
+        abi::add_registers(&read_pos, &read_pos, &scan_i),
+        abi::add_immediate(&read_pos, &read_pos, 1),
+        abi::store_u64(&read_pos, &file, FILE_OFFSET_READ_POS),
+        abi::branch(&emit_line),
+        abi::label(&scan_no_nl),
+        // No '\n' in the window: append the whole remaining window, mark it consumed,
+        // then refill. win_ptr = read_ptr + read_pos (start of the window).
+        abi::add_registers(&win_ptr, &read_ptr, &read_pos),
+    ]);
+    emit_append_to_line_accumulator(
+        symbol,
+        &mut instructions,
+        &mut relocations,
+        &temp,
+        &temp_cap,
+        &line_len,
+        &win_ptr,
+        &scan_win,
+        "part",
+        &alloc_error,
+    );
+    instructions.extend([
+        abi::store_u64(&read_fill, &file, FILE_OFFSET_READ_POS),
+        abi::label(&refill),
+        abi::load_u64(&byte, &file, FILE_OFFSET_READ_AT_EOF),
+        abi::compare_immediate(&byte, "0"),
+        abi::branch_ne(&refill_at_eof),
+        // read(fd, READ_PTR, CAP) one block.
+        abi::move_register(abi::return_register(), &fd),
+        abi::move_register("x1", &read_ptr),
+        abi::move_immediate("x2", "Integer", &cap),
+    ]);
+    platform.emit_read_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&seek_error),
+        abi::branch_lt(&read_error),
+        abi::branch_eq(&set_eof),
+        // Got n bytes: READ_FILL = n, READ_POS = 0.
+        abi::store_u64(abi::return_register(), &file, FILE_OFFSET_READ_FILL),
+        abi::store_u64("x31", &file, FILE_OFFSET_READ_POS),
+        abi::branch(&line_loop),
+        abi::label(&set_eof),
+        abi::move_immediate(&byte, "Integer", "1"),
+        abi::store_u64(&byte, &file, FILE_OFFSET_READ_AT_EOF),
+        abi::store_u64("x31", &file, FILE_OFFSET_READ_FILL),
+        abi::store_u64("x31", &file, FILE_OFFSET_READ_POS),
+        abi::branch(&refill),
+        abi::label(&refill_at_eof),
+        // At EOF: emit the trailing partial line if any, else signal end of file.
+        abi::compare_immediate(&line_len, "0"),
+        abi::branch_eq(&eof_error),
+        abi::label(&emit_line),
+        // Trim a single trailing '\r' (CRLF): if temp[8 + line_len - 1] == 13, drop it.
+        abi::compare_immediate(&line_len, "0"),
+        abi::branch_eq(&build_result),
+        abi::add_immediate(&trim_ptr, &temp, 8),
+        abi::add_registers(&trim_ptr, &trim_ptr, &line_len),
+        abi::subtract_immediate(&trim_ptr, &trim_ptr, 1),
+        abi::load_u8(&byte, &trim_ptr, 0),
+        abi::compare_immediate(&byte, "13"),
+        abi::branch_ne(&build_result),
+        abi::subtract_immediate(&line_len, &line_len, 1),
+        abi::label(&build_result),
         abi::add_immediate(abi::return_register(), &line_len, 9),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
     ]);
-    relocations.push(CodeRelocation {
-        from: symbol.to_string(),
-        to: ARENA_ALLOC_SYMBOL.to_string(),
-        kind: RelocIntent::Call,
-        binding: "internal".to_string(),
-        library: None,
-    });
+    relocations.push(internal_branch(symbol, ARENA_ALLOC_SYMBOL));
     let dst = vregs.next();
     let src = vregs.next();
     let remaining2 = vregs.next();
@@ -1587,4 +1894,3 @@ fn emit_branch_if_ascii_literal(
     }
     instructions.extend([abi::branch(target), abi::label(&next)]);
 }
-

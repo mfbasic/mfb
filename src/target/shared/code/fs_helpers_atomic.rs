@@ -146,6 +146,11 @@ pub(super) fn lower_fs_create_temp_file_helper(
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR),
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED),
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED),
+        // Transparent read buffer (plan-14-C): empty cache at the fd's position.
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_PTR),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_POS),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_FILL),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_AT_EOF),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1389,6 +1394,11 @@ pub(super) fn lower_fs_read_bytes_path_helper(
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR),
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED),
         abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED),
+        // Transparent read buffer (plan-14-C): empty cache at the fd's position.
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_PTR),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_POS),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_FILL),
+        abi::store_u64("x31", "x1", FILE_OFFSET_READ_AT_EOF),
         abi::move_register(abi::return_register(), "x1"),
         abi::branch_link("_mfb_rt_fs_fs_readAllBytes"),
     ]);

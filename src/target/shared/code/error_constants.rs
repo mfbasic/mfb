@@ -340,10 +340,29 @@ pub(crate) const FILE_OFFSET_STATE: usize = 16;
 pub(crate) const FILE_OFFSET_BUF_PTR: usize = 24;
 pub(crate) const FILE_OFFSET_BUF_FILLED: usize = 32;
 pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 40;
-/// Size of a resource record: fd, closed flag, the `STATE` pointer, and the
-/// per-`File` output-buffer fields (ptr/filled/enabled). All resource kinds share
-/// the size so the generic thread-transfer copy stays uniform.
-pub(crate) const RESOURCE_RECORD_SIZE: &str = "48";
+/// Transparent per-`File` **read** buffer fields (plan-14-C), appended after the
+/// write-buffer fields. Always-on (a read buffer can never lose or reorder data):
+/// `fs::readLine` serves lines from `READ_PTR` and refills with one block `read()`,
+/// turning an O(N²) line loop into O(N). `READ_PTR` is the lazily-allocated block
+/// (NULL until the first incremental read), `READ_POS` the next unconsumed byte
+/// offset, `READ_FILL` the valid bytes in the block, and `READ_AT_EOF` a flag set
+/// once the underlying `read()` returns 0. The fd position runs *ahead* of the
+/// logical read position by `READ_FILL - READ_POS` unconsumed bytes; whole-file
+/// reads (`fs::readAll`/`readAllBytes`) and `fs::writeAll` reconcile that (seek back
+/// + invalidate) before touching the fd. Zeroed at every File alloc and in the
+/// thread-transfer copy, so a fresh/moved handle starts with an empty cache at the
+/// fd's current position.
+pub(crate) const FILE_OFFSET_READ_PTR: usize = 48;
+pub(crate) const FILE_OFFSET_READ_POS: usize = 56;
+pub(crate) const FILE_OFFSET_READ_FILL: usize = 64;
+pub(crate) const FILE_OFFSET_READ_AT_EOF: usize = 72;
+/// Size of a resource record: fd, closed flag, the `STATE` pointer, the per-`File`
+/// output-buffer fields (ptr/filled/enabled), and the read-buffer fields
+/// (ptr/pos/fill/at_eof). All resource kinds share the size so the generic
+/// thread-transfer copy stays uniform.
+pub(crate) const RESOURCE_RECORD_SIZE: &str = "80";
+/// Block size of the lazily-allocated per-`File` read buffer, in bytes.
+pub(crate) const FILE_READ_BUFFER_CAPACITY: u64 = 16384;
 /// Capacity of a lazily-allocated per-`File` output buffer, in bytes.
 pub(crate) const FILE_BUFFER_CAPACITY: u64 = 4096;
 /// Internal helper that drains one `File`'s output buffer to its fd (plan-14-B):

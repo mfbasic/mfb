@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/fs-readline-buffer-boundary-rt
+Wrote AST to tests/fs-readline-buffer-boundary-rt/fs_readline_buffer_boundary_rt.ast
+Wrote IR to tests/fs-readline-buffer-boundary-rt/fs_readline_buffer_boundary_rt.ir
+[exit 0]
+$ mfb build tests/fs-readline-buffer-boundary-rt
+Wrote executable to tests/fs-readline-buffer-boundary-rt/fs_readline_buffer_boundary_rt.out
+[exit 0]
+$ tests/fs-readline-buffer-boundary-rt/fs_readline_buffer_boundary_rt.out
+0:5
+1:40000
+2:3
+3:4
+lines=4
+[exit 0]

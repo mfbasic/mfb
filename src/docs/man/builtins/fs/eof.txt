@@ -16,10 +16,12 @@ DESCRIPTION
   FALSE while bytes remain to be read. file must be an open File resource, such
   as one returned by fs::openFile or fs::open.
 
-  The test is performed by querying the host for the current position and the
-  total length of the file and comparing them; it does not read any contents and
-  leaves the read position exactly where it was. Because seeking is required, the
-  function only works on a seekable File: a regular file opened on disk. On a
+  The test is buffer-aware (plan-14-C): if fs::readLine has bytes still buffered
+  and unconsumed, eof returns FALSE without touching the host. Otherwise it is
+  performed by querying the host for the current position and the total length of
+  the file and comparing them; it does not read any contents and leaves the read
+  position exactly where it was. Because seeking is required, the function only
+  works on a seekable File: a regular file opened on disk. On a
   pipe, a socket, or another non-seekable handle the host cannot report a
   position or length and the call raises an error instead of returning.
 
