@@ -515,10 +515,15 @@ mod tests {
     #[test]
     fn inline_trap_unsupported_cases() {
         assert!(inline_trap_unsupported("bits.sl"));
-        assert!(inline_trap_unsupported("collections.get"));
+        // Callback members are fallible but have no raw inline-TRAP lowering, so an
+        // inline TRAP on them is still unsupported.
+        assert!(inline_trap_unsupported("collections.transform"));
         assert!(inline_trap_unsupported("len"));
         assert!(inline_trap_unsupported("toString"));
         assert!(inline_trap_unsupported("typeName"));
+        // `collections::get` gained a raw inline-TRAP lowering (plan-21-B), so it is
+        // no longer classified unsupported.
+        assert!(!inline_trap_unsupported("collections.get"));
         assert!(!inline_trap_unsupported("toInt"));
         assert!(!inline_trap_unsupported("nope"));
     }

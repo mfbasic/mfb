@@ -1534,7 +1534,10 @@ mod tests {
 
     #[test]
     fn inline_trap_on_inlined_builtin_rejected() {
-        let src = "IMPORT strings\nFUNC main AS Integer\n  LET n AS Integer = strings::find(\"hello\", \"l\") TRAP(e)\n    RECOVER -1\n  END TRAP\n  RETURN n\nEND FUNC\n";
+        // `collections::transform` is a fallible inline-lowered callback member with
+        // no raw inline-TRAP lowering (unlike get/set/find, which gained one in
+        // plan-21-B), so an inline TRAP on it is rejected.
+        let src = "IMPORT collections\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  LET doubled AS List OF Integer = collections::transform(numbers, LAMBDA(x AS Integer) -> x * 2) TRAP(e)\n    RECOVER numbers\n  END TRAP\n  RETURN 0\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN"));
     }
 
