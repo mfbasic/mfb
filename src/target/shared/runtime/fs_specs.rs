@@ -27,6 +27,19 @@ const FS_FILE_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
     location: "x0",
 }];
 
+const FS_FILE_BOOLEAN_PARAMS: &[RuntimeAbiParam] = &[
+    RuntimeAbiParam {
+        name: "file",
+        type_: "File",
+        location: "x0",
+    },
+    RuntimeAbiParam {
+        name: "enabled",
+        type_: "Boolean",
+        location: "x1",
+    },
+];
+
 const FS_FILE_STRING_PARAMS: &[RuntimeAbiParam] = &[
     RuntimeAbiParam {
         name: "file",
@@ -272,6 +285,39 @@ pub(crate) const FS_CLOSE_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+pub(crate) const FS_SET_BUFFERED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Fs,
+    call: "fs.setBuffered",
+    symbol: "_mfb_rt_fs_fs_setBuffered",
+    abi: RuntimeHelperAbi {
+        params: FS_FILE_BOOLEAN_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const FS_IS_BUFFERED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Fs,
+    call: "fs.isBuffered",
+    symbol: "_mfb_rt_fs_fs_isBuffered",
+    abi: RuntimeHelperAbi {
+        params: FS_FILE_PARAMS,
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const FS_FLUSH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Fs,
+    call: "fs.flush",
+    symbol: "_mfb_rt_fs_fs_flush",
+    abi: RuntimeHelperAbi {
+        params: FS_FILE_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) const FS_WRITE_ALL_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Fs,
     call: "fs.writeAll",
@@ -447,4 +493,3 @@ pub(crate) const FS_IS_WITHIN_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
         clobbers: abi::IO_PRINT_CLOBBERS,
     },
 };
-

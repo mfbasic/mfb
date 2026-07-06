@@ -1,0 +1,10 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  RES f = fs::createTempFile()
+  io::print(toString(fs::isBuffered(f)))
+  fs::setBuffered(f, TRUE)
+  io::print(toString(fs::isBuffered(f)))
+  RETURN 0
+END FUNC

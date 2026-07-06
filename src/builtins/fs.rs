@@ -23,6 +23,9 @@ const READ_ALL: &str = "fs.readAll";
 const READ_ALL_BYTES: &str = "fs.readAllBytes";
 const WRITE_ALL: &str = "fs.writeAll";
 const WRITE_ALL_BYTES: &str = "fs.writeAllBytes";
+const SET_BUFFERED: &str = "fs.setBuffered";
+const IS_BUFFERED: &str = "fs.isBuffered";
+const FLUSH: &str = "fs.flush";
 const CLOSE: &str = "fs.close";
 const EOF: &str = "fs.eof";
 const CANONICAL_PATH: &str = "fs.canonicalPath";
@@ -69,6 +72,9 @@ pub(crate) fn is_fs_call(name: &str) -> bool {
             | READ_ALL_BYTES
             | WRITE_ALL
             | WRITE_ALL_BYTES
+            | SET_BUFFERED
+            | IS_BUFFERED
+            | FLUSH
             | CLOSE
             | EOF
             | CANONICAL_PATH
@@ -122,9 +128,12 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
         OPEN | OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some(&[&["path"], &["mode"]]),
         CREATE_TEMP_FILE => Some(&[&["directory"]]),
         TEMP_DIRECTORY | CURRENT_DIRECTORY => Some(&[]),
-        READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF => Some(&[&["file"]]),
+        READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF | IS_BUFFERED | FLUSH => {
+            Some(&[&["file"]])
+        }
         WRITE_ALL => Some(&[&["file"], &["value"]]),
         WRITE_ALL_BYTES => Some(&[&["file"], &["bytes", "value"]]),
+        SET_BUFFERED => Some(&[&["file"], &["enabled"]]),
         IS_WITHIN => Some(&[&["base", "path"], &["child", "parent"]]),
         PATH_JOIN => Some(&[&["parts"]]),
         _ => None,
@@ -133,7 +142,7 @@ pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'stati
 
 pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
     match name {
-        FILE_EXISTS | DIRECTORY_EXISTS | EXISTS | EOF | IS_WITHIN => Some("Boolean"),
+        FILE_EXISTS | DIRECTORY_EXISTS | EXISTS | EOF | IS_WITHIN | IS_BUFFERED => Some("Boolean"),
         READ_BYTES | READ_ALL_BYTES => Some("List OF Byte"),
         READ_TEXT | READ_LINE | READ_ALL | CANONICAL_PATH | PATH_JOIN | PATH_DIR_NAME
         | PATH_BASE_NAME | PATH_EXTENSION | PATH_NORMALIZE | CURRENT_DIRECTORY | TEMP_DIRECTORY => {
@@ -147,6 +156,8 @@ pub(crate) fn call_return_type_name(name: &str) -> Option<&'static str> {
         | APPEND_TEXT
         | WRITE_ALL
         | WRITE_ALL_BYTES
+        | SET_BUFFERED
+        | FLUSH
         | CLOSE
         | DELETE_FILE
         | CREATE_DIRECTORY
@@ -206,6 +217,9 @@ pub(crate) fn resolve_call<'a>(name: &str, arg_types: &'a [String]) -> Option<Re
             Cow::Borrowed("Nothing")
         }
         CLOSE if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("Nothing"),
+        FLUSH if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("Nothing"),
+        IS_BUFFERED if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("Boolean"),
+        SET_BUFFERED if exact(arg_types, &[FILE_TYPE, "Boolean"]) => Cow::Borrowed("Nothing"),
         EOF if exact(arg_types, &[FILE_TYPE]) => Cow::Borrowed("Boolean"),
         IS_WITHIN if exact(arg_types, &["String", "String"]) => Cow::Borrowed("Boolean"),
         PATH_JOIN if exact(arg_types, &["List OF String"]) => Cow::Borrowed("String"),
@@ -238,9 +252,12 @@ pub(crate) fn expected_arguments(name: &str) -> Option<&'static str> {
         OPEN => Some("String, String"),
         OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some("String, String"),
         CREATE_TEMP_FILE => Some("String"),
-        READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF => Some(FILE_TYPE),
+        READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF | IS_BUFFERED | FLUSH => {
+            Some(FILE_TYPE)
+        }
         WRITE_ALL => Some("File, String"),
         WRITE_ALL_BYTES => Some("File, List OF Byte"),
+        SET_BUFFERED => Some("File, Boolean"),
         IS_WITHIN => Some("String, String"),
         PATH_JOIN => Some("List OF String"),
         CURRENT_DIRECTORY | TEMP_DIRECTORY => Some("no arguments"),
@@ -267,10 +284,12 @@ pub(crate) fn arity(name: &str) -> Option<(usize, usize)> {
         | LIST_DIRECTORY
         | SET_CURRENT_DIRECTORY => Some((1, 1)),
         WRITE_BYTES | WRITE_BYTES_ATOMIC | APPEND_BYTES | WRITE_TEXT | WRITE_TEXT_ATOMIC
-        | APPEND_TEXT | OPEN | WRITE_ALL | WRITE_ALL_BYTES | IS_WITHIN => Some((2, 2)),
+        | APPEND_TEXT | OPEN | WRITE_ALL | WRITE_ALL_BYTES | IS_WITHIN | SET_BUFFERED => {
+            Some((2, 2))
+        }
         OPEN_FILE | OPEN_FILE_NO_FOLLOW => Some((1, 2)),
         CREATE_TEMP_FILE => Some((0, 1)),
-        READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF => Some((1, 1)),
+        READ_LINE | READ_ALL | READ_ALL_BYTES | CLOSE | EOF | IS_BUFFERED | FLUSH => Some((1, 1)),
         PATH_JOIN => Some((1, 1)),
         CURRENT_DIRECTORY | TEMP_DIRECTORY => Some((0, 0)),
         _ => None,
@@ -319,6 +338,9 @@ mod tests {
         READ_ALL_BYTES,
         WRITE_ALL,
         WRITE_ALL_BYTES,
+        SET_BUFFERED,
+        IS_BUFFERED,
+        FLUSH,
         CLOSE,
         EOF,
         CANONICAL_PATH,

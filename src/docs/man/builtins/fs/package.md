@@ -52,6 +52,16 @@ Handle functions work through the opaque `File` resource type. `fs::open`,
 its binding leaves scope; call `fs::close` only to release it earlier. Using a
 `File` after it is closed fails. [[src/builtins/fs.rs:resource_close_function]]
 
+Each `File` handle can independently opt in to output buffering. It is off by
+default, so `fs::writeAll`/`fs::writeAllBytes` reach the OS immediately;
+`fs::setBuffered(file, TRUE)` instead holds incremental writes in a per-handle
+buffer that is drained on `fs::flush(file)`, when it fills, and — mandatorily — on
+close (`fs::close` or scope drop), so buffered on-disk data is never stranded.
+`fs::setBuffered(file, FALSE)` drains and disables it, and `fs::isBuffered(file)`
+reports the current mode. Only incremental handle writes are buffered; whole-file
+and atomic writes already issue one write and ignore the setting. A hard crash may
+lose buffered bytes not yet flushed — flush or close for durability.
+
 Directory functions create (`fs::createDirectory`, `fs::createDirectories`),
 remove (`fs::deleteDirectory`), and inspect (`fs::listDirectory`) directories,
 read or change the working directory (`fs::currentDirectory`,

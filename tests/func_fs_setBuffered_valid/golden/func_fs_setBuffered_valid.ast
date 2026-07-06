@@ -1,0 +1,33 @@
+{
+  "project": "func_fs_setBuffered_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": null, "value": { "kind": "call", "callee": "fs.createTempFile", "arguments": [] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.isBuffered", "arguments": [{ "kind": "identifier", "value": "f" }] }] }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "boolean", "value": true }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.isBuffered", "arguments": [{ "kind": "identifier", "value": "f" }] }] }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "buffered" }] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "boolean", "value": false }] }, "line": 10 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.isBuffered", "arguments": [{ "kind": "identifier", "value": "f" }] }] }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    ]
+  }
+  ]
+}

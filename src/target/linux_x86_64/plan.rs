@@ -160,6 +160,9 @@ impl NativePlanPlatform for Platform {
             | "fs.writeAll"
             | "fs.writeAllBytes"
             | "fs.close"
+            | "fs.setBuffered"
+            | "fs.isBuffered"
+            | "fs.flush"
             | "fs.eof" => {
                 let mut imports = vec![
                     self.libc_import("open", spec.symbol),

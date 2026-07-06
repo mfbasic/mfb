@@ -141,6 +141,11 @@ pub(super) fn lower_fs_create_temp_file_helper(
         abi::store_u64(&fd, "x1", FILE_OFFSET_FD),
         abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
         abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
+        // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
+        // Arena memory is poisoned, so zero the buffer fields explicitly.
+        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR),
+        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED),
+        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED),
         abi::move_register(RESULT_VALUE_REGISTER, "x1"),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
@@ -1379,6 +1384,11 @@ pub(super) fn lower_fs_read_bytes_path_helper(
         abi::store_u64(&fd, "x1", FILE_OFFSET_FD),
         abi::store_u64("x31", "x1", FILE_OFFSET_CLOSED),
         abi::store_u64("x31", "x1", FILE_OFFSET_STATE),
+        // Opt-in per-File output buffer (plan-14-B): a fresh handle is unbuffered.
+        // Arena memory is poisoned, so zero the buffer fields explicitly.
+        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR),
+        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED),
+        abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED),
         abi::move_register(abi::return_register(), "x1"),
         abi::branch_link("_mfb_rt_fs_fs_readAllBytes"),
     ]);

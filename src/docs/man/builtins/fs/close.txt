@@ -11,10 +11,13 @@ IMPORTS
   IMPORT fs
 
 DESCRIPTION
-  Closes file, flushing any data buffered by the host and releasing the
-  underlying operating-system file descriptor. The File is marked closed before
-  the function returns, so any later fs:: call that takes the same File raises
-  an error rather than touching a stale descriptor.
+  Closes file, first draining any MFBASIC output buffer attached to the handle
+  (see fs::setBuffered) so buffered on-disk data is never stranded, then flushing
+  any data buffered by the host and releasing the underlying operating-system file
+  descriptor. The File is marked closed before the function returns, so any later
+  fs:: call that takes the same File raises an error rather than touching a stale
+  descriptor. A File is also closed automatically when its RES binding leaves
+  scope, which drains the buffer the same way.
 
   Closing is otherwise automatic. Every File returned by fs::open, fs::openFile,
   fs::openFileNoFollow, or fs::createTempFile is closed by lexical drop when the

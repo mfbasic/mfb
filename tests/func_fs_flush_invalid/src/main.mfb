@@ -1,0 +1,6 @@
+IMPORT fs
+
+FUNC main AS Integer
+  fs::flush("notafile")
+  RETURN 0
+END FUNC

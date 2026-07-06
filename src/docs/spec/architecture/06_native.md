@@ -79,7 +79,8 @@ declare the same set of supported native runtime calls:
   `io.isOutputTerminal`, `io.isErrorTerminal`
 - Most `fs.*` calls: `fs.open`, `fs.openFile`, `fs.openFileNoFollow`,
   `fs.createTempFile`, `fs.close`, `fs.readLine`, `fs.readAll`,
-  `fs.readAllBytes`, `fs.writeAll`, `fs.writeAllBytes`, `fs.readText`,
+  `fs.readAllBytes`, `fs.writeAll`, `fs.writeAllBytes`, `fs.setBuffered`,
+  `fs.isBuffered`, `fs.flush`, `fs.readText`,
   `fs.readBytes`, `fs.writeText`, `fs.writeTextAtomic`, `fs.writeBytes`,
   `fs.writeBytesAtomic`, `fs.appendText`, `fs.appendBytes`, `fs.eof`,
   `fs.fileExists`, `fs.directoryExists`, `fs.exists`, `fs.canonicalPath`,

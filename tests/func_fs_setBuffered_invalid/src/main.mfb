@@ -1,0 +1,7 @@
+IMPORT fs
+
+FUNC main AS Integer
+  fs::setBuffered("notafile", TRUE)
+  fs::setBuffered()
+  RETURN 0
+END FUNC

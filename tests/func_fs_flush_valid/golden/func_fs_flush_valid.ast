@@ -1,0 +1,47 @@
+{
+  "project": "func_fs_flush_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "path", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "fs.tempDirectory", "arguments": [] }, "right": { "kind": "string", "value": "/mfb_func_fs_flush_valid.txt" } }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "writeBuffered", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "fs.readText", "arguments": [{ "kind": "identifier", "value": "path" }] }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "path" }] }, "line": 8 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "name": "writeBuffered",
+      "line": 12,
+      "params": [
+      { "name": "path", "type": "String", "default": null }
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": null, "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 13 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.setBuffered", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "boolean", "value": true }] }, "line": 14 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "flushed-" }] }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.flush", "arguments": [{ "kind": "identifier", "value": "f" }] }, "line": 16 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "then-dropped" }] }, "line": 17 }
+      ]
+    }
+    ]
+  }
+  ]
+}

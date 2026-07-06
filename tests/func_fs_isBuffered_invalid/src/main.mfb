@@ -1,0 +1,6 @@
+IMPORT fs
+
+FUNC main AS Integer
+  LET wrongType AS Boolean = fs::isBuffered("notafile")
+  RETURN 0
+END FUNC

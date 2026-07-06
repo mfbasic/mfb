@@ -1,0 +1,18 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  LET path AS String = fs::tempDirectory() & "/mfb_func_fs_flush_valid.txt"
+  writeBuffered(path)
+  io::print(fs::readText(path))
+  fs::deleteFile(path)
+  RETURN 0
+END FUNC
+
+SUB writeBuffered(path AS String)
+  RES f = fs::openFile(path, "write")
+  fs::setBuffered(f, TRUE)
+  fs::writeAll(f, "flushed-")
+  fs::flush(f)
+  fs::writeAll(f, "then-dropped")
+END SUB

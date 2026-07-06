@@ -272,6 +272,15 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&scratch10, "x1", 8));
         self.emit(abi::load_u64(&scratch10, &scratch9, FILE_OFFSET_STATE));
         self.emit(abi::store_u64(&scratch10, "x1", FILE_OFFSET_STATE));
+        // Opt-in per-File output buffer (plan-14-B) is not copied across a thread
+        // transfer: the buffer block lives in the sender's arena. Zero the fields so
+        // the moved handle starts unbuffered in the receiver (a buffered handle
+        // should be flushed before transfer, or its pending bytes are lost — the
+        // same opt-in trade-off as the crash caveat). For non-File resources these
+        // words are inert.
+        self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_BUF_PTR));
+        self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_BUF_FILLED));
+        self.emit(abi::store_u64("x31", "x1", FILE_OFFSET_BUF_ENABLED));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         Ok(result)

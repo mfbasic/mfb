@@ -675,6 +675,22 @@ pub(crate) fn lower_module_for_platform(
     if uses_stdout_buffer {
         code_functions.push(lower_stdout_drain(&platform_imports, platform)?);
     }
+    // Per-File output buffering (plan-14-B): the shared `_mfb_rt_fs_file_drain`
+    // helper is referenced by fs.close (mandatory flush-on-close), the buffered
+    // writeAll/writeAllBytes overflow paths, fs.flush, and fs.setBuffered(FALSE).
+    let uses_file_buffer = runtime_symbols.iter().any(|symbol| {
+        matches!(
+            symbol.as_str(),
+            "_mfb_rt_fs_fs_close"
+                | "_mfb_rt_fs_fs_writeAll"
+                | "_mfb_rt_fs_fs_writeAllBytes"
+                | "_mfb_rt_fs_fs_flush"
+                | "_mfb_rt_fs_fs_setBuffered"
+        )
+    });
+    if uses_file_buffer {
+        code_functions.push(lower_fs_file_drain(&platform_imports, platform)?);
+    }
     if module.entry.is_some() {
         code_functions.push(lower_shutdown(
             uses_term,
@@ -1511,7 +1527,75 @@ fn lower_runtime_helper(
         }
         "fs.close" => {
             let (frame, instructions, relocations, stack_slots) =
-                lower_fs_close_helper(symbol, platform_imports, platform)?;
+                lower_fs_close_helper(symbol, platform_imports, platform, true)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
+        "fs.setBuffered" => {
+            let (frame, instructions, relocations, stack_slots) =
+                lower_fs_set_buffered_helper(symbol)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
+        "fs.isBuffered" => {
+            let (frame, instructions, relocations, stack_slots) =
+                lower_fs_is_buffered_helper(symbol)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
+        "fs.flush" => {
+            let (frame, instructions, relocations, stack_slots) = lower_fs_flush_helper(symbol)?;
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),
@@ -1917,7 +2001,7 @@ fn lower_runtime_helper(
                 }
                 // A socket/listener handle shares the `File` record layout, so the
                 // standard (vreg-allocated) file close helper closes net handles too.
-                "net.close" => lower_fs_close_helper(symbol, platform_imports, platform)?,
+                "net.close" => lower_fs_close_helper(symbol, platform_imports, platform, false)?,
                 "net.localAddress" => {
                     net::lower_net_address_helper(symbol, platform_imports, platform, false)?
                 }

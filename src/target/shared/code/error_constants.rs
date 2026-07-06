@@ -330,8 +330,30 @@ pub(crate) const FILE_OFFSET_CLOSED: usize = 8;
 /// record and therefore the same `STATE`. The slot is null until the owning
 /// `RES` binding default-initializes it.
 pub(crate) const FILE_OFFSET_STATE: usize = 16;
-/// Size of a resource record: fd, closed flag, and the `STATE` pointer.
-pub(crate) const RESOURCE_RECORD_SIZE: &str = "24";
+/// Opt-in per-`File` output buffer fields (plan-14-B), appended after the generic
+/// resource header. Only `File` handles use them; other resources (sockets, TLS,
+/// thread handles) carry the words inertly. `FILE_OFFSET_BUF_ENABLED` is 0 (off)
+/// on every freshly opened handle — the open helpers zero these three words after
+/// the poisoned arena alloc, so a handle that never calls `fs::setBuffered(f, TRUE)`
+/// takes the unbuffered direct-write path (byte-identical to pre-plan-14). The
+/// thread-transfer copy also zeroes them so a moved handle starts unbuffered.
+pub(crate) const FILE_OFFSET_BUF_PTR: usize = 24;
+pub(crate) const FILE_OFFSET_BUF_FILLED: usize = 32;
+pub(crate) const FILE_OFFSET_BUF_ENABLED: usize = 40;
+/// Size of a resource record: fd, closed flag, the `STATE` pointer, and the
+/// per-`File` output-buffer fields (ptr/filled/enabled). All resource kinds share
+/// the size so the generic thread-transfer copy stays uniform.
+pub(crate) const RESOURCE_RECORD_SIZE: &str = "48";
+/// Capacity of a lazily-allocated per-`File` output buffer, in bytes.
+pub(crate) const FILE_BUFFER_CAPACITY: u64 = 4096;
+/// Internal helper that drains one `File`'s output buffer to its fd (plan-14-B):
+/// `x0 = File*`. No-op when the handle is unbuffered or nothing is pending;
+/// otherwise a write-loop that empties `BUF_PTR[0..BUF_FILLED]` to `FILE_OFFSET_FD`
+/// and resets `BUF_FILLED`. Returns `x0 = 0` on success (or nothing to do) and
+/// `x0 = 1` on a write failure (buffer left intact for a retry). Shared by
+/// `fs::flush`, buffered `fs::writeAll`/`writeAllBytes` overflow, the
+/// `fs::setBuffered(FALSE)` transition, and the mandatory flush-on-close.
+pub(crate) const FILE_DRAIN_SYMBOL: &str = "_mfb_rt_fs_file_drain";
 pub(crate) const COLLECTION_KIND_LIST: usize = 0;
 pub(crate) const COLLECTION_KIND_MAP: usize = 1;
 pub(crate) const COLLECTION_HEADER_SIZE: usize = 40;

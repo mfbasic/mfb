@@ -1,0 +1,47 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_fs_flush_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 5, "mutable": false, "name": "path", "type": "String", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "call", "type": "String", "target": "fs.tempDirectory", "args": [] }, "right": { "kind": "const", "type": "String", "value": "/mfb_func_fs_flush_valid.txt" } } },
+    { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "writeBuffered", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "call", "type": "String", "target": "fs.readText", "args": [{ "kind": "local", "name": "path" }] }] } },
+    { "op": "eval", "line": 8, "value": { "kind": "call", "type": "Nothing", "target": "fs.deleteFile", "args": [{ "kind": "local", "name": "path" }] } },
+    { "op": "return", "line": 9, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  },
+  {
+    "name": "writeBuffered",
+    "line": 12,
+    "visibility": "public",
+    "kind": "sub",
+    "params": [
+    { "name": "path", "line": 12, "type": "String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    { "op": "bind", "line": 13, "mutable": false, "name": "f", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "local", "name": "path" }, { "kind": "const", "type": "String", "value": "write" }] } },
+    { "op": "eval", "line": 14, "value": { "kind": "call", "type": "Nothing", "target": "fs.setBuffered", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "Boolean", "value": "true" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "flushed-" }] } },
+    { "op": "eval", "line": 16, "value": { "kind": "call", "type": "Nothing", "target": "fs.flush", "args": [{ "kind": "local", "name": "f" }] } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "fs.writeAll", "args": [{ "kind": "local", "name": "f" }, { "kind": "const", "type": "String", "value": "then-dropped" }] } }
+    ]
+  }
+  ]
+}

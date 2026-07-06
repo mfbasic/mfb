@@ -1,0 +1,43 @@
+NAME
+  isBuffered - test whether output buffering is enabled for a File
+
+SYNOPSIS
+  fs::isBuffered(file AS File) AS Boolean
+
+PACKAGE
+  fs
+
+IMPORTS
+  IMPORT fs
+
+DESCRIPTION
+  Reports whether opt-in output buffering is currently enabled for file. Returns
+  TRUE after fs::setBuffered(file, TRUE) and FALSE otherwise. Buffering is off by
+  default on every freshly opened handle, so a program that never calls
+  fs::setBuffered always observes FALSE here.
+
+  Buffering is per handle: each open File has its own output buffer and its own
+  enabled flag, independent of every other handle. The check only reads the
+  handle's state; it writes no data and never fails.
+
+PARAMETERS
+  file AS File
+    An open File resource to query.
+
+RETURN VALUE
+  AS Boolean
+    Returns TRUE when output buffering is enabled for this handle and FALSE
+    otherwise (including on a freshly opened handle that has never enabled it).
+
+ERRORS
+  No errors.
+
+EXAMPLES
+  Enable buffering only when it is not already on:
+
+    IF NOT fs::isBuffered(file) THEN
+      fs::setBuffered(file, TRUE)
+    END IF
+
+SEE ALSO
+  fs::setBuffered, fs::flush, fs::writeAll, fs::close
