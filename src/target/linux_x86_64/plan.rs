@@ -90,7 +90,7 @@ impl NativePlanPlatform for Platform {
             "io.print" | "io.write" | "io.printError" | "io.writeError" => {
                 vec![self.libc_import("write", spec.symbol)]
             }
-            "io.flush" | "io.flushError" => vec![
+            "io.flush" => vec![
                 self.libc_import("fsync", spec.symbol),
                 self.libc_import("__errno_location", spec.symbol),
             ],

@@ -27,10 +27,11 @@ conversion; convert other values with `toString` first. Text is treated as UTF-8
 and emitted byte for byte, with no escaping or newline translation beyond the
 trailing newline that `io::print` and `io::printError` add. `io::write` and
 `io::print` target standard output, `io::writeError` and `io::printError` target
-standard error, and `io::flush` and `io::flushError` drain the corresponding
-stream. Standard streams may be buffered, so written text is not guaranteed
-visible to an external reader until flushed; flush before blocking on a read when
-a prompt must appear first. [[src/builtins/io.rs:expected_arguments]]
+standard error, and `io::flush` drains standard output. Standard output may be
+buffered, so written text is not guaranteed visible to an external reader until
+flushed; flush before blocking on a read when a prompt must appear first.
+Standard error is never buffered — it is written immediately, so it has no flush.
+[[src/builtins/io.rs:expected_arguments]]
 
 Input functions read from standard input. `io::input` reads a whole line with
 normal terminal echo and an optional prompt; `io::readLine` reads a line the same
@@ -61,7 +62,7 @@ with `io::pollInput` and check `thread::isCancelled` between waits.
 
 | Code | Name | Raised when |
 | --- | --- | --- |
-| `77020002` | `ErrOutput` | raised by `io::print`, `io::write`, `io::printError`, `io::writeError`, `io::flush`, `io::flushError`, and `io::input` (while writing or flushing a prompt) when the underlying write or flush to a standard stream fails [[src/target/shared/code/error_constants.rs:ERR_OUTPUT_CODE]] |
+| `77020002` | `ErrOutput` | raised by `io::print`, `io::write`, `io::printError`, `io::writeError`, `io::flush`, and `io::input` (while writing or flushing a prompt) when the underlying write or flush to a standard stream fails [[src/target/shared/code/error_constants.rs:ERR_OUTPUT_CODE]] |
 | `77020003` | `ErrEof` | raised by `io::input`, `io::readLine`, `io::readChar`, and `io::readByte` when standard input reaches end of file before any byte of the requested unit is read [[src/target/shared/code/error_constants.rs:ERR_EOF_CODE]] |
 | `77020004` | `ErrEncoding` | raised by `io::input`, `io::readLine`, and `io::readChar` when the bytes read do not form a valid UTF-8 sequence [[src/target/shared/code/error_constants.rs:ERR_ENCODING_CODE]] |
 | `77020005` | `ErrInput` | raised by `io::input`, `io::readLine`, `io::readChar`, `io::readByte`, and `io::pollInput` when reading or polling standard input fails for any other reason [[src/target/shared/code/error_constants.rs:ERR_INPUT_CODE]] |

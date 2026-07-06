@@ -431,7 +431,7 @@ pub(crate) trait CodegenPlatform {
         None
     }
 
-    /// App-mode body for `io.flush`/`io.flushError`. `None` for non-app targets.
+    /// App-mode body for `io.flush`. `None` for non-app targets.
     #[allow(clippy::type_complexity)]
     fn emit_app_io_flush_helper(
         &self,

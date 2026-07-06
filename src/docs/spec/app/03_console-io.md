@@ -19,7 +19,7 @@ diverge and are flagged.
 |------|---------------|-------------------------------|
 | `io::write` / `io::print` | Append the UTF-8 text to the transcript (and a newline for `print`). When TUI mode is active, route into the term surface instead. | `write(1, bytes, len)` (+ `'\n'`) |
 | `io::writeError` / `io::printError` | Same, prefixed with `"[stderr] "` to visually distinguish error output. | `write(2, bytes, len)` (+ `'\n'`) |
-| `io::flush` / `io::flushError` | No-op returning `OK`; transcript writes are already synchronous. | Same (no-op `OK`) |
+| `io::flush` | No-op returning `OK`; transcript writes are already synchronous. | Same (no-op `OK`) |
 | `io::input` | Switch to line-echo mode, render the prompt via the `io::write` helper, then read one committed line via the console `io::readLine` helper (reads fd 0). | Same; reads fd 0 (the pipe) |
 | `io::readLine` | Unchanged console helper; reads fd 0 (the window input pipe). | Same |
 | `io::readChar` / `io::readByte` | Set raw mode (each keystroke's bytes are delivered immediately), then read fd 0 via the unchanged console helper. | Same; reads fd 0 |

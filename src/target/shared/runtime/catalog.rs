@@ -20,7 +20,6 @@ pub(crate) fn supported_helper_specs() -> &'static [RuntimeHelperSpec] {
         IO_PRINT_ERROR_SPEC,
         IO_WRITE_ERROR_SPEC,
         IO_FLUSH_SPEC,
-        IO_FLUSH_ERROR_SPEC,
         IO_INPUT_SPEC,
         IO_READ_LINE_SPEC,
         IO_READ_CHAR_SPEC,

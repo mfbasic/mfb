@@ -28,8 +28,7 @@
     ],
     "returns": "Nothing",
     "body": [
-    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.flush", "args": [] } },
-    { "op": "eval", "line": 10, "value": { "kind": "call", "type": "Nothing", "target": "io.flushError", "args": [] } }
+    { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "io.flush", "args": [] } }
     ]
   }
   ]

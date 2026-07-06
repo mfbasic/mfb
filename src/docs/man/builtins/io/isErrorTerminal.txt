@@ -55,4 +55,4 @@ EXAMPLES
     LET colorErrors AS Boolean = io::isErrorTerminal()
 
 SEE ALSO
-  io::isOutputTerminal, io::isInputTerminal, io::printError, io::flushError
+  io::isOutputTerminal, io::isInputTerminal, io::printError, io::writeError

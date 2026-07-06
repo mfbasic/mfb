@@ -26,8 +26,9 @@ DESCRIPTION
 
   Output is directed to whichever destination is bound to standard output. In a
   normal console program this is file descriptor 1; in app mode the same call is
-  routed to the application transcript window instead of a file descriptor. To
-  flush standard error instead, use io::flushError.
+  routed to the application transcript window instead of a file descriptor.
+  Standard error is written immediately and is never buffered, so it has no
+  corresponding flush.
 
 PARAMETERS
   None.
@@ -57,4 +58,4 @@ EXAMPLES
     io::flush()
 
 SEE ALSO
-  io::flushError, io::write, io::print, io::writeError
+  io::write, io::print, io::writeError

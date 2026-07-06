@@ -7,5 +7,4 @@ END FUNC
 
 EXPORT SUB flushStreams()
   console::flush()
-  console::flushError()
 END SUB

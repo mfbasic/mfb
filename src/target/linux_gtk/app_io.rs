@@ -450,8 +450,8 @@ pub(crate) fn emit_app_io_write_helper(
     )
 }
 
-/// App-mode `io.flush`/`io.flushError`: returns `OK` immediately. SCAFFOLD: real
-/// flush must drain the pending main-thread transcript update (§5.4) once
+/// App-mode `io.flush`: returns `OK` immediately. SCAFFOLD: real flush must
+/// drain the pending main-thread transcript update (§5.4) once
 /// marshaling lands.
 pub(crate) fn emit_app_io_flush_helper(
     symbol: &str,

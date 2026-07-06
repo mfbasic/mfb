@@ -433,31 +433,10 @@ FUNC main AS Integer
 END FUNC
 "#,
     );
-    let flush_stderr = temp_project(
-        "native_io_flush_stderr_failure",
-        r#"
-IMPORT io
-
-FUNC main AS Integer
-  io::flushError()
-  RETURN 17
-  TRAP(err)
-    io::print(toString(err.code))
-    RETURN 0
-  END TRAP
-END FUNC
-"#,
-    );
-
     let (status, stdout, stderr) = run_with_closed_fd(&build_project(&flush_stdout), 1, b"");
     assert_eq!(status, 0);
     assert_eq!(stdout, "");
     assert_eq!(stderr, "77020002\n");
-
-    let (status, stdout, stderr) = run_with_closed_fd(&build_project(&flush_stderr), 2, b"");
-    assert_eq!(status, 0);
-    assert_eq!(stdout, "77020002\n");
-    assert_eq!(stderr, "");
 }
 
 #[test]

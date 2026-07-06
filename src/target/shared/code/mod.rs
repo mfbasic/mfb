@@ -1099,7 +1099,7 @@ fn lower_runtime_helper(
                 relocations,
             })
         }
-        "io.flush" | "io.flushError" => {
+        "io.flush" => {
             // App-mode transcript writes are synchronous (each io write blocks on
             // the main thread via performSelectorOnMainThread), so output is
             // already visible; flush succeeds immediately (plan §5.4).
@@ -1111,12 +1111,7 @@ fn lower_runtime_helper(
                     )
                 })??)
             } else {
-                lower_io_flush_helper(
-                    symbol,
-                    platform_imports,
-                    platform,
-                    matches!(spec.call, "io.flushError"),
-                )?
+                lower_io_flush_helper(symbol, platform_imports, platform, false)?
             };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),

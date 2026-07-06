@@ -1,8 +1,0 @@
-IMPORT io
-
-FUNC main AS Integer
-  io::writeError("before")
-  io::flushError()
-  io::printError("-after")
-  RETURN 0
-END FUNC

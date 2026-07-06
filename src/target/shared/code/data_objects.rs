@@ -109,7 +109,6 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
             "io.printError",
             "io.writeError",
             "io.flush",
-            "io.flushError",
         ],
     ) {
         push_string_value(&mut values, ERR_OUTPUT_MESSAGE.to_string());

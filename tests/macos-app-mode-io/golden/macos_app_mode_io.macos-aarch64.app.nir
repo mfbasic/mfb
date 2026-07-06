@@ -29,7 +29,6 @@
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.printError", "args": [{ "kind": "const", "type": "String", "value": "printError" }] } },
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.writeError", "args": [{ "kind": "const", "type": "String", "value": "writeError" }] } },
     { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.flush", "args": [] } },
-    { "op": "eval", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.flushError", "args": [] } },
     { "op": "bind", "mutable": false, "name": "prompted", "type": "String", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.input", "args": [{ "kind": "const", "type": "String", "value": "prompt: " }] } },
     { "op": "bind", "mutable": false, "name": "line", "type": "String", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.readLine", "args": [] } },
     { "op": "bind", "mutable": false, "name": "ch", "type": "String", "value": { "kind": "runtimeCall", "helper": "io", "target": "io.readChar", "args": [] } },

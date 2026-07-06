@@ -24,11 +24,10 @@ DESCRIPTION
   Output is directed to whichever destination is bound to standard error. In a
   normal console program this is file descriptor 2; in app mode the same call is
   routed to the application transcript instead of a file descriptor. The write
-  is the function's only side effect. Standard error may be buffered, so text is
-  not guaranteed to be visible to an external reader until the buffer is drained;
-  use io::flushError when prompt visibility is required. To append a trailing
-  newline, use io::printError; to send text to standard output instead, use
-  io::write.
+  is the function's only side effect. Standard error is written immediately and
+  is never buffered, so error output can never sit unseen in a buffer. To append
+  a trailing newline, use io::printError; to send text to standard output instead,
+  use io::write.
 
 PARAMETERS
   value AS String
@@ -60,4 +59,4 @@ EXAMPLES
     io::writeError(toString(42))
 
 SEE ALSO
-  io::printError, io::write, io::flushError
+  io::printError, io::write, io::flush

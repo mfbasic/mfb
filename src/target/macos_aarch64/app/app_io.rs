@@ -175,7 +175,7 @@ pub(crate) fn emit_app_io_write_helper(
     )
 }
 
-/// App-mode body for `io.flush`/`io.flushError`: transcript writes are already
+/// App-mode body for `io.flush`: transcript writes are already
 /// synchronous (see [`emit_append_helper`]), so flush just returns success.
 pub(crate) fn emit_app_io_flush_helper(
     symbol: &str,

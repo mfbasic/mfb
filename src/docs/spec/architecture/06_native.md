@@ -74,7 +74,7 @@ declare the same set of supported native runtime calls:
 - `crypto.*` calls: `crypto.randomBytes` plus the P-256/384/521 key-generation,
   signing, and verification calls
 - All `io.*` calls: `io.print`, `io.write`, `io.flush`, `io.printError`,
-  `io.writeError`, `io.flushError`, `io.input`, `io.readLine`, `io.readChar`,
+  `io.writeError`, `io.input`, `io.readLine`, `io.readChar`,
   `io.readByte`, `io.pollInput`, `io.isInputTerminal`, `io.isOutputTerminal`,
   `io.isErrorTerminal`
 - Most `fs.*` calls: `fs.open`, `fs.openFile`, `fs.openFileNoFollow`,

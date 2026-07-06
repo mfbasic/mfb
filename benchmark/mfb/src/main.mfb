@@ -37,7 +37,6 @@ END TYPE
 
 ' Build a BenchResult from a group, a name and a list of per-run elapsed nanoseconds.
 FUNC makeResult(grp AS String, nm AS String, times AS List OF Integer) AS BenchResult
-  io::flushError()
   LET sorted AS List OF Integer = collections::sort(times)
   LET n AS Integer = len(sorted)
   MUT medNs AS Float = 0.0
@@ -1313,7 +1312,6 @@ END FUNC
 FUNC main(args AS List OF String) AS Integer
   LET run AS Integer = parseRun(args)
   io::printError("running each test " & toString(run) & " time(s)")
-  io::flushError()
 
   MUT tests AS List OF BenchResult = []
 

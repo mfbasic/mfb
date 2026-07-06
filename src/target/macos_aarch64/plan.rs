@@ -158,7 +158,7 @@ impl plan::NativePlanPlatform for Platform {
                 symbol: "_write".to_string(),
                 required_by: spec.symbol.to_string(),
             }],
-            "io.flush" | "io.flushError" => vec![
+            "io.flush" => vec![
                 PlatformImport {
                     library: "libSystem".to_string(),
                     symbol: "_fsync".to_string(),

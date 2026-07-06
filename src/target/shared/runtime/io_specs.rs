@@ -75,17 +75,6 @@ pub(crate) const IO_FLUSH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
-pub(crate) const IO_FLUSH_ERROR_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
-    helper: RuntimeHelper::Io,
-    call: "io.flushError",
-    symbol: "_mfb_rt_io_io_flushError",
-    abi: RuntimeHelperAbi {
-        params: &[],
-        returns: "Nothing",
-        clobbers: &[],
-    },
-};
-
 pub(crate) const IO_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.input",

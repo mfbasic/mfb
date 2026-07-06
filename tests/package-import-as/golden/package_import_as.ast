@@ -30,8 +30,7 @@
       ],
       "returnType": null,
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "console.flush", "arguments": [] }, "line": 9 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "console.flushError", "arguments": [] }, "line": 10 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "console.flush", "arguments": [] }, "line": 9 }
       ]
     }
     ]
