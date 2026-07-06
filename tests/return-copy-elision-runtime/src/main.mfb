@@ -1,0 +1,82 @@
+IMPORT collections
+IMPORT io
+
+' Returns a locally-built, owned list: plan-25-C C1 moves the block to the
+' caller instead of deep-copying it. Two calls must yield independent blocks.
+FUNC build(n AS Integer) AS List OF Integer
+  MUT r AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    r = collections::append(r, i)
+    i = i + 1
+  WEND
+  RETURN r
+END FUNC
+
+' Returns its parameter unchanged: the parameter is a borrow of the caller's
+' block, so the deep copy stays (eliding it would double-free the source).
+FUNC ident(xs AS List OF Integer) AS List OF Integer
+  RETURN xs
+END FUNC
+
+' Conditional: moves the owned local on the TRUE path, returns the borrowed
+' parameter (kept copy) on the FALSE path. The owned local must be freed on the
+' FALSE path (its move-elision is restored for that sibling path).
+FUNC pick(cond AS Boolean, xs AS List OF Integer) AS List OF Integer
+  MUT r AS List OF Integer = collections::append(xs, 999)
+  IF cond THEN
+    RETURN r
+  END IF
+  RETURN xs
+END FUNC
+
+' Nested-block return of an owned local (the return is not the outermost op).
+FUNC nested(n AS Integer) AS List OF Integer
+  MUT r AS List OF Integer = []
+  MUT i AS Integer = 0
+  WHILE i < n
+    r = collections::append(r, i * i)
+    IF i = n - 1 THEN
+      RETURN r
+    END IF
+    i = i + 1
+  WEND
+  RETURN r
+END FUNC
+
+SUB printList(label AS String, xs AS List OF Integer)
+  io::print(label & ":")
+  FOR EACH x IN xs
+    io::print(" " & toString(x))
+  NEXT
+  io::print("\n")
+END SUB
+
+FUNC main AS Integer
+  ' Move independence: mutating a must not disturb b.
+  MUT a AS List OF Integer = build(3)
+  LET b AS List OF Integer = build(3)
+  a = collections::append(a, 99)
+  printList("a", a)
+  printList("b", b)
+
+  ' Identity return: mutating c must not disturb src (kept copy).
+  MUT src AS List OF Integer = [7, 8, 9]
+  MUT c AS List OF Integer = ident(src)
+  c = collections::append(c, 100)
+  printList("src", src)
+  printList("c", c)
+
+  ' pick TRUE moves the owned local; source list unchanged.
+  LET p1 AS List OF Integer = pick(TRUE, src)
+  printList("p1", p1)
+  ' pick FALSE returns a copy of the parameter; the owned local is freed.
+  LET p2 AS List OF Integer = pick(FALSE, src)
+  printList("p2", p2)
+  printList("srcAfter", src)
+
+  ' Nested-block return moves the owned local out.
+  LET nq AS List OF Integer = nested(4)
+  printList("nested", nq)
+  RETURN 0
+END FUNC

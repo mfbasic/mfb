@@ -1702,7 +1702,20 @@ impl CodeBuilder<'_> {
     /// false for a fresh value or a borrow of a non-flat type, which keep the
     /// existing inline-payload materialization. A returned thread/resource local
     /// is a move (never freeable-flat) and is handled by cleanup deactivation.
-    fn lower_returned_value(&mut self, value: &NirValue) -> Result<(ValueResult, bool), String> {
+    fn lower_returned_value(
+        &mut self,
+        value: &NirValue,
+        move_elided: bool,
+    ) -> Result<(ValueResult, bool), String> {
+        // Copy elision via ownership transfer (plan-25-C C1): `emit_return_exit`
+        // has already removed this owned local's scope-drop free for this return
+        // path, transferring its uniquely-owned block to the caller — so return the
+        // existing block pointer directly (a standalone arena block) instead of
+        // deep-copying it. Copy insertion (`lower_value_owned`) guarantees the block
+        // has no live alias, so the move creates exactly one owner, never two.
+        if move_elided {
+            return Ok((self.lower_value(value)?, true));
+        }
         if self.value_needs_owning_copy(value) {
             let lowered = self.lower_value(value)?;
             if self.is_freeable_flat_value(&lowered.type_) {
@@ -1721,9 +1734,69 @@ impl CodeBuilder<'_> {
         Ok((self.lower_value(value)?, false))
     }
 
+    /// Plan a return-value copy elision (plan-25-C C1). A `RETURN <owned-local>`
+    /// of a freeable-flat binding that owns its block moves the block to the
+    /// caller instead of deep-copying it: the function exits at the return, so the
+    /// local is dead, and dropping its scope-drop free leaves the caller the sole
+    /// owner (one free total). When eligible this removes the binding's
+    /// `OwnedValue` cleanup from the live set and returns the pre-removal cleanup
+    /// stack, which `emit_return_exit` restores after the return is emitted — a
+    /// sibling return path or the enclosing block's normal exit must still free the
+    /// binding. Returns `None` (cleanup untouched, copy kept) when the move would
+    /// be unsound:
+    ///
+    /// - A **parameter** or `by_ref` local is a borrow of the caller's block (it
+    ///   has no `OwnedValue` free), so returning its pointer without copying would
+    ///   let the caller's binding double-free the source — the copy is load-bearing.
+    /// - A **`FOR EACH` iterable** whose iterator still reads the block, or an
+    ///   **address-taken** local an escaping closure env may borrow, could leave a
+    ///   dangling reader if the block moved out.
+    fn plan_returned_move(&mut self, value: Option<&NirValue>) -> Option<Vec<ActiveCleanup>> {
+        let NirValue::Local(name) = value? else {
+            return None;
+        };
+        let local = self.locals.get(name)?;
+        if local.by_ref {
+            return None;
+        }
+        let stack_offset = local.stack_offset;
+        if self.for_each_iterable_locals.iter().any(|n| n == name)
+            || self.address_taken_locals.contains(name)
+        {
+            return None;
+        }
+        // Only a binding that owns its block (has a live `OwnedValue` free at this
+        // slot) can be moved; parameters and borrows have none, so this is the
+        // authoritative ownership gate.
+        let index = self.active_cleanups.iter().rposition(|cleanup| {
+            matches!(cleanup, ActiveCleanup::OwnedValue(c) if c.stack_offset == stack_offset)
+        })?;
+        let saved = self.active_cleanups.clone();
+        self.active_cleanups.remove(index);
+        Some(saved)
+    }
+
     pub(super) fn emit_return_exit(&mut self, value: Option<&NirValue>) -> Result<(), String> {
+        // Plan a return-copy elision (plan-25-C C1) before emitting: a movable
+        // `RETURN <owned-local>` removes the binding's scope-drop free for this
+        // path so the block moves to the caller uncopied. Restore the live cleanup
+        // set afterward so a sibling return path or the block's normal exit still
+        // frees the binding.
+        let restore_cleanups = self.plan_returned_move(value);
+        let result = self.emit_return_exit_inner(value, restore_cleanups.is_some());
+        if let Some(saved) = restore_cleanups {
+            self.active_cleanups = saved;
+        }
+        result
+    }
+
+    fn emit_return_exit_inner(
+        &mut self,
+        value: Option<&NirValue>,
+        move_elided: bool,
+    ) -> Result<(), String> {
         let lowered = if let Some(value) = value {
-            Some(self.lower_returned_value(value)?)
+            Some(self.lower_returned_value(value, move_elided)?)
         } else {
             None
         };

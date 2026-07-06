@@ -1,0 +1,61 @@
+$ mfb build -ast -ir tests/return-copy-elision-runtime
+Wrote AST to tests/return-copy-elision-runtime/return_copy_elision_runtime.ast
+Wrote IR to tests/return-copy-elision-runtime/return_copy_elision_runtime.ir
+[exit 0]
+$ mfb build tests/return-copy-elision-runtime
+Wrote executable to tests/return-copy-elision-runtime/return_copy_elision_runtime.out
+[exit 0]
+$ tests/return-copy-elision-runtime/return_copy_elision_runtime.out
+a:
+ 0
+ 1
+ 2
+ 99
+
+
+b:
+ 0
+ 1
+ 2
+
+
+src:
+ 7
+ 8
+ 9
+
+
+c:
+ 7
+ 8
+ 9
+ 100
+
+
+p1:
+ 7
+ 8
+ 9
+ 999
+
+
+p2:
+ 7
+ 8
+ 9
+
+
+srcAfter:
+ 7
+ 8
+ 9
+
+
+nested:
+ 0
+ 1
+ 4
+ 9
+
+
+[exit 0]
