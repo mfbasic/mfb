@@ -624,7 +624,14 @@ fn decode_resource_owners(
     r: &mut IrReader,
 ) -> Result<HashMap<String, crate::escape::ResOwner>, String> {
     let count = r.count()?;
-    let mut owners = HashMap::with_capacity(count);
+    // Never pre-reserve more slots than the remaining bytes could fill (PKG-05,
+    // mirroring `decode_vec`): each entry is a length-prefixed string + a 1-byte
+    // owner tag, so it consumes at least one wire byte. Without this bound a
+    // crafted `count` of `0xFFFF_FFFF` behind a tiny body makes
+    // `HashMap::with_capacity` request ~100 GB — a clean `Err` on lazy-overcommit
+    // platforms but a hard `SIGABRT` on Linux. The map still grows to the true
+    // length; a bogus count now surfaces as the graceful truncation `Err` below.
+    let mut owners = HashMap::with_capacity(count.min(r.bytes.len().saturating_sub(r.pos)));
     for _ in 0..count {
         let name = r.string()?;
         let owner = match r.u8()? {
