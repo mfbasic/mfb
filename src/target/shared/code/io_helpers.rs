@@ -89,6 +89,7 @@ fn emit_append_to_stdout_buffer(
     let alloc_failed = format!("{symbol}_buf_{tag}_alloc_failed");
     let fits = format!("{symbol}_buf_{tag}_fits");
     let copy_loop = format!("{symbol}_buf_{tag}_copy_loop");
+    let byte_tail = format!("{symbol}_buf_{tag}_byte_tail");
     let copy_done = format!("{symbol}_buf_{tag}_copy_done");
     let appended = format!("{symbol}_buf_{tag}_appended");
     instructions.extend([
@@ -154,7 +155,20 @@ fn emit_append_to_stdout_buffer(
         abi::add_registers("%v24", "%v20", "%v21"),
         abi::move_register("%v25", src),
         abi::move_register("%v26", len),
+        // Word-then-byte block copy (plan-25-D §D2, mirroring
+        // emit_block_copy_advance): 8 bytes per iteration with a byte tail for the
+        // remainder — an order of magnitude fewer iterations than the old per-byte
+        // loop on payloads larger than a word.
         abi::label(&copy_loop),
+        abi::compare_immediate("%v26", "8"),
+        abi::branch_lo(&byte_tail),
+        abi::load_u64("%v27", "%v25", 0),
+        abi::store_u64("%v27", "%v24", 0),
+        abi::add_immediate("%v24", "%v24", 8),
+        abi::add_immediate("%v25", "%v25", 8),
+        abi::subtract_immediate("%v26", "%v26", 8),
+        abi::branch(&copy_loop),
+        abi::label(&byte_tail),
         abi::compare_immediate("%v26", "0"),
         abi::branch_eq(&copy_done),
         abi::load_u8("%v27", "%v25", 0),
@@ -162,7 +176,7 @@ fn emit_append_to_stdout_buffer(
         abi::add_immediate("%v24", "%v24", 1),
         abi::add_immediate("%v25", "%v25", 1),
         abi::subtract_immediate("%v26", "%v26", 1),
-        abi::branch(&copy_loop),
+        abi::branch(&byte_tail),
         abi::label(&copy_done),
         abi::add_registers("%v28", "%v21", len),
         abi::store_u64("%v28", ARENA_STATE_REGISTER, ARENA_OUT_FILLED_OFFSET),

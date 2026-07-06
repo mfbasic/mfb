@@ -117,9 +117,18 @@ impl CodeBuilder<'_> {
         Ok(())
     }
 
-    /// Probe the map (pointer in `collection_slot`) for the key (in `key_slot`) via
-    /// `_mfb_rt_map_probe`; branch to `not_found_label` when absent, otherwise store
-    /// the matching entry address into a fresh stack slot and return its offset.
+    /// Probe the map (pointer in `collection_slot`) for the key (in `key_slot`);
+    /// branch to `not_found_label` when absent, otherwise store the matching entry
+    /// address into a fresh stack slot and return its offset.
+    ///
+    /// plan-25-D §D1: the common case — the buckets are already built and the key
+    /// hashes to its home slot with no collision — is inlined (FNV-1a hash +
+    /// first-bucket probe + one key compare), so a lookup/`set` loop pays no `bl`
+    /// to `_mfb_rt_map_probe` per operation. Only the slow paths (buckets not yet
+    /// built, or a hash collision at the home slot) fall back to the runtime helper,
+    /// which re-hashes and walks the full linear-probe chain. The inline arithmetic
+    /// mirrors `lower_map_probe_helper` exactly, so the entry it resolves — and thus
+    /// every observable map value and iteration order — is byte-identical.
     pub(super) fn emit_map_probe(
         &mut self,
         collection_slot: usize,
@@ -127,11 +136,130 @@ impl CodeBuilder<'_> {
         key_type: &str,
         not_found_label: &str,
     ) -> Result<usize, String> {
-        let scratch9 = self.temporary_vreg();
-        let scratch10 = self.temporary_vreg();
-        let scratch16 = self.temporary_vreg();
+        let entry_slot = self.allocate_stack_object("map_probe_entry", 8);
+        let entry_size = COLLECTION_ENTRY_SIZE.to_string();
+
+        // Materialize the query key bytes (x1 = ptr, x2 = len) and capture them
+        // into vregs we own — used both for the inline hash/compare and, on the
+        // collision/unbuilt fallback, to re-arm the helper's argument registers.
         self.emit_map_query_key(key_type, key_slot)?;
+        let key_ptr = self.temporary_vreg();
+        let key_len = self.temporary_vreg();
+        self.emit(abi::move_register(&key_ptr, "x1"));
+        self.emit(abi::move_register(&key_len, "x2"));
+
+        let map = self.temporary_vreg();
+        self.emit(abi::load_u64(&map, abi::stack_pointer(), collection_slot));
+
+        let fallback = self.label("map_probe_fallback");
+        let store_entry = self.label("map_probe_store");
+        let done = self.label("map_probe_done");
+        let hash_loop = self.label("map_probe_hloop");
+        let hash_done = self.label("map_probe_hdone");
+        let cmp_loop = self.label("map_probe_cloop");
+
+        let scratch = self.temporary_vreg();
+        // count == 0 -> absent (matches the helper's early-out).
+        let count = self.temporary_vreg();
+        self.emit(abi::load_u64(&count, &map, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::compare_immediate(&count, "0"));
+        self.emit(abi::branch_eq(not_found_label));
+        // Buckets not built yet (fresh/copied/grown map) -> the helper builds them.
+        let ready = self.temporary_vreg();
+        self.emit(abi::load_u8(&ready, &map, COLLECTION_OFFSET_BUCKETS_READY));
+        self.emit(abi::compare_immediate(&ready, "0"));
+        self.emit(abi::branch_eq(&fallback));
+
+        // dataBase = map + HEADER + capacity*ENTRY; bucketBase = dataBase +
+        // dataCapacity; bucketCount = capacity * 2.
+        let capacity = self.temporary_vreg();
+        self.emit(abi::load_u64(&capacity, &map, COLLECTION_OFFSET_CAPACITY));
+        let data_base = self.temporary_vreg();
+        self.emit(abi::move_immediate(&scratch, "Integer", &entry_size));
+        self.emit(abi::multiply_registers(&data_base, &capacity, &scratch));
+        self.emit(abi::add_registers(&data_base, &data_base, &map));
+        self.emit(abi::add_immediate(&data_base, &data_base, COLLECTION_HEADER_SIZE));
+        let bucket_base = self.temporary_vreg();
+        self.emit(abi::load_u64(&bucket_base, &map, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::add_registers(&bucket_base, &bucket_base, &data_base));
+        let bucket_count = self.temporary_vreg();
+        self.emit(abi::shift_left_immediate(&bucket_count, &capacity, 1));
+
+        // FNV-1a hash of the query key (bytewise), matching the helper.
+        let prime = self.temporary_vreg();
+        self.emit(abi::move_immediate(&prime, "Integer", FNV1A_PRIME));
+        let hash = self.temporary_vreg();
+        self.emit(abi::move_immediate(&hash, "Integer", FNV1A_BASIS));
+        let cursor = self.temporary_vreg();
+        let remaining = self.temporary_vreg();
+        self.emit(abi::move_register(&cursor, &key_ptr));
+        self.emit(abi::move_register(&remaining, &key_len));
+        self.emit(abi::label(&hash_loop));
+        self.emit(abi::compare_immediate(&remaining, "0"));
+        self.emit(abi::branch_eq(&hash_done));
+        let byte = self.temporary_vreg();
+        self.emit(abi::load_u8(&byte, &cursor, 0));
+        self.emit(abi::exclusive_or_registers(&hash, &hash, &byte));
+        self.emit(abi::multiply_registers(&hash, &hash, &prime));
+        self.emit(abi::add_immediate(&cursor, &cursor, 1));
+        self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
+        self.emit(abi::branch(&hash_loop));
+        self.emit(abi::label(&hash_done));
+
+        // slot = hash mod bucketCount; bucket = buckets[slot] (0 => absent, since
+        // linear-probe insertion fills the first empty slot from the home).
+        let slot = self.temporary_vreg();
+        self.emit(abi::unsigned_divide_registers(&slot, &hash, &bucket_count));
+        self.emit(abi::multiply_subtract_registers(&slot, &slot, &bucket_count, &hash));
+        let bucket = self.temporary_vreg();
+        self.emit(abi::shift_left_immediate(&bucket, &slot, 3));
+        self.emit(abi::add_registers(&bucket, &bucket_base, &bucket));
+        self.emit(abi::load_u64(&bucket, &bucket, 0));
+        self.emit(abi::compare_immediate(&bucket, "0"));
+        self.emit(abi::branch_eq(not_found_label));
+
+        // candidateIdx = bucket - 1; entryAddr = map + HEADER + idx*ENTRY.
+        let entry_addr = self.temporary_vreg();
+        self.emit(abi::subtract_immediate(&bucket, &bucket, 1));
+        self.emit(abi::move_immediate(&scratch, "Integer", &entry_size));
+        self.emit(abi::multiply_registers(&entry_addr, &bucket, &scratch));
+        self.emit(abi::add_registers(&entry_addr, &entry_addr, &map));
+        self.emit(abi::add_immediate(&entry_addr, &entry_addr, COLLECTION_HEADER_SIZE));
+
+        // A length mismatch means a hash collision at the home slot — hand the full
+        // probe walk to the helper (rare); otherwise byte-compare the stored key.
+        let stored_len = self.temporary_vreg();
+        self.emit(abi::load_u64(&stored_len, &entry_addr, COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::compare_registers(&stored_len, &key_len));
+        self.emit(abi::branch_ne(&fallback));
+        let stored_ptr = self.temporary_vreg();
+        self.emit(abi::load_u64(&stored_ptr, &entry_addr, COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
+        self.emit(abi::add_registers(&stored_ptr, &data_base, &stored_ptr));
+        self.emit(abi::move_register(&cursor, &key_ptr));
+        self.emit(abi::move_register(&remaining, &key_len));
+        self.emit(abi::label(&cmp_loop));
+        self.emit(abi::compare_immediate(&remaining, "0"));
+        self.emit(abi::branch_eq(&store_entry));
+        let query_byte = self.temporary_vreg();
+        let stored_byte = self.temporary_vreg();
+        self.emit(abi::load_u8(&query_byte, &cursor, 0));
+        self.emit(abi::load_u8(&stored_byte, &stored_ptr, 0));
+        self.emit(abi::compare_registers(&query_byte, &stored_byte));
+        self.emit(abi::branch_ne(&fallback));
+        self.emit(abi::add_immediate(&cursor, &cursor, 1));
+        self.emit(abi::add_immediate(&stored_ptr, &stored_ptr, 1));
+        self.emit(abi::subtract_immediate(&remaining, &remaining, 1));
+        self.emit(abi::branch(&cmp_loop));
+
+        self.emit(abi::label(&store_entry));
+        self.emit(abi::store_u64(&entry_addr, abi::stack_pointer(), entry_slot));
+        self.emit(abi::branch(&done));
+
+        // Fallback: full probe via `_mfb_rt_map_probe` (also lazily builds buckets).
+        self.emit(abi::label(&fallback));
         self.emit(abi::load_u64("x0", abi::stack_pointer(), collection_slot));
+        self.emit(abi::move_register("x1", &key_ptr));
+        self.emit(abi::move_register("x2", &key_len));
         self.emit(abi::branch_link(MAP_PROBE_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -143,25 +271,17 @@ impl CodeBuilder<'_> {
         // x0 = entry index, or -1 (signed negative) when absent.
         self.emit(abi::compare_immediate("x0", "0"));
         self.emit(abi::branch_lt(not_found_label));
-        let entry_slot = self.allocate_stack_object("map_probe_entry", 8);
-        self.emit(abi::move_immediate(
-            &scratch16,
-            "Integer",
-            &COLLECTION_ENTRY_SIZE.to_string(),
-        ));
-        self.emit(abi::multiply_registers(&scratch9, "x0", &scratch16));
-        self.emit(abi::load_u64(
-            &scratch10,
-            abi::stack_pointer(),
-            collection_slot,
-        ));
-        self.emit(abi::add_registers(&scratch9, &scratch9, &scratch10));
-        self.emit(abi::add_immediate(
-            &scratch9,
-            &scratch9,
-            COLLECTION_HEADER_SIZE,
-        ));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), entry_slot));
+        let fb_scratch = self.temporary_vreg();
+        let fb_map = self.temporary_vreg();
+        let fb_entry = self.temporary_vreg();
+        self.emit(abi::move_immediate(&fb_scratch, "Integer", &entry_size));
+        self.emit(abi::multiply_registers(&fb_entry, "x0", &fb_scratch));
+        self.emit(abi::load_u64(&fb_map, abi::stack_pointer(), collection_slot));
+        self.emit(abi::add_registers(&fb_entry, &fb_entry, &fb_map));
+        self.emit(abi::add_immediate(&fb_entry, &fb_entry, COLLECTION_HEADER_SIZE));
+        self.emit(abi::store_u64(&fb_entry, abi::stack_pointer(), entry_slot));
+
+        self.emit(abi::label(&done));
         Ok(entry_slot)
     }
 

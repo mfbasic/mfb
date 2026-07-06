@@ -87,6 +87,7 @@ fn emit_append_to_file_buffer(
     let alloc_failed = format!("{symbol}_fbuf_{tag}_alloc_failed");
     let fits = format!("{symbol}_fbuf_{tag}_fits");
     let copy_loop = format!("{symbol}_fbuf_{tag}_copy_loop");
+    let byte_tail = format!("{symbol}_fbuf_{tag}_byte_tail");
     let copy_done = format!("{symbol}_fbuf_{tag}_copy_done");
     let appended = format!("{symbol}_fbuf_{tag}_appended");
     instructions.extend([
@@ -151,7 +152,18 @@ fn emit_append_to_file_buffer(
         abi::add_registers("%v35", "%v30", "%v32"),
         abi::move_register("%v36", src),
         abi::move_register("%v37", len),
+        // Word-then-byte block copy (plan-25-D §D2): 8 bytes per iteration with a
+        // byte tail for the remainder, mirroring emit_block_copy_advance.
         abi::label(&copy_loop),
+        abi::compare_immediate("%v37", "8"),
+        abi::branch_lo(&byte_tail),
+        abi::load_u64("%v38", "%v36", 0),
+        abi::store_u64("%v38", "%v35", 0),
+        abi::add_immediate("%v35", "%v35", 8),
+        abi::add_immediate("%v36", "%v36", 8),
+        abi::subtract_immediate("%v37", "%v37", 8),
+        abi::branch(&copy_loop),
+        abi::label(&byte_tail),
         abi::compare_immediate("%v37", "0"),
         abi::branch_eq(&copy_done),
         abi::load_u8("%v38", "%v36", 0),
@@ -159,7 +171,7 @@ fn emit_append_to_file_buffer(
         abi::add_immediate("%v35", "%v35", 1),
         abi::add_immediate("%v36", "%v36", 1),
         abi::subtract_immediate("%v37", "%v37", 1),
-        abi::branch(&copy_loop),
+        abi::branch(&byte_tail),
         abi::label(&copy_done),
         abi::add_registers("%v39", "%v32", len),
         abi::store_u64("%v39", file, FILE_OFFSET_BUF_FILLED),
