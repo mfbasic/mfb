@@ -770,8 +770,7 @@ impl TypeEnv {
                                     "binding `{name}` holds resource `{base}`; bind it with `RES`, not `LET`/`MUT`."
                                 ),
                             );
-                        } else if is_res_declared && !is_resource && self.provably_data_type(base)
-                        {
+                        } else if is_res_declared && !is_resource && self.provably_data_type(base) {
                             // Only a POSITIVELY known data type rejects: an
                             // unknown name may be an external package's
                             // resource (e.g. sqlite3's Db), which the source
@@ -1096,7 +1095,10 @@ impl TypeEnv {
                 }
                 IrOp::Match { value, cases, .. } => {
                     if cases.is_empty() {
-                        self.emit(VERIFY_MATCH, "MATCH has no cases (not exhaustive)".to_string());
+                        self.emit(
+                            VERIFY_MATCH,
+                            "MATCH has no cases (not exhaustive)".to_string(),
+                        );
                     }
                     self.check_value_captures(value, closure_slots);
                     self.check_value(value, locals);
@@ -1736,8 +1738,10 @@ impl TypeEnv {
         right: &IrValue,
         locals: &HashMap<String, String>,
     ) {
-        let (Some(lt), Some(rt)) = (self.infer_type(left, locals), self.infer_type(right, locals))
-        else {
+        let (Some(lt), Some(rt)) = (
+            self.infer_type(left, locals),
+            self.infer_type(right, locals),
+        ) else {
             return; // an operand type is unknown → skip (no false reject)
         };
         let numeric = |t: &str| matches!(t, "Integer" | "Byte" | "Float" | "Fixed" | "Unknown");
@@ -2103,21 +2107,26 @@ impl TypeEnv {
         // Run `body` as a branch: fresh scope, then merge the new moves of a
         // fall-through branch back into the outer set (syntaxcheck's MaybeMoved —
         // moved on *some* path means unusable after the join).
-        let run_branch = |body: &[IrOp],
-                              locals: &HashMap<String, String>,
-                              moved: &mut HashSet<String>| {
-            let mut branch_moved = moved.clone();
-            self.check_resource_moves(body, &mut locals.clone(), &mut branch_moved, owners, borrowed);
-            if !diverges(body) {
-                for name in branch_moved {
-                    // Only propagate moves of bindings the outer scope knows;
-                    // branch-local resources die with the branch.
-                    if locals.contains_key(&name) {
-                        moved.insert(name);
+        let run_branch =
+            |body: &[IrOp], locals: &HashMap<String, String>, moved: &mut HashSet<String>| {
+                let mut branch_moved = moved.clone();
+                self.check_resource_moves(
+                    body,
+                    &mut locals.clone(),
+                    &mut branch_moved,
+                    owners,
+                    borrowed,
+                );
+                if !diverges(body) {
+                    for name in branch_moved {
+                        // Only propagate moves of bindings the outer scope knows;
+                        // branch-local resources die with the branch.
+                        if locals.contains_key(&name) {
+                            moved.insert(name);
+                        }
                     }
                 }
-            }
-        };
+            };
         for op in ops {
             self.current_line.set(op.loc().line);
             // A read of an already-moved binding is a use-after-move. The
@@ -2303,8 +2312,7 @@ impl TypeEnv {
                     // coverage by unguarded arms (mirroring the relocated
                     // exhaustiveness rule, which rejects anything else).
                     let has_else = cases.iter().any(|case| {
-                        case.guard.is_none()
-                            && matches!(case.pattern, super::IrMatchPattern::Else)
+                        case.guard.is_none() && matches!(case.pattern, super::IrMatchPattern::Else)
                     });
                     let exhaustive = has_else || self.match_covers_all(value, cases, &locals);
                     if exhaustive
@@ -2429,8 +2437,19 @@ impl TypeEnv {
         fn is_c_abi_type(t: &str) -> bool {
             matches!(
                 t,
-                "CPtr" | "CString" | "CInt8" | "CInt16" | "CInt32" | "CInt64" | "CUInt8"
-                    | "CUInt16" | "CUInt32" | "CUInt64" | "CFloat" | "CDouble" | "CVoid"
+                "CPtr"
+                    | "CString"
+                    | "CInt8"
+                    | "CInt16"
+                    | "CInt32"
+                    | "CInt64"
+                    | "CUInt8"
+                    | "CUInt16"
+                    | "CUInt32"
+                    | "CUInt64"
+                    | "CFloat"
+                    | "CDouble"
+                    | "CVoid"
             )
         }
         self.current_file.replace(String::new());
@@ -2457,8 +2476,11 @@ impl TypeEnv {
                     ),
                 );
             }
-            let const_slots: HashSet<&str> =
-                function.consts.iter().map(|(slot, _)| slot.as_str()).collect();
+            let const_slots: HashSet<&str> = function
+                .consts
+                .iter()
+                .map(|(slot, _)| slot.as_str())
+                .collect();
             let param_names: HashSet<&str> =
                 function.params.iter().map(|(n, _)| n.as_str()).collect();
             let mut result_markers = 0;
@@ -2595,14 +2617,11 @@ impl TypeEnv {
         if !seen.insert(t.to_string()) {
             return false;
         }
-        let contained = self
-            .record_field_lists
-            .get(t)
-            .is_some_and(|fields| {
-                fields
-                    .iter()
-                    .any(|(_, ft)| self.contains_resource_or_thread(ft, seen))
-            });
+        let contained = self.record_field_lists.get(t).is_some_and(|fields| {
+            fields
+                .iter()
+                .any(|(_, ft)| self.contains_resource_or_thread(ft, seen))
+        });
         seen.remove(t);
         contained
     }
@@ -2614,8 +2633,15 @@ impl TypeEnv {
     fn provably_data_type(&self, base: &str) -> bool {
         matches!(
             base,
-            "Boolean" | "Byte" | "Error" | "ErrorLoc" | "Fixed" | "Float" | "Integer"
-                | "Nothing" | "String"
+            "Boolean"
+                | "Byte"
+                | "Error"
+                | "ErrorLoc"
+                | "Fixed"
+                | "Float"
+                | "Integer"
+                | "Nothing"
+                | "String"
         ) || base.starts_with("List OF ")
             || base.starts_with("Map OF ")
             || base.starts_with("FUNC")
@@ -2932,7 +2958,10 @@ impl TypeEnv {
                 }
             }
             "-" => {
-                if !matches!(t.as_str(), "Integer" | "Byte" | "Float" | "Fixed" | "Unknown") {
+                if !matches!(
+                    t.as_str(),
+                    "Integer" | "Byte" | "Float" | "Fixed" | "Unknown"
+                ) {
                     self.emit(
                         "TYPE_UNARY_OPERATOR_MISMATCH",
                         format!("Unary `-` requires a numeric operand, got {t}."),
@@ -3078,7 +3107,10 @@ impl TypeEnv {
         // parameter tables use the bare resource type.
         let arg_types: Option<Vec<String>> = args
             .iter()
-            .map(|a| self.infer_type(a, locals).map(|t| resource_base_type(&t).to_string()))
+            .map(|a| {
+                self.infer_type(a, locals)
+                    .map(|t| resource_base_type(&t).to_string())
+            })
             .collect();
         let Some(arg_types) = arg_types else {
             return;
@@ -3117,7 +3149,9 @@ impl TypeEnv {
             if mismatch {
                 self.emit(
                     "TYPE_CALL_ARGUMENT_MISMATCH",
-                    format!("Call to `{target}` has argument type(s) that do not match its signature."),
+                    format!(
+                        "Call to `{target}` has argument type(s) that do not match its signature."
+                    ),
                 );
             }
             return;
@@ -3287,7 +3321,8 @@ impl TypeEnv {
         // Negated numeric literal into Fixed (`-1` etc.).
         if expected == "Fixed" {
             if let IrValue::Unary { op, operand, .. } = value {
-                if op == "-" && matches!(operand.as_ref(), IrValue::Const { type_, .. } if type_ == "Integer" || type_ == "Float")
+                if op == "-"
+                    && matches!(operand.as_ref(), IrValue::Const { type_, .. } if type_ == "Integer" || type_ == "Float")
                 {
                     return true;
                 }
@@ -3446,8 +3481,7 @@ impl TypeEnv {
         // A private type (or one with hidden fields) may only be constructed
         // from its declaring file (syntaxcheck's TYPE_MEMBER_NOT_VISIBLE arms).
         if let Some((file, visibility)) = self.type_decl_info.get(type_name) {
-            if visibility == "private" && !file.is_empty() && *file != *self.current_file.borrow()
-            {
+            if visibility == "private" && !file.is_empty() && *file != *self.current_file.borrow() {
                 self.emit(
                     "TYPE_MEMBER_NOT_VISIBLE",
                     format!("Constructor `{type_name}` is not visible from this file."),

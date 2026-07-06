@@ -1,9 +1,9 @@
-use super::*;
 use super::operand::{field, immediate, reg, scratch_excluding, shift, vreg};
-use crate::target::shared::code::RelocIntent;
 use super::sizing::{
     branch_imm19, branch_imm26, checked_imm12, encode_add_sub_imm, next_add_sub_chunk,
 };
+use super::*;
+use crate::target::shared::code::RelocIntent;
 
 pub(super) struct Encoder {
     pub(super) text: Vec<u8>,
@@ -347,16 +347,16 @@ impl Encoder {
             ),
             "fadd_v" | "fsub_v" | "fmul_v" | "fdiv_v" | "fmla_v" | "fmls_v" | "fmin_v"
             | "fmax_v" | "fcmgt_v" | "fcmge_v" | "fcmeq_v" | "add_v" | "sub_v" | "cmgt_v"
-            | "cmge_v" | "cmeq_v" | "sshl_v" | "ushl_v" | "and_v" | "orr_v" | "eor_v"
-            | "bsl_v" | "bit_v" => self.emit_v_three_same(
+            | "cmge_v" | "cmeq_v" | "sshl_v" | "ushl_v" | "and_v" | "orr_v" | "eor_v" | "bsl_v"
+            | "bit_v" => self.emit_v_three_same(
                 instruction.op,
                 vreg(field(instruction, "dst")?)?,
                 vreg(field(instruction, "lhs")?)?,
                 vreg(field(instruction, "rhs")?)?,
             ),
-            "fabs_v" | "fneg_v" | "fsqrt_v" | "frintp_v" | "frintm_v" | "frinta_v"
-            | "frintn_v" | "frintz_v" | "fcvtzs_v" | "fcvtas_v" | "scvtf_v" | "neg_v"
-            | "abs_v" | "fcmgt_zero_v" | "fcmge_zero_v" | "fcmeq_zero_v" | "fcmlt_zero_v"
+            "fabs_v" | "fneg_v" | "fsqrt_v" | "frintp_v" | "frintm_v" | "frinta_v" | "frintn_v"
+            | "frintz_v" | "fcvtzs_v" | "fcvtas_v" | "scvtf_v" | "neg_v" | "abs_v"
+            | "fcmgt_zero_v" | "fcmge_zero_v" | "fcmeq_zero_v" | "fcmlt_zero_v"
             | "fcmle_zero_v" => self.emit_v_two_misc(
                 instruction.op,
                 vreg(field(instruction, "dst")?)?,
@@ -470,7 +470,12 @@ impl Encoder {
             CodeOp::FCmEqZeroV => 0x4ee0_d800,
             CodeOp::FCmLtZeroV => 0x4ee0_e800,
             CodeOp::FCmLeZeroV => 0x6ee0_d800,
-            other => return Err(format!("{} is not a two-reg-misc NEON op", other.mnemonic())),
+            other => {
+                return Err(format!(
+                    "{} is not a two-reg-misc NEON op",
+                    other.mnemonic()
+                ))
+            }
         };
         self.emit_word(base | ((vn as u32) << 5) | vd as u32)
     }
@@ -521,7 +526,9 @@ impl Encoder {
     /// `UMOV Xd, Vn.d[index]` — extract lane `index` (0 or 1) into a GPR.
     fn emit_umov_x_from_v(&mut self, rd: u8, vn: u8, index: u64) -> Result<(), String> {
         if index > 1 {
-            return Err(format!("AArch64 umov .d lane index {index} is out of range"));
+            return Err(format!(
+                "AArch64 umov .d lane index {index} is out of range"
+            ));
         }
         let imm5 = 0x8 | ((index as u32) << 4);
         self.emit_word(0x4e00_3c00 | (imm5 << 16) | ((vn as u32) << 5) | rd as u32)

@@ -94,9 +94,17 @@ pub(super) fn lower_crypto_ec_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
-    let (op, curve) = ec_call(call)
-        .ok_or_else(|| format!("crypto EC helper: unknown call {call}"))?;
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
+    let (op, curve) =
+        ec_call(call).ok_or_else(|| format!("crypto EC helper: unknown call {call}"))?;
     if platform.target().contains("macos") {
         macos::lower(op, curve, symbol, platform_imports, platform)
     } else {

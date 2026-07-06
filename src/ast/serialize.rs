@@ -1561,4 +1561,3 @@ fn substitute_placeholder_call_arg(argument: CallArg, input: &Expression) -> Cal
         },
     }
 }
-

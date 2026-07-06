@@ -41,7 +41,10 @@ pub(super) fn runtime_symbols(module: &NirModule) -> Vec<String> {
     symbols
 }
 
-pub(super) fn collect_bind_type_names(ops: &[NirOp], types: &mut std::collections::HashSet<String>) {
+pub(super) fn collect_bind_type_names(
+    ops: &[NirOp],
+    types: &mut std::collections::HashSet<String>,
+) {
     for op in ops {
         match op {
             NirOp::Bind { type_, .. } => {
@@ -70,7 +73,10 @@ pub(super) fn collect_bind_type_names(ops: &[NirOp], types: &mut std::collection
     }
 }
 
-pub(super) fn platform_imports(module: &NirModule, platform: &dyn NativePlanPlatform) -> Vec<PlatformImport> {
+pub(super) fn platform_imports(
+    module: &NirModule,
+    platform: &dyn NativePlanPlatform,
+) -> Vec<PlatformImport> {
     let mut imports = Vec::new();
     for import in platform.entry_imports(module) {
         push_platform_import(&mut imports, import);
@@ -664,7 +670,6 @@ pub(super) fn native_primitive_text(
         _ => None,
     }
 }
-
 
 pub(super) fn push_platform_import(imports: &mut Vec<PlatformImport>, import: PlatformImport) {
     if imports.iter().any(|existing| {

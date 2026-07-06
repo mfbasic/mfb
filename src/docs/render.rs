@@ -131,7 +131,9 @@ pub(crate) fn render(markdown: &str, style: &Style) -> String {
 
         if list_item(line).is_some() {
             while i < lines.len() {
-                let Some(item) = list_item(lines[i]) else { break };
+                let Some(item) = list_item(lines[i]) else {
+                    break;
+                };
                 out.extend(render_list_item(&item, width, color));
                 i += 1;
             }
@@ -699,7 +701,11 @@ fn wrap_words(words: Vec<Word>, width: usize, color: bool) -> Vec<VisualLine> {
 
     for word in words {
         let ww = word_width(&word);
-        let need = if cur.is_empty() { ww } else { cur_width + 1 + ww };
+        let need = if cur.is_empty() {
+            ww
+        } else {
+            cur_width + 1 + ww
+        };
         if !cur.is_empty() && need > width {
             lines.push(emit_line(&cur, color));
             cur_width = ww;
@@ -780,7 +786,10 @@ mod tests {
     }
 
     fn plain_style(width: usize) -> Style {
-        Style { width, color: false }
+        Style {
+            width,
+            color: false,
+        }
     }
 
     fn display_width(line: &str) -> usize {
@@ -815,10 +824,7 @@ mod tests {
         let md = "```\nLET x = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n```";
         let out = render(md, &plain_style(20));
         // Indented by two spaces, and NOT wrapped even though it exceeds width.
-        assert_eq!(
-            out,
-            "  LET x = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-        );
+        assert_eq!(out, "  LET x = aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
     }
 
     #[test]
@@ -884,7 +890,10 @@ mod tests {
 
     #[test]
     fn inline_markup_styled_with_color() {
-        let style = Style { width: 80, color: true };
+        let style = Style {
+            width: 80,
+            color: true,
+        };
         let out = render("**bold**", &style);
         assert!(out.contains("\x1b[1m"));
         assert_eq!(strip_ansi(&out), "bold");
@@ -904,12 +913,21 @@ mod tests {
     #[test]
     fn provenance_citations_are_stripped() {
         // Inline citations vanish and their surrounding spaces collapse.
-        let out = render("a value [[src/ir/value.rs:IrValue]] is flat", &plain_style(80));
+        let out = render(
+            "a value [[src/ir/value.rs:IrValue]] is flat",
+            &plain_style(80),
+        );
         assert_eq!(out, "a value is flat");
         // Also stripped from one-line summaries.
-        assert_eq!(plain("Flat values [[src/foo.rs:bar]] only"), "Flat values only");
+        assert_eq!(
+            plain("Flat values [[src/foo.rs:bar]] only"),
+            "Flat values only"
+        );
         // A trailing citation leaves no dangling marker.
-        assert_eq!(plain("see the memory spec [[src/docs/spec/memory/spec.md:1]]").trim(), "see the memory spec");
+        assert_eq!(
+            plain("see the memory spec [[src/docs/spec/memory/spec.md:1]]").trim(),
+            "see the memory spec"
+        );
     }
 
     #[test]
@@ -918,7 +936,10 @@ mod tests {
         // the underline rule must match the visible title length, not include it.
         let out = render("### entry[[src/ir/mod.rs:EntryPoint]]", &plain_style(80));
         assert_eq!(out, "entry");
-        let h2 = render("## bindings [[src/ir/types.rs:IrBinding]]", &plain_style(80));
+        let h2 = render(
+            "## bindings [[src/ir/types.rs:IrBinding]]",
+            &plain_style(80),
+        );
         assert_eq!(h2.lines().next().unwrap(), "bindings");
     }
 

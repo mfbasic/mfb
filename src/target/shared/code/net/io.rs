@@ -17,7 +17,15 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 64;
     const FD_OFFSET: usize = 8;
     const TIMEOUT_OFFSET: usize = 16;
@@ -91,11 +99,12 @@ pub(in crate::target::shared::code) fn lower_net_accept_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -107,7 +116,15 @@ pub(in crate::target::shared::code) fn lower_net_address_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     remote: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 224;
     const FD_OFFSET: usize = 8;
     const LEN_OFFSET: usize = 16;
@@ -205,11 +222,12 @@ pub(in crate::target::shared::code) fn lower_net_address_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -221,7 +239,15 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 96;
     const FD_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
@@ -448,11 +474,12 @@ pub(in crate::target::shared::code) fn lower_net_read_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -464,7 +491,15 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 96;
     const FD_OFFSET: usize = 8;
     const SRC_OFFSET: usize = 16; // pointer to the next byte to write
@@ -575,11 +610,12 @@ pub(in crate::target::shared::code) fn lower_net_write_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -590,7 +626,15 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 256;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
@@ -814,11 +858,12 @@ pub(in crate::target::shared::code) fn lower_net_lookup_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -833,7 +878,15 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 128;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
@@ -1008,11 +1061,12 @@ pub(in crate::target::shared::code) fn lower_net_bind_udp_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1030,7 +1084,15 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 224;
     const FD_OFFSET: usize = 8;
     const MAX_OFFSET: usize = 16;
@@ -1310,11 +1372,12 @@ pub(in crate::target::shared::code) fn lower_net_receive_from_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1329,7 +1392,15 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 144;
     const FD_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 24; // pointer to payload bytes
@@ -1532,9 +1603,10 @@ pub(in crate::target::shared::code) fn lower_net_send_to_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }

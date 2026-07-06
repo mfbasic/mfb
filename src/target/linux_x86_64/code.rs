@@ -358,9 +358,7 @@ impl code::CodegenPlatform for Platform {
         // trampoline's return) restores ≡ 0 at its call instructions, exactly
         // what SysV requires. The trampoline's own [sp, K] slots are relative
         // to the final sp, so they are unaffected. AArch64 needs no bias.
-        function
-            .instructions
-            .insert(at + 1, abi::subtract_stack(8));
+        function.instructions.insert(at + 1, abi::subtract_stack(8));
         let mut i = at + 2;
         while i < function.instructions.len() {
             if function.instructions[i].op == crate::arch::aarch64::ops::CodeOp::Ret {

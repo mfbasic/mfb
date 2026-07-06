@@ -10,7 +10,6 @@ pub(super) fn module_requires_empty_string_constant(module: &NirModule) -> bool 
     })
 }
 
-
 fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool {
     match op {
         NirOp::Bind {
@@ -40,7 +39,6 @@ fn op_requires_empty_string_constant(op: &NirOp, type_model: &TypeModel) -> bool
     }
 }
 
-
 fn type_requires_empty_string_constant(
     type_: &str,
     type_model: &TypeModel,
@@ -62,14 +60,12 @@ fn type_requires_empty_string_constant(
     result
 }
 
-
 pub(super) fn module_uses_type_name(module: &NirModule) -> bool {
     module
         .functions
         .iter()
         .any(|function| ops_use_type_name(&function.body))
 }
-
 
 pub(super) fn module_uses_call(module: &NirModule, target: &str) -> bool {
     module
@@ -84,7 +80,6 @@ pub(super) fn module_uses_call(module: &NirModule, target: &str) -> bool {
 /// `collections.find` and `strings.find`). The native ops keep their bare
 /// lowering but arrive with the qualified target (plan-01-functions.md §5).
 
-
 /// Whether the module uses a migrated `collections::`/`strings::` member whose
 /// bare native lowering name is `bare` (e.g. `bare = "find"` checks both
 /// `collections.find` and `strings.find`). The native ops keep their bare
@@ -97,7 +92,6 @@ pub(super) fn module_uses_migrated(module: &NirModule, bare: &str) -> bool {
 /// Whether the module binds a resource union whose tag-dispatched drop calls
 /// `target` (a variant's close op). These calls are codegen-emitted rather than
 /// NIR calls, so they must still pull in the close helper.
-
 
 /// Whether the module binds a resource union whose tag-dispatched drop calls
 /// `target` (a variant's close op). These calls are codegen-emitted rather than
@@ -128,7 +122,6 @@ fn module_drops_resource_union_close(module: &NirModule, target: &str) -> bool {
         .any(|function| ops_bind_type_in(&function.body, &unions))
 }
 
-
 fn ops_bind_type_in(ops: &[NirOp], names: &std::collections::HashSet<&str>) -> bool {
     ops.iter().any(|op| match op {
         NirOp::Bind { type_, .. } => names.contains(type_.as_str()),
@@ -147,14 +140,12 @@ fn ops_bind_type_in(ops: &[NirOp], names: &std::collections::HashSet<&str>) -> b
     })
 }
 
-
 pub(super) fn module_may_record_cleanup_failure(module: &NirModule) -> bool {
     module
         .functions
         .iter()
         .any(|function| ops_may_record_cleanup_failure(&function.body))
 }
-
 
 fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
@@ -184,13 +175,11 @@ fn ops_may_record_cleanup_failure(ops: &[NirOp]) -> bool {
     })
 }
 
-
 pub(super) fn module_uses_any_call(module: &NirModule, targets: &[&str]) -> bool {
     targets
         .iter()
         .any(|target| module_uses_call(module, target))
 }
-
 
 pub(super) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
     if module_uses_any_call(
@@ -229,7 +218,6 @@ pub(super) fn module_may_emit_float_numeric_error(module: &NirModule) -> bool {
         ops_may_emit_float_arithmetic_error(&function.body, &mut locals)
     })
 }
-
 
 fn ops_may_emit_float_arithmetic_error(
     ops: &[NirOp],
@@ -325,7 +313,6 @@ fn ops_may_emit_float_arithmetic_error(
     false
 }
 
-
 fn value_may_emit_float_arithmetic_error(
     value: &NirValue,
     locals: &HashMap<String, String>,
@@ -389,7 +376,6 @@ fn value_may_emit_float_arithmetic_error(
     }
 }
 
-
 fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
     ops.iter().any(|op| match op {
         NirOp::Bind { value, .. }
@@ -442,7 +428,6 @@ fn ops_use_call(ops: &[NirOp], target: &str) -> bool {
     })
 }
 
-
 fn value_uses_call(value: &NirValue, target: &str) -> bool {
     match value {
         NirValue::Call {
@@ -493,7 +478,6 @@ fn value_uses_call(value: &NirValue, target: &str) -> bool {
     }
 }
 
-
 fn ops_use_type_name(ops: &[NirOp]) -> bool {
     ops.iter().any(|op| match op {
         NirOp::Bind { value, .. } | NirOp::StoreGlobal { value, .. } | NirOp::Return { value } => {
@@ -542,7 +526,6 @@ fn ops_use_type_name(ops: &[NirOp]) -> bool {
         NirOp::Trap { body, .. } => ops_use_type_name(body),
     })
 }
-
 
 fn value_uses_type_name(value: &NirValue) -> bool {
     let direct = match value {
@@ -599,7 +582,6 @@ fn value_uses_type_name(value: &NirValue) -> bool {
         }
 }
 
-
 pub(super) fn module_uses_unicode_runtime_tables(module: &NirModule) -> bool {
     module.functions.iter().any(|function| {
         let mut constants = HashMap::new();
@@ -607,7 +589,6 @@ pub(super) fn module_uses_unicode_runtime_tables(module: &NirModule) -> bool {
         ops_use_unicode_runtime_tables(&function.body, &mut constants, &mut types)
     })
 }
-
 
 fn ops_use_unicode_runtime_tables(
     ops: &[NirOp],
@@ -794,7 +775,6 @@ fn ops_use_unicode_runtime_tables(
     false
 }
 
-
 fn value_uses_unicode_runtime_tables(
     value: &NirValue,
     constants: &HashMap<String, NirValue>,
@@ -864,7 +844,6 @@ fn value_uses_unicode_runtime_tables(
         | NirValue::FunctionRef { .. } => false,
     }
 }
-
 
 pub(super) fn value_may_return_invalid_format(
     value: &NirValue,
@@ -939,4 +918,3 @@ pub(super) fn value_may_return_invalid_format(
         | NirValue::FunctionRef { .. } => false,
     }
 }
-

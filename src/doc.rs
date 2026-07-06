@@ -106,7 +106,11 @@ fn assemble_groups(items: Vec<(DocDecl, String, bool)>) -> (Vec<DocGroup>, Vec<D
     let mut public: Vec<DocGroup> = Vec::new();
     let mut internal: Vec<DocGroup> = Vec::new();
     for (decl, title, is_internal) in items {
-        let groups = if is_internal { &mut internal } else { &mut public };
+        let groups = if is_internal {
+            &mut internal
+        } else {
+            &mut public
+        };
         match groups.iter_mut().find(|g| g.title == title) {
             Some(group) => group.decls.push(decl),
             None => groups.push(DocGroup {
@@ -122,7 +126,13 @@ fn assemble_groups(items: Vec<(DocDecl, String, bool)>) -> (Vec<DocGroup>, Vec<D
 fn anchor(name: &str, used: &mut HashSet<String>) -> String {
     let base: String = name
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect();
     let mut candidate = base.clone();
     let mut n = 2;
@@ -138,7 +148,11 @@ fn anchor(name: &str, used: &mut HashSet<String>) -> String {
 /// only, plan-09-doc.md §3).
 pub fn from_package(docs: PackageDocs, fallback_name: &str) -> DocPage {
     let (package_name, mut pkg_prose, package_deprecated) = match docs.package {
-        Some(package) => (package.name, prose_from_codes(&package.desc), package.deprecated),
+        Some(package) => (
+            package.name,
+            prose_from_codes(&package.desc),
+            package.deprecated,
+        ),
         None => (fallback_name.to_string(), Vec::new(), None),
     };
     let (subtitle, intro) = split_subtitle(&mut pkg_prose);
@@ -191,7 +205,10 @@ pub fn from_source(ast: &AstProject) -> DocPage {
         for item in &file.items {
             match item {
                 Item::Function(function) => {
-                    funcs.entry(function.name.as_str()).or_default().push(function);
+                    funcs
+                        .entry(function.name.as_str())
+                        .or_default()
+                        .push(function);
                 }
                 Item::Type(type_decl) => {
                     let kind = match type_decl.kind {
@@ -226,20 +243,30 @@ pub fn from_source(ast: &AstProject) -> DocPage {
             };
             if doc.header_kind == DocHeaderKind::Package {
                 if pkg_prose.is_empty() && package_deprecated.is_none() {
-                    pkg_prose = doc.desc.iter().map(|p| Prose { kind: p.kind, text: p.text.clone() }).collect();
+                    pkg_prose = doc
+                        .desc
+                        .iter()
+                        .map(|p| Prose {
+                            kind: p.kind,
+                            text: p.text.clone(),
+                        })
+                        .collect();
                     package_deprecated = doc.deprecated.first().map(|(m, _)| m.clone());
                     let _ = &mut package_name;
                 }
                 continue;
             }
-            let Some((kind_str, signature, exported)) =
-                source_decl_meta(doc, &funcs, &type_meta)
+            let Some((kind_str, signature, exported)) = source_decl_meta(doc, &funcs, &type_meta)
             else {
                 continue;
             };
-            let is_internal = !exported
-                || doc.attrs.iter().any(|a| a.eq_ignore_ascii_case("INTERNAL"));
-            let group = doc.groups.first().map(|(n, _)| n.clone()).unwrap_or_default();
+            let is_internal =
+                !exported || doc.attrs.iter().any(|a| a.eq_ignore_ascii_case("INTERNAL"));
+            let group = doc
+                .groups
+                .first()
+                .map(|(n, _)| n.clone())
+                .unwrap_or_default();
             let title = group_title(kind_str, &group);
             let entry = DocDecl {
                 anchor: anchor(&doc.header_name, &mut used),
@@ -248,12 +275,35 @@ pub fn from_source(ast: &AstProject) -> DocPage {
                 member_label: member_label(kind_str),
                 name: doc.header_name.clone(),
                 signature,
-                desc: doc.desc.iter().map(|p| Prose { kind: p.kind, text: p.text.clone() }).collect(),
-                args: doc.args.iter().map(|a| (a.name.clone(), a.desc.clone())).collect(),
-                props: doc.props.iter().map(|p| (p.name.clone(), p.desc.clone())).collect(),
+                desc: doc
+                    .desc
+                    .iter()
+                    .map(|p| Prose {
+                        kind: p.kind,
+                        text: p.text.clone(),
+                    })
+                    .collect(),
+                args: doc
+                    .args
+                    .iter()
+                    .map(|a| (a.name.clone(), a.desc.clone()))
+                    .collect(),
+                props: doc
+                    .props
+                    .iter()
+                    .map(|p| (p.name.clone(), p.desc.clone()))
+                    .collect(),
                 ret: doc.rets.first().map(|(t, _)| t.clone()).unwrap_or_default(),
-                errors: doc.errors.iter().map(|e| (e.code.clone(), e.desc.clone())).collect(),
-                example: doc.examples.first().map(|(t, _)| t.clone()).unwrap_or_default(),
+                errors: doc
+                    .errors
+                    .iter()
+                    .map(|e| (e.code.clone(), e.desc.clone()))
+                    .collect(),
+                example: doc
+                    .examples
+                    .first()
+                    .map(|(t, _)| t.clone())
+                    .unwrap_or_default(),
                 deprecated: doc.deprecated.first().map(|(m, _)| m.clone()),
             };
             items.push((entry, title, is_internal));
@@ -292,7 +342,11 @@ fn source_decl_meta(
                 None => matching.next()?,
             };
             let kind = if want_sub { "sub" } else { "func" };
-            Some((kind, function.signature_line(), function.visibility == Visibility::Export))
+            Some((
+                kind,
+                function.signature_line(),
+                function.visibility == Visibility::Export,
+            ))
         }
         DocHeaderKind::Type | DocHeaderKind::Union | DocHeaderKind::Enum => {
             let (signature, exported, kind) = type_meta.get(doc.header_name.as_str())?;
@@ -388,11 +442,20 @@ fn render_prose(out: &mut String, prose: &[Prose]) {
     }
 }
 
-fn render_table(out: &mut String, heading: &str, name_col: &str, rows: &[(String, String)], code_col: bool) {
+fn render_table(
+    out: &mut String,
+    heading: &str,
+    name_col: &str,
+    rows: &[(String, String)],
+    code_col: bool,
+) {
     if rows.is_empty() {
         return;
     }
-    out.push_str(&format!("        <h4>{}</h4>\n        <table>\n", escape(heading)));
+    out.push_str(&format!(
+        "        <h4>{}</h4>\n        <table>\n",
+        escape(heading)
+    ));
     out.push_str(&format!(
         "          <tr><th>{}</th><th>Description</th></tr>\n",
         escape(name_col)
@@ -412,9 +475,15 @@ fn render_table(out: &mut String, heading: &str, name_col: &str, rows: &[(String
 }
 
 fn render_decl(out: &mut String, decl: &DocDecl) {
-    out.push_str(&format!("      <section id=\"{}\" class=\"section\">\n", decl.anchor));
+    out.push_str(&format!(
+        "      <section id=\"{}\" class=\"section\">\n",
+        decl.anchor
+    ));
     out.push_str("        <div class=\"section-header\">\n");
-    out.push_str(&format!("          <h3><code>{}</code></h3>\n", escape(&decl.name)));
+    out.push_str(&format!(
+        "          <h3><code>{}</code></h3>\n",
+        escape(&decl.name)
+    ));
     out.push_str(&format!(
         "          <span class=\"badge {}\">{}</span>\n",
         decl.badge_class, decl.kind_label
@@ -448,7 +517,10 @@ fn render_decl(out: &mut String, decl: &DocDecl) {
     render_table(out, "Errors", "Code", &decl.errors, true);
     if !decl.example.is_empty() {
         out.push_str("        <div class=\"example\">\n          <div class=\"example-label\">Example</div>\n");
-        out.push_str(&format!("          <pre><code>{}</code></pre>\n        </div>\n", escape(&decl.example)));
+        out.push_str(&format!(
+            "          <pre><code>{}</code></pre>\n        </div>\n",
+            escape(&decl.example)
+        ));
     }
     out.push_str("      </section>\n");
 }
@@ -487,7 +559,9 @@ pub fn render_html(page: &DocPage) -> String {
     let mut out = String::new();
     out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n");
     out.push_str(&format!("  <title>{name} — Documentation</title>\n"));
-    out.push_str(&format!("  <style>{STYLE}</style>\n</head>\n<body>\n  <div class=\"container\">\n"));
+    out.push_str(&format!(
+        "  <style>{STYLE}</style>\n</head>\n<body>\n  <div class=\"container\">\n"
+    ));
 
     // Sidebar.
     out.push_str("    <nav class=\"sidebar\">\n");
@@ -496,7 +570,9 @@ pub fn render_html(page: &DocPage) -> String {
     ));
     if !page.subtitle.is_empty() || !page.intro.is_empty() {
         out.push_str("      <div class=\"nav-section\">\n        <div class=\"nav-section-title\">Overview</div>\n");
-        out.push_str("        <a href=\"#intro\" class=\"nav-item\">Introduction</a>\n      </div>\n");
+        out.push_str(
+            "        <a href=\"#intro\" class=\"nav-item\">Introduction</a>\n      </div>\n",
+        );
     }
     render_sidebar_groups(&mut out, &page.public);
     if !page.internal.is_empty() {

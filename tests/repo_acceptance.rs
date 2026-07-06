@@ -77,7 +77,8 @@ fn open_store(repo_dir: &std::path::Path) -> mfb_repository::store::OpenedReposi
 /// The local key/session store the CLI uses for this repository: MFB_HOME
 /// scoped by the SHA-256 of the repository URL (`~/.mfb/<repo-hash>/`).
 fn mfb_repo_home(repo: &RepoProcess, home: &std::path::Path) -> std::path::PathBuf {
-    home.join(".mfb").join(crypto::fingerprint(repo.url.as_bytes()))
+    home.join(".mfb")
+        .join(crypto::fingerprint(repo.url.as_bytes()))
 }
 
 fn run_mfb(repo: &RepoProcess, home: &std::path::Path, args: &[&str]) -> std::process::Output {
@@ -289,7 +290,9 @@ fn repo_signs_package_and_embeds_executable_metadata() {
 
     // The attestation verifies under the pinned registry key.
     let server_key = crypto::decode_bytes(
-        std::fs::read_to_string(repo_home.join("server.pub")).unwrap().trim(),
+        std::fs::read_to_string(repo_home.join("server.pub"))
+            .unwrap()
+            .trim(),
         "server key",
     )
     .unwrap();
@@ -376,9 +379,11 @@ fn repo_machine_link_makes_an_equal_and_revoke_cuts_it_off() {
     let repo = start_repo(repo_dir.path());
 
     // Machine A registers and opens a session.
-    assert!(run_mfb(&repo, home_a.path(), &["repo", "register", "alice"])
-        .status
-        .success());
+    assert!(
+        run_mfb(&repo, home_a.path(), &["repo", "register", "alice"])
+            .status
+            .success()
+    );
     assert!(run_mfb(&repo, home_a.path(), &["repo", "auth", "alice"])
         .status
         .success());
@@ -621,10 +626,19 @@ fn repo_end_to_end_install_verifies_signed_package() {
         "pkg validate failed: {validate_stdout}\n{}",
         String::from_utf8_lossy(&validate.stderr)
     );
-    assert!(validate_stdout.contains("result: valid"), "{validate_stdout}");
-    assert!(validate_stdout.contains("attestation: OK"), "{validate_stdout}");
+    assert!(
+        validate_stdout.contains("result: valid"),
+        "{validate_stdout}"
+    );
+    assert!(
+        validate_stdout.contains("attestation: OK"),
+        "{validate_stdout}"
+    );
     assert!(validate_stdout.contains("proof: OK"), "{validate_stdout}");
-    assert!(validate_stdout.contains("ident pin: OK"), "{validate_stdout}");
+    assert!(
+        validate_stdout.contains("ident pin: OK"),
+        "{validate_stdout}"
+    );
 
     // Tamper with the installed package: the consumer build must refuse.
     let installed = app_dir.join("packages/verified_pkg.mfp");
@@ -642,7 +656,10 @@ fn repo_end_to_end_install_verifies_signed_package() {
     assert!(!build.status.success());
     let stdout = String::from_utf8_lossy(&build.stdout);
     let stderr = String::from_utf8_lossy(&build.stderr);
-    assert!(stdout.contains("uses verified_pkg - [Tampered]"), "{stdout}");
+    assert!(
+        stdout.contains("uses verified_pkg - [Tampered]"),
+        "{stdout}"
+    );
     assert!(
         stderr.contains("6-605-0006") || stderr.contains("PACKAGE_PAYLOAD_HASH_MISMATCH"),
         "{stderr}"
@@ -689,9 +706,11 @@ fn repo_ident_rotation_follows_pins_and_reanchor_hard_errors() {
             .output()
             .expect("run mfb in consumer")
     };
-    assert!(run_in_consumer(&["pkg", "add", &format!("file://{}", mfp_path.display())])
-        .status
-        .success());
+    assert!(
+        run_in_consumer(&["pkg", "add", &format!("file://{}", mfp_path.display())])
+            .status
+            .success()
+    );
     let verify = run_in_consumer(&["pkg", "verify"]);
     assert!(String::from_utf8_lossy(&verify.stdout).contains("[Verified]"));
 
@@ -724,7 +743,10 @@ fn repo_ident_rotation_follows_pins_and_reanchor_hard_errors() {
     let verify = run_in_consumer(&["pkg", "verify"]);
     let stdout = String::from_utf8_lossy(&verify.stdout);
     assert!(verify.status.success(), "{stdout}");
-    assert!(stdout.contains("notice: owner `alice` rotated their ident"), "{stdout}");
+    assert!(
+        stdout.contains("notice: owner `alice` rotated their ident"),
+        "{stdout}"
+    );
     assert!(stdout.contains("[Verified]"), "{stdout}");
     let manifest_after = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
     assert_ne!(manifest_before, manifest_after, "the pin must be rewritten");
@@ -790,7 +812,10 @@ fn repo_ident_rotation_follows_pins_and_reanchor_hard_errors() {
         "expected the re-anchor hard error, got: {stderr}"
     );
     let manifest_after = std::fs::read_to_string(app_dir.join("project.json")).unwrap();
-    assert_eq!(manifest_before, manifest_after, "the pin must NOT be updated");
+    assert_eq!(
+        manifest_before, manifest_after,
+        "the pin must NOT be updated"
+    );
 }
 
 #[test]
@@ -853,14 +878,14 @@ fn repo_publishes_signed_package_and_rejects_duplicate_version() {
         .unwrap()
         .parse()
         .unwrap();
-    assert!(pinned_size >= 3, "register+attestation+publish logged: {checkpoint}");
+    assert!(
+        pinned_size >= 3,
+        "register+attestation+publish logged: {checkpoint}"
+    );
 
     // Rollback rejection: poison the pinned checkpoint with a LARGER size —
     // the next checkpoint fetch must refuse the (apparently shrunken) log.
-    let poisoned = format!(
-        "999999 {}",
-        checkpoint.trim().split(' ').nth(1).unwrap()
-    );
+    let poisoned = format!("999999 {}", checkpoint.trim().split(' ').nth(1).unwrap());
     std::fs::write(repo_home.join("checkpoint"), &poisoned).unwrap();
     let package_dir2 = work.path().join("publish_pkg2");
     let package_dir2_arg = package_dir2.to_str().unwrap();
@@ -1148,14 +1173,18 @@ fn repo_resolver_selects_substitute_and_locks_deterministically() {
         "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#dep\",\n",
     );
     std::fs::write(&dep_manifest, &base).unwrap();
-    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", dep_arg])
-        .status
-        .success());
+    assert!(
+        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", dep_arg])
+            .status
+            .success()
+    );
     let bumped = base.replace("\"version\": \"0.1.0\"", "\"version\": \"0.1.1\"");
     std::fs::write(&dep_manifest, &bumped).unwrap();
-    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", dep_arg])
-        .status
-        .success());
+    assert!(
+        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", dep_arg])
+            .status
+            .success()
+    );
 
     // Consumer pins dep@0.1.0 via add, then relaxes to a floating dependency.
     let app_dir = work.path().join("consumer");
@@ -1217,7 +1246,10 @@ fn repo_resolver_selects_substitute_and_locks_deterministically() {
     std::fs::write(&manifest_path, pinned).unwrap();
     assert!(run_in(&["pkg", "update"]).status.success());
     let lock = std::fs::read_to_string(app_dir.join("mfb.lock")).unwrap();
-    assert!(lock.contains("\"selected\": \"0.1.0\""), "pinned select: {lock}");
+    assert!(
+        lock.contains("\"selected\": \"0.1.0\""),
+        "pinned select: {lock}"
+    );
 }
 
 #[test]
@@ -1298,9 +1330,11 @@ fn repo_signed_metadata_root_verifies_chain_and_gates_add() {
         "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#meta_pkg\",\n",
     );
     std::fs::write(&manifest, &base).unwrap();
-    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
-        .status
-        .success());
+    assert!(
+        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+            .status
+            .success()
+    );
 
     let app_dir = work.path().join("meta_consumer");
     assert!(run_mfb_plain(&["init", app_dir.to_str().unwrap()])
@@ -1347,9 +1381,11 @@ fn repo_ownership_transfer_is_two_sided_and_rebinds_the_package() {
         "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#xfer_pkg\",\n",
     );
     std::fs::write(&manifest, &base).unwrap();
-    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
-        .status
-        .success());
+    assert!(
+        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+            .status
+            .success()
+    );
 
     let offer = run_mfb(
         &repo,
@@ -1386,7 +1422,11 @@ fn repo_ownership_transfer_is_two_sided_and_rebinds_the_package() {
     );
     // The already-published version is untouched.
     assert_eq!(
-        opened.store.list_package_versions("alice#xfer_pkg").unwrap().len(),
+        opened
+            .store
+            .list_package_versions("alice#xfer_pkg")
+            .unwrap()
+            .len(),
         1
     );
 }
@@ -1414,9 +1454,11 @@ fn repo_release_state_yank_excludes_floating_but_allows_pin() {
         "  \"version\": \"0.1.0\",\n  \"ident\": \"alice#state_pkg\",\n",
     );
     std::fs::write(&manifest, &base).unwrap();
-    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
-        .status
-        .success());
+    assert!(
+        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", pkg_arg])
+            .status
+            .success()
+    );
 
     let run_pkg = |args: &[&str]| {
         Command::new(mfb_exe())
@@ -1440,7 +1482,11 @@ fn repo_release_state_yank_excludes_floating_but_allows_pin() {
         .env("MFB_HOME", home.path().join(".mfb"))
         .output()
         .expect("floating add");
-    assert!(add_ok.status.success(), "{}", String::from_utf8_lossy(&add_ok.stderr));
+    assert!(
+        add_ok.status.success(),
+        "{}",
+        String::from_utf8_lossy(&add_ok.stderr)
+    );
 
     // Yank it (ident-signed, logged).
     let yank = run_pkg(&["pkg", "release-state", "yanked"]);
@@ -1525,9 +1571,11 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
         "EXPORT FUNC shared() AS Integer\n  RETURN 1\nEND FUNC\n",
     )
     .unwrap();
-    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", common_arg])
-        .status
-        .success());
+    assert!(
+        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", common_arg])
+            .status
+            .success()
+    );
     // Save common@1.0.0's blob before bumping so `user` can build against it.
     let common_v1 = work.path().join("common-1.0.0.mfp");
     std::fs::copy(common_dir.join("common.mfp"), &common_v1).unwrap();
@@ -1539,9 +1587,11 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
         "EXPORT FUNC shared(n AS Integer) AS Integer\n  RETURN n\nEND FUNC\n",
     )
     .unwrap();
-    assert!(run_mfb(&repo, home.path(), &["pkg", "publish", "alice", common_arg])
-        .status
-        .success());
+    assert!(
+        run_mfb(&repo, home.path(), &["pkg", "publish", "alice", common_arg])
+            .status
+            .success()
+    );
 
     // user@1.0.0 imports common (compiled against common@1.0.0's `shared`).
     let user_dir = work.path().join("user");
@@ -1560,7 +1610,11 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
         .env("MFB_HOME", home.path().join(".mfb"))
         .output()
         .expect("add common to user");
-    assert!(add_common.status.success(), "{}", String::from_utf8_lossy(&add_common.stderr));
+    assert!(
+        add_common.status.success(),
+        "{}",
+        String::from_utf8_lossy(&add_common.stderr)
+    );
     std::fs::write(
         user_dir.join("src/lib.mfb"),
         "IMPORT common\nEXPORT FUNC callShared() AS Integer\n  RETURN common::shared()\nEND FUNC\n",
@@ -1589,7 +1643,9 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
             .expect("run mfb in consumer")
     };
     assert!(run_in(&["pkg", "add", "alice#user@1.0.0"]).status.success());
-    assert!(run_in(&["pkg", "add", "alice#common@2.0.0"]).status.success());
+    assert!(run_in(&["pkg", "add", "alice#common@2.0.0"])
+        .status
+        .success());
     let manifest_path = app_dir.join("project.json");
     let relaxed = std::fs::read_to_string(&manifest_path)
         .unwrap()
@@ -1597,11 +1653,20 @@ fn repo_resolver_reports_diamond_conflict_naming_both_requirers() {
     std::fs::write(&manifest_path, relaxed).unwrap();
 
     let update = run_in(&["pkg", "update"]);
-    assert!(!update.status.success(), "diamond conflict must fail resolution");
+    assert!(
+        !update.status.success(),
+        "diamond conflict must fail resolution"
+    );
     let stderr = String::from_utf8_lossy(&update.stderr);
     assert!(stderr.contains("diamond conflict"), "{stderr}");
-    assert!(stderr.contains("shared"), "must name the disagreeing symbol: {stderr}");
-    assert!(stderr.contains("user"), "must name the requirer package: {stderr}");
+    assert!(
+        stderr.contains("shared"),
+        "must name the disagreeing symbol: {stderr}"
+    );
+    assert!(
+        stderr.contains("user"),
+        "must name the requirer package: {stderr}"
+    );
 }
 
 #[test]

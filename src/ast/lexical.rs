@@ -108,7 +108,11 @@ impl<'a> FileParser<'a> {
         }
     }
 
-    pub(super) fn consume_simple_statement_end(&mut self, detail: &str, allow_else_terminator: bool) -> bool {
+    pub(super) fn consume_simple_statement_end(
+        &mut self,
+        detail: &str,
+        allow_else_terminator: bool,
+    ) -> bool {
         if self.is_statement_end() {
             self.skip_separators();
             return true;

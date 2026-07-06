@@ -397,8 +397,14 @@ mod tests {
             "strings.find",
             "strings.mid",
         ] {
-            assert!(inline_builtin_raw_supported(c), "expected raw-supported: {c}");
-            assert!(!inline_trap_unsupported(c), "raw-supported must not be unsupported: {c}");
+            assert!(
+                inline_builtin_raw_supported(c),
+                "expected raw-supported: {c}"
+            );
+            assert!(
+                !inline_trap_unsupported(c),
+                "raw-supported must not be unsupported: {c}"
+            );
         }
         // Callback members and infallible members are NOT raw-supported.
         for c in [
@@ -410,7 +416,10 @@ mod tests {
             "len",
             "bits.sl",
         ] {
-            assert!(!inline_builtin_raw_supported(c), "expected NOT raw-supported: {c}");
+            assert!(
+                !inline_builtin_raw_supported(c),
+                "expected NOT raw-supported: {c}"
+            );
         }
         // Callback members are still unsupported for inline TRAP.
         assert!(inline_trap_unsupported("collections.forEach"));

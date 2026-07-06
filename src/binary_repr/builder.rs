@@ -51,7 +51,9 @@ pub(super) fn resolve_resource_close_name(
     }
 }
 
-pub(super) fn package_exports(package: &PackageBinaryRepr) -> Result<Vec<BinaryReprExport>, String> {
+pub(super) fn package_exports(
+    package: &PackageBinaryRepr,
+) -> Result<Vec<BinaryReprExport>, String> {
     let type_names = type_entry_names(&package.project.types, &package.project.strings.values)?;
     package
         .exports
@@ -228,7 +230,9 @@ pub(super) fn package_info(package: &PackageBinaryRepr) -> Result<BinaryReprPack
     })
 }
 
-pub(super) fn package_type_exports(package: &PackageBinaryRepr) -> Result<Vec<BinaryReprTypeExport>, String> {
+pub(super) fn package_type_exports(
+    package: &PackageBinaryRepr,
+) -> Result<Vec<BinaryReprTypeExport>, String> {
     let type_names = type_entry_names(&package.project.types, &package.project.strings.values)?;
     let type_by_name = package
         .project

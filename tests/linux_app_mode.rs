@@ -76,7 +76,11 @@ fn linux_app_mode_plan_declares_gtk_libraries() {
             "nplan should declare {library} as a GTK app-mode dependency"
         );
     }
-    for symbol in ["gtk_application_new", "g_application_run", "g_signal_connect_data"] {
+    for symbol in [
+        "gtk_application_new",
+        "g_application_run",
+        "g_signal_connect_data",
+    ] {
         assert!(
             nplan.contains(symbol),
             "nplan should import the GTK bootstrap symbol {symbol}"
@@ -113,9 +117,7 @@ fn linux_app_mode_emits_single_glibc_executable() {
     assert_eq!(&bytes[0..4], b"\x7fELF", "output should be an ELF image");
     for library in [b"libgtk-4.so.1".as_slice(), b"libgio-2.0.so.0".as_slice()] {
         assert!(
-            bytes
-                .windows(library.len())
-                .any(|window| window == library),
+            bytes.windows(library.len()).any(|window| window == library),
             "linked ELF should record {} as DT_NEEDED",
             String::from_utf8_lossy(library)
         );
@@ -137,8 +139,12 @@ fn linux_console_mode_still_emits_both_flavors() {
         "console mode emits glibc + musl flavors, got: {written:?}"
     );
     assert!(
-        written.iter().any(|p| p.ends_with("linux_console-glibc.out"))
-            && written.iter().any(|p| p.ends_with("linux_console-musl.out")),
+        written
+            .iter()
+            .any(|p| p.ends_with("linux_console-glibc.out"))
+            && written
+                .iter()
+                .any(|p| p.ends_with("linux_console-musl.out")),
         "console mode should emit -glibc.out and -musl.out, got: {written:?}"
     );
 }

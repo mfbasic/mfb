@@ -76,7 +76,10 @@ impl CodeBuilder<'_> {
     /// type-sized `arena_free`).
     pub(super) fn drop_pending_temps_to(&mut self, watermark: usize) -> Result<(), String> {
         while self.pending_temp_frees.len() > watermark {
-            let temp = self.pending_temp_frees.pop().expect("watermark within bounds");
+            let temp = self
+                .pending_temp_frees
+                .pop()
+                .expect("watermark within bounds");
             self.emit_owned_value_drop(&OwnedValueCleanup {
                 type_: temp.type_,
                 stack_offset: temp.slot,

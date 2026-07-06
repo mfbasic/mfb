@@ -130,7 +130,10 @@ mod tests {
 
     #[test]
     fn summary_skips_headings() {
-        assert_eq!(summary_line("# Title\n\nA summary line.\n"), "A summary line.");
+        assert_eq!(
+            summary_line("# Title\n\nA summary line.\n"),
+            "A summary line."
+        );
         assert_eq!(summary_line("# Only a heading"), "");
     }
 }

@@ -929,15 +929,14 @@ fn lower_statement(
         Statement::Recover { value, .. } => {
             // Typecheck rejects RECOVER outside an inline-TRAP handler; total
             // lowering falls back to a discard target rather than panicking.
-            let target =
-                context
-                    .recover_targets
-                    .last()
-                    .cloned()
-                    .unwrap_or_else(|| RecoverTarget {
-                        slot: None,
-                        type_: "Unknown".to_string(),
-                    });
+            let target = context
+                .recover_targets
+                .last()
+                .cloned()
+                .unwrap_or_else(|| RecoverTarget {
+                    slot: None,
+                    type_: "Unknown".to_string(),
+                });
             match (target.slot, value) {
                 (Some(slot), Some(value)) => {
                     let lowered =
@@ -1112,10 +1111,10 @@ fn lower_statement(
             body,
             line,
         } => {
-            let start_type = expression_type(start, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
-            let end_type = expression_type(end, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
+            let start_type =
+                expression_type(start, locals, context).unwrap_or_else(|| "Unknown".to_string());
+            let end_type =
+                expression_type(end, locals, context).unwrap_or_else(|| "Unknown".to_string());
             let step_type = step
                 .as_ref()
                 .and_then(|value| expression_type(value, locals, context))
@@ -1192,10 +1191,10 @@ fn lower_statement(
             body,
             ..
         } => {
-            let iterable_type = expression_type(iterable, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
-            let element_type = collection_iteration_type(&iterable_type)
-                .unwrap_or_else(|| "Unknown".to_string());
+            let iterable_type =
+                expression_type(iterable, locals, context).unwrap_or_else(|| "Unknown".to_string());
+            let element_type =
+                collection_iteration_type(&iterable_type).unwrap_or_else(|| "Unknown".to_string());
             let mut nested = locals.clone();
             nested.insert(name.clone(), element_type.clone());
             vec![IrOp::ForEach {
@@ -1280,8 +1279,8 @@ fn lower_inline_trap(
     // `context.current_loc` per handler statement, so ops synthesized after it
     // must use this captured copy.
     let stmt_loc = context.current_loc;
-    let success_type = expression_type(inner, locals, context)
-        .unwrap_or_else(|| "Unknown".to_string());
+    let success_type =
+        expression_type(inner, locals, context).unwrap_or_else(|| "Unknown".to_string());
     let result_type = format!("Result OF {success_type}");
     let raw = lower_expression(inner, locals, context);
     let call_result = match raw {
@@ -3091,8 +3090,8 @@ fn lower_expression_with_expected(
             wrap_union_value(base, expression, expected, locals, context)
         }
         Expression::WithUpdate { target, updates } => {
-            let type_ = expression_type(target, locals, context)
-                .unwrap_or_else(|| "Unknown".to_string());
+            let type_ =
+                expression_type(target, locals, context).unwrap_or_else(|| "Unknown".to_string());
             IrValue::WithUpdate {
                 type_: type_,
                 target: Box::new(lower_expression(target, locals, context)),

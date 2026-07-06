@@ -102,11 +102,7 @@ pub(crate) fn function_page(package: &PackageDoc, name: &str) -> Option<&'static
         .map(|(_, page)| *page)
 }
 
-fn build_package(
-    name: &'static str,
-    usage: &'static str,
-    page: &'static str,
-) -> PackageDoc {
+fn build_package(name: &'static str, usage: &'static str, page: &'static str) -> PackageDoc {
     // A Markdown overview (rendered through the spec renderer) has no `NAME`
     // section; take its one-line summary the way the spec listings do. A
     // classic plain-text page still carries `NAME <pkg> - <summary>`.
@@ -202,7 +198,9 @@ fn markdown_summary(page: &'static str) -> &'static str {
 /// next heading so an empty section yields `None`.
 fn markdown_synopsis(page: &'static str) -> Option<&'static str> {
     let mut lines = page.lines();
-    lines.by_ref().find(|line| is_heading_named(line, "Synopsis"))?;
+    lines
+        .by_ref()
+        .find(|line| is_heading_named(line, "Synopsis"))?;
     for line in lines {
         let trimmed = line.trim();
         if trimmed.is_empty() || trimmed.starts_with("```") {
@@ -269,7 +267,9 @@ mod tests {
     #[test]
     fn unicode_package_summary_comes_from_markdown() {
         let unicode = package("unicode").expect("unicode man package present");
-        assert!(is_markdown_page(unicode.page.expect("unicode overview page")));
+        assert!(is_markdown_page(
+            unicode.page.expect("unicode overview page")
+        ));
         assert_eq!(
             unicode.summary,
             "Unicode behavior, indexes, normalization, and licensing",
@@ -307,6 +307,9 @@ mod tests {
     #[test]
     fn markdown_synopsis_stops_at_an_empty_section() {
         // A `## Synopsis` immediately followed by the next heading has no line.
-        assert_eq!(markdown_synopsis("# x\n\n## Synopsis\n\n## Description\n"), None);
+        assert_eq!(
+            markdown_synopsis("# x\n\n## Synopsis\n\n## Description\n"),
+            None
+        );
     }
 }

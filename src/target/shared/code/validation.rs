@@ -308,7 +308,10 @@ impl TypeModel {
         })
     }
 
-    pub(super) fn from_module_and_packages(module: &NirModule, packages: &[PathBuf]) -> Result<Self, String> {
+    pub(super) fn from_module_and_packages(
+        module: &NirModule,
+        packages: &[PathBuf],
+    ) -> Result<Self, String> {
         let mut model = Self::from_module(module)?;
         for package in packages {
             // A native `LINK` resource is exported as a zero-field opaque type for
@@ -383,7 +386,10 @@ impl TypeModel {
     /// different binaries run-to-run — bug-01). Pinning the order here makes
     /// every consumer deterministic without per-call-site changes; tags and
     /// layout are untouched (only emitted instruction order was ever affected).
-    pub(super) fn variants_for_union<'a>(&'a self, union: &'a str) -> impl Iterator<Item = &'a String> + 'a {
+    pub(super) fn variants_for_union<'a>(
+        &'a self,
+        union: &'a str,
+    ) -> impl Iterator<Item = &'a String> + 'a {
         let mut variants: Vec<&'a String> = self
             .union_variant_unions
             .iter()

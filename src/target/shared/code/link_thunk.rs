@@ -668,8 +668,7 @@ fn lower_link_thunk(
 
     instructions.extend([abi::label(&done), abi::return_()]);
 
-    let (frame_obj, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], frame);
+    let (frame_obj, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], frame);
     Ok(CodeFunction {
         name: format!("linker.{}.{}", function.alias, function.name),
         symbol,

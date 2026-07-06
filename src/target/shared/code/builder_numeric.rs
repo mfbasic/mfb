@@ -115,9 +115,7 @@ impl CodeBuilder<'_> {
             let result_is_float = self
                 .static_type_name(right)
                 .as_deref()
-                .map(|right_type| {
-                    numeric_binary_result_type(op, "Float", right_type) == "Float"
-                })
+                .map(|right_type| numeric_binary_result_type(op, "Float", right_type) == "Float")
                 .unwrap_or(false);
             if result_is_float {
                 return self.lower_float_arithmetic_dnative(op, left, right);
@@ -133,11 +131,7 @@ impl CodeBuilder<'_> {
         // integer-style slot spill (plan-01 float-dnative §4.1). For every
         // GP-native value this is the identity, so the bump oracle is unchanged.
         let left_spill = self.float_value_as_gpr(&left)?;
-        self.emit(abi::store_u64(
-            &left_spill,
-            abi::stack_pointer(),
-            left_slot,
-        ));
+        self.emit(abi::store_u64(&left_spill, abi::stack_pointer(), left_slot));
         let right = self.lower_value(right)?;
         let right_resident = self.float_residents.get(&right.location).cloned();
         let right_slot = self.allocate_stack_object("arith_right", 8);
@@ -272,7 +266,11 @@ impl CodeBuilder<'_> {
         Ok(ValueResult {
             type_: result_type,
             location,
-            text: format!("({op_left} {op} {op_right})", op_left = left_text, op_right = right_text),
+            text: format!(
+                "({op_left} {op} {op_right})",
+                op_left = left_text,
+                op_right = right_text
+            ),
         })
     }
 
@@ -1551,11 +1549,23 @@ impl CodeBuilder<'_> {
         let expmask = self.allocate_register()?;
         let mantmask = self.allocate_register()?;
         let implicit = self.allocate_register()?;
-        self.emit(abi::move_immediate(&signmask, "Integer", "9223372036854775808")); // 1<<63
+        self.emit(abi::move_immediate(
+            &signmask,
+            "Integer",
+            "9223372036854775808",
+        )); // 1<<63
         self.emit(abi::move_immediate(&expmask, "Integer", "2047")); // 0x7ff
-        self.emit(abi::move_immediate(&mantmask, "Integer", "4503599627370495")); // (1<<52)-1
-        self.emit(abi::move_immediate(&implicit, "Integer", "4503599627370496")); // 1<<52
-        // sign = ux & SIGN; ex = (ux>>52)&0x7ff; ey = (uy>>52)&0x7ff; uxi = ux.
+        self.emit(abi::move_immediate(
+            &mantmask,
+            "Integer",
+            "4503599627370495",
+        )); // (1<<52)-1
+        self.emit(abi::move_immediate(
+            &implicit,
+            "Integer",
+            "4503599627370496",
+        )); // 1<<52
+            // sign = ux & SIGN; ex = (ux>>52)&0x7ff; ey = (uy>>52)&0x7ff; uxi = ux.
         let sign = self.allocate_register()?;
         let ex = self.allocate_register()?;
         let ey = self.allocate_register()?;

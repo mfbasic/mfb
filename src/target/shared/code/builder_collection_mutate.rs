@@ -312,11 +312,8 @@ impl CodeBuilder<'_> {
             // Both intermediates were fully copied into the result: the
             // materialized singleton and the removeAt product.
             if materialized {
-                result = self.free_intermediate_collection(
-                    singleton_slot,
-                    &collection.type_,
-                    result,
-                )?;
+                result =
+                    self.free_intermediate_collection(singleton_slot, &collection.type_, result)?;
             }
             return self.free_intermediate_collection(removed_slot, &collection.type_, result);
         }
@@ -460,7 +457,14 @@ impl CodeBuilder<'_> {
         let scratch17 = self.temporary_vreg();
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
-        for register in [scratch20.as_str(), scratch21.as_str(), scratch22.as_str(), scratch23.as_str(), scratch24.as_str(), scratch25.as_str()] {
+        for register in [
+            scratch20.as_str(),
+            scratch21.as_str(),
+            scratch22.as_str(),
+            scratch23.as_str(),
+            scratch24.as_str(),
+            scratch25.as_str(),
+        ] {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("list_insert_result", 8);
@@ -474,17 +478,33 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::compare_immediate(&scratch10, "0"));
         self.emit(abi::branch_ge(&valid_start));
         self.emit(abi::branch(&invalid));
         self.emit(abi::label(&valid_start));
         self.emit(abi::compare_registers(&scratch10, &scratch11));
         self.emit(abi::branch_gt(&invalid));
-        self.emit(abi::load_u64(&scratch12, &scratch9, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch12,
+            &scratch9,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::add_registers(&scratch13, &scratch11, &scratch12));
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::load_u64(&scratch15, &scratch9, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            &scratch15,
+            &scratch9,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::add_registers(&scratch15, &scratch14, &scratch15));
         self.emit(abi::move_immediate(
             &scratch16,
@@ -524,11 +544,27 @@ impl CodeBuilder<'_> {
         // slots, which survive `arena_alloc`; the pre-alloc registers do not).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch12, &scratch9, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::load_u64(
+            &scratch12,
+            &scratch9,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::add_registers(&scratch13, &scratch11, &scratch12));
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::load_u64(&scratch15, &scratch9, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            &scratch15,
+            &scratch9,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::add_registers(&scratch15, &scratch14, &scratch15));
         self.emit_write_list_header_from_registers(&layout, "x1", &scratch13, &scratch15);
 
@@ -536,12 +572,32 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer(&scratch17, "x1"); // dst data base
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8); // A data base
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch14, &scratch22, "list_insert_dataA");
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch14,
+            &scratch22,
+            "list_insert_dataA",
+        );
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch9); // B data base
-        self.emit(abi::load_u64(&scratch15, &scratch9, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch15, &scratch22, "list_insert_dataB");
+        self.emit(abi::load_u64(
+            &scratch15,
+            &scratch9,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch15,
+            &scratch22,
+            "list_insert_dataB",
+        );
 
         // --- Lookup table splice. ---
         self.emit(abi::move_immediate(
@@ -553,17 +609,39 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE)); // dst table cursor
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit(abi::add_immediate(&scratch20, &scratch8, COLLECTION_HEADER_SIZE)); // A table cursor
+        self.emit(abi::add_immediate(
+            &scratch20,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        )); // A table cursor
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
         self.emit(abi::multiply_registers(&scratch21, &scratch10, &scratch16)); // i * ENTRY
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "list_insert_head");
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch21,
+            &scratch22,
+            "list_insert_head",
+        );
 
         // Inserted: dst.table[i..i+count_B) <- B entries, valueOffset += dataLen_A.
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), insert_slot));
-        self.emit(abi::add_immediate(&scratch12, &scratch9, COLLECTION_HEADER_SIZE)); // B table cursor
-        self.emit(abi::load_u64(&scratch11, &scratch9, COLLECTION_OFFSET_COUNT)); // remaining B entries
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch9,
+            COLLECTION_HEADER_SIZE,
+        )); // B table cursor
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch9,
+            COLLECTION_OFFSET_COUNT,
+        )); // remaining B entries
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH)); // dataLen_A shift
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        )); // dataLen_A shift
         let insert_loop = self.label("list_insert_b_loop");
         let insert_done = self.label("list_insert_b_done");
         self.emit(abi::label(&insert_loop));
@@ -574,7 +652,11 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch22, &scratch17, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::store_u8(
+            &scratch22,
+            &scratch17,
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
         self.emit(abi::store_u64(
             &scratch22,
@@ -607,8 +689,16 @@ impl CodeBuilder<'_> {
             &scratch17,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_immediate(&scratch17, &scratch17, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(&scratch12, &scratch12, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch17,
+            &scratch17,
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch12,
+            COLLECTION_ENTRY_SIZE,
+        ));
         self.emit(abi::subtract_immediate(&scratch11, &scratch11, 1));
         self.emit(abi::branch(&insert_loop));
         self.emit(abi::label(&insert_done));
@@ -621,11 +711,21 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
-        self.emit(abi::load_u64(&scratch13, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch13,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
         self.emit(abi::subtract_registers(&scratch13, &scratch13, &scratch10)); // count_A - i
         self.emit(abi::multiply_registers(&scratch21, &scratch13, &scratch16));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "list_insert_tail");
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch21,
+            &scratch22,
+            "list_insert_tail",
+        );
         self.emit(abi::branch(&done));
         self.emit(abi::label(&invalid));
         self.emit_index_out_of_range_return()?;
@@ -675,7 +775,14 @@ impl CodeBuilder<'_> {
         let scratch17 = self.temporary_vreg();
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
-        for register in [scratch20.as_str(), scratch21.as_str(), scratch22.as_str(), scratch23.as_str(), scratch24.as_str(), scratch25.as_str()] {
+        for register in [
+            scratch20.as_str(),
+            scratch21.as_str(),
+            scratch22.as_str(),
+            scratch23.as_str(),
+            scratch24.as_str(),
+            scratch25.as_str(),
+        ] {
             self.mark_register_used(register);
         }
         let item = PayloadSlot {
@@ -697,13 +804,25 @@ impl CodeBuilder<'_> {
         // Room check: count < capacity AND dataLength + need <= dataCapacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::compare_registers(&scratch9, &scratch10));
         self.emit(abi::branch_ge(&realloc));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch12));
-        self.emit(abi::load_u64(&scratch13, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch13,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
         self.emit(abi::compare_registers(&scratch11, &scratch13));
         self.emit(abi::branch_hi(&realloc));
         self.emit(abi::branch(&write));
@@ -712,7 +831,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&realloc));
         // newCapacity = step(capacity).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit_geometric_step(
             &scratch10,
             &scratch14,
@@ -721,10 +844,18 @@ impl CodeBuilder<'_> {
             COLLECTION_GROW_LOOKUP_TAPER,
             "append_grow_cap",
         );
-        self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
         // newDataCapacity = max(step(dataCapacity), dataLength + need).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
         self.emit_geometric_step(
             &scratch10,
             &scratch14,
@@ -734,7 +865,11 @@ impl CodeBuilder<'_> {
             "append_grow_dcap",
         );
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch12)); // required
         self.emit(abi::compare_registers(&scratch14, &scratch11));
@@ -742,10 +877,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&dcap_keep));
         self.emit(abi::move_register(&scratch14, &scratch11)); // step < required → use required
         self.emit(abi::label(&dcap_keep));
-        self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
 
         // alloc size = HEADER + newCapacity * ENTRY + newDataCapacity.
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
@@ -757,7 +900,11 @@ impl CodeBuilder<'_> {
             &scratch17,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         self.emit(abi::add_registers(
             abi::return_register(),
             abi::return_register(),
@@ -784,25 +931,53 @@ impl CodeBuilder<'_> {
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_write_collection_header_full(&layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15);
+        self.emit_write_collection_header_full(
+            &layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15,
+        );
 
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit_collection_data_pointer(&scratch17, "x1");
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch14, &scratch22, "append_grow_data");
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch14,
+            &scratch22,
+            "append_grow_data",
+        );
 
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::add_immediate(&scratch20, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch20,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
             &scratch16,
@@ -810,7 +985,13 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "append_grow_entries");
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch21,
+            &scratch22,
+            "append_grow_entries",
+        );
 
         // Free the old buffer, then install the grown one. The in-place append
         // fires only under unique ownership, so the old buffer has no other
@@ -820,15 +1001,27 @@ impl CodeBuilder<'_> {
         // Sized capacity-based (HEADER + capacity*ENTRY + dataCapacity), matching
         // what the allocation reserved.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch10, &scratch9, &scratch16));
-        self.emit(abi::add_immediate(&scratch10, &scratch10, COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::add_immediate(
+            &scratch10,
+            &scratch10,
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
         self.emit(abi::add_registers("x1", &scratch10, &scratch11));
         self.emit(abi::move_register(abi::return_register(), &scratch8));
         self.emit(abi::branch_link(ARENA_FREE_SYMBOL));
@@ -848,8 +1041,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&write));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
@@ -862,7 +1063,11 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, &scratch12, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::store_u8(
+            &scratch13,
+            &scratch12,
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
         self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
         self.emit(abi::store_u64(
             &scratch13,
@@ -896,11 +1101,23 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::add_immediate(&scratch9, &scratch9, 1));
-        self.emit(abi::store_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch9, &scratch9, &scratch13));
-        self.emit(abi::store_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
 
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
@@ -945,7 +1162,14 @@ impl CodeBuilder<'_> {
         let scratch17 = self.temporary_vreg();
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
-        for register in [scratch20.as_str(), scratch21.as_str(), scratch22.as_str(), scratch23.as_str(), scratch24.as_str(), scratch25.as_str()] {
+        for register in [
+            scratch20.as_str(),
+            scratch21.as_str(),
+            scratch22.as_str(),
+            scratch23.as_str(),
+            scratch24.as_str(),
+            scratch25.as_str(),
+        ] {
             self.mark_register_used(register);
         }
         let item = PayloadSlot {
@@ -968,13 +1192,25 @@ impl CodeBuilder<'_> {
         // Room check: count < capacity AND dataLength + need <= dataCapacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::compare_registers(&scratch9, &scratch10));
         self.emit(abi::branch_ge(&realloc));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch12));
-        self.emit(abi::load_u64(&scratch13, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch13,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
         self.emit(abi::compare_registers(&scratch11, &scratch13));
         self.emit(abi::branch_hi(&realloc));
         self.emit(abi::branch(&write));
@@ -982,7 +1218,11 @@ impl CodeBuilder<'_> {
         // --- Grow: geometric headroom; copy entries + data verbatim. ---
         self.emit(abi::label(&realloc));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit_geometric_step(
             &scratch10,
             &scratch14,
@@ -991,9 +1231,17 @@ impl CodeBuilder<'_> {
             COLLECTION_GROW_LOOKUP_TAPER,
             "prepend_grow_cap",
         );
-        self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
         self.emit_geometric_step(
             &scratch10,
             &scratch14,
@@ -1003,7 +1251,11 @@ impl CodeBuilder<'_> {
             "prepend_grow_dcap",
         );
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch12));
         self.emit(abi::compare_registers(&scratch14, &scratch11));
@@ -1011,9 +1263,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_eq(&dcap_keep));
         self.emit(abi::move_register(&scratch14, &scratch11));
         self.emit(abi::label(&dcap_keep));
-        self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         // alloc = HEADER + newCapacity * ENTRY + newDataCapacity.
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
@@ -1025,7 +1285,11 @@ impl CodeBuilder<'_> {
             &scratch17,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         self.emit(abi::add_registers(
             abi::return_register(),
             abi::return_register(),
@@ -1051,23 +1315,51 @@ impl CodeBuilder<'_> {
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_write_collection_header_full(&layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15);
+        self.emit_write_collection_header_full(
+            &layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15,
+        );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit_collection_data_pointer(&scratch17, "x1");
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch14, &scratch22, "prepend_grow_data");
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch14,
+            &scratch22,
+            "prepend_grow_data",
+        );
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::add_immediate(&scratch20, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch20,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
             &scratch16,
@@ -1075,7 +1367,13 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "prepend_grow_entries");
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch21,
+            &scratch22,
+            "prepend_grow_entries",
+        );
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), buffer_slot));
         self.emit(abi::branch(&write));
@@ -1096,9 +1394,17 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch11, &scratch10, &scratch16));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch11, &scratch12, &scratch11)); // src = entry[i]
-        self.emit(abi::add_immediate(&scratch12, &scratch11, COLLECTION_ENTRY_SIZE)); // dst = entry[i+1]
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch11,
+            COLLECTION_ENTRY_SIZE,
+        )); // dst = entry[i+1]
         for offset in [0usize, 8, 16, 24, 32] {
             self.emit(abi::load_u64(&scratch13, &scratch11, offset));
             self.emit(abi::store_u64(&scratch13, &scratch12, offset));
@@ -1108,14 +1414,26 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&shift_done));
         // New entry at slot[0]: payload at dataLength, valueOffset = dataLength.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE)); // entry[0]
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        )); // entry[0]
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, &scratch12, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::store_u8(
+            &scratch13,
+            &scratch12,
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
         self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
         self.emit(abi::store_u64(
             &scratch13,
@@ -1149,11 +1467,23 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::add_immediate(&scratch9, &scratch9, 1));
-        self.emit(abi::store_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), need_slot));
         self.emit(abi::add_registers(&scratch9, &scratch9, &scratch13));
-        self.emit(abi::store_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
 
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), buffer_slot));
@@ -1203,7 +1533,14 @@ impl CodeBuilder<'_> {
                 "native code collection type '{list_type}' is not supported"
             ));
         }
-        for register in [scratch20.as_str(), scratch21.as_str(), scratch22.as_str(), scratch23.as_str(), scratch24.as_str(), scratch25.as_str()] {
+        for register in [
+            scratch20.as_str(),
+            scratch21.as_str(),
+            scratch22.as_str(),
+            scratch23.as_str(),
+            scratch24.as_str(),
+            scratch25.as_str(),
+        ] {
             self.mark_register_used(register);
         }
         let item = PayloadSlot {
@@ -1222,7 +1559,11 @@ impl CodeBuilder<'_> {
         // Bounds check: 0 <= index < count.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), buffer_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::compare_immediate(&scratch10, "0"));
         self.emit(abi::branch_ge(&valid));
         self.emit(abi::branch(&invalid));
@@ -1237,21 +1578,29 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch17, &scratch10, &scratch16));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch17));
         self.emit(abi::load_u64(
             &scratch13,
             &scratch12,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::store_u64(&scratch13, abi::stack_pointer(), voffset_slot));
+        self.emit(abi::store_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            voffset_slot,
+        ));
         self.emit(abi::load_u64(
             &scratch9,
             &scratch12,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         )); // oldLen
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), need_slot)); // need
-                                                                          // need > oldLen (unsigned) → rebuild; else overwrite in place.
+                                                                               // need > oldLen (unsigned) → rebuild; else overwrite in place.
         self.emit(abi::compare_registers(&scratch14, &scratch9));
         self.emit(abi::branch_hi(&rebuild));
 
@@ -1265,7 +1614,11 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch17, &scratch10, &scratch16));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch17));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), need_slot));
         self.emit(abi::store_u64(
@@ -1368,7 +1721,14 @@ impl CodeBuilder<'_> {
         let scratch17 = self.temporary_vreg();
         let layout = CollectionTypeLayout::from_type(map_type)
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
-        for register in [scratch20.as_str(), scratch21.as_str(), scratch22.as_str(), scratch23.as_str(), scratch24.as_str(), scratch25.as_str()] {
+        for register in [
+            scratch20.as_str(),
+            scratch21.as_str(),
+            scratch22.as_str(),
+            scratch23.as_str(),
+            scratch24.as_str(),
+            scratch25.as_str(),
+        ] {
             self.mark_register_used(register);
         }
         let key_align = self.collection_payload_alignment(key_type);
@@ -1414,24 +1774,37 @@ impl CodeBuilder<'_> {
         // bucket index, so a build-via-`set` loop stays O(n). ---
         let found_handle = self.label("mapset_found_handle");
         if Self::map_key_probe_eligible(key_type) {
-            let entry_slot =
-                self.emit_map_probe(map_slot, key_slot, key_type, &not_found)?;
+            let entry_slot = self.emit_map_probe(map_slot, key_slot, key_type, &not_found)?;
             // emit_map_probe already stored the entry address; record the index too
             // (x0 held it before the entry-address math, so recompute it from the
             // entry address: index = (entry - map - HEADER) / ENTRY).
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), entry_slot));
             self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), map_slot));
             self.emit(abi::subtract_registers(&scratch9, &scratch9, &scratch10));
-            self.emit(abi::subtract_immediate(&scratch9, &scratch9, COLLECTION_HEADER_SIZE));
+            self.emit(abi::subtract_immediate(
+                &scratch9,
+                &scratch9,
+                COLLECTION_HEADER_SIZE,
+            ));
             self.emit(abi::move_immediate(
                 &scratch16,
                 "Integer",
                 &COLLECTION_ENTRY_SIZE.to_string(),
             ));
-            self.emit(abi::unsigned_divide_registers(&scratch9, &scratch9, &scratch16));
-            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), found_index_slot));
+            self.emit(abi::unsigned_divide_registers(
+                &scratch9, &scratch9, &scratch16,
+            ));
+            self.emit(abi::store_u64(
+                &scratch9,
+                abi::stack_pointer(),
+                found_index_slot,
+            ));
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), entry_slot));
-            self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), found_entry_slot));
+            self.emit(abi::store_u64(
+                &scratch9,
+                abi::stack_pointer(),
+                found_entry_slot,
+            ));
             self.emit(abi::branch(&found_handle));
         } else {
             self.reset_temporary_registers();
@@ -1446,7 +1819,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&key, abi::stack_pointer(), key_slot));
             self.emit(abi::load_u64(&count, &collection, COLLECTION_OFFSET_COUNT));
             self.emit(abi::move_immediate(&index, "Integer", "0"));
-            self.emit(abi::add_immediate(&entry, &collection, COLLECTION_HEADER_SIZE));
+            self.emit(abi::add_immediate(
+                &entry,
+                &collection,
+                COLLECTION_HEADER_SIZE,
+            ));
             self.emit(abi::label(&loop_label));
             self.emit(abi::compare_registers(&index, &count));
             self.emit(abi::branch_ge(&not_found));
@@ -1474,24 +1851,44 @@ impl CodeBuilder<'_> {
             self.emit(abi::add_immediate(&index, &index, 1));
             self.emit(abi::branch(&loop_label));
             self.emit(abi::label(&found));
-            self.emit(abi::store_u64(&entry, abi::stack_pointer(), found_entry_slot));
-            self.emit(abi::store_u64(&index, abi::stack_pointer(), found_index_slot));
+            self.emit(abi::store_u64(
+                &entry,
+                abi::stack_pointer(),
+                found_entry_slot,
+            ));
+            self.emit(abi::store_u64(
+                &index,
+                abi::stack_pointer(),
+                found_index_slot,
+            ));
             self.emit(abi::branch(&found_handle));
         }
 
         // --- Found handling (shared): overwrite the value when it fits, else
         // append-and-repoint. Slot-based so it serves both the probe and scan. ---
         self.emit(abi::label(&found_handle));
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), found_entry_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            found_entry_slot,
+        ));
         self.emit(abi::load_u64(
             &scratch9,
             &scratch8,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         )); // oldValLen
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), val_len_slot)); // newValLen
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            val_len_slot,
+        )); // newValLen
         self.emit(abi::compare_registers(&scratch14, &scratch9));
         self.emit(abi::branch_hi(&value_grow)); // newLen > oldLen → append + repoint
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), found_entry_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            found_entry_slot,
+        ));
         self.emit(abi::load_u64(
             &scratch13,
             &scratch8,
@@ -1499,8 +1896,16 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u64(&scratch13, abi::stack_pointer(), voff_slot));
         self.emit_copy_payload_to_collection(map_slot, val_len_slot, &value_payload, voff_slot)?;
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), found_entry_slot));
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), val_len_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            found_entry_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            val_len_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch14,
             &scratch8,
@@ -1518,17 +1923,41 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&value_grow));
         // newValOffset = align(dataLength, value_align); newDataLength += valLen.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit_align_offset_slot(new_data_len_slot, value_align);
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), val_len_slot));
         self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         // Room: newDataLength <= dataCapacity?
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit(abi::compare_registers(&scratch12, &scratch11));
         self.emit(abi::branch_hi(&vgrow));
         self.emit(abi::branch(&vwrite));
@@ -1537,7 +1966,11 @@ impl CodeBuilder<'_> {
         // verbatim against the capacity-based base, then repoint.
         self.emit(abi::label(&vgrow));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
         self.emit_geometric_step(
             &scratch10,
             &scratch14,
@@ -1546,16 +1979,28 @@ impl CodeBuilder<'_> {
             COLLECTION_GROW_DATA_TAPER,
             "mapset_vgrow_dcap",
         );
-        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit(abi::compare_registers(&scratch14, &scratch11));
         self.emit(abi::branch_hi(&vdcap_keep));
         self.emit(abi::branch_eq(&vdcap_keep));
         self.emit(abi::move_register(&scratch14, &scratch11));
         self.emit(abi::label(&vdcap_keep));
-        self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         // alloc = HEADER + capacity * ENTRY + newDataCapacity (capacity unchanged).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
@@ -1567,7 +2012,11 @@ impl CodeBuilder<'_> {
             &scratch17,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         self.emit(abi::add_registers(
             abi::return_register(),
             abi::return_register(),
@@ -1595,23 +2044,51 @@ impl CodeBuilder<'_> {
         // Header: old count / old dataLength, same capacity, new data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_CAPACITY));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_write_collection_header_full(&layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15);
+        self.emit_write_collection_header_full(
+            &layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15,
+        );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit_collection_data_pointer(&scratch17, "x1");
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch14, &scratch22, "mapset_vgrow_data");
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch14,
+            &scratch22,
+            "mapset_vgrow_data",
+        );
         // Copy the lookup entries verbatim (count * ENTRY bytes).
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::add_immediate(&scratch20, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch20,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
             &scratch16,
@@ -1619,7 +2096,13 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "mapset_vgrow_entries");
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch21,
+            &scratch22,
+            "mapset_vgrow_entries",
+        );
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), map_slot));
         self.emit(abi::branch(&vwrite));
@@ -1627,29 +2110,57 @@ impl CodeBuilder<'_> {
         // Write the new value at the aligned data tail; repoint the found entry.
         self.emit(abi::label(&vwrite));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
         self.emit_align_offset_slot(data_offset_slot, value_align);
         // entryAddr = map + HEADER + foundIndex * ENTRY (the buffer may have moved).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), found_index_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            found_index_slot,
+        ));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch13, &scratch9, &scratch16));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch13));
-        self.emit(abi::store_u64(&scratch12, abi::stack_pointer(), entry_addr_slot));
+        self.emit(abi::store_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            entry_addr_slot,
+        ));
         // valueOffset = aligned data offset, valueLength = newValLen.
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch13,
             &scratch12,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), val_len_slot));
+        self.emit(abi::load_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            val_len_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch13,
             &scratch12,
@@ -1663,33 +2174,77 @@ impl CodeBuilder<'_> {
         )?;
         // dataLength = final data offset (includes the alignment pad + new value).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), data_offset_slot));
-        self.emit(abi::store_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
+        self.emit(abi::store_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::branch(&done));
 
         // --- Not found: compute the would-be new dataLength after the insert. ---
         self.emit(abi::label(&not_found));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit_align_offset_slot(new_data_len_slot, key_align);
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_len_slot));
         self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit_align_offset_slot(new_data_len_slot, value_align);
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), val_len_slot));
         self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         // Room check: count < capacity AND newDataLength <= dataCapacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::compare_registers(&scratch9, &scratch10));
         self.emit(abi::branch_ge(&grow));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit(abi::compare_registers(&scratch12, &scratch11));
         self.emit(abi::branch_hi(&grow));
         self.emit(abi::branch(&write));
@@ -1697,7 +2252,11 @@ impl CodeBuilder<'_> {
         // --- Grow: geometric capacity + data, copy entries/data verbatim. ---
         self.emit(abi::label(&grow));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit_geometric_step(
             &scratch10,
             &scratch14,
@@ -1706,9 +2265,17 @@ impl CodeBuilder<'_> {
             COLLECTION_GROW_LOOKUP_TAPER,
             "mapset_grow_cap",
         );
-        self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
         self.emit_geometric_step(
             &scratch10,
             &scratch14,
@@ -1718,15 +2285,27 @@ impl CodeBuilder<'_> {
             "mapset_grow_dcap",
         );
         // newDataCapacity = max(step(dataCapacity), newDataLength).
-        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), new_data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            new_data_len_slot,
+        ));
         self.emit(abi::compare_registers(&scratch14, &scratch11));
         self.emit(abi::branch_hi(&dcap_keep));
         self.emit(abi::branch_eq(&dcap_keep));
         self.emit(abi::move_register(&scratch14, &scratch11));
         self.emit(abi::label(&dcap_keep));
-        self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::store_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         // alloc = HEADER + newCapacity * ENTRY + newDataCapacity.
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
         self.emit(abi::move_immediate(
             &scratch16,
             "Integer",
@@ -1738,7 +2317,11 @@ impl CodeBuilder<'_> {
             &scratch17,
             COLLECTION_HEADER_SIZE,
         ));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         self.emit(abi::add_registers(
             abi::return_register(),
             abi::return_register(),
@@ -1766,23 +2349,51 @@ impl CodeBuilder<'_> {
         // Header: old count / old dataLength, new capacity / data capacity.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), new_cap_slot));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), new_dcap_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            new_cap_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            new_dcap_slot,
+        ));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
-        self.emit_write_collection_header_full(&layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15);
+        self.emit_write_collection_header_full(
+            &layout, "x1", &scratch9, &scratch14, &scratch11, &scratch15,
+        );
         // Copy the data region verbatim (dataLength bytes), capacity-based base.
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit_collection_data_pointer(&scratch17, "x1");
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch14, &scratch22, "mapset_grow_data");
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch14,
+            &scratch22,
+            "mapset_grow_data",
+        );
         // Copy the live lookup entries verbatim (count * ENTRY bytes).
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::add_immediate(&scratch20, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch20,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
             &scratch16,
@@ -1790,7 +2401,13 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "mapset_grow_entries");
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch21,
+            &scratch22,
+            "mapset_grow_entries",
+        );
         self.emit(abi::load_u64("x1", abi::stack_pointer(), new_buf_slot));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), map_slot));
         self.emit(abi::branch(&write));
@@ -1798,8 +2415,16 @@ impl CodeBuilder<'_> {
         // --- Write the new entry into slot[count], key+value aligned in data. ---
         self.emit(abi::label(&write));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
         // entryAddr = map + HEADER + count * ENTRY.
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
@@ -1808,41 +2433,82 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch13, &scratch9, &scratch16));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch13));
-        self.emit(abi::store_u64(&scratch12, abi::stack_pointer(), entry_addr_slot));
+        self.emit(abi::store_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            entry_addr_slot,
+        ));
         self.emit(abi::move_immediate(
             &scratch13,
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch13, &scratch12, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::store_u8(
+            &scratch13,
+            &scratch12,
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
         // Key: align, record keyOffset/keyLength, copy bytes.
         self.emit_align_offset_slot(data_offset_slot, key_align);
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), entry_addr_slot));
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            entry_addr_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch13,
             &scratch12,
             COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
         ));
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), key_len_slot));
+        self.emit(abi::load_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            key_len_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch13,
             &scratch12,
             COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
         ));
-        self.emit_copy_payload_to_collection(map_slot, key_len_slot, &key_payload, data_offset_slot)?;
+        self.emit_copy_payload_to_collection(
+            map_slot,
+            key_len_slot,
+            &key_payload,
+            data_offset_slot,
+        )?;
         // Value: align, record valueOffset/valueLength, copy bytes.
         self.emit_align_offset_slot(data_offset_slot, value_align);
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), entry_addr_slot));
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            entry_addr_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch13,
             &scratch12,
             COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), val_len_slot));
+        self.emit(abi::load_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            val_len_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch13,
             &scratch12,
@@ -1858,16 +2524,32 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::add_immediate(&scratch9, &scratch9, 1));
-        self.emit(abi::store_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), data_offset_slot));
-        self.emit(abi::store_u64(&scratch9, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::store_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
+        self.emit(abi::store_u64(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         // Keep the hash index current: if the buckets are already built (a prior
         // probe), insert the new entry incrementally so a build-via-`set` loop stays
         // O(n). The grow path reset the ready flag (the bucket region moved), so it
         // falls through here and is rebuilt lazily on the next probe. The 2*capacity
         // load factor guarantees a free slot for a spare-slot insert.
         let skip_put = self.label("mapset_skip_put");
-        self.emit(abi::load_u8(&scratch9, &scratch8, COLLECTION_OFFSET_BUCKETS_READY));
+        self.emit(abi::load_u8(
+            &scratch9,
+            &scratch8,
+            COLLECTION_OFFSET_BUCKETS_READY,
+        ));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&skip_put));
         self.emit(abi::load_u64("x0", abi::stack_pointer(), map_slot));
@@ -1917,7 +2599,14 @@ impl CodeBuilder<'_> {
         let scratch13 = self.temporary_vreg();
         let layout = CollectionTypeLayout::from_type(list_type)
             .ok_or_else(|| format!("native code collection type '{list_type}' is not supported"))?;
-        for register in [scratch20.as_str(), scratch21.as_str(), scratch22.as_str(), scratch23.as_str(), scratch24.as_str(), scratch25.as_str()] {
+        for register in [
+            scratch20.as_str(),
+            scratch21.as_str(),
+            scratch22.as_str(),
+            scratch23.as_str(),
+            scratch24.as_str(),
+            scratch25.as_str(),
+        ] {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("list_remove_result", 8);
@@ -1929,7 +2618,11 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::compare_immediate(&scratch10, "0"));
         self.emit(abi::branch_ge(&valid_start));
         self.emit(abi::branch(&invalid));
@@ -1942,9 +2635,17 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch17, &scratch10, &scratch16));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch17));
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::load_u64(
             &scratch15,
             &scratch12,
@@ -1953,7 +2654,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_registers(&scratch15, &scratch14, &scratch15));
         // `arena_alloc` clobbers x15 in its block-grow path; persist the data
         // length so the header write below does not store a stale pointer.
-        self.emit(abi::store_u64(&scratch15, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         self.emit(abi::subtract_immediate(&scratch13, &scratch11, 1));
         self.emit(abi::multiply_registers(&scratch17, &scratch13, &scratch16));
         self.emit(abi::add_immediate(
@@ -1983,7 +2688,11 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         self.emit_write_list_header_from_registers(&layout, "x1", &scratch13, &scratch15);
 
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
@@ -1999,7 +2708,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::multiply_registers(&scratch21, &scratch13, &scratch16));
         self.emit(abi::add_registers(&scratch21, &scratch17, &scratch21));
         self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit_copy_collection_entries(
             &scratch12,
@@ -2011,12 +2724,20 @@ impl CodeBuilder<'_> {
             "list_remove_prefix",
         )?;
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::subtract_registers(&scratch14, &scratch14, &scratch10));
         self.emit(abi::subtract_immediate(&scratch14, &scratch14, 1));
         self.emit(abi::add_immediate(&scratch15, &scratch10, 1));
         self.emit(abi::multiply_registers(&scratch15, &scratch15, &scratch16));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch15));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit_copy_collection_entries(
@@ -2072,14 +2793,26 @@ impl CodeBuilder<'_> {
         data_cap: &str,
     ) {
         let scratch22 = self.temporary_vreg();
-        self.emit(abi::move_immediate(&scratch22, "Byte", &layout.kind.to_string()));
-        self.emit(abi::store_u8(&scratch22, collection, COLLECTION_OFFSET_KIND));
+        self.emit(abi::move_immediate(
+            &scratch22,
+            "Byte",
+            &layout.kind.to_string(),
+        ));
+        self.emit(abi::store_u8(
+            &scratch22,
+            collection,
+            COLLECTION_OFFSET_KIND,
+        ));
         self.emit(abi::move_immediate(
             &scratch22,
             "Byte",
             &layout.key_type_code.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch22, collection, COLLECTION_OFFSET_KEY_TYPE));
+        self.emit(abi::store_u8(
+            &scratch22,
+            collection,
+            COLLECTION_OFFSET_KEY_TYPE,
+        ));
         self.emit(abi::move_immediate(
             &scratch22,
             "Byte",
@@ -2222,7 +2955,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
         self.emit(abi::add_registers(&scratch25, dest_data, dest_data_offset));
-        self.emit_block_copy_advance(&scratch25, &scratch24, &scratch23, &scratch22, &format!("{label_prefix}_value"));
+        self.emit_block_copy_advance(
+            &scratch25,
+            &scratch24,
+            &scratch23,
+            &scratch22,
+            &format!("{label_prefix}_value"),
+        );
         self.emit(abi::load_u64(
             &scratch23,
             dest_entry,
@@ -2276,7 +3015,14 @@ impl CodeBuilder<'_> {
         let key_payload_align = collection_payload_alignment_for_code(layout.key_type_code);
         let value_payload_align = collection_payload_alignment_for_code(layout.value_type_code);
         let map_max_align = key_payload_align.max(value_payload_align);
-        for register in [scratch20.as_str(), scratch21.as_str(), scratch22.as_str(), scratch23.as_str(), scratch24.as_str(), scratch25.as_str()] {
+        for register in [
+            scratch20.as_str(),
+            scratch21.as_str(),
+            scratch22.as_str(),
+            scratch23.as_str(),
+            scratch24.as_str(),
+            scratch25.as_str(),
+        ] {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("map_concat_result", 8);
@@ -2291,12 +3037,28 @@ impl CodeBuilder<'_> {
         // Size: HEADER + (count_A+count_B)*ENTRY + (align(dataLen_A)+dataLen_B).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch11, &scratch9, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch9,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch10, &scratch11));
-        self.emit(abi::load_u64(&scratch13, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch13,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit_align_offset_register(&scratch13, map_max_align, &scratch15);
-        self.emit(abi::load_u64(&scratch14, &scratch9, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch9,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::add_registers(&scratch14, &scratch13, &scratch14));
         self.emit(abi::move_immediate(
             &scratch15,
@@ -2338,12 +3100,28 @@ impl CodeBuilder<'_> {
         // (the pre-alloc registers do not survive `arena_alloc`).
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), right_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch11, &scratch9, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch9,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch10, &scratch11));
-        self.emit(abi::load_u64(&scratch13, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch13,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit_align_offset_register(&scratch13, map_max_align, &scratch15);
-        self.emit(abi::load_u64(&scratch14, &scratch9, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch9,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::add_registers(&scratch14, &scratch13, &scratch14));
         self.emit_write_list_header_from_registers(&layout, "x1", &scratch12, &scratch14);
 
@@ -2353,16 +3131,40 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_register(&scratch23, &scratch17)); // moving copy dst
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8); // A data base
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch23, &scratch20, &scratch14, &scratch22, "map_concat_dataA");
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch23,
+            &scratch20,
+            &scratch14,
+            &scratch22,
+            "map_concat_dataA",
+        );
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
-        self.emit(abi::load_u64(&scratch13, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch13,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit_align_offset_register(&scratch13, map_max_align, &scratch22); // alignedA
         self.emit(abi::add_registers(&scratch23, &scratch17, &scratch13)); // B dest = base + alignedA
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), right_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch9); // B data base
-        self.emit(abi::load_u64(&scratch15, &scratch9, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch23, &scratch20, &scratch15, &scratch22, "map_concat_dataB");
+        self.emit(abi::load_u64(
+            &scratch15,
+            &scratch9,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch23,
+            &scratch20,
+            &scratch15,
+            &scratch22,
+            "map_concat_dataB",
+        );
 
         // --- Lookup table: A entries verbatim, then B entries shifted. ---
         self.emit(abi::move_immediate(
@@ -2373,17 +3175,43 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE)); // dst table cursor
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
-        self.emit(abi::add_immediate(&scratch20, &scratch8, COLLECTION_HEADER_SIZE)); // A table cursor
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::add_immediate(
+            &scratch20,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        )); // A table cursor
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::multiply_registers(&scratch21, &scratch10, &scratch16)); // count_A * ENTRY
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "map_concat_tableA");
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch21,
+            &scratch22,
+            "map_concat_tableA",
+        );
 
         // B entries: keyOffset and valueOffset each += align(dataLen_A).
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), right_slot));
-        self.emit(abi::add_immediate(&scratch12, &scratch9, COLLECTION_HEADER_SIZE)); // B table cursor
-        self.emit(abi::load_u64(&scratch11, &scratch9, COLLECTION_OFFSET_COUNT)); // remaining
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch9,
+            COLLECTION_HEADER_SIZE,
+        )); // B table cursor
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch9,
+            COLLECTION_OFFSET_COUNT,
+        )); // remaining
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), left_slot));
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit_align_offset_register(&scratch14, map_max_align, &scratch22); // shift = alignedA
         let copy_loop = self.label("map_concat_b_loop");
         let copy_done = self.label("map_concat_b_done");
@@ -2395,7 +3223,11 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch22, &scratch17, COLLECTION_ENTRY_OFFSET_FLAGS));
+        self.emit(abi::store_u8(
+            &scratch22,
+            &scratch17,
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
         self.emit(abi::load_u64(
             &scratch22,
             &scratch12,
@@ -2438,8 +3270,16 @@ impl CodeBuilder<'_> {
             &scratch17,
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
-        self.emit(abi::add_immediate(&scratch17, &scratch17, COLLECTION_ENTRY_SIZE));
-        self.emit(abi::add_immediate(&scratch12, &scratch12, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch17,
+            &scratch17,
+            COLLECTION_ENTRY_SIZE,
+        ));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch12,
+            COLLECTION_ENTRY_SIZE,
+        ));
         self.emit(abi::subtract_immediate(&scratch11, &scratch11, 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
@@ -2480,7 +3320,14 @@ impl CodeBuilder<'_> {
             .ok_or_else(|| format!("native code collection type '{map_type}' is not supported"))?;
         let key_payload_align = collection_payload_alignment_for_code(layout.key_type_code);
         let value_payload_align = collection_payload_alignment_for_code(layout.value_type_code);
-        for register in [scratch20.as_str(), scratch21.as_str(), scratch22.as_str(), scratch23.as_str(), scratch24.as_str(), scratch25.as_str()] {
+        for register in [
+            scratch20.as_str(),
+            scratch21.as_str(),
+            scratch22.as_str(),
+            scratch23.as_str(),
+            scratch24.as_str(),
+            scratch25.as_str(),
+        ] {
             self.mark_register_used(register);
         }
         let result_slot = self.allocate_stack_object("map_remove_result", 8);
@@ -2498,11 +3345,19 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::move_immediate(&scratch11, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch14, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch15, "Integer", "0"));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::label(&scan_loop));
         self.emit(abi::compare_registers(&scratch11, &scratch10));
         self.emit(abi::branch_ge(&scan_done));
@@ -2539,7 +3394,11 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(&scratch15, &scratch15, &scratch17));
         self.emit(abi::label(&scan_next));
-        self.emit(abi::add_immediate(&scratch12, &scratch12, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch12,
+            COLLECTION_ENTRY_SIZE,
+        ));
         self.emit(abi::add_immediate(&scratch11, &scratch11, 1));
         self.emit(abi::branch(&scan_loop));
         self.emit(abi::label(&scan_done));
@@ -2563,7 +3422,11 @@ impl CodeBuilder<'_> {
         // the retained count and data length so the header write below does not
         // store stale pointers.
         self.emit(abi::store_u64(&scratch14, abi::stack_pointer(), count_slot));
-        self.emit(abi::store_u64(&scratch15, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         // Reserve the map hash bucket region (x14 = remaining count = capacity).
         self.emit_reserve_map_buckets(true, &scratch14, abi::return_register(), &scratch16);
         self.emit(abi::move_immediate("x1", "Integer", "8"));
@@ -2584,16 +3447,28 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), count_slot));
-        self.emit(abi::load_u64(&scratch15, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch15,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         self.emit_write_list_header_from_registers(&layout, "x1", &scratch14, &scratch15);
 
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), map_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), key_slot));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::move_immediate(&scratch11, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch13, "Integer", "0"));
-        self.emit(abi::add_immediate(&scratch12, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
         self.emit(abi::load_u64(&scratch14, "x1", COLLECTION_OFFSET_COUNT));
@@ -2631,7 +3506,11 @@ impl CodeBuilder<'_> {
             value_payload_align,
         );
         self.emit(abi::label(&copy_next));
-        self.emit(abi::add_immediate(&scratch12, &scratch12, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch12,
+            COLLECTION_ENTRY_SIZE,
+        ));
         self.emit(abi::add_immediate(&scratch11, &scratch11, 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
@@ -2694,7 +3573,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
         self.emit(abi::add_registers(&scratch25, dest_data, dest_data_offset));
-        self.emit_block_copy_advance(&scratch25, &scratch24, &scratch23, &scratch22, "map_entry_key_copy");
+        self.emit_block_copy_advance(
+            &scratch25,
+            &scratch24,
+            &scratch23,
+            &scratch22,
+            "map_entry_key_copy",
+        );
         self.emit(abi::load_u64(
             &scratch23,
             dest_entry,
@@ -2731,7 +3616,13 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::add_registers(&scratch24, source_data, &scratch22));
         self.emit(abi::add_registers(&scratch25, dest_data, dest_data_offset));
-        self.emit_block_copy_advance(&scratch25, &scratch24, &scratch23, &scratch22, "map_entry_value_copy");
+        self.emit_block_copy_advance(
+            &scratch25,
+            &scratch24,
+            &scratch23,
+            &scratch22,
+            "map_entry_value_copy",
+        );
         self.emit(abi::load_u64(
             &scratch23,
             dest_entry,

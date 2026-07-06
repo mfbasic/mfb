@@ -5,13 +5,13 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-mod reader;
 mod builder;
-mod writer;
+mod reader;
 mod sections;
-mod util;
 #[cfg(test)]
 mod tests;
+mod util;
+mod writer;
 
 use builder::*;
 use reader::*;

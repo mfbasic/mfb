@@ -3,7 +3,6 @@ use super::*;
 use super::builder_control::string_self_append_operands;
 
 impl CodeBuilder<'_> {
-
     /// Recognize `name = collections::append(name, item)` for a single element
     /// appended to a uniquely-owned `MUT` list local, and lower it as an in-place
     /// grow (plan-01 §4.2). Returns `true` when handled (the local's slot was
@@ -182,7 +181,11 @@ impl CodeBuilder<'_> {
             }
             let key = self.materialize_float(key)?;
             let key_slot = self.allocate_stack_object("inplace_set_key", 8);
-            self.emit(abi::store_u64(&key.location, abi::stack_pointer(), key_slot));
+            self.emit(abi::store_u64(
+                &key.location,
+                abi::stack_pointer(),
+                key_slot,
+            ));
             let val = self.lower_value(&args[2])?;
             // Observation boundary: an in-place `Float` map value must be finite
             // (plan-17).
@@ -195,7 +198,11 @@ impl CodeBuilder<'_> {
             }
             let val = self.materialize_float(val)?;
             let value_slot = self.allocate_stack_object("inplace_set_value", 8);
-            self.emit(abi::store_u64(&val.location, abi::stack_pointer(), value_slot));
+            self.emit(abi::store_u64(
+                &val.location,
+                abi::stack_pointer(),
+                value_slot,
+            ));
             self.lower_map_set_in_place(
                 stack_offset,
                 key_slot,

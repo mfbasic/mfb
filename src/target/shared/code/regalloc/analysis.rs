@@ -24,7 +24,15 @@ const DEF_FIELDS: &[&str] = &["dst", "carry_out", "borrow_out"];
 /// Fields that name a register the instruction *reads*. `carry_in`/`borrow_in`
 /// are the explicit-carry input of `add_carry`/`sub_borrow`.
 const USE_FIELDS: &[&str] = &[
-    "src", "lhs", "rhs", "minuend", "base", "register", "addend", "carry_in", "borrow_in",
+    "src",
+    "lhs",
+    "rhs",
+    "minuend",
+    "base",
+    "register",
+    "addend",
+    "carry_in",
+    "borrow_in",
 ];
 
 /// Per-register-class hooks the allocator core queries: which operand strings are
@@ -198,7 +206,11 @@ pub(super) fn effect(instruction: &CodeInstruction, model: &ClassModel) -> Effec
         instruction.op,
         CodeOp::BranchLink | CodeOp::BranchLinkRegister | CodeOp::Svc
     );
-    Effect { defs, uses, is_call }
+    Effect {
+        defs,
+        uses,
+        is_call,
+    }
 }
 
 /// A basic block: a half-open instruction range `[start, end)` and its

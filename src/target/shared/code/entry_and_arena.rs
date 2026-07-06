@@ -810,7 +810,11 @@ pub(super) fn lower_arena_alloc(platform: &dyn CodegenPlatform) -> Result<CodeFu
         // recovered by the large flush-before-grow drain).
         abi::label("arena_alloc_large_bin"),
         abi::shift_right_immediate(&lg_slot, &size, 4),
-        abi::move_immediate(&lg_mask, "Integer", &(ARENA_LARGE_BIN_COUNT - 1).to_string()),
+        abi::move_immediate(
+            &lg_mask,
+            "Integer",
+            &(ARENA_LARGE_BIN_COUNT - 1).to_string(),
+        ),
         abi::and_registers(&lg_slot, &lg_slot, &lg_mask),
         abi::shift_left_immediate(&lg_slot, &lg_slot, 3),
         abi::add_registers(&lg_slot, ARENA_STATE_REGISTER, &lg_slot),

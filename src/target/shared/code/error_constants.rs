@@ -206,8 +206,7 @@ pub(crate) const ARENA_OUT_ENABLED_OFFSET: usize = ARENA_OUT_FILLED_OFFSET + 8;
 /// stdout-buffer words so every historical offset is unchanged.
 pub(crate) const ARENA_LARGE_BIN_COUNT: usize = 64;
 pub(crate) const ARENA_LARGE_BIN_BASE_OFFSET: usize = ARENA_OUT_ENABLED_OFFSET + 8;
-pub(crate) const ARENA_STATE_SIZE: usize =
-    ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
+pub(crate) const ARENA_STATE_SIZE: usize = ARENA_LARGE_BIN_BASE_OFFSET + ARENA_LARGE_BIN_COUNT * 8;
 /// Capacity of the lazily-allocated stdout output buffer, in bytes.
 pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
 /// Internal helper that drains the per-arena stdout buffer to fd 1 (plan-14-A):

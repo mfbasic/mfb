@@ -314,7 +314,13 @@ impl CodeBuilder<'_> {
             self.emit(abi::subtract_registers(&delta, &value_len, &part_len));
             self.emit(abi::add_registers(&value_data, &value_data, &delta));
         }
-        self.emit_string_byte_range_equal_branch(&value_data, &part_data, &part_len, &true_label, &no_match_label);
+        self.emit_string_byte_range_equal_branch(
+            &value_data,
+            &part_data,
+            &part_len,
+            &true_label,
+            &no_match_label,
+        );
         self.emit(abi::label(&no_match_label));
         self.emit(abi::branch(&false_label));
         self.emit_string_predicate_result(result_slot, &true_label, &false_label, &done_label);

@@ -404,7 +404,6 @@ impl FunctionPlanBuilder<'_> {
     }
 }
 
-
 pub(super) fn push_call(calls: &mut Vec<PlanCall>, target: &str, symbol: String, kind: CallKind) {
     push_call_with_literals(calls, target, symbol, kind, Vec::new());
 }
@@ -636,4 +635,3 @@ pub(super) fn collect_string_literals(value: &NirValue, literals: &mut Vec<Strin
         | NirValue::FunctionRef { .. } => {}
     }
 }
-

@@ -11,7 +11,15 @@ pub(crate) fn lower_tls_connect_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     if platform.target().contains("macos") {
         return macos::lower_tls_connect_macos(symbol, platform_imports, platform);
     }
@@ -704,11 +712,12 @@ pub(crate) fn lower_tls_connect_helper(
         &done,
     );
 
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -719,7 +728,15 @@ pub(crate) fn lower_tls_listen_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     if platform.target().contains("macos") {
         return macos::lower_tls_listen_macos(symbol, platform_imports, platform);
     }
@@ -1170,11 +1187,12 @@ pub(crate) fn lower_tls_listen_helper(
         &done,
     );
 
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1185,7 +1203,15 @@ pub(crate) fn lower_tls_accept_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     if platform.target().contains("macos") {
         return macos::lower_tls_accept_macos(symbol, platform_imports, platform);
     }
@@ -1430,11 +1456,12 @@ pub(crate) fn lower_tls_accept_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1446,7 +1473,15 @@ pub(crate) fn lower_tls_read_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     if platform.target().contains("macos") {
         return macos::lower_tls_read_macos(symbol, platform_imports, platform, text);
     }
@@ -1673,11 +1708,12 @@ pub(crate) fn lower_tls_read_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1689,7 +1725,15 @@ pub(crate) fn lower_tls_write_helper(
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
     text: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     if platform.target().contains("macos") {
         return macos::lower_tls_write_macos(symbol, platform_imports, platform, text);
     }
@@ -1805,11 +1849,12 @@ pub(crate) fn lower_tls_write_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1820,7 +1865,15 @@ pub(crate) fn lower_tls_close_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     if platform.target().contains("macos") {
         return macos::lower_tls_close_macos(symbol, platform_imports, platform);
     }
@@ -1961,7 +2014,11 @@ pub(crate) fn lower_tls_close_helper(
         abi::label(&done),
         abi::return_(),
     ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1973,7 +2030,15 @@ pub(crate) fn lower_tls_close_listener_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     if platform.target().contains("macos") {
         return macos::lower_tls_close_listener_macos(symbol, platform_imports, platform);
     }
@@ -2064,5 +2129,9 @@ pub(crate) fn lower_tls_close_listener_helper(
         abi::label(&done),
         abi::return_(),
     ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }

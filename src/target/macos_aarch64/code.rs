@@ -48,7 +48,6 @@ impl code::CodegenPlatform for Platform {
         &crate::arch::aarch64::backend::AARCH64_BACKEND
     }
 
-
     fn termios_size(&self) -> usize {
         72
     }

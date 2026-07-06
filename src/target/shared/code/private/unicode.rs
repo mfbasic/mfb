@@ -542,11 +542,7 @@ impl CodeBuilder<'_> {
         let field = field_v.as_str();
 
         self.emit(abi::move_immediate(x6, "Integer", "0"));
-        self.emit(abi::move_immediate(
-            x7,
-            "Integer",
-            &entry_count.to_string(),
-        ));
+        self.emit(abi::move_immediate(x7, "Integer", &entry_count.to_string()));
         self.emit(abi::label(&loop_label));
         self.emit(abi::compare_registers(x6, x7));
         self.emit(abi::branch_ge(&not_found));

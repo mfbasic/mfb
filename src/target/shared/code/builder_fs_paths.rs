@@ -209,7 +209,11 @@ impl CodeBuilder<'_> {
         let done = self.label("fs_path_dir_name_done");
         self.emit(abi::branch(&done));
         self.emit(abi::label(&done_constant));
-        self.emit(abi::store_u64(&constant_ptr, abi::stack_pointer(), final_slot));
+        self.emit(abi::store_u64(
+            &constant_ptr,
+            abi::stack_pointer(),
+            final_slot,
+        ));
         self.emit(abi::label(&done));
         let out = self.allocate_register()?;
         self.emit(abi::load_u64(&out, abi::stack_pointer(), final_slot));
@@ -370,14 +374,22 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(&scratch12, "Byte", "47"));
         self.emit(abi::store_u8(&scratch12, &scratch13, 8));
         self.emit(abi::move_immediate(&scratch12, "Integer", "1"));
-        self.emit(abi::store_u64(&scratch12, abi::stack_pointer(), out_len_slot));
+        self.emit(abi::store_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            out_len_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch12,
             abi::stack_pointer(),
             input_index_slot,
         ));
         self.emit(abi::label(&skip_initial_slashes));
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), input_index_slot));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            input_index_slot,
+        ));
         self.emit(abi::compare_registers(&scratch14, &scratch10));
         self.emit(abi::branch_ge(&component_loop));
         self.emit(abi::add_registers(&scratch15, &scratch11, &scratch14));
@@ -401,7 +413,11 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::label(&component_loop));
         self.emit(abi::label(&skip_slashes));
-        self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), input_index_slot));
+        self.emit(abi::load_u64(
+            &scratch14,
+            abi::stack_pointer(),
+            input_index_slot,
+        ));
         self.emit(abi::compare_registers(&scratch14, &scratch10));
         self.emit(abi::branch_ge(&finish));
         self.emit(abi::add_registers(&scratch15, &scratch11, &scratch14));
@@ -519,7 +535,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch_ne(&pop_scan));
         self.emit(abi::compare_immediate(&scratch13, "0"));
         self.emit(abi::branch_eq(&component_loop));
-        self.emit(abi::store_u64(&scratch13, abi::stack_pointer(), out_len_slot));
+        self.emit(abi::store_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            out_len_slot,
+        ));
         self.emit(abi::branch(&component_loop));
 
         self.emit(abi::label(&append_dot_dot));
@@ -547,7 +567,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&scratch13, &scratch12, &scratch8));
         self.emit(abi::store_u8(&scratch14, &scratch13, 0));
         self.emit(abi::add_immediate(&scratch8, &scratch8, 1));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_len_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            out_len_slot,
+        ));
 
         self.emit(abi::label(&append_copy_loop));
         self.emit(abi::load_u64(
@@ -582,7 +606,11 @@ impl CodeBuilder<'_> {
             component_len_slot,
         ));
         self.emit(abi::add_immediate(&scratch8, &scratch8, 1));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_len_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            out_len_slot,
+        ));
         self.emit(abi::branch(&append_copy_loop));
 
         self.emit(abi::label(&append_copy_done));

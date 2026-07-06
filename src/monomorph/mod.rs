@@ -68,7 +68,6 @@ struct FunctionContext {
     enclosing_return: Option<String>,
 }
 
-
 impl Clone for FunctionContext {
     fn clone(&self) -> Self {
         Self {

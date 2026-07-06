@@ -281,7 +281,15 @@ fn lower_net_endpoint_helper(
     platform: &dyn CodegenPlatform,
     listen: bool,
     address: bool,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 192;
     const HOST_OFFSET: usize = 8;
     const PORT_OFFSET: usize = 16;
@@ -508,7 +516,7 @@ fn lower_net_endpoint_helper(
             &mut instructions,
             &mut relocations,
         )?;
-    instructions.push(abi::move_register("%v9", "x9"));
+        instructions.push(abi::move_register("%v9", "x9"));
         instructions.extend([
             abi::compare_immediate("%v9", platform.einprogress()),
             abi::branch_ne(&op_fail),
@@ -718,18 +726,27 @@ fn lower_net_endpoint_helper(
         &mut relocations,
         &done,
     );
-    instructions.extend([
-        abi::label(&done),
-        abi::return_(),
-    ]);
-    {let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE); Ok((frame, instructions, relocations, stack_slots))}
+    instructions.extend([abi::label(&done), abi::return_()]);
+    {
+        let (frame, stack_slots) =
+            finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+        Ok((frame, instructions, relocations, stack_slots))
+    }
 }
 
 pub(super) fn lower_net_connect_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, false)
 }
 
@@ -737,7 +754,15 @@ pub(super) fn lower_net_connect_tcp_addr_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     lower_net_endpoint_helper(symbol, platform_imports, platform, false, true)
 }
 
@@ -745,7 +770,15 @@ pub(super) fn lower_net_listen_tcp_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     lower_net_endpoint_helper(symbol, platform_imports, platform, true, false)
 }
 

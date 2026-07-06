@@ -492,11 +492,7 @@ impl<'a> Monomorphizer<'a> {
     /// (scalar/collection args) is left as the bare built-in name for codegen to
     /// dispatch. Fires for a sole built-in-named overload too, unlike the ordinary
     /// `resolve_overload`.
-    fn resolve_general_builtin_override(
-        &self,
-        name: &str,
-        arg_types: &[String],
-    ) -> Option<String> {
+    fn resolve_general_builtin_override(&self, name: &str, arg_types: &[String]) -> Option<String> {
         if !crate::builtins::general::is_overridable(name) {
             return None;
         }
@@ -873,9 +869,10 @@ impl<'a> Monomorphizer<'a> {
                     .enumerate()
                     .map(|(index, argument)| match argument {
                         CallArg::Positional(value) => {
-                            let expected = arg_slot_expected(value, sig_params.as_deref(), |params| {
-                                params.get(index)
-                            });
+                            let expected =
+                                arg_slot_expected(value, sig_params.as_deref(), |params| {
+                                    params.get(index)
+                                });
                             CallArg::Positional(self.lower_expression(
                                 value,
                                 substitutions,
@@ -885,9 +882,10 @@ impl<'a> Monomorphizer<'a> {
                             ))
                         }
                         CallArg::Named { name, value, line } => {
-                            let expected = arg_slot_expected(value, sig_params.as_deref(), |params| {
-                                params.iter().find(|param| param.name == *name)
-                            });
+                            let expected =
+                                arg_slot_expected(value, sig_params.as_deref(), |params| {
+                                    params.iter().find(|param| param.name == *name)
+                                });
                             CallArg::Named {
                                 name: name.clone(),
                                 value: self.lower_expression(

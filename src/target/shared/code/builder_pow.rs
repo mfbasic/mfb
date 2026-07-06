@@ -114,7 +114,11 @@ impl CodeBuilder<'_> {
     }
     /// `home = value` (an f64 constant materialized through GPR `xs`).
     fn pconst(&mut self, home: &str, value: f64, xs: &str) {
-        self.emit(abi::move_immediate(xs, "Integer", &value.to_bits().to_string()));
+        self.emit(abi::move_immediate(
+            xs,
+            "Integer",
+            &value.to_bits().to_string(),
+        ));
         self.emit(abi::float_move_d_from_x(home, xs));
     }
     /// `home &= 0xFFFFFFFF00000000` — zero the low 32 bits of the f64 (fdlibm's
@@ -128,7 +132,11 @@ impl CodeBuilder<'_> {
     /// `out = c[n-1]; out = c[i] + out*var` (Horner, ascending coeffs). Uses `d0`
     /// (accumulator) and `d1` (coefficient) as scratch; `var`/`out` are homes.
     fn ppoly(&mut self, var: &str, coeffs: &[f64], out: &str, xs: &str) {
-        self.emit(abi::move_immediate(xs, "Integer", &coeffs[coeffs.len() - 1].to_bits().to_string()));
+        self.emit(abi::move_immediate(
+            xs,
+            "Integer",
+            &coeffs[coeffs.len() - 1].to_bits().to_string(),
+        ));
         self.emit(abi::float_move_d_from_x("d0", xs));
         for &c in coeffs.iter().rev().skip(1) {
             self.emit(abi::move_immediate(xs, "Integer", &c.to_bits().to_string()));
@@ -195,8 +203,12 @@ impl CodeBuilder<'_> {
         let smask_o = self.allocate_register()?;
         let nexp_o = self.allocate_register()?;
         let (xs, xm, xt, xu, smask, nexp) = (
-            xs_o.as_str(), xm_o.as_str(), xt_o.as_str(), xu_o.as_str(),
-            smask_o.as_str(), nexp_o.as_str(),
+            xs_o.as_str(),
+            xm_o.as_str(),
+            xt_o.as_str(),
+            xu_o.as_str(),
+            smask_o.as_str(),
+            nexp_o.as_str(),
         );
 
         let end = self.label("pow_end");
@@ -209,7 +221,11 @@ impl CodeBuilder<'_> {
         let y_nonzero = self.label("pow_y_nonzero");
         self.emit(abi::compare_immediate(xs, "0"));
         self.emit(abi::branch_ne(&y_nonzero));
-        self.emit(abi::move_immediate(&result, "Integer", &1.0f64.to_bits().to_string()));
+        self.emit(abi::move_immediate(
+            &result,
+            "Integer",
+            &1.0f64.to_bits().to_string(),
+        ));
         self.emit(abi::branch(&end));
         self.emit(abi::label(&y_nonzero));
 
@@ -277,7 +293,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::branch(&end));
 
         self.emit(abi::label(&ret_nan));
-        self.emit(abi::move_immediate(&result, "Integer", "9221120237041090560")); // 0x7FF8000000000000
+        self.emit(abi::move_immediate(
+            &result,
+            "Integer",
+            "9221120237041090560",
+        )); // 0x7FF8000000000000
         self.emit(abi::label(&end));
         Ok(result)
     }
@@ -311,7 +331,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
         self.emit(abi::move_register("x0", &count));
-        self.emit(abi::move_immediate("x1", "Integer", &COLLECTION_TYPE_FLOAT.to_string()));
+        self.emit(abi::move_immediate(
+            "x1",
+            "Integer",
+            &COLLECTION_TYPE_FLOAT.to_string(),
+        ));
         self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -336,7 +360,11 @@ impl CodeBuilder<'_> {
         let rdata_slot = self.allocate_stack_object("pow_arr_rdata", 8);
         let odata_slot = self.allocate_stack_object("pow_arr_odata", 8);
         let index_slot = self.allocate_stack_object("pow_arr_index", 8);
-        self.emit(abi::store_u64(&result_base, abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            &result_base,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         let left_ptr = self.allocate_register()?;
         self.emit(abi::load_u64(&left_ptr, abi::stack_pointer(), left_slot));
         let right_ptr = self.allocate_register()?;
@@ -400,7 +428,11 @@ impl CodeBuilder<'_> {
         self.reset_temporary_registers();
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
-        Ok(ValueResult { type_: "List OF Float".to_string(), location: result, text })
+        Ok(ValueResult {
+            type_: "List OF Float".to_string(),
+            location: result,
+            text,
+        })
     }
 
     /// Set `smask` (0 or the sign bit) per the negative-base rule, or jump to
@@ -441,7 +473,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::float_move_x_from_d(xm, "d1"));
         self.emit(abi::compare_registers(xm, xs));
         self.emit(abi::branch_ne(ret_nan)); // non-integer -> NaN
-        // odd? trunc & 1.
+                                            // odd? trunc & 1.
         self.emit(abi::move_immediate(xm, "Integer", "1"));
         self.emit(abi::and_registers(xt, xt, xm));
         self.emit(abi::compare_immediate(xt, "0"));
@@ -492,8 +524,8 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(xm, "Integer", "767610")); // 0xBB67A
         self.emit(abi::compare_registers(xt, xm));
         self.emit(abi::branch_lt(&seg1)); // j<0xBB67A -> kk=1
-        // else: kk=0, n_exp+=1, j-=0x100000  (j is the masked-low; fdlibm subtracts
-        // 0x00100000 from the high word, i.e. from (j|0x3ff00000) -> exponent down).
+                                          // else: kk=0, n_exp+=1, j-=0x100000  (j is the masked-low; fdlibm subtracts
+                                          // 0x00100000 from the high word, i.e. from (j|0x3ff00000) -> exponent down).
         self.emit(abi::move_immediate(xm, "Integer", "1"));
         self.emit(abi::add_registers(nexp, nexp, xm));
         self.emit(abi::move_immediate(xm, "Integer", "1048576")); // 0x100000
@@ -520,11 +552,11 @@ impl CodeBuilder<'_> {
         self.emit_pow_select(kk, BP[0], BP[1], s.cs, xs, xt); // cs = bp[kk]
         self.pop('-', s.uu, s.ax, s.cs); // u = ax - bp
         self.pop('+', s.vv, s.ax, s.cs); // ax + bp
-        // v = 1/(ax+bp)
+                                         // v = 1/(ax+bp)
         self.pconst(s.tmp, 1.0, xs);
         self.pop('/', s.vv, s.tmp, s.vv);
         self.pop('*', s.sh, s.uu, s.vv); // s = u*v (sh holds s for now)
-        // s_h = lowzero(s)
+                                         // s_h = lowzero(s)
         self.plowzero(s.sh, xs, xm);
         // t_h = set_hi(0, ((hi32(ax)>>1)|0x20000000)+0x00080000+(kk<<18))
         self.emit(abi::float_move_x_from_d(xs, s.ax));
@@ -538,18 +570,18 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(xt, xt, xm));
         self.emit(abi::shift_left_immediate(xt, xt, 32)); // into high word
         self.emit(abi::float_move_d_from_x(s.th, xt)); // t_h
-        // t_l = ax - (t_h - bp[kk])
+                                                       // t_l = ax - (t_h - bp[kk])
         self.pop('-', s.tmp, s.th, s.cs); // t_h - bp
         self.pop('-', s.tl, s.ax, s.tmp); // t_l
-        // s_l = v*((u - s_h*t_h) - s_h*t_l)
+                                          // s_l = v*((u - s_h*t_h) - s_h*t_l)
         self.pop('*', s.tmp, s.sh, s.th); // s_h*t_h
         self.pop('-', s.tmp, s.uu, s.tmp); // u - s_h*t_h
         self.pop('*', s.zz, s.sh, s.tl); // s_h*t_l
         self.pop('-', s.tmp, s.tmp, s.zz);
         self.pop('*', s.sl, s.vv, s.tmp); // s_l
-        // store s (the full u*v) for use as `s` later; recompute: s = sh? we need ss=u*v.
+                                          // store s (the full u*v) for use as `s` later; recompute: s = sh? we need ss=u*v.
         self.pop('*', s.zz, s.uu, s.vv); // ss = u*v  (full)
-        // s2 = ss*ss
+                                         // s2 = ss*ss
         self.pop('*', s.s2, s.zz, s.zz);
         // r = s2*s2*poly_L(s2) + s_l*(s_h+ss)
         self.ppoly(s.s2, &[L1, L2, L3, L4, L5, L6], s.rr, xs); // poly in s2
@@ -558,7 +590,7 @@ impl CodeBuilder<'_> {
         self.pop('+', s.tmp, s.sh, s.zz); // s_h + ss
         self.pop('*', s.tmp, s.sl, s.tmp); // s_l*(s_h+ss)
         self.pop('+', s.rr, s.rr, s.tmp); // r
-        // s2 = s_h*s_h
+                                          // s2 = s_h*s_h
         self.pop('*', s.s2, s.sh, s.sh);
         // t_h = lowzero(3 + s2 + r)
         self.pconst(s.tmp, 3.0, xs);
@@ -570,7 +602,7 @@ impl CodeBuilder<'_> {
         self.pop('-', s.tmp, s.th, s.tmp); // t_h - 3
         self.pop('-', s.tmp, s.tmp, s.s2); // (t_h-3)-s2
         self.pop('-', s.tl, s.rr, s.tmp); // t_l
-        // u = s_h*t_h ; v = s_l*t_h + t_l*ss
+                                          // u = s_h*t_h ; v = s_l*t_h + t_l*ss
         self.pop('*', s.uu, s.sh, s.th);
         self.pop('*', s.tmp, s.sl, s.th);
         self.pop('*', s.vv, s.tl, s.zz);
@@ -590,10 +622,10 @@ impl CodeBuilder<'_> {
         self.pop('+', s.tmp, s.tmp, s.zz);
         self.emit_pow_select(kk, DP_L[0], DP_L[1], s.cs, xs, xt); // dp_l[kk]
         self.pop('+', s.zl, s.tmp, s.cs); // z_l
-        // t = (double)n_exp
+                                          // t = (double)n_exp
         self.emit(abi::signed_convert_to_float_d("d0", nexp));
         self.pst("d0", s.tmp); // tmp = t
-        // t1 = lowzero(((z_h+z_l)+dp_h[kk])+t)
+                               // t1 = lowzero(((z_h+z_l)+dp_h[kk])+t)
         self.pop('+', s.t1, s.zh, s.zl);
         self.emit_pow_select(kk, DP_H[0], DP_H[1], s.cs, xs, xt); // dp_h[kk]
         self.pop('+', s.t1, s.t1, s.cs);
@@ -616,7 +648,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(xm, "Integer", "2147483647"));
         self.emit(abi::and_registers(xu, xt, xm)); // i = j & 0x7fffffff
         self.emit(abi::move_immediate(nbit, "Integer", "0")); // n = 0
-        // if i > 0x3fe00000: compute n and p_h -= t
+                                                              // if i > 0x3fe00000: compute n and p_h -= t
         let no_round = self.label("pow_exp_noround");
         self.emit(abi::move_immediate(xm, "Integer", "1071644672")); // 0x3fe00000
         self.emit(abi::compare_registers(xu, xm));
@@ -626,26 +658,26 @@ impl CodeBuilder<'_> {
         self.emit(abi::shift_right_immediate(kreg, xu, 20));
         self.emit(abi::move_immediate(xs, "Integer", "1023"));
         self.emit(abi::subtract_registers(kreg, kreg, xs)); // k
-        // n = j + (0x00100000 >> (k+1))
+                                                            // n = j + (0x00100000 >> (k+1))
         self.emit(abi::move_immediate(xs, "Integer", "1048576")); // 0x100000
         self.emit(abi::move_immediate(nbit, "Integer", "1"));
         self.emit(abi::add_registers(nbit, kreg, nbit)); // k+1
         self.emit(abi::shift_right_variable(xs, xs, nbit)); // 0x100000>>(k+1)
         self.emit(abi::add_registers(nbit, xt, xs)); // n = j + that  (xt = j)
-        // k = ((n & 0x7fffffff) >> 20) - 0x3ff
+                                                     // k = ((n & 0x7fffffff) >> 20) - 0x3ff
         self.emit(abi::move_immediate(xs, "Integer", "2147483647"));
         self.emit(abi::and_registers(xs, nbit, xs));
         self.emit(abi::shift_right_immediate(xs, xs, 20));
         self.emit(abi::move_immediate(kreg, "Integer", "1023"));
         self.emit(abi::subtract_registers(kreg, xs, kreg)); // new k
-        // t = set_hi(0, n & ~(0x000fffff >> k))
+                                                            // t = set_hi(0, n & ~(0x000fffff >> k))
         self.emit(abi::move_immediate(xs, "Integer", "1048575")); // 0xfffff
         self.emit(abi::shift_right_variable(xs, xs, kreg)); // 0xfffff>>k
         self.emit(abi::bitwise_not(xs, xs));
         self.emit(abi::and_registers(xs, nbit, xs)); // n & ~(...)
         self.emit(abi::shift_left_immediate(xs, xs, 32));
         self.emit(abi::float_move_d_from_x(s.tmp, xs)); // t
-        // n = ((n & 0xfffff) | 0x100000) >> (20 - k)
+                                                        // n = ((n & 0xfffff) | 0x100000) >> (20 - k)
         self.emit(abi::move_immediate(xs, "Integer", "1048575"));
         self.emit(abi::and_registers(xs, nbit, xs)); // n & 0xfffff
         self.emit(abi::move_immediate(xu, "Integer", "1048576"));
@@ -653,7 +685,7 @@ impl CodeBuilder<'_> {
         self.emit(abi::move_immediate(xu, "Integer", "20"));
         self.emit(abi::subtract_registers(xu, xu, kreg)); // 20 - k
         self.emit(abi::shift_right_variable(nbit, xs, xu)); // n
-        // if j < 0: n = -n   (xt holds j)
+                                                            // if j < 0: n = -n   (xt holds j)
         let n_pos = self.label("pow_exp_npos");
         self.emit(abi::compare_immediate(xt, "0"));
         self.emit(abi::branch_ge(&n_pos));
@@ -677,16 +709,16 @@ impl CodeBuilder<'_> {
         self.pconst(s.cs, LG2_L, xs);
         self.pop('*', s.zl, s.tmp, s.cs); // t*lg2_l
         self.pop('+', s.vv, s.zz, s.zl); // v
-        // z = u + v ; w = v - (z - u)
+                                         // z = u + v ; w = v - (z - u)
         self.pop('+', s.zz, s.uu, s.vv);
         self.pop('-', s.tmp, s.zz, s.uu); // z - u
         self.pop('-', s.ww, s.vv, s.tmp); // w
-        // t = z*z ; t1 = z - t*P(t)
+                                          // t = z*z ; t1 = z - t*P(t)
         self.pop('*', s.tmp, s.zz, s.zz);
         self.ppoly(s.tmp, &[P1, P2, P3, P4, P5], s.t1, xs); // P(t)
         self.pop('*', s.t1, s.tmp, s.t1); // t*P
         self.pop('-', s.t1, s.zz, s.t1); // z - t*P
-        // r = (z*t1)/(t1-2) - (w + z*w)
+                                         // r = (z*t1)/(t1-2) - (w + z*w)
         self.pop('*', s.tmp, s.zz, s.t1); // z*t1
         self.pconst(s.cs, 2.0, xs);
         self.pop('-', s.t2, s.t1, s.cs); // t1 - 2
@@ -694,11 +726,11 @@ impl CodeBuilder<'_> {
         self.pop('*', s.zl, s.zz, s.ww); // z*w
         self.pop('+', s.zl, s.ww, s.zl); // w + z*w
         self.pop('-', s.rr, s.tmp, s.zl); // r
-        // z = 1 - (r - z)
+                                          // z = 1 - (r - z)
         self.pop('-', s.tmp, s.rr, s.zz); // r - z
         self.pconst(s.cs, 1.0, xs);
         self.pop('-', s.zz, s.cs, s.tmp); // z = 1 - (r-z)
-        // j = hi32(z) + (n<<20) ; if (j>>20)<=0 -> z=scalbn(z,n) else set_hi(z,j)
+                                          // j = hi32(z) + (n<<20) ; if (j>>20)<=0 -> z=scalbn(z,n) else set_hi(z,j)
         self.emit(abi::float_move_x_from_d(xs, s.zz));
         self.emit(abi::shift_right_immediate(xt, xs, 32)); // hi32(z) (signed)
         self.emit(abi::shift_left_immediate(xm, nbit, 20)); // n<<20
@@ -707,8 +739,8 @@ impl CodeBuilder<'_> {
         let scaled = self.label("pow_exp_scaled");
         // (j>>20) <= 0 (signed) -> subnormal scalbn path
         self.emit(abi::shift_right_immediate(xm, xt, 20)); // arithmetic? shift_right_immediate is LSR
-        // Need signed compare of (j as i32)>>20. Reconstruct sign: treat xt low32 as i32.
-        // Simpler: compare j (as built) — j>>20<=0 means exponent field <=0 -> tiny.
+                                                           // Need signed compare of (j as i32)>>20. Reconstruct sign: treat xt low32 as i32.
+                                                           // Simpler: compare j (as built) — j>>20<=0 means exponent field <=0 -> tiny.
         self.emit(abi::compare_immediate(xm, "0"));
         self.emit(abi::branch_le(&subnormal));
         // normal: set_hi(z, j)

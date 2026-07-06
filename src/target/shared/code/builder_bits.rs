@@ -25,7 +25,9 @@ impl CodeBuilder<'_> {
             "bswap16" | "bswap32" | "bswap64" if args.len() == 1 => {
                 self.lower_bits_bswap(function, &args[0])
             }
-            other => Err(format!("native bits lowering does not support bits.{other}")),
+            other => Err(format!(
+                "native bits lowering does not support bits.{other}"
+            )),
         }
     }
 
@@ -42,7 +44,11 @@ impl CodeBuilder<'_> {
             return Err(format!("bits.{function} does not accept {}", left.type_));
         }
         let left_slot = self.allocate_stack_object("bits_left", 8);
-        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        self.emit(abi::store_u64(
+            &left.location,
+            abi::stack_pointer(),
+            left_slot,
+        ));
         let right = self.lower_value(&args[1])?;
         if right.type_ != "Integer" {
             return Err(format!("bits.{function} does not accept {}", right.type_));
@@ -73,7 +79,11 @@ impl CodeBuilder<'_> {
             "band" => self.emit(abi::and_registers(&dst, &left_reg, &right_reg)),
             "bor" => self.emit(abi::or_registers(&dst, &left_reg, &right_reg)),
             "bxor" => self.emit(abi::exclusive_or_registers(&dst, &left_reg, &right_reg)),
-            other => return Err(format!("native bits lowering does not support bits.{other}")),
+            other => {
+                return Err(format!(
+                    "native bits lowering does not support bits.{other}"
+                ))
+            }
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
@@ -119,11 +129,13 @@ impl CodeBuilder<'_> {
             "sl" => self.emit(abi::shift_left_variable(&dst, &value_reg, &count_reg)),
             "sr" => self.emit(abi::shift_right_variable(&dst, &value_reg, &count_reg)),
             "sra" => self.emit(abi::arithmetic_shift_right_variable(
-                &dst,
-                &value_reg,
-                &count_reg,
+                &dst, &value_reg, &count_reg,
             )),
-            other => return Err(format!("native bits lowering does not support bits.{other}")),
+            other => {
+                return Err(format!(
+                    "native bits lowering does not support bits.{other}"
+                ))
+            }
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
@@ -151,16 +163,18 @@ impl CodeBuilder<'_> {
                 self.emit(abi::rotate_right_registers(&dst, &value_reg, &neg));
             }
             "rr32" => self.emit(abi::rotate_right_word_registers(
-                &dst,
-                &value_reg,
-                &count_reg,
+                &dst, &value_reg, &count_reg,
             )),
             "rl32" => {
                 let neg = self.allocate_register()?;
                 self.emit(abi::subtract_registers(&neg, "xzr", &count_reg));
                 self.emit(abi::rotate_right_word_registers(&dst, &value_reg, &neg));
             }
-            other => return Err(format!("native bits lowering does not support bits.{other}")),
+            other => {
+                return Err(format!(
+                    "native bits lowering does not support bits.{other}"
+                ))
+            }
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
@@ -188,7 +202,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::reverse_bits(&reversed, &value.location));
                 self.emit(abi::count_leading_zeros(&dst, &reversed));
             }
-            other => return Err(format!("native bits lowering does not support bits.{other}")),
+            other => {
+                return Err(format!(
+                    "native bits lowering does not support bits.{other}"
+                ))
+            }
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),
@@ -245,11 +263,7 @@ impl CodeBuilder<'_> {
     /// `bswap16`/`bswap32`/`bswap64` — byte reversal. The 16/32-bit forms clear
     /// the bits above their width: `REV` on the `W` register zero-extends, and the
     /// 16-bit form additionally shifts the reversed low half into place.
-    fn lower_bits_bswap(
-        &mut self,
-        function: &str,
-        arg: &NirValue,
-    ) -> Result<ValueResult, String> {
+    fn lower_bits_bswap(&mut self, function: &str, arg: &NirValue) -> Result<ValueResult, String> {
         let value = self.lower_value(arg)?;
         if value.type_ != "Integer" {
             return Err(format!("bits.{function} does not accept {}", value.type_));
@@ -264,7 +278,11 @@ impl CodeBuilder<'_> {
             }
             "bswap32" => self.emit(abi::reverse_bytes_word(&dst, &value.location)),
             "bswap64" => self.emit(abi::reverse_bytes(&dst, &value.location)),
-            other => return Err(format!("native bits lowering does not support bits.{other}")),
+            other => {
+                return Err(format!(
+                    "native bits lowering does not support bits.{other}"
+                ))
+            }
         }
         Ok(ValueResult {
             type_: "Integer".to_string(),

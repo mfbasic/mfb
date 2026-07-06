@@ -537,9 +537,18 @@ mod tests {
     fn no_libm_math_imports() {
         let platform = Platform;
         for target in [
-            "math.pow", "math.exp", "math.log", "math.log10", "math.fmod",
-            "math.sin", "math.cos", "math.tan", "math.asin", "math.acos",
-            "math.atan", "math.atan2",
+            "math.pow",
+            "math.exp",
+            "math.log",
+            "math.log10",
+            "math.fmod",
+            "math.sin",
+            "math.cos",
+            "math.tan",
+            "math.asin",
+            "math.acos",
+            "math.atan",
+            "math.atan2",
         ] {
             assert!(
                 platform.native_call_imports(target, "_main").is_empty(),

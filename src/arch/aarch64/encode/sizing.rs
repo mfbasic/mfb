@@ -1,5 +1,5 @@
-use super::*;
 use super::operand::{field, immediate};
+use super::*;
 
 pub(super) fn instruction_size(instruction: &CodeInstruction) -> Result<usize, String> {
     match instruction.op {

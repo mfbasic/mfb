@@ -52,9 +52,9 @@ impl SimdUnaryKernel {
         match self {
             SimdUnaryKernel::AbsInteger => Some(SimdError::Overflow),
             SimdUnaryKernel::SqrtFloat => Some(SimdError::FloatDomain),
-            SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
-                Some(SimdError::Overflow)
-            }
+            SimdUnaryKernel::FloorFloat
+            | SimdUnaryKernel::CeilFloat
+            | SimdUnaryKernel::RoundFloat => Some(SimdError::Overflow),
             SimdUnaryKernel::AbsFloat
             | SimdUnaryKernel::FloorFixed
             | SimdUnaryKernel::CeilFixed
@@ -237,7 +237,9 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_dup_from_x("v6", &min));
             }
             SimdUnaryKernel::AbsFloat | SimdUnaryKernel::SqrtFloat => {}
-            SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
+            SimdUnaryKernel::FloorFloat
+            | SimdUnaryKernel::CeilFloat
+            | SimdUnaryKernel::RoundFloat => {
                 // v4 = exp(Inf/NaN), v5 = +2^63, v6 = -2^63 (range bounds).
                 self.broadcast_const("v4", FLOAT_EXP_INF_NAN)?;
                 self.broadcast_const("v5", FLOAT_TWO_POW_63_BITS)?;
@@ -285,7 +287,9 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_orr("v7", "v7", "v1"));
                 self.emit(abi::vector_fsqrt("v0", "v0"));
             }
-            SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
+            SimdUnaryKernel::FloorFloat
+            | SimdUnaryKernel::CeilFloat
+            | SimdUnaryKernel::RoundFloat => {
                 let frint = kernel.float_round_mnemonic().unwrap();
                 // Inf/NaN: exp field == 2047 (caught here; range compares below
                 // miss NaN, which compares false against everything).
@@ -294,7 +298,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::vector_cmeq("v1", "v2", "v4"));
                 self.emit(abi::vector_orr("v7", "v7", "v1"));
                 // Round to integral, then bounds-check the rounded double.
-                self.emit(CodeInstruction::new(frint).field("dst", "v3").field("src", "v0"));
+                self.emit(
+                    CodeInstruction::new(frint)
+                        .field("dst", "v3")
+                        .field("src", "v0"),
+                );
                 self.emit(abi::vector_fcmge("v1", "v3", "v5")); // rounded >= 2^63
                 self.emit(abi::vector_orr("v7", "v7", "v1"));
                 self.emit(abi::vector_fcmgt("v1", "v6", "v3")); // -2^63 > rounded
@@ -375,18 +383,28 @@ impl CodeBuilder<'_> {
                 self.emit(abi::float_move_x_from_d("x0", "d0"));
                 self.emit(abi::store_u64("x0", out_data, 0));
             }
-            SimdUnaryKernel::FloorFloat | SimdUnaryKernel::CeilFloat | SimdUnaryKernel::RoundFloat => {
+            SimdUnaryKernel::FloorFloat
+            | SimdUnaryKernel::CeilFloat
+            | SimdUnaryKernel::RoundFloat => {
                 self.emit_float_to_int_overflow_to_err("x0", err)?;
                 self.emit(abi::float_move_d_from_x("d0", "x0"));
                 match kernel {
-                    SimdUnaryKernel::FloorFloat => self.emit(abi::float_floor_to_signed_x("x1", "d0")),
-                    SimdUnaryKernel::CeilFloat => self.emit(abi::float_ceil_to_signed_x("x1", "d0")),
-                    SimdUnaryKernel::RoundFloat => self.emit(abi::float_round_to_signed_x("x1", "d0")),
+                    SimdUnaryKernel::FloorFloat => {
+                        self.emit(abi::float_floor_to_signed_x("x1", "d0"))
+                    }
+                    SimdUnaryKernel::CeilFloat => {
+                        self.emit(abi::float_ceil_to_signed_x("x1", "d0"))
+                    }
+                    SimdUnaryKernel::RoundFloat => {
+                        self.emit(abi::float_round_to_signed_x("x1", "d0"))
+                    }
                     _ => unreachable!(),
                 }
                 self.emit(abi::store_u64("x1", out_data, 0));
             }
-            SimdUnaryKernel::FloorFixed | SimdUnaryKernel::CeilFixed | SimdUnaryKernel::RoundFixed => {
+            SimdUnaryKernel::FloorFixed
+            | SimdUnaryKernel::CeilFixed
+            | SimdUnaryKernel::RoundFixed => {
                 let function = match kernel {
                     SimdUnaryKernel::FloorFixed => "floor",
                     SimdUnaryKernel::CeilFixed => "ceil",
@@ -476,7 +494,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
         self.emit(abi::move_register("x0", &count));
-        self.emit(abi::move_immediate("x1", "Integer", &result_type_code.to_string()));
+        self.emit(abi::move_immediate(
+            "x1",
+            "Integer",
+            &result_type_code.to_string(),
+        ));
         self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -643,7 +665,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&count, abi::stack_pointer(), count_slot));
 
         self.emit(abi::move_register("x0", &count));
-        self.emit(abi::move_immediate("x1", "Integer", &result_type_code.to_string()));
+        self.emit(abi::move_immediate(
+            "x1",
+            "Integer",
+            &result_type_code.to_string(),
+        ));
         self.emit(abi::branch_link(SIMD_ALLOC_LIST_SYMBOL));
         self.relocations.push(CodeRelocation {
             from: self.current_symbol.clone(),
@@ -742,7 +768,13 @@ impl CodeBuilder<'_> {
     }
 
     /// Scalar tail clamp: `lane` = lane, `low` = low, `high` = high; result → `lane`.
-    fn emit_simd_clamp_scalar(&mut self, kernel: SimdClampKernel, lane: &str, low: &str, high: &str) {
+    fn emit_simd_clamp_scalar(
+        &mut self,
+        kernel: SimdClampKernel,
+        lane: &str,
+        low: &str,
+        high: &str,
+    ) {
         match kernel {
             SimdClampKernel::Signed => {
                 // lane = min(lane, high)

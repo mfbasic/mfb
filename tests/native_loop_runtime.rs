@@ -49,9 +49,7 @@ fn build_project(project: &Path) -> PathBuf {
 }
 
 fn run(executable: &Path) -> String {
-    let output = Command::new(executable)
-        .output()
-        .expect("run executable");
+    let output = Command::new(executable).output().expect("run executable");
     assert!(
         output.status.success(),
         "program failed:\nstdout:\n{}\nstderr:\n{}",

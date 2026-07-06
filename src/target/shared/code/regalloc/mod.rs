@@ -18,8 +18,8 @@ use std::sync::OnceLock;
 
 use crate::arch::aarch64::regmodel::{RegClass, RegisterModel};
 
-use analysis::ClassModel;
 use super::types::CodeInstruction;
+use analysis::ClassModel;
 
 /// The sentinel prefix an integer virtual register carries in an instruction
 /// field. It cannot collide with any physical register name, immediate, symbol,

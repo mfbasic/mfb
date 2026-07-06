@@ -227,7 +227,15 @@ pub(super) fn lower_term_helper(
     term_state_offset: usize,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // Vreg-allocated (plan-00-G Phase 2): the decimal/record-build scratch buffers
     // are an explicit sp-relative local region; x9-x15 scratch becomes vregs.
     let done = format!("{symbol}_done");
@@ -391,8 +399,7 @@ pub(super) fn lower_term_helper(
     instructions.push(abi::label(&done));
     instructions.push(abi::return_());
 
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], LR_OFFSET);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LR_OFFSET);
     Ok((frame, instructions, relocations, stack_slots))
 }
 

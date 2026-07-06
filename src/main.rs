@@ -18,8 +18,8 @@ mod os;
 mod resolver;
 mod rules;
 mod scope_privates;
-mod target;
 mod syntaxcheck;
+mod target;
 #[cfg(test)]
 mod testutil;
 mod unicode_backend;

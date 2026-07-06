@@ -1,7 +1,10 @@
 use super::*;
 
 impl<'a> FileParser<'a> {
-    pub(super) fn parse_top_level_binding(&mut self, visibility: Visibility) -> Option<TopLevelBinding> {
+    pub(super) fn parse_top_level_binding(
+        &mut self,
+        visibility: Visibility,
+    ) -> Option<TopLevelBinding> {
         let keyword = self.advance().clone();
         let mutable = matches!(keyword.kind, TokenKind::Keyword(Keyword::Mut));
         let resource = matches!(keyword.kind, TokenKind::Keyword(Keyword::Res));
@@ -992,11 +995,7 @@ impl<'a> FileParser<'a> {
     /// (name resolution, duplicate/context rules, attribute validity) belong to
     /// the resolver; this only shapes the raw lines into a `DocBlock`.
     pub(super) fn parse_doc_block(&mut self, raw: lexer::DocRaw) -> Option<DocBlock> {
-        let lexer::DocRaw {
-            line,
-            attrs,
-            lines,
-        } = raw;
+        let lexer::DocRaw { line, attrs, lines } = raw;
 
         // The header is the first non-blank body line.
         let header_index = lines.iter().position(|l| !l.text.trim().is_empty());
@@ -1048,7 +1047,10 @@ impl<'a> FileParser<'a> {
         } else if header_name.is_empty() {
             self.report_at(
                 "DOC_BAD_HEADER",
-                &format!("A {} doc header must name a declaration.", header_kind.keyword()),
+                &format!(
+                    "A {} doc header must name a declaration.",
+                    header_kind.keyword()
+                ),
                 header_line,
             );
             return None;
@@ -1067,7 +1069,8 @@ impl<'a> FileParser<'a> {
         let mut props = Vec::new();
         let mut examples = Vec::new();
 
-        let flush = |current: &mut Option<(DocProseKind, Vec<String>)>, desc: &mut Vec<DocProse>| {
+        let flush = |current: &mut Option<(DocProseKind, Vec<String>)>,
+                     desc: &mut Vec<DocProse>| {
             if let Some((kind, parts)) = current.take() {
                 if !parts.is_empty() {
                     desc.push(DocProse {

@@ -63,7 +63,15 @@ pub(super) fn simple_thread_handle_helper(
     op: ThreadSimpleOp,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 48;
     const HANDLE_OFFSET: usize = 8;
     const VALUE_OFFSET: usize = 16;
@@ -74,9 +82,7 @@ pub(super) fn simple_thread_handle_helper(
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    instructions.extend([
-        abi::store_u64("x0", abi::stack_pointer(), HANDLE_OFFSET),
-    ]);
+    instructions.extend([abi::store_u64("x0", abi::stack_pointer(), HANDLE_OFFSET)]);
     match op {
         ThreadSimpleOp::IsRunning => {
             let running = format!("{symbol}_running");
@@ -727,7 +733,15 @@ pub(super) fn thread_queue_write_helper(
     parent_send: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const FRAME_SIZE: usize = 80;
     const HANDLE_OFFSET: usize = 8;
     const DATA_OFFSET: usize = 16;
@@ -941,7 +955,8 @@ pub(super) fn thread_queue_write_helper(
         abi::label(&done),
     ]);
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &["x20"], FRAME_SIZE);
+    let (frame, stack_slots) =
+        finalize_vreg_body_with_locals(&mut instructions, &["x20"], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 
@@ -977,7 +992,15 @@ pub(super) fn thread_queue_read_helper(
     mode: ThreadReadMode,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // `WorkerSelf` callers pass their own control block, so the helper restores
     // `x20` and reads the worker cancel flag; parent callers do neither.
     let worker_self = mode == ThreadReadMode::WorkerSelf;
@@ -1247,12 +1270,17 @@ pub(super) fn thread_queue_read_helper(
         abi::label(&done),
     ]);
     instructions.push(abi::return_());
-    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &["x20"], FRAME_SIZE);
+    let (frame, stack_slots) =
+        finalize_vreg_body_with_locals(&mut instructions, &["x20"], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 
-pub(super) fn thread_is_cancelled_helper(
-) -> (CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>) {
+pub(super) fn thread_is_cancelled_helper() -> (
+    CodeFrame,
+    Vec<CodeInstruction>,
+    Vec<CodeRelocation>,
+    Vec<CodeStackSlot>,
+) {
     // Reads the worker's pinned current-thread register `x20` (the thread control
     // block); reserve it so the allocator never colors the `%v9` scratch onto it.
     let cancelled = "_mfb_rt_thread_is_cancelled_true";

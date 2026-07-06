@@ -38,7 +38,6 @@ pub(super) fn constructor_arg_field_type<'a>(
     }
 }
 
-
 pub(super) fn unify_type(
     pattern: &str,
     actual: &str,
@@ -168,7 +167,10 @@ pub(super) fn user_template_parts(type_name: &str) -> Option<(String, Vec<String
     Some((name.to_string(), split_top_level_commas(rest)))
 }
 
-pub(super) fn substitute_type_params(type_name: &str, substitutions: &HashMap<String, String>) -> String {
+pub(super) fn substitute_type_params(
+    type_name: &str,
+    substitutions: &HashMap<String, String>,
+) -> String {
     if let Some(value) = substitutions.get(type_name) {
         return value.clone();
     }
@@ -339,7 +341,11 @@ pub(super) fn overload_concrete_name(
 /// The internal overload-map key: `name(param,types) AS ReturnType`. The return
 /// type is part of the key so a return-type overload set (§F.1) maps each member
 /// to its own distinct concrete symbol.
-pub(super) fn overload_key(name: &str, params: &[crate::ast::Param], return_type: Option<&str>) -> String {
+pub(super) fn overload_key(
+    name: &str,
+    params: &[crate::ast::Param],
+    return_type: Option<&str>,
+) -> String {
     let params = params
         .iter()
         .map(|param| {

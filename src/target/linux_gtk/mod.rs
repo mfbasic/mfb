@@ -26,7 +26,8 @@ use std::collections::HashMap;
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent,
+    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
+    RelocIntent,
 };
 
 // --- Emitted symbols -------------------------------------------------------
@@ -404,7 +405,7 @@ fn emit_libc_start_trampoline_x86() -> CodeFunction {
     asm.push(abi::move_immediate("x3", "Integer", "0")); // init
     asm.push(abi::move_immediate("x4", "Integer", "0")); // fini
     asm.push(abi::move_immediate("x5", "Integer", "0")); // rtld_fini
-    // stack_end = the entry sp, passed as the 7th (stack) argument.
+                                                         // stack_end = the entry sp, passed as the 7th (stack) argument.
     asm.push(abi::add_immediate("x9", abi::stack_pointer(), 0));
     asm.push(abi::subtract_stack(16));
     asm.push(abi::store_u64("x9", abi::stack_pointer(), 0));
@@ -533,8 +534,7 @@ pub(crate) fn finalize_x86_app_function(instructions: &mut Vec<CodeInstruction>)
         spill_base,
         &[],
     );
-    let spill_bytes =
-        outcome.spill_slots.len() * backend.register_model().spill_slot_bytes();
+    let spill_bytes = outcome.spill_slots.len() * backend.register_model().spill_slot_bytes();
     // Round to 16 so the bracket keeps the interior alignment parity.
     let spill_bytes = (spill_bytes + 15) & !15;
     if spill_bytes > 0 {

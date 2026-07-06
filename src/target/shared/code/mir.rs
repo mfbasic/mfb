@@ -426,7 +426,9 @@ pub(crate) fn lower_to_mir(instructions: &[CodeInstruction]) -> Vec<MirInstructi
         }
         let dst = adrp.get("dst")?;
         let symbol = adrp.get("symbol")?;
-        if add.get("dst") == Some(dst) && add.get("src") == Some(dst) && add.get("symbol") == Some(symbol)
+        if add.get("dst") == Some(dst)
+            && add.get("src") == Some(dst)
+            && add.get("symbol") == Some(symbol)
         {
             // Carry the `adrp` field bag (`[dst, symbol]`); the expansion
             // reconstructs `add_pageoff`'s `src == dst` from it.
@@ -782,8 +784,7 @@ mod tests {
     use super::*;
 
     fn assert_round_trips(original: &[CodeInstruction]) {
-        let round_tripped =
-            crate::arch::aarch64::select::select_aarch64(&lower_to_mir(original));
+        let round_tripped = crate::arch::aarch64::select::select_aarch64(&lower_to_mir(original));
         assert_eq!(
             round_tripped.len(),
             original.len(),
@@ -810,8 +811,8 @@ mod tests {
             CodeOp::Ret,
             CodeOp::LdrD,
             CodeOp::FMaddD, // scalar fused multiply-add — stays a mirror op
-            CodeOp::Clz,  // already-neutral exotic int op — stays a mirror
-            CodeOp::Rbit, // (clz/rbit/msub keep their semantic AArch64 name)
+            CodeOp::Clz,    // already-neutral exotic int op — stays a mirror
+            CodeOp::Rbit,   // (clz/rbit/msub keep their semantic AArch64 name)
             CodeOp::MSub,
         ] {
             assert_eq!(MirOp::from_code(op).to_code(), Some(op));
@@ -994,21 +995,39 @@ mod tests {
         // a v128 op with a `2xf64`/`2xi64`/`16xi8`/conversion/mem lane shape. The
         // count must match the neutrality test's 48-op coverage, so a newly added
         // v128 op cannot slip in without a pinned lane-semantics contract.
-        assert_eq!(contract.len(), 48, "every v128 op needs a lane-semantics contract row");
+        assert_eq!(
+            contract.len(),
+            48,
+            "every v128 op needs a lane-semantics contract row"
+        );
         let valid_shapes = [
-            "mem128", "2xf64", "2xi64", "16xi8", "f64->i64 x2", "i64->f64 x2", "i64->2xi64",
+            "mem128",
+            "2xf64",
+            "2xi64",
+            "16xi8",
+            "f64->i64 x2",
+            "i64->f64 x2",
+            "i64->2xi64",
             "lane->i64",
         ];
         for (op, shape, semantics) in contract {
             let mir = MirOp::from_code(op);
             assert!(mir.is_v128(), "{} must be a v128 op", mir.mnemonic());
-            assert!(valid_shapes.contains(&shape), "{}: unknown lane shape {shape}", mir.mnemonic());
+            assert!(
+                valid_shapes.contains(&shape),
+                "{}: unknown lane shape {shape}",
+                mir.mnemonic()
+            );
             assert!(!semantics.is_empty(), "{}: empty contract", mir.mnemonic());
         }
         // No two rows name the same op (the table is a function, total over v128).
         let mut seen = std::collections::HashSet::new();
         for (op, _, _) in contract {
-            assert!(seen.insert(op.mnemonic()), "duplicate contract row for {}", op.mnemonic());
+            assert!(
+                seen.insert(op.mnemonic()),
+                "duplicate contract row for {}",
+                op.mnemonic()
+            );
         }
     }
 
@@ -1016,7 +1035,9 @@ mod tests {
     #[test]
     fn lower_then_select_is_identity() {
         assert_round_trips(&[
-            CodeInstruction::new("mov").field("dst", "%v0").field("src", "x0"),
+            CodeInstruction::new("mov")
+                .field("dst", "%v0")
+                .field("src", "x0"),
             CodeInstruction::new("add")
                 .field("dst", "%v1")
                 .field("lhs", "%v0")
@@ -1032,14 +1053,18 @@ mod tests {
     fn flag_pairs_fuse_and_expand_identically() {
         // cmp_imm; b.eq (carries the debug `reason` field)
         assert_round_trips(&[
-            CodeInstruction::new("cmp_imm").field("lhs", "x0").field("rhs", "2"),
+            CodeInstruction::new("cmp_imm")
+                .field("lhs", "x0")
+                .field("rhs", "2"),
             CodeInstruction::new("b.eq")
                 .field("target", "if_else_0")
                 .field("reason", "ifFalse"),
         ]);
         // cmp; b.lt (register compare)
         assert_round_trips(&[
-            CodeInstruction::new("cmp").field("lhs", "%v0").field("rhs", "%v1"),
+            CodeInstruction::new("cmp")
+                .field("lhs", "%v0")
+                .field("rhs", "%v1"),
             CodeInstruction::new("b.lt").field("target", "L0"),
         ]);
         // adds; b.vc (integer add overflow trap)
@@ -1052,11 +1077,15 @@ mod tests {
         ]);
         // fcmp_d; b.mi (IEEE float `<`, plan-17) and fcmp_d; b.vs (finiteness)
         assert_round_trips(&[
-            CodeInstruction::new("fcmp_d").field("lhs", "%f0").field("rhs", "%f1"),
+            CodeInstruction::new("fcmp_d")
+                .field("lhs", "%f0")
+                .field("rhs", "%f1"),
             CodeInstruction::new("b.mi").field("target", "Lt"),
         ]);
         assert_round_trips(&[
-            CodeInstruction::new("fcmp_d").field("lhs", "%f0").field("rhs", "%f1"),
+            CodeInstruction::new("fcmp_d")
+                .field("lhs", "%f0")
+                .field("rhs", "%f1"),
             CodeInstruction::new("b.vs").field("target", "Lnan"),
         ]);
         // fcmp_zero_d; b.ge (compare vs zero)
@@ -1070,13 +1099,21 @@ mod tests {
     #[test]
     fn fused_op_carries_operands_and_condition() {
         let mir = lower_to_mir(&[
-            CodeInstruction::new("cmp_imm").field("lhs", "x0").field("rhs", "255"),
+            CodeInstruction::new("cmp_imm")
+                .field("lhs", "x0")
+                .field("rhs", "255"),
             CodeInstruction::new("b.hi").field("target", "range_err"),
         ]);
         assert_eq!(mir.len(), 1);
         assert_eq!(mir[0].op, MirOp::BrCcImm);
         assert_eq!(mir[0].op.mnemonic(), "br_cc_imm");
-        let get = |k: &str| mir[0].fields.iter().find(|(f, _)| *f == k).map(|(_, v)| v.as_str());
+        let get = |k: &str| {
+            mir[0]
+                .fields
+                .iter()
+                .find(|(f, _)| *f == k)
+                .map(|(_, v)| v.as_str())
+        };
         assert_eq!(get("lhs"), Some("x0"));
         assert_eq!(get("rhs"), Some("255"));
         assert_eq!(get("cond"), Some("b.hi"));
@@ -1099,11 +1136,19 @@ mod tests {
         assert_eq!(mir.len(), 1);
         assert_eq!(mir[0].op, MirOp::SyscallBr);
         assert_eq!(mir[0].op.mnemonic(), "syscall_br");
-        let get = |k: &str| mir[0].fields.iter().find(|(f, _)| *f == k).map(|(_, v)| v.as_str());
+        let get = |k: &str| {
+            mir[0]
+                .fields
+                .iter()
+                .find(|(f, _)| *f == k)
+                .map(|(_, v)| v.as_str())
+        };
         assert_eq!(get("cond"), Some("b.lo"));
         assert_eq!(get("target"), Some("encoding_error"));
         // No `svc`/`b.lo` mnemonic survives — the MIR is flagless.
-        assert!(!mir.iter().any(|m| matches!(m.op, MirOp::Syscall | MirOp::BranchLo)));
+        assert!(!mir
+            .iter()
+            .any(|m| matches!(m.op, MirOp::Syscall | MirOp::BranchLo)));
         assert_round_trips(&checked);
 
         // A bare syscall (no following flag branch) stays the neutral `syscall`.
@@ -1149,8 +1194,13 @@ mod tests {
 
         // A lone `adds` (no following flag-branch) stays a mirror op.
         let lone_adds = [
-            CodeInstruction::new("adds").field("dst", "x9").field("lhs", "x9").field("rhs", "x1"),
-            CodeInstruction::new("mov").field("dst", "x10").field("src", "x9"),
+            CodeInstruction::new("adds")
+                .field("dst", "x9")
+                .field("lhs", "x9")
+                .field("rhs", "x1"),
+            CodeInstruction::new("mov")
+                .field("dst", "x10")
+                .field("src", "x9"),
         ];
         let mir = lower_to_mir(&lone_adds);
         assert_eq!(mir[0].op, MirOp::Adds);
@@ -1164,7 +1214,9 @@ mod tests {
     #[test]
     fn multi_branch_compare_fuses_with_share() {
         let original = [
-            CodeInstruction::new("cmp").field("lhs", "x16").field("rhs", "x11"),
+            CodeInstruction::new("cmp")
+                .field("lhs", "x16")
+                .field("rhs", "x11"),
             CodeInstruction::new("b.lo").field("target", "less"),
             CodeInstruction::new("b.hi").field("target", "greater"),
         ];
@@ -1177,7 +1229,10 @@ mod tests {
         assert!(shared(&mir[1]));
         // the shared branch still carries the compare operands (self-contained)
         fn get<'a>(m: &'a MirInstruction, k: &str) -> Option<&'a str> {
-            m.fields.iter().find(|(f, _)| *f == k).map(|(_, v)| v.as_str())
+            m.fields
+                .iter()
+                .find(|(f, _)| *f == k)
+                .map(|(_, v)| v.as_str())
         }
         assert_eq!(get(&mir[1], "lhs"), Some("x16"));
         assert_eq!(get(&mir[1], "rhs"), Some("x11"));
@@ -1192,7 +1247,9 @@ mod tests {
     #[test]
     fn addr_of_fuses_and_expands_identically() {
         let original = [
-            CodeInstruction::new("adrp").field("dst", "x9").field("symbol", "str.0"),
+            CodeInstruction::new("adrp")
+                .field("dst", "x9")
+                .field("symbol", "str.0"),
             CodeInstruction::new("add_pageoff")
                 .field("dst", "x9")
                 .field("src", "x9")
@@ -1202,11 +1259,19 @@ mod tests {
         assert_eq!(mir.len(), 1);
         assert_eq!(mir[0].op, MirOp::AddrOf);
         assert_eq!(mir[0].op.mnemonic(), "addr_of");
-        let get = |k: &str| mir[0].fields.iter().find(|(f, _)| *f == k).map(|(_, v)| v.as_str());
+        let get = |k: &str| {
+            mir[0]
+                .fields
+                .iter()
+                .find(|(f, _)| *f == k)
+                .map(|(_, v)| v.as_str())
+        };
         assert_eq!(get("dst"), Some("x9"));
         assert_eq!(get("symbol"), Some("str.0"));
         // No `adrp`/`add_pageoff` mnemonic survives in the MIR (validation §5).
-        assert!(!mir.iter().any(|m| matches!(m.op, MirOp::Adrp | MirOp::AddPageOff)));
+        assert!(!mir
+            .iter()
+            .any(|m| matches!(m.op, MirOp::Adrp | MirOp::AddPageOff)));
         assert_round_trips(&original);
     }
 
@@ -1218,7 +1283,9 @@ mod tests {
     fn unpaired_or_mismatched_adrp_is_not_fused() {
         // Lone adrp followed by an unrelated op.
         let lone = [
-            CodeInstruction::new("adrp").field("dst", "x9").field("symbol", "g"),
+            CodeInstruction::new("adrp")
+                .field("dst", "x9")
+                .field("symbol", "g"),
             CodeInstruction::new("ret"),
         ];
         let mir = lower_to_mir(&lone);
@@ -1226,7 +1293,9 @@ mod tests {
         assert_round_trips(&lone);
         // add_pageoff on a *different* register than the adrp — not an addr_of.
         let mismatch = [
-            CodeInstruction::new("adrp").field("dst", "x9").field("symbol", "g"),
+            CodeInstruction::new("adrp")
+                .field("dst", "x9")
+                .field("symbol", "g"),
             CodeInstruction::new("add_pageoff")
                 .field("dst", "x10")
                 .field("src", "x10")
@@ -1253,71 +1322,152 @@ mod tests {
     fn round_trip_sweep_over_every_op_family() {
         let fixtures: [CodeInstruction; 39] = [
             // — moves & immediates —
-            CodeInstruction::new("mov").field("dst", "%v0").field("src", "x1"),
-            CodeInstruction::new("mov_imm").field("dst", "%v1").field("value", "4294967296"),
+            CodeInstruction::new("mov")
+                .field("dst", "%v0")
+                .field("src", "x1"),
+            CodeInstruction::new("mov_imm")
+                .field("dst", "%v1")
+                .field("value", "4294967296"),
             // — universal ALU (incl. the immediate forms that keep small imms) —
-            CodeInstruction::new("add").field("dst", "%v2").field("lhs", "%v0").field("rhs", "%v1"),
-            CodeInstruction::new("sub").field("dst", "%v3").field("lhs", "%v2").field("rhs", "%v0"),
-            CodeInstruction::new("mul").field("dst", "%v4").field("lhs", "%v2").field("rhs", "%v3"),
-            CodeInstruction::new("and").field("dst", "%v5").field("lhs", "%v4").field("rhs", "%v0"),
-            CodeInstruction::new("orr").field("dst", "%v6").field("lhs", "%v5").field("rhs", "%v1"),
-            CodeInstruction::new("eor").field("dst", "%v7").field("lhs", "%v6").field("rhs", "%v2"),
-            CodeInstruction::new("mvn").field("dst", "%v8").field("src", "%v7"),
-            CodeInstruction::new("sdiv").field("dst", "%v9").field("lhs", "%v8").field("rhs", "%v0"),
-            CodeInstruction::new("udiv").field("dst", "%v10").field("lhs", "%v9").field("rhs", "%v1"),
-            CodeInstruction::new("lslv").field("dst", "%v11").field("lhs", "%v10").field("rhs", "%v0"),
-            CodeInstruction::new("add_imm").field("dst", "%v12").field("src", "%v11").field("imm", "8"),
-            CodeInstruction::new("lsl_imm").field("dst", "%v13").field("src", "%v12").field("shift", "3"),
+            CodeInstruction::new("add")
+                .field("dst", "%v2")
+                .field("lhs", "%v0")
+                .field("rhs", "%v1"),
+            CodeInstruction::new("sub")
+                .field("dst", "%v3")
+                .field("lhs", "%v2")
+                .field("rhs", "%v0"),
+            CodeInstruction::new("mul")
+                .field("dst", "%v4")
+                .field("lhs", "%v2")
+                .field("rhs", "%v3"),
+            CodeInstruction::new("and")
+                .field("dst", "%v5")
+                .field("lhs", "%v4")
+                .field("rhs", "%v0"),
+            CodeInstruction::new("orr")
+                .field("dst", "%v6")
+                .field("lhs", "%v5")
+                .field("rhs", "%v1"),
+            CodeInstruction::new("eor")
+                .field("dst", "%v7")
+                .field("lhs", "%v6")
+                .field("rhs", "%v2"),
+            CodeInstruction::new("mvn")
+                .field("dst", "%v8")
+                .field("src", "%v7"),
+            CodeInstruction::new("sdiv")
+                .field("dst", "%v9")
+                .field("lhs", "%v8")
+                .field("rhs", "%v0"),
+            CodeInstruction::new("udiv")
+                .field("dst", "%v10")
+                .field("lhs", "%v9")
+                .field("rhs", "%v1"),
+            CodeInstruction::new("lslv")
+                .field("dst", "%v11")
+                .field("lhs", "%v10")
+                .field("rhs", "%v0"),
+            CodeInstruction::new("add_imm")
+                .field("dst", "%v12")
+                .field("src", "%v11")
+                .field("imm", "8"),
+            CodeInstruction::new("lsl_imm")
+                .field("dst", "%v13")
+                .field("src", "%v12")
+                .field("shift", "3"),
             // — neutral-renamed "exotic" integer ops (Phase 3) —
-            CodeInstruction::new("smulh").field("dst", "%v14").field("lhs", "%v0").field("rhs", "%v1"),
-            CodeInstruction::new("umulh").field("dst", "%v15").field("lhs", "%v0").field("rhs", "%v1"),
+            CodeInstruction::new("smulh")
+                .field("dst", "%v14")
+                .field("lhs", "%v0")
+                .field("rhs", "%v1"),
+            CodeInstruction::new("umulh")
+                .field("dst", "%v15")
+                .field("lhs", "%v0")
+                .field("rhs", "%v1"),
             CodeInstruction::new("add_carry")
                 .field("dst", "%v16")
                 .field("carry_out", "%v26")
                 .field("lhs", "%v14")
                 .field("rhs", "%v15")
                 .field("carry_in", "xzr"),
-            CodeInstruction::new("rorv").field("dst", "%v17").field("lhs", "%v16").field("rhs", "%v0"),
-            CodeInstruction::new("rev_x").field("dst", "%v18").field("src", "%v17"),
-            CodeInstruction::new("clz").field("dst", "%v19").field("src", "%v18"),
+            CodeInstruction::new("rorv")
+                .field("dst", "%v17")
+                .field("lhs", "%v16")
+                .field("rhs", "%v0"),
+            CodeInstruction::new("rev_x")
+                .field("dst", "%v18")
+                .field("src", "%v17"),
+            CodeInstruction::new("clz")
+                .field("dst", "%v19")
+                .field("src", "%v18"),
             CodeInstruction::new("msub")
                 .field("dst", "%v20")
                 .field("lhs", "%v0")
                 .field("rhs", "%v1")
                 .field("minuend", "%v2"),
             // — structural addr_of page pair (Phase 1): fuses to one op —
-            CodeInstruction::new("adrp").field("dst", "%v21").field("symbol", "pool"),
+            CodeInstruction::new("adrp")
+                .field("dst", "%v21")
+                .field("symbol", "pool"),
             CodeInstruction::new("add_pageoff")
                 .field("dst", "%v21")
                 .field("src", "%v21")
                 .field("symbol", "pool"),
             // — loads/stores, every width; the u8 store addresses the abstract
             //   arena base (the pinned x19), exercising the plan-00-D rename —
-            CodeInstruction::new("ldr_u64").field("dst", "%v22").field("base", "%v21").field("offset", "0"),
-            CodeInstruction::new("str_u8").field("src", "%v22").field("base", "x19").field("offset", "16"),
-            CodeInstruction::new("ldr_d").field("dst", "%f0").field("base", "%v21").field("offset", "24"),
+            CodeInstruction::new("ldr_u64")
+                .field("dst", "%v22")
+                .field("base", "%v21")
+                .field("offset", "0"),
+            CodeInstruction::new("str_u8")
+                .field("src", "%v22")
+                .field("base", "x19")
+                .field("offset", "16"),
+            CodeInstruction::new("ldr_d")
+                .field("dst", "%f0")
+                .field("base", "%v21")
+                .field("offset", "24"),
             // — scalar float arith + renamed conversions / bit-reinterprets (Phase 4) —
-            CodeInstruction::new("fadd_d").field("dst", "%f1").field("lhs", "%f0").field("rhs", "%f0"),
+            CodeInstruction::new("fadd_d")
+                .field("dst", "%f1")
+                .field("lhs", "%f0")
+                .field("rhs", "%f0"),
             CodeInstruction::new("fmadd_d")
                 .field("dst", "%f2")
                 .field("lhs", "%f1")
                 .field("rhs", "%f0")
                 .field("acc", "%f1"),
-            CodeInstruction::new("scvtf_d_from_x").field("dst", "%f3").field("src", "%v0"),
-            CodeInstruction::new("fcvtzs_x_from_d").field("dst", "%v23").field("src", "%f3"),
-            CodeInstruction::new("fcvtms_x_from_d").field("dst", "%v24").field("src", "%f3"),
-            CodeInstruction::new("fmov_d_from_x").field("dst", "%f4").field("src", "%v0"),
-            CodeInstruction::new("fmov_x_from_d").field("dst", "%v25").field("src", "%f4"),
+            CodeInstruction::new("scvtf_d_from_x")
+                .field("dst", "%f3")
+                .field("src", "%v0"),
+            CodeInstruction::new("fcvtzs_x_from_d")
+                .field("dst", "%v23")
+                .field("src", "%f3"),
+            CodeInstruction::new("fcvtms_x_from_d")
+                .field("dst", "%v24")
+                .field("src", "%f3"),
+            CodeInstruction::new("fmov_d_from_x")
+                .field("dst", "%f4")
+                .field("src", "%v0"),
+            CodeInstruction::new("fmov_x_from_d")
+                .field("dst", "%v25")
+                .field("src", "%f4"),
             // — NEON `v128` op (plan-00-E): the `fmla_v` MAC neutralizes to
             //   `v128.fma`; no `*_v` NEON mnemonic survives —
-            CodeInstruction::new("fmla_v").field("dst", "%f5").field("lhs", "%f3").field("rhs", "%f4"),
+            CodeInstruction::new("fmla_v")
+                .field("dst", "%f5")
+                .field("lhs", "%f3")
+                .field("rhs", "%f4"),
             // — machine-y call/syscall vocabulary (plan-00-F): the helpers'
             //   `bl`/`blr`/`svc` neutralize to `call`/`call_indirect`/`syscall` —
             CodeInstruction::new("bl").field("target", "_mfb_arena_alloc"),
             CodeInstruction::new("blr").field("register", "x16"),
             CodeInstruction::new("svc"),
             // — fused flagless control flow (Phases B/C neighbours) —
-            CodeInstruction::new("cmp").field("lhs", "%v0").field("rhs", "%v1"),
+            CodeInstruction::new("cmp")
+                .field("lhs", "%v0")
+                .field("rhs", "%v1"),
             CodeInstruction::new("b.lt").field("target", "Lbody"),
         ];
         assert_round_trips(&fixtures);
@@ -1327,14 +1477,43 @@ mod tests {
         // float↔int conversions, the `adrp` page pair, and the NEON `*_v` tail.
         let mir = lower_to_mir(&fixtures);
         let banned = [
-            "adrp", "add_pageoff", "smulh", "umulh", "add_carry", "sub_borrow", "rorv", "rorv_w", "rev_w", "rev_x",
-            "fcvtzs_x_from_d", "fcvtms_x_from_d", "fcvtps_x_from_d", "fcvtas_x_from_d",
-            "scvtf_d_from_x", "fmov_d_from_x", "fmov_x_from_d",
+            "adrp",
+            "add_pageoff",
+            "smulh",
+            "umulh",
+            "add_carry",
+            "sub_borrow",
+            "rorv",
+            "rorv_w",
+            "rev_w",
+            "rev_x",
+            "fcvtzs_x_from_d",
+            "fcvtms_x_from_d",
+            "fcvtps_x_from_d",
+            "fcvtas_x_from_d",
+            "scvtf_d_from_x",
+            "fmov_d_from_x",
+            "fmov_x_from_d",
             // NEON-tail mnemonics — none may appear (now `v128.*`, plan-00-E).
-            "ldr_q", "str_q", "fadd_v", "fmla_v", "fcmgt_v", "frintn_v", "fcvtzs_v", "scvtf_v",
-            "add_v", "sshl_v", "shl_v", "bsl_v", "bit_v", "dup_v_from_x", "umov_x_from_v",
+            "ldr_q",
+            "str_q",
+            "fadd_v",
+            "fmla_v",
+            "fcmgt_v",
+            "frintn_v",
+            "fcvtzs_v",
+            "scvtf_v",
+            "add_v",
+            "sshl_v",
+            "shl_v",
+            "bsl_v",
+            "bit_v",
+            "dup_v_from_x",
+            "umov_x_from_v",
             // Machine-y mnemonics — now `call`/`call_indirect`/`syscall` (plan-00-F).
-            "bl", "blr", "svc",
+            "bl",
+            "blr",
+            "svc",
         ];
         let mut saw_v128 = false;
         let mut saw_call = false;
@@ -1352,7 +1531,10 @@ mod tests {
             saw_syscall |= mnemonic == "syscall";
         }
         assert!(saw_v128, "the NEON fixture did not lower to a `v128.*` op");
-        assert!(saw_call, "the bl/blr fixtures did not lower to `call`/`call_indirect`");
+        assert!(
+            saw_call,
+            "the bl/blr fixtures did not lower to `call`/`call_indirect`"
+        );
         assert!(saw_syscall, "the svc fixture did not lower to `syscall`");
 
         // The pinned arena register never appears in the MIR: the `str_u8`
@@ -1372,7 +1554,10 @@ mod tests {
                 }
             }
         }
-        assert!(saw_arena_base, "the arena-base fixture did not lower to `arena_base`");
+        assert!(
+            saw_arena_base,
+            "the arena-base fixture did not lower to `arena_base`"
+        );
     }
 
     /// `arena_base` is the identity through the MIR: an arena load/store names
@@ -1394,10 +1579,18 @@ mod tests {
         ];
         let mir = lower_to_mir(&original);
         // Both base fields are renamed to the neutral `arena_base`; the vreg is not.
-        let base = |i: usize| mir[i].fields.iter().find(|(k, _)| *k == "base").map(|(_, v)| v.as_str());
+        let base = |i: usize| {
+            mir[i]
+                .fields
+                .iter()
+                .find(|(k, _)| *k == "base")
+                .map(|(_, v)| v.as_str())
+        };
         assert_eq!(base(0), Some(ARENA_BASE));
         assert_eq!(base(1), Some(ARENA_BASE));
-        assert!(!mir.iter().any(|m| m.fields.iter().any(|(_, v)| v == realization)));
+        assert!(!mir
+            .iter()
+            .any(|m| m.fields.iter().any(|(_, v)| v == realization)));
         // …and selection restores the pinned register exactly.
         assert_round_trips(&original);
     }
@@ -1417,7 +1610,11 @@ mod tests {
             (RelocIntent::GotLoadLo, "got_load_lo", "pageoff12"),
         ] {
             assert_eq!(intent.name(), neutral);
-            assert_ne!(intent.name(), concrete, "the -mir name must not be an AArch64 kind");
+            assert_ne!(
+                intent.name(),
+                concrete,
+                "the -mir name must not be an AArch64 kind"
+            );
             assert_eq!(reloc_kind(intent), concrete);
         }
     }

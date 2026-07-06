@@ -191,7 +191,12 @@ impl TypeTable {
         self.add_entry(strings, "", &name, 4, payload)
     }
 
-    pub(super) fn map_type(&mut self, strings: &mut StringPool, key_type: u32, value_type: u32) -> u32 {
+    pub(super) fn map_type(
+        &mut self,
+        strings: &mut StringPool,
+        key_type: u32,
+        value_type: u32,
+    ) -> u32 {
         let name = format!("Map#{key_type}#{value_type}");
         if let Some(id) = self.ids.get(&name) {
             return *id;
@@ -203,7 +208,12 @@ impl TypeTable {
         self.add_entry(strings, "", &name, 5, payload)
     }
 
-    pub(super) fn map_entry_type(&mut self, strings: &mut StringPool, key_type: u32, value_type: u32) -> u32 {
+    pub(super) fn map_entry_type(
+        &mut self,
+        strings: &mut StringPool,
+        key_type: u32,
+        value_type: u32,
+    ) -> u32 {
         let name = format!("MapEntry#{key_type}#{value_type}");
         if let Some(id) = self.ids.get(&name) {
             return *id;
@@ -421,7 +431,11 @@ impl ResourceTable {
         });
     }
 
-    pub(super) fn add_standard_listener(&mut self, types: &mut TypeTable, strings: &mut StringPool) {
+    pub(super) fn add_standard_listener(
+        &mut self,
+        types: &mut TypeTable,
+        strings: &mut StringPool,
+    ) {
         let type_id = types.type_id(strings, builtins::net::LISTENER_TYPE);
         self.entries.push(ResourceEntry {
             type_id,

@@ -31,7 +31,6 @@ pub(super) fn push_symbol_address(
     ]);
 }
 
-
 pub(super) fn push_error_message_address(
     from: &str,
     symbol: &str,
@@ -66,7 +65,6 @@ pub(super) fn push_error_message_address(
         },
     ]);
 }
-
 
 pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
     let mut values = Vec::new();
@@ -332,7 +330,6 @@ pub(super) fn string_symbols(module: &NirModule) -> HashMap<String, String> {
 /// (plan-linker.md §12): the allocation message is already covered by the
 /// standard set, so only the two binding-specific messages are listed here.
 
-
 fn collect_type_name_values(module: &NirModule, values: &mut Vec<String>) {
     for value in [
         "Boolean", "Byte", "Error", "Fixed", "Float", "Integer", "Nothing", "String",
@@ -359,7 +356,6 @@ fn collect_type_name_values(module: &NirModule, values: &mut Vec<String>) {
         collect_type_name_values_from_ops(&function.body, values);
     }
 }
-
 
 fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
     for op in ops {
@@ -450,7 +446,6 @@ fn collect_type_name_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
     }
 }
 
-
 fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String>) {
     match value {
         NirValue::Const { type_, .. }
@@ -533,7 +528,6 @@ fn collect_type_name_values_from_value(value: &NirValue, values: &mut Vec<String
     }
 }
 
-
 pub(super) fn unicode_string_call_is_static(
     target: &str,
     args: &[NirValue],
@@ -550,7 +544,6 @@ pub(super) fn unicode_string_call_is_static(
     ) && args.len() == 1
         && static_string_value_with_constants(&args[0], constants, types).is_some()
 }
-
 
 pub(super) fn unicode_runtime_data_objects() -> Vec<CodeDataObject> {
     let tables = crate::unicode_runtime_tables::tables();
@@ -656,7 +649,6 @@ pub(super) fn unicode_runtime_data_objects() -> Vec<CodeDataObject> {
     ]
 }
 
-
 fn raw_data_object(
     symbol: &str,
     layout: &str,
@@ -674,13 +666,11 @@ fn raw_data_object(
     }
 }
 
-
 fn collect_string_values_from_ops(ops: &[NirOp], values: &mut Vec<String>) {
     let mut constants = HashMap::new();
     let mut types = HashMap::new();
     collect_string_values_from_ops_with_constants(ops, values, &mut constants, &mut types);
 }
-
 
 fn collect_string_values_from_ops_with_constants(
     ops: &[NirOp],
@@ -857,7 +847,6 @@ fn collect_string_values_from_ops_with_constants(
     }
 }
 
-
 fn collect_string_values_from_value(
     value: &NirValue,
     values: &mut Vec<String>,
@@ -951,13 +940,11 @@ fn collect_string_values_from_value(
     }
 }
 
-
 fn push_string_value(values: &mut Vec<String>, value: String) {
     if !values.contains(&value) {
         values.push(value);
     }
 }
-
 
 pub(super) fn static_string_value_with_constants(
     value: &NirValue,
@@ -997,7 +984,6 @@ pub(super) fn static_string_value_with_constants(
         _ => None,
     }
 }
-
 
 pub(super) fn static_type_name_with_types(
     value: &NirValue,
@@ -1093,7 +1079,6 @@ pub(super) fn static_type_name_with_types(
     }
 }
 
-
 pub(super) fn builtin_function_symbol_for_type(name: &str, type_: &str) -> Option<String> {
     builtins::general::builtin_function_id_for_type(name, type_)?;
     Some(format!(
@@ -1103,7 +1088,6 @@ pub(super) fn builtin_function_symbol_for_type(name: &str, type_: &str) -> Optio
     ))
 }
 
-
 pub(super) fn builtin_function_refs(module: &NirModule) -> Vec<(String, String, String)> {
     let mut refs = Vec::new();
     let mut seen = HashSet::new();
@@ -1112,7 +1096,6 @@ pub(super) fn builtin_function_refs(module: &NirModule) -> Vec<(String, String, 
     }
     refs
 }
-
 
 fn collect_builtin_function_refs_in_ops(
     ops: &[NirOp],
@@ -1192,7 +1175,6 @@ fn collect_builtin_function_refs_in_ops(
     }
 }
 
-
 fn collect_builtin_function_refs_in_value(
     value: &NirValue,
     refs: &mut Vec<(String, String, String)>,
@@ -1267,4 +1249,3 @@ fn collect_builtin_function_refs_in_value(
         | NirValue::Global { .. } => {}
     }
 }
-

@@ -354,13 +354,19 @@ impl CodeBuilder<'_> {
         // Overflow cutoff: limit = negative ? 2^63 : i64::MAX. With base >= 2,
         // cutoff = limit / base and cutlim = limit - cutoff*base both fit a
         // positive i64, so the per-digit check below uses signed compares.
-        self.emit(abi::move_immediate(scratch, "Integer", "9223372036854775807"));
+        self.emit(abi::move_immediate(
+            scratch,
+            "Integer",
+            "9223372036854775807",
+        ));
         self.emit(abi::compare_immediate(negative, "0"));
         self.emit(abi::branch_eq(&limit_ready));
         self.emit(abi::add_immediate(scratch, scratch, 1));
         self.emit(abi::label(&limit_ready));
         self.emit(abi::unsigned_divide_registers(cutoff, scratch, base));
-        self.emit(abi::multiply_subtract_registers(cutlim, cutoff, base, scratch));
+        self.emit(abi::multiply_subtract_registers(
+            cutlim, cutoff, base, scratch,
+        ));
 
         self.emit(abi::label(&loop_start));
         self.emit(abi::compare_registers(index, length));

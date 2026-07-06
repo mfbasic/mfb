@@ -66,7 +66,11 @@ impl CodeBuilder<'_> {
         let mask = !((alignment - 1) as u64);
         self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), slot));
         self.emit(abi::add_immediate(&scratch12, &scratch12, alignment - 1));
-        self.emit(abi::move_immediate(&scratch13, "Integer", &mask.to_string()));
+        self.emit(abi::move_immediate(
+            &scratch13,
+            "Integer",
+            &mask.to_string(),
+        ));
         self.emit(abi::and_registers(&scratch12, &scratch12, &scratch13));
         self.emit(abi::store_u64(&scratch12, abi::stack_pointer(), slot));
     }
@@ -294,7 +298,11 @@ impl CodeBuilder<'_> {
         // alloc size = HEADER + count * ENTRY + dataLength.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::move_immediate(
             &scratch11,
             "Integer",
@@ -341,7 +349,11 @@ impl CodeBuilder<'_> {
         // Tight header: capacity == count, dataCapacity == dataLength.
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::load_u64(&scratch10, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
+        self.emit(abi::load_u64(
+            &scratch10,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
         self.emit_write_list_header_from_registers(&layout, "x1", &scratch9, &scratch10);
 
@@ -349,7 +361,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch17, "x1", COLLECTION_HEADER_SIZE));
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
-        self.emit(abi::add_immediate(&scratch20, &scratch8, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch20,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::load_u64(&scratch9, &scratch8, COLLECTION_OFFSET_COUNT));
         self.emit(abi::move_immediate(
             &scratch16,
@@ -357,7 +373,13 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch21, &scratch9, &scratch16));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch21, &scratch22, "tight_copy_entries");
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch21,
+            &scratch22,
+            "tight_copy_entries",
+        );
 
         // Copy the data region verbatim (dataLength bytes). Source base is
         // capacity-based (it may have headroom); destination base is count-based
@@ -366,8 +388,18 @@ impl CodeBuilder<'_> {
         self.emit_collection_data_pointer(&scratch17, "x1");
         self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), source_slot));
         self.emit_collection_data_pointer(&scratch20, &scratch8);
-        self.emit(abi::load_u64(&scratch14, &scratch8, COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit_block_copy_advance(&scratch17, &scratch20, &scratch14, &scratch22, "tight_copy_data");
+        self.emit(abi::load_u64(
+            &scratch14,
+            &scratch8,
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit_block_copy_advance(
+            &scratch17,
+            &scratch20,
+            &scratch14,
+            &scratch22,
+            "tight_copy_data",
+        );
 
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
@@ -596,7 +628,11 @@ impl CodeBuilder<'_> {
         let inner_size_slot = self.allocate_stack_object("union_wrap_inner_size", 8);
         self.emit_record_block_size_to_slot(member_type, record_ptr_slot, inner_size_slot)?;
         let size_slot = self.allocate_stack_object("union_wrap_size", 8);
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), inner_size_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            inner_size_slot,
+        ));
         self.emit(abi::add_immediate(&scratch8, &scratch8, 16));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         let result_slot = self.allocate_stack_object("union_wrap_result", 8);
@@ -631,8 +667,16 @@ impl CodeBuilder<'_> {
         // Inline the variant record block at +16.
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch11, &scratch11, 16));
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), record_ptr_slot));
-        self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), inner_size_slot));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            record_ptr_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch13,
+            abi::stack_pointer(),
+            inner_size_slot,
+        ));
         self.emit_copy_bytes(&scratch11, &scratch12, &scratch13, "union_wrap_block");
         let register = self.allocate_register()?;
         self.emit(abi::load_u64(&register, abi::stack_pointer(), result_slot));
@@ -661,7 +705,11 @@ impl CodeBuilder<'_> {
             .cloned()
             .ok_or_else(|| format!("native record type '{record_type}' does not resolve"))?;
         let fixed = 8 * fields.len();
-        self.emit(abi::move_immediate(&scratch8, "Integer", &fixed.to_string()));
+        self.emit(abi::move_immediate(
+            &scratch8,
+            "Integer",
+            &fixed.to_string(),
+        ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), out_slot));
         for (_, field_type) in &fields {
             if !self.record_field_is_inlined(record_type, field_type) {
@@ -673,7 +721,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), base_slot));
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), out_slot));
             self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
-            self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), inner_base_slot));
+            self.emit(abi::store_u64(
+                &scratch8,
+                abi::stack_pointer(),
+                inner_base_slot,
+            ));
             let inner_size_slot = self.allocate_stack_object("record_size_inner_size", 8);
             self.emit_inlined_block_size_from_ptr_slot(
                 field_type,
@@ -681,7 +733,11 @@ impl CodeBuilder<'_> {
                 inner_size_slot,
             )?;
             self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), out_slot));
-            self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), inner_size_slot));
+            self.emit(abi::load_u64(
+                &scratch8,
+                abi::stack_pointer(),
+                inner_size_slot,
+            ));
             self.emit(abi::add_registers(&scratch9, &scratch9, &scratch8));
             self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), out_slot));
         }
@@ -725,7 +781,11 @@ impl CodeBuilder<'_> {
         let alloc_ok = self.label("record_build_alloc_ok");
 
         // Pass 1: total size = fixed slots + each inlined sub-block.
-        self.emit(abi::move_immediate(&scratch8, "Integer", &fixed.to_string()));
+        self.emit(abi::move_immediate(
+            &scratch8,
+            "Integer",
+            &fixed.to_string(),
+        ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
             if !self.record_field_is_inlined(record_type, field_type) {
@@ -738,7 +798,11 @@ impl CodeBuilder<'_> {
                 field_slots[index],
                 block_size_slot,
             )?;
-            self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), block_size_slot));
+            self.emit(abi::load_u64(
+                &scratch9,
+                abi::stack_pointer(),
+                block_size_slot,
+            ));
             self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), size_slot));
             self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
             self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), size_slot));
@@ -768,7 +832,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
 
         // Pass 2: write slots; inline each flat sub-block into the data region.
-        self.emit(abi::move_immediate(&scratch8, "Integer", &fixed.to_string()));
+        self.emit(abi::move_immediate(
+            &scratch8,
+            "Integer",
+            &fixed.to_string(),
+        ));
         self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), cursor_slot));
         for (index, (_, field_type)) in fields.iter().enumerate() {
             if self.record_field_is_inlined(record_type, field_type) {
@@ -793,10 +861,18 @@ impl CodeBuilder<'_> {
                     abi::stack_pointer(),
                     field_slots[index],
                 ));
-                self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), block_size_slot));
+                self.emit(abi::load_u64(
+                    &scratch13,
+                    abi::stack_pointer(),
+                    block_size_slot,
+                ));
                 self.emit_copy_bytes(&scratch11, &scratch12, &scratch13, "record_inline_block");
                 // Advance the cursor by the same block length.
-                self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), block_size_slot));
+                self.emit(abi::load_u64(
+                    &scratch13,
+                    abi::stack_pointer(),
+                    block_size_slot,
+                ));
                 self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), cursor_slot));
                 self.emit(abi::add_registers(&scratch9, &scratch9, &scratch13));
                 self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), cursor_slot));
@@ -900,7 +976,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), source_slot));
-        self.emit(abi::move_immediate(&scratch13, "Integer", &size.to_string()));
+        self.emit(abi::move_immediate(
+            &scratch13,
+            "Integer",
+            &size.to_string(),
+        ));
         self.emit_copy_bytes("x1", &scratch9, &scratch13, "inline_value_arena_copy");
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
@@ -1058,7 +1138,11 @@ impl CodeBuilder<'_> {
         let count = slots.len();
         let data_len_slot = self.allocate_stack_object("collection_data_len", 8);
         self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         for slot in &slots {
             if let Some(key) = &slot.key {
                 // Map entries pack a key then a value; round each payload's start
@@ -1077,7 +1161,11 @@ impl CodeBuilder<'_> {
 
         let collection_slot = self.allocate_stack_object("collection_literal", 8);
         let alloc_ok = self.label("collection_alloc_ok");
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         // A map reserves a `2*capacity` u64 bucket array past the data region;
         // capacity == count for a literal, so fold it into the constant.
         let bucket_bytes = if layout.kind == COLLECTION_KIND_MAP {
@@ -1090,7 +1178,11 @@ impl CodeBuilder<'_> {
             "Integer",
             &(COLLECTION_HEADER_SIZE + count * COLLECTION_ENTRY_SIZE + bucket_bytes).to_string(),
         ));
-        self.emit(abi::add_registers(abi::return_register(), &scratch8, &scratch9));
+        self.emit(abi::add_registers(
+            abi::return_register(),
+            &scratch8,
+            &scratch9,
+        ));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
         self.emit(abi::branch_link(ARENA_ALLOC_SYMBOL));
         self.relocations.push(CodeRelocation {
@@ -1113,7 +1205,11 @@ impl CodeBuilder<'_> {
 
         let data_offset_slot = self.allocate_stack_object("collection_data_offset", 8);
         self.emit(abi::move_immediate(&scratch8, "Integer", "0"));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
 
         for (index, slot) in slots.iter().enumerate() {
             self.emit_write_collection_entry(collection_slot, index, slot, data_offset_slot)?;
@@ -1138,7 +1234,11 @@ impl CodeBuilder<'_> {
         data_len_slot: usize,
     ) {
         let scratch8 = self.temporary_vreg();
-        self.emit(abi::move_immediate(&scratch8, "Byte", &layout.kind.to_string()));
+        self.emit(abi::move_immediate(
+            &scratch8,
+            "Byte",
+            &layout.kind.to_string(),
+        ));
         self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_KIND));
         self.emit(abi::move_immediate(
             &scratch8,
@@ -1153,16 +1253,40 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_VALUE_TYPE));
         self.emit(abi::move_immediate(&scratch8, "Byte", "1"));
-        self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_FLAGS_VERSION));
+        self.emit(abi::store_u8(
+            &scratch8,
+            "x1",
+            COLLECTION_OFFSET_FLAGS_VERSION,
+        ));
         // Map hash index built lazily on first probe (no-op field for lists).
         self.emit(abi::move_immediate(&scratch8, "Byte", "0"));
-        self.emit(abi::store_u8(&scratch8, "x1", COLLECTION_OFFSET_BUCKETS_READY));
-        self.emit(abi::move_immediate(&scratch8, "Integer", &count.to_string()));
+        self.emit(abi::store_u8(
+            &scratch8,
+            "x1",
+            COLLECTION_OFFSET_BUCKETS_READY,
+        ));
+        self.emit(abi::move_immediate(
+            &scratch8,
+            "Integer",
+            &count.to_string(),
+        ));
         self.emit(abi::store_u64(&scratch8, "x1", COLLECTION_OFFSET_COUNT));
         self.emit(abi::store_u64(&scratch8, "x1", COLLECTION_OFFSET_CAPACITY));
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), data_len_slot));
-        self.emit(abi::store_u64(&scratch8, "x1", COLLECTION_OFFSET_DATA_LENGTH));
-        self.emit(abi::store_u64(&scratch8, "x1", COLLECTION_OFFSET_DATA_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
+        self.emit(abi::store_u64(
+            &scratch8,
+            "x1",
+            COLLECTION_OFFSET_DATA_LENGTH,
+        ));
+        self.emit(abi::store_u64(
+            &scratch8,
+            "x1",
+            COLLECTION_OFFSET_DATA_CAPACITY,
+        ));
     }
 
     pub(super) fn emit_write_collection_entry(
@@ -1213,13 +1337,21 @@ impl CodeBuilder<'_> {
                 abi::stack_pointer(),
                 collection_slot,
             ));
-            self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), data_offset_slot));
+            self.emit(abi::load_u64(
+                &scratch10,
+                abi::stack_pointer(),
+                data_offset_slot,
+            ));
             self.emit(abi::store_u64(
                 &scratch10,
                 collection_register,
                 entry_offset + COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
             ));
-            self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), key_len_slot));
+            self.emit(abi::load_u64(
+                &scratch11,
+                abi::stack_pointer(),
+                key_len_slot,
+            ));
             self.emit(abi::store_u64(
                 &scratch11,
                 collection_register,
@@ -1258,13 +1390,21 @@ impl CodeBuilder<'_> {
             abi::stack_pointer(),
             collection_slot,
         ));
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(
+            &scratch10,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch10,
             collection_register,
             entry_offset + COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
         ));
-        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), value_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            value_len_slot,
+        ));
         self.emit(abi::store_u64(
             &scratch11,
             collection_register,
@@ -1367,10 +1507,26 @@ impl CodeBuilder<'_> {
         let scratch12 = self.temporary_vreg();
         let scratch13 = self.temporary_vreg();
         let scratch14 = self.temporary_vreg();
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), collection_slot));
-        self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), data_offset_slot));
-        self.emit(abi::add_immediate(&scratch10, &scratch8, COLLECTION_HEADER_SIZE));
-        self.emit(abi::load_u64(&scratch11, &scratch8, COLLECTION_OFFSET_CAPACITY));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
+        self.emit(abi::add_immediate(
+            &scratch10,
+            &scratch8,
+            COLLECTION_HEADER_SIZE,
+        ));
+        self.emit(abi::load_u64(
+            &scratch11,
+            &scratch8,
+            COLLECTION_OFFSET_CAPACITY,
+        ));
         self.emit(abi::move_immediate(
             &scratch12,
             "Integer",
@@ -1382,17 +1538,29 @@ impl CodeBuilder<'_> {
 
         match payload.type_.as_str() {
             "Boolean" | "Byte" => {
-                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64(
+                    &scratch12,
+                    abi::stack_pointer(),
+                    payload.slot,
+                ));
                 self.emit(abi::store_u8(&scratch12, &scratch10, 0));
             }
             "Integer" | "Float" | "Fixed" => {
-                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64(
+                    &scratch12,
+                    abi::stack_pointer(),
+                    payload.slot,
+                ));
                 self.emit(abi::store_u64(&scratch12, &scratch10, 0));
             }
             "String" => {
                 let loop_label = self.label("collection_copy_string_loop");
                 let done_label = self.label("collection_copy_string_done");
-                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64(
+                    &scratch12,
+                    abi::stack_pointer(),
+                    payload.slot,
+                ));
                 self.emit(abi::add_immediate(&scratch12, &scratch12, 8));
                 self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), len_slot));
                 self.emit(abi::label(&loop_label));
@@ -1407,7 +1575,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&done_label));
             }
             other if self.is_pointer_collection_payload_type(other) => {
-                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64(
+                    &scratch12,
+                    abi::stack_pointer(),
+                    payload.slot,
+                ));
                 self.emit(abi::store_u64(&scratch12, &scratch10, 0));
             }
             other
@@ -1416,7 +1588,11 @@ impl CodeBuilder<'_> {
             {
                 // Inline record/union slot bytes, or a flat nested collection
                 // block — copy `len_slot` bytes verbatim (plan-02 §4.2–§4.4).
-                self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), payload.slot));
+                self.emit(abi::load_u64(
+                    &scratch12,
+                    abi::stack_pointer(),
+                    payload.slot,
+                ));
                 self.emit(abi::load_u64(&scratch13, abi::stack_pointer(), len_slot));
                 self.emit_copy_bytes(&scratch10, &scratch12, &scratch13, "collection_copy_inline");
             }
@@ -1427,10 +1603,18 @@ impl CodeBuilder<'_> {
             }
         }
 
-        self.emit(abi::load_u64(&scratch8, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::load_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, abi::stack_pointer(), len_slot));
         self.emit(abi::add_registers(&scratch8, &scratch8, &scratch9));
-        self.emit(abi::store_u64(&scratch8, abi::stack_pointer(), data_offset_slot));
+        self.emit(abi::store_u64(
+            &scratch8,
+            abi::stack_pointer(),
+            data_offset_slot,
+        ));
         Ok(())
     }
 

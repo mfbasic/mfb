@@ -319,9 +319,18 @@ mod tests {
         for flavor in [LinuxFlavor::Glibc, LinuxFlavor::Musl] {
             let platform = Platform { flavor };
             for target in [
-                "math.pow", "math.exp", "math.log", "math.log10", "math.fmod",
-                "math.sin", "math.cos", "math.tan", "math.asin", "math.acos",
-                "math.atan", "math.atan2",
+                "math.pow",
+                "math.exp",
+                "math.log",
+                "math.log10",
+                "math.fmod",
+                "math.sin",
+                "math.cos",
+                "math.tan",
+                "math.asin",
+                "math.acos",
+                "math.atan",
+                "math.atan2",
             ] {
                 assert!(
                     platform.native_call_imports(target, "_main").is_empty(),

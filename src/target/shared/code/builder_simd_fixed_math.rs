@@ -232,7 +232,11 @@ impl CodeBuilder<'_> {
         // registers across it — including `result_base`, which would otherwise be
         // clobbered by the loop's reused `idx` register.
         let base_slot = self.allocate_stack_object("simd_fxlog_base", 8);
-        self.emit(abi::store_u64(&result_base, abi::stack_pointer(), base_slot));
+        self.emit(abi::store_u64(
+            &result_base,
+            abi::stack_pointer(),
+            base_slot,
+        ));
         let in_data_slot = self.allocate_stack_object("simd_fxlog_indata", 8);
         let out_data_slot = self.allocate_stack_object("simd_fxlog_outdata", 8);
         let idx_slot = self.allocate_stack_object("simd_fxlog_idx", 8);
@@ -243,7 +247,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::store_u64(&in_data, abi::stack_pointer(), in_data_slot));
         let out_data = self.allocate_register()?;
         self.emit_collection_data_pointer(&out_data, &result_base);
-        self.emit(abi::store_u64(&out_data, abi::stack_pointer(), out_data_slot));
+        self.emit(abi::store_u64(
+            &out_data,
+            abi::stack_pointer(),
+            out_data_slot,
+        ));
         self.emit(abi::move_immediate("x0", "Integer", "0"));
         self.emit(abi::store_u64("x0", abi::stack_pointer(), idx_slot));
 
@@ -277,7 +285,11 @@ impl CodeBuilder<'_> {
         let out_data = self.allocate_register()?;
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&idx, abi::stack_pointer(), idx_slot));
-        self.emit(abi::load_u64(&out_data, abi::stack_pointer(), out_data_slot));
+        self.emit(abi::load_u64(
+            &out_data,
+            abi::stack_pointer(),
+            out_data_slot,
+        ));
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
         let offset = self.allocate_register()?;
         self.emit(abi::shift_left_immediate(&offset, &idx, 3));

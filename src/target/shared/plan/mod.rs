@@ -343,7 +343,6 @@ impl StorageType {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

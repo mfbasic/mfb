@@ -58,11 +58,19 @@ enum Effect<'a> {
 
 fn classify(instruction: &CodeInstruction) -> Effect<'_> {
     match instruction.op {
-        CodeOp::StrU64 => match (instruction.get("base"), instruction.get("offset"), instruction.get("src")) {
+        CodeOp::StrU64 => match (
+            instruction.get("base"),
+            instruction.get("offset"),
+            instruction.get("src"),
+        ) {
             (Some("sp"), Some(offset), Some(src)) => Effect::StoreSp { src, offset },
             _ => Effect::Barrier, // store to a non-sp base may alias a frame slot
         },
-        CodeOp::LdrU64 => match (instruction.get("base"), instruction.get("offset"), instruction.get("dst")) {
+        CodeOp::LdrU64 => match (
+            instruction.get("base"),
+            instruction.get("offset"),
+            instruction.get("dst"),
+        ) {
             (Some("sp"), Some(offset), Some(dst)) => Effect::LoadSp { dst, offset },
             (Some(_), _, Some(_)) => Effect::DefDst, // non-sp load: just defines dst
             _ => Effect::Barrier,
@@ -212,8 +220,9 @@ pub(super) fn remove_fp_shuttles(instructions: &mut Vec<CodeInstruction>) {
     // Index of the first (def) instruction of each matched pair -> the rewritten
     // second instruction. The def instruction is dropped; the second is replaced.
     let mut drop_def: Vec<bool> = vec![false; instructions.len()];
-    let mut replacement: Vec<Option<CodeInstruction>> =
-        std::iter::repeat_with(|| None).take(instructions.len()).collect();
+    let mut replacement: Vec<Option<CodeInstruction>> = std::iter::repeat_with(|| None)
+        .take(instructions.len())
+        .collect();
 
     let mut i = 0;
     while i + 1 < instructions.len() {
@@ -308,9 +317,15 @@ mod tests {
     fn folds_dead_result_and_operand_shuttles() {
         let mut instructions = vec![
             op("fmov_x_from_d").field("dst", "x8").field("src", "d11"),
-            op("str_u64").field("src", "x8").field("base", "sp").field("offset", "1120"),
+            op("str_u64")
+                .field("src", "x8")
+                .field("base", "sp")
+                .field("offset", "1120"),
             // x8 redefined here, so it is dead after the store above.
-            op("ldr_u64").field("dst", "x8").field("base", "sp").field("offset", "80"),
+            op("ldr_u64")
+                .field("dst", "x8")
+                .field("base", "sp")
+                .field("offset", "80"),
             op("fmov_d_from_x").field("dst", "d9").field("src", "x8"),
             op("ret"),
         ];
@@ -331,9 +346,15 @@ mod tests {
     fn keeps_shuttle_when_gpr_still_live() {
         let mut instructions = vec![
             op("fmov_x_from_d").field("dst", "x8").field("src", "d11"),
-            op("str_u64").field("src", "x8").field("base", "sp").field("offset", "1120"),
+            op("str_u64")
+                .field("src", "x8")
+                .field("base", "sp")
+                .field("offset", "1120"),
             // x8 is read here, so it must survive the store.
-            op("add").field("dst", "x9").field("lhs", "x8").field("rhs", "x8"),
+            op("add")
+                .field("dst", "x9")
+                .field("lhs", "x8")
+                .field("rhs", "x8"),
             op("ret"),
         ];
         let before = instructions.len();

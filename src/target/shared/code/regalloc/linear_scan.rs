@@ -218,8 +218,9 @@ pub(super) fn run(
                 if scratch_for.contains_key(&v) {
                     continue;
                 }
-                if let Some(&(name, pi)) =
-                    allocatable.iter().find(|&&(_, pi)| (occupied & (1u64 << pi)) == 0)
+                if let Some(&(name, pi)) = allocatable
+                    .iter()
+                    .find(|&&(_, pi)| (occupied & (1u64 << pi)) == 0)
                 {
                     // A genuinely free register — no save/restore needed.
                     occupied |= 1u64 << pi;
@@ -250,7 +251,12 @@ pub(super) fn run(
         for &v in &used_spilled {
             out.push(model.emit_reload(class, &scratch_for[&v], spill_slot[&v]));
         }
-        out.push(substitute(instruction, &assignment, &scratch_for, class_model));
+        out.push(substitute(
+            instruction,
+            &assignment,
+            &scratch_for,
+            class_model,
+        ));
         for &v in &def_spilled {
             out.push(model.emit_spill(class, &scratch_for[&v], spill_slot[&v]));
         }

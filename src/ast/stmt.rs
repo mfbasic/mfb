@@ -25,7 +25,10 @@ impl<'a> FileParser<'a> {
         self.parse_simple_statement(false)
     }
 
-    pub(super) fn parse_simple_statement(&mut self, allow_else_terminator: bool) -> Option<Statement> {
+    pub(super) fn parse_simple_statement(
+        &mut self,
+        allow_else_terminator: bool,
+    ) -> Option<Statement> {
         if self.check_keyword(Keyword::If)
             || self.check_keyword(Keyword::Match)
             || self.check_keyword(Keyword::For)
@@ -689,7 +692,10 @@ impl<'a> FileParser<'a> {
         })
     }
 
-    pub(super) fn parse_statement_block(&mut self, terminators: &[BlockTerminator]) -> Vec<Statement> {
+    pub(super) fn parse_statement_block(
+        &mut self,
+        terminators: &[BlockTerminator],
+    ) -> Vec<Statement> {
         let mut body = Vec::new();
         while !self.is_at_end() && !self.check_block_terminator(terminators) {
             if let Some(statement) = self.parse_statement() {

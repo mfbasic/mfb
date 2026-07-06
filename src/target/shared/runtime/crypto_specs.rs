@@ -106,12 +106,48 @@ macro_rules! crypto_ec_verify_spec {
     };
 }
 
-crypto_ec_generate_spec!(CRYPTO_GENERATE_P256_RAW_SPEC, "crypto.generateP256Raw", "_mfb_rt_crypto_crypto_generateP256Raw");
-crypto_ec_generate_spec!(CRYPTO_GENERATE_P384_RAW_SPEC, "crypto.generateP384Raw", "_mfb_rt_crypto_crypto_generateP384Raw");
-crypto_ec_generate_spec!(CRYPTO_GENERATE_P521_RAW_SPEC, "crypto.generateP521Raw", "_mfb_rt_crypto_crypto_generateP521Raw");
-crypto_ec_sign_spec!(CRYPTO_P256_SIGN_SPEC, "crypto.p256Sign", "_mfb_rt_crypto_crypto_p256Sign");
-crypto_ec_sign_spec!(CRYPTO_P384_SIGN_SPEC, "crypto.p384Sign", "_mfb_rt_crypto_crypto_p384Sign");
-crypto_ec_sign_spec!(CRYPTO_P521_SIGN_SPEC, "crypto.p521Sign", "_mfb_rt_crypto_crypto_p521Sign");
-crypto_ec_verify_spec!(CRYPTO_P256_VERIFY_SPEC, "crypto.p256Verify", "_mfb_rt_crypto_crypto_p256Verify");
-crypto_ec_verify_spec!(CRYPTO_P384_VERIFY_SPEC, "crypto.p384Verify", "_mfb_rt_crypto_crypto_p384Verify");
-crypto_ec_verify_spec!(CRYPTO_P521_VERIFY_SPEC, "crypto.p521Verify", "_mfb_rt_crypto_crypto_p521Verify");
+crypto_ec_generate_spec!(
+    CRYPTO_GENERATE_P256_RAW_SPEC,
+    "crypto.generateP256Raw",
+    "_mfb_rt_crypto_crypto_generateP256Raw"
+);
+crypto_ec_generate_spec!(
+    CRYPTO_GENERATE_P384_RAW_SPEC,
+    "crypto.generateP384Raw",
+    "_mfb_rt_crypto_crypto_generateP384Raw"
+);
+crypto_ec_generate_spec!(
+    CRYPTO_GENERATE_P521_RAW_SPEC,
+    "crypto.generateP521Raw",
+    "_mfb_rt_crypto_crypto_generateP521Raw"
+);
+crypto_ec_sign_spec!(
+    CRYPTO_P256_SIGN_SPEC,
+    "crypto.p256Sign",
+    "_mfb_rt_crypto_crypto_p256Sign"
+);
+crypto_ec_sign_spec!(
+    CRYPTO_P384_SIGN_SPEC,
+    "crypto.p384Sign",
+    "_mfb_rt_crypto_crypto_p384Sign"
+);
+crypto_ec_sign_spec!(
+    CRYPTO_P521_SIGN_SPEC,
+    "crypto.p521Sign",
+    "_mfb_rt_crypto_crypto_p521Sign"
+);
+crypto_ec_verify_spec!(
+    CRYPTO_P256_VERIFY_SPEC,
+    "crypto.p256Verify",
+    "_mfb_rt_crypto_crypto_p256Verify"
+);
+crypto_ec_verify_spec!(
+    CRYPTO_P384_VERIFY_SPEC,
+    "crypto.p384Verify",
+    "_mfb_rt_crypto_crypto_p384Verify"
+);
+crypto_ec_verify_spec!(
+    CRYPTO_P521_VERIFY_SPEC,
+    "crypto.p521Verify",
+    "_mfb_rt_crypto_crypto_p521Verify"
+);

@@ -244,8 +244,11 @@ mod tests {
             crypto::fingerprint(&ident_public),
             crypto::fingerprint(&signing_public),
         );
-        let proof_sig =
-            crypto::sign(&ident_private, &crypto::proof_signing_input(proof.as_bytes())).unwrap();
+        let proof_sig = crypto::sign(
+            &ident_private,
+            &crypto::proof_signing_input(proof.as_bytes()),
+        )
+        .unwrap();
         let attestation = format!(
             "{{\"repoFingerprint\":\"{}\",\"owner\":\"ada\",\"ident\":\"ada#shape\",\"version\":\"1.2.3\",\"identFingerprint\":\"{}\",\"signingFingerprint\":\"{}\",\"issued\":1}}",
             crypto::fingerprint(&server_public),
@@ -274,8 +277,8 @@ mod tests {
 
     #[test]
     fn wraps_mfbc_payload_in_unsigned_mfp_container() {
-        let package = build_package_bytes(&test_metadata(), b"MFPCpayload", None)
-            .expect("package bytes");
+        let package =
+            build_package_bytes(&test_metadata(), b"MFPCpayload", None).expect("package bytes");
 
         assert!(package.starts_with(&MFP_MAGIC));
         assert_eq!(&package[8..10], &CONTAINER_MAJOR.to_le_bytes());
@@ -357,8 +360,8 @@ mod tests {
 
     #[test]
     fn rejects_non_binary_repr_payload() {
-        let err = build_package_bytes(&test_metadata(), b"nope", None)
-            .expect_err("invalid payload");
+        let err =
+            build_package_bytes(&test_metadata(), b"nope", None).expect_err("invalid payload");
         assert_eq!(
             err,
             "package payload must be the binary representation container"

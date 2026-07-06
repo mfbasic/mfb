@@ -72,7 +72,6 @@ pub(crate) struct RuntimeAbiParam {
     pub(crate) location: &'static str,
 }
 
-
 mod catalog;
 mod crypto_specs;
 mod datetime_specs;

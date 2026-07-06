@@ -27,7 +27,10 @@ pub(super) fn put_prose_list(bytes: &mut Vec<u8>, prose: &[(u8, String)]) {
     }
 }
 
-pub(super) fn cursor_prose_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<(u8, String)>, String> {
+pub(super) fn cursor_prose_list(
+    bytes: &[u8],
+    offset: &mut usize,
+) -> Result<Vec<(u8, String)>, String> {
     let count = cursor_u32(bytes, offset)? as usize;
     let mut values = Vec::with_capacity(bounded_capacity(count, bytes.len() - *offset, 5));
     for _ in 0..count {
@@ -40,7 +43,10 @@ pub(super) fn cursor_prose_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<
     Ok(values)
 }
 
-pub(super) fn cursor_pair_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<(String, String)>, String> {
+pub(super) fn cursor_pair_list(
+    bytes: &[u8],
+    offset: &mut usize,
+) -> Result<Vec<(String, String)>, String> {
     let count = cursor_u32(bytes, offset)? as usize;
     let mut values = Vec::with_capacity(bounded_capacity(count, bytes.len() - *offset, 8));
     for _ in 0..count {
@@ -51,7 +57,10 @@ pub(super) fn cursor_pair_list(bytes: &[u8], offset: &mut usize) -> Result<Vec<(
     Ok(values)
 }
 
-pub(super) fn cursor_optional_str(bytes: &[u8], offset: &mut usize) -> Result<Option<String>, String> {
+pub(super) fn cursor_optional_str(
+    bytes: &[u8],
+    offset: &mut usize,
+) -> Result<Option<String>, String> {
     let flag = *bytes
         .get(*offset)
         .ok_or_else(|| "truncated optional string flag".to_string())?;
@@ -89,7 +98,11 @@ pub(super) fn hex_hash(hash: &[u8; ABI_HASH_LEN]) -> String {
     hash.iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
-pub(super) fn skip_length_prefixed(bytes: &[u8], offset: &mut usize, field: &str) -> Result<(), String> {
+pub(super) fn skip_length_prefixed(
+    bytes: &[u8],
+    offset: &mut usize,
+    field: &str,
+) -> Result<(), String> {
     let length = cursor_u32(bytes, offset)? as usize;
     let end = offset
         .checked_add(length)
@@ -101,7 +114,11 @@ pub(super) fn skip_length_prefixed(bytes: &[u8], offset: &mut usize, field: &str
     Ok(())
 }
 
-pub(super) fn read_length_prefixed(bytes: &[u8], offset: &mut usize, field: &str) -> Result<String, String> {
+pub(super) fn read_length_prefixed(
+    bytes: &[u8],
+    offset: &mut usize,
+    field: &str,
+) -> Result<String, String> {
     let length = cursor_u32(bytes, offset)? as usize;
     let end = offset
         .checked_add(length)

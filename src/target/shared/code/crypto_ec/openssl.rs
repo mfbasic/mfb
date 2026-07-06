@@ -155,9 +155,18 @@ pub(crate) fn data_objects() -> Vec<CodeDataObject> {
     }
     for c in [Curve::P256, Curve::P384, Curve::P521] {
         let p = params(c);
-        objects.push(raw_data(&format!("_mfb_crypto_ec_tmpl_{}", p.name), p.tmpl_hex));
-        objects.push(raw_data(&format!("_mfb_crypto_ec_spki_{}", p.name), p.spki_hex));
-        objects.push(cstr_data(&format!("_mfb_crypto_ec_name_{}", p.name), p.name));
+        objects.push(raw_data(
+            &format!("_mfb_crypto_ec_tmpl_{}", p.name),
+            p.tmpl_hex,
+        ));
+        objects.push(raw_data(
+            &format!("_mfb_crypto_ec_spki_{}", p.name),
+            p.spki_hex,
+        ));
+        objects.push(cstr_data(
+            &format!("_mfb_crypto_ec_name_{}", p.name),
+            p.name,
+        ));
     }
     objects
 }
@@ -209,7 +218,13 @@ fn dlopen_libcrypto(
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     let loaded = format!("{symbol}_libc_loaded");
-    data_address(symbol, abi::return_register(), "_mfb_crypto_ec_lib3", ins, rel);
+    data_address(
+        symbol,
+        abi::return_register(),
+        "_mfb_crypto_ec_lib3",
+        ins,
+        rel,
+    );
     ins.push(abi::move_immediate("x1", "Integer", RTLD_NOW));
     platform.emit_libc_call("dlopen", symbol, imports, ins, rel)?;
     ins.extend([
@@ -217,7 +232,13 @@ fn dlopen_libcrypto(
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_ne(&loaded),
     ]);
-    data_address(symbol, abi::return_register(), "_mfb_crypto_ec_lib11", ins, rel);
+    data_address(
+        symbol,
+        abi::return_register(),
+        "_mfb_crypto_ec_lib11",
+        ins,
+        rel,
+    );
     ins.push(abi::move_immediate("x1", "Integer", RTLD_NOW));
     platform.emit_libc_call("dlopen", symbol, imports, ins, rel)?;
     ins.extend([
@@ -241,7 +262,11 @@ fn dlsym_into(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), handle_off));
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        handle_off,
+    ));
     data_address(symbol, "x1", &fn_sym(name), ins, rel);
     platform.emit_libc_call("dlsym", symbol, imports, ins, rel)?;
     ins.extend([
@@ -266,7 +291,11 @@ fn dlsym_probe(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), handle_off));
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        handle_off,
+    ));
     data_address(symbol, "x1", &fn_sym(name), ins, rel);
     platform.emit_libc_call("dlsym", symbol, imports, ins, rel)?;
     ins.extend([
@@ -367,7 +396,15 @@ pub(super) fn lower(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     match op {
         EcOp::Generate => generate(curve, symbol, imports, platform),
         EcOp::Sign => sign(curve, symbol, imports, platform),
@@ -380,7 +417,15 @@ fn generate(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     let p = params(curve);
     const HANDLE: usize = 0;
     const FN: usize = 8;
@@ -407,10 +452,28 @@ fn generate(
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
 
-    dlopen_libcrypto(symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlopen_libcrypto(
+        symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel,
+    )?;
 
-    dlsym_probe(symbol, HANDLE, "EVP_EC_gen", FN, &eckey_path, imports, platform, &mut ins, &mut rel)?;
-    data_address(symbol, abi::return_register(), &format!("_mfb_crypto_ec_name_{}", p.name), &mut ins, &mut rel);
+    dlsym_probe(
+        symbol,
+        HANDLE,
+        "EVP_EC_gen",
+        FN,
+        &eckey_path,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    data_address(
+        symbol,
+        abi::return_register(),
+        &format!("_mfb_crypto_ec_name_{}", p.name),
+        &mut ins,
+        &mut rel,
+    );
     call_fn(FN, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PKEY),
@@ -419,21 +482,73 @@ fn generate(
 
     // OpenSSL 1.1: EC_KEY_new_by_curve_name + generate + EVP_PKEY_assign.
     ins.push(abi::label(&eckey_path));
-    dlsym_into(symbol, HANDLE, "EC_KEY_new_by_curve_name", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    ins.push(abi::move_immediate(abi::return_register(), "Integer", p.nid));
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EC_KEY_new_by_curve_name",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.push(abi::move_immediate(
+        abi::return_register(),
+        "Integer",
+        p.nid,
+    ));
     call_fn(FN, &mut ins);
     ins.extend([
         abi::store_u64(abi::return_register(), abi::stack_pointer(), ECKEY),
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_eq(&gen_fail),
     ]);
-    dlsym_into(symbol, HANDLE, "EC_KEY_generate_key", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), ECKEY));
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EC_KEY_generate_key",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        ECKEY,
+    ));
     call_fn(FN, &mut ins);
-    dlsym_into(symbol, HANDLE, "EVP_PKEY_new", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_PKEY_new",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     call_fn(FN, &mut ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), PKEY));
-    dlsym_into(symbol, HANDLE, "EVP_PKEY_assign", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        PKEY,
+    ));
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_PKEY_assign",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::move_immediate("x1", "Integer", EVP_PKEY_EC),
@@ -449,7 +564,17 @@ fn generate(
     ]);
 
     // len = i2d_PrivateKey(pkey, NULL)
-    dlsym_into(symbol, HANDLE, "i2d_PrivateKey", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "i2d_PrivateKey",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::move_immediate("x1", "Integer", "0"),
@@ -477,7 +602,17 @@ fn generate(
     // The SEC1 private encoding's public-key field is OPTIONAL (some OpenSSL
     // builds omit it), so the point is taken from the SPKI, which always carries
     // it as the trailing point_len bytes. The scalar comes from the SEC1 private.
-    dlsym_into(symbol, HANDLE, "i2d_PUBKEY", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "i2d_PUBKEY",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY),
         abi::move_immediate("x1", "Integer", "0"),
@@ -510,12 +645,55 @@ fn generate(
     ins.push(abi::store_u64("x1", abi::stack_pointer(), RAWBUF));
     // point = SPKI bytes after the constant-length prefix (04||X||Y follows the
     // fixed SEQ/algid/BITSTRING header directly); scalar from the SEC1 private.
-    emit_copy(symbol, "pt", SPKIPTR, p.spki_prefix_len(), None, RAWBUF, 0, p.point_len, &mut ins);
-    emit_copy(symbol, "sc", SEC1PTR, p.sec1_scalar_off, None, RAWBUF, p.point_len, p.field_len, &mut ins);
-    emit_build_byte_list(symbol, "out", RAWBUF, RAWLEN, COLL, &alloc_fail, &mut ins, &mut rel);
+    emit_copy(
+        symbol,
+        "pt",
+        SPKIPTR,
+        p.spki_prefix_len(),
+        None,
+        RAWBUF,
+        0,
+        p.point_len,
+        &mut ins,
+    );
+    emit_copy(
+        symbol,
+        "sc",
+        SEC1PTR,
+        p.sec1_scalar_off,
+        None,
+        RAWBUF,
+        p.point_len,
+        p.field_len,
+        &mut ins,
+    );
+    emit_build_byte_list(
+        symbol,
+        "out",
+        RAWBUF,
+        RAWLEN,
+        COLL,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
 
-    dlsym_into(symbol, HANDLE, "EVP_PKEY_free", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY));
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_PKEY_free",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        PKEY,
+    ));
     call_fn(FN, &mut ins);
 
     ins.extend([
@@ -524,11 +702,32 @@ fn generate(
         abi::branch(&done),
     ]);
     ins.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&gen_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))
@@ -539,7 +738,15 @@ fn sign(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     let p = params(curve);
     const HANDLE: usize = 0;
     const FN: usize = 8;
@@ -573,11 +780,31 @@ fn sign(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PRIVCOLL),
         abi::store_u64("x1", abi::stack_pointer(), MSGCOLL),
     ]);
-    emit_read_byte_list(symbol, "priv", PRIVCOLL, PRIVBUF, PRIVLEN, &alloc_fail, &mut ins, &mut rel);
-    emit_read_byte_list(symbol, "msg", MSGCOLL, MSGBUF, MSGLEN, &alloc_fail, &mut ins, &mut rel);
+    emit_read_byte_list(
+        symbol,
+        "priv",
+        PRIVCOLL,
+        PRIVBUF,
+        PRIVLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
+    emit_read_byte_list(
+        symbol,
+        "msg",
+        MSGCOLL,
+        MSGBUF,
+        MSGLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
     emit_len_check(PRIVLEN, p.point_len + p.field_len, &invalid_fail, &mut ins);
 
-    dlopen_libcrypto(symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlopen_libcrypto(
+        symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel,
+    )?;
 
     // privDer = template with point/scalar spliced from the raw key bytes.
     ins.extend([
@@ -589,15 +816,61 @@ fn sign(
         abi::store_u64("x1", abi::stack_pointer(), DERBUF),
         abi::store_u64("x1", abi::stack_pointer(), DERPP),
     ]);
-    data_address(symbol, "%v9", &format!("_mfb_crypto_ec_tmpl_{}", p.name), &mut ins, &mut rel);
+    data_address(
+        symbol,
+        "%v9",
+        &format!("_mfb_crypto_ec_tmpl_{}", p.name),
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::store_u64("%v9", abi::stack_pointer(), TMPLPTR));
-    emit_copy(symbol, "tmpl", TMPLPTR, 0, None, DERBUF, 0, p.pkcs8_len, &mut ins);
+    emit_copy(
+        symbol,
+        "tmpl",
+        TMPLPTR,
+        0,
+        None,
+        DERBUF,
+        0,
+        p.pkcs8_len,
+        &mut ins,
+    );
     // raw key = 0x04||X||Y||K = point(point_len) || scalar(field_len)
-    emit_copy(symbol, "pt", PRIVBUF, 0, None, DERBUF, p.p8_point_off, p.point_len, &mut ins);
-    emit_copy(symbol, "sc", PRIVBUF, p.point_len, None, DERBUF, p.p8_scalar_off, p.field_len, &mut ins);
+    emit_copy(
+        symbol,
+        "pt",
+        PRIVBUF,
+        0,
+        None,
+        DERBUF,
+        p.p8_point_off,
+        p.point_len,
+        &mut ins,
+    );
+    emit_copy(
+        symbol,
+        "sc",
+        PRIVBUF,
+        p.point_len,
+        None,
+        DERBUF,
+        p.p8_scalar_off,
+        p.field_len,
+        &mut ins,
+    );
 
     // pkey = d2i_AutoPrivateKey(NULL, &pp, len)
-    dlsym_into(symbol, HANDLE, "d2i_AutoPrivateKey", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "d2i_AutoPrivateKey",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), DERPP),
@@ -610,15 +883,45 @@ fn sign(
         abi::branch_eq(&invalid_fail),
     ]);
 
-    dlsym_into(symbol, HANDLE, "EVP_MD_CTX_new", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_MD_CTX_new",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     call_fn(FN, &mut ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), MDCTX));
-    dlsym_into(symbol, HANDLE, p.digest, FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        MDCTX,
+    ));
+    dlsym_into(
+        symbol, HANDLE, p.digest, FN, &load_fail, imports, platform, &mut ins, &mut rel,
+    )?;
     call_fn(FN, &mut ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), MD));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        MD,
+    ));
 
     // EVP_DigestSignInit(ctx, NULL, md, NULL, pkey)
-    dlsym_into(symbol, HANDLE, "EVP_DigestSignInit", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_DigestSignInit",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX),
         abi::move_immediate("x1", "Integer", "0"),
@@ -633,7 +936,17 @@ fn sign(
     ]);
 
     // siglen probe: EVP_DigestSign(ctx, NULL, &siglen, msg, msglen)
-    dlsym_into(symbol, HANDLE, "EVP_DigestSign", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_DigestSign",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX),
         abi::move_immediate("x1", "Integer", "0"),
@@ -666,13 +979,50 @@ fn sign(
         abi::branch_ne(&sign_fail),
     ]);
 
-    emit_build_byte_list(symbol, "out", SIGBUF, SIGLEN, COLL, &alloc_fail, &mut ins, &mut rel);
+    emit_build_byte_list(
+        symbol,
+        "out",
+        SIGBUF,
+        SIGLEN,
+        COLL,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
 
-    dlsym_into(symbol, HANDLE, "EVP_MD_CTX_free", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX));
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_MD_CTX_free",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        MDCTX,
+    ));
     call_fn(FN, &mut ins);
-    dlsym_into(symbol, HANDLE, "EVP_PKEY_free", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY));
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_PKEY_free",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        PKEY,
+    ));
     call_fn(FN, &mut ins);
 
     ins.extend([
@@ -681,13 +1031,41 @@ fn sign(
         abi::branch(&done),
     ]);
     ins.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&sign_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&invalid_fail));
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))
@@ -698,7 +1076,15 @@ fn verify(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     let p = params(curve);
     const HANDLE: usize = 0;
     const FN: usize = 8;
@@ -737,12 +1123,41 @@ fn verify(
         abi::store_u64("x1", abi::stack_pointer(), MSGCOLL),
         abi::store_u64("x2", abi::stack_pointer(), SIGCOLL),
     ]);
-    emit_read_byte_list(symbol, "pub", PUBCOLL, PUBBUF, PUBLEN, &alloc_fail, &mut ins, &mut rel);
-    emit_read_byte_list(symbol, "msg", MSGCOLL, MSGBUF, MSGLEN, &alloc_fail, &mut ins, &mut rel);
-    emit_read_byte_list(symbol, "sig", SIGCOLL, SIGBUF, SIGLEN, &alloc_fail, &mut ins, &mut rel);
+    emit_read_byte_list(
+        symbol,
+        "pub",
+        PUBCOLL,
+        PUBBUF,
+        PUBLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
+    emit_read_byte_list(
+        symbol,
+        "msg",
+        MSGCOLL,
+        MSGBUF,
+        MSGLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
+    emit_read_byte_list(
+        symbol,
+        "sig",
+        SIGCOLL,
+        SIGBUF,
+        SIGLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
     emit_len_check(PUBLEN, p.point_len, &invalid_fail, &mut ins);
 
-    dlopen_libcrypto(symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlopen_libcrypto(
+        symbol, HANDLE, &load_fail, imports, platform, &mut ins, &mut rel,
+    )?;
 
     // pubDer = spki_prefix || point
     ins.extend([
@@ -754,12 +1169,48 @@ fn verify(
         abi::store_u64("x1", abi::stack_pointer(), DERBUF),
         abi::store_u64("x1", abi::stack_pointer(), DERPP),
     ]);
-    data_address(symbol, "%v9", &format!("_mfb_crypto_ec_spki_{}", p.name), &mut ins, &mut rel);
+    data_address(
+        symbol,
+        "%v9",
+        &format!("_mfb_crypto_ec_spki_{}", p.name),
+        &mut ins,
+        &mut rel,
+    );
     ins.push(abi::store_u64("%v9", abi::stack_pointer(), PREFPTR));
-    emit_copy(symbol, "pref", PREFPTR, 0, None, DERBUF, 0, p.spki_prefix_len(), &mut ins);
-    emit_copy(symbol, "pt", PUBBUF, 0, None, DERBUF, p.spki_prefix_len(), p.point_len, &mut ins);
+    emit_copy(
+        symbol,
+        "pref",
+        PREFPTR,
+        0,
+        None,
+        DERBUF,
+        0,
+        p.spki_prefix_len(),
+        &mut ins,
+    );
+    emit_copy(
+        symbol,
+        "pt",
+        PUBBUF,
+        0,
+        None,
+        DERBUF,
+        p.spki_prefix_len(),
+        p.point_len,
+        &mut ins,
+    );
 
-    dlsym_into(symbol, HANDLE, "d2i_PUBKEY", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "d2i_PUBKEY",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), DERPP),
@@ -772,14 +1223,44 @@ fn verify(
         abi::branch_eq(&invalid_fail),
     ]);
 
-    dlsym_into(symbol, HANDLE, "EVP_MD_CTX_new", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_MD_CTX_new",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     call_fn(FN, &mut ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), MDCTX));
-    dlsym_into(symbol, HANDLE, p.digest, FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        MDCTX,
+    ));
+    dlsym_into(
+        symbol, HANDLE, p.digest, FN, &load_fail, imports, platform, &mut ins, &mut rel,
+    )?;
     call_fn(FN, &mut ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), MD));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        MD,
+    ));
 
-    dlsym_into(symbol, HANDLE, "EVP_DigestVerifyInit", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_DigestVerifyInit",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX),
         abi::move_immediate("x1", "Integer", "0"),
@@ -790,7 +1271,17 @@ fn verify(
     call_fn(FN, &mut ins);
 
     // rc = EVP_DigestVerify(ctx, sig, siglen, msg, msglen); valid iff rc == 1.
-    dlsym_into(symbol, HANDLE, "EVP_DigestVerify", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_DigestVerify",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX),
         abi::load_u64("x1", abi::stack_pointer(), SIGBUF),
@@ -810,11 +1301,39 @@ fn verify(
         abi::store_u64("%v9", abi::stack_pointer(), BOOLRES),
     ]);
 
-    dlsym_into(symbol, HANDLE, "EVP_MD_CTX_free", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), MDCTX));
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_MD_CTX_free",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        MDCTX,
+    ));
     call_fn(FN, &mut ins);
-    dlsym_into(symbol, HANDLE, "EVP_PKEY_free", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), PKEY));
+    dlsym_into(
+        symbol,
+        HANDLE,
+        "EVP_PKEY_free",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        PKEY,
+    ));
     call_fn(FN, &mut ins);
 
     ins.extend([
@@ -823,11 +1342,32 @@ fn verify(
         abi::branch(&done),
     ]);
     ins.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&invalid_fail));
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))

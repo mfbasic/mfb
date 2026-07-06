@@ -1530,7 +1530,7 @@ fn emit_reconcile_read_buffer(
         abi::load_u64("%v62", file, FILE_OFFSET_FD),
         abi::move_register(abi::return_register(), "%v62"),
         abi::subtract_registers("x1", "x31", "%v61"), // -unconsumed
-        abi::move_immediate("x2", "Integer", "1"),     // SEEK_CUR
+        abi::move_immediate("x2", "Integer", "1"),    // SEEK_CUR
     ]);
     platform.emit_seek_file(symbol, platform_imports, instructions, relocations)?;
     instructions.extend([
@@ -1704,7 +1704,12 @@ pub(super) fn lower_fs_read_line_helper(
         abi::move_register("x1", &read_ptr),
         abi::move_immediate("x2", "Integer", &cap),
     ]);
-    platform.emit_read_file(symbol, platform_imports, &mut instructions, &mut relocations)?;
+    platform.emit_read_file(
+        symbol,
+        platform_imports,
+        &mut instructions,
+        &mut relocations,
+    )?;
     instructions.extend([
         abi::compare_immediate(abi::return_register(), "0"),
         abi::branch_lt(&read_error),

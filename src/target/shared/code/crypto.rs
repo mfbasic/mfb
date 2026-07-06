@@ -21,7 +21,15 @@ pub(super) fn lower_crypto_random_bytes_helper(
     symbol: &str,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // Frame slots (sp-relative locals below the spill area).
     const COUNT_OFFSET: usize = 0; // requested byte count
     const BUF_OFFSET: usize = 8; // scratch entropy buffer pointer
@@ -184,8 +192,7 @@ pub(super) fn lower_crypto_random_bytes_helper(
     );
 
     instructions.extend([abi::label(&done), abi::return_()]);
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL_SIZE);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], LOCAL_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 

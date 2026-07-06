@@ -175,7 +175,15 @@ fn load_cf_const(
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
     dlsym_into(
-        symbol, handle_off, name, scratch_off, fail, imports, platform, ins, rel,
+        symbol,
+        handle_off,
+        name,
+        scratch_off,
+        fail,
+        imports,
+        platform,
+        ins,
+        rel,
     )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), scratch_off),
@@ -226,13 +234,87 @@ fn build_dict2(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    load_cf_const(symbol, sec_off, k0, scratch_off, const_scratch, fail, imports, platform, ins, rel)?;
-    load_cf_const(symbol, sec_off, k1, scratch_off + 8, const_scratch, fail, imports, platform, ins, rel)?;
-    load_cf_const(symbol, sec_off, v0, scratch_off + 16, const_scratch, fail, imports, platform, ins, rel)?;
-    load_cf_const(symbol, sec_off, v1, scratch_off + 24, const_scratch, fail, imports, platform, ins, rel)?;
-    dlsym_into(symbol, cf_off, "kCFTypeDictionaryKeyCallBacks", scratch_off + 32, fail, imports, platform, ins, rel)?;
-    dlsym_into(symbol, cf_off, "kCFTypeDictionaryValueCallBacks", scratch_off + 40, fail, imports, platform, ins, rel)?;
-    dlsym_into(symbol, cf_off, "CFDictionaryCreate", fn_off, fail, imports, platform, ins, rel)?;
+    load_cf_const(
+        symbol,
+        sec_off,
+        k0,
+        scratch_off,
+        const_scratch,
+        fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    load_cf_const(
+        symbol,
+        sec_off,
+        k1,
+        scratch_off + 8,
+        const_scratch,
+        fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    load_cf_const(
+        symbol,
+        sec_off,
+        v0,
+        scratch_off + 16,
+        const_scratch,
+        fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    load_cf_const(
+        symbol,
+        sec_off,
+        v1,
+        scratch_off + 24,
+        const_scratch,
+        fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    dlsym_into(
+        symbol,
+        cf_off,
+        "kCFTypeDictionaryKeyCallBacks",
+        scratch_off + 32,
+        fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    dlsym_into(
+        symbol,
+        cf_off,
+        "kCFTypeDictionaryValueCallBacks",
+        scratch_off + 40,
+        fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    dlsym_into(
+        symbol,
+        cf_off,
+        "CFDictionaryCreate",
+        fn_off,
+        fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), scratch_off),
@@ -256,7 +338,15 @@ pub(super) fn lower(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     match op {
         EcOp::Generate => generate(curve, symbol, imports, platform),
         EcOp::Sign => sign(curve, symbol, imports, platform),
@@ -269,7 +359,15 @@ fn generate(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const SEC: usize = 0;
     const CF: usize = 8;
     const FN: usize = 16;
@@ -297,35 +395,140 @@ fn generate(
     let mut ins = vec![abi::label("entry")];
     let mut rel = Vec::new();
 
-    dlopen_one(symbol, SECPATH_SYMBOL, SEC, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    dlopen_one(symbol, CFPATH_SYMBOL, CF, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    dlsym_into(symbol, CF, "CFRelease", RELEASE, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlopen_one(
+        symbol,
+        SECPATH_SYMBOL,
+        SEC,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlopen_one(
+        symbol,
+        CFPATH_SYMBOL,
+        CF,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlsym_into(
+        symbol,
+        CF,
+        "CFRelease",
+        RELEASE,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
     // CFNumber for the key size.
     ins.extend([
         abi::move_immediate("%v9", "Integer", curve.bits()),
         abi::store_u64("%v9", abi::stack_pointer(), NUMVAL),
     ]);
-    dlsym_into(symbol, CF, "CFNumberCreate", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        CF,
+        "CFNumberCreate",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::move_immediate("x1", "Integer", CF_NUMBER_INT_TYPE),
         abi::add_immediate("x2", abi::stack_pointer(), NUMVAL),
     ]);
     call_fn(FN, &mut ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), NUM));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        NUM,
+    ));
 
     // Attributes dict { kSecAttrKeyType: EC, kSecAttrKeySizeInBits: <number> }.
-    load_cf_const(symbol, SEC, "kSecAttrKeyType", KEYS, SCRATCH, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    load_cf_const(symbol, SEC, "kSecAttrKeySizeInBits", KEYS + 8, SCRATCH, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    load_cf_const(symbol, SEC, "kSecAttrKeyTypeECSECPrimeRandom", VALS, SCRATCH, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    load_cf_const(
+        symbol,
+        SEC,
+        "kSecAttrKeyType",
+        KEYS,
+        SCRATCH,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    load_cf_const(
+        symbol,
+        SEC,
+        "kSecAttrKeySizeInBits",
+        KEYS + 8,
+        SCRATCH,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    load_cf_const(
+        symbol,
+        SEC,
+        "kSecAttrKeyTypeECSECPrimeRandom",
+        VALS,
+        SCRATCH,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64("%v9", abi::stack_pointer(), NUM),
         abi::store_u64("%v9", abi::stack_pointer(), VALS + 8),
     ]);
-    dlsym_into(symbol, CF, "kCFTypeDictionaryKeyCallBacks", KEYCB, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    dlsym_into(symbol, CF, "kCFTypeDictionaryValueCallBacks", VALCB, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    dlsym_into(symbol, CF, "CFDictionaryCreate", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        CF,
+        "kCFTypeDictionaryKeyCallBacks",
+        KEYCB,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlsym_into(
+        symbol,
+        CF,
+        "kCFTypeDictionaryValueCallBacks",
+        VALCB,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlsym_into(
+        symbol,
+        CF,
+        "CFDictionaryCreate",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::move_immediate(abi::return_register(), "Integer", "0"),
         abi::add_immediate("x1", abi::stack_pointer(), KEYS),
@@ -335,10 +538,24 @@ fn generate(
         abi::load_u64("x5", abi::stack_pointer(), VALCB),
     ]);
     call_fn(FN, &mut ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), DICT));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        DICT,
+    ));
 
     // key = SecKeyCreateRandomKey(dict, NULL)
-    dlsym_into(symbol, SEC, "SecKeyCreateRandomKey", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        SEC,
+        "SecKeyCreateRandomKey",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), DICT),
         abi::move_immediate("x1", "Integer", "0"),
@@ -351,7 +568,17 @@ fn generate(
     ]);
 
     // data = SecKeyCopyExternalRepresentation(key, NULL)  -> 0x04||X||Y||K
-    dlsym_into(symbol, SEC, "SecKeyCopyExternalRepresentation", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        SEC,
+        "SecKeyCopyExternalRepresentation",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), KEY),
         abi::move_immediate("x1", "Integer", "0"),
@@ -363,7 +590,21 @@ fn generate(
         abi::branch_eq(&gen_fail),
     ]);
 
-    emit_cfdata_to_list(symbol, CF, DATA, FN, BYTEPTR, BYTELEN, COLL, &load_fail, &alloc_fail, imports, platform, &mut ins, &mut rel)?;
+    emit_cfdata_to_list(
+        symbol,
+        CF,
+        DATA,
+        FN,
+        BYTEPTR,
+        BYTELEN,
+        COLL,
+        &load_fail,
+        &alloc_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
     cf_release(RELEASE, NUM, &mut ins);
     cf_release(RELEASE, DICT, &mut ins);
@@ -376,7 +617,17 @@ fn generate(
         abi::branch(&done),
     ]);
 
-    emit_error_exits(symbol, &load_fail, &gen_fail, &alloc_fail, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &done, &mut ins, &mut rel);
+    emit_error_exits(
+        symbol,
+        &load_fail,
+        &gen_fail,
+        &alloc_fail,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &done,
+        &mut ins,
+        &mut rel,
+    );
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))
@@ -387,7 +638,15 @@ fn sign(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const SEC: usize = 0;
     const CF: usize = 8;
     const FN: usize = 16;
@@ -425,22 +684,105 @@ fn sign(
         abi::store_u64(abi::return_register(), abi::stack_pointer(), PRIVCOLL),
         abi::store_u64("x1", abi::stack_pointer(), MSGCOLL),
     ]);
-    emit_read_byte_list(symbol, "priv", PRIVCOLL, PRIVBUF, PRIVLEN, &alloc_fail, &mut ins, &mut rel);
-    emit_read_byte_list(symbol, "msg", MSGCOLL, MSGBUF, MSGLEN, &alloc_fail, &mut ins, &mut rel);
+    emit_read_byte_list(
+        symbol,
+        "priv",
+        PRIVCOLL,
+        PRIVBUF,
+        PRIVLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
+    emit_read_byte_list(
+        symbol,
+        "msg",
+        MSGCOLL,
+        MSGBUF,
+        MSGLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
 
-    dlopen_one(symbol, SECPATH_SYMBOL, SEC, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    dlopen_one(symbol, CFPATH_SYMBOL, CF, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    dlsym_into(symbol, CF, "CFRelease", RELEASE, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlopen_one(
+        symbol,
+        SECPATH_SYMBOL,
+        SEC,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlopen_one(
+        symbol,
+        CFPATH_SYMBOL,
+        CF,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlsym_into(
+        symbol,
+        CF,
+        "CFRelease",
+        RELEASE,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
     // privData = CFDataCreate(NULL, privBuf, privLen); msgData = CFDataCreate(...)
-    dlsym_into(symbol, CF, "CFDataCreate", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        CF,
+        "CFDataCreate",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     emit_cfdata_create(FN, PRIVBUF, PRIVLEN, PRIVDATA, &mut ins);
     emit_cfdata_create(FN, MSGBUF, MSGLEN, MSGDATA, &mut ins);
 
-    build_dict2(symbol, SEC, CF, FN, "kSecAttrKeyType", "kSecAttrKeyClass", "kSecAttrKeyTypeECSECPrimeRandom", "kSecAttrKeyClassPrivate", SCRATCH, CONST_SCRATCH, DICT, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    build_dict2(
+        symbol,
+        SEC,
+        CF,
+        FN,
+        "kSecAttrKeyType",
+        "kSecAttrKeyClass",
+        "kSecAttrKeyTypeECSECPrimeRandom",
+        "kSecAttrKeyClassPrivate",
+        SCRATCH,
+        CONST_SCRATCH,
+        DICT,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
     // key = SecKeyCreateWithData(privData, dict, NULL)
-    dlsym_into(symbol, SEC, "SecKeyCreateWithData", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        SEC,
+        "SecKeyCreateWithData",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PRIVDATA),
         abi::load_u64("x1", abi::stack_pointer(), DICT),
@@ -453,10 +795,31 @@ fn sign(
         abi::branch_eq(&invalid_fail),
     ]);
 
-    load_cf_const(symbol, SEC, curve.macos_algorithm(), ALGO, CONST_SCRATCH, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    load_cf_const(
+        symbol,
+        SEC,
+        curve.macos_algorithm(),
+        ALGO,
+        CONST_SCRATCH,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
     // sigData = SecKeyCreateSignature(key, algo, msgData, NULL)
-    dlsym_into(symbol, SEC, "SecKeyCreateSignature", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        SEC,
+        "SecKeyCreateSignature",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), KEY),
         abi::load_u64("x1", abi::stack_pointer(), ALGO),
@@ -470,7 +833,21 @@ fn sign(
         abi::branch_eq(&sign_fail),
     ]);
 
-    emit_cfdata_to_list(symbol, CF, SIGDATA, FN, BYTEPTR, BYTELEN, COLL, &load_fail, &alloc_fail, imports, platform, &mut ins, &mut rel)?;
+    emit_cfdata_to_list(
+        symbol,
+        CF,
+        SIGDATA,
+        FN,
+        BYTEPTR,
+        BYTELEN,
+        COLL,
+        &load_fail,
+        &alloc_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
     cf_release(RELEASE, PRIVDATA, &mut ins);
     cf_release(RELEASE, MSGDATA, &mut ins);
@@ -485,13 +862,41 @@ fn sign(
     ]);
 
     ins.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&sign_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&invalid_fail));
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))
@@ -502,7 +907,15 @@ fn verify(
     symbol: &str,
     imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     const SEC: usize = 0;
     const CF: usize = 8;
     const FN: usize = 16;
@@ -540,22 +953,114 @@ fn verify(
         abi::store_u64("x1", abi::stack_pointer(), MSGCOLL),
         abi::store_u64("x2", abi::stack_pointer(), SIGCOLL),
     ]);
-    emit_read_byte_list(symbol, "pub", PUBCOLL, PUBBUF, PUBLEN, &alloc_fail, &mut ins, &mut rel);
-    emit_read_byte_list(symbol, "msg", MSGCOLL, MSGBUF, MSGLEN, &alloc_fail, &mut ins, &mut rel);
-    emit_read_byte_list(symbol, "sig", SIGCOLL, SIGBUF, SIGLEN, &alloc_fail, &mut ins, &mut rel);
+    emit_read_byte_list(
+        symbol,
+        "pub",
+        PUBCOLL,
+        PUBBUF,
+        PUBLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
+    emit_read_byte_list(
+        symbol,
+        "msg",
+        MSGCOLL,
+        MSGBUF,
+        MSGLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
+    emit_read_byte_list(
+        symbol,
+        "sig",
+        SIGCOLL,
+        SIGBUF,
+        SIGLEN,
+        &alloc_fail,
+        &mut ins,
+        &mut rel,
+    );
 
-    dlopen_one(symbol, SECPATH_SYMBOL, SEC, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    dlopen_one(symbol, CFPATH_SYMBOL, CF, &load_fail, imports, platform, &mut ins, &mut rel)?;
-    dlsym_into(symbol, CF, "CFRelease", RELEASE, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlopen_one(
+        symbol,
+        SECPATH_SYMBOL,
+        SEC,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlopen_one(
+        symbol,
+        CFPATH_SYMBOL,
+        CF,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
+    dlsym_into(
+        symbol,
+        CF,
+        "CFRelease",
+        RELEASE,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
-    dlsym_into(symbol, CF, "CFDataCreate", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        CF,
+        "CFDataCreate",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     emit_cfdata_create(FN, PUBBUF, PUBLEN, PUBDATA, &mut ins);
     emit_cfdata_create(FN, MSGBUF, MSGLEN, MSGDATA, &mut ins);
     emit_cfdata_create(FN, SIGBUF, SIGLEN, SIGDATA, &mut ins);
 
-    build_dict2(symbol, SEC, CF, FN, "kSecAttrKeyType", "kSecAttrKeyClass", "kSecAttrKeyTypeECSECPrimeRandom", "kSecAttrKeyClassPublic", SCRATCH, CONST_SCRATCH, DICT, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    build_dict2(
+        symbol,
+        SEC,
+        CF,
+        FN,
+        "kSecAttrKeyType",
+        "kSecAttrKeyClass",
+        "kSecAttrKeyTypeECSECPrimeRandom",
+        "kSecAttrKeyClassPublic",
+        SCRATCH,
+        CONST_SCRATCH,
+        DICT,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
-    dlsym_into(symbol, SEC, "SecKeyCreateWithData", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        SEC,
+        "SecKeyCreateWithData",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), PUBDATA),
         abi::load_u64("x1", abi::stack_pointer(), DICT),
@@ -568,10 +1073,31 @@ fn verify(
         abi::branch_eq(&invalid_fail),
     ]);
 
-    load_cf_const(symbol, SEC, curve.macos_algorithm(), ALGO, CONST_SCRATCH, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    load_cf_const(
+        symbol,
+        SEC,
+        curve.macos_algorithm(),
+        ALGO,
+        CONST_SCRATCH,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
 
     // ok = SecKeyVerifySignature(key, algo, msgData, sigData, NULL)
-    dlsym_into(symbol, SEC, "SecKeyVerifySignature", FN, &load_fail, imports, platform, &mut ins, &mut rel)?;
+    dlsym_into(
+        symbol,
+        SEC,
+        "SecKeyVerifySignature",
+        FN,
+        &load_fail,
+        imports,
+        platform,
+        &mut ins,
+        &mut rel,
+    )?;
     ins.extend([
         abi::load_u64(abi::return_register(), abi::stack_pointer(), KEY),
         abi::load_u64("x1", abi::stack_pointer(), ALGO),
@@ -602,11 +1128,32 @@ fn verify(
     ]);
 
     ins.push(abi::label(&load_fail));
-    emit_fail(symbol, ERR_UNKNOWN_CODE, ERR_UNKNOWN_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_UNKNOWN_CODE,
+        ERR_UNKNOWN_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&invalid_fail));
-    emit_fail(symbol, ERR_INVALID_ARGUMENT_CODE, ERR_INVALID_ARGUMENT_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_INVALID_ARGUMENT_CODE,
+        ERR_INVALID_ARGUMENT_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.push(abi::label(&alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, &mut ins, &mut rel, &done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        &mut ins,
+        &mut rel,
+        &done,
+    );
     ins.extend([abi::label(&done), abi::return_()]);
     let (frame, slots) = finalize_vreg_body_with_locals(&mut ins, &[], LOCAL_SIZE);
     Ok((frame, ins, rel, slots))
@@ -651,15 +1198,60 @@ fn emit_cfdata_to_list(
     ins: &mut Vec<CodeInstruction>,
     rel: &mut Vec<CodeRelocation>,
 ) -> Result<(), String> {
-    dlsym_into(symbol, cf_off, "CFDataGetBytePtr", fn_off, load_fail, imports, platform, ins, rel)?;
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), data_off));
+    dlsym_into(
+        symbol,
+        cf_off,
+        "CFDataGetBytePtr",
+        fn_off,
+        load_fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        data_off,
+    ));
     call_fn(fn_off, ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), byteptr_off));
-    dlsym_into(symbol, cf_off, "CFDataGetLength", fn_off, load_fail, imports, platform, ins, rel)?;
-    ins.push(abi::load_u64(abi::return_register(), abi::stack_pointer(), data_off));
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        byteptr_off,
+    ));
+    dlsym_into(
+        symbol,
+        cf_off,
+        "CFDataGetLength",
+        fn_off,
+        load_fail,
+        imports,
+        platform,
+        ins,
+        rel,
+    )?;
+    ins.push(abi::load_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        data_off,
+    ));
     call_fn(fn_off, ins);
-    ins.push(abi::store_u64(abi::return_register(), abi::stack_pointer(), bytelen_off));
-    emit_build_byte_list(symbol, "out", byteptr_off, bytelen_off, coll_off, alloc_fail, ins, rel);
+    ins.push(abi::store_u64(
+        abi::return_register(),
+        abi::stack_pointer(),
+        bytelen_off,
+    ));
+    emit_build_byte_list(
+        symbol,
+        "out",
+        byteptr_off,
+        bytelen_off,
+        coll_off,
+        alloc_fail,
+        ins,
+        rel,
+    );
     Ok(())
 }
 
@@ -680,5 +1272,12 @@ fn emit_error_exits(
     ins.push(abi::label(op_fail));
     emit_fail(symbol, op_code, op_message, ins, rel, done);
     ins.push(abi::label(alloc_fail));
-    emit_fail(symbol, ERR_OUT_OF_MEMORY_CODE, ERR_ALLOCATION_SYMBOL, ins, rel, done);
+    emit_fail(
+        symbol,
+        ERR_OUT_OF_MEMORY_CODE,
+        ERR_ALLOCATION_SYMBOL,
+        ins,
+        rel,
+        done,
+    );
 }

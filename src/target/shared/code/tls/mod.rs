@@ -379,7 +379,6 @@ pub(super) fn emit_set_sock_timeouts(
 // tls.connect
 // ---------------------------------------------------------------------------
 
-
 pub(crate) mod macos;
 mod openssl;
 

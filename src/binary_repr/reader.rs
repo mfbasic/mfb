@@ -449,8 +449,11 @@ pub(super) fn decode_type_export(
     let (fields, variants, members) = match kind {
         BinaryReprExportKind::Type => {
             let field_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-            let mut fields =
-                Vec::with_capacity(bounded_capacity(field_count, entry.payload.len() - offset, 12));
+            let mut fields = Vec::with_capacity(bounded_capacity(
+                field_count,
+                entry.payload.len() - offset,
+                12,
+            ));
             for _ in 0..field_count {
                 fields.push(decode_type_field(
                     &entry.payload,
@@ -463,8 +466,11 @@ pub(super) fn decode_type_export(
         }
         BinaryReprExportKind::Union => {
             let variant_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-            let mut variants =
-                Vec::with_capacity(bounded_capacity(variant_count, entry.payload.len() - offset, 8));
+            let mut variants = Vec::with_capacity(bounded_capacity(
+                variant_count,
+                entry.payload.len() - offset,
+                8,
+            ));
             for _ in 0..variant_count {
                 let variant_name =
                     string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?.to_string();
@@ -495,8 +501,11 @@ pub(super) fn decode_type_export(
         }
         BinaryReprExportKind::Enum => {
             let member_count = cursor_u32(&entry.payload, &mut offset)? as usize;
-            let mut members =
-                Vec::with_capacity(bounded_capacity(member_count, entry.payload.len() - offset, 8));
+            let mut members = Vec::with_capacity(bounded_capacity(
+                member_count,
+                entry.payload.len() - offset,
+                8,
+            ));
             for _ in 0..member_count {
                 members.push(
                     string_at(strings, cursor_u32(&entry.payload, &mut offset)?)?.to_string(),
@@ -611,7 +620,10 @@ pub(super) fn read_type_entries(bytes: &[u8], strings: &[String]) -> Result<Type
     Ok(TypeTable { entries, ids })
 }
 
-pub(super) fn type_entry_names(types: &TypeTable, strings: &[String]) -> Result<HashMap<u32, String>, String> {
+pub(super) fn type_entry_names(
+    types: &TypeTable,
+    strings: &[String],
+) -> Result<HashMap<u32, String>, String> {
     let raw = types
         .entries
         .iter()
@@ -687,7 +699,14 @@ fn decode_type_name_body(
             let message = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
             let output = read_payload_type(payload, 4, raw, strings, decoded, in_progress)?;
             let resource = if payload.len() >= 12 {
-                Some(read_payload_type(payload, 8, raw, strings, decoded, in_progress)?)
+                Some(read_payload_type(
+                    payload,
+                    8,
+                    raw,
+                    strings,
+                    decoded,
+                    in_progress,
+                )?)
             } else {
                 None
             };
@@ -703,7 +722,14 @@ fn decode_type_name_body(
             let message = read_payload_type(payload, 0, raw, strings, decoded, in_progress)?;
             let output = read_payload_type(payload, 4, raw, strings, decoded, in_progress)?;
             let resource = if payload.len() >= 12 {
-                Some(read_payload_type(payload, 8, raw, strings, decoded, in_progress)?)
+                Some(read_payload_type(
+                    payload,
+                    8,
+                    raw,
+                    strings,
+                    decoded,
+                    in_progress,
+                )?)
             } else {
                 None
             };
@@ -793,7 +819,8 @@ pub(super) fn read_function_table(
         let cleanup_count = cursor_u32(bytes, &mut offset)? as usize;
         let _cleanup_offset = cursor_u64(bytes, &mut offset)?;
 
-        let mut params = Vec::with_capacity(bounded_capacity(param_count, bytes.len() - offset, 16));
+        let mut params =
+            Vec::with_capacity(bounded_capacity(param_count, bytes.len() - offset, 16));
         for _ in 0..param_count {
             let param_name = cursor_u32(bytes, &mut offset)?;
             let _ = string_at(strings, param_name)?;
@@ -934,7 +961,10 @@ pub(super) fn read_import_table(bytes: &[u8]) -> Result<ImportTable, String> {
     Ok(ImportTable { entries })
 }
 
-pub(super) fn read_used_symbols(bytes: &[u8], offset: &mut usize) -> Result<Vec<AbiUsedSymbol>, String> {
+pub(super) fn read_used_symbols(
+    bytes: &[u8],
+    offset: &mut usize,
+) -> Result<Vec<AbiUsedSymbol>, String> {
     let count = cursor_u32(bytes, offset)? as usize;
     let mut symbols = Vec::with_capacity(bounded_capacity(count, bytes.len() - *offset, 36));
     for _ in 0..count {
@@ -1145,7 +1175,10 @@ pub(super) fn validate_abi_index(
     Ok(())
 }
 
-pub(super) fn abi_export_for_decoded<'a>(abi: &'a AbiIndex, export: &DecodedExport) -> Option<&'a AbiExport> {
+pub(super) fn abi_export_for_decoded<'a>(
+    abi: &'a AbiIndex,
+    export: &DecodedExport,
+) -> Option<&'a AbiExport> {
     abi.exports
         .iter()
         .find(|abi_export| abi_export.name == export.name && abi_export.kind == export.kind)
@@ -1244,7 +1277,11 @@ pub(super) fn type_sig_hash(
 }
 
 impl<'a> AbiSerializer<'a> {
-    pub(super) fn new(strings: &'a [String], types: &'a TypeTable, constants: &'a ConstPool) -> Self {
+    pub(super) fn new(
+        strings: &'a [String],
+        types: &'a TypeTable,
+        constants: &'a ConstPool,
+    ) -> Self {
         Self {
             strings,
             types,

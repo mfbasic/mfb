@@ -89,7 +89,12 @@ impl CodeBuilder<'_> {
         let element = input
             .type_
             .strip_prefix("List OF ")
-            .ok_or_else(|| format!("math.abs array overload requires a list, got {}", input.type_))?
+            .ok_or_else(|| {
+                format!(
+                    "math.abs array overload requires a list, got {}",
+                    input.type_
+                )
+            })?
             .to_string();
         match element.as_str() {
             "Integer" => self.lower_simd_unary(
@@ -115,7 +120,9 @@ impl CodeBuilder<'_> {
                 COLLECTION_TYPE_FLOAT,
                 text,
             ),
-            other => Err(format!("math.abs array overload does not accept List OF {other}")),
+            other => Err(format!(
+                "math.abs array overload does not accept List OF {other}"
+            )),
         }
     }
 
@@ -128,7 +135,12 @@ impl CodeBuilder<'_> {
         let element = input
             .type_
             .strip_prefix("List OF ")
-            .ok_or_else(|| format!("math.sqrt array overload requires a list, got {}", input.type_))?
+            .ok_or_else(|| {
+                format!(
+                    "math.sqrt array overload requires a list, got {}",
+                    input.type_
+                )
+            })?
             .to_string();
         match element.as_str() {
             "Float" => self.lower_simd_unary(
@@ -140,7 +152,9 @@ impl CodeBuilder<'_> {
             ),
             // Fixed sqrt is a genuine 2-lane NEON restoring sqrt (plan-01-simd §4.5).
             "Fixed" => self.lower_simd_sqrt_fixed(input, text),
-            other => Err(format!("math.sqrt array overload does not accept List OF {other}")),
+            other => Err(format!(
+                "math.sqrt array overload does not accept List OF {other}"
+            )),
         }
     }
 
@@ -198,11 +212,19 @@ impl CodeBuilder<'_> {
         let left = self.lower_value(&args[0])?;
         let left = self.materialize_float(left)?;
         let left_slot = self.allocate_stack_object("scalar_binary_left", 8);
-        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        self.emit(abi::store_u64(
+            &left.location,
+            abi::stack_pointer(),
+            left_slot,
+        ));
         let right = self.lower_value(&args[1])?;
         let right = self.materialize_float(right)?;
         let right_slot = self.allocate_stack_object("scalar_binary_right", 8);
-        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        self.emit(abi::store_u64(
+            &right.location,
+            abi::stack_pointer(),
+            right_slot,
+        ));
         if left.type_ != right.type_ {
             return Err(format!(
                 "math.{function} requires matching argument types, got {} and {}",
@@ -223,7 +245,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::load_u64(&right_reg, abi::stack_pointer(), right_slot));
                 let result = self.emit_pow_scalar(&left_reg, &right_reg)?;
                 self.emit_float_result_check(&result, FloatInfinityError::Infinity)?;
-                Ok(ValueResult { type_: "Float".to_string(), location: result, text })
+                Ok(ValueResult {
+                    type_: "Float".to_string(),
+                    location: result,
+                    text,
+                })
             }
             "Float" => {
                 let kernel = match function {
@@ -275,10 +301,18 @@ impl CodeBuilder<'_> {
         // can clobber the earlier list pointer).
         let left = self.lower_value(&args[0])?;
         let left_slot = self.allocate_stack_object("simd_flb_left", 8);
-        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        self.emit(abi::store_u64(
+            &left.location,
+            abi::stack_pointer(),
+            left_slot,
+        ));
         let right = self.lower_value(&args[1])?;
         let right_slot = self.allocate_stack_object("simd_flb_right", 8);
-        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        self.emit(abi::store_u64(
+            &right.location,
+            abi::stack_pointer(),
+            right_slot,
+        ));
         if left.type_ != "List OF Float" || right.type_ != "List OF Float" {
             return Err(format!(
                 "math.{function} array overload requires two List OF Float, got {} and {}",
@@ -307,11 +341,18 @@ impl CodeBuilder<'_> {
         let element = input
             .type_
             .strip_prefix("List OF ")
-            .ok_or_else(|| format!("math.exp array overload requires a list, got {}", input.type_))?
+            .ok_or_else(|| {
+                format!(
+                    "math.exp array overload requires a list, got {}",
+                    input.type_
+                )
+            })?
             .to_string();
         match element.as_str() {
             "Float" => self.lower_simd_float_unary(FloatKernel::Exp, input, text),
-            other => Err(format!("math.exp array overload does not accept List OF {other}")),
+            other => Err(format!(
+                "math.exp array overload does not accept List OF {other}"
+            )),
         }
     }
 
@@ -327,7 +368,12 @@ impl CodeBuilder<'_> {
         let element = input
             .type_
             .strip_prefix("List OF ")
-            .ok_or_else(|| format!("math.{function} array overload requires a list, got {}", input.type_))?
+            .ok_or_else(|| {
+                format!(
+                    "math.{function} array overload requires a list, got {}",
+                    input.type_
+                )
+            })?
             .to_string();
         let kernel = match (function, element.as_str()) {
             ("sin", "Float") => FloatKernel::Sin,
@@ -357,7 +403,12 @@ impl CodeBuilder<'_> {
         let element = input
             .type_
             .strip_prefix("List OF ")
-            .ok_or_else(|| format!("math.{function} array overload requires a list, got {}", input.type_))?
+            .ok_or_else(|| {
+                format!(
+                    "math.{function} array overload requires a list, got {}",
+                    input.type_
+                )
+            })?
             .to_string();
         match element.as_str() {
             "Fixed" => self.lower_simd_log_fixed(input, function == "log10", text),
@@ -389,7 +440,12 @@ impl CodeBuilder<'_> {
         let element = input
             .type_
             .strip_prefix("List OF ")
-            .ok_or_else(|| format!("math.{function} array overload requires a list, got {}", input.type_))?
+            .ok_or_else(|| {
+                format!(
+                    "math.{function} array overload requires a list, got {}",
+                    input.type_
+                )
+            })?
             .to_string();
         let kernel = match (function, element.as_str()) {
             ("floor", "Float") => SimdUnaryKernel::FloorFloat,
@@ -404,7 +460,13 @@ impl CodeBuilder<'_> {
                 ))
             }
         };
-        self.lower_simd_unary(kernel, input, "List OF Integer", COLLECTION_TYPE_INTEGER, text)
+        self.lower_simd_unary(
+            kernel,
+            input,
+            "List OF Integer",
+            COLLECTION_TYPE_INTEGER,
+            text,
+        )
     }
 
     fn lower_math_abs(&mut self, arg: &NirValue) -> Result<ValueResult, String> {
@@ -417,7 +479,11 @@ impl CodeBuilder<'_> {
                 let ok = self.label("math_abs_ok");
                 self.emit(abi::compare_immediate(&value.location, "0"));
                 self.emit(abi::branch_ge(&ok));
-                self.emit(abi::move_immediate(&bound, "Integer", "9223372036854775808"));
+                self.emit(abi::move_immediate(
+                    &bound,
+                    "Integer",
+                    "9223372036854775808",
+                ));
                 self.emit(abi::compare_registers(&value.location, &bound));
                 self.emit(abi::branch_ne(&ok));
                 self.emit_overflow_return()?;
@@ -437,7 +503,11 @@ impl CodeBuilder<'_> {
                 self.emit(abi::label(&done));
             }
             "Float" => {
-                self.emit(abi::move_immediate(&bound, "Integer", "9223372036854775807"));
+                self.emit(abi::move_immediate(
+                    &bound,
+                    "Integer",
+                    "9223372036854775807",
+                ));
                 self.emit(abi::and_registers(&dst, &value.location, &bound));
             }
             other => return Err(format!("math.abs does not accept {other}")),
@@ -472,10 +542,18 @@ impl CodeBuilder<'_> {
         // an earlier list pointer ([[arena-alloc-clobbers-x14-x15]] generalized).
         let left = self.lower_value(&args[0])?;
         let left_slot = self.allocate_stack_object("simd_minmax_left", 8);
-        self.emit(abi::store_u64(&left.location, abi::stack_pointer(), left_slot));
+        self.emit(abi::store_u64(
+            &left.location,
+            abi::stack_pointer(),
+            left_slot,
+        ));
         let right = self.lower_value(&args[1])?;
         let right_slot = self.allocate_stack_object("simd_minmax_right", 8);
-        self.emit(abi::store_u64(&right.location, abi::stack_pointer(), right_slot));
+        self.emit(abi::store_u64(
+            &right.location,
+            abi::stack_pointer(),
+            right_slot,
+        ));
         if left.type_ != right.type_ {
             return Err(format!(
                 "math.{function} array overload requires matching list types, got {} and {}",
@@ -516,19 +594,32 @@ impl CodeBuilder<'_> {
         let input = self.lower_value(&args[0])?;
         let result_type = input.type_.clone();
         let in_slot = self.allocate_stack_object("simd_clamp_in", 8);
-        self.emit(abi::store_u64(&input.location, abi::stack_pointer(), in_slot));
+        self.emit(abi::store_u64(
+            &input.location,
+            abi::stack_pointer(),
+            in_slot,
+        ));
         let low = self.lower_value(&args[1])?;
         let low_slot = self.allocate_stack_object("simd_clamp_low", 8);
-        self.emit(abi::store_u64(&low.location, abi::stack_pointer(), low_slot));
+        self.emit(abi::store_u64(
+            &low.location,
+            abi::stack_pointer(),
+            low_slot,
+        ));
         let high = self.lower_value(&args[2])?;
         let high_slot = self.allocate_stack_object("simd_clamp_high", 8);
-        self.emit(abi::store_u64(&high.location, abi::stack_pointer(), high_slot));
+        self.emit(abi::store_u64(
+            &high.location,
+            abi::stack_pointer(),
+            high_slot,
+        ));
         let element = result_type
             .strip_prefix("List OF ")
             .ok_or_else(|| "math.clamp array overload requires a list".to_string())?
             .to_string();
-        let code = Self::numeric_element_type_code(&element)
-            .ok_or_else(|| format!("math.clamp array overload does not accept List OF {element}"))?;
+        let code = Self::numeric_element_type_code(&element).ok_or_else(|| {
+            format!("math.clamp array overload does not accept List OF {element}")
+        })?;
         let kernel = match element.as_str() {
             "Float" => SimdClampKernel::Float,
             "Integer" | "Fixed" => SimdClampKernel::Signed,
@@ -539,7 +630,15 @@ impl CodeBuilder<'_> {
             }
         };
         let text = format!("math.clamp({}, {}, {})", input.text, low.text, high.text);
-        self.lower_simd_clamp(kernel, in_slot, low_slot, high_slot, &result_type, code, text)
+        self.lower_simd_clamp(
+            kernel,
+            in_slot,
+            low_slot,
+            high_slot,
+            &result_type,
+            code,
+            text,
+        )
     }
 
     fn lower_math_min_max(
@@ -1014,11 +1113,15 @@ impl CodeBuilder<'_> {
         let nan = self.label("float_result_nan");
         self.emit(abi::shift_left_immediate(&magnitude, bits, 1));
         // 0xFFE0000000000000 == (+inf bits) << 1.
-        self.emit(abi::move_immediate(&inf_bits, "Integer", "18437736874454810624"));
+        self.emit(abi::move_immediate(
+            &inf_bits,
+            "Integer",
+            "18437736874454810624",
+        ));
         self.emit(abi::compare_registers(&magnitude, &inf_bits));
         self.emit(abi::branch_lo(&ok)); // unsigned < +inf<<1 => finite
         self.emit(abi::branch_hi(&nan)); // unsigned > +inf<<1 => NaN
-        // Equal => the value is exactly ±inf.
+                                         // Equal => the value is exactly ±inf.
         match infinity_error {
             FloatInfinityError::Infinity => self.emit_float_inf_return()?,
             FloatInfinityError::Overflow => self.emit_float_overflow_return()?,
@@ -1053,13 +1156,17 @@ impl CodeBuilder<'_> {
         let inf_bits = self.temporary_vreg();
         // +inf bits == 0x7FF0000000000000. Materialized through a scratch vreg,
         // never a pooled physical GPR.
-        self.emit(abi::move_immediate(&inf_bits, "Integer", "9218868437227405312"));
+        self.emit(abi::move_immediate(
+            &inf_bits,
+            "Integer",
+            "9218868437227405312",
+        ));
         self.emit(abi::float_move_d_from_x(&positive_inf, &inf_bits));
         self.emit(abi::float_abs_d(&magnitude, value));
         self.emit(abi::float_compare_d(&magnitude, &positive_inf));
         self.emit(abi::branch_vs(&nan)); // unordered => NaN
         self.emit(abi::branch_ne(&ok)); // |x| < +inf (ordered, not equal) => finite
-        // Fall-through: |x| == +inf, i.e. the value is exactly ±inf.
+                                        // Fall-through: |x| == +inf, i.e. the value is exactly ±inf.
         match infinity_error {
             FloatInfinityError::Infinity => self.emit_float_inf_return()?,
             FloatInfinityError::Overflow => self.emit_float_overflow_return()?,

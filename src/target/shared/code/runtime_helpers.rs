@@ -182,7 +182,15 @@ pub(super) fn lower_thread_helper(
     uses_rng: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     match call {
         "thread.start" => lower_thread_start_helper(symbol, uses_rng, platform_imports, platform),
         "thread.isRunning" => simple_thread_handle_helper(
@@ -281,7 +289,15 @@ fn lower_thread_start_helper(
     uses_rng: bool,
     platform_imports: &HashMap<String, String>,
     platform: &dyn CodegenPlatform,
-) -> Result<(CodeFrame, Vec<CodeInstruction>, Vec<CodeRelocation>, Vec<CodeStackSlot>), String> {
+) -> Result<
+    (
+        CodeFrame,
+        Vec<CodeInstruction>,
+        Vec<CodeRelocation>,
+        Vec<CodeStackSlot>,
+    ),
+    String,
+> {
     // Vreg-allocated (plan-00-G Phase 2): the control-block/queue scratch slots are
     // an explicit sp-relative local region; x9/x10 scratch becomes vregs. Runs in
     // the parent (x20 is not the worker thread block here), so no reservation.
@@ -350,7 +366,11 @@ fn lower_thread_start_helper(
         abi::store_u64("%v10", "%v9", THREAD_OFFSET_ENTRY),
         abi::load_u64("%v10", abi::stack_pointer(), DATA_OFFSET),
         abi::store_u64("%v10", "%v9", THREAD_OFFSET_DATA),
-        abi::store_u64(ARENA_STATE_REGISTER, "%v9", THREAD_OFFSET_PARENT_ARENA_STATE),
+        abi::store_u64(
+            ARENA_STATE_REGISTER,
+            "%v9",
+            THREAD_OFFSET_PARENT_ARENA_STATE,
+        ),
         abi::move_immediate("x0", "Integer", &ARENA_STATE_SIZE.to_string()),
         abi::move_immediate("x1", "Integer", "8"),
         abi::branch_link(ARENA_ALLOC_SYMBOL),
@@ -571,8 +591,7 @@ fn lower_thread_start_helper(
     instructions.push(abi::branch(&parent_done));
     instructions.extend([abi::label(&parent_done), abi::return_()]);
 
-    let (frame, stack_slots) =
-        finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
+    let (frame, stack_slots) = finalize_vreg_body_with_locals(&mut instructions, &[], FRAME_SIZE);
     Ok((frame, instructions, relocations, stack_slots))
 }
 
@@ -832,4 +851,3 @@ pub(crate) fn lower_thread_trampoline(
         relocations,
     })
 }
-

@@ -111,13 +111,13 @@ pub(crate) struct IrFunction {
 }
 
 mod binary;
+#[cfg(test)]
+mod coverage_tests;
 mod json;
 mod link;
 mod lower;
 mod op;
 mod package;
-#[cfg(test)]
-mod coverage_tests;
 #[cfg(test)]
 mod tests;
 mod types;

@@ -3,7 +3,10 @@ use super::*;
 use super::builder_strings_package::UnicodeCaseMap;
 
 impl CodeBuilder<'_> {
-    pub(super) fn lower_strings_graphemes(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+    pub(super) fn lower_strings_graphemes(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
         let scratch16 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         let scratch14 = self.temporary_vreg();
@@ -65,7 +68,14 @@ impl CodeBuilder<'_> {
         self.emit_unicode_property_lookup(&scratch10, &scratch12);
         self.emit_unicode_property_boundclass(&scratch12, &scratch26);
         self.emit_unicode_property_indic_conjunct_break(&scratch12, &scratch27);
-        self.emit_grapheme_break_branch(&scratch24, &scratch25, &scratch26, &scratch27, &count_break, &count_no_break);
+        self.emit_grapheme_break_branch(
+            &scratch24,
+            &scratch25,
+            &scratch26,
+            &scratch27,
+            &count_break,
+            &count_no_break,
+        );
         self.emit(abi::label(&count_break));
         self.emit(abi::add_immediate(&scratch22, &scratch22, 1));
         self.emit(abi::branch(&count_after_break));
@@ -144,8 +154,16 @@ impl CodeBuilder<'_> {
         self.emit_unicode_property_lookup(&scratch10, &scratch12);
         self.emit_unicode_property_boundclass(&scratch12, &scratch25);
         self.emit_unicode_property_indic_conjunct_break(&scratch12, &scratch26);
-        self.emit(abi::store_u64(&scratch25, abi::stack_pointer(), state_bc_slot));
-        self.emit(abi::store_u64(&scratch26, abi::stack_pointer(), state_icb_slot));
+        self.emit(abi::store_u64(
+            &scratch25,
+            abi::stack_pointer(),
+            state_bc_slot,
+        ));
+        self.emit(abi::store_u64(
+            &scratch26,
+            abi::stack_pointer(),
+            state_icb_slot,
+        ));
         self.emit(abi::move_register(&scratch23, &scratch11));
         self.emit(abi::label(&write_loop));
         self.emit(abi::compare_registers(&scratch23, &scratch9));
@@ -155,26 +173,61 @@ impl CodeBuilder<'_> {
         self.emit_unicode_property_lookup(&scratch10, &scratch12);
         self.emit_unicode_property_boundclass(&scratch12, &scratch27);
         self.emit_unicode_property_indic_conjunct_break(&scratch12, &scratch28);
-        self.emit(abi::load_u64(&scratch25, abi::stack_pointer(), state_bc_slot));
-        self.emit(abi::load_u64(&scratch26, abi::stack_pointer(), state_icb_slot));
-        self.emit_grapheme_break_branch(&scratch25, &scratch26, &scratch27, &scratch28, &write_break, &write_no_break);
+        self.emit(abi::load_u64(
+            &scratch25,
+            abi::stack_pointer(),
+            state_bc_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch26,
+            abi::stack_pointer(),
+            state_icb_slot,
+        ));
+        self.emit_grapheme_break_branch(
+            &scratch25,
+            &scratch26,
+            &scratch27,
+            &scratch28,
+            &write_break,
+            &write_no_break,
+        );
         self.emit(abi::label(&write_break));
         self.emit_grapheme_state_update(&scratch25, &scratch26, &scratch27, &scratch28);
-        self.emit(abi::store_u64(&scratch25, abi::stack_pointer(), state_bc_slot));
-        self.emit(abi::store_u64(&scratch26, abi::stack_pointer(), state_icb_slot));
-        self.emit_string_split_write_entry(&scratch20, &scratch21, &scratch22, &scratch24, &scratch23, &scratch14)?;
+        self.emit(abi::store_u64(
+            &scratch25,
+            abi::stack_pointer(),
+            state_bc_slot,
+        ));
+        self.emit(abi::store_u64(
+            &scratch26,
+            abi::stack_pointer(),
+            state_icb_slot,
+        ));
+        self.emit_string_split_write_entry(
+            &scratch20, &scratch21, &scratch22, &scratch24, &scratch23, &scratch14,
+        )?;
         self.emit(abi::move_register(&scratch24, &scratch23));
         self.emit(abi::branch(&write_after_break));
         self.emit(abi::label(&write_no_break));
         self.emit_grapheme_state_update(&scratch25, &scratch26, &scratch27, &scratch28);
-        self.emit(abi::store_u64(&scratch25, abi::stack_pointer(), state_bc_slot));
-        self.emit(abi::store_u64(&scratch26, abi::stack_pointer(), state_icb_slot));
+        self.emit(abi::store_u64(
+            &scratch25,
+            abi::stack_pointer(),
+            state_bc_slot,
+        ));
+        self.emit(abi::store_u64(
+            &scratch26,
+            abi::stack_pointer(),
+            state_icb_slot,
+        ));
         self.emit(abi::branch(&write_after_break));
         self.emit(abi::label(&write_after_break));
         self.emit(abi::add_registers(&scratch23, &scratch23, &scratch11));
         self.emit(abi::branch(&write_loop));
         self.emit(abi::label(&write_final));
-        self.emit_string_split_write_entry(&scratch20, &scratch21, &scratch22, &scratch24, &scratch9, &scratch14)?;
+        self.emit_string_split_write_entry(
+            &scratch20, &scratch21, &scratch22, &scratch24, &scratch9, &scratch14,
+        )?;
         // audit-unicode #9: the write pass must have emitted exactly the entry
         // count and payload bytes the counting pass allocated; a divergence is a
         // silent heap overflow.
@@ -188,7 +241,11 @@ impl CodeBuilder<'_> {
         ));
         self.emit(abi::multiply_registers(&scratch11, &scratch11, &scratch12));
         self.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
-        self.emit(abi::add_immediate(&scratch10, &scratch10, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch10,
+            &scratch10,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_write_cursor_assert(&scratch20, &scratch10, "strings_graphemes_entries");
         self.emit(abi::label(&write_empty));
 
@@ -205,7 +262,10 @@ impl CodeBuilder<'_> {
     /// `List OF Byte` (one element per byte). The inverse of
     /// `toString(List OF Byte)`. Builds the collection element-by-element so the
     /// per-element entry table and packed payload match the standard layout.
-    pub(super) fn lower_strings_to_bytes(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+    pub(super) fn lower_strings_to_bytes(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
         let scratch16 = self.temporary_vreg();
         let scratch9 = self.temporary_vreg();
         let scratch13 = self.temporary_vreg();
@@ -223,8 +283,9 @@ impl CodeBuilder<'_> {
         let value_slot = self.store_string_pointer("strings_to_bytes_value", &value.location);
         let count_slot = self.allocate_stack_object("strings_to_bytes_count", 8);
         let result_slot = self.allocate_stack_object("strings_to_bytes_result", 8);
-        let layout = CollectionTypeLayout::from_type("List OF Byte")
-            .ok_or_else(|| "native strings.toBytes cannot resolve List OF Byte layout".to_string())?;
+        let layout = CollectionTypeLayout::from_type("List OF Byte").ok_or_else(|| {
+            "native strings.toBytes cannot resolve List OF Byte layout".to_string()
+        })?;
 
         let alloc_ok = self.label("strings_to_bytes_alloc_ok");
         let write_loop = self.label("strings_to_bytes_write_loop");
@@ -261,7 +322,10 @@ impl CodeBuilder<'_> {
             binding: "internal".to_string(),
             library: None,
         });
-        self.emit(abi::compare_immediate(abi::return_register(), RESULT_OK_TAG));
+        self.emit(abi::compare_immediate(
+            abi::return_register(),
+            RESULT_OK_TAG,
+        ));
         self.emit(abi::branch_eq(&alloc_ok));
         self.emit_allocation_error_return()?;
         // A size wrap reports the same 77010001 an impossible allocation would;
@@ -284,7 +348,11 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch13, &scratch9, &scratch13));
-        self.emit(abi::add_immediate(&scratch21, &scratch20, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch21,
+            &scratch20,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch21, &scratch21, &scratch13));
 
         // x22 = string data pointer (strptr + 8); x23 = i (0).
@@ -302,7 +370,11 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch25, &scratch23, &scratch25));
-        self.emit(abi::add_immediate(&scratch24, &scratch20, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch24,
+            &scratch20,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch24, &scratch24, &scratch25));
         // flags = USED; key offset/length = 0.
         self.emit(abi::move_immediate(
@@ -310,13 +382,33 @@ impl CodeBuilder<'_> {
             "Byte",
             &COLLECTION_ENTRY_FLAG_USED.to_string(),
         ));
-        self.emit(abi::store_u8(&scratch26, &scratch24, COLLECTION_ENTRY_OFFSET_FLAGS));
-        self.emit(abi::store_u64("x31", &scratch24, COLLECTION_ENTRY_OFFSET_KEY_OFFSET));
-        self.emit(abi::store_u64("x31", &scratch24, COLLECTION_ENTRY_OFFSET_KEY_LENGTH));
+        self.emit(abi::store_u8(
+            &scratch26,
+            &scratch24,
+            COLLECTION_ENTRY_OFFSET_FLAGS,
+        ));
+        self.emit(abi::store_u64(
+            "x31",
+            &scratch24,
+            COLLECTION_ENTRY_OFFSET_KEY_OFFSET,
+        ));
+        self.emit(abi::store_u64(
+            "x31",
+            &scratch24,
+            COLLECTION_ENTRY_OFFSET_KEY_LENGTH,
+        ));
         // value offset = i; value length = 1.
-        self.emit(abi::store_u64(&scratch23, &scratch24, COLLECTION_ENTRY_OFFSET_VALUE_OFFSET));
+        self.emit(abi::store_u64(
+            &scratch23,
+            &scratch24,
+            COLLECTION_ENTRY_OFFSET_VALUE_OFFSET,
+        ));
         self.emit(abi::move_immediate(&scratch26, "Integer", "1"));
-        self.emit(abi::store_u64(&scratch26, &scratch24, COLLECTION_ENTRY_OFFSET_VALUE_LENGTH));
+        self.emit(abi::store_u64(
+            &scratch26,
+            &scratch24,
+            COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
+        ));
         // payload[i] = string byte[i].
         self.emit(abi::add_registers(&scratch27, &scratch22, &scratch23));
         self.emit(abi::load_u8(&scratch26, &scratch27, 0));
@@ -406,7 +498,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_registers(&scratch23, &scratch23, &scratch11));
         self.emit(abi::branch(&count_loop));
         self.emit(abi::label(&count_done));
-        self.emit(abi::store_u64(&scratch24, abi::stack_pointer(), length_slot));
+        self.emit(abi::store_u64(
+            &scratch24,
+            abi::stack_pointer(),
+            length_slot,
+        ));
 
         self.emit(abi::add_immediate(abi::return_register(), &scratch24, 9));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
@@ -481,7 +577,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_strings_normalize_nfc(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+    pub(super) fn lower_strings_normalize_nfc(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
         let scratch20 = self.temporary_vreg();
         let scratch21 = self.temporary_vreg();
         let scratch22 = self.temporary_vreg();
@@ -828,7 +927,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
         self.emit(abi::branch(&byte_len_loop));
         self.emit(abi::label(&byte_len_done));
-        self.emit(abi::store_u64(&scratch24, abi::stack_pointer(), output_len_slot));
+        self.emit(abi::store_u64(
+            &scratch24,
+            abi::stack_pointer(),
+            output_len_slot,
+        ));
 
         self.emit(abi::add_immediate(abi::return_register(), &scratch24, 9));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
@@ -848,7 +951,11 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&result_alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64(&scratch24, abi::stack_pointer(), output_len_slot));
+        self.emit(abi::load_u64(
+            &scratch24,
+            abi::stack_pointer(),
+            output_len_slot,
+        ));
         self.emit(abi::store_u64(&scratch24, "x1", 0));
         self.emit(abi::add_immediate(&scratch28, "x1", 8));
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
@@ -871,7 +978,11 @@ impl CodeBuilder<'_> {
         // audit-unicode #9: the encode pass must end exactly at the byte length
         // the counting pass allocated; a divergence is a silent heap overflow.
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), output_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            output_len_slot,
+        ));
         self.emit(abi::add_registers(&scratch10, &scratch10, &scratch11));
         self.emit(abi::add_immediate(&scratch10, &scratch10, 8));
         self.emit_write_cursor_assert(&scratch28, &scratch10, "strings_nfc");
@@ -922,7 +1033,13 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&loop_label));
             self.emit(abi::compare_immediate(&scratch12, "0"));
             self.emit(abi::branch_eq(&done_start));
-            self.emit_unicode_whitespace_branch(&scratch11, &scratch12, &scratch13, &ws_label, &done_start);
+            self.emit_unicode_whitespace_branch(
+                &scratch11,
+                &scratch12,
+                &scratch13,
+                &ws_label,
+                &done_start,
+            );
             self.emit(abi::label(&ws_label));
             self.emit(abi::load_u64(&scratch14, abi::stack_pointer(), start_slot));
             self.emit(abi::add_registers(&scratch14, &scratch14, &scratch13));
@@ -949,7 +1066,13 @@ impl CodeBuilder<'_> {
             self.emit(abi::label(&loop_label));
             self.emit(abi::compare_immediate(&scratch12, "0"));
             self.emit(abi::branch_eq(&done_label));
-            self.emit_unicode_whitespace_branch(&scratch11, &scratch12, &scratch13, &ws_label, &not_ws_label);
+            self.emit_unicode_whitespace_branch(
+                &scratch11,
+                &scratch12,
+                &scratch13,
+                &ws_label,
+                &not_ws_label,
+            );
             self.emit(abi::label(&ws_label));
             self.emit(abi::add_registers(&scratch11, &scratch11, &scratch13));
             self.emit(abi::add_registers(&scratch15, &scratch15, &scratch13));
@@ -978,7 +1101,10 @@ impl CodeBuilder<'_> {
         })
     }
 
-    pub(super) fn lower_strings_byte_len(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+    pub(super) fn lower_strings_byte_len(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
         let value = self.lower_value(value)?;
         self.require_string("strings.byteLen value", &value)?;
         let register = self.allocate_register()?;
@@ -1062,7 +1188,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(&scratch14, &scratch13));
         self.emit(abi::branch_hi(&false_label));
         self.emit(abi::add_registers(&scratch15, &scratch11, &scratch14));
-        self.emit_string_byte_range_equal_branch(&scratch15, &scratch12, &scratch10, &true_label, &no_match_label);
+        self.emit_string_byte_range_equal_branch(
+            &scratch15,
+            &scratch12,
+            &scratch10,
+            &true_label,
+            &no_match_label,
+        );
         self.emit(abi::label(&no_match_label));
         self.emit(abi::add_immediate(&scratch14, &scratch14, 1));
         self.emit(abi::branch(&loop_label));
@@ -1120,12 +1252,24 @@ impl CodeBuilder<'_> {
         let byte = byte_v.as_str();
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), parts_slot));
-        self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), delimiter_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch16, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch17,
+            abi::stack_pointer(),
+            delimiter_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch16,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::load_u64(&scratch10, &scratch17, 0));
         self.emit(abi::move_immediate(&scratch11, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch12, "Integer", "0"));
-        self.emit(abi::add_immediate(&scratch13, &scratch16, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch13,
+            &scratch16,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::label(&length_loop));
         self.emit(abi::compare_registers(&scratch12, &scratch9));
         self.emit(abi::branch_ge(&length_done));
@@ -1139,11 +1283,19 @@ impl CodeBuilder<'_> {
             COLLECTION_ENTRY_OFFSET_VALUE_LENGTH,
         ));
         self.emit(abi::add_registers(&scratch11, &scratch11, &scratch14));
-        self.emit(abi::add_immediate(&scratch13, &scratch13, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch13,
+            &scratch13,
+            COLLECTION_ENTRY_SIZE,
+        ));
         self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
         self.emit(abi::branch(&length_loop));
         self.emit(abi::label(&length_done));
-        self.emit(abi::store_u64(&scratch11, abi::stack_pointer(), output_len_slot));
+        self.emit(abi::store_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            output_len_slot,
+        ));
 
         self.emit(abi::add_immediate(abi::return_register(), &scratch11, 9));
         self.emit(abi::move_immediate("x1", "Integer", "8"));
@@ -1163,12 +1315,24 @@ impl CodeBuilder<'_> {
         self.emit_allocation_error_return()?;
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
-        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), output_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            output_len_slot,
+        ));
         self.emit(abi::store_u64(&scratch11, "x1", 0));
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), parts_slot));
-        self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), delimiter_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch16, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch17,
+            abi::stack_pointer(),
+            delimiter_slot,
+        ));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch16,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::load_u64(&scratch10, &scratch17, 0));
         self.emit(abi::add_immediate(&scratch11, &scratch17, 8));
         // Carry the result pointer in a vreg, not physical x1 (a reload with no
@@ -1178,7 +1342,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(out_ptr, abi::stack_pointer(), result_slot));
         self.emit(abi::add_immediate(&scratch13, out_ptr, 8));
         self.emit_collection_data_pointer(&scratch14, &scratch16);
-        self.emit(abi::add_immediate(&scratch15, &scratch16, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch15,
+            &scratch16,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::move_immediate(&scratch12, "Integer", "0"));
         self.emit(abi::label(&copy_loop));
         self.emit(abi::compare_registers(&scratch12, &scratch9));
@@ -1219,7 +1387,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::subtract_immediate(remaining, remaining, 1));
         self.emit(abi::branch(&value_loop));
         self.emit(abi::label(&value_done));
-        self.emit(abi::add_immediate(&scratch15, &scratch15, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch15,
+            &scratch15,
+            COLLECTION_ENTRY_SIZE,
+        ));
         self.emit(abi::add_immediate(&scratch12, &scratch12, 1));
         self.emit(abi::branch(&copy_loop));
         self.emit(abi::label(&copy_done));
@@ -1296,14 +1468,22 @@ impl CodeBuilder<'_> {
         let dbyte = dbyte_v.as_str();
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
-        self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), delimiter_slot));
+        self.emit(abi::load_u64(
+            &scratch17,
+            abi::stack_pointer(),
+            delimiter_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
         self.emit(abi::load_u64(&scratch10, &scratch17, 0));
         self.emit(abi::compare_immediate(&scratch10, "0"));
         self.emit(abi::branch_eq(&invalid_delimiter));
         self.emit(abi::move_immediate(&scratch11, "Integer", "1"));
         self.emit(abi::store_u64(&scratch11, abi::stack_pointer(), count_slot));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         self.emit(abi::compare_registers(&scratch10, &scratch9));
         self.emit(abi::branch_hi(&length_done));
         self.emit(abi::subtract_registers(&scratch12, &scratch9, &scratch10));
@@ -1331,9 +1511,17 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
         self.emit(abi::add_immediate(&scratch11, &scratch11, 1));
         self.emit(abi::store_u64(&scratch11, abi::stack_pointer(), count_slot));
-        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         self.emit(abi::subtract_registers(&scratch11, &scratch11, &scratch10));
-        self.emit(abi::store_u64(&scratch11, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::store_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         self.emit(abi::add_registers(&scratch13, &scratch13, &scratch10));
         self.emit(abi::branch(&length_loop));
         self.emit(abi::label(&length_next));
@@ -1342,7 +1530,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&length_done));
 
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         self.emit(abi::move_immediate(
             &scratch13,
             "Integer",
@@ -1377,11 +1569,19 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&alloc_ok));
         self.emit(abi::store_u64("x1", abi::stack_pointer(), result_slot));
         self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), count_slot));
-        self.emit(abi::load_u64(&scratch12, abi::stack_pointer(), data_len_slot));
+        self.emit(abi::load_u64(
+            &scratch12,
+            abi::stack_pointer(),
+            data_len_slot,
+        ));
         self.emit_write_list_header_from_registers(&layout, "x1", &scratch11, &scratch12);
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
-        self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), delimiter_slot));
+        self.emit(abi::load_u64(
+            &scratch17,
+            abi::stack_pointer(),
+            delimiter_slot,
+        ));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
         self.emit(abi::load_u64(&scratch10, &scratch17, 0));
         self.emit(abi::add_immediate(&scratch14, &scratch16, 8));
@@ -1391,7 +1591,11 @@ impl CodeBuilder<'_> {
         let list_ptr_v = self.temporary_vreg();
         let list_ptr = list_ptr_v.as_str();
         self.emit(abi::load_u64(list_ptr, abi::stack_pointer(), result_slot));
-        self.emit(abi::add_immediate(&scratch20, list_ptr, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch20,
+            list_ptr,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_collection_data_pointer(&scratch21, list_ptr);
         self.emit(abi::move_immediate(&scratch22, "Integer", "0"));
         self.emit(abi::move_immediate(&scratch23, "Integer", "0"));
@@ -1417,7 +1621,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(delim_ptr, delim_ptr, 1));
         self.emit(abi::branch(&write_compare));
         self.emit(abi::label(&write_match));
-        self.emit_string_split_write_entry(&scratch20, &scratch21, &scratch22, &scratch24, &scratch23, &scratch14)?;
+        self.emit_string_split_write_entry(
+            &scratch20, &scratch21, &scratch22, &scratch24, &scratch23, &scratch14,
+        )?;
         self.emit(abi::add_registers(&scratch23, &scratch23, &scratch10));
         self.emit(abi::move_register(&scratch24, &scratch23));
         self.emit(abi::branch(&write_loop));
@@ -1425,7 +1631,9 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
         self.emit(abi::branch(&write_loop));
         self.emit(abi::label(&write_final));
-        self.emit_string_split_write_entry(&scratch20, &scratch21, &scratch22, &scratch24, &scratch9, &scratch14)?;
+        self.emit_string_split_write_entry(
+            &scratch20, &scratch21, &scratch22, &scratch24, &scratch9, &scratch14,
+        )?;
         self.emit(abi::label(&write_done));
         let result = self.allocate_register()?;
         self.emit(abi::load_u64(&result, abi::stack_pointer(), result_slot));
@@ -1488,8 +1696,16 @@ impl CodeBuilder<'_> {
         self.emit(abi::add_immediate(&scratch11, &scratch16, 8));
         // x17 = list ptr, x19 = count, x22 = entry ptr, x21 = data ptr.
         self.emit(abi::load_u64(&scratch17, abi::stack_pointer(), parts_slot));
-        self.emit(abi::load_u64(&scratch23, &scratch17, COLLECTION_OFFSET_COUNT));
-        self.emit(abi::add_immediate(&scratch22, &scratch17, COLLECTION_HEADER_SIZE));
+        self.emit(abi::load_u64(
+            &scratch23,
+            &scratch17,
+            COLLECTION_OFFSET_COUNT,
+        ));
+        self.emit(abi::add_immediate(
+            &scratch22,
+            &scratch17,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit_collection_data_pointer(&scratch21, &scratch17);
         self.emit(abi::move_immediate(&scratch20, "Integer", "0"));
 
@@ -1517,10 +1733,20 @@ impl CodeBuilder<'_> {
             self.emit(abi::subtract_registers(&scratch13, &scratch9, &scratch10));
             self.emit(abi::add_registers(&scratch15, &scratch15, &scratch13));
         }
-        self.emit_string_byte_range_equal_branch(&scratch15, &scratch12, &scratch10, &true_label, &no_match);
+        self.emit_string_byte_range_equal_branch(
+            &scratch15,
+            &scratch12,
+            &scratch10,
+            &true_label,
+            &no_match,
+        );
         self.emit(abi::label(&no_match));
         self.emit(abi::label(&outer_next));
-        self.emit(abi::add_immediate(&scratch22, &scratch22, COLLECTION_ENTRY_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch22,
+            &scratch22,
+            COLLECTION_ENTRY_SIZE,
+        ));
         self.emit(abi::add_immediate(&scratch20, &scratch20, 1));
         self.emit(abi::branch(&outer_loop));
 
@@ -1579,7 +1805,9 @@ impl CodeBuilder<'_> {
             self.emit(abi::subtract_registers(&scratch13, &scratch9, &scratch10));
             self.emit(abi::add_registers(&scratch11, &scratch11, &scratch13));
         }
-        self.emit_string_byte_range_equal_branch(&scratch11, &scratch12, &scratch10, &matched, &no_match);
+        self.emit_string_byte_range_equal_branch(
+            &scratch11, &scratch12, &scratch10, &matched, &no_match,
+        );
         self.emit(abi::label(&no_match));
         self.emit(abi::branch(&unchanged));
 
@@ -1676,7 +1904,13 @@ impl CodeBuilder<'_> {
         self.emit(abi::compare_registers(&scratch14, &scratch13));
         self.emit(abi::branch_hi(&done));
         self.emit(abi::add_registers(&scratch15, &scratch11, &scratch14));
-        self.emit_string_byte_range_equal_branch(&scratch15, &scratch12, &scratch10, &match_label, &no_match);
+        self.emit_string_byte_range_equal_branch(
+            &scratch15,
+            &scratch12,
+            &scratch10,
+            &match_label,
+            &no_match,
+        );
         self.emit(abi::label(&match_label));
         self.emit(abi::add_immediate(&scratch23, &scratch23, 1));
         // non-overlapping: advance past the whole needle.
@@ -1918,7 +2152,11 @@ impl CodeBuilder<'_> {
         // Capture the allocation result while x1 is unambiguously the call result.
         let result_ptr = self.allocate_register()?;
         self.emit(abi::move_register(&result_ptr, "x1"));
-        self.emit(abi::store_u64(&result_ptr, abi::stack_pointer(), result_slot));
+        self.emit(abi::store_u64(
+            &result_ptr,
+            abi::stack_pointer(),
+            result_slot,
+        ));
         self.emit(abi::load_u64(total, abi::stack_pointer(), total_slot));
         self.emit(abi::store_u64(total, &result_ptr, 0));
 
@@ -1966,7 +2204,11 @@ impl CodeBuilder<'_> {
     /// padLeft / padRight: pad `value` with `padChar` to total scalar `width`.
     /// width<0 -> error 77050002. padChar must be exactly one scalar else error
     /// 77050002. When 2 args, padChar defaults to a single space.
-    pub(super) fn lower_strings_pad(&mut self, args: &[NirValue], right: bool) -> Result<ValueResult, String> {
+    pub(super) fn lower_strings_pad(
+        &mut self,
+        args: &[NirValue],
+        right: bool,
+    ) -> Result<ValueResult, String> {
         let scratch9 = self.temporary_vreg();
         let scratch13 = self.temporary_vreg();
         let scratch12 = self.temporary_vreg();
@@ -1997,7 +2239,11 @@ impl CodeBuilder<'_> {
             let space_slot = self.allocate_stack_object("strings_pad_space_byte", 8);
             self.emit(abi::move_immediate(&scratch9, "Byte", "32"));
             self.emit(abi::store_u8(&scratch9, abi::stack_pointer(), space_slot));
-            self.emit(abi::add_immediate(&scratch13, abi::stack_pointer(), space_slot));
+            self.emit(abi::add_immediate(
+                &scratch13,
+                abi::stack_pointer(),
+                space_slot,
+            ));
             self.emit(abi::move_immediate(&scratch12, "Integer", "1"));
             let space = self.emit_materialize_string_from_bytes(&scratch13, &scratch12)?;
             self.store_string_pointer("strings_pad_char", &space)
@@ -2022,7 +2268,11 @@ impl CodeBuilder<'_> {
         self.emit(abi::load_u64(&scratch9, &scratch17, 0));
         self.emit(abi::compare_immediate(&scratch9, "0"));
         self.emit(abi::branch_eq(&invalid));
-        self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), pad_len_slot));
+        self.emit(abi::store_u64(
+            &scratch9,
+            abi::stack_pointer(),
+            pad_len_slot,
+        ));
         {
             let loop_label = self.label("strings_pad_scalars_loop");
             let not_cont = self.label("strings_pad_scalars_not_cont");
@@ -2104,7 +2354,11 @@ impl CodeBuilder<'_> {
             self.emit(abi::move_immediate(&scratch10, "Integer", "0"));
             self.emit(abi::label(&have_pad));
         }
-        self.emit(abi::store_u64(&scratch10, abi::stack_pointer(), pad_count_slot));
+        self.emit(abi::store_u64(
+            &scratch10,
+            abi::stack_pointer(),
+            pad_count_slot,
+        ));
 
         // total = valueLen + pad_count * padLen, rejecting sizes that do not fit
         // in 64 bits: an unchecked wrap here allocated small while the pad loop
@@ -2113,7 +2367,11 @@ impl CodeBuilder<'_> {
         // the other argument rejections.
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), value_slot));
         self.emit(abi::load_u64(&scratch9, &scratch16, 0));
-        self.emit(abi::load_u64(&scratch11, abi::stack_pointer(), pad_len_slot));
+        self.emit(abi::load_u64(
+            &scratch11,
+            abi::stack_pointer(),
+            pad_len_slot,
+        ));
         self.emit_checked_size_multiply(&scratch12, &scratch10, &scratch11, &invalid);
         self.emit_checked_size_add(&scratch11, &scratch9, &scratch12, &invalid);
         self.emit(abi::store_u64(&scratch11, abi::stack_pointer(), total_slot));
@@ -2174,10 +2432,18 @@ impl CodeBuilder<'_> {
         };
         let copy_pads = |b: &mut Self, tag: &str| {
             // write pad_count copies of padChar (x14 base, x11 len) to x13.
-            b.emit(abi::load_u64(&scratch10, abi::stack_pointer(), pad_count_slot));
+            b.emit(abi::load_u64(
+                &scratch10,
+                abi::stack_pointer(),
+                pad_count_slot,
+            ));
             b.emit(abi::load_u64(&scratch17, abi::stack_pointer(), pad_slot));
             b.emit(abi::add_immediate(&scratch14, &scratch17, 8));
-            b.emit(abi::load_u64(&scratch11, abi::stack_pointer(), pad_len_slot));
+            b.emit(abi::load_u64(
+                &scratch11,
+                abi::stack_pointer(),
+                pad_len_slot,
+            ));
             let outer = b.label(&format!("strings_pad_{tag}_outer"));
             let outer_done = b.label(&format!("strings_pad_{tag}_outer_done"));
             let inner = b.label(&format!("strings_pad_{tag}_inner"));
@@ -2231,7 +2497,10 @@ impl CodeBuilder<'_> {
     }
 
     /// graphemesCount: number of extended grapheme clusters in `value`.
-    pub(super) fn lower_strings_graphemes_count(&mut self, value: &NirValue) -> Result<ValueResult, String> {
+    pub(super) fn lower_strings_graphemes_count(
+        &mut self,
+        value: &NirValue,
+    ) -> Result<ValueResult, String> {
         let scratch16 = self.temporary_vreg();
         let list = self.lower_strings_graphemes(value)?;
         let list_slot = self.store_string_pointer("strings_graphemes_count_list", &list.location);
@@ -2278,7 +2547,11 @@ impl CodeBuilder<'_> {
 
         self.emit(abi::load_u64(&scratch16, abi::stack_pointer(), list_slot));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), index_slot));
-        self.emit(abi::load_u64(&scratch9, &scratch16, COLLECTION_OFFSET_COUNT));
+        self.emit(abi::load_u64(
+            &scratch9,
+            &scratch16,
+            COLLECTION_OFFSET_COUNT,
+        ));
         self.emit(abi::compare_immediate(&scratch10, "0"));
         self.emit(abi::branch_lt(&invalid));
         self.emit(abi::compare_registers(&scratch10, &scratch9));
@@ -2290,7 +2563,11 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch11, &scratch11, &scratch10));
-        self.emit(abi::add_immediate(&scratch12, &scratch16, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch12,
+            &scratch16,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::add_registers(&scratch12, &scratch12, &scratch11));
         // x13 = value offset, x14 = value length.
         self.emit(abi::load_u64(
@@ -2390,7 +2667,13 @@ impl CodeBuilder<'_> {
             self.emit(abi::subtract_registers(&scratch23, &scratch12, &scratch10));
             let in_set = self.label("strings_trim_chars_lead_in_set");
             let not_in_set = self.label("strings_trim_chars_lead_not_in_set");
-            self.emit_chars_set_contains_branch(&scratch14, &scratch23, chars_slot, &in_set, &not_in_set);
+            self.emit_chars_set_contains_branch(
+                &scratch14,
+                &scratch23,
+                chars_slot,
+                &in_set,
+                &not_in_set,
+            );
             self.emit(abi::label(&not_in_set));
             self.emit(abi::branch(&done));
             self.emit(abi::label(&in_set));
@@ -2432,7 +2715,13 @@ impl CodeBuilder<'_> {
             self.emit(abi::subtract_registers(&scratch23, &scratch11, &scratch12));
             let in_set = self.label("strings_trim_chars_trail_in_set");
             let not_in_set = self.label("strings_trim_chars_trail_not_in_set");
-            self.emit_chars_set_contains_branch(&scratch14, &scratch23, chars_slot, &in_set, &not_in_set);
+            self.emit_chars_set_contains_branch(
+                &scratch14,
+                &scratch23,
+                chars_slot,
+                &in_set,
+                &not_in_set,
+            );
             self.emit(abi::label(&not_in_set));
             self.emit(abi::branch(&done));
             self.emit(abi::label(&in_set));

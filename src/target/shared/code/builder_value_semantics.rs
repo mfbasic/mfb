@@ -747,7 +747,6 @@ impl CodeBuilder<'_> {
             || self.type_model.record_fields.contains_key(payload_type)
             || self.type_model.union_names.contains(payload_type)
     }
-
 }
 
 fn split_top_level_types(params: &str) -> Vec<String> {

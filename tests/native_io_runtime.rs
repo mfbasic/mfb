@@ -978,16 +978,16 @@ END FUNC
     let executable = build_project(&project);
     let out = run_with_stdin(&executable, b"");
     for needle in [
-        "\x1b[?1049h",          // on(): enter the alternate screen
-        "\x1b[38;2;0;255;0m",   // setForeground(0,255,0)
-        "\x1b[48;2;0;0;0m",     // setBackground(0,0,0)
-        "\x1b[1m",              // setBold(TRUE)
-        "\x1b[4m",              // setUnderline(TRUE)
-        "\x1b[3;5H",            // moveTo(2,4) -> 1-based 3;5
-        "\x1b[?25h",            // showCursor()
-        "\x1b[?25l",            // hideCursor()
-        "\x1b[2J\x1b[H",        // clear()
-        "\x1b[?1049l",          // off(): leave the alternate screen
+        "\x1b[?1049h",        // on(): enter the alternate screen
+        "\x1b[38;2;0;255;0m", // setForeground(0,255,0)
+        "\x1b[48;2;0;0;0m",   // setBackground(0,0,0)
+        "\x1b[1m",            // setBold(TRUE)
+        "\x1b[4m",            // setUnderline(TRUE)
+        "\x1b[3;5H",          // moveTo(2,4) -> 1-based 3;5
+        "\x1b[?25h",          // showCursor()
+        "\x1b[?25l",          // hideCursor()
+        "\x1b[2J\x1b[H",      // clear()
+        "\x1b[?1049l",        // off(): leave the alternate screen
     ] {
         assert!(
             out.contains(needle),
@@ -1039,11 +1039,26 @@ END FUNC
         "inactive term:: leaked escape bytes: {:?}",
         hex(out.as_bytes())
     );
-    assert!(out.contains("ON:FALSE"), "isOn should be FALSE while off: {out:?}");
-    assert!(out.contains("FG:255,255,255"), "inert fg should be white: {out:?}");
-    assert!(out.contains("BG:0,0,0"), "inert bg should be black: {out:?}");
-    assert!(out.contains("BOLD:FALSE"), "inert bold should be FALSE: {out:?}");
-    assert!(out.contains("UL:FALSE"), "inert underline should be FALSE: {out:?}");
+    assert!(
+        out.contains("ON:FALSE"),
+        "isOn should be FALSE while off: {out:?}"
+    );
+    assert!(
+        out.contains("FG:255,255,255"),
+        "inert fg should be white: {out:?}"
+    );
+    assert!(
+        out.contains("BG:0,0,0"),
+        "inert bg should be black: {out:?}"
+    );
+    assert!(
+        out.contains("BOLD:FALSE"),
+        "inert bold should be FALSE: {out:?}"
+    );
+    assert!(
+        out.contains("UL:FALSE"),
+        "inert underline should be FALSE: {out:?}"
+    );
 }
 
 #[test]
@@ -1081,9 +1096,24 @@ END FUNC
     );
     let executable = build_project(&project);
     let out = run_with_stdin(&executable, b"");
-    assert!(out.contains("FG:255,255,255"), "on() should reset fg to white: {out:?}");
-    assert!(out.contains("BG:0,0,0"), "on() should reset bg to black: {out:?}");
-    assert!(out.contains("BOLD:FALSE"), "on() should reset bold: {out:?}");
-    assert!(out.contains("UL:FALSE"), "on() should reset underline: {out:?}");
-    assert!(out.contains("ON:TRUE"), "isOn should be TRUE while active: {out:?}");
+    assert!(
+        out.contains("FG:255,255,255"),
+        "on() should reset fg to white: {out:?}"
+    );
+    assert!(
+        out.contains("BG:0,0,0"),
+        "on() should reset bg to black: {out:?}"
+    );
+    assert!(
+        out.contains("BOLD:FALSE"),
+        "on() should reset bold: {out:?}"
+    );
+    assert!(
+        out.contains("UL:FALSE"),
+        "on() should reset underline: {out:?}"
+    );
+    assert!(
+        out.contains("ON:TRUE"),
+        "isOn should be TRUE while active: {out:?}"
+    );
 }

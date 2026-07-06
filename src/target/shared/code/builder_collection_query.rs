@@ -150,9 +150,17 @@ impl CodeBuilder<'_> {
             &COLLECTION_ENTRY_SIZE.to_string(),
         ));
         self.emit(abi::multiply_registers(&scratch9, "x0", &scratch16));
-        self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), collection_slot));
+        self.emit(abi::load_u64(
+            &scratch10,
+            abi::stack_pointer(),
+            collection_slot,
+        ));
         self.emit(abi::add_registers(&scratch9, &scratch9, &scratch10));
-        self.emit(abi::add_immediate(&scratch9, &scratch9, COLLECTION_HEADER_SIZE));
+        self.emit(abi::add_immediate(
+            &scratch9,
+            &scratch9,
+            COLLECTION_HEADER_SIZE,
+        ));
         self.emit(abi::store_u64(&scratch9, abi::stack_pointer(), entry_slot));
         Ok(entry_slot)
     }
@@ -168,13 +176,18 @@ impl CodeBuilder<'_> {
         if Self::map_key_probe_eligible(key_type) {
             let not_found = self.label("map_get_not_found");
             let done = self.label("map_get_done");
-            let entry_slot = self.emit_map_probe(collection_slot, key_slot, key_type, &not_found)?;
+            let entry_slot =
+                self.emit_map_probe(collection_slot, key_slot, key_type, &not_found)?;
             self.reset_temporary_registers();
             let collection = self.allocate_register()?;
             let entry = self.allocate_register()?;
             let value_offset = self.allocate_register()?;
             let value_length = self.allocate_register()?;
-            self.emit(abi::load_u64(&collection, abi::stack_pointer(), collection_slot));
+            self.emit(abi::load_u64(
+                &collection,
+                abi::stack_pointer(),
+                collection_slot,
+            ));
             self.emit(abi::load_u64(&entry, abi::stack_pointer(), entry_slot));
             self.emit(abi::load_u64(
                 &value_offset,

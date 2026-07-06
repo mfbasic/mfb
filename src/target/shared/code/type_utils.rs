@@ -1,6 +1,9 @@
 use super::*;
 
-pub(super) fn static_nir_value_type(value: &NirValue, locals: &HashMap<String, String>) -> Option<String> {
+pub(super) fn static_nir_value_type(
+    value: &NirValue,
+    locals: &HashMap<String, String>,
+) -> Option<String> {
     match value {
         NirValue::Const { type_, .. }
         | NirValue::LocalRef { type_, .. }

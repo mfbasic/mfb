@@ -14,7 +14,8 @@
 
 use crate::arch::aarch64::abi;
 use crate::target::shared::code::{
-    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation, RelocIntent,
+    self, AppEntrySpec, CodeDataObject, CodeFrame, CodeFunction, CodeInstruction, CodeRelocation,
+    RelocIntent,
 };
 
 const MAIN_SYMBOL: &str = "_main";
@@ -530,7 +531,6 @@ pub(crate) fn emit_app_program_entry(spec: &AppEntrySpec) -> Result<Vec<CodeFunc
         emit_term_key_down_helper(),
     ])
 }
-
 
 mod app_io;
 mod bootstrap;
