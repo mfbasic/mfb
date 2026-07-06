@@ -653,8 +653,34 @@ pub(crate) fn lower_module_for_platform(
     code_functions.push(lower_arena_fill_seed());
     code_functions.push(lower_arena_fill_next());
     code_functions.push(lower_arena_destroy(platform)?);
+    // Opt-in stdout buffering (plan-14-A): the shared `_mfb_rt_io_stdout_drain`
+    // helper is emitted whenever any stdout writer, stdin reader, or buffering
+    // control is present — every point that references the drain. App mode has no
+    // stdout buffer (transcript writes are synchronous), so it is excluded. When
+    // present, `_mfb_shutdown` drains the buffer at exit as well.
+    let uses_stdout_buffer = !module.build_mode.is_app()
+        && runtime_symbols.iter().any(|symbol| {
+            matches!(
+                symbol.as_str(),
+                "_mfb_rt_io_io_print"
+                    | "_mfb_rt_io_io_write"
+                    | "_mfb_rt_io_io_flush"
+                    | "_mfb_rt_io_io_setBuffered"
+                    | "_mfb_rt_io_io_readLine"
+                    | "_mfb_rt_io_io_input"
+                    | "_mfb_rt_io_io_readChar"
+                    | "_mfb_rt_io_io_readByte"
+            )
+        });
+    if uses_stdout_buffer {
+        code_functions.push(lower_stdout_drain(&platform_imports, platform)?);
+    }
     if module.entry.is_some() {
-        code_functions.push(lower_shutdown(uses_term, skip_entry_arena_destroy));
+        code_functions.push(lower_shutdown(
+            uses_term,
+            skip_entry_arena_destroy,
+            uses_stdout_buffer,
+        ));
     }
     if register_signal_handlers {
         code_functions.push(lower_signal_handler(platform)?);
@@ -1124,6 +1150,43 @@ fn lower_runtime_helper(
                 relocations,
             })
         }
+        "io.isBuffered" => {
+            let (frame, instructions, relocations, stack_slots) =
+                lower_io_is_buffered_helper(symbol, app_mode)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: Vec::new(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
+        "io.setBuffered" => {
+            let (frame, instructions, relocations, stack_slots) =
+                lower_io_set_buffered_helper(symbol, app_mode)?;
+            Ok(CodeFunction {
+                name: format!("runtime.{}", spec.call),
+                symbol: symbol.to_string(),
+                params: spec
+                    .abi
+                    .params
+                    .iter()
+                    .map(|param| CodeParam {
+                        name: param.name.to_string(),
+                        type_: param.type_.to_string(),
+                        location: param.location.to_string(),
+                    })
+                    .collect(),
+                returns: spec.abi.returns.to_string(),
+                frame,
+                stack_slots,
+                instructions,
+                relocations,
+            })
+        }
         "io.pollInput" => {
             let (frame, instructions, relocations, stack_slots) =
                 lower_io_poll_input_helper(symbol, platform_imports, platform)?;
@@ -1153,21 +1216,23 @@ fn lower_runtime_helper(
             // unchanged console helper, which reads fd 0 — the window input pipe
             // in app mode (plan §5.4). All other read helpers are likewise
             // unchanged and read the pipe.
-            let (frame, instructions, relocations, stack_slots) = if app_mode && spec.call == "io.input" {
-                pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(|| {
-                    format!(
-                        "native target '{}' does not support app-mode io helpers",
-                        platform.target()
-                    )
-                })??)
-            } else {
-                lower_io_read_line_helper(
-                    symbol,
-                    platform_imports,
-                    platform,
-                    spec.call == "io.input",
-                )?
-            };
+            let (frame, instructions, relocations, stack_slots) =
+                if app_mode && spec.call == "io.input" {
+                    pad_no_slots(platform.emit_app_io_input_helper(symbol).ok_or_else(|| {
+                        format!(
+                            "native target '{}' does not support app-mode io helpers",
+                            platform.target()
+                        )
+                    })??)
+                } else {
+                    lower_io_read_line_helper(
+                        symbol,
+                        platform_imports,
+                        platform,
+                        spec.call == "io.input",
+                        app_mode,
+                    )?
+                };
             Ok(CodeFunction {
                 name: format!("runtime.{}", spec.call),
                 symbol: symbol.to_string(),

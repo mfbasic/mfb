@@ -1581,7 +1581,11 @@ pub(super) fn lower_arena_destroy(platform: &dyn CodegenPlatform) -> Result<Code
 /// idempotent (`term::off` gates on its `active` flag; `arena_destroy` clears the
 /// block-list head), so the guard is belt-and-suspenders. Preserves `x19`/`x30`
 /// for its callers (the entry exit path relies on `x19` afterwards).
-pub(super) fn lower_shutdown(auto_term_off: bool, skip_arena_destroy: bool) -> CodeFunction {
+pub(super) fn lower_shutdown(
+    auto_term_off: bool,
+    skip_arena_destroy: bool,
+    drain_stdout: bool,
+) -> CodeFunction {
     // Vreg-allocated (plan-00-G Phase 2). The allocator builds the frame and saves
     // the link register (there are `bl`s). `x19` (arena_base) is reserved from
     // allocation, but this function deliberately *repoints* it at the main arena to
@@ -1612,6 +1616,14 @@ pub(super) fn lower_shutdown(auto_term_off: bool, skip_arena_destroy: bool) -> C
         abi::branch_eq(done),
         abi::move_register(ARENA_STATE_REGISTER, &arena),
     ]);
+    // Drain the opt-in stdout buffer at exit (plan-14-A §4.3 hook 1) before the
+    // arena — whose block backs the buffer — is freed. `x19` now points at the
+    // main arena, so the drain reads the right OUT_* words. A no-op when buffering
+    // is off; idempotent with a second entry (a signal during normal cleanup).
+    if drain_stdout {
+        instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
+        relocations.push(internal_branch(SHUTDOWN_SYMBOL, STDOUT_DRAIN_SYMBOL));
+    }
     if auto_term_off {
         instructions.push(abi::branch_link("_mfb_rt_term_term_off"));
         relocations.push(internal_branch(SHUTDOWN_SYMBOL, "_mfb_rt_term_term_off"));

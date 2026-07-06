@@ -1,0 +1,12 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::setBuffered(TRUE)
+  io::write("a")
+  io::write("b")
+  io::flush()
+  io::print("c")
+  io::setBuffered(FALSE)
+  io::print("d")
+  RETURN 0
+END FUNC

@@ -56,6 +56,8 @@ impl NativeBackend for Backend {
                 "io.printError",
                 "io.writeError",
                 "io.flush",
+                "io.isBuffered",
+                "io.setBuffered",
                 "io.input",
                 "io.readLine",
                 "io.readChar",

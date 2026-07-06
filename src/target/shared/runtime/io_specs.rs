@@ -75,6 +75,34 @@ pub(crate) const IO_FLUSH_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     },
 };
 
+const IO_SET_BUFFERED_PARAMS: &[RuntimeAbiParam] = &[RuntimeAbiParam {
+    name: "enabled",
+    type_: "Boolean",
+    location: abi::RETURN_REGISTER,
+}];
+
+pub(crate) const IO_IS_BUFFERED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Io,
+    call: "io.isBuffered",
+    symbol: "_mfb_rt_io_io_isBuffered",
+    abi: RuntimeHelperAbi {
+        params: &[],
+        returns: "Boolean",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
+pub(crate) const IO_SET_BUFFERED_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
+    helper: RuntimeHelper::Io,
+    call: "io.setBuffered",
+    symbol: "_mfb_rt_io_io_setBuffered",
+    abi: RuntimeHelperAbi {
+        params: IO_SET_BUFFERED_PARAMS,
+        returns: "Nothing",
+        clobbers: abi::IO_PRINT_CLOBBERS,
+    },
+};
+
 pub(crate) const IO_INPUT_SPEC: RuntimeHelperSpec = RuntimeHelperSpec {
     helper: RuntimeHelper::Io,
     call: "io.input",

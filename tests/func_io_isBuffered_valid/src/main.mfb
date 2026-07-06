@@ -1,0 +1,10 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(io::isBuffered()))
+  io::setBuffered(TRUE)
+  io::print(toString(io::isBuffered()))
+  io::setBuffered(FALSE)
+  io::print(toString(io::isBuffered()))
+  RETURN 0
+END FUNC

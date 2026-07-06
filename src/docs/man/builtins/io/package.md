@@ -27,11 +27,14 @@ conversion; convert other values with `toString` first. Text is treated as UTF-8
 and emitted byte for byte, with no escaping or newline translation beyond the
 trailing newline that `io::print` and `io::printError` add. `io::write` and
 `io::print` target standard output, `io::writeError` and `io::printError` target
-standard error, and `io::flush` drains standard output. Standard output may be
-buffered, so written text is not guaranteed visible to an external reader until
-flushed; flush before blocking on a read when a prompt must appear first.
-Standard error is never buffered — it is written immediately, so it has no flush.
-[[src/builtins/io.rs:expected_arguments]]
+standard error, and `io::flush` drains standard output. Standard-output buffering
+is opt-in and off by default: `io::setBuffered(TRUE)` holds output in a per-thread
+buffer (drained on `io::flush`, before any read, when full, and at exit) and
+`io::setBuffered(FALSE)` drains and disables it, while `io::isBuffered` reports the
+current mode. With buffering on, written text is not guaranteed visible to an
+external reader until flushed; flush before blocking on a read when a prompt must
+appear first. Standard error is never buffered — it is written immediately, so it
+has no flush. [[src/builtins/io.rs:expected_arguments]]
 
 Input functions read from standard input. `io::input` reads a whole line with
 normal terminal echo and an optional prompt; `io::readLine` reads a line the same

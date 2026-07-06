@@ -183,7 +183,27 @@ pub(crate) const ARENA_QUICK_BIN_MAX: u64 = 2048;
 pub(crate) const ARENA_CARVE_PTR_OFFSET: usize =
     ARENA_QUICK_BIN_BASE_OFFSET + ARENA_QUICK_BIN_COUNT * 8;
 pub(crate) const ARENA_CARVE_SIZE_OFFSET: usize = ARENA_CARVE_PTR_OFFSET + 8;
-pub(crate) const ARENA_STATE_SIZE: usize = ARENA_CARVE_SIZE_OFFSET + 8;
+/// Opt-in stdout output buffer (plan-14-A), three per-arena (per-thread) words
+/// appended after the allocator carve chunk. `OUT_ENABLED` is 0 (off) by default
+/// — the entry / thread-spawn arena-state zeroing clears all three, so a program
+/// that never calls `io::setBuffered(TRUE)` sees `OUT_ENABLED = 0` and takes the
+/// unbuffered direct-write path (byte-identical to pre-plan-14). `OUT_PTR` is the
+/// lazily-allocated 4 KiB buffer (NULL until the first buffered write) and
+/// `OUT_FILLED` counts the pending bytes held in it.
+pub(crate) const ARENA_OUT_PTR_OFFSET: usize = ARENA_CARVE_SIZE_OFFSET + 8;
+pub(crate) const ARENA_OUT_FILLED_OFFSET: usize = ARENA_OUT_PTR_OFFSET + 8;
+pub(crate) const ARENA_OUT_ENABLED_OFFSET: usize = ARENA_OUT_FILLED_OFFSET + 8;
+pub(crate) const ARENA_STATE_SIZE: usize = ARENA_OUT_ENABLED_OFFSET + 8;
+/// Capacity of the lazily-allocated stdout output buffer, in bytes.
+pub(crate) const OUT_BUFFER_CAPACITY: u64 = 4096;
+/// Internal helper that drains the per-arena stdout buffer to fd 1 (plan-14-A):
+/// no-op when `OUT_ENABLED == 0` or nothing is pending, otherwise a write-loop
+/// that empties `OUT_PTR[0..OUT_FILLED]` and resets `OUT_FILLED = 0`. Returns
+/// `x0 = 0` on success (or nothing-to-do) and `x0 = 1` on a write failure. Shared
+/// by `io::flush`, the buffered-write overflow path, `io::setBuffered(FALSE)`,
+/// every stdin read, and `_mfb_shutdown` — every point where held-back bytes
+/// would otherwise be lost or misordered.
+pub(crate) const STDOUT_DRAIN_SYMBOL: &str = "_mfb_rt_io_stdout_drain";
 /// Fill `x1` bytes at `x0` with output from the dedicated per-arena fill RNG.
 /// Used to scrub freed chunks and poison freshly mapped blocks. Clobbers
 /// x0, x1, x9–x16.

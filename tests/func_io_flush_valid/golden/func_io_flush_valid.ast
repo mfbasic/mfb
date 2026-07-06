@@ -19,7 +19,11 @@
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "before" }] }, "line": 4 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.flush", "arguments": [] }, "line": 5 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-after" }] }, "line": 6 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 7 }
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.setBuffered", "arguments": [{ "kind": "boolean", "value": true }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.write", "arguments": [{ "kind": "string", "value": "held" }] }, "line": 8 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.flush", "arguments": [] }, "line": 9 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "-drained" }] }, "line": 10 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
       ]
     }
     ]

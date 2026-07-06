@@ -1,0 +1,11 @@
+$ mfb build -ast -ir tests/func_io_setBuffered_valid
+Wrote AST to tests/func_io_setBuffered_valid/func_io_setBuffered_valid.ast
+Wrote IR to tests/func_io_setBuffered_valid/func_io_setBuffered_valid.ir
+[exit 0]
+$ mfb build tests/func_io_setBuffered_valid
+Wrote executable to tests/func_io_setBuffered_valid/func_io_setBuffered_valid.out
+[exit 0]
+$ tests/func_io_setBuffered_valid/func_io_setBuffered_valid.out
+abc
+d
+[exit 0]

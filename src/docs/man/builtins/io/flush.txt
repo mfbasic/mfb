@@ -12,17 +12,18 @@ IMPORTS
 
 DESCRIPTION
   Drains any pending standard-output data so that everything written so far is
-  pushed to the underlying destination. Standard output may be buffered, which
-  means text passed to io::write or io::print is not guaranteed to be visible to
-  an external reader until the buffer is drained; calling io::flush forces that
-  drain immediately. This is most useful when emitting a prompt with io::write
-  and then waiting for input, since without a flush the prompt could remain in
-  the buffer and never appear before the program blocks on a read.
+  pushed to the underlying destination. When opt-in buffering is enabled with
+  io::setBuffered(TRUE), text passed to io::write or io::print is held in a
+  per-thread buffer rather than written immediately; calling io::flush forces that
+  buffer to drain at once. This is most useful when emitting a prompt with
+  io::write and then waiting for input, since without a flush the prompt could
+  remain in the buffer and never appear before the program blocks on a read.
 
   The function takes no arguments and has no return value; its only effect is to
-  flush the stream. The native runtime writes directly to the host standard-output
-  stream and does not maintain an additional MFBASIC output buffer of its own, so
-  in practice this requests a flush of whatever buffering the host stream applies.
+  flush the stream. When buffering is off (the default) there is no MFBASIC buffer
+  to drain, so io::flush only requests a sync of whatever buffering the host stream
+  itself applies; when buffering is on it writes the held bytes and then requests
+  that same host sync.
 
   Output is directed to whichever destination is bound to standard output. In a
   normal console program this is file descriptor 1; in app mode the same call is
@@ -58,4 +59,4 @@ EXAMPLES
     io::flush()
 
 SEE ALSO
-  io::write, io::print, io::writeError
+  io::setBuffered, io::isBuffered, io::write, io::print, io::writeError

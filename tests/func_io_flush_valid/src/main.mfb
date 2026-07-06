@@ -4,5 +4,9 @@ FUNC main AS Integer
   io::write("before")
   io::flush()
   io::print("-after")
+  io::setBuffered(TRUE)
+  io::write("held")
+  io::flush()
+  io::print("-drained")
   RETURN 0
 END FUNC

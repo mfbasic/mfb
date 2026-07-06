@@ -1,0 +1,7 @@
+IMPORT io
+
+FUNC main AS Integer
+  io::setBuffered()
+  io::setBuffered("x")
+  RETURN 0
+END FUNC
