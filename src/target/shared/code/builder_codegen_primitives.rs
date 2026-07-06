@@ -663,9 +663,29 @@ impl CodeBuilder<'_> {
         }
         // Inside a raw-capture region (inline `TRAP` on an inline built-in) the
         // error is not propagated: leave the raw `Result` in the standard
-        // registers and join the capture point so it can be materialized.
+        // registers and join the capture point so it can be materialized. That
+        // takes precedence over everything else.
+        //
+        // Otherwise route the freshly assembled error `Result` (now in the standard
+        // registers) exactly like call-site auto-propagation: to the enclosing
+        // function-level `TRAP` when one is active (bug-03 — an inline failure must
+        // reach the bottom `TRAP`, same as `FAIL` and call-boundary failures, spec
+        // §8.3), or back to the caller otherwise. `emit_current_result_exit` runs
+        // the scope-drop walk with the trap-safe cleanup deferral (§8.1) so live
+        // RES/owned values are freed exactly once; inside a `TRAP` body
+        // (`in_trap_body`) `error_exit_destination` yields `Return`, so errors there
+        // still propagate out (§8.6).
         if let Some(label) = self.raw_result_capture.clone() {
             self.emit(abi::branch(&label));
+        } else if !self.emitting_error_route
+            && matches!(self.error_exit_destination(), ExitDestination::Trap)
+        {
+            // Route this inline failure to the enclosing function-level `TRAP`. The
+            // trap route builds an `Error` inline; its OOM fallback re-enters here
+            // with the guard set, so it returns to the caller instead of recursing.
+            self.emitting_error_route = true;
+            self.emit_current_result_exit(ExitDestination::Trap)?;
+            self.emitting_error_route = false;
         } else {
             self.emit(abi::return_());
         }

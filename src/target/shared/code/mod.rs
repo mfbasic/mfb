@@ -82,6 +82,12 @@ struct CodeBuilder<'a> {
     /// (`toInt`, …) trappable: an inline `TRAP` materializes the raw `Result`
     /// rather than auto-propagating.
     raw_result_capture: Option<String>,
+    /// Re-entrancy guard for the inline-error → function-`TRAP` route (bug-03).
+    /// Set while `emit_error_register_return` is routing an inline failure to the
+    /// enclosing trap; the trap route itself builds an `Error` inline, whose OOM
+    /// fallback re-enters `emit_error_register_return` — which must then return to
+    /// the caller (a plain `return_()`) rather than recursing into the trap route.
+    emitting_error_route: bool,
     /// Project-relative source file of the function currently being lowered. Used
     /// to build `ErrorLoc.filename` for errors that originate in this function.
     current_file: String,
@@ -2165,6 +2171,7 @@ fn lower_direct_builtin_runtime_helper(
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
+        emitting_error_route: false,
         current_file: String::new(),
         current_loc: NirSourceLoc::default(),
         resource_owners: HashMap::new(),

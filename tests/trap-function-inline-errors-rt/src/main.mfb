@@ -1,0 +1,85 @@
+IMPORT io
+IMPORT collections
+IMPORT fs
+
+' (a) inline toInt invalid-format caught by the function-level TRAP
+FUNC readAge(input AS String) AS Integer
+  LET n AS Integer = toInt(input)
+  RETURN n
+
+  TRAP(err)
+    io::print("trap-toInt: " & err.message)
+    RETURN 0
+  END TRAP
+END FUNC
+
+' (b) integer / 0 caught by the function-level TRAP
+FUNC divide(a AS Integer, b AS Integer) AS Integer
+  LET q AS Integer = a / b
+  RETURN q
+
+  TRAP(err)
+    io::print("trap-div: " & err.message)
+    RETURN -1
+  END TRAP
+END FUNC
+
+' (c) collections::get out of range caught by the function-level TRAP
+FUNC third(xs AS List OF Integer) AS Integer
+  LET v AS Integer = collections::get(xs, 9)
+  RETURN v
+
+  TRAP(err)
+    io::print("trap-get: " & err.message)
+    RETURN -2
+  END TRAP
+END FUNC
+
+' (d) control: an inline failure INSIDE the TRAP body must still propagate out
+'     (here to divide2's own outer behavior — the caller catches it)
+FUNC innerFails(a AS Integer, b AS Integer) AS Integer
+  LET q AS Integer = a / b
+  RETURN q
+
+  TRAP(err)
+    ' this division also fails; §8.6: error in TRAP body propagates to caller
+    LET bad AS Integer = a / 0
+    RETURN bad
+  END TRAP
+END FUNC
+
+FUNC callInner(a AS Integer, b AS Integer) AS Integer
+  LET r AS Integer = innerFails(a, b)
+  RETURN r
+
+  TRAP(err)
+    io::print("outer-caught: " & err.message)
+    RETURN 42
+  END TRAP
+END FUNC
+
+' (e) RES-cleanup: a live File when the inline failure routes to the TRAP must be
+'     dropped exactly once (no double-free / no leak). §8.1 cleanup semantics.
+FUNC withResource(path AS String, input AS String) AS Integer
+  RES f AS File = fs::openFile(path, "write")
+  fs::writeAll(f, "x")
+  LET n AS Integer = toInt(input)
+  RETURN n
+
+  TRAP(err)
+    io::print("trap-res: " & err.message)
+    RETURN 7
+  END TRAP
+END FUNC
+
+SUB main()
+  io::print(toString(readAge("nope")))
+  io::print(toString(divide(10, 0)))
+  MUT xs AS List OF Integer = []
+  collections::append(xs, 5)
+  io::print(toString(third(xs)))
+  io::print(toString(callInner(7, 0)))
+  LET p AS String = fs::tempDirectory() & "/mfb_trap_res.txt"
+  io::print(toString(withResource(p, "bad")))
+  fs::deleteFile(p)
+END SUB

@@ -369,6 +369,7 @@ pub(super) fn lower_function(
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
+        emitting_error_route: false,
         current_file: function.file.clone(),
         current_loc: NirSourceLoc::default(),
         owner_collections: function
@@ -578,6 +579,7 @@ pub(super) fn lower_builtin_function_wrapper(
         pending_result_slots: None,
         error_arena_restore_slot: None,
         raw_result_capture: None,
+        emitting_error_route: false,
         current_file: String::new(),
         current_loc: NirSourceLoc::default(),
         resource_owners: HashMap::new(),

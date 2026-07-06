@@ -1,0 +1,173 @@
+{
+  "project": "trap_function_inline_errors_rt",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "collections", "line": 2 },
+    { "module": "fs", "line": 3 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "readAge",
+      "line": 6,
+      "params": [
+      { "name": "input", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "input" }] }, "line": 7 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 8 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 10,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap-toInt: " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "message" } }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "divide",
+      "line": 17,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "q", "type": "Integer", "value": { "kind": "binary", "operator": "/", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 18 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "q" }, "line": 19 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 21,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap-div: " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "message" } }] }, "line": 22 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 23 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "third",
+      "line": 28,
+      "params": [
+      { "name": "xs", "type": "List OF Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "v", "type": "Integer", "value": { "kind": "call", "callee": "collections.get", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "9" }] }, "line": 29 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "v" }, "line": 30 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 32,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap-get: " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "message" } }] }, "line": 33 },
+      { "kind": "return", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "2" } }, "line": 34 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "innerFails",
+      "line": 40,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "q", "type": "Integer", "value": { "kind": "binary", "operator": "/", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 41 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "q" }, "line": 42 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 44,
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "bad", "type": "Integer", "value": { "kind": "binary", "operator": "/", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "number", "value": "0" } }, "line": 46 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "bad" }, "line": 47 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "callInner",
+      "line": 51,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "r", "type": "Integer", "value": { "kind": "call", "callee": "innerFails", "arguments": [{ "kind": "identifier", "value": "a" }, { "kind": "identifier", "value": "b" }] }, "line": 52 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "r" }, "line": 53 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 55,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "outer-caught: " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "message" } }] }, "line": 56 },
+      { "kind": "return", "value": { "kind": "number", "value": "42" }, "line": 57 }
+      ]
+    }
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "withResource",
+      "line": 63,
+      "params": [
+      { "name": "path", "type": "String", "default": null },
+      { "name": "input", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "resource": true, "state": null, "name": "f", "type": "File", "value": { "kind": "call", "callee": "fs.openFile", "arguments": [{ "kind": "identifier", "value": "path" }, { "kind": "string", "value": "write" }] }, "line": 64 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.writeAll", "arguments": [{ "kind": "identifier", "value": "f" }, { "kind": "string", "value": "x" }] }, "line": 65 },
+      { "kind": "binding", "mutable": false, "name": "n", "type": "Integer", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "input" }] }, "line": 66 },
+      { "kind": "return", "value": { "kind": "identifier", "value": "n" }, "line": 67 }
+      ],
+      "trap": {
+      "name": "err",
+      "line": 69,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "trap-res: " }, "right": { "kind": "memberAccess", "target": { "kind": "identifier", "value": "err" }, "member": "message" } }] }, "line": 70 },
+      { "kind": "return", "value": { "kind": "number", "value": "7" }, "line": 71 }
+      ]
+    }
+    },
+    {
+      "kind": "sub",
+      "visibility": "public",
+      "name": "main",
+      "line": 75,
+      "params": [
+      ],
+      "returnType": null,
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "readAge", "arguments": [{ "kind": "string", "value": "nope" }] }] }] }, "line": 76 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "divide", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "0" }] }] }] }, "line": 77 },
+      { "kind": "binding", "mutable": true, "name": "xs", "type": "List OF Integer", "value": { "kind": "list", "values": [] }, "line": 78 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "collections.append", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "5" }] }, "line": 79 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "third", "arguments": [{ "kind": "identifier", "value": "xs" }] }] }] }, "line": 80 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "callInner", "arguments": [{ "kind": "number", "value": "7" }, { "kind": "number", "value": "0" }] }] }] }, "line": 81 },
+      { "kind": "binding", "mutable": false, "name": "p", "type": "String", "value": { "kind": "binary", "operator": "&", "left": { "kind": "call", "callee": "fs.tempDirectory", "arguments": [] }, "right": { "kind": "string", "value": "/mfb_trap_res.txt" } }, "line": 82 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "withResource", "arguments": [{ "kind": "identifier", "value": "p" }, { "kind": "string", "value": "bad" }] }] }] }, "line": 83 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "fs.deleteFile", "arguments": [{ "kind": "identifier", "value": "p" }] }, "line": 84 }
+      ]
+    }
+    ]
+  }
+  ]
+}
