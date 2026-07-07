@@ -1106,10 +1106,6 @@ fn function<'a>(file: &'a AstFile, name: &str) -> &'a Function {
         .expect("function item")
 }
 
-fn first_stmt<'a>(function: &'a Function) -> &'a Statement {
-    function.body.first().expect("statement")
-}
-
 // ---------------------------------------------------------------------------
 // serialize.rs — one rich fixture exercising every AST node kind.
 // ---------------------------------------------------------------------------

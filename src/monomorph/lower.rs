@@ -1544,7 +1544,7 @@ impl<'a> Monomorphizer<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::ast::{AstFile, AstProject, Function, Item, TypeDecl};
+    use crate::ast::{AstProject, Function, Item, TypeDecl};
 
     /// Parse one or more `(relative_path, source)` files into an `AstProject`.
     fn project(files: &[(&str, &str)]) -> AstProject {

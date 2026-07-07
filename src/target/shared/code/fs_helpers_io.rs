@@ -237,7 +237,7 @@ pub(super) fn lower_fs_set_buffered_helper(
         abi::move_register("%v0", abi::return_register()),
         abi::branch_link(FILE_DRAIN_SYMBOL),
     ];
-    let mut relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
+    let relocations = vec![internal_branch(symbol, FILE_DRAIN_SYMBOL)];
     instructions.extend([
         abi::store_u64("x31", "%v0", FILE_OFFSET_BUF_ENABLED),
         abi::branch(&done),

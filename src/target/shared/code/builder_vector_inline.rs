@@ -148,30 +148,12 @@ impl CodeBuilder<'_> {
     /// The combined storage/escape-boundary materialization: a register-native
     /// vector becomes its block; a `d`-native `Float` becomes its GPR bits; every
     /// other value is unchanged. Every site that stores a value as 8 bytes or
-    /// passes it as an argument routes through here (or `store_vector_or_value`).
+    /// passes it as an argument routes through here.
     pub(super) fn materialize_value(&mut self, value: ValueResult) -> Result<ValueResult, String> {
         if Self::is_vector_native(&value) {
             return self.vector_value_as_block(value);
         }
         self.materialize_float(value)
-    }
-
-    /// Store `value` into `[base + offset]` as an 8-byte field/slot, materializing a
-    /// register-native vector to its block pointer (or a `d`-native `Float` via
-    /// `store_value_at`) first.
-    pub(super) fn store_vector_or_value(
-        &mut self,
-        value: &ValueResult,
-        base: &str,
-        offset: usize,
-    ) -> Result<(), String> {
-        if Self::is_vector_native(value) {
-            let block = self.vector_value_as_block(value.clone())?;
-            self.emit(abi::store_u64(&block.location, base, offset));
-            return Ok(());
-        }
-        self.store_value_at(value, base, offset);
-        Ok(())
     }
 
     /// Read `operand.<field>` as a synthetic `MemberAccess`.

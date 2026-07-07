@@ -218,59 +218,6 @@ fn decode_hex(value: &str) -> Vec<u8> {
         .collect()
 }
 
-fn run_with_closed_fd(executable: &Path, closed_fd: u8, stdin: &[u8]) -> (i32, String, String) {
-    let output = Command::new("python3")
-        .arg("-c")
-        .arg(
-            r#"import binascii, os, subprocess, sys
-closed_fd = int(sys.argv[2])
-stdin_data = bytes.fromhex(sys.argv[3])
-
-def close_requested_fd():
-    try:
-        os.close(closed_fd)
-    except OSError:
-        pass
-
-proc = subprocess.Popen(
-    [sys.argv[1]],
-    stdin=subprocess.PIPE,
-    stdout=subprocess.PIPE,
-    stderr=subprocess.PIPE,
-    preexec_fn=close_requested_fd,
-)
-out, err = proc.communicate(stdin_data)
-sys.stdout.write(str(proc.returncode) + "\n")
-sys.stdout.write(binascii.hexlify(out).decode("ascii") + "\n")
-sys.stdout.write(binascii.hexlify(err).decode("ascii") + "\n")"#,
-        )
-        .arg(executable)
-        .arg(closed_fd.to_string())
-        .arg(hex(stdin))
-        .output()
-        .expect("run closed-fd helper");
-
-    assert!(
-        output.status.success(),
-        "closed-fd helper failed:\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-
-    let stdout = String::from_utf8(output.stdout).expect("utf8 helper output");
-    let mut lines = stdout.lines();
-    let status = lines
-        .next()
-        .expect("status line")
-        .parse::<i32>()
-        .expect("status code");
-    let child_stdout =
-        String::from_utf8(decode_hex(lines.next().expect("stdout line"))).expect("utf8 stdout");
-    let child_stderr =
-        String::from_utf8(decode_hex(lines.next().expect("stderr line"))).expect("utf8 stderr");
-    (status, child_stdout, child_stderr)
-}
-
 /// Run `executable` with stdout (fd 1) pointed at a **read-only** descriptor
 /// (`/dev/null` opened `O_RDONLY`), then dup'd onto fd 1. Any real `write(1, …)`
 /// then fails deterministically with `EBADF` on every platform/libc — unlike a
