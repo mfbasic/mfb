@@ -316,13 +316,42 @@ sys.exit(proc.wait())"#,
 }
 
 fn run_pty_prompt_interaction(executable: &Path, prompt: &str, input: &[u8]) -> String {
+    run_pty_prompt_interaction_inner(executable, prompt, input, false)
+}
+
+/// Like `run_pty_prompt_interaction`, but for the echo-suppressing reads
+/// (`readChar`/`readByte`/`readLine`): after the prompt appears, wait until the
+/// child has actually cleared the terminal `ECHO` flag before injecting input.
+///
+/// The child writes its prompt with echo still on (the prompt is a *separate*
+/// `io::write` statement — the runtime can't know an echo-suppressed read
+/// follows), then enters raw mode inside the read. Injecting the reply the
+/// instant the prompt is visible races that `tcsetattr`: if the byte lands while
+/// echo is still on, the kernel line discipline echoes it and the assertion
+/// flakes (deterministically under `cargo llvm-cov`, which perturbs scheduling).
+/// Gating the write on `ECHO` being cleared — the child is then blocked in
+/// `read()` — closes the window without a timing hack.
+fn run_pty_prompt_interaction_echo_off(executable: &Path, prompt: &str, input: &[u8]) -> String {
+    run_pty_prompt_interaction_inner(executable, prompt, input, true)
+}
+
+fn run_pty_prompt_interaction_inner(
+    executable: &Path,
+    prompt: &str,
+    input: &[u8],
+    wait_echo_off: bool,
+) -> String {
     let output = Command::new("python3")
         .arg("-c")
         .arg(
-            r#"import fcntl, os, pty, select, subprocess, sys, time
+            r#"import fcntl, os, pty, select, subprocess, sys, termios, time
 prompt = sys.argv[2].encode()
 reply = bytes.fromhex(sys.argv[3])
+wait_echo_off = sys.argv[4] == "1"
 master, slave = pty.openpty()
+# Keep a spare handle to the slave so we can read its termios after the child
+# closes its own copies; closed before the drain loop so `master` still sees EOF.
+echo_probe = os.dup(slave)
 proc = subprocess.Popen([sys.argv[1]], stdin=slave, stdout=slave, stderr=slave, close_fds=True)
 os.close(slave)
 chunks = []
@@ -342,6 +371,21 @@ while prompt not in seen:
         break
     chunks.append(data)
     seen += data
+if wait_echo_off:
+    echo_deadline = time.time() + 5.0
+    while True:
+        try:
+            lflag = termios.tcgetattr(echo_probe)[3]
+        except OSError:
+            break
+        if not (lflag & termios.ECHO):
+            break
+        if time.time() > echo_deadline:
+            proc.kill()
+            sys.stderr.write("timed out waiting for child to disable echo\n")
+            sys.exit(124)
+        time.sleep(0.001)
+os.close(echo_probe)
 os.write(master, reply)
 while True:
     ready, _, _ = select.select([master], [], [], 5.0)
@@ -363,6 +407,7 @@ sys.exit(proc.wait())"#,
         .arg(executable)
         .arg(prompt)
         .arg(hex(input))
+        .arg(if wait_echo_off { "1" } else { "0" })
         .output()
         .expect("run pty prompt helper");
 
@@ -699,7 +744,8 @@ FUNC main AS Integer
 END FUNC
 "#,
     );
-    let transcript = run_pty_prompt_interaction(&build_project(&project), "line> ", b"secret\n");
+    let transcript =
+        run_pty_prompt_interaction_echo_off(&build_project(&project), "line> ", b"secret\n");
     let normalized = transcript.replace("\r\n", "\n");
     assert!(
         normalized.contains("line> 6\n"),
@@ -730,7 +776,7 @@ FUNC main AS Integer
 END FUNC
 "#,
     );
-    let transcript = run_pty_prompt_interaction(&build_project(&project), "ready> ", b"w");
+    let transcript = run_pty_prompt_interaction_echo_off(&build_project(&project), "ready> ", b"w");
     let normalized = transcript.replace("\r\n", "\n");
     assert!(
         normalized.contains("ready> up\n"),
@@ -757,7 +803,7 @@ FUNC main AS Integer
 END FUNC
 "#,
     );
-    let transcript = run_pty_prompt_interaction(&build_project(&project), "ready> ", b"A");
+    let transcript = run_pty_prompt_interaction_echo_off(&build_project(&project), "ready> ", b"A");
     let normalized = transcript.replace("\r\n", "\n");
     assert!(
         normalized.contains("ready> 65\n"),
