@@ -1174,13 +1174,13 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-208-0003",
         name: "TESTING_EXPECT_INCOMPARABLE",
         severity: Severity::Error,
-        message: "expectEQ/expectNQ operands must be comparable with `=`",
+        message: "expectEqual/expectNEqual operands must be comparable with `=`",
     },
     Rule {
         code: "2-208-0004",
         name: "TESTING_EXPECT_NOT_PRINTABLE",
         severity: Severity::Error,
-        message: "expectEQ/expectNQ operands must be printable for the failure message",
+        message: "expectEqual/expectNEqual operands must be printable for the failure message",
     },
     Rule {
         code: "2-208-0005",
@@ -1199,5 +1199,11 @@ pub(super) const RULES: &[Rule] = &[
         name: "TESTING_EXPECT_TRAP_INLINE_BUILTIN",
         severity: Severity::Error,
         message: "expectTrap/expectNTrap cannot trap-guard an inline-compiled builtin",
+    },
+    Rule {
+        code: "2-208-0008",
+        name: "TESTING_EXPECT_TYPE_MISMATCH",
+        severity: Severity::Error,
+        message: "typed assertion operands must both be the named type",
     },
 ];

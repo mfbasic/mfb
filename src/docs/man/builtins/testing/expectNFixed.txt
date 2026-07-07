@@ -1,0 +1,48 @@
+NAME
+  expectNFixed - assert two Fixed values are not equal
+
+SYNOPSIS
+  expectNFixed(actual, expected)
+
+PACKAGE
+  testing
+
+IMPORTS
+  None. testing assertions are available without an IMPORT statement, but only
+  inside a TCASE body.
+
+DESCRIPTION
+  expectNFixed passes when both operands are Fixed and actual <> expected; it fails
+  otherwise. It is a typed assertion — both actual and expected must be exactly
+  Fixed (a mismatched operand type is a compile error), so it asserts the type and
+  the value together without any toString. For loose numeric comparison across
+  types use expectEqual/expectNEqual instead.
+
+  On failure, expectNFixed records the mismatch detail, aborts the current TCASE, and lets
+  sibling cases and groups continue.
+
+PARAMETERS
+  actual
+    The Fixed value produced by the code under test.
+
+  expected
+    The Fixed value it should not equal.
+
+RETURN VALUE
+  Nothing. expectNFixed is a statement-level assertion.
+
+ERRORS
+  On a failed assertion, raises the reserved internal test-abort error caught by
+  the mfb test driver.
+
+EXAMPLES
+  TESTING
+    TGROUP "example"
+      TCASE "case"
+        expectNFixed(math::abs(0 - toFixed("1.5")), toFixed("2.0"))
+      END TCASE
+    END TGROUP
+  END TESTING
+
+SEE ALSO
+  expectNEqual, expectFixed, expectNFloat, expectNInteger, expectNString

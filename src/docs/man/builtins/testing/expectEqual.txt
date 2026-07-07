@@ -1,8 +1,8 @@
 NAME
-  expectEQ - assert two values are equal
+  expectEqual - assert two values are equal
 
 SYNOPSIS
-  expectEQ(actual, expected)
+  expectEqual(actual, expected)
 
 PACKAGE
   testing
@@ -12,12 +12,14 @@ IMPORTS
   inside a TCASE body.
 
 DESCRIPTION
-  expectEQ passes when actual = expected and fails otherwise. It is compiler-
-  lowered to the language = operator, so both operands must be comparable with =
-  and printable (a scalar, String, Byte, or List OF Byte) so the failure message
-  can render them.
+  expectEqual passes when actual = expected and fails otherwise. It is the
+  generic equality assertion: both operands must be comparable with = and
+  printable (a scalar, String, or Byte) so the failure message can render them.
+  Integer and Float operands compare numerically. To additionally assert the
+  operand type, use the typed forms expectFloat, expectInteger, expectFixed, or
+  expectString.
 
-  On failure, expectEQ records the detail "expected <expected>, got <actual>",
+  On failure, expectEqual records the detail "expected <expected>, got <actual>",
   aborts the current TCASE, and lets sibling cases and groups continue. The
   aborting error is a reserved internal code the mfb test driver recognizes, so
   the failure is reported as a test failure rather than a crash.
@@ -30,7 +32,7 @@ PARAMETERS
     The value it should equal. Must be comparable with actual using =.
 
 RETURN VALUE
-  Nothing. expectEQ is a statement-level assertion.
+  Nothing. expectEqual is a statement-level assertion.
 
 ERRORS
   On a failed assertion, raises the reserved internal test-abort error caught by
@@ -43,13 +45,13 @@ EXAMPLES
     TESTING
       TGROUP "math"
         TCASE "adds"
-          expectEQ(add(2, 3), 5)          ' passes
+          expectEqual(add(2, 3), 5)          ' passes
         END TCASE
         TCASE "reports the mismatch"
-          expectEQ(add(2, 3), 6)          ' fails: expected 6, got 5
+          expectEqual(add(2, 3), 6)          ' fails: expected 6, got 5
         END TCASE
       END TGROUP
     END TESTING
 
 SEE ALSO
-  expectNQ, expectTrap, expectNTrap
+  expectNEqual, expectFloat, expectInteger, expectFixed, expectString, expectTrap

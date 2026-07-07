@@ -44,16 +44,22 @@ failed assertion aborts its case, and sibling cases and groups continue.
 
 | Builtin | Passes iff |
 | --- | --- |
-| `expectEQ(actual, expected)` | `actual = expected` |
-| `expectNQ(actual, expected)` | `actual <> expected` |
+| `expectEqual(actual, expected)` | `actual = expected` (generic) |
+| `expectNEqual(actual, expected)` | `actual <> expected` (generic) |
+| `expectFloat`/`expectInteger`/`expectFixed`/`expectString`(a, b) | both are that type **and** `a = b` |
+| `expectNFloat`/`expectNInteger`/`expectNFixed`/`expectNString`(a, b) | both are that type **and** `a <> b` |
 | `expectTrap(expr)` | evaluating `expr` traps |
 | `expectTrap(expr, code)` | evaluating `expr` traps **and** its `error.code = code` |
 | `expectNTrap(expr)` | evaluating `expr` does **not** trap |
 
-- `expectEQ`/`expectNQ` reuse the language `=`/`<>` operators — the operands must
-  be comparable with `=` (`TESTING_EXPECT_INCOMPARABLE`) and printable for the
-  failure message: a scalar, `String`, `Byte`, or `List OF Byte`
-  (`TESTING_EXPECT_NOT_PRINTABLE`).
+- `expectEqual`/`expectNEqual` reuse the language `=`/`<>` operators — the operands
+  must be comparable with `=` (`TESTING_EXPECT_INCOMPARABLE`) and printable for the
+  failure message: a scalar, `String`, or `Byte` (`TESTING_EXPECT_NOT_PRINTABLE`).
+  `Integer` and `Float` compare numerically.
+- The **typed** forms (`expectFloat`, `expectInteger`, `expectFixed`,
+  `expectString`, and their `expectN…` counterparts) additionally require both
+  operands to be exactly the named type (`TESTING_EXPECT_TYPE_MISMATCH`) — an
+  exact type-and-value check that needs no `toString`.
 - `expectTrap`/`expectNTrap` evaluate their argument under a trap guard, so the
   argument must be a genuinely-fallible call — the same constraint as an inline
   `TRAP` (§8.6). A non-call, an infallible call, or an inline-compiled builtin is

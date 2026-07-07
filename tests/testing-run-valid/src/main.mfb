@@ -1,5 +1,7 @@
 IMPORT io
 IMPORT errorCode
+IMPORT math
+IMPORT strings
 
 FUNC add(a AS Integer, b AS Integer) AS Integer
   RETURN a + b
@@ -16,14 +18,35 @@ END FUNC
 
 TESTING
   TGROUP "equality"
-    TCASE "expectEQ passes"
-      expectEQ(add(2, 3), 5)
+    TCASE "expectEqual passes"
+      expectEqual(add(2, 3), 5)
     END TCASE
-    TCASE "expectEQ fails"
-      expectEQ(add(2, 3), 6)
+    TCASE "expectEqual fails"
+      expectEqual(add(2, 3), 6)
     END TCASE
-    TCASE "expectNQ passes"
-      expectNQ(add(2, 3), 6)
+    TCASE "expectNEqual passes"
+      expectNEqual(add(2, 3), 6)
+    END TCASE
+  END TGROUP
+  TGROUP "typed equality"
+    TCASE "expectInteger / expectNInteger"
+      expectInteger(add(2, 3), 5)
+      expectNInteger(add(2, 3), 6)
+    END TCASE
+    TCASE "expectFloat / expectNFloat"
+      expectFloat(math::sqrt(4.0), 2.0)
+      expectNFloat(math::sqrt(2.0), 2.0)
+    END TCASE
+    TCASE "expectFixed / expectNFixed"
+      expectFixed(math::abs(0 - toFixed("1.5")), toFixed("1.5"))
+      expectNFixed(math::abs(0 - toFixed("1.5")), toFixed("2.0"))
+    END TCASE
+    TCASE "expectString / expectNString"
+      expectString(strings::upper("ab"), "AB")
+      expectNString(strings::upper("ab"), "ab")
+    END TCASE
+    TCASE "expectFloat fails with a typed detail"
+      expectFloat(math::sqrt(4.0), 3.0)
     END TCASE
   END TGROUP
   TGROUP "traps"
@@ -43,7 +66,7 @@ TESTING
   TGROUP "runtime errors"
     TCASE "a genuine runtime error is a failure, not a crash"
       LET x AS Integer = parseIt("notanumber")
-      expectEQ(x, 0)
+      expectEqual(x, 0)
     END TCASE
   END TGROUP
 END TESTING

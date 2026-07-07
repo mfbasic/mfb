@@ -1,16 +1,16 @@
 $ mfb test tests/testing-assert-invalid
    6 |   TGROUP "misuse"
    7 |     TCASE "arity"
-   8 |       expectEQ(1)
+   8 |       expectEqual(1)
      | ^
 tests/testing-assert-invalid/src/main.mfb:8 error[2-208-0002 TESTING_EXPECT_ARITY]: assertion builtin called with the wrong number of arguments
-               `expectEQ` expects 2 argument(s), got 1.
+               `expectEqual` expects 2 argument(s), got 1.
    9 |     END TCASE
   10 |     TCASE "incomparable operands"
-  11 |       expectEQ(1, "text")
+  11 |       expectEqual(1, "text")
      | ^
-tests/testing-assert-invalid/src/main.mfb:11 error[2-208-0003 TESTING_EXPECT_INCOMPARABLE]: expectEQ/expectNQ operands must be comparable with `=`
-               `expectEQ` operands must be comparable with `=`; got Integer and String.
+tests/testing-assert-invalid/src/main.mfb:11 error[2-208-0003 TESTING_EXPECT_INCOMPARABLE]: expectEqual/expectNEqual operands must be comparable with `=`
+               `expectEqual` operands must be comparable with `=`; got Integer and String.
   12 |     END TCASE
   13 |     TCASE "expectTrap on a non-call"
   14 |       expectTrap(1 + 1)
@@ -23,9 +23,27 @@ tests/testing-assert-invalid/src/main.mfb:14 error[2-208-0006 TESTING_EXPECT_TRA
      | ^
 tests/testing-assert-invalid/src/main.mfb:17 error[2-208-0005 TESTING_EXPECT_CODE_TYPE]: expectTrap expected-code argument must be an Integer
                `expectTrap` expected-code argument must be an Integer; got String.
+  18 |     END TCASE
+  19 |     TCASE "expectFloat on non-Float operands"
+  20 |       expectFloat(1, 2)
+     | ^
+tests/testing-assert-invalid/src/main.mfb:20 error[2-208-0008 TESTING_EXPECT_TYPE_MISMATCH]: typed assertion operands must both be the named type
+               `expectFloat` operands must both be Float; got Integer.
+  18 |     END TCASE
+  19 |     TCASE "expectFloat on non-Float operands"
+  20 |       expectFloat(1, 2)
+     | ^
+tests/testing-assert-invalid/src/main.mfb:20 error[2-208-0008 TESTING_EXPECT_TYPE_MISMATCH]: typed assertion operands must both be the named type
+               `expectFloat` operands must both be Float; got Integer.
+  21 |     END TCASE
+  22 |     TCASE "expectInteger with a String operand"
+  23 |       expectInteger(1, "two")
+     | ^
+tests/testing-assert-invalid/src/main.mfb:23 error[2-208-0008 TESTING_EXPECT_TYPE_MISMATCH]: typed assertion operands must both be the named type
+               `expectInteger` operands must both be Integer; got String.
    9 |     END TCASE
   10 |     TCASE "incomparable operands"
-  11 |       expectEQ(1, "text")
+  11 |       expectEqual(1, "text")
      | ^
 tests/testing-assert-invalid/src/main.mfb:11 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
                Operator `=` requires compatible comparable operands, got Integer and String.
@@ -35,4 +53,10 @@ tests/testing-assert-invalid/src/main.mfb:11 error[2-203-0001 TYPE_BINARY_OPERAT
      | ^
 tests/testing-assert-invalid/src/main.mfb:17 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
                Operator `<>` requires compatible comparable operands, got Integer and String.
+  21 |     END TCASE
+  22 |     TCASE "expectInteger with a String operand"
+  23 |       expectInteger(1, "two")
+     | ^
+tests/testing-assert-invalid/src/main.mfb:23 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `=` requires compatible comparable operands, got Integer and String.
 [exit 1]

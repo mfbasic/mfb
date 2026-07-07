@@ -83,7 +83,7 @@ unallocated). The scheme leaves room; it does not densely fill it.
 | `2-201` | imports & symbol resolution | 16 |
 | `2-203` | semantic checking (typing, ownership, native ABI) | 100 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
-| `2-208` | test framework (assertion builtins) | 7 |
+| `2-208` | test framework (assertion builtins) | 8 |
 | `3-302` | verification | 1 |
 | `3-304` | target/codegen support | 2 |
 | `5-500` | linking | 1 |
@@ -460,11 +460,12 @@ DOC block semantics (resolver):
 | --- | --- | --- | --- |
 | `2-208-0001` | `TESTING_EXPECT_OUTSIDE_TCASE` | error | assertion builtins are valid only inside a TCASE body |
 | `2-208-0002` | `TESTING_EXPECT_ARITY` | error | assertion builtin called with the wrong number of arguments |
-| `2-208-0003` | `TESTING_EXPECT_INCOMPARABLE` | error | expectEQ/expectNQ operands must be comparable with `=` |
-| `2-208-0004` | `TESTING_EXPECT_NOT_PRINTABLE` | error | expectEQ/expectNQ operands must be printable for the failure message |
+| `2-208-0003` | `TESTING_EXPECT_INCOMPARABLE` | error | expectEqual/expectNEqual operands must be comparable with `=` |
+| `2-208-0004` | `TESTING_EXPECT_NOT_PRINTABLE` | error | expectEqual/expectNEqual operands must be printable for the failure message |
 | `2-208-0005` | `TESTING_EXPECT_CODE_TYPE` | error | expectTrap expected-code argument must be an Integer |
 | `2-208-0006` | `TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE` | error | expectTrap/expectNTrap require a fallible call to trap-guard |
 | `2-208-0007` | `TESTING_EXPECT_TRAP_INLINE_BUILTIN` | error | expectTrap/expectNTrap cannot trap-guard an inline-compiled builtin |
+| `2-208-0008` | `TESTING_EXPECT_TYPE_MISMATCH` | error | typed assertion operands must both be the named type |
 
 ### `3-302` — Verification
 

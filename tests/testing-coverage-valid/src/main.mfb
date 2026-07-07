@@ -15,10 +15,10 @@ END FUNC
 TESTING
   TGROUP "classify"
     TCASE "only the positive branch is exercised"
-      expectEQ(classify(5), "positive")
+      expectEqual(classify(5), "positive")
     END TCASE
     TCASE "this assertion fails on its line"
-      expectEQ(classify(5), "negative")
+      expectEqual(classify(5), "negative")
     END TCASE
   END TGROUP
 END TESTING

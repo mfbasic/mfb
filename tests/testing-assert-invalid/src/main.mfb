@@ -5,16 +5,22 @@ END FUNC
 TESTING
   TGROUP "misuse"
     TCASE "arity"
-      expectEQ(1)
+      expectEqual(1)
     END TCASE
     TCASE "incomparable operands"
-      expectEQ(1, "text")
+      expectEqual(1, "text")
     END TCASE
     TCASE "expectTrap on a non-call"
       expectTrap(1 + 1)
     END TCASE
     TCASE "expectTrap expected-code must be Integer"
       expectTrap(toInt("x"), "notacode")
+    END TCASE
+    TCASE "expectFloat on non-Float operands"
+      expectFloat(1, 2)
+    END TCASE
+    TCASE "expectInteger with a String operand"
+      expectInteger(1, "two")
     END TCASE
   END TGROUP
 END TESTING

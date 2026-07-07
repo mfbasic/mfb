@@ -30,14 +30,14 @@
           "description": "arity",
           "line": 7,
           "body": [
-          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 8 }
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEqual", "arguments": [{ "kind": "number", "value": "1" }] }, "line": 8 }
           ]
         },
         {
           "description": "incomparable operands",
           "line": 10,
           "body": [
-          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "string", "value": "text" }] }, "line": 11 }
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEqual", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "string", "value": "text" }] }, "line": 11 }
           ]
         },
         {
@@ -52,6 +52,20 @@
           "line": 16,
           "body": [
           { "kind": "expression", "expression": { "kind": "call", "callee": "expectTrap", "arguments": [{ "kind": "call", "callee": "toInt", "arguments": [{ "kind": "string", "value": "x" }] }, { "kind": "string", "value": "notacode" }] }, "line": 17 }
+          ]
+        },
+        {
+          "description": "expectFloat on non-Float operands",
+          "line": 19,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectFloat", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }] }, "line": 20 }
+          ]
+        },
+        {
+          "description": "expectInteger with a String operand",
+          "line": 22,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectInteger", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "string", "value": "two" }] }, "line": 23 }
           ]
         }
         ]

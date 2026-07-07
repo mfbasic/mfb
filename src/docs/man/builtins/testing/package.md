@@ -5,11 +5,13 @@ Assertion builtins for the built-in test framework (`TESTING` blocks + `mfb test
 ## Synopsis
 
 ```
-expectEQ(actual, expected)
-expectNQ(actual, expected)
-expectTrap(expression)
+expectEqual(actual, expected)     expectNEqual(actual, expected)
+expectFloat(actual, expected)     expectNFloat(actual, expected)
+expectInteger(actual, expected)   expectNInteger(actual, expected)
+expectFixed(actual, expected)     expectNFixed(actual, expected)
+expectString(actual, expected)    expectNString(actual, expected)
+expectTrap(expression)            expectNTrap(expression)
 expectTrap(expression, code)
-expectNTrap(expression)
 ```
 
 ## Imports
@@ -26,11 +28,15 @@ appear inside the `TCASE` bodies of a `TESTING … END TESTING` block and are
 compiler-lowered — there is no runtime helper. Each produces `Nothing`; the first
 failed assertion aborts its case (sibling cases and groups still run).
 
-`expectEQ`/`expectNQ` reuse the language `=`/`<>` operators, so their operands
-must be comparable with `=` and printable (a scalar, `String`, `Byte`, or
-`List OF Byte`) for the failure message. `expectTrap`/`expectNTrap` evaluate their
-argument under a trap guard, so the argument must be a genuinely-fallible call —
-the same constraint as an inline `TRAP`.
+`expectEqual`/`expectNEqual` reuse the language `=`/`<>` operators, so their
+operands must be comparable with `=` and printable (a scalar, `String`, or
+`Byte`) for the failure message; `Integer` and `Float` compare numerically. The
+typed forms `expectFloat`/`expectInteger`/`expectFixed`/`expectString` (and their
+`expectN…` inequality counterparts) additionally require both operands to be
+exactly the named type — an exact type-and-value check that needs no `toString`.
+`expectTrap`/`expectNTrap` evaluate their argument under a trap guard, so the
+argument must be a genuinely-fallible call — the same constraint as an inline
+`TRAP`.
 
 A failed assertion raises a reserved internal error the `mfb test` driver
 recognizes, so it is reported as a test failure rather than a crash, and is

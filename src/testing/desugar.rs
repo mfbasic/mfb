@@ -60,14 +60,23 @@ pub(crate) fn expand_expect(
     uid: usize,
     line: usize,
 ) -> Vec<Statement> {
-    use crate::builtins::testing::{EXPECT_EQ, EXPECT_NQ, EXPECT_NTRAP, EXPECT_TRAP};
+    use crate::builtins::testing::{
+        is_equality_assert, is_inequality_assert, EXPECT_NTRAP, EXPECT_TRAP,
+    };
     let argument = |index: usize| arguments.get(index).map(call_arg_value).cloned();
-    match callee {
-        EXPECT_EQ => expand_eq(argument(0), argument(1), uid, line, false),
-        EXPECT_NQ => expand_eq(argument(0), argument(1), uid, line, true),
-        EXPECT_TRAP => expand_trap(argument(0), argument(1), uid, line),
-        EXPECT_NTRAP => expand_ntrap(argument(0), uid, line),
-        _ => Vec::new(),
+    // Every equality assertion (`expectEqual` and the typed `expectFloat`/… ) lowers
+    // the same way — a `=` comparison and a FAIL on mismatch; the operand-type check
+    // is a typecheck concern. The inequality family mirrors it with `<>`.
+    if is_equality_assert(callee) {
+        expand_eq(argument(0), argument(1), uid, line, false)
+    } else if is_inequality_assert(callee) {
+        expand_eq(argument(0), argument(1), uid, line, true)
+    } else if callee == EXPECT_TRAP {
+        expand_trap(argument(0), argument(1), uid, line)
+    } else if callee == EXPECT_NTRAP {
+        expand_ntrap(argument(0), uid, line)
+    } else {
+        Vec::new()
     }
 }
 

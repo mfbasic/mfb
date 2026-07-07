@@ -55,14 +55,14 @@
           "description": "only the positive branch is exercised",
           "line": 17,
           "body": [
-          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "number", "value": "5" }] }, { "kind": "string", "value": "positive" }] }, "line": 18 }
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEqual", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "number", "value": "5" }] }, { "kind": "string", "value": "positive" }] }, "line": 18 }
           ]
         },
         {
           "description": "this assertion fails on its line",
           "line": 20,
           "body": [
-          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "number", "value": "5" }] }, { "kind": "string", "value": "negative" }] }, "line": 21 }
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEqual", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "number", "value": "5" }] }, { "kind": "string", "value": "negative" }] }, "line": 21 }
           ]
         }
         ]

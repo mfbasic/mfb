@@ -972,7 +972,10 @@ impl<'a> SyntaxChecker<'a> {
         locals: &mut HashMap<String, LocalInfo>,
         line: usize,
     ) -> Type {
-        use crate::builtins::testing::{EXPECT_EQ, EXPECT_NQ, EXPECT_NTRAP, EXPECT_TRAP};
+        use crate::builtins::testing::{
+            expect_operand_type, is_equality_assert, is_inequality_assert, EXPECT_NTRAP,
+            EXPECT_TRAP,
+        };
 
         if let Some((min, max)) = crate::builtins::testing::expect_arity(callee) {
             if arguments.len() < min || arguments.len() > max {
@@ -994,73 +997,94 @@ impl<'a> SyntaxChecker<'a> {
         }
 
         let arg = |index: usize| arguments.get(index).map(call_arg_value);
-        match callee {
-            EXPECT_EQ | EXPECT_NQ => {
-                let left = arg(0)
-                    .map(|value| self.infer_expression(file, value, locals, line, ExprMode::Read))
-                    .unwrap_or(Type::Unknown);
-                let right = arg(1)
-                    .map(|value| self.infer_expression(file, value, locals, line, ExprMode::Read))
-                    .unwrap_or(Type::Unknown);
-                // Reuse language `=` acceptance: `Unknown` means the operands are
-                // not equality-comparable (and neither operand was itself Unknown).
-                let comparable = matches!(self.infer_binary(file, "=", &left, &right, line), Type::Boolean);
-                if !comparable
-                    && !matches!(left, Type::Unknown)
-                    && !matches!(right, Type::Unknown)
-                {
+        if is_equality_assert(callee) || is_inequality_assert(callee) {
+            let left = arg(0)
+                .map(|value| self.infer_expression(file, value, locals, line, ExprMode::Read))
+                .unwrap_or(Type::Unknown);
+            let right = arg(1)
+                .map(|value| self.infer_expression(file, value, locals, line, ExprMode::Read))
+                .unwrap_or(Type::Unknown);
+            match expect_operand_type(callee) {
+                // A typed assertion (`expectFloat`/`expectInteger`/…) requires both
+                // operands to be exactly the named type — an exact type-and-value
+                // check that needs no `toString`.
+                Some(want) => {
+                    for operand in [&left, &right] {
+                        if !matches!(operand, Type::Unknown)
+                            && self.type_name(operand) != want
+                        {
+                            self.report(
+                                "TESTING_EXPECT_TYPE_MISMATCH",
+                                &format!(
+                                    "`{callee}` operands must both be {want}; got {}.",
+                                    self.type_name(operand)
+                                ),
+                                file,
+                                line,
+                            );
+                        }
+                    }
+                }
+                // The generic `expectEqual`/`expectNEqual` accept any `=`-comparable,
+                // printable operands (reusing the language `=` acceptance; `Unknown`
+                // means not equality-comparable and neither operand was Unknown).
+                None => {
+                    let comparable =
+                        matches!(self.infer_binary(file, "=", &left, &right, line), Type::Boolean);
+                    if !comparable
+                        && !matches!(left, Type::Unknown)
+                        && !matches!(right, Type::Unknown)
+                    {
+                        self.report(
+                            "TESTING_EXPECT_INCOMPARABLE",
+                            &format!(
+                                "`{callee}` operands must be comparable with `=`; got {} and {}.",
+                                self.type_name(&left),
+                                self.type_name(&right)
+                            ),
+                            file,
+                            line,
+                        );
+                    }
+                    for operand in [&left, &right] {
+                        if !self.is_printable(operand) {
+                            self.report(
+                                "TESTING_EXPECT_NOT_PRINTABLE",
+                                &format!(
+                                    "`{callee}` operands must be printable (a scalar, String, Byte, or List OF Byte); got {}.",
+                                    self.type_name(operand)
+                                ),
+                                file,
+                                line,
+                            );
+                        }
+                    }
+                }
+            }
+        } else if callee == EXPECT_TRAP {
+            if let Some(value) = arg(0) {
+                self.infer_expression(file, value, locals, line, ExprMode::Read);
+                self.check_trap_guardable(file, callee, value, line);
+            }
+            if let Some(value) = arg(1) {
+                let code = self.infer_expression(file, value, locals, line, ExprMode::Read);
+                if !self.compatible(&Type::Integer, &code) {
                     self.report(
-                        "TESTING_EXPECT_INCOMPARABLE",
+                        "TESTING_EXPECT_CODE_TYPE",
                         &format!(
-                            "`{callee}` operands must be comparable with `=`; got {} and {}.",
-                            self.type_name(&left),
-                            self.type_name(&right)
+                            "`{callee}` expected-code argument must be an Integer; got {}.",
+                            self.type_name(&code)
                         ),
                         file,
                         line,
                     );
                 }
-                for operand in [&left, &right] {
-                    if !self.is_printable(operand) {
-                        self.report(
-                            "TESTING_EXPECT_NOT_PRINTABLE",
-                            &format!(
-                                "`{callee}` operands must be printable (a scalar, String, Byte, or List OF Byte); got {}.",
-                                self.type_name(operand)
-                            ),
-                            file,
-                            line,
-                        );
-                    }
-                }
             }
-            EXPECT_TRAP => {
-                if let Some(value) = arg(0) {
-                    self.infer_expression(file, value, locals, line, ExprMode::Read);
-                    self.check_trap_guardable(file, callee, value, line);
-                }
-                if let Some(value) = arg(1) {
-                    let code = self.infer_expression(file, value, locals, line, ExprMode::Read);
-                    if !self.compatible(&Type::Integer, &code) {
-                        self.report(
-                            "TESTING_EXPECT_CODE_TYPE",
-                            &format!(
-                                "`{callee}` expected-code argument must be an Integer; got {}.",
-                                self.type_name(&code)
-                            ),
-                            file,
-                            line,
-                        );
-                    }
-                }
+        } else if callee == EXPECT_NTRAP {
+            if let Some(value) = arg(0) {
+                self.infer_expression(file, value, locals, line, ExprMode::Read);
+                self.check_trap_guardable(file, callee, value, line);
             }
-            EXPECT_NTRAP => {
-                if let Some(value) = arg(0) {
-                    self.infer_expression(file, value, locals, line, ExprMode::Read);
-                    self.check_trap_guardable(file, callee, value, line);
-                }
-            }
-            _ => {}
         }
         Type::Nothing
     }
