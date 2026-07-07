@@ -1,0 +1,564 @@
+IMPORT collections
+
+' Consolidated runtime-behavior acceptance for the collections builtins,
+' converted from the tests/func_collection_*_valid and func_collections_*_valid
+' fixtures. Each assertion compares the SAME expression as the source fixture
+' against that fixture's exact golden value, using the typed TESTING assertions.
+
+TYPE Point
+  x AS Integer
+  y AS Integer
+END TYPE
+
+' --- predicate / transform / reduce callbacks reproduced from the fixtures ---
+
+FUNC isLarge(value AS Integer) AS Boolean
+  RETURN value > 2
+END FUNC
+
+FUNC isAda(value AS String) AS Boolean
+  RETURN len(value) = 3
+END FUNC
+
+FUNC add(accumulator AS Integer, value AS Integer) AS Integer
+  RETURN accumulator + value
+END FUNC
+
+FUNC join(accumulator AS String, value AS String) AS String
+  RETURN accumulator & value
+END FUNC
+
+FUNC double(value AS Integer) AS Integer
+  RETURN value + value
+END FUNC
+
+FUNC label(value AS Integer) AS String
+  RETURN "n=" & toString(value)
+END FUNC
+
+FUNC isPos(n AS Integer) AS Boolean
+  RETURN n > 0
+END FUNC
+
+FUNC neg(n AS Integer) AS Integer
+  RETURN 0 - n
+END FUNC
+
+FUNC addN(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+FUNC keyMod(n AS Integer) AS Integer
+  RETURN n MOD 2
+END FUNC
+
+FUNC idn(n AS Integer) AS Integer
+  RETURN n
+END FUNC
+
+FUNC dbl(n AS Integer) AS Integer
+  RETURN n * 2
+END FUNC
+
+FUNC twoValues() AS Map OF Integer TO Integer
+  RETURN Map OF Integer TO Integer { 1 := 10, 2 := 20 }
+END FUNC
+
+TESTING
+  TGROUP "Builtin: collections"
+    TGROUP "append"
+      TCASE "list and bulk append"
+        LET numbers AS List OF Integer = collections::append([1, 2], 3)
+        LET more AS List OF Integer = collections::append(numbers, [4, 5])
+        LET names AS List OF String = collections::append(["Ada"], "Grace")
+        LET moreNames AS List OF String = collections::append(names, ["Katherine"])
+        expectInteger(len(more), 5)
+        expectInteger(collections::get(more, 0), 1)
+        expectInteger(collections::get(more, 1), 2)
+        expectInteger(collections::get(more, 2), 3)
+        expectInteger(collections::get(more, 3), 4)
+        expectInteger(collections::get(more, 4), 5)
+        expectInteger(len(moreNames), 3)
+        expectString(collections::get(moreNames, 0), "Ada")
+        expectString(collections::get(moreNames, 1), "Grace")
+        expectString(collections::get(moreNames, 2), "Katherine")
+
+        MUT acc AS List OF Integer = []
+        MUT k AS Integer = 0
+        WHILE k < 4
+          LET part AS List OF Integer = [k, k + 100]
+          acc = collections::append(acc, part)
+          k = k + 1
+        WEND
+        expectInteger(len(acc), 8)
+        expectInteger(collections::get(acc, 0), 0)
+        expectInteger(collections::get(acc, 1), 100)
+        expectInteger(collections::get(acc, 2), 1)
+        expectInteger(collections::get(acc, 3), 101)
+        expectInteger(collections::get(acc, 4), 2)
+        expectInteger(collections::get(acc, 5), 102)
+        expectInteger(collections::get(acc, 6), 3)
+        expectInteger(collections::get(acc, 7), 103)
+      END TCASE
+    END TGROUP
+
+    TGROUP "contains"
+      TCASE "list membership"
+        LET empty AS List OF Integer = []
+        LET numbers AS List OF Integer = [10, 20, 30]
+        LET names AS List OF String = ["Ada", "Grace"]
+        LET points AS List OF Point = [Point[1, 2], Point[3, 4]]
+        expectEqual(collections::contains(empty, 10), FALSE)
+        expectEqual(collections::contains(numbers, 10), TRUE)
+        expectEqual(collections::contains(numbers, 30), TRUE)
+        expectEqual(collections::contains(numbers, 40), FALSE)
+        expectEqual(collections::contains(names, "Grace"), TRUE)
+        expectEqual(collections::contains(names, "Katherine"), FALSE)
+        expectEqual(collections::contains(points, Point[3, 4]), TRUE)
+        expectEqual(collections::contains(points, Point[5, 6]), FALSE)
+      END TCASE
+    END TGROUP
+
+    TGROUP "filter"
+      TCASE "predicate, lambda, empty"
+        LET numbers AS List OF Integer = [1, 2, 3, 4]
+        LET names AS List OF String = ["Ada", "Grace", "Ada"]
+        LET empty AS List OF Integer = []
+        LET largePredicate AS FUNC(Integer) AS Boolean = isLarge
+        LET large AS List OF Integer = collections::filter(numbers, largePredicate)
+        LET adas AS List OF String = collections::filter(names, isAda)
+        LET small AS List OF Integer = collections::filter(numbers, LAMBDA(value AS Integer) -> value < 3)
+        LET emptyLarge AS List OF Integer = collections::filter(empty, isLarge)
+        expectInteger(len(large), 2)
+        expectInteger(collections::get(large, 0), 3)
+        expectInteger(collections::get(large, 1), 4)
+        expectInteger(len(adas), 2)
+        expectString(collections::get(adas, 0), "Ada")
+        expectString(collections::get(adas, 1), "Ada")
+        expectInteger(len(small), 2)
+        expectInteger(collections::get(small, 0), 1)
+        expectInteger(collections::get(small, 1), 2)
+        expectInteger(len(emptyLarge), 0)
+      END TCASE
+    END TGROUP
+
+    TGROUP "find"
+      TCASE "element and sublist"
+        LET numbers AS List OF Integer = [10, 20, 30, 20]
+        LET names AS List OF String = ["Ada", "Grace", "Ada"]
+        LET points AS List OF Point = [Point[1, 2], Point[3, 4], Point[1, 2]]
+        LET numberNeedle AS List OF Integer = [20, 30]
+        LET nameNeedle AS List OF String = ["Grace", "Ada"]
+        LET pointNeedle AS List OF Point = [Point[3, 4], Point[1, 2]]
+        LET emptyNeedle AS List OF Integer = []
+        expectInteger(collections::find(numbers, 20), 1)
+        expectInteger(collections::find(numbers, 20, 2), 3)
+        expectInteger(collections::find(names, "Ada", 1), 2)
+        expectInteger(collections::find(points, Point[1, 2], 1), 2)
+        expectInteger(collections::find(numbers, numberNeedle), 1)
+        expectInteger(collections::find(names, nameNeedle), 1)
+        expectInteger(collections::find(points, pointNeedle), 1)
+        expectInteger(collections::find(numbers, emptyNeedle, 4), 4)
+      END TCASE
+    END TGROUP
+
+    TGROUP "forEach"
+      TCASE "runs over lists without trapping"
+        LET numbers AS List OF Integer = [1, 2, 3]
+        LET names AS List OF String = ["Ada", "Grace"]
+        expectInteger(len(numbers), 3)
+        expectInteger(len(names), 2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "getOr"
+      TCASE "list and map defaults"
+        LET numbers AS List OF Integer = [10, 20, 30]
+        LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+        LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one" }
+        expectInteger(collections::getOr(numbers, 0, -1), 10)
+        expectInteger(collections::getOr(numbers, 99, -2), -2)
+        expectInteger(collections::getOr(numbers, -1, -3), -3)
+        expectInteger(collections::getOr(value := numbers, index := 1, default := -4), 20)
+        expectInteger(collections::getOr(names, "Ada", 0), 36)
+        expectInteger(collections::getOr(names, "Grace", 7), 7)
+        expectInteger(collections::getOr(default := 8, key := "Grace", value := names), 8)
+      END TCASE
+      TCASE "string default is owned, not a borrow"
+        ' A getOr miss whose default is a String must return an OWNED copy: the
+        ' "get" group below reads String map values, and a borrowed default here
+        ' would be double-freed and corrupt the arena, trapping that later read.
+        LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one" }
+        expectString(collections::getOr(codes, 2, "two"), "two")
+        LET words AS List OF String = ["a", "b"]
+        expectString(collections::getOr(words, 9, "z"), "z")
+      END TCASE
+    END TGROUP
+
+    TGROUP "get"
+      TCASE "list and map reads"
+        LET numbers AS List OF Integer = [10, 20, 30]
+        LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+        LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
+        expectInteger(collections::get(numbers, 0), 10)
+        expectInteger(collections::get(numbers, 1), 20)
+        expectInteger(collections::get(numbers, 2), 30)
+        expectInteger(collections::get(names, "Ada"), 36)
+        expectInteger(collections::get(names, "Grace"), 85)
+        expectString(collections::get(codes, 2), "two")
+      END TCASE
+    END TGROUP
+
+    TGROUP "hasKey"
+      TCASE "map key presence"
+        LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+        LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
+        expectEqual(collections::hasKey(names, "Ada"), TRUE)
+        expectEqual(collections::hasKey(names, "Katherine"), FALSE)
+        expectEqual(collections::hasKey(codes, 2), TRUE)
+        expectEqual(collections::hasKey(codes, 3), FALSE)
+      END TCASE
+    END TGROUP
+
+    TGROUP "insert"
+      TCASE "list insertion"
+        LET middle AS List OF Integer = collections::insert([1, 3], 1, 2)
+        LET start AS List OF Integer = collections::insert(middle, 0, 0)
+        LET finalValues AS List OF Integer = collections::insert(start, 4, 4)
+        LET names AS List OF String = collections::insert(["Ada", "Katherine"], 1, "Grace")
+        expectInteger(len(finalValues), 5)
+        expectInteger(collections::get(finalValues, 0), 0)
+        expectInteger(collections::get(finalValues, 1), 1)
+        expectInteger(collections::get(finalValues, 2), 2)
+        expectInteger(collections::get(finalValues, 3), 3)
+        expectInteger(collections::get(finalValues, 4), 4)
+        expectInteger(len(names), 3)
+        expectString(collections::get(names, 0), "Ada")
+        expectString(collections::get(names, 1), "Grace")
+        expectString(collections::get(names, 2), "Katherine")
+      END TCASE
+    END TGROUP
+
+    TGROUP "keys"
+      TCASE "map keys in insertion order"
+        LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+        LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
+        LET nameKeys AS List OF String = collections::keys(names)
+        LET codeKeys AS List OF Integer = collections::keys(codes)
+        expectInteger(len(nameKeys), 2)
+        expectString(collections::get(nameKeys, 0), "Ada")
+        expectString(collections::get(nameKeys, 1), "Grace")
+        expectInteger(len(codeKeys), 2)
+        expectInteger(collections::get(codeKeys, 0), 1)
+        expectInteger(collections::get(codeKeys, 1), 2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "len"
+      TCASE "list and map lengths"
+        LET emptyList AS List OF Integer = []
+        LET numbers AS List OF Integer = [10, 20, 30]
+        LET emptyMap AS Map OF String TO Integer = Map OF String TO Integer {}
+        LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+        expectInteger(len(emptyList), 0)
+        expectInteger(len(numbers), 3)
+        expectInteger(len(emptyMap), 0)
+        expectInteger(len(ages), 2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "mid"
+      TCASE "list slices"
+        LET numbers AS List OF Integer = [10, 20, 30, 40]
+        LET names AS List OF String = ["Ada", "Grace", "Katherine"]
+        LET numberSlice AS List OF Integer = collections::mid(numbers, 1, 2)
+        LET stringSlice AS List OF String = collections::mid(names, 0, 2)
+        LET emptySlice AS List OF Integer = collections::mid(numbers, 4, 0)
+        expectInteger(len(numberSlice), 2)
+        expectInteger(collections::get(numberSlice, 0), 20)
+        expectInteger(collections::get(numberSlice, 1), 30)
+        expectInteger(len(stringSlice), 2)
+        expectString(collections::get(stringSlice, 0), "Ada")
+        expectString(collections::get(stringSlice, 1), "Grace")
+        expectInteger(len(emptySlice), 0)
+      END TCASE
+    END TGROUP
+
+    TGROUP "prepend"
+      TCASE "list prepend"
+        LET numbers AS List OF Integer = collections::prepend([2, 3], 1)
+        LET names AS List OF String = collections::prepend(["Grace"], "Ada")
+        expectInteger(len(numbers), 3)
+        expectInteger(collections::get(numbers, 0), 1)
+        expectInteger(collections::get(numbers, 1), 2)
+        expectInteger(collections::get(numbers, 2), 3)
+        expectInteger(len(names), 2)
+        expectString(collections::get(names, 0), "Ada")
+        expectString(collections::get(names, 1), "Grace")
+      END TCASE
+    END TGROUP
+
+    TGROUP "reduce"
+      TCASE "sum, join, lambda, empty"
+        LET numbers AS List OF Integer = [1, 2, 3]
+        LET words AS List OF String = ["Hello", " ", "World"]
+        LET empty AS List OF Integer = []
+        LET addNumbers AS FUNC(Integer, Integer) AS Integer = add
+        LET total AS Integer = collections::reduce(numbers, 10, addNumbers)
+        LET joined AS String = collections::reduce(words, "", join)
+        LET product AS Integer = collections::reduce(numbers, 1, LAMBDA(accumulator AS Integer, value AS Integer) -> accumulator * value)
+        LET emptyTotal AS Integer = collections::reduce(empty, 7, add)
+        expectInteger(total, 16)
+        expectString(joined, "Hello World")
+        expectInteger(product, 6)
+        expectInteger(emptyTotal, 7)
+      END TCASE
+    END TGROUP
+
+    TGROUP "removeAt"
+      TCASE "list removal"
+        LET numbers AS List OF Integer = collections::removeAt([1, 2, 3, 4], 1)
+        LET names AS List OF String = collections::removeAt(["Ada", "Grace", "Katherine"], 2)
+        expectInteger(len(numbers), 3)
+        expectInteger(collections::get(numbers, 0), 1)
+        expectInteger(collections::get(numbers, 1), 3)
+        expectInteger(collections::get(numbers, 2), 4)
+        expectInteger(len(names), 2)
+        expectString(collections::get(names, 0), "Ada")
+        expectString(collections::get(names, 1), "Grace")
+      END TCASE
+    END TGROUP
+
+    TGROUP "removeKey"
+      TCASE "map key removal"
+        LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85, "Katherine" := 99 }
+        LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
+        LET removed AS Map OF String TO Integer = collections::removeKey(ages, "Grace")
+        LET missing AS Map OF Integer TO String = collections::removeKey(codes, 3)
+        expectInteger(len(removed), 2)
+        expectEqual(collections::hasKey(removed, "Ada"), TRUE)
+        expectEqual(collections::hasKey(removed, "Grace"), FALSE)
+        expectInteger(len(missing), 2)
+        expectString(collections::get(missing, 2), "two")
+      END TCASE
+    END TGROUP
+
+    TGROUP "replace"
+      TCASE "list value replacement"
+        LET numbers AS List OF Integer = [1, 2, 1, 3]
+        LET names AS List OF String = ["Ada", "Grace", "Ada"]
+        LET points AS List OF Point = [Point[1, 2], Point[3, 4], Point[1, 2]]
+        LET noMatch AS List OF Integer = collections::replace(numbers, 9, 8)
+        LET replacedNumbers AS List OF Integer = collections::replace(numbers, 1, 7)
+        LET replacedNames AS List OF String = collections::replace(names, "Ada", "Katherine")
+        LET replacedPoints AS List OF Point = collections::replace(points, Point[1, 2], Point[8, 9])
+        expectInteger(len(replacedNumbers), 4)
+        expectInteger(collections::get(replacedNumbers, 0), 7)
+        expectInteger(collections::get(replacedNumbers, 1), 2)
+        expectInteger(collections::get(replacedNumbers, 2), 7)
+        expectInteger(collections::get(replacedNumbers, 3), 3)
+        expectInteger(len(replacedNames), 3)
+        expectString(collections::get(replacedNames, 0), "Katherine")
+        expectString(collections::get(replacedNames, 1), "Grace")
+        expectString(collections::get(replacedNames, 2), "Katherine")
+        expectInteger(len(noMatch), 4)
+        expectInteger(collections::get(noMatch, 0), 1)
+        expectInteger(collections::get(noMatch, 1), 2)
+        expectInteger(collections::get(noMatch, 2), 1)
+        expectInteger(collections::get(noMatch, 3), 3)
+        expectInteger(len(replacedPoints), 3)
+      END TCASE
+    END TGROUP
+
+    TGROUP "set map"
+      TCASE "map upsert"
+        LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+        LET updated AS Map OF String TO Integer = collections::set(ages, "Ada", 37)
+        LET inserted AS Map OF String TO Integer = collections::set(updated, "Katherine", 99)
+        LET codes AS Map OF Integer TO String = collections::set(Map OF Integer TO String { 1 := "one" }, 2, "two")
+        expectInteger(collections::get(inserted, "Ada"), 37)
+        expectInteger(collections::get(inserted, "Katherine"), 99)
+        expectString(collections::get(codes, 2), "two")
+        expectInteger(len(inserted), 3)
+      END TCASE
+    END TGROUP
+
+    TGROUP "set"
+      TCASE "list element replace"
+        LET numbers AS List OF Integer = collections::set([1, 2, 3], 1, 9)
+        LET names AS List OF String = collections::set(["Ada", "Grace"], 0, "Katherine")
+        expectInteger(len(numbers), 3)
+        expectInteger(collections::get(numbers, 0), 1)
+        expectInteger(collections::get(numbers, 1), 9)
+        expectInteger(collections::get(numbers, 2), 3)
+        expectInteger(len(names), 2)
+        expectString(collections::get(names, 0), "Katherine")
+        expectString(collections::get(names, 1), "Grace")
+      END TCASE
+    END TGROUP
+
+    TGROUP "sum"
+      TCASE "int, float, fixed, empty"
+        LET integers AS List OF Integer = [1, 2, 3]
+        LET floats AS List OF Float = [1.5, 2.25]
+        LET fixeds AS List OF Fixed = [1.250, 2.500]
+        LET empty AS List OF Integer = []
+        expectInteger(collections::sum(integers), 6)
+        expectFloat(collections::sum(floats), 3.75)
+        expectFixed(collections::sum(fixeds), 3.750F)
+        expectInteger(collections::sum(empty), 0)
+      END TCASE
+    END TGROUP
+
+    TGROUP "transform"
+      TCASE "double, label, lambda, empty"
+        LET numbers AS List OF Integer = [1, 2, 3]
+        LET empty AS List OF Integer = []
+        LET labeler AS FUNC(Integer) AS String = label
+        LET doubled AS List OF Integer = collections::transform(numbers, double)
+        LET labels AS List OF String = collections::transform(numbers, labeler)
+        LET tripled AS List OF Integer = collections::transform(numbers, LAMBDA(value AS Integer) -> value + value + value)
+        LET emptyDoubled AS List OF Integer = collections::transform(empty, double)
+        expectInteger(collections::get(doubled, 0), 2)
+        expectInteger(collections::get(doubled, 1), 4)
+        expectInteger(collections::get(doubled, 2), 6)
+        expectString(collections::get(labels, 0), "n=1")
+        expectString(collections::get(labels, 2), "n=3")
+        expectInteger(collections::get(tripled, 1), 6)
+        expectInteger(len(emptyDoubled), 0)
+      END TCASE
+    END TGROUP
+
+    TGROUP "values"
+      TCASE "map values in insertion order"
+        LET names AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+        LET codes AS Map OF Integer TO String = Map OF Integer TO String { 1 := "one", 2 := "two" }
+        LET ages AS List OF Integer = collections::values(names)
+        LET words AS List OF String = collections::values(codes)
+        expectInteger(len(ages), 2)
+        expectInteger(collections::get(ages, 0), 36)
+        expectInteger(collections::get(ages, 1), 85)
+        expectInteger(len(words), 2)
+        expectString(collections::get(words, 0), "one")
+        expectString(collections::get(words, 1), "two")
+      END TCASE
+    END TGROUP
+
+    TGROUP "helpers"
+      TCASE "sort and sortBy"
+        LET s AS List OF Integer = collections::sort([3, 1, 2])
+        expectInteger(len(s), 3)
+        expectInteger(collections::get(s, 0), 1)
+        expectInteger(collections::get(s, 1), 2)
+        expectInteger(collections::get(s, 2), 3)
+        LET sb AS List OF Integer = collections::sortBy([3, 1, 2], neg)
+        expectInteger(len(sb), 3)
+        expectInteger(collections::get(sb, 0), 3)
+        expectInteger(collections::get(sb, 1), 2)
+        expectInteger(collections::get(sb, 2), 1)
+      END TCASE
+      TCASE "take and drop"
+        LET tk AS List OF Integer = collections::take([1, 2, 3, 4], 2)
+        expectInteger(len(tk), 2)
+        expectInteger(collections::get(tk, 0), 1)
+        expectInteger(collections::get(tk, 1), 2)
+        LET dp AS List OF Integer = collections::drop([1, 2, 3, 4], 2)
+        expectInteger(len(dp), 2)
+        expectInteger(collections::get(dp, 0), 3)
+        expectInteger(collections::get(dp, 1), 4)
+      END TCASE
+      TCASE "reduceRight, any, all"
+        expectInteger(collections::reduceRight([1, 2, 3], 0, addN), 6)
+        expectEqual(collections::any([0, 1], isPos), TRUE)
+        expectEqual(collections::any([0, 0], isPos), FALSE)
+        expectEqual(collections::all([1, 2], isPos), TRUE)
+        expectEqual(collections::all([1, 0], isPos), FALSE)
+      END TCASE
+      TCASE "findIndex and findLastIndex"
+        expectInteger(collections::findIndex([0, 0, 5, 0], isPos), 2)
+        expectInteger(collections::findLastIndex([5, 0, 7, 0], isPos), 2)
+      END TCASE
+      TCASE "flatten and distinct"
+        LET fl AS List OF Integer = collections::flatten([[1, 2], [3], [4, 5]])
+        expectInteger(len(fl), 5)
+        expectInteger(collections::get(fl, 0), 1)
+        expectInteger(collections::get(fl, 1), 2)
+        expectInteger(collections::get(fl, 2), 3)
+        expectInteger(collections::get(fl, 3), 4)
+        expectInteger(collections::get(fl, 4), 5)
+        LET ds AS List OF Integer = collections::distinct([1, 2, 2, 3, 1])
+        expectInteger(len(ds), 3)
+        expectInteger(collections::get(ds, 0), 1)
+        expectInteger(collections::get(ds, 1), 2)
+        expectInteger(collections::get(ds, 2), 3)
+      END TCASE
+      TCASE "chunks and window"
+        expectInteger(len(collections::chunks([1, 2, 3, 4, 5], 2)), 3)
+        expectInteger(len(collections::window([1, 2, 3, 4], 2)), 3)
+      END TCASE
+      TCASE "zip"
+        LET z AS List OF Pair OF Integer, String = collections::zip([1, 2, 3], ["a", "b"])
+        expectInteger(len(z), 2)
+        expectInteger(collections::get(z, 1).first, 2)
+        expectString(collections::get(z, 1).second, "b")
+      END TCASE
+      TCASE "groupBy"
+        LET g AS Map OF Integer TO List OF Integer = collections::groupBy([1, 2, 3, 4], keyMod, idn)
+        expectInteger(len(collections::get(g, 0)), 2)
+        expectInteger(len(collections::get(g, 1)), 2)
+      END TCASE
+      TCASE "mapValues"
+        LET mv AS Map OF Integer TO Integer = collections::mapValues(twoValues(), dbl)
+        expectInteger(collections::get(mv, 1), 20)
+        expectInteger(collections::get(mv, 2), 40)
+      END TCASE
+      TCASE "partition"
+        LET pt AS Partition OF Integer = collections::partition([1, -2, 3, -4], isPos)
+        expectInteger(len(pt.matched), 2)
+        expectInteger(collections::get(pt.matched, 0), 1)
+        expectInteger(collections::get(pt.matched, 1), 3)
+        expectInteger(len(pt.unmatched), 2)
+        expectInteger(collections::get(pt.unmatched, 0), -2)
+        expectInteger(collections::get(pt.unmatched, 1), -4)
+      END TCASE
+    END TGROUP
+
+    TGROUP "list bindings"
+      TCASE "let, mut reassign, copy"
+        ' from tests/collection-list-bindings
+        LET letValues AS List OF String = ["let-a", "let-b"]
+        MUT mutValues AS List OF String = ["mut-a"]
+        mutValues = ["mut-b", "mut-c"]
+        LET copied AS List OF String = mutValues
+        expectInteger(len(letValues), 2)
+        expectString(collections::get(letValues, 0), "let-a")
+        expectString(collections::get(letValues, 1), "let-b")
+        expectInteger(len(mutValues), 2)
+        expectString(collections::get(mutValues, 0), "mut-b")
+        expectString(collections::get(mutValues, 1), "mut-c")
+        expectInteger(len(copied), 2)
+        expectString(collections::get(copied, 0), "mut-b")
+        expectString(collections::get(copied, 1), "mut-c")
+      END TCASE
+    END TGROUP
+
+    TGROUP "map bindings"
+      TCASE "let, mut reassign, copy"
+        ' from tests/collection-map-bindings
+        LET letMap AS Map OF String TO String = Map OF String TO String { "a" := "one", "b" := "two" }
+        MUT mutMap AS Map OF String TO String = Map OF String TO String { "c" := "three" }
+        mutMap = Map OF String TO String { "d" := "four", "e" := "five" }
+        LET copied AS Map OF String TO String = mutMap
+        expectInteger(len(letMap), 2)
+        expectString(collections::get(letMap, "a"), "one")
+        expectString(collections::get(letMap, "b"), "two")
+        expectInteger(len(mutMap), 2)
+        expectString(collections::get(mutMap, "d"), "four")
+        expectString(collections::get(mutMap, "e"), "five")
+        expectInteger(len(copied), 2)
+        expectString(collections::get(copied, "d"), "four")
+        expectString(collections::get(copied, "e"), "five")
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING

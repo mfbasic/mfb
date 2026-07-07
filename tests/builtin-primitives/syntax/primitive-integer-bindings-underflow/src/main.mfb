@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET tooSmall AS Integer = -9223372036854775809
-  MUT value AS Integer = 0
-  value = -9223372036854775809
-  RETURN value
-END FUNC

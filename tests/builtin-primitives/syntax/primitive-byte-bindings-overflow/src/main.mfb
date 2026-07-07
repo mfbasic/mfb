@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET letValue AS Byte = 299
-  MUT mutValue AS Byte = 100
-  mutValue = 1000
-  RETURN -1
-END FUNC

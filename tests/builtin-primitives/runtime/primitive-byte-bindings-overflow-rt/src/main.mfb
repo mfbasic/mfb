@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  MUT mutValue AS Byte = 100
-  LET addend AS Byte = 100
-  mutValue = mutValue + addend + addend
-  RETURN 0
-END FUNC

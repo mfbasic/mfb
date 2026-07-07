@@ -1,0 +1,244 @@
+IMPORT encoding
+IMPORT collections
+IMPORT errorCode
+
+' Consolidated runtime-behavior acceptance for the encoding builtins, converted
+' from the tests/func_encoding_*_valid fixtures. Each assertion checks the SAME
+' expression as the source fixture against that fixture's exact golden value,
+' using the typed TESTING assertions so no toString formatting is needed.
+'
+' The *_invalid_runtime fixtures demonstrated (via a TRAP) that decoding invalid
+' input reports ErrInvalidFormat rather than aborting; here the equivalent
+' guarantee is asserted with expectTrap/expectNTrap through user-FUNC wrappers
+' (an inline builtin cannot be trap-guarded directly).
+
+FUNC base64DecodeFn(text AS String) AS List OF Byte
+  RETURN encoding::base64Decode(text)
+END FUNC
+
+FUNC percentDecodeFn(text AS String) AS String
+  RETURN encoding::percentDecode(text)
+END FUNC
+
+FUNC uleb128DecodeFn(data AS List OF Byte) AS Integer
+  RETURN encoding::uleb128Decode(data)
+END FUNC
+
+FUNC hexDecodeFn(text AS String) AS List OF Byte
+  RETURN encoding::hexDecode(text)
+END FUNC
+
+FUNC utf16DecodeFn(units AS List OF Integer) AS String
+  RETURN encoding::utf16Decode(units)
+END FUNC
+
+FUNC utf32DecodeFn(points AS List OF Integer) AS String
+  RETURN encoding::utf32Decode(points)
+END FUNC
+
+TESTING
+  TGROUP "Builtin: encoding"
+    TGROUP "base32"
+      TCASE "base32Encode"
+        expectString(encoding::base32Encode([toByte(102), toByte(111), toByte(111)]), "MZXW6===")
+        expectString(encoding::base32Encode([toByte(102)]), "MY======")
+      END TCASE
+      TCASE "base32Decode"
+        LET b AS List OF Byte = encoding::base32Decode("MZXW6YTBOI======")
+        expectInteger(len(b), 6)
+        expectEqual(collections::get(b, 0), toByte(102))
+        expectEqual(collections::get(b, 1), toByte(111))
+        expectEqual(collections::get(b, 2), toByte(111))
+        expectEqual(collections::get(b, 3), toByte(98))
+        expectEqual(collections::get(b, 4), toByte(97))
+        expectEqual(collections::get(b, 5), toByte(114))
+      END TCASE
+    END TGROUP
+
+    TGROUP "base64"
+      TCASE "base64Encode"
+        expectString(encoding::base64Encode([toByte(102), toByte(111), toByte(111)]), "Zm9v")
+        expectString(encoding::base64Encode([toByte(102), toByte(111)]), "Zm8=")
+        expectString(encoding::base64Encode([toByte(102)]), "Zg==")
+      END TCASE
+      TCASE "base64Decode"
+        LET b AS List OF Byte = encoding::base64Decode("Zm9vYmFy")
+        expectInteger(len(b), 6)
+        expectEqual(collections::get(b, 0), toByte(102))
+        expectEqual(collections::get(b, 1), toByte(111))
+        expectEqual(collections::get(b, 2), toByte(111))
+        expectEqual(collections::get(b, 3), toByte(98))
+        expectEqual(collections::get(b, 4), toByte(97))
+        expectEqual(collections::get(b, 5), toByte(114))
+      END TCASE
+      TCASE "base64Decode reports invalid input"
+        expectTrap(base64DecodeFn("...."), errorCode::ErrInvalidFormat)
+        expectTrap(base64DecodeFn("ab"), errorCode::ErrInvalidFormat)
+        expectTrap(base64DecodeFn("a==="), errorCode::ErrInvalidFormat)
+        LET good AS List OF Byte = base64DecodeFn("aGVsbG8=")
+        expectInteger(len(good), 5)
+      END TCASE
+    END TGROUP
+
+    TGROUP "base64url"
+      TCASE "base64UrlEncode"
+        expectString(encoding::base64UrlEncode([toByte(251), toByte(255), toByte(191)]), "-_-_")
+      END TCASE
+      TCASE "base64UrlDecode"
+        LET b AS List OF Byte = encoding::base64UrlDecode("aGVsbG8")
+        expectInteger(len(b), 5)
+        expectEqual(collections::get(b, 0), toByte(104))
+        expectEqual(collections::get(b, 1), toByte(101))
+        expectEqual(collections::get(b, 2), toByte(108))
+        expectEqual(collections::get(b, 3), toByte(108))
+        expectEqual(collections::get(b, 4), toByte(111))
+      END TCASE
+    END TGROUP
+
+    TGROUP "hex"
+      TCASE "hexEncode"
+        expectString(encoding::hexEncode([toByte(104), toByte(105), toByte(0), toByte(255)]), "686900ff")
+      END TCASE
+      TCASE "hexDecode reports invalid input"
+        expectTrap(hexDecodeFn("zz"), errorCode::ErrInvalidFormat)
+        expectTrap(hexDecodeFn("abc"), errorCode::ErrInvalidFormat)
+        LET good AS List OF Byte = hexDecodeFn("ff00")
+        expectInteger(len(good), 2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "formUrl"
+      TCASE "formUrlEncode"
+        expectString(encoding::formUrlEncode("a b+c&d"), "a+b%2Bc%26d")
+      END TCASE
+      TCASE "formUrlDecode"
+        expectString(encoding::formUrlDecode("a+b%2Bc"), "a b+c")
+      END TCASE
+    END TGROUP
+
+    TGROUP "percent"
+      TCASE "percentEncode"
+        expectString(encoding::percentEncode("a b/c?=&"), "a%20b%2Fc%3F%3D%26")
+      END TCASE
+      TCASE "percentDecode"
+        expectString(encoding::percentDecode("a%20b%2Fc"), "a b/c")
+      END TCASE
+      TCASE "percentDecode reports invalid input"
+        expectTrap(percentDecodeFn("%zz"), errorCode::ErrInvalidFormat)
+        expectTrap(percentDecodeFn("%4"), errorCode::ErrInvalidFormat)
+        expectTrap(percentDecodeFn("%FF"), errorCode::ErrInvalidFormat)
+        expectString(percentDecodeFn("a%20b"), "a b")
+      END TCASE
+    END TGROUP
+
+    TGROUP "html"
+      TCASE "htmlEscape"
+        expectString(encoding::htmlEscape("<a href=\"x\">&'"), "&lt;a href=&quot;x&quot;&gt;&amp;&apos;")
+      END TCASE
+      TCASE "htmlUnescape"
+        expectString(encoding::htmlUnescape("&lt;a&gt;&amp; &eacute; &#233; &#x41;"), "<a>& é é A")
+      END TCASE
+    END TGROUP
+
+    TGROUP "punycode"
+      TCASE "punycodeEncode"
+        expectString(encoding::punycodeEncode("münchen.de"), "xn--mnchen-3ya.de")
+        expectString(encoding::punycodeEncode("bücher.example"), "xn--bcher-kva.example")
+      END TCASE
+      TCASE "punycodeDecode"
+        expectString(encoding::punycodeDecode("xn--mnchen-3ya.de"), "münchen.de")
+      END TCASE
+    END TGROUP
+
+    TGROUP "sleb128"
+      TCASE "sleb128Encode"
+        expectString(encoding::hexEncode(encoding::sleb128Encode(0 - 123456)), "c0bb78")
+        expectString(encoding::hexEncode(encoding::sleb128Encode(2)), "02")
+      END TCASE
+      TCASE "sleb128Decode round-trips"
+        expectInteger(encoding::sleb128Decode(encoding::sleb128Encode(0 - 123456)), 0 - 123456)
+      END TCASE
+    END TGROUP
+
+    TGROUP "uleb128"
+      TCASE "uleb128Encode"
+        expectString(encoding::hexEncode(encoding::uleb128Encode(624485)), "e58e26")
+        expectString(encoding::hexEncode(encoding::uleb128Encode(0)), "00")
+      END TCASE
+      TCASE "uleb128Decode"
+        expectInteger(encoding::uleb128Decode([toByte(229), toByte(142), toByte(38)]), 624485)
+      END TCASE
+      TCASE "uleb128Decode reports invalid input"
+        LET truncated AS List OF Byte = [toByte(128)]
+        expectTrap(uleb128DecodeFn(truncated), errorCode::ErrInvalidFormat)
+        LET good AS List OF Byte = [toByte(229), toByte(142), toByte(38)]
+        expectInteger(uleb128DecodeFn(good), 624485)
+      END TCASE
+    END TGROUP
+
+    TGROUP "varint"
+      TCASE "varintEncode"
+        expectString(encoding::hexEncode(encoding::varintEncode(0 - 75)), "9501")
+        expectString(encoding::hexEncode(encoding::varintEncode(150)), "ac02")
+      END TCASE
+      TCASE "varintDecode round-trips"
+        expectInteger(encoding::varintDecode(encoding::varintEncode(0 - 75)), 0 - 75)
+      END TCASE
+    END TGROUP
+
+    TGROUP "utf8"
+      TCASE "utf8Encode"
+        LET b AS List OF Byte = encoding::utf8Encode("Aé")
+        LET n AS List OF Integer = encoding::utf8Encode("Aé")
+        expectInteger(len(b), 3)
+        expectInteger(collections::get(n, 0), 65)
+        expectInteger(collections::get(n, 1), 195)
+        expectInteger(collections::get(n, 2), 169)
+      END TCASE
+      TCASE "utf8Decode"
+        LET b AS List OF Byte = [toByte(65), toByte(195), toByte(169)]
+        LET n AS List OF Integer = [65, 195, 169]
+        expectString(encoding::utf8Decode(b), "Aé")
+        expectString(encoding::utf8Decode(n), "Aé")
+      END TCASE
+    END TGROUP
+
+    TGROUP "utf16"
+      TCASE "utf16Encode round-trips"
+        LET u AS List OF Integer = encoding::utf16Encode("héllo")
+        expectInteger(len(u), 5)
+        expectString(encoding::utf16Decode(u), "héllo")
+      END TCASE
+      TCASE "utf16Decode"
+        expectString(encoding::utf16Decode([104, 233, 108]), "hél")
+      END TCASE
+      TCASE "utf16Decode reports invalid input"
+        LET unpaired AS List OF Integer = [55296]
+        LET outofrange AS List OF Integer = [99999999]
+        expectTrap(utf16DecodeFn(unpaired), errorCode::ErrInvalidFormat)
+        expectTrap(utf16DecodeFn(outofrange), errorCode::ErrInvalidFormat)
+        LET good AS List OF Integer = [104]
+        expectString(utf16DecodeFn(good), "h")
+      END TCASE
+    END TGROUP
+
+    TGROUP "utf32"
+      TCASE "utf32Encode round-trips"
+        LET u AS List OF Integer = encoding::utf32Encode("A😀")
+        expectInteger(len(u), 2)
+        expectString(encoding::utf32Decode(u), "A😀")
+      END TCASE
+      TCASE "utf32Decode"
+        expectString(encoding::utf32Decode([65, 128512]), "A😀")
+      END TCASE
+      TCASE "utf32Decode reports invalid input"
+        LET surrogate AS List OF Integer = [55296]
+        LET outofrange AS List OF Integer = [1114112]
+        expectTrap(utf32DecodeFn(surrogate), errorCode::ErrInvalidFormat)
+        expectTrap(utf32DecodeFn(outofrange), errorCode::ErrInvalidFormat)
+        LET good AS List OF Integer = [65]
+        expectString(utf32DecodeFn(good), "A")
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING

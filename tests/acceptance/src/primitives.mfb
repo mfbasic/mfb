@@ -1,0 +1,276 @@
+' Consolidated runtime-behavior acceptance for the primitive type bindings,
+' converted from the tests/primitive-*_valid fixtures. Each assertion checks the
+' same bound value / promotion result / concatenation as the source fixture, using
+' the typed TESTING assertions so no toString formatting is needed.
+
+TESTING
+  TGROUP "Primitives"
+    TGROUP "boolean bindings"
+      TCASE "let/mut assignment"
+        LET letValue AS Boolean = TRUE
+        MUT mutValue AS Boolean = FALSE
+        mutValue = letValue
+        expectEqual(mutValue, TRUE)
+        ' original fixture returns 1 (exit code) because mutValue is TRUE
+        expectEqual(letValue, TRUE)
+      END TCASE
+    END TGROUP
+
+    TGROUP "byte bindings"
+      TCASE "let/mut assignment and promotion via +"
+        LET letValue AS Byte = 2
+        MUT mutValue AS Byte = 3
+        mutValue = 4
+        expectInteger(toInt(letValue), 2)
+        expectInteger(toInt(mutValue), 4)
+        expectInteger(toInt(letValue + mutValue), 6)
+      END TCASE
+    END TGROUP
+
+    TGROUP "integer bindings"
+      TCASE "let/mut assignment and arithmetic"
+        LET letValue AS Integer = 1 + 1
+        MUT mutValue AS Integer = 3
+        mutValue = mutValue + 1
+        expectInteger(letValue, 2)
+        expectInteger(mutValue, 4)
+        expectInteger(letValue + mutValue, 6)
+      END TCASE
+    END TGROUP
+
+    TGROUP "float bindings"
+      TCASE "let/mut assignment"
+        LET letValue AS Float = 1.5
+        MUT mutValue AS Float = 3.5
+        mutValue = 2.5
+        expectFloat(letValue, 1.50000000000000000)
+        expectFloat(mutValue, 2.50000000000000000)
+      END TCASE
+    END TGROUP
+
+    TGROUP "fixed bindings"
+      TCASE "let/mut assignment"
+        LET letValue AS Fixed = 1.5
+        MUT mutValue AS Fixed = 3.5
+        mutValue = 2.5
+        expectFixed(letValue, toFixed("1.500000000000000000"))
+        expectFixed(mutValue, toFixed("2.500000000000000000"))
+      END TCASE
+    END TGROUP
+
+    TGROUP "string bindings"
+      TCASE "let/mut assignment and copy"
+        LET letValue AS String = "hello"
+        MUT mutValue AS String = "world"
+        mutValue = "mfb"
+        LET copy AS String = letValue
+        expectString(copy, "hello")
+        expectString(mutValue, "mfb")
+      END TCASE
+    END TGROUP
+
+    TGROUP "string concatenation"
+      TCASE "mixed-type toString concatenation"
+        LET intValue AS Integer = 1
+        LET byteValue AS Byte = 2
+        LET floatValue AS Float = 3.5
+        LET fixedValue AS Fixed = 4.25
+        LET boolValue AS Boolean = TRUE
+        LET stringValue AS String = "six"
+        LET text AS String = "i=" & toString(intValue) & ",b=" & toString(byteValue) & ",f=" & toString(floatValue) & ",x=" & toString(fixedValue) & ",ok=" & toString(boolValue) & ",s=" & toString(stringValue)
+        MUT copy AS String = text
+        copy = copy & "!"
+        expectString(text, "i=1,b=2,f=3.5,x=4.25,ok=TRUE,s=six")
+        expectString(copy, "i=1,b=2,f=3.5,x=4.25,ok=TRUE,s=six!")
+      END TCASE
+    END TGROUP
+
+    TGROUP "promotion Byte left"
+      TCASE "Byte with Byte"
+        LET left AS Byte = 2
+        LET right AS Byte = 2
+        expectString(typeName(left + right), "Byte")
+        expectString(typeName(left - right), "Byte")
+        expectString(typeName(left * right), "Byte")
+        expectString(typeName(left ^ right), "Byte")
+        expectString(typeName(left / right), "Byte")
+        expectString(typeName(left MOD right), "Byte")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Byte with Integer"
+        LET left AS Byte = 2
+        LET right AS Integer = 2
+        expectString(typeName(left + right), "Integer")
+        expectString(typeName(left - right), "Integer")
+        expectString(typeName(left * right), "Integer")
+        expectString(typeName(left ^ right), "Integer")
+        expectString(typeName(left / right), "Integer")
+        expectString(typeName(left MOD right), "Integer")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Byte with Fixed"
+        LET left AS Byte = 2
+        LET right AS Fixed = 2.0
+        expectString(typeName(left + right), "Fixed")
+        expectString(typeName(left - right), "Fixed")
+        expectString(typeName(left * right), "Fixed")
+        expectString(typeName(left ^ right), "Fixed")
+        expectString(typeName(left / right), "Fixed")
+        expectString(typeName(left MOD right), "Fixed")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Byte with Float"
+        LET left AS Byte = 2
+        LET right AS Float = 2.0
+        expectString(typeName(left + right), "Float")
+        expectString(typeName(left - right), "Float")
+        expectString(typeName(left * right), "Float")
+        expectString(typeName(left ^ right), "Float")
+        expectString(typeName(left / right), "Float")
+        expectString(typeName(left MOD right), "Float")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+    END TGROUP
+
+    TGROUP "promotion Integer left"
+      TCASE "Integer with Byte"
+        LET left AS Integer = 2
+        LET right AS Byte = 2
+        expectString(typeName(left + right), "Integer")
+        expectString(typeName(left - right), "Integer")
+        expectString(typeName(left * right), "Integer")
+        expectString(typeName(left ^ right), "Integer")
+        expectString(typeName(left / right), "Integer")
+        expectString(typeName(left MOD right), "Integer")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Integer with Integer"
+        LET left AS Integer = 2
+        LET right AS Integer = 2
+        expectString(typeName(left + right), "Integer")
+        expectString(typeName(left - right), "Integer")
+        expectString(typeName(left * right), "Integer")
+        expectString(typeName(left ^ right), "Integer")
+        expectString(typeName(left / right), "Integer")
+        expectString(typeName(left MOD right), "Integer")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Integer with Fixed"
+        LET left AS Integer = 2
+        LET right AS Fixed = 2.0
+        expectString(typeName(left + right), "Fixed")
+        expectString(typeName(left - right), "Fixed")
+        expectString(typeName(left * right), "Fixed")
+        expectString(typeName(left ^ right), "Fixed")
+        expectString(typeName(left / right), "Fixed")
+        expectString(typeName(left MOD right), "Fixed")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Integer with Float"
+        LET left AS Integer = 2
+        LET right AS Float = 2.0
+        expectString(typeName(left + right), "Float")
+        expectString(typeName(left - right), "Float")
+        expectString(typeName(left * right), "Float")
+        expectString(typeName(left ^ right), "Float")
+        expectString(typeName(left / right), "Float")
+        expectString(typeName(left MOD right), "Float")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+    END TGROUP
+
+    TGROUP "promotion Fixed left"
+      TCASE "Fixed with Byte"
+        LET left AS Fixed = 2.0
+        LET right AS Byte = 2
+        expectString(typeName(left + right), "Fixed")
+        expectString(typeName(left - right), "Fixed")
+        expectString(typeName(left * right), "Fixed")
+        expectString(typeName(left ^ right), "Fixed")
+        expectString(typeName(left / right), "Fixed")
+        expectString(typeName(left MOD right), "Fixed")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Fixed with Integer"
+        LET left AS Fixed = 2.0
+        LET right AS Integer = 2
+        expectString(typeName(left + right), "Fixed")
+        expectString(typeName(left - right), "Fixed")
+        expectString(typeName(left * right), "Fixed")
+        expectString(typeName(left ^ right), "Fixed")
+        expectString(typeName(left / right), "Fixed")
+        expectString(typeName(left MOD right), "Fixed")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Fixed with Fixed"
+        LET left AS Fixed = 2.0
+        LET right AS Fixed = 2.0
+        expectString(typeName(left + right), "Fixed")
+        expectString(typeName(left - right), "Fixed")
+        expectString(typeName(left * right), "Fixed")
+        expectString(typeName(left ^ right), "Fixed")
+        expectString(typeName(left / right), "Fixed")
+        expectString(typeName(left MOD right), "Fixed")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Fixed with Float"
+        LET left AS Fixed = 2.0
+        LET right AS Float = 2.0
+        expectString(typeName(left + right), "Fixed")
+        expectString(typeName(left - right), "Fixed")
+        expectString(typeName(left * right), "Fixed")
+        expectString(typeName(left ^ right), "Fixed")
+        expectString(typeName(left / right), "Fixed")
+        expectString(typeName(left MOD right), "Fixed")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+    END TGROUP
+
+    TGROUP "promotion Float left"
+      TCASE "Float with Byte"
+        LET left AS Float = 2.0
+        LET right AS Byte = 2
+        expectString(typeName(left + right), "Float")
+        expectString(typeName(left - right), "Float")
+        expectString(typeName(left * right), "Float")
+        expectString(typeName(left ^ right), "Float")
+        expectString(typeName(left / right), "Float")
+        expectString(typeName(left MOD right), "Float")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Float with Integer"
+        LET left AS Float = 2.0
+        LET right AS Integer = 2
+        expectString(typeName(left + right), "Float")
+        expectString(typeName(left - right), "Float")
+        expectString(typeName(left * right), "Float")
+        expectString(typeName(left ^ right), "Float")
+        expectString(typeName(left / right), "Float")
+        expectString(typeName(left MOD right), "Float")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Float with Fixed"
+        LET left AS Float = 2.0
+        LET right AS Fixed = 2.0
+        expectString(typeName(left + right), "Fixed")
+        expectString(typeName(left - right), "Fixed")
+        expectString(typeName(left * right), "Fixed")
+        expectString(typeName(left ^ right), "Fixed")
+        expectString(typeName(left / right), "Fixed")
+        expectString(typeName(left MOD right), "Fixed")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+      TCASE "Float with Float"
+        LET left AS Float = 2.0
+        LET right AS Float = 2.0
+        expectString(typeName(left + right), "Float")
+        expectString(typeName(left - right), "Float")
+        expectString(typeName(left * right), "Float")
+        expectString(typeName(left ^ right), "Float")
+        expectString(typeName(left / right), "Float")
+        expectString(typeName(left MOD right), "Float")
+        expectString(typeName(left DIV right), "Float")
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING

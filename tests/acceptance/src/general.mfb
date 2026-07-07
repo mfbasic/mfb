@@ -1,0 +1,369 @@
+IMPORT strings
+IMPORT collections
+
+' Consolidated runtime-behavior acceptance for the global (`general`) builtins,
+' converted from the tests/func_general_*_valid fixtures. Each assertion checks
+' the SAME expression as the source fixture against that fixture's exact golden
+' value using the typed TESTING assertions (no toString formatting).
+
+' --- helpers for the `error` group: run a failing call inside a TRAP and
+'     project the resulting Error record's scalar fields for direct asserts. ---
+
+FUNC load(path AS String) AS String
+  IF path = "" THEN
+    FAIL error(77050002, "path is empty")
+  END IF
+  RETURN path
+END FUNC
+
+FUNC reload(path AS String) AS String
+  RETURN load(path)
+END FUNC
+
+FUNC divide(a AS Integer, b AS Integer) AS Integer
+  RETURN a / b
+END FUNC
+
+FUNC loadCode AS Integer
+  MUT out AS Integer = 0
+  LET r = load("") TRAP(e)
+    out = e.code
+    RECOVER ""
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC loadMessage AS String
+  MUT out AS String = ""
+  LET r = load("") TRAP(e)
+    out = e.message
+    RECOVER ""
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC loadFile AS String
+  MUT out AS String = ""
+  LET r = load("") TRAP(e)
+    out = e.source.filename
+    RECOVER ""
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC loadLine AS Integer
+  MUT out AS Integer = 0
+  LET r = load("") TRAP(e)
+    out = e.source.line
+    RECOVER ""
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC loadChar AS Integer
+  MUT out AS Integer = 0
+  LET r = load("") TRAP(e)
+    out = e.source.char
+    RECOVER ""
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC reloadLine AS Integer
+  MUT out AS Integer = 0
+  LET r = reload("") TRAP(e)
+    out = e.source.line
+    RECOVER ""
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC reloadChar AS Integer
+  MUT out AS Integer = 0
+  LET r = reload("") TRAP(e)
+    out = e.source.char
+    RECOVER ""
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC divideCode AS Integer
+  MUT out AS Integer = 0
+  LET r = divide(10, 0) TRAP(e)
+    out = e.code
+    RECOVER 0
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC divideMessage AS String
+  MUT out AS String = ""
+  LET r = divide(10, 0) TRAP(e)
+    out = e.message
+    RECOVER 0
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC divideLine AS Integer
+  MUT out AS Integer = 0
+  LET r = divide(10, 0) TRAP(e)
+    out = e.source.line
+    RECOVER 0
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC divideChar AS Integer
+  MUT out AS Integer = 0
+  LET r = divide(10, 0) TRAP(e)
+    out = e.source.char
+    RECOVER 0
+  END TRAP
+  RETURN out
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "len"
+    TCASE "string grapheme counts"
+      LET emptyText AS String = ""
+      LET asciiText AS String = "hello"
+      LET unicodeText AS String = "aé日"
+      LET emojiText AS String = "a😀é"
+      LET familyText AS String = "👨‍👩‍👧‍👦"
+      expectInteger(len(emptyText), 0)
+      expectInteger(len(asciiText), 5)
+      expectInteger(len(unicodeText), 3)
+      expectInteger(len(emojiText), 3)
+      expectInteger(len(familyText), 7)
+    END TCASE
+    TCASE "list element counts"
+      LET emptyList AS List OF Integer = []
+      LET numbers AS List OF Integer = [10, 20, 30]
+      expectInteger(len(emptyList), 0)
+      expectInteger(len(numbers), 3)
+    END TCASE
+    TCASE "map entry counts"
+      LET emptyMap AS Map OF String TO Integer = Map OF String TO Integer {}
+      LET ages AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36, "Grace" := 85 }
+      expectInteger(len(emptyMap), 0)
+      expectInteger(len(ages), 2)
+    END TCASE
+  END TGROUP
+
+  TGROUP "toString"
+    TCASE "scalars"
+      LET p3 AS Byte = 3
+      expectString(toString(-123), "-123")
+      expectString(toString(0), "0")
+      LET byteMax AS Byte = 255
+      expectString(toString(byteMax), "255")
+      expectString(toString(TRUE), "TRUE")
+      expectString(toString(FALSE), "FALSE")
+      expectString(toString("ready"), "ready")
+      LET fixedVal AS Fixed = 1.25
+      expectString(toString(fixedVal), "1.25")
+      expectString(toString(fixedVal, p3), "1.250")
+    END TCASE
+    TCASE "float precision"
+      LET p0 AS Byte = 0
+      LET p3 AS Byte = 3
+      LET p2 AS Byte = 2
+      LET p5 AS Byte = 5
+      LET p6 AS Byte = 6
+      expectString(toString(2.25), "2.25")
+      expectString(toString(2.25, p3), "2.250")
+      expectString(toString(toFloat("1000000000000.125"), p3), "1000000000000.125")
+      expectString(toString(toFloat("0.000001"), p6), "0.000001")
+      expectString(toString(toFloat("123.456"), p3), "123.456")
+      expectString(toString(toFloat("-9876543210.25"), p2), "-9876543210.25")
+      expectString(toString(toFloat("2.5"), p5), "2.50000")
+      expectString(toString(toFloat("2.0"), p0), "2")
+    END TCASE
+    TCASE "byte list decodes to text"
+      LET bytes AS List OF Byte = [72, 101, 108, 108, 111, 32, 87, 111, 114, 108, 100]
+      expectString(toString(bytes), "Hello World")
+    END TCASE
+  END TGROUP
+
+  TGROUP "toInt"
+    TCASE "from string, byte, float, fixed"
+      LET byteVal AS Byte = 255
+      LET floatPos AS Float = 3.9
+      LET floatNeg AS Float = 0.0 - 3.9
+      LET fixedPos AS Fixed = 12.75
+      LET fixedNeg AS Fixed = 0 - toFixed("12.75")
+      expectInteger(toInt("0"), 0)
+      expectInteger(toInt("+42"), 42)
+      expectInteger(toInt("-42"), -42)
+      expectInteger(toInt("9223372036854775807"), 9223372036854775807)
+      expectInteger(toInt("-9223372036854775808"), 0 - 9223372036854775807 - 1)
+      expectInteger(toInt(byteVal), 255)
+      expectInteger(toInt(floatPos), 3)
+      expectInteger(toInt(floatNeg), -3)
+      expectInteger(toInt(fixedPos), 12)
+      expectInteger(toInt(fixedNeg), -12)
+    END TCASE
+    TCASE "radix parsing"
+      expectInteger(toInt("65535", 10), 65535)
+      expectInteger(toInt("ff", 16), 255)
+      expectInteger(toInt("FF", 16), 255)
+      expectInteger(toInt("-1a", 16), -26)
+      expectInteger(toInt("+1a", 16), 26)
+      expectInteger(toInt("101", 2), 5)
+      expectInteger(toInt("777", 8), 511)
+      expectInteger(toInt("z", 36), 35)
+      expectInteger(toInt("zz", 36), 1295)
+      expectInteger(toInt("0", 16), 0)
+      expectInteger(toInt("7fffffffffffffff", 16), 9223372036854775807)
+      expectInteger(toInt("-8000000000000000", 16), 0 - 9223372036854775807 - 1)
+    END TCASE
+  END TGROUP
+
+  TGROUP "toByte"
+    TCASE "clamps into byte range values"
+      expectInteger(toInt(toByte(0)), 0)
+      expectInteger(toInt(toByte(255)), 255)
+      expectInteger(toInt(toByte(7)), 7)
+    END TCASE
+  END TGROUP
+
+  TGROUP "toFixed"
+    TCASE "parse from string, integer, float"
+      LET p2 AS Byte = 2
+      expectFixed(toFixed("2.50"), toFixed("2.5"))
+      expectFixed(toFixed("-3.75"), toFixed("-3.75"))
+      expectFixed(toFixed("1.25e2"), toFixed("125.0"))
+      expectFixed(toFixed(42), toFixed("42.0"))
+      expectFixed(toFixed(1.25), toFixed("1.25"))
+    END TCASE
+    TCASE "rounds to nearest ULP, ties away from zero"
+      expectFixed(toFixed(21.0 / 17179869184.0), toFixed("0.000000001164153218"))
+      expectFixed(toFixed(11.0 / 8589934592.0), toFixed("0.000000001396983861"))
+      expectFixed(toFixed(23.0 / 17179869184.0), toFixed("0.000000001396983861"))
+      expectFixed(toFixed(-11.0 / 8589934592.0), toFixed("-0.000000001396983861"))
+      expectFixed(toFixed(-21.0 / 17179869184.0), toFixed("-0.000000001164153218"))
+      expectFixed(toFixed("0.0000000013737008"), toFixed("0.000000001396983861"))
+      expectFixed(toFixed("-0.0000000013737008"), toFixed("-0.000000001396983861"))
+      expectFixed(toFixed("0.0000000012107938"), toFixed("0.000000001164153218"))
+    END TCASE
+  END TGROUP
+
+  TGROUP "toFloat"
+    TCASE "parse from string, integer, fixed"
+      LET fixedValue AS Fixed = 1.25
+      expectFloat(toFloat("2.50"), 2.50000000000000000)
+      expectFloat(toFloat("-3.75"), -3.75000000000000000)
+      expectFloat(toFloat("1.25e2"), 125.00000000000000000)
+      expectFloat(toFloat(42), 42.00000000000000000)
+      expectFloat(toFloat(fixedValue), 1.25000000000000000)
+    END TCASE
+  END TGROUP
+
+  TGROUP "typeName"
+    TCASE "reports the runtime type name"
+      LET b AS Byte = 1
+      LET x AS Fixed = 1.25
+      expectString(typeName(1), "Integer")
+      expectString(typeName(b), "Byte")
+      expectString(typeName(1.5), "Float")
+      expectString(typeName(x), "Fixed")
+      expectString(typeName(TRUE), "Boolean")
+      expectString(typeName("text"), "String")
+    END TCASE
+  END TGROUP
+
+  TGROUP "isNumeric"
+    TCASE "accepts well-formed numbers, rejects junk and out-of-range"
+      expectEqual(isNumeric("0"), TRUE)
+      expectEqual(isNumeric("-2.50"), TRUE)
+      expectEqual(isNumeric(".5"), TRUE)
+      expectEqual(isNumeric("1.25e2"), TRUE)
+      expectEqual(isNumeric("1e308"), TRUE)
+      expectEqual(isNumeric("1e309"), FALSE)
+      expectEqual(isNumeric("-1e309"), FALSE)
+      expectEqual(isNumeric("9223372036854775807"), TRUE)
+      expectEqual(isNumeric("9223372036854775808"), TRUE)
+      expectEqual(isNumeric("2147483647.999999999"), TRUE)
+      expectEqual(isNumeric("2147483648"), TRUE)
+      expectEqual(isNumeric("x"), FALSE)
+      expectEqual(isNumeric("1x"), FALSE)
+    END TCASE
+  END TGROUP
+
+  TGROUP "decimalExponent"
+    TCASE "absurd exponents do not wrap the accumulator"
+      LET p1 AS Byte = 1
+      expectEqual(isNumeric("1e18446744073709551616"), FALSE)
+      expectEqual(isNumeric("1e-18446744073709551616"), TRUE)
+      expectEqual(isNumeric("9e999999"), FALSE)
+      expectEqual(isNumeric("1e308"), TRUE)
+      expectEqual(isNumeric("1e309"), FALSE)
+      expectFloat(toFloat("1e-18446744073709551616"), 0.00000000000000000)
+      expectFixed(toFixed("1e-18446744073709551616"), toFixed("0.0"))
+    END TCASE
+  END TGROUP
+
+  TGROUP "find"
+    TCASE "string search returns grapheme index"
+      expectInteger(strings::find("hello", "l"), 2)
+      expectInteger(strings::find("hello", "l", 3), 3)
+      expectInteger(strings::find("aé日é", "日"), 2)
+      expectInteger(strings::find("abcdef", "", 2), 2)
+      expectInteger(strings::find("a😀é", "😀"), 1)
+      expectInteger(strings::find("éx", "́"), 1)
+    END TCASE
+  END TGROUP
+
+  TGROUP "mid"
+    TCASE "grapheme-aware substring"
+      expectString(strings::mid("hello", 1, 3), "ell")
+      expectString(strings::mid("aé日b", 1, 2), "é日")
+      expectString(strings::mid("hello", 2, 0), "")
+      expectString(strings::mid("hello", 5, 0), "")
+      expectString(strings::mid("hello", 0, 5), "hello")
+      expectString(strings::mid("a😀é日", 1, 2), "😀é")
+      expectString(strings::mid("éx", 0, 2), "é")
+      expectString(strings::mid("x👨‍👩‍👧‍👦y", 1, 7), "👨‍👩‍👧‍👦")
+    END TCASE
+  END TGROUP
+
+  TGROUP "replace"
+    TCASE "substring replacement"
+      LET text AS String = "hello"
+      expectString(strings::replace(text, "l", "x"), "hexxo")
+      expectString(strings::replace(value := text, old := "l", new := "q"), "heqqo")
+      expectString(strings::replace("aaaa", "aa", "b"), "bb")
+      expectString(strings::replace("banana", "na", ""), "ba")
+      expectString(strings::replace("aé日é", "é", "E"), "aE日E")
+      expectString(strings::replace(text, "z", "x"), "hello")
+      expectString(strings::replace("hi", "long", "x"), "hi")
+      expectString(strings::replace("hi", "", "x"), "hi")
+      expectString(strings::replace("ababa", "aba", "x"), "xba")
+    END TCASE
+  END TGROUP
+
+  TGROUP "error"
+    TCASE "user error carries the error() call location"
+      expectInteger(loadCode(), 77050002)
+      expectString(loadMessage(), "path is empty")
+      expectString(loadFile(), "src/general.mfb")
+      expectInteger(loadLine(), 14)
+      expectInteger(loadChar(), 10)
+    END TCASE
+    TCASE "propagated error keeps its original origin"
+      expectInteger(reloadLine(), 14)
+      expectInteger(reloadChar(), 10)
+    END TCASE
+    TCASE "runtime error uses the failing expression location"
+      expectInteger(divideCode(), 77050002)
+      expectString(divideMessage(), "invalid argument")
+      expectInteger(divideLine(), 24)
+      expectInteger(divideChar(), 12)
+    END TCASE
+  END TGROUP
+END TESTING

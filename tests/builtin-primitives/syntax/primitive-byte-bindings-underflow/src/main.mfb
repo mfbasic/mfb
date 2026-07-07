@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET tooSmall AS Byte = -1
-  MUT value AS Byte = 0
-  value = -1
-  RETURN toInt(value)
-END FUNC

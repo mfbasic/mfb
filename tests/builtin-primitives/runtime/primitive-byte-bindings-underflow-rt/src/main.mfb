@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  MUT value AS Byte = 0
-  LET one AS Byte = 1
-  value = value - one
-  RETURN 0
-END FUNC

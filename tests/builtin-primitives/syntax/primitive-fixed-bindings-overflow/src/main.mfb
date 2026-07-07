@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET tooLarge AS Fixed = 2147483648.0
-  MUT value AS Fixed = 0.0
-  value = 2147483648.0
-  RETURN 0
-END FUNC

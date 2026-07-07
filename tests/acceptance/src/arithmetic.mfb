@@ -1,0 +1,187 @@
+IMPORT math
+IMPORT errorCode
+
+' Consolidated runtime-behavior acceptance for the arithmetic operators
+' (+ - * / DIV MOD ^ across Byte/Integer/Float/Fixed, operator precedence, and
+' the float finiteness/domain boundary), converted from the
+' tests/arithmetic-*-valid fixtures. Each assertion reproduces the SAME
+' expression as the source fixture (with its LET inputs) and asserts its exact
+' value with the typed TESTING assertions. Fixtures whose only observable was
+' main's RETURN value (shown as the process exit code) are asserted directly.
+
+' Float `^` with a non-whole exponent, and float arithmetic overflow, are
+' inline-lowered traps; wrap them in user FUNCs so expectTrap can guard them.
+FUNC floatPow(base AS Float, exponent AS Float) AS Float
+  RETURN base ^ exponent
+END FUNC
+
+
+TESTING
+  TGROUP "General Arithmetic"
+    TGROUP "add and subtract"
+      TCASE "byte and integer mix returns 77"
+        LET x AS Byte = 100
+        LET y AS Byte = 27
+        LET z AS Integer = 50
+        expectInteger(x + y - z, 77)
+      END TCASE
+      TCASE "fixed addition"
+        LET f AS Fixed = 1.25
+        LET g AS Fixed = 0.25
+        expectFixed(f + g, 1.5F)
+      END TCASE
+    END TGROUP
+
+    TGROUP "multiplication"
+      TCASE "integer product returns 42"
+        LET x AS Integer = 6
+        LET y AS Integer = 7
+        expectInteger(x * y, 42)
+      END TCASE
+      TCASE "fixed product"
+        LET f AS Fixed = 1.5
+        LET g AS Fixed = 2.0
+        LET h AS Fixed = 3.0
+        expectEqual(f * g = h, TRUE)
+        expectFixed(f * g, 3.0F)
+      END TCASE
+    END TGROUP
+
+    TGROUP "division"
+      TCASE "integer division, DIV, and MOD"
+        LET a AS Integer = 7
+        LET b AS Integer = 2
+        expectInteger(a / b, 3)
+        expectFloat(a DIV b, 3.50000000000000000)
+        expectInteger(a MOD b, 1)
+      END TCASE
+      TCASE "byte division truncates"
+        LET a AS Byte = 7
+        LET b AS Byte = 2
+        expectEqual(a / b, 3)
+      END TCASE
+      TCASE "fixed division"
+        LET a AS Fixed = 7.5
+        LET b AS Fixed = 2.0
+        expectFixed(a / b, 3.75F)
+      END TCASE
+      TCASE "fixed MOD"
+        LET a AS Fixed = 7.5
+        LET b AS Fixed = 2.0
+        expectFixed(a MOD b, 1.5F)
+      END TCASE
+      TCASE "float division and MOD"
+        LET a AS Float = 7.5
+        LET b AS Float = 2.0
+        expectFloat(a / b, 3.75000000000000000)
+        expectFloat(a MOD b, 1.50000000000000000)
+      END TCASE
+      TCASE "mixed float and fixed MOD"
+        LET a AS Float = 7.5
+        LET b AS Fixed = 2.0
+        expectFixed(a MOD b, 1.5F)
+      END TCASE
+    END TGROUP
+
+    TGROUP "exponent and MOD"
+      TCASE "integer exponent plus MOD returns 33"
+        LET x AS Integer = 2
+        LET e AS Integer = 5
+        expectInteger(x ^ e + 7 MOD 3, 33)
+      END TCASE
+    END TGROUP
+
+    TGROUP "order of operations"
+      TCASE "precedence returns 48"
+        expectInteger(2 + 3 * 4 ^ 2 - 6 / 3, 48)
+      END TCASE
+    END TGROUP
+
+    TGROUP "concatenation precedence"
+      TCASE "arithmetic binds tighter than concatenation"
+        LET result AS String = "a" & toString(1 + 2)
+        expectString(result, "a3")
+        expectInteger(1 + 2, 3)
+      END TCASE
+    END TGROUP
+
+    TGROUP "fixed arithmetic"
+      TCASE "chained fixed comparisons return 7"
+        LET a AS Fixed = 1.5
+        LET b AS Fixed = 2.0
+        LET c AS Fixed = 3.0
+        LET d AS Fixed = 5.0
+        LET e AS Fixed = 2.5
+        LET one AS Fixed = 1.0
+        LET three AS Fixed = 3.0
+        LET third AS Fixed = one / three
+        expectEqual(a * b = c, TRUE)
+        expectEqual(d / b = e, TRUE)
+        expectEqual(third * three < one, TRUE)
+      END TCASE
+    END TGROUP
+
+    TGROUP "float MOD"
+      TCASE "exact fmod special paths"
+        LET a AS Float = 5.3
+        LET b AS Float = 2.0
+        expectFloat(a MOD b, 1.29999999999999982)
+        LET small AS Float = 1.5
+        LET big AS Float = 7.0
+        expectFloat(small MOD big, 1.50000000000000000)
+        LET nine AS Float = 9.0
+        LET three AS Float = 3.0
+        expectFloat(nine MOD three, 0.00000000000000000)
+        LET na AS Float = 0.0 - 5.3
+        expectFloat(na MOD b, -1.29999999999999982)
+        LET nb AS Float = 0.0 - 2.0
+        expectFloat(a MOD nb, 1.29999999999999982)
+        LET big2 AS Float = 1000000.123
+        LET div2 AS Float = 3.14159
+        expectFloat(big2 MOD div2, 0.61010000005878418)
+      END TCASE
+    END TGROUP
+
+    TGROUP "float compare non-finite"
+      TCASE "comparing transient non-finite intermediates never traps"
+        LET z AS Float = 0.0
+        LET one AS Float = 1.0
+        LET negone AS Float = 0.0 - 1.0
+        expectEqual((one / z) > 5.0, TRUE)
+        expectEqual((one / z) < 5.0, FALSE)
+        expectEqual((z / z) < 5.0, FALSE)
+        expectEqual((z / z) > 5.0, FALSE)
+        expectEqual((z / z) <= 5.0, FALSE)
+        expectEqual((z / z) >= 5.0, FALSE)
+        expectEqual((z / z) = 5.0, FALSE)
+        expectEqual((z / z) <> 5.0, TRUE)
+        expectEqual((negone / z) < 5.0, TRUE)
+      END TCASE
+    END TGROUP
+
+    TGROUP "negative float literal arguments"
+      TCASE "inline negative float literals lower correctly"
+        expectFloat(math::min(-1.1, -1.0), -1.10000000000000009)
+        expectFloat(math::max(-3.5, -2.5), -2.50000000000000000)
+        expectFloat(math::atan2(-1.1, -1.0), -2.30861138691536150)
+        expectFloat(math::pow(-2.0, -2.0), 0.25000000000000000)
+        expectFloat(math::clamp(-5.0, -4.0, -1.0), -4.00000000000000000)
+      END TCASE
+    END TGROUP
+
+    TGROUP "float exponent boundary"
+      TCASE "non-whole exponent traps with a float domain error"
+        expectTrap(floatPow(4.0, 0.5), errorCode::ErrFloatDomain)
+      END TCASE
+      TCASE "arithmetic overflow to infinity traps"
+        LET base AS Float = toFloat("1e308")
+        expectTrap(floatPow(base, 2.0), errorCode::ErrFloatOverflow)
+      END TCASE
+      TCASE "a non-finite intermediate recovers to a finite result"
+        LET big AS Float = toFloat("1e200")
+        LET x AS Float = 1.0 / (big * big)
+        expectFloat(x, 0.00000000000000000)
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING

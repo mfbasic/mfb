@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET tooLarge AS Integer = 9223372036854775808
-  MUT value AS Integer = 0
-  value = 9223372036854775808
-  RETURN value
-END FUNC

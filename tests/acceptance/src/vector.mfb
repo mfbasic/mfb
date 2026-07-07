@@ -1,0 +1,632 @@
+IMPORT vector
+IMPORT math
+
+' Consolidated runtime-behavior acceptance for the vector builtins, converted
+' from the tests/func_vector_*_valid fixtures. Vector results are asserted by
+' their scalar component projections (.x/.y/.z/.w) with the typed TESTING
+' assertions; scalar returns (length/distance/dot/angle) are asserted directly.
+' Float/Fixed literals are the exact full-precision values the compiler emits.
+
+TESTING
+  TGROUP "builtin: ventor"
+    TGROUP "abs"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::abs(vector::Float2[-3.0, 4.0])
+        expectFloat(f2.x, 3.0)
+        expectFloat(f2.y, 4.0)
+        LET f3 AS vector::Float3 = vector::abs(vector::Float3[-3.0, 4.0, -5.0])
+        expectFloat(f3.x, 3.0)
+        expectFloat(f3.y, 4.0)
+        expectFloat(f3.z, 5.0)
+        LET f4 AS vector::Float4 = vector::abs(vector::Float4[-3.0, 4.0, -5.0, 6.0])
+        expectFloat(f4.x, 3.0)
+        expectFloat(f4.y, 4.0)
+        expectFloat(f4.z, 5.0)
+        expectFloat(f4.w, 6.0)
+      END TCASE
+      TCASE "Fixed"
+        LET x2 AS vector::Fixed2 = vector::abs(vector::Fixed2[toFixed(-3.0), toFixed(4.0)])
+        expectFixed(x2.x, toFixed("3.0"))
+        expectFixed(x2.y, toFixed("4.0"))
+        LET x3 AS vector::Fixed3 = vector::abs(vector::Fixed3[toFixed(-3.0), toFixed(4.0), toFixed(-5.0)])
+        expectFixed(x3.x, toFixed("3.0"))
+        expectFixed(x3.y, toFixed("4.0"))
+        expectFixed(x3.z, toFixed("5.0"))
+        LET x4 AS vector::Fixed4 = vector::abs(vector::Fixed4[toFixed(-3.0), toFixed(4.0), toFixed(-5.0), toFixed(6.0)])
+        expectFixed(x4.x, toFixed("3.0"))
+        expectFixed(x4.y, toFixed("4.0"))
+        expectFixed(x4.z, toFixed("5.0"))
+        expectFixed(x4.w, toFixed("6.0"))
+      END TCASE
+      TCASE "Integer"
+        LET i2 AS vector::Integer2 = vector::abs(vector::Integer2[-3, 4])
+        expectInteger(i2.x, 3)
+        expectInteger(i2.y, 4)
+        LET i3 AS vector::Integer3 = vector::abs(vector::Integer3[-3, 4, -5])
+        expectInteger(i3.x, 3)
+        expectInteger(i3.y, 4)
+        expectInteger(i3.z, 5)
+        LET i4 AS vector::Integer4 = vector::abs(vector::Integer4[-3, 4, -5, 6])
+        expectInteger(i4.x, 3)
+        expectInteger(i4.y, 4)
+        expectInteger(i4.z, 5)
+        expectInteger(i4.w, 6)
+      END TCASE
+    END TGROUP
+
+    TGROUP "angle"
+      TCASE "Float"
+        expectFloat(vector::angle(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0]), 0.17985349979247847)
+        expectFloat(vector::angle(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0]), 0.47588224966041665)
+        expectFloat(vector::angle(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0]), 0.85899698838604177)
+      END TCASE
+      TCASE "Fixed"
+        expectFixed(vector::angle(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), toFixed("0.179853500565513968"))
+        expectFixed(vector::angle(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), toFixed("0.475882249185815453"))
+        expectFixed(vector::angle(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), toFixed("0.858996988506987690"))
+      END TCASE
+      TCASE "Integer"
+        expectInteger(vector::angle(vector::Integer2[3, 4], vector::Integer2[1, 2]), 0)
+        expectInteger(vector::angle(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2]), 0)
+        expectInteger(vector::angle(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1]), 1)
+      END TCASE
+    END TGROUP
+
+    TGROUP "clamp_length"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::clamp_length(vector::Float2[3.0, 4.0], 2.0)
+        expectFloat(f2.x, 1.20000000000000018)
+        expectFloat(f2.y, 1.60000000000000009)
+        LET f3 AS vector::Float3 = vector::clamp_length(vector::Float3[1.0, 2.0, 2.0], 2.0)
+        expectFloat(f3.x, 0.66666666666666663)
+        expectFloat(f3.y, 1.33333333333333326)
+        expectFloat(f3.z, 1.33333333333333326)
+        LET f4 AS vector::Float4 = vector::clamp_length(vector::Float4[1.0, 2.0, 2.0, 4.0], 2.0)
+        expectFloat(f4.x, 0.40000000000000002)
+        expectFloat(f4.y, 0.80000000000000004)
+        expectFloat(f4.z, 0.80000000000000004)
+        expectFloat(f4.w, 1.60000000000000009)
+      END TCASE
+      TCASE "Fixed"
+        LET x2 AS vector::Fixed2 = vector::clamp_length(vector::Fixed2[toFixed(3.0), toFixed(4.0)], toFixed(2.0))
+        expectFixed(x2.x, toFixed("1.199999999720603227"))
+        expectFixed(x2.y, toFixed("1.599999999627470970"))
+        LET x3 AS vector::Fixed3 = vector::clamp_length(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], toFixed(2.0))
+        expectFixed(x3.x, toFixed("0.666666666511446237"))
+        expectFixed(x3.y, toFixed("1.333333333022892475"))
+        expectFixed(x3.z, toFixed("1.333333333022892475"))
+        LET x4 AS vector::Fixed4 = vector::clamp_length(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], toFixed(2.0))
+        expectFixed(x4.x, toFixed("0.399999999906867742"))
+        expectFixed(x4.y, toFixed("0.799999999813735485"))
+        expectFixed(x4.z, toFixed("0.799999999813735485"))
+        expectFixed(x4.w, toFixed("1.599999999627470970"))
+      END TCASE
+      TCASE "Integer"
+        LET i2 AS vector::Integer2 = vector::clamp_length(vector::Integer2[3, 4], 2)
+        expectInteger(i2.x, 1)
+        expectInteger(i2.y, 2)
+        LET i3 AS vector::Integer3 = vector::clamp_length(vector::Integer3[1, 2, 2], 2)
+        expectInteger(i3.x, 1)
+        expectInteger(i3.y, 1)
+        expectInteger(i3.z, 1)
+        LET i4 AS vector::Integer4 = vector::clamp_length(vector::Integer4[1, 2, 2, 4], 2)
+        expectInteger(i4.x, 0)
+        expectInteger(i4.y, 1)
+        expectInteger(i4.z, 1)
+        expectInteger(i4.w, 2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "constants"
+      TCASE "zero"
+        expectFloat(vector::zeroFloat2.x, 0.0)
+        expectFloat(vector::zeroFloat2.y, 0.0)
+        expectFloat(vector::zeroFloat3.z, 0.0)
+        expectFloat(vector::zeroFloat4.w, 0.0)
+        expectFixed(vector::zeroFixed2.x, toFixed("0.0"))
+        expectFixed(vector::zeroFixed3.z, toFixed("0.0"))
+        expectFixed(vector::zeroFixed4.w, toFixed("0.0"))
+        expectInteger(vector::zeroInteger2.x, 0)
+        expectInteger(vector::zeroInteger3.z, 0)
+        expectInteger(vector::zeroInteger4.w, 0)
+      END TCASE
+      TCASE "one"
+        expectFloat(vector::oneFloat2.x, 1.0)
+        expectFloat(vector::oneFloat4.w, 1.0)
+        expectFixed(vector::oneFixed3.z, toFixed("1.0"))
+        expectInteger(vector::oneInteger4.w, 1)
+      END TCASE
+      TCASE "up"
+        expectFloat(vector::upFloat2.x, 0.0)
+        expectFloat(vector::upFloat2.y, 1.0)
+        expectFloat(vector::upFloat3.z, 0.0)
+        expectFixed(vector::upFixed3.y, toFixed("1.0"))
+        expectInteger(vector::upInteger4.y, 1)
+        expectInteger(vector::upInteger4.z, 0)
+      END TCASE
+      TCASE "right"
+        expectFloat(vector::rightFloat2.x, 1.0)
+        expectFloat(vector::rightFloat2.y, 0.0)
+        expectFixed(vector::rightFixed4.x, toFixed("1.0"))
+        expectInteger(vector::rightInteger3.x, 1)
+        expectInteger(vector::rightInteger3.y, 0)
+      END TCASE
+      TCASE "forward"
+        expectFloat(vector::forwardFloat3.z, 1.0)
+        expectFloat(vector::forwardFloat4.z, 1.0)
+        expectFloat(vector::forwardFloat4.w, 0.0)
+        expectFixed(vector::forwardFixed3.z, toFixed("1.0"))
+        expectInteger(vector::forwardInteger3.z, 1)
+        expectInteger(vector::forwardInteger4.z, 1)
+      END TCASE
+    END TGROUP
+
+    TGROUP "cross"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::cross(vector::Float2[3.0, 4.0])
+        expectFloat(f2.x, -4.0)
+        expectFloat(f2.y, 3.0)
+        LET f3 AS vector::Float3 = vector::cross(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0])
+        expectFloat(f3.x, 2.0)
+        expectFloat(f3.y, 2.0)
+        expectFloat(f3.z, -3.0)
+        LET f4 AS vector::Float4 = vector::cross(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0], vector::Float4[0.0, 1.0, 1.0, 0.0])
+        expectFloat(f4.x, 4.0)
+        expectFloat(f4.y, -7.0)
+        expectFloat(f4.z, 7.0)
+        expectFloat(f4.w, -1.0)
+      END TCASE
+      TCASE "Fixed"
+        LET x2 AS vector::Fixed2 = vector::cross(vector::Fixed2[toFixed(3.0), toFixed(4.0)])
+        expectFixed(x2.x, toFixed("-4.0"))
+        expectFixed(x2.y, toFixed("3.0"))
+        LET x3 AS vector::Fixed3 = vector::cross(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
+        expectFixed(x3.x, toFixed("2.0"))
+        expectFixed(x3.y, toFixed("2.0"))
+        expectFixed(x3.z, toFixed("-3.0"))
+        LET x4 AS vector::Fixed4 = vector::cross(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)], vector::Fixed4[toFixed(0.0), toFixed(1.0), toFixed(1.0), toFixed(0.0)])
+        expectFixed(x4.x, toFixed("4.0"))
+        expectFixed(x4.y, toFixed("-7.0"))
+        expectFixed(x4.z, toFixed("7.0"))
+        expectFixed(x4.w, toFixed("-1.0"))
+      END TCASE
+      TCASE "Integer"
+        LET i2 AS vector::Integer2 = vector::cross(vector::Integer2[3, 4])
+        expectInteger(i2.x, -4)
+        expectInteger(i2.y, 3)
+        LET i3 AS vector::Integer3 = vector::cross(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2])
+        expectInteger(i3.x, 2)
+        expectInteger(i3.y, 2)
+        expectInteger(i3.z, -3)
+        LET i4 AS vector::Integer4 = vector::cross(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1], vector::Integer4[0, 1, 1, 0])
+        expectInteger(i4.x, 4)
+        expectInteger(i4.y, -7)
+        expectInteger(i4.z, 7)
+        expectInteger(i4.w, -1)
+      END TCASE
+    END TGROUP
+
+    TGROUP "distance"
+      TCASE "Float"
+        expectFloat(vector::distance(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0]), 2.82842712474619029)
+        expectFloat(vector::distance(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0]), 1.41421356237309515)
+        expectFloat(vector::distance(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0]), 3.87298334620741702)
+      END TCASE
+      TCASE "Fixed"
+        expectFixed(vector::distance(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), toFixed("2.828427124768495559"))
+        expectFixed(vector::distance(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), toFixed("1.414213562384247779"))
+        expectFixed(vector::distance(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), toFixed("3.872983346227556467"))
+      END TCASE
+      TCASE "Integer"
+        expectInteger(vector::distance(vector::Integer2[3, 4], vector::Integer2[1, 2]), 3)
+        expectInteger(vector::distance(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2]), 1)
+        expectInteger(vector::distance(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1]), 4)
+      END TCASE
+    END TGROUP
+
+    TGROUP "dot"
+      TCASE "Float"
+        expectFloat(vector::dot(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0]), 11.0)
+        expectFloat(vector::dot(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0]), 8.0)
+        expectFloat(vector::dot(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0]), 8.0)
+      END TCASE
+      TCASE "Fixed"
+        expectFixed(vector::dot(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)]), toFixed("11.0"))
+        expectFixed(vector::dot(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)]), toFixed("8.0"))
+        expectFixed(vector::dot(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)]), toFixed("8.0"))
+      END TCASE
+      TCASE "Integer"
+        expectInteger(vector::dot(vector::Integer2[3, 4], vector::Integer2[1, 2]), 11)
+        expectInteger(vector::dot(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2]), 8)
+        expectInteger(vector::dot(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1]), 8)
+      END TCASE
+    END TGROUP
+
+    TGROUP "length"
+      TCASE "Float"
+        expectFloat(vector::length(vector::Float2[3.0, 4.0]), 5.0)
+        expectFloat(vector::length(vector::Float3[1.0, 2.0, 2.0]), 3.0)
+        expectFloat(vector::length(vector::Float4[1.0, 2.0, 2.0, 4.0]), 5.0)
+      END TCASE
+      TCASE "Fixed"
+        expectFixed(vector::length(vector::Fixed2[toFixed(3.0), toFixed(4.0)]), toFixed("5.0"))
+        expectFixed(vector::length(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)]), toFixed("3.0"))
+        expectFixed(vector::length(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)]), toFixed("5.0"))
+      END TCASE
+      TCASE "Integer"
+        expectInteger(vector::length(vector::Integer2[3, 4]), 5)
+        expectInteger(vector::length(vector::Integer3[1, 2, 2]), 3)
+        expectInteger(vector::length(vector::Integer4[1, 2, 2, 4]), 5)
+      END TCASE
+    END TGROUP
+
+    TGROUP "lerp"
+      TCASE "Float t=0.5 and t=2.0 (clamped)"
+        LET a AS vector::Float2 = vector::lerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 0.5)
+        expectFloat(a.x, 2.0)
+        expectFloat(a.y, 3.0)
+        LET b AS vector::Float2 = vector::lerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 2.0)
+        expectFloat(b.x, 1.0)
+        expectFloat(b.y, 2.0)
+        LET c AS vector::Float4 = vector::lerp(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0], 0.5)
+        expectFloat(c.x, 1.5)
+        expectFloat(c.y, 1.5)
+        expectFloat(c.z, 1.0)
+        expectFloat(c.w, 2.5)
+      END TCASE
+      TCASE "Integer"
+        LET i AS vector::Integer3 = vector::lerp(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2], 0.5)
+        expectInteger(i.x, 2)
+        expectInteger(i.y, 2)
+        expectInteger(i.z, 2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "lerp_unclamped"
+      TCASE "Float t=0.5 and t=2.0 (extrapolated)"
+        LET a AS vector::Float2 = vector::lerp_unclamped(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 0.5)
+        expectFloat(a.x, 2.0)
+        expectFloat(a.y, 3.0)
+        LET b AS vector::Float2 = vector::lerp_unclamped(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 2.0)
+        expectFloat(b.x, -1.0)
+        expectFloat(b.y, 0.0)
+        LET c AS vector::Float4 = vector::lerp_unclamped(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0], 2.0)
+        expectFloat(c.x, 3.0)
+        expectFloat(c.y, 0.0)
+        expectFloat(c.z, -2.0)
+        expectFloat(c.w, -2.0)
+      END TCASE
+      TCASE "Integer"
+        LET i AS vector::Integer4 = vector::lerp_unclamped(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1], 2.0)
+        expectInteger(i.x, 3)
+        expectInteger(i.y, 0)
+        expectInteger(i.z, -2)
+        expectInteger(i.w, -2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "max"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::max(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])
+        expectFloat(f2.x, 3.0)
+        expectFloat(f2.y, 4.0)
+        LET f4 AS vector::Float4 = vector::max(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0])
+        expectFloat(f4.x, 2.0)
+        expectFloat(f4.y, 2.0)
+        expectFloat(f4.z, 2.0)
+        expectFloat(f4.w, 4.0)
+      END TCASE
+      TCASE "Integer"
+        LET i3 AS vector::Integer3 = vector::max(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2])
+        expectInteger(i3.x, 2)
+        expectInteger(i3.y, 2)
+        expectInteger(i3.z, 2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "min"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::min(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])
+        expectFloat(f2.x, 1.0)
+        expectFloat(f2.y, 2.0)
+        LET f4 AS vector::Float4 = vector::min(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0])
+        expectFloat(f4.x, 1.0)
+        expectFloat(f4.y, 1.0)
+        expectFloat(f4.z, 0.0)
+        expectFloat(f4.w, 1.0)
+      END TCASE
+      TCASE "Integer"
+        LET i3 AS vector::Integer3 = vector::min(vector::Integer3[1, 2, 2], vector::Integer3[2, 1, 2])
+        expectInteger(i3.x, 1)
+        expectInteger(i3.y, 1)
+        expectInteger(i3.z, 2)
+      END TCASE
+    END TGROUP
+
+    TGROUP "normalize"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::normalize(vector::Float2[3.0, 4.0])
+        expectFloat(f2.x, 0.59999999999999998)
+        expectFloat(f2.y, 0.80000000000000004)
+        LET f3 AS vector::Float3 = vector::normalize(vector::Float3[1.0, 2.0, 2.0])
+        expectFloat(f3.x, 0.33333333333333331)
+        expectFloat(f3.y, 0.66666666666666663)
+        expectFloat(f3.z, 0.66666666666666663)
+        LET f4 AS vector::Float4 = vector::normalize(vector::Float4[1.0, 2.0, 2.0, 4.0])
+        expectFloat(f4.x, 0.20000000000000001)
+        expectFloat(f4.y, 0.40000000000000002)
+        expectFloat(f4.z, 0.40000000000000002)
+        expectFloat(f4.w, 0.80000000000000004)
+      END TCASE
+      TCASE "Fixed"
+        LET x2 AS vector::Fixed2 = vector::normalize(vector::Fixed2[toFixed(3.0), toFixed(4.0)])
+        expectFixed(x2.x, toFixed("0.599999999860301613"))
+        expectFixed(x2.y, toFixed("0.799999999813735485"))
+        LET x3 AS vector::Fixed3 = vector::normalize(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)])
+        expectFixed(x3.x, toFixed("0.333333333255723118"))
+        expectFixed(x3.y, toFixed("0.666666666511446237"))
+        expectFixed(x3.z, toFixed("0.666666666511446237"))
+        LET x4 AS vector::Fixed4 = vector::normalize(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)])
+        expectFixed(x4.x, toFixed("0.199999999953433871"))
+        expectFixed(x4.y, toFixed("0.399999999906867742"))
+        expectFixed(x4.z, toFixed("0.399999999906867742"))
+        expectFixed(x4.w, toFixed("0.799999999813735485"))
+      END TCASE
+      TCASE "Integer"
+        LET i2 AS vector::Integer2 = vector::normalize(vector::Integer2[3, 4])
+        expectInteger(i2.x, 1)
+        expectInteger(i2.y, 1)
+        LET i3 AS vector::Integer3 = vector::normalize(vector::Integer3[1, 2, 2])
+        expectInteger(i3.x, 0)
+        expectInteger(i3.y, 1)
+        expectInteger(i3.z, 1)
+        LET i4 AS vector::Integer4 = vector::normalize(vector::Integer4[1, 2, 2, 4])
+        expectInteger(i4.x, 0)
+        expectInteger(i4.y, 0)
+        expectInteger(i4.z, 0)
+        expectInteger(i4.w, 1)
+      END TCASE
+    END TGROUP
+
+    TGROUP "perpendicular"
+      TCASE "2D only"
+        LET f AS vector::Float2 = vector::perpendicular(vector::Float2[3.0, 4.0])
+        expectFloat(f.x, -4.0)
+        expectFloat(f.y, 3.0)
+        LET x AS vector::Fixed2 = vector::perpendicular(vector::Fixed2[toFixed(3.0), toFixed(4.0)])
+        expectFixed(x.x, toFixed("-4.0"))
+        expectFixed(x.y, toFixed("3.0"))
+        LET i AS vector::Integer2 = vector::perpendicular(vector::Integer2[3, 4])
+        expectInteger(i.x, -4)
+        expectInteger(i.y, 3)
+      END TCASE
+    END TGROUP
+
+    TGROUP "project"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::project(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])
+        expectFloat(f2.x, 2.20000000000000018)
+        expectFloat(f2.y, 4.40000000000000036)
+        LET f3 AS vector::Float3 = vector::project(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0])
+        expectFloat(f3.x, 1.77777777777777768)
+        expectFloat(f3.y, 0.88888888888888884)
+        expectFloat(f3.z, 1.77777777777777768)
+        LET f4 AS vector::Float4 = vector::project(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0])
+        expectFloat(f4.x, 2.66666666666666652)
+        expectFloat(f4.y, 1.33333333333333326)
+        expectFloat(f4.z, 0.0)
+        expectFloat(f4.w, 1.33333333333333326)
+      END TCASE
+      TCASE "Fixed"
+        LET x2 AS vector::Fixed2 = vector::project(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)])
+        expectFixed(x2.x, toFixed("2.199999999953433871"))
+        expectFixed(x2.y, toFixed("4.399999999906867742"))
+        LET x3 AS vector::Fixed3 = vector::project(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
+        expectFixed(x3.x, toFixed("1.777777777519077062"))
+        expectFixed(x3.y, toFixed("0.888888888759538531"))
+        expectFixed(x3.z, toFixed("1.777777777519077062"))
+        LET x4 AS vector::Fixed4 = vector::project(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)])
+        expectFixed(x4.x, toFixed("2.666666666511446237"))
+        expectFixed(x4.y, toFixed("1.333333333255723118"))
+        expectFixed(x4.z, toFixed("0.0"))
+        expectFixed(x4.w, toFixed("1.333333333255723118"))
+      END TCASE
+      TCASE "Integer"
+        LET i2 AS vector::Integer2 = vector::project(vector::Integer2[3, 4], vector::Integer2[1, 2])
+        expectInteger(i2.x, 2)
+        expectInteger(i2.y, 4)
+        LET i4 AS vector::Integer4 = vector::project(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1])
+        expectInteger(i4.x, 3)
+        expectInteger(i4.y, 1)
+        expectInteger(i4.z, 0)
+        expectInteger(i4.w, 1)
+      END TCASE
+    END TGROUP
+
+    TGROUP "reflect"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::reflect(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])
+        expectFloat(f2.x, -19.0)
+        expectFloat(f2.y, -40.0)
+        LET f4 AS vector::Float4 = vector::reflect(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0])
+        expectFloat(f4.x, -31.0)
+        expectFloat(f4.y, -14.0)
+        expectFloat(f4.z, 2.0)
+        expectFloat(f4.w, -12.0)
+      END TCASE
+      TCASE "Fixed"
+        LET x3 AS vector::Fixed3 = vector::reflect(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
+        expectFixed(x3.x, toFixed("-31.0"))
+        expectFixed(x3.y, toFixed("-14.0"))
+        expectFixed(x3.z, toFixed("-30.0"))
+      END TCASE
+      TCASE "Integer"
+        LET i2 AS vector::Integer2 = vector::reflect(vector::Integer2[3, 4], vector::Integer2[1, 2])
+        expectInteger(i2.x, -19)
+        expectInteger(i2.y, -40)
+        LET i4 AS vector::Integer4 = vector::reflect(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1])
+        expectInteger(i4.x, -31)
+        expectInteger(i4.y, -14)
+        expectInteger(i4.z, 2)
+        expectInteger(i4.w, -12)
+      END TCASE
+    END TGROUP
+
+    TGROUP "reject"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::reject(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])
+        expectFloat(f2.x, 0.79999999999999982)
+        expectFloat(f2.y, -0.40000000000000036)
+        LET f3 AS vector::Float3 = vector::reject(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0])
+        expectFloat(f3.x, -0.77777777777777768)
+        expectFloat(f3.y, 1.11111111111111116)
+        expectFloat(f3.z, 0.22222222222222232)
+        LET f4 AS vector::Float4 = vector::reject(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0])
+        expectFloat(f4.x, -1.66666666666666652)
+        expectFloat(f4.y, 0.66666666666666674)
+        expectFloat(f4.z, 2.0)
+        expectFloat(f4.w, 2.66666666666666696)
+      END TCASE
+      TCASE "Fixed"
+        LET x2 AS vector::Fixed2 = vector::reject(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)])
+        expectFixed(x2.x, toFixed("0.800000000046566128"))
+        expectFixed(x2.y, toFixed("-0.399999999906867742"))
+        LET x3 AS vector::Fixed3 = vector::reject(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
+        expectFixed(x3.x, toFixed("-0.777777777519077062"))
+        expectFixed(x3.y, toFixed("1.111111111240461468"))
+        expectFixed(x3.z, toFixed("0.222222222480922937"))
+        LET x4 AS vector::Fixed4 = vector::reject(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)])
+        expectFixed(x4.x, toFixed("-1.666666666511446237"))
+        expectFixed(x4.y, toFixed("0.666666666744276881"))
+        expectFixed(x4.z, toFixed("2.0"))
+        expectFixed(x4.w, toFixed("2.666666666744276881"))
+      END TCASE
+      TCASE "Integer"
+        LET i2 AS vector::Integer2 = vector::reject(vector::Integer2[3, 4], vector::Integer2[1, 2])
+        expectInteger(i2.x, 1)
+        expectInteger(i2.y, 0)
+        LET i4 AS vector::Integer4 = vector::reject(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1])
+        expectInteger(i4.x, -2)
+        expectInteger(i4.y, 1)
+        expectInteger(i4.z, 2)
+        expectInteger(i4.w, 3)
+      END TCASE
+    END TGROUP
+
+    TGROUP "rotate_2d"
+      TCASE "by pi/2"
+        LET f AS vector::Float2 = vector::rotate_2d(vector::Float2[3.0, 4.0], math::pi2)
+        expectFloat(f.x, -4.0)
+        expectFloat(f.y, 3.00000000000000044)
+        LET x AS vector::Fixed2 = vector::rotate_2d(vector::Fixed2[toFixed(3.0), toFixed(4.0)], math::pi2)
+        expectFixed(x.x, toFixed("-4.000000008614733815"))
+        expectFixed(x.y, toFixed("3.000000002095475792"))
+        LET i AS vector::Integer2 = vector::rotate_2d(vector::Integer2[3, 4], math::pi2)
+        expectInteger(i.x, -4)
+        expectInteger(i.y, 3)
+      END TCASE
+    END TGROUP
+
+    TGROUP "scale"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::scale(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0])
+        expectFloat(f2.x, 3.0)
+        expectFloat(f2.y, 8.0)
+        LET f4 AS vector::Float4 = vector::scale(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0])
+        expectFloat(f4.x, 2.0)
+        expectFloat(f4.y, 2.0)
+        expectFloat(f4.z, 0.0)
+        expectFloat(f4.w, 4.0)
+      END TCASE
+      TCASE "Fixed"
+        LET x3 AS vector::Fixed3 = vector::scale(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)])
+        expectFixed(x3.x, toFixed("2.0"))
+        expectFixed(x3.y, toFixed("2.0"))
+        expectFixed(x3.z, toFixed("4.0"))
+      END TCASE
+      TCASE "Integer"
+        LET i2 AS vector::Integer2 = vector::scale(vector::Integer2[3, 4], vector::Integer2[1, 2])
+        expectInteger(i2.x, 3)
+        expectInteger(i2.y, 8)
+      END TCASE
+    END TGROUP
+
+    TGROUP "slerp"
+      TCASE "Float"
+        LET f2 AS vector::Float2 = vector::slerp(vector::Float2[3.0, 4.0], vector::Float2[1.0, 2.0], 0.5)
+        expectFloat(f2.x, 2.00811415886227262)
+        expectFloat(f2.y, 3.01217123829340894)
+        LET f3 AS vector::Float3 = vector::slerp(vector::Float3[1.0, 2.0, 2.0], vector::Float3[2.0, 1.0, 2.0], 0.5)
+        expectFloat(f3.x, 1.54348726628257937)
+        expectFloat(f3.y, 1.54348726628257937)
+        expectFloat(f3.z, 2.05798302171010583)
+        LET f4 AS vector::Float4 = vector::slerp(vector::Float4[1.0, 2.0, 2.0, 4.0], vector::Float4[2.0, 1.0, 0.0, 1.0], 0.5)
+        expectFloat(f4.x, 1.64984793625939830)
+        expectFloat(f4.y, 1.64984793625939830)
+        expectFloat(f4.z, 1.09989862417293227)
+        expectFloat(f4.w, 2.74974656043233079)
+      END TCASE
+      TCASE "Fixed"
+        LET x2 AS vector::Fixed2 = vector::slerp(vector::Fixed2[toFixed(3.0), toFixed(4.0)], vector::Fixed2[toFixed(1.0), toFixed(2.0)], 0.5)
+        expectFixed(x2.x, toFixed("2.008114158175885677"))
+        expectFixed(x2.y, toFixed("3.012171237263828516"))
+        LET x3 AS vector::Fixed3 = vector::slerp(vector::Fixed3[toFixed(1.0), toFixed(2.0), toFixed(2.0)], vector::Fixed3[toFixed(2.0), toFixed(1.0), toFixed(2.0)], 0.5)
+        expectFixed(x3.x, toFixed("1.543487269431352615"))
+        expectFixed(x3.y, toFixed("1.543487269431352615"))
+        expectFixed(x3.z, toFixed("2.057983025908470153"))
+        LET x4 AS vector::Fixed4 = vector::slerp(vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)], vector::Fixed4[toFixed(2.0), toFixed(1.0), toFixed(0.0), toFixed(1.0)], 0.5)
+        expectFixed(x4.x, toFixed("1.649847932858392596"))
+        expectFixed(x4.y, toFixed("1.649847932858392596"))
+        expectFixed(x4.z, toFixed("1.099898621905595064"))
+        expectFixed(x4.w, toFixed("2.749746554763987660"))
+      END TCASE
+      TCASE "Integer"
+        LET i4 AS vector::Integer4 = vector::slerp(vector::Integer4[1, 2, 2, 4], vector::Integer4[2, 1, 0, 1], 0.5)
+        expectInteger(i4.x, 2)
+        expectInteger(i4.y, 2)
+        expectInteger(i4.z, 1)
+        expectInteger(i4.w, 3)
+      END TCASE
+    END TGROUP
+
+    TGROUP "toString"
+      TCASE "renders (x, y, z) form"
+        LET tf2 AS vector::Float2 = vector::Float2[3.0, 4.0]
+        LET sf2 AS String = toString(tf2)
+        expectString(sf2, "(3.00, 4.00)")
+        LET tf3 AS vector::Float3 = vector::Float3[1.0, 2.0, 2.0]
+        LET sf3 AS String = toString(tf3)
+        expectString(sf3, "(1.00, 2.00, 2.00)")
+        LET tf4 AS vector::Float4 = vector::Float4[1.0, 2.0, 2.0, 4.0]
+        LET sf4 AS String = toString(tf4)
+        expectString(sf4, "(1.00, 2.00, 2.00, 4.00)")
+        LET tx2 AS vector::Fixed2 = vector::Fixed2[toFixed(3.0), toFixed(4.0)]
+        LET sx2 AS String = toString(tx2)
+        expectString(sx2, "(3.00, 4.00)")
+        LET ti3 AS vector::Integer3 = vector::Integer3[1, 2, 2]
+        LET si3 AS String = toString(ti3)
+        expectString(si3, "(1, 2, 2)")
+        LET ti4 AS vector::Integer4 = vector::Integer4[1, 2, 2, 4]
+        LET si4 AS String = toString(ti4)
+        expectString(si4, "(1, 2, 2, 4)")
+      END TCASE
+    END TGROUP
+
+    TGROUP "types"
+      TCASE "component fields"
+        LET vf AS vector::Float3 = vector::Float3[1.0, 2.0, 2.0]
+        expectFloat(vf.x, 1.0)
+        expectFloat(vf.y, 2.0)
+        expectFloat(vf.z, 2.0)
+        LET vx AS vector::Fixed4 = vector::Fixed4[toFixed(1.0), toFixed(2.0), toFixed(2.0), toFixed(4.0)]
+        expectFixed(vx.x, toFixed("1.0"))
+        expectFixed(vx.y, toFixed("2.0"))
+        expectFixed(vx.z, toFixed("2.0"))
+        expectFixed(vx.w, toFixed("4.0"))
+        LET vi AS vector::Integer2 = vector::Integer2[3, 4]
+        expectInteger(vi.x, 3)
+        expectInteger(vi.y, 4)
+      END TCASE
+    END TGROUP
+  END TGROUP
+END TESTING
