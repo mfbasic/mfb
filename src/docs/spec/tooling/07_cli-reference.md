@@ -21,6 +21,7 @@ block), **1** for runtime failures, **0** for success. `audit` adds **3**.
 | `init` | `mfb init <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `init-pkg` | `mfb init-pkg <location>` | 0 ok; 2 missing/extra arg; 1 create/write failed |
 | `build` | `mfb build [flags] [location]` | 0 ok; 2 bad flags; 1 build failed |
+| `test` | `mfb test [--coverage] [-target os-arch] [-regalloc name] [location]` | 0 all cases passed; 1 a case failed or build error; 2 bad flags |
 | `fmt` | `mfb fmt [--check] [--indent N] [location]` | 0 ok; 2 bad flags; 1 not-formatted (`--check`) or error |
 | `doc` | `mfb doc [--out file] [location]` | 0 ok; 2 bad flags; 1 invalid DOC block or error |
 | `pkg add` | `mfb pkg add <file://…​.mfp or <owner>#<pkg>[@version]>` | 0 ok; 2 usage; 1 failed |

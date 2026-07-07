@@ -1,0 +1,75 @@
+{
+  "project": "testing_coverage",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "classify",
+      "line": 3,
+      "params": [
+      { "name": "n", "type": "Integer", "default": null }
+      ],
+      "returnType": "String",
+      "body": [
+      {
+        "kind": "if",
+        "condition": { "kind": "binary", "operator": ">", "left": { "kind": "identifier", "value": "n" }, "right": { "kind": "number", "value": "0" } },
+        "line": 4,
+        "then": [
+        { "kind": "return", "value": { "kind": "string", "value": "positive" }, "line": 5 }
+        ],
+        "else": [
+        ]
+      },
+      { "kind": "return", "value": { "kind": "string", "value": "nonpositive" }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "dropped under mfb test" }] }, "line": 11 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 12 }
+      ]
+    },
+    {
+      "kind": "testing",
+      "line": 15,
+      "groups": [
+      {
+        "description": "classify",
+        "line": 16,
+        "cases": [
+        {
+          "description": "only the positive branch is exercised",
+          "line": 17,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "number", "value": "5" }] }, { "kind": "string", "value": "positive" }] }, "line": 18 }
+          ]
+        },
+        {
+          "description": "this assertion fails on its line",
+          "line": 20,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "classify", "arguments": [{ "kind": "number", "value": "5" }] }, { "kind": "string", "value": "negative" }] }, "line": 21 }
+          ]
+        }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

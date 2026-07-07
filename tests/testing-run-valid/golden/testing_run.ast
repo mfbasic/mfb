@@ -1,0 +1,135 @@
+{
+  "project": "testing_run",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 },
+    { "module": "errorCode", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "add",
+      "line": 4,
+      "params": [
+      { "name": "a", "type": "Integer", "default": null },
+      { "name": "b", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "binary", "operator": "+", "left": { "kind": "identifier", "value": "a" }, "right": { "kind": "identifier", "value": "b" } }, "line": 5 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "parseIt",
+      "line": 8,
+      "params": [
+      { "name": "s", "type": "String", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "toInt", "arguments": [{ "kind": "identifier", "value": "s" }] }, "line": 9 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 12,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "normal program body — dropped under mfb test" }] }, "line": 13 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 14 }
+      ]
+    },
+    {
+      "kind": "testing",
+      "line": 17,
+      "groups": [
+      {
+        "description": "equality",
+        "line": 18,
+        "cases": [
+        {
+          "description": "expectEQ passes",
+          "line": 19,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, { "kind": "number", "value": "5" }] }, "line": 20 }
+          ]
+        },
+        {
+          "description": "expectEQ fails",
+          "line": 22,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, { "kind": "number", "value": "6" }] }, "line": 23 }
+          ]
+        },
+        {
+          "description": "expectNQ passes",
+          "line": 25,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectNQ", "arguments": [{ "kind": "call", "callee": "add", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, { "kind": "number", "value": "6" }] }, "line": 26 }
+          ]
+        }
+        ]
+      },
+      {
+        "description": "traps",
+        "line": 29,
+        "cases": [
+        {
+          "description": "expectTrap passes",
+          "line": 30,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectTrap", "arguments": [{ "kind": "call", "callee": "parseIt", "arguments": [{ "kind": "string", "value": "bad" }] }] }, "line": 31 }
+          ]
+        },
+        {
+          "description": "expectTrap with matching code passes",
+          "line": 33,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectTrap", "arguments": [{ "kind": "call", "callee": "parseIt", "arguments": [{ "kind": "string", "value": "bad" }] }, { "kind": "identifier", "value": "errorCode.ErrInvalidFormat" }] }, "line": 34 }
+          ]
+        },
+        {
+          "description": "expectNTrap passes",
+          "line": 36,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectNTrap", "arguments": [{ "kind": "call", "callee": "parseIt", "arguments": [{ "kind": "string", "value": "42" }] }] }, "line": 37 }
+          ]
+        },
+        {
+          "description": "expectNTrap on a trapping call fails",
+          "line": 39,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectNTrap", "arguments": [{ "kind": "call", "callee": "parseIt", "arguments": [{ "kind": "string", "value": "bad" }] }] }, "line": 40 }
+          ]
+        }
+        ]
+      },
+      {
+        "description": "runtime errors",
+        "line": 43,
+        "cases": [
+        {
+          "description": "a genuine runtime error is a failure, not a crash",
+          "line": 44,
+          "body": [
+          { "kind": "binding", "mutable": false, "name": "x", "type": "Integer", "value": { "kind": "call", "callee": "parseIt", "arguments": [{ "kind": "string", "value": "notanumber" }] }, "line": 45 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "identifier", "value": "x" }, { "kind": "number", "value": "0" }] }, "line": 46 }
+          ]
+        }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

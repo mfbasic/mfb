@@ -210,8 +210,17 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         .then(|| ast.clone());
     // Lower every TESTING block: `mfb build` drops them (byte-identical to a
     // program without them); `mfb test` desugars them into a runnable driver and
-    // returns its synthesized entry-point name.
-    let test_entry = crate::testing::lower_testing_blocks(&mut ast, options.mode);
+    // (with --coverage) instruments the user statements. The absolute project dir
+    // fixes where the instrumented binary writes its coverage sidecars.
+    let project_abs =
+        std::fs::canonicalize(&options.location).unwrap_or_else(|_| options.location.clone());
+    let test_lowering = crate::testing::lower_testing_blocks(&mut ast, options.mode, &project_abs);
+    if options.mode.coverage() {
+        let covmap = project_abs.join(crate::testing::COVMAP_FILE);
+        if let Err(err) = crate::coverage::write_covmap(&covmap, &test_lowering.cov_slots) {
+            eprintln!("warning: failed to write coverage map: {err}");
+        }
+    }
     resolver::resolve_project(&options.location, &manifest, &ast)?;
     let concrete_ast = monomorph::monomorphize_project(&options.location, &ast)?;
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
@@ -220,7 +229,7 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     resolver::resolve_project_with(&options.location, &manifest, &concrete_ast, false)?;
     // In test mode the synthesized driver is the entry point (it replaces the
     // manifest `main`), so bypass entry validation and point at the driver.
-    let entry = match &test_entry {
+    let entry = match &test_lowering.entry {
         Some(name) => Some(ir::EntryPoint {
             name: name.clone(),
             returns: "Integer".to_string(),
@@ -343,7 +352,11 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 let runnable = executable_paths.first().cloned();
                 if target.is_host() {
                     if let Some(path) = runnable {
-                        return run_test_binary(&path);
+                        let status = run_test_binary(&path);
+                        if options.mode.coverage() {
+                            generate_coverage_report(&project_abs);
+                        }
+                        return status;
                     }
                 }
                 for executable_path in executable_paths {
@@ -617,6 +630,25 @@ pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, Stri
         allow_unsigned: false,
         mode: crate::testing::CompileMode::Test { coverage },
     })
+}
+
+/// Fold the coverage sidecars (`coverage.covmap.json` written by the build, plus
+/// `coverage.covdata`/`coverage.covfail` written by the run) into `coverage.html`
+/// (plan-18-C). Best-effort: a missing sidecar warns rather than fails.
+fn generate_coverage_report(project_dir: &Path) {
+    let covmap = project_dir.join(crate::testing::COVMAP_FILE);
+    let Some(slots) = crate::coverage::read_covmap(&covmap) else {
+        eprintln!("warning: coverage map missing; skipping coverage report");
+        return;
+    };
+    let counts = crate::coverage::read_counts(&project_dir.join(crate::testing::COVDATA_FILE));
+    let failed = crate::coverage::read_failed(&project_dir.join(crate::testing::COVFAIL_FILE));
+    let html = crate::coverage::generate_html(project_dir, &slots, &counts, &failed);
+    let out = project_dir.join(crate::testing::COVERAGE_HTML);
+    match std::fs::write(&out, html) {
+        Ok(()) => println!("Wrote coverage report to {}", out.display()),
+        Err(err) => eprintln!("warning: failed to write coverage report: {err}"),
+    }
 }
 
 /// Run the freshly built test executable, inheriting its stdio, and map its exit

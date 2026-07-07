@@ -1,0 +1,38 @@
+$ mfb test tests/testing-assert-invalid
+   6 |   TGROUP "misuse"
+   7 |     TCASE "arity"
+   8 |       expectEQ(1)
+     | ^
+tests/testing-assert-invalid/src/main.mfb:8 error[2-208-0002 TESTING_EXPECT_ARITY]: assertion builtin called with the wrong number of arguments
+               `expectEQ` expects 2 argument(s), got 1.
+   9 |     END TCASE
+  10 |     TCASE "incomparable operands"
+  11 |       expectEQ(1, "text")
+     | ^
+tests/testing-assert-invalid/src/main.mfb:11 error[2-208-0003 TESTING_EXPECT_INCOMPARABLE]: expectEQ/expectNQ operands must be comparable with `=`
+               `expectEQ` operands must be comparable with `=`; got Integer and String.
+  12 |     END TCASE
+  13 |     TCASE "expectTrap on a non-call"
+  14 |       expectTrap(1 + 1)
+     | ^
+tests/testing-assert-invalid/src/main.mfb:14 error[2-208-0006 TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE]: expectTrap/expectNTrap require a fallible call to trap-guard
+               `expectTrap` requires a fallible call expression to trap-guard.
+  15 |     END TCASE
+  16 |     TCASE "expectTrap expected-code must be Integer"
+  17 |       expectTrap(toInt("x"), "notacode")
+     | ^
+tests/testing-assert-invalid/src/main.mfb:17 error[2-208-0005 TESTING_EXPECT_CODE_TYPE]: expectTrap expected-code argument must be an Integer
+               `expectTrap` expected-code argument must be an Integer; got String.
+   9 |     END TCASE
+  10 |     TCASE "incomparable operands"
+  11 |       expectEQ(1, "text")
+     | ^
+tests/testing-assert-invalid/src/main.mfb:11 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `=` requires compatible comparable operands, got Integer and String.
+  15 |     END TCASE
+  16 |     TCASE "expectTrap expected-code must be Integer"
+  17 |       expectTrap(toInt("x"), "notacode")
+     | ^
+tests/testing-assert-invalid/src/main.mfb:17 error[2-203-0001 TYPE_BINARY_OPERATOR_MISMATCH]: binary operator operands have incompatible types
+               Operator `<>` requires compatible comparable operands, got Integer and String.
+[exit 1]

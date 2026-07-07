@@ -10,9 +10,23 @@
 //! code iff any case failed.
 
 use crate::ast::{
-    AstProject, CallArg, Expression, Function, FunctionKind, Item, Statement, Visibility,
+    AstProject, CallArg, Expression, Function, FunctionKind, Item, LoopKind, Param, Statement,
+    TopLevelBinding, Visibility,
 };
 use crate::builtins::testing::{is_expect_call, TEST_ABORT_CODE};
+use crate::coverage::CovSlot;
+use std::path::Path;
+
+// Names of the generated coverage runtime helpers (plan-18-C). Plain (non-sigil)
+// names so they lower as ordinary declarations; the `__mfb_cov` prefix makes a
+// user collision vanishingly unlikely.
+const COV_ARRAY: &str = "__mfb_cov";
+const COV_FAILED: &str = "__mfb_cov_failed";
+const COV_HIT: &str = "__mfb_cov_hit";
+const COV_FAIL: &str = "__mfb_cov_fail";
+const COV_DUMP: &str = "__mfb_cov_dump";
+const COV_ZEROS: &str = "__mfb_cov_zeros";
+const COV_EMPTY_STRINGS: &str = "__mfb_cov_empty_strings";
 
 /// One registered test case: its group/case descriptions (verbatim from source)
 /// and the generated `SUB` name the driver invokes, in declaration order.
@@ -205,8 +219,9 @@ fn fail_test(detail: Expression, line: usize) -> Statement {
 // ---------------------------------------------------------------------------
 
 /// Build the synthesized `#mfb_test_main AS Integer` driver from the registration
-/// table (plan-18-B §3.5).
-pub(crate) fn build_driver(registrations: &[Registration]) -> Function {
+/// table (plan-18-B §3.5). With `coverage`, each case records its failed source
+/// line and the driver flushes the coverage counters before returning.
+pub(crate) fn build_driver(registrations: &[Registration], coverage: bool) -> Function {
     let mut body: Vec<Statement> = Vec::new();
     // Failure tally; total is a compile-time constant.
     body.push(let_mut("#failed", "Integer", num(0)));
@@ -219,7 +234,7 @@ pub(crate) fn build_driver(registrations: &[Registration]) -> Function {
             last_group = Some(registration.group.as_str());
         }
         body.push(assign("#ok", boolean(true)));
-        body.push(case_call(registration));
+        body.push(case_call(registration, coverage));
         body.push(if_then(
             ident("#ok"),
             vec![print_line(str_lit(format!("  * [P] {}", registration.case)))],
@@ -230,6 +245,13 @@ pub(crate) fn build_driver(registrations: &[Registration]) -> Function {
     let total = registrations.len() as i64;
     body.push(print_line(str_lit(String::new())));
     body.push(print_line(summary_line(total)));
+    // Flush the coverage counters after every case has run.
+    if coverage {
+        body.push(Statement::Expression {
+            expression: call(COV_DUMP, Vec::new()),
+            line: 0,
+        });
+    }
     body.push(if_then(
         binary(ident("#failed"), ">", num(0)),
         vec![ret(num(1))],
@@ -257,8 +279,8 @@ pub(crate) fn build_driver(registrations: &[Registration]) -> Function {
 }
 
 /// `<sub>() TRAP(#e) …handler… END TRAP` — run one case under trap isolation.
-fn case_call(registration: &Registration) -> Statement {
-    let handler = vec![
+fn case_call(registration: &Registration, coverage: bool) -> Statement {
+    let mut handler = vec![
         assign("#ok", boolean(false)),
         assign("#failed", binary(ident("#failed"), "+", num(1))),
         print_line(str_lit(format!("  * [F] {}", registration.case))),
@@ -268,11 +290,24 @@ fn case_call(registration: &Registration) -> Statement {
             vec![print_line(runtime_detail())],
             0,
         ),
-        Statement::Recover {
-            value: None,
-            line: 0,
-        },
     ];
+    // Record the failed source line for the coverage report's annotation.
+    if coverage {
+        let source = member(ident("#e"), "source");
+        let loc = concat(vec![
+            member(source.clone(), "filename"),
+            str_lit(":".to_string()),
+            to_string(member(source, "line")),
+        ]);
+        handler.push(Statement::Expression {
+            expression: call(COV_FAIL, vec![loc]),
+            line: 0,
+        });
+    }
+    handler.push(Statement::Recover {
+        value: None,
+        line: 0,
+    });
     Statement::Expression {
         expression: Expression::Trapped {
             expression: Box::new(call(&registration.sub_name, Vec::new())),
@@ -325,6 +360,266 @@ fn summary_line(total: i64) -> Expression {
         str_lit("  Fail: ".to_string()),
         to_string(ident("#failed")),
     ])
+}
+
+// ---------------------------------------------------------------------------
+// Coverage instrumentation (plan-18-C)
+// ---------------------------------------------------------------------------
+
+/// Instrument every user statement with a hit counter and append the coverage
+/// runtime helpers to the first source file. Returns the `slot -> (file, line)`
+/// map. Runs after the TESTING desugaring, so the generated driver and case SUBs
+/// are already present; the driver and the `__mfb_cov*` helpers are skipped.
+/// `project_dir` (absolute) fixes where the runtime writes its sidecar files.
+pub(crate) fn instrument_coverage(ast: &mut AstProject, project_dir: &Path) -> Vec<CovSlot> {
+    let mut slots: Vec<CovSlot> = Vec::new();
+    for file in &mut ast.files {
+        if file.internal || file.path.starts_with('<') {
+            continue;
+        }
+        let path = file.path.clone();
+        for item in &mut file.items {
+            if let Item::Function(function) = item {
+                if is_generated(&function.name) {
+                    continue;
+                }
+                instrument_block(&mut function.body, &path, &mut slots);
+                if let Some(trap) = function.trap.as_mut() {
+                    instrument_block(&mut trap.body, &path, &mut slots);
+                }
+            }
+        }
+    }
+
+    let covdata = project_dir.join(super::COVDATA_FILE);
+    let covfail = project_dir.join(super::COVFAIL_FILE);
+    let sink = ast
+        .files
+        .first_mut()
+        .expect("a project has at least one source file");
+    super::ensure_import(sink, "collections");
+    super::ensure_import(sink, "fs");
+    for helper in coverage_helpers(slots.len(), &covdata, &covfail) {
+        sink.items.push(helper);
+    }
+
+    slots
+}
+
+/// The generated driver and `__mfb_cov*` helpers must not be instrumented.
+fn is_generated(name: &str) -> bool {
+    name == super::DRIVER_NAME || name.starts_with("__mfb_cov")
+}
+
+/// Prepend a `__mfb_cov_hit(slot)` call before every real-line statement in a
+/// block, recursing into nested blocks first so inner slots precede outer ones in
+/// source order is not required — only that each executed statement bumps its slot.
+fn instrument_block(block: &mut Vec<Statement>, file: &str, slots: &mut Vec<CovSlot>) {
+    let original = std::mem::take(block);
+    for mut statement in original {
+        instrument_nested(&mut statement, file, slots);
+        let line = statement_line(&statement);
+        if line > 0 {
+            let slot = slots.len();
+            slots.push(CovSlot {
+                file: file.to_string(),
+                line,
+            });
+            block.push(Statement::Expression {
+                expression: call(COV_HIT, vec![num(slot as i64)]),
+                line: 0,
+            });
+        }
+        block.push(statement);
+    }
+}
+
+/// Recurse coverage instrumentation into a statement's nested blocks.
+fn instrument_nested(statement: &mut Statement, file: &str, slots: &mut Vec<CovSlot>) {
+    match statement {
+        Statement::If {
+            then_body,
+            else_body,
+            ..
+        } => {
+            instrument_block(then_body, file, slots);
+            instrument_block(else_body, file, slots);
+        }
+        Statement::For { body, .. }
+        | Statement::ForEach { body, .. }
+        | Statement::While { body, .. }
+        | Statement::DoUntil { body, .. } => instrument_block(body, file, slots),
+        Statement::Match { cases, .. } => {
+            for case in cases.iter_mut() {
+                instrument_block(&mut case.body, file, slots);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn statement_line(statement: &Statement) -> usize {
+    match statement {
+        Statement::Let { line, .. }
+        | Statement::Return { line, .. }
+        | Statement::Exit { line, .. }
+        | Statement::Continue { line, .. }
+        | Statement::Fail { line, .. }
+        | Statement::Propagate { line, .. }
+        | Statement::Recover { line, .. }
+        | Statement::Assign { line, .. }
+        | Statement::StateAssign { line, .. }
+        | Statement::Expression { line, .. }
+        | Statement::If { line, .. }
+        | Statement::Match { line, .. }
+        | Statement::For { line, .. }
+        | Statement::ForEach { line, .. }
+        | Statement::While { line, .. }
+        | Statement::DoUntil { line, .. } => *line,
+    }
+}
+
+/// Build the coverage runtime: the counter/failed-line globals, the increment and
+/// record SUBs, and the shutdown dump SUB (plan-18-C §3).
+fn coverage_helpers(slot_count: usize, covdata: &Path, covfail: &Path) -> Vec<Item> {
+    let mut items = Vec::new();
+
+    // FUNC __mfb_cov_zeros(n) AS List OF Integer — build `n` zeros at runtime
+    // (a global list *literal* initializer is miscompiled; see bug-05).
+    items.push(Item::Function(func(
+        COV_ZEROS,
+        vec![param("n", "Integer")],
+        Some("List OF Integer"),
+        vec![
+            let_mut_at("r", "List OF Integer", empty_list(), 0),
+            let_mut_at("i", "Integer", num(0), 0),
+            while_loop(
+                binary(ident("i"), "<", ident("n")),
+                vec![
+                    assign_at("r", call("collections.append", vec![ident("r"), num(0)]), 0),
+                    assign_at("i", binary(ident("i"), "+", num(1)), 0),
+                ],
+            ),
+            ret(ident("r")),
+        ],
+    )));
+
+    // FUNC __mfb_cov_empty_strings() AS List OF String
+    items.push(Item::Function(func(
+        COV_EMPTY_STRINGS,
+        Vec::new(),
+        Some("List OF String"),
+        vec![
+            let_mut_at("r", "List OF String", empty_list(), 0),
+            ret(ident("r")),
+        ],
+    )));
+
+    // MUT __mfb_cov = __mfb_cov_zeros(N)
+    items.push(Item::Binding(global_mut(
+        COV_ARRAY,
+        "List OF Integer",
+        call(COV_ZEROS, vec![num(slot_count as i64)]),
+    )));
+    // MUT __mfb_cov_failed = __mfb_cov_empty_strings()
+    items.push(Item::Binding(global_mut(
+        COV_FAILED,
+        "List OF String",
+        call(COV_EMPTY_STRINGS, Vec::new()),
+    )));
+
+    // SUB __mfb_cov_hit(slot) — counters[slot] += 1
+    items.push(Item::Function(sub(
+        COV_HIT,
+        vec![param("slot", "Integer")],
+        vec![assign_at(
+            COV_ARRAY,
+            call(
+                "collections.set",
+                vec![
+                    ident(COV_ARRAY),
+                    ident("slot"),
+                    binary(
+                        call("collections.get", vec![ident(COV_ARRAY), ident("slot")]),
+                        "+",
+                        num(1),
+                    ),
+                ],
+            ),
+            0,
+        )],
+    )));
+
+    // SUB __mfb_cov_fail(loc) — record a failed source line
+    items.push(Item::Function(sub(
+        COV_FAIL,
+        vec![param("loc", "String")],
+        vec![assign_at(
+            COV_FAILED,
+            call("collections.append", vec![ident(COV_FAILED), ident("loc")]),
+            0,
+        )],
+    )));
+
+    // SUB __mfb_cov_dump() — write counts + failed lines to the sidecar files
+    items.push(Item::Function(sub(
+        COV_DUMP,
+        Vec::new(),
+        vec![
+            dump_list_to_file(COV_ARRAY, true, covdata),
+            dump_list_to_file(COV_FAILED, false, covfail),
+        ]
+        .into_iter()
+        .flatten()
+        .collect(),
+    )));
+
+    items
+}
+
+/// Statements that serialize `list` (numeric when `numeric`, else String) to
+/// `path`, one element per line, ignoring any write error.
+fn dump_list_to_file(list: &str, numeric: bool, path: &Path) -> Vec<Statement> {
+    let acc = format!("#dump_{list}");
+    let idx = format!("#idx_{list}");
+    let element = call("collections.get", vec![ident(list), ident(&idx)]);
+    let rendered = if numeric { to_string(element) } else { element };
+    vec![
+        let_mut_at(&acc, "String", str_lit(String::new()), 0),
+        let_mut_at(&idx, "Integer", num(0), 0),
+        while_loop(
+            binary(ident(&idx), "<", call("len", vec![ident(list)])),
+            vec![
+                assign_at(
+                    &acc,
+                    binary(
+                        binary(ident(&acc), "&", rendered),
+                        "&",
+                        str_lit("\n".to_string()),
+                    ),
+                    0,
+                ),
+                assign_at(&idx, binary(ident(&idx), "+", num(1)), 0),
+            ],
+        ),
+        // fs::writeText(path, acc) — swallow any failure (best-effort coverage).
+        Statement::Expression {
+            expression: Expression::Trapped {
+                expression: Box::new(call(
+                    "fs.writeText",
+                    vec![str_lit(path.to_string_lossy().into_owned()), ident(&acc)],
+                )),
+                binding: "#dumpErr".to_string(),
+                handler: vec![Statement::Exit {
+                    target: crate::ast::ExitTarget::Sub,
+                    code: None,
+                    line: 0,
+                }],
+                line: 0,
+            },
+            line: 0,
+        },
+    ]
 }
 
 // ---------------------------------------------------------------------------
@@ -702,6 +997,82 @@ fn trap_stmt(
 
 fn ret(value: Expression) -> Statement {
     Statement::Return {
+        value: Some(value),
+        line: 0,
+    }
+}
+
+fn empty_list() -> Expression {
+    Expression::ListLiteral(Vec::new())
+}
+
+fn while_loop(condition: Expression, body: Vec<Statement>) -> Statement {
+    Statement::While {
+        kind: LoopKind::While,
+        condition,
+        body,
+        line: 0,
+    }
+}
+
+fn param(name: &str, type_name: &str) -> Param {
+    Param {
+        name: name.to_string(),
+        type_name: Some(type_name.to_string()),
+        resource: false,
+        state_type: None,
+        default: None,
+        line: 0,
+    }
+}
+
+fn func(
+    name: &str,
+    params: Vec<Param>,
+    return_type: Option<&str>,
+    body: Vec<Statement>,
+) -> Function {
+    Function {
+        kind: FunctionKind::Func,
+        visibility: Visibility::Public,
+        isolated: false,
+        name: name.to_string(),
+        template_params: Vec::new(),
+        params,
+        return_type: return_type.map(str::to_string),
+        return_resource: false,
+        return_state_type: None,
+        body,
+        trap: None,
+        line: 0,
+    }
+}
+
+fn sub(name: &str, params: Vec<Param>, body: Vec<Statement>) -> Function {
+    Function {
+        kind: FunctionKind::Sub,
+        visibility: Visibility::Public,
+        isolated: false,
+        name: name.to_string(),
+        template_params: Vec::new(),
+        params,
+        return_type: None,
+        return_resource: false,
+        return_state_type: None,
+        body,
+        trap: None,
+        line: 0,
+    }
+}
+
+fn global_mut(name: &str, type_name: &str, value: Expression) -> TopLevelBinding {
+    TopLevelBinding {
+        visibility: Visibility::Public,
+        mutable: true,
+        resource: false,
+        state_type: None,
+        name: name.to_string(),
+        type_name: Some(type_name.to_string()),
         value: Some(value),
         line: 0,
     }

@@ -304,7 +304,47 @@ for test_dir in "$TEST_ROOT"/* "$TEST_ROOT"/security/*; do
     fi
   fi
 
+  # `mfb test` runtime proof (plan-18): run the test driver and capture its
+  # streamed tree, summary, and exit code. Only when the fixture ships a golden.
+  testrun_path="$actual_dir/$package_name.testrun"
+  if [ -f "$golden_dir/$package_name.testrun" ]; then
+    {
+      echo "\$ mfb test tests/$test_name"
+      "$MFB_EXE" test "tests/$test_name" 2>&1
+      echo "[exit $?]"
+    } >"$testrun_path"
+    # `mfb test` links an executable into the project dir; do not leave it behind.
+    rm -f "$test_dir/$package_name.out"
+  fi
+
+  # `mfb test --coverage` proof (plan-18-C): run with coverage and capture the
+  # machine-independent sidecars (relative-path slot map + per-slot counts +
+  # failed source lines). Only when the fixture ships a covmap golden.
+  if [ -f "$golden_dir/$package_name.covmap.json" ]; then
+    "$MFB_EXE" test --coverage "tests/$test_name" >/dev/null 2>&1
+    for ext in covmap.json covdata covfail; do
+      if [ -f "$test_dir/coverage.$ext" ]; then
+        cp "$test_dir/coverage.$ext" "$actual_dir/$package_name.$ext"
+      fi
+    done
+    # Do not leave the coverage sidecars, report, or executable behind.
+    rm -f "$test_dir/coverage.covmap.json" "$test_dir/coverage.covdata" \
+      "$test_dir/coverage.covfail" "$test_dir/coverage.html" "$test_dir/$package_name.out"
+  fi
+
   compare_file "$test_name/build.log" "$golden_dir/build.log" "$log_path"
+  compare_optional_output "$test_name/$package_name.testrun" \
+    "$golden_dir/$package_name.testrun" \
+    "$testrun_path"
+  compare_optional_output "$test_name/$package_name.covmap.json" \
+    "$golden_dir/$package_name.covmap.json" \
+    "$actual_dir/$package_name.covmap.json"
+  compare_optional_output "$test_name/$package_name.covdata" \
+    "$golden_dir/$package_name.covdata" \
+    "$actual_dir/$package_name.covdata"
+  compare_optional_output "$test_name/$package_name.covfail" \
+    "$golden_dir/$package_name.covfail" \
+    "$actual_dir/$package_name.covfail"
   compare_optional_output "$test_name/$package_name.audit" \
     "$golden_dir/$package_name.audit" \
     "$audit_path"

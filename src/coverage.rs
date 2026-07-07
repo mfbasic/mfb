@@ -1,0 +1,274 @@
+//! `mfb test --coverage` report generation (plan-18-C).
+//!
+//! The compiler instruments each user statement with a counter increment keyed to
+//! a compile-time slot map, and writes that map to a `coverage.covmap.json`
+//! sidecar. The instrumented binary writes its raw counts to `coverage.covdata`
+//! (and any failed-case source lines to `coverage.covfail`) as it exits. This
+//! module folds the three together into `coverage.html`: a file tree with
+//! per-file line-coverage stats and color-coded, annotated source.
+
+use std::collections::{BTreeMap, HashSet};
+use std::fs;
+use std::path::Path;
+
+/// One instrumented statement: the project-relative source file and 1-based line.
+#[derive(Clone, Debug)]
+pub(crate) struct CovSlot {
+    pub(crate) file: String,
+    pub(crate) line: usize,
+}
+
+/// Serialize the slot map to the `coverage.covmap.json` sidecar. Written by the
+/// compiler during a `--coverage` build so `mfb test` can fold counts back to
+/// source lines. The format is a small hand-emitted JSON array (no dependency).
+pub(crate) fn write_covmap(path: &Path, slots: &[CovSlot]) -> std::io::Result<()> {
+    let mut out = String::from("{\"slots\":[");
+    for (index, slot) in slots.iter().enumerate() {
+        if index > 0 {
+            out.push(',');
+        }
+        out.push_str(&format!(
+            "{{\"file\":{},\"line\":{}}}",
+            crate::json_string(&slot.file),
+            slot.line
+        ));
+    }
+    out.push_str("]}\n");
+    fs::write(path, out)
+}
+
+/// Parse a `coverage.covmap.json` sidecar back into the slot list. Tolerant of
+/// the exact whitespace written by [`write_covmap`].
+pub(crate) fn read_covmap(path: &Path) -> Option<Vec<CovSlot>> {
+    let text = fs::read_to_string(path).ok()?;
+    let value: tinyjson::JsonValue = text.parse().ok()?;
+    let slots = value.get::<std::collections::HashMap<String, tinyjson::JsonValue>>()?;
+    let array = slots.get("slots")?.get::<Vec<tinyjson::JsonValue>>()?;
+    let mut result = Vec::with_capacity(array.len());
+    for entry in array {
+        let object = entry.get::<std::collections::HashMap<String, tinyjson::JsonValue>>()?;
+        let file = object.get("file")?.get::<String>()?.clone();
+        let line = *object.get("line")?.get::<f64>()? as usize;
+        result.push(CovSlot { file, line });
+    }
+    Some(result)
+}
+
+/// Read a `coverage.covdata` file (one count per slot, in slot order).
+pub(crate) fn read_counts(path: &Path) -> Vec<u64> {
+    fs::read_to_string(path)
+        .map(|text| {
+            text.lines()
+                .filter(|line| !line.is_empty())
+                .map(|line| line.trim().parse::<u64>().unwrap_or(0))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Read a `coverage.covfail` file (`file:line` per line) into a set keyed by
+/// `(file, line)`. Missing file → no annotations.
+pub(crate) fn read_failed(path: &Path) -> HashSet<(String, usize)> {
+    fs::read_to_string(path)
+        .map(|text| {
+            text.lines()
+                .filter_map(|line| {
+                    let (file, number) = line.rsplit_once(':')?;
+                    Some((file.to_string(), number.trim().parse::<usize>().ok()?))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Per-line state within a file view.
+#[derive(Clone, Copy, PartialEq)]
+enum LineState {
+    /// No instrumented statement on this line.
+    Neutral,
+    /// Instrumented and executed at least once.
+    Covered,
+    /// Instrumented but never executed.
+    Uncovered,
+}
+
+struct FileReport {
+    /// Project-relative path.
+    path: String,
+    lines: Vec<(LineState, bool, String)>, // (state, is_failed, source)
+    covered: usize,
+    total: usize,
+}
+
+/// Fold the slot map, counts, and failed lines against the on-disk source into a
+/// per-file report.
+fn build_reports(
+    project_dir: &Path,
+    slots: &[CovSlot],
+    counts: &[u64],
+    failed: &HashSet<(String, usize)>,
+) -> Vec<FileReport> {
+    // line -> executed? per file (a line may host several statements; it counts
+    // as covered iff any of its slots ran).
+    let mut file_lines: BTreeMap<String, BTreeMap<usize, bool>> = BTreeMap::new();
+    for (index, slot) in slots.iter().enumerate() {
+        let executed = counts.get(index).copied().unwrap_or(0) > 0;
+        let entry = file_lines
+            .entry(slot.file.clone())
+            .or_default()
+            .entry(slot.line)
+            .or_insert(false);
+        *entry = *entry || executed;
+    }
+
+    let mut reports = Vec::new();
+    for (path, hit_lines) in file_lines {
+        let source = fs::read_to_string(project_dir.join(&path)).unwrap_or_default();
+        let mut lines = Vec::new();
+        let mut covered = 0;
+        let mut total = 0;
+        for (offset, text) in source.lines().enumerate() {
+            let line_no = offset + 1;
+            let state = match hit_lines.get(&line_no) {
+                Some(true) => {
+                    covered += 1;
+                    total += 1;
+                    LineState::Covered
+                }
+                Some(false) => {
+                    total += 1;
+                    LineState::Uncovered
+                }
+                None => LineState::Neutral,
+            };
+            let is_failed = failed.contains(&(path.clone(), line_no));
+            lines.push((state, is_failed, text.to_string()));
+        }
+        reports.push(FileReport {
+            path,
+            lines,
+            covered,
+            total,
+        });
+    }
+    reports
+}
+
+/// Build `coverage.html` from the slot map, counts, and failed-line set, reading
+/// each source file relative to `project_dir`.
+pub(crate) fn generate_html(
+    project_dir: &Path,
+    slots: &[CovSlot],
+    counts: &[u64],
+    failed: &HashSet<(String, usize)>,
+) -> String {
+    let reports = build_reports(project_dir, slots, counts, failed);
+    let total_covered: usize = reports.iter().map(|report| report.covered).sum();
+    let total_lines: usize = reports.iter().map(|report| report.total).sum();
+
+    let mut out = String::new();
+    out.push_str("<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n");
+    out.push_str("<title>MFB coverage</title>\n<style>\n");
+    out.push_str(STYLE);
+    out.push_str("</style>\n</head>\n<body>\n");
+    out.push_str("<h1>Coverage</h1>\n");
+    out.push_str(&format!(
+        "<p class=\"summary\">Total: {} / {} lines ({})</p>\n",
+        total_covered,
+        total_lines,
+        percent(total_covered, total_lines)
+    ));
+
+    // File tree / index.
+    out.push_str("<table class=\"tree\">\n<thead><tr><th>File</th><th>Covered</th><th>%</th></tr></thead>\n<tbody>\n");
+    for report in &reports {
+        out.push_str(&format!(
+            "<tr><td><a href=\"#{anchor}\">{path}</a></td><td>{covered} / {total}</td><td>{pct}</td></tr>\n",
+            anchor = anchor(&report.path),
+            path = escape(&report.path),
+            covered = report.covered,
+            total = report.total,
+            pct = percent(report.covered, report.total)
+        ));
+    }
+    out.push_str("</tbody>\n</table>\n");
+
+    // Per-file annotated source.
+    for report in &reports {
+        out.push_str(&format!(
+            "<section class=\"file\" id=\"{anchor}\">\n<h2>{path} <span class=\"stat\">{covered} / {total} ({pct})</span></h2>\n<pre>\n",
+            anchor = anchor(&report.path),
+            path = escape(&report.path),
+            covered = report.covered,
+            total = report.total,
+            pct = percent(report.covered, report.total)
+        ));
+        for (offset, (state, is_failed, text)) in report.lines.iter().enumerate() {
+            let mut class = match state {
+                LineState::Covered => "cov",
+                LineState::Uncovered => "unc",
+                LineState::Neutral => "neu",
+            }
+            .to_string();
+            if *is_failed {
+                class.push_str(" fail");
+            }
+            out.push_str(&format!(
+                "<span class=\"line {class}\"><span class=\"ln\">{num:>5}</span>{marker}{src}</span>\n",
+                class = class,
+                num = offset + 1,
+                marker = if *is_failed { " ✗ " } else { "   " },
+                src = escape(text)
+            ));
+        }
+        out.push_str("</pre>\n</section>\n");
+    }
+
+    out.push_str("</body>\n</html>\n");
+    out
+}
+
+fn percent(covered: usize, total: usize) -> String {
+    if total == 0 {
+        "—".to_string()
+    } else {
+        format!("{:.0}%", (covered as f64 / total as f64) * 100.0)
+    }
+}
+
+fn anchor(path: &str) -> String {
+    path.chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+        .collect()
+}
+
+fn escape(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+const STYLE: &str = "\
+body { font-family: -apple-system, system-ui, sans-serif; margin: 2rem; color: #1a1a1a; }
+h1 { font-size: 1.4rem; }
+.summary { font-weight: 600; }
+table.tree { border-collapse: collapse; margin-bottom: 2rem; }
+table.tree th, table.tree td { text-align: left; padding: 0.2rem 0.8rem; border-bottom: 1px solid #ddd; }
+section.file h2 { font-size: 1rem; border-bottom: 2px solid #ccc; padding-top: 1rem; }
+section.file .stat { color: #666; font-weight: normal; font-size: 0.85rem; }
+pre { background: #fafafa; border: 1px solid #eee; padding: 0; overflow-x: auto; }
+.line { display: block; font-family: ui-monospace, Menlo, monospace; font-size: 0.82rem; white-space: pre; }
+.line .ln { display: inline-block; width: 4rem; text-align: right; color: #999; padding-right: 0.6rem; user-select: none; }
+.line.cov { background: #e6f6e6; }
+.line.unc { background: #fde0e0; }
+.line.neu { background: transparent; }
+.line.fail { background: #ffd1a3; }
+";

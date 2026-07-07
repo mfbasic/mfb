@@ -1,0 +1,4 @@
+FUNC main AS Integer
+  expectEQ(1, 1)
+  RETURN 0
+END FUNC

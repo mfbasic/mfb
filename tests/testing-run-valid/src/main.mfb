@@ -1,0 +1,49 @@
+IMPORT io
+IMPORT errorCode
+
+FUNC add(a AS Integer, b AS Integer) AS Integer
+  RETURN a + b
+END FUNC
+
+FUNC parseIt(s AS String) AS Integer
+  RETURN toInt(s)
+END FUNC
+
+FUNC main AS Integer
+  io::print("normal program body — dropped under mfb test")
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "equality"
+    TCASE "expectEQ passes"
+      expectEQ(add(2, 3), 5)
+    END TCASE
+    TCASE "expectEQ fails"
+      expectEQ(add(2, 3), 6)
+    END TCASE
+    TCASE "expectNQ passes"
+      expectNQ(add(2, 3), 6)
+    END TCASE
+  END TGROUP
+  TGROUP "traps"
+    TCASE "expectTrap passes"
+      expectTrap(parseIt("bad"))
+    END TCASE
+    TCASE "expectTrap with matching code passes"
+      expectTrap(parseIt("bad"), errorCode::ErrInvalidFormat)
+    END TCASE
+    TCASE "expectNTrap passes"
+      expectNTrap(parseIt("42"))
+    END TCASE
+    TCASE "expectNTrap on a trapping call fails"
+      expectNTrap(parseIt("bad"))
+    END TCASE
+  END TGROUP
+  TGROUP "runtime errors"
+    TCASE "a genuine runtime error is a failure, not a crash"
+      LET x AS Integer = parseIt("notanumber")
+      expectEQ(x, 0)
+    END TCASE
+  END TGROUP
+END TESTING

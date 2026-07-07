@@ -13,12 +13,30 @@
 //!     pass/fail tree, and exits non-zero iff any case failed.
 
 use crate::ast::{
-    AstProject, Function, FunctionKind, Import, Item, Statement, TestCase, TestGroup, Visibility,
+    AstProject, Function, FunctionKind, Import, Item, TestCase, TestGroup, Visibility,
 };
+use crate::coverage::CovSlot;
+use std::path::Path;
 
 mod desugar;
 
 pub(crate) use desugar::{expand_expect, validate_expect_placement};
+
+/// The outcome of lowering the `TESTING` blocks: the synthesized entry-point name
+/// (test mode only) and the coverage slot map (`--coverage` only).
+pub(crate) struct TestLowering {
+    /// The driver entry-point name, overriding the manifest entry in test mode.
+    pub(crate) entry: Option<String>,
+    /// The `slot -> (file, line)` coverage map, empty unless `--coverage`.
+    pub(crate) cov_slots: Vec<CovSlot>,
+}
+
+/// The `coverage.*` sidecar file names written into the project directory during
+/// a `--coverage` run (plan-18-C D4).
+pub(crate) const COVMAP_FILE: &str = "coverage.covmap.json";
+pub(crate) const COVDATA_FILE: &str = "coverage.covdata";
+pub(crate) const COVFAIL_FILE: &str = "coverage.covfail";
+pub(crate) const COVERAGE_HTML: &str = "coverage.html";
 
 /// Whether a compilation is an ordinary build or a `mfb test` run. Threaded from
 /// the CLI into the front end so `TESTING` blocks are dropped or retained
@@ -47,24 +65,41 @@ impl CompileMode {
 /// is used so it lowers as an ordinary function and can serve as the NIR entry.
 pub(crate) const DRIVER_NAME: &str = "__mfb_test_main";
 
-/// Resolve every `TESTING` block in the project according to `mode`. Returns the
-/// synthesized driver entry-point name in test mode (to override the manifest
-/// entry), or `None` in build mode (blocks simply dropped).
-pub(crate) fn lower_testing_blocks(ast: &mut AstProject, mode: CompileMode) -> Option<String> {
+/// Resolve every `TESTING` block in the project according to `mode`. In build
+/// mode the blocks are dropped. In test mode they are desugared into a runnable
+/// driver (entry point returned); with `--coverage`, user statements are also
+/// instrumented and the slot map is returned. `project_dir` is the absolute
+/// project directory, used to bake the coverage sidecar paths into the driver.
+pub(crate) fn lower_testing_blocks(
+    ast: &mut AstProject,
+    mode: CompileMode,
+    project_dir: &Path,
+) -> TestLowering {
     match mode {
         CompileMode::Build => {
             for file in &mut ast.files {
                 file.items.retain(|item| !matches!(item, Item::Testing(_)));
             }
-            None
+            TestLowering {
+                entry: None,
+                cov_slots: Vec::new(),
+            }
         }
-        CompileMode::Test { .. } => Some(desugar_project(ast)),
+        CompileMode::Test { coverage } => {
+            let cov_slots = desugar_project(ast, coverage, project_dir);
+            TestLowering {
+                entry: Some(DRIVER_NAME.to_string()),
+                cov_slots,
+            }
+        }
     }
 }
 
 /// Test-mode lowering: collect every case across every file, replace the
 /// `TESTING` blocks with the generated case `SUB`s, and append the driver `FUNC`.
-fn desugar_project(ast: &mut AstProject) -> String {
+/// With `coverage`, additionally instrument the user statements and emit the
+/// coverage runtime helpers; returns the coverage slot map (empty otherwise).
+fn desugar_project(ast: &mut AstProject, coverage: bool, project_dir: &Path) -> Vec<CovSlot> {
     // Enumerate cases in declaration order across all files, assigning each a
     // unique generated SUB name. The registration order the driver iterates is
     // exactly this order.
@@ -88,26 +123,37 @@ fn desugar_project(ast: &mut AstProject) -> String {
 
     // Emit the generated case SUBs and the driver into the first file (there is
     // always at least one source file in a project).
-    let driver = desugar::build_driver(&registrations);
+    let driver = desugar::build_driver(&registrations, coverage);
     let sink = ast
         .files
         .first_mut()
         .expect("a project has at least one source file");
     // The driver streams the report through `io::print`; ensure the host file
     // imports `io` so the qualified call resolves.
-    if !sink.imports.iter().any(|import| import.module == "io") {
-        sink.imports.push(Import {
-            module: "io".to_string(),
-            alias: None,
-            line: 0,
-        });
-    }
+    ensure_import(sink, "io");
     for func in generated {
         sink.items.push(Item::Function(func));
     }
     sink.items.push(Item::Function(driver));
 
-    DRIVER_NAME.to_string()
+    // Coverage instrumentation runs last: it walks the now-complete item list
+    // (skipping the generated driver/helpers by name), injects hit counters, and
+    // appends the coverage runtime helpers + global counter array.
+    if coverage {
+        desugar::instrument_coverage(ast, project_dir)
+    } else {
+        Vec::new()
+    }
+}
+
+fn ensure_import(file: &mut crate::ast::AstFile, module: &str) {
+    if !file.imports.iter().any(|import| import.module == module) {
+        file.imports.push(Import {
+            module: module.to_string(),
+            alias: None,
+            line: 0,
+        });
+    }
 }
 
 fn lower_group(

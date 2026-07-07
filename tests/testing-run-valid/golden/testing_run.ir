@@ -1,0 +1,54 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "testing_run",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "add",
+    "line": 4,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "a", "line": 4, "type": "Integer", "default": null },
+    { "name": "b", "line": 4, "type": "Integer", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 5, "value": { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "a" }, "right": { "kind": "local", "name": "b" } } }
+    ]
+  },
+  {
+    "name": "parseIt",
+    "line": 8,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "s", "line": 8, "type": "String", "default": null }
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "return", "line": 9, "value": { "kind": "call", "type": "Integer", "target": "toInt", "args": [{ "kind": "local", "name": "s" }] } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 12,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "const", "type": "String", "value": "normal program body — dropped under mfb test" }] } },
+    { "op": "return", "line": 14, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

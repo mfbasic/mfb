@@ -1,0 +1,18 @@
+$ mfb test tests/testing-run-valid
+* equality
+  * [P] expectEQ passes
+  * [F] expectEQ fails
+    X expected 6, got 5  (src/main.mfb:23)
+  * [P] expectNQ passes
+* traps
+  * [P] expectTrap passes
+  * [P] expectTrap with matching code passes
+  * [P] expectNTrap passes
+  * [F] expectNTrap on a trapping call fails
+    X unexpected trap: invalid format  (src/main.mfb:40)
+* runtime errors
+  * [F] a genuine runtime error is a failure, not a crash
+    X runtime error [77050003] invalid format  (src/main.mfb:9)
+
+Tests: 8  Pass: 5  Fail: 3
+[exit 1]

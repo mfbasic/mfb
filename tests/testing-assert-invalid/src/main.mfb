@@ -1,0 +1,20 @@
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "misuse"
+    TCASE "arity"
+      expectEQ(1)
+    END TCASE
+    TCASE "incomparable operands"
+      expectEQ(1, "text")
+    END TCASE
+    TCASE "expectTrap on a non-call"
+      expectTrap(1 + 1)
+    END TCASE
+    TCASE "expectTrap expected-code must be Integer"
+      expectTrap(toInt("x"), "notacode")
+    END TCASE
+  END TGROUP
+END TESTING

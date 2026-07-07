@@ -53,6 +53,7 @@ const PACKAGE_ORDER: &[(&str, &str)] = &[
     ("tls", "mfb man tls [function]"),
     ("http", "mfb man http [function]"),
     ("vector", "mfb man vector [function]"),
+    ("testing", "mfb man testing [function]"),
 ];
 
 static PACKAGES: LazyLock<Vec<PackageDoc>> = LazyLock::new(|| {

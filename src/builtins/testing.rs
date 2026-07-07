@@ -38,13 +38,3 @@ pub(crate) fn expect_arity(name: &str) -> Option<(usize, usize)> {
         _ => None,
     }
 }
-
-/// The parameter names shown in diagnostics for each assertion builtin.
-pub(crate) fn expect_param_names(name: &str) -> &'static [&'static str] {
-    match name {
-        EXPECT_EQ | EXPECT_NQ => &["actual", "expected"],
-        EXPECT_TRAP => &["expression", "code"],
-        EXPECT_NTRAP => &["expression"],
-        _ => &[],
-    }
-}
