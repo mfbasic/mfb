@@ -11,4 +11,7 @@ get-caught: index out of range
 get-bad=-1
 mid=ell
 removed-len=1
+sl-ok=16
+sl-caught: invalid argument
+sl-bad=-1
 [exit 0]

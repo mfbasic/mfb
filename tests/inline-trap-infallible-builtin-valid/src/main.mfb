@@ -24,7 +24,9 @@ FUNC main AS Integer
   END TRAP
   io::print("s=" & s)
 
-  LET b AS Integer = bits::sl(1, 4) TRAP(e)
+  ' A total bits op (rotate): the variable shifts sl/sr/sra are fallible
+  ' (out-of-range count traps ErrInvalidArgument), so they would NOT be dead here.
+  LET b AS Integer = bits::rl64(1, 4) TRAP(e)
     io::print("DEAD-bits")
     RECOVER -1
   END TRAP

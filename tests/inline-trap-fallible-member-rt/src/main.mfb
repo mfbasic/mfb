@@ -1,6 +1,7 @@
 IMPORT io
 IMPORT collections
 IMPORT strings
+IMPORT bits
 
 FUNC main AS Integer
   MUT xs AS List OF Integer = []
@@ -29,5 +30,18 @@ FUNC main AS Integer
     RECOVER xs
   END TRAP
   io::print("removed-len=" & toString(len(removed)))
+
+  ' bits::sl — an in-range count unwraps; an out-of-range count traps
+  ' ErrInvalidArgument, and the inline TRAP catches it (the shift is fallible, so
+  ' the handler is live, not dead code).
+  LET shifted AS Integer = bits::sl(1, 4) TRAP(e)
+    RECOVER -1
+  END TRAP
+  io::print("sl-ok=" & toString(shifted))
+  LET overshift AS Integer = bits::sl(1, 64) TRAP(e)
+    io::print("sl-caught: " & e.message)
+    RECOVER -1
+  END TRAP
+  io::print("sl-bad=" & toString(overshift))
   RETURN 0
 END FUNC

@@ -196,20 +196,24 @@ pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
 /// instead). `target` is the canonical callee (`collections.get`,
 /// `strings.mid`, ...).
 pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
-    matches!(
-        native_builtin_target(target),
-        Some(
-            "get" | "set"
-                | "insert"
-                | "removeAt"
-                | "find"
-                | "mid"
-                | "forEach"
-                | "transform"
-                | "filter"
-                | "reduce"
+    // The variable-shift `bits::` ops raise `ErrInvalidArgument` on an out-of-range
+    // count through the shared `emit_error_register_return` tail, so their raw
+    // lowering redirects that domain error to the inline-`TRAP` capture point.
+    bits::is_bits_shift(target)
+        || matches!(
+            native_builtin_target(target),
+            Some(
+                "get" | "set"
+                    | "insert"
+                    | "removeAt"
+                    | "find"
+                    | "mid"
+                    | "forEach"
+                    | "transform"
+                    | "filter"
+                    | "reduce"
+            )
         )
-    )
 }
 
 /// Whether an inline-lowered built-in callee can raise **no** user-trappable
@@ -222,18 +226,26 @@ pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
 /// invalid-format). Allocation OOM does **not** count as trappable (umbrella Open
 /// Decision), so growth-only mutators (`append`/`prepend`) are infallible.
 ///
-/// Infallible: `len`, `toString`, `typeName`, every `bits::*` op, and the
-/// pure-query / default-returning / OOM-only members `contains`, `hasKey`, `keys`,
-/// `values`, `sum`, `getOr`, `append`, `prepend`, `removeKey`, `replace`.
+/// Infallible: `len`, `toString`, `typeName`, every total `bits::*` op (all but
+/// the variable shifts), and the pure-query / default-returning / OOM-only members
+/// `contains`, `hasKey`, `keys`, `values`, `sum`, `getOr`, `append`, `prepend`,
+/// `removeKey`, `replace`.
 ///
 /// Fallible (NOT infallible — raw-supported, so an inline `TRAP` traps their real
-/// error): index members `get`/`set`/`insert`/`removeAt`, `strings::mid`, `find`
-/// (negative start raises), and the callback members
+/// error): the `bits::` variable shifts `sl`/`sr`/`sra` (out-of-range count
+/// raises `ErrInvalidArgument`), the index members `get`/`set`/`insert`/`removeAt`,
+/// `strings::mid`, `find` (negative start raises), and the callback members
 /// `forEach`/`transform`/`filter`/`reduce` (a failing callback raises a real
 /// error). `target` is the canonical callee (`collections.get`, `strings.mid`,
 /// `bits.sl`) or a bare general-builtin name.
 pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
-    if bits::is_bits_call(target) || matches!(target, "len" | "toString" | "typeName") {
+    // Every `bits::` op is total EXCEPT the variable shifts (`sl`/`sr`/`sra`),
+    // which trap `ErrInvalidArgument` on an out-of-range count — those are
+    // raw-supported (fallible) instead.
+    if bits::is_bits_call(target) && !bits::is_bits_shift(target) {
+        return true;
+    }
+    if matches!(target, "len" | "toString" | "typeName") {
         return true;
     }
     matches!(
@@ -367,8 +379,11 @@ mod tests {
             "len",
             "toString",
             "typeName",
-            "bits.sl",
-            "bits.sr",
+            "bits.band",
+            "bits.bor",
+            "bits.rl64",
+            "bits.clz",
+            "bits.popCount",
             "collections.contains",
             "collections.hasKey",
             "collections.keys",
@@ -382,9 +397,12 @@ mod tests {
         ] {
             assert!(inline_builtin_is_infallible(c), "expected infallible: {c}");
         }
-        // Fallible inline members: a real domain error (index/range/not-found) or a
-        // failing callback — still rejected as unsupported until plan-21-B.
+        // Fallible inline members: a real domain error (index/range/not-found), an
+        // out-of-range shift count, or a failing callback.
         for c in [
+            "bits.sl",
+            "bits.sr",
+            "bits.sra",
             "collections.get",
             "collections.set",
             "collections.insert",
@@ -417,6 +435,9 @@ mod tests {
             "collections.find",
             "strings.find",
             "strings.mid",
+            "bits.sl",
+            "bits.sr",
+            "bits.sra",
         ] {
             assert!(
                 inline_builtin_raw_supported(c),
@@ -442,7 +463,7 @@ mod tests {
         }
         // The infallible members are NOT raw-supported (nothing to capture) but are
         // still trappable via the always-`Ok` path — so also not unsupported.
-        for c in ["collections.contains", "len", "bits.sl"] {
+        for c in ["collections.contains", "len", "bits.band"] {
             assert!(
                 !inline_builtin_raw_supported(c),
                 "expected NOT raw-supported: {c}"
@@ -548,7 +569,8 @@ mod tests {
         // unsupported` (the codegen backstop for a future un-lowered builtin) is
         // false for all of them.
         for target in [
-            "bits.sl",            // infallible bits op
+            "bits.sl",            // raw-supported fallible bits shift
+            "bits.band",          // infallible bits op
             "len",                // infallible general builtin
             "toString",           // infallible general builtin
             "typeName",           // infallible general builtin

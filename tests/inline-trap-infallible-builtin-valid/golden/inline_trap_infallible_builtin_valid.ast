@@ -47,26 +47,26 @@
       { "kind": "binding", "mutable": false, "name": "b", "type": "Integer", "value": {
         "kind": "trapped",
         "binding": "e",
-        "line": 27,
-        "expression": { "kind": "call", "callee": "bits.sl", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }] },
+        "line": 29,
+        "expression": { "kind": "call", "callee": "bits.rl64", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }] },
         "handler": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "DEAD-bits" }] }, "line": 28 },
-        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 29 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "DEAD-bits" }] }, "line": 30 },
+        { "kind": "recover", "value": { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, "line": 31 }
         ]
-      }, "line": 27 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "b=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }, "line": 31 },
+      }, "line": 29 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "b=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "b" }] } }] }, "line": 33 },
       { "kind": "binding", "mutable": false, "name": "has", "type": "Boolean", "value": {
         "kind": "trapped",
         "binding": "e",
-        "line": 33,
+        "line": 35,
         "expression": { "kind": "call", "callee": "collections.contains", "arguments": [{ "kind": "identifier", "value": "xs" }, { "kind": "number", "value": "20" }] },
         "handler": [
-        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "DEAD-contains" }] }, "line": 34 },
-        { "kind": "recover", "value": { "kind": "boolean", "value": false }, "line": 35 }
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "string", "value": "DEAD-contains" }] }, "line": 36 },
+        { "kind": "recover", "value": { "kind": "boolean", "value": false }, "line": 37 }
         ]
-      }, "line": 33 },
-      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "has=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "has" }] } }] }, "line": 37 },
-      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 39 }
+      }, "line": 35 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "binary", "operator": "&", "left": { "kind": "string", "value": "has=" }, "right": { "kind": "call", "callee": "toString", "arguments": [{ "kind": "identifier", "value": "has" }] } }] }, "line": 39 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 41 }
       ]
     }
     ]

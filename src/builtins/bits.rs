@@ -50,6 +50,15 @@ pub(crate) fn is_bits_call(name: &str) -> bool {
     )
 }
 
+/// The variable-shift ops (`sl`/`sr`/`sra`) are the only `bits::` calls that can
+/// raise a user-trappable error: an out-of-range `count` (outside `0 .. 63`) fails
+/// `ErrInvalidArgument` (see `builder_bits.rs::lower_bits_shift`). Every other
+/// `bits::` op is total. This split drives the inline-`TRAP` fallibility census
+/// (`super::inline_builtin_is_infallible` / `inline_builtin_raw_supported`).
+pub(crate) fn is_bits_shift(name: &str) -> bool {
+    matches!(name, SL | SR | SRA)
+}
+
 pub(crate) fn call_param_names(name: &str) -> Option<&'static [&'static [&'static str]]> {
     match name {
         BAND | BOR | BXOR => Some(&[&["a"], &["b"]]),

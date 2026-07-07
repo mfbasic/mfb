@@ -1432,7 +1432,14 @@ impl CodeBuilder<'_> {
         let capture = self.label("raw_builtin_done");
         let previous = self.raw_result_capture.take();
         self.raw_result_capture = Some(capture.clone());
-        let lowered = match crate::builtins::native_builtin_target(target) {
+        // The variable-shift `bits::` ops (`sl`/`sr`/`sra`) route their out-of-range
+        // `ErrInvalidArgument` through `emit_error_register_return`, whose
+        // `raw_result_capture` branch (set above) redirects to the capture point;
+        // the total `bits::` ops never reach here (they are infallible).
+        let lowered = if let Some(function) = target.strip_prefix("bits.") {
+            self.lower_bits_call(function, args)
+        } else {
+            match crate::builtins::native_builtin_target(target) {
             Some("get") => self.lower_collection_get(args),
             Some("set") => self.lower_collection_set(args),
             Some("insert") => self.lower_collection_insert(args),
@@ -1446,6 +1453,7 @@ impl CodeBuilder<'_> {
             other => Err(format!(
                 "native raw inline builtin '{target}' ({other:?}) is not supported"
             )),
+            }
         };
         self.raw_result_capture = previous;
         let success = lowered?;
