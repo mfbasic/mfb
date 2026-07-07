@@ -1,0 +1,103 @@
+IMPORT bits
+IMPORT errorCode
+
+' A `bits::*` op is inline-lowered and cannot be trap-guarded directly, so the
+' range tests call it through this wrapper (a user FUNC call is trap-guardable).
+FUNC shift(value AS Integer, count AS Integer) AS Integer
+  RETURN bits::sl(value, count)
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "bitwise"
+    TCASE "band masks the overlapping bits"
+      expectEQ(bits::band(65280, 4080), 3840)
+      expectEQ(bits::band(255, 15), 15)
+    END TCASE
+    TCASE "bor sets the union of bits"
+      expectEQ(bits::bor(255, 65280), 65535)
+      expectEQ(bits::bor(0, 0), 0)
+    END TCASE
+    TCASE "bxor toggles differing bits"
+      expectEQ(bits::bxor(65535, 3855), 61680)
+      expectEQ(bits::bxor(10, 10), 0)
+    END TCASE
+    TCASE "bnot inverts every bit"
+      expectEQ(bits::bnot(0), -1)
+      expectEQ(bits::bnot(-1), 0)
+    END TCASE
+  END TGROUP
+
+  TGROUP "shifts"
+    TCASE "sl shifts left"
+      expectEQ(bits::sl(1, 4), 16)
+      expectEQ(bits::sl(255, 8), 65280)
+      expectEQ(bits::sl(1, 0), 1)
+    END TCASE
+    TCASE "sr shifts right (logical, zero-fill)"
+      expectEQ(bits::sr(256, 4), 16)
+      expectEQ(bits::sr(-1, 1), 9223372036854775807)
+    END TCASE
+    TCASE "sra shifts right (arithmetic, sign-fill)"
+      expectEQ(bits::sra(-8, 1), -4)
+      expectEQ(bits::sra(8, 1), 4)
+    END TCASE
+    TCASE "sl traps on an out-of-range count"
+      expectTrap(shift(1, 64), errorCode::ErrInvalidArgument)
+      expectTrap(shift(1, -1), errorCode::ErrInvalidArgument)
+    END TCASE
+    TCASE "sl does not trap on an in-range count"
+      expectNTrap(shift(1, 4))
+    END TCASE
+  END TGROUP
+
+  TGROUP "rotations"
+    TCASE "rl32 rotates a 32-bit value left"
+      expectEQ(bits::rl32(2147483648, 1), 1)
+      expectEQ(bits::rl32(1, 32), 1)
+    END TCASE
+    TCASE "rl64 rotates a 64-bit value left"
+      expectEQ(bits::rl64(1, 1), 2)
+      expectEQ(bits::rl64(1, 64), 1)
+    END TCASE
+    TCASE "rr32 rotates a 32-bit value right"
+      expectEQ(bits::rr32(1, 1), 2147483648)
+      expectEQ(bits::rr32(1, 33), 2147483648)
+    END TCASE
+    TCASE "rr64 rotates a 64-bit value right"
+      expectEQ(bits::rr64(2, 1), 1)
+      expectEQ(bits::rr64(1, 64), 1)
+    END TCASE
+  END TGROUP
+
+  TGROUP "byte swaps"
+    TCASE "bswap16 reverses two bytes"
+      expectEQ(bits::bswap16(4660), 13330)
+    END TCASE
+    TCASE "bswap32 reverses four bytes"
+      expectEQ(bits::bswap32(305419896), 2018915346)
+    END TCASE
+    TCASE "bswap64 reverses eight bytes"
+      expectEQ(bits::bswap64(72623859790382856), 578437695752307201)
+    END TCASE
+  END TGROUP
+
+  TGROUP "bit counts"
+    TCASE "clz counts leading zeros"
+      expectEQ(bits::clz(1), 63)
+      expectEQ(bits::clz(0), 64)
+    END TCASE
+    TCASE "ctz counts trailing zeros"
+      expectEQ(bits::ctz(8), 3)
+      expectEQ(bits::ctz(0), 64)
+    END TCASE
+    TCASE "popCount counts set bits"
+      expectEQ(bits::popCount(255), 8)
+      expectEQ(bits::popCount(0), 0)
+      expectEQ(bits::popCount(-1), 64)
+    END TCASE
+  END TGROUP
+END TESTING

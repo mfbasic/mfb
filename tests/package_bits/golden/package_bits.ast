@@ -1,0 +1,226 @@
+{
+  "project": "package_bits",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "bits", "line": 1 },
+    { "module": "errorCode", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "shift",
+      "line": 6,
+      "params": [
+      { "name": "value", "type": "Integer", "default": null },
+      { "name": "count", "type": "Integer", "default": null }
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "call", "callee": "bits.sl", "arguments": [{ "kind": "identifier", "value": "value" }, { "kind": "identifier", "value": "count" }] }, "line": 7 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 10,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 11 }
+      ]
+    },
+    {
+      "kind": "testing",
+      "line": 14,
+      "groups": [
+      {
+        "description": "bitwise",
+        "line": 15,
+        "cases": [
+        {
+          "description": "band masks the overlapping bits",
+          "line": 16,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "number", "value": "65280" }, { "kind": "number", "value": "4080" }] }, { "kind": "number", "value": "3840" }] }, "line": 17 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.band", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "15" }] }, { "kind": "number", "value": "15" }] }, "line": 18 }
+          ]
+        },
+        {
+          "description": "bor sets the union of bits",
+          "line": 20,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bor", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "65280" }] }, { "kind": "number", "value": "65535" }] }, "line": 21 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bor", "arguments": [{ "kind": "number", "value": "0" }, { "kind": "number", "value": "0" }] }, { "kind": "number", "value": "0" }] }, "line": 22 }
+          ]
+        },
+        {
+          "description": "bxor toggles differing bits",
+          "line": 24,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bxor", "arguments": [{ "kind": "number", "value": "65535" }, { "kind": "number", "value": "3855" }] }, { "kind": "number", "value": "61680" }] }, "line": 25 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bxor", "arguments": [{ "kind": "number", "value": "10" }, { "kind": "number", "value": "10" }] }, { "kind": "number", "value": "0" }] }, "line": 26 }
+          ]
+        },
+        {
+          "description": "bnot inverts every bit",
+          "line": 28,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bnot", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, "line": 29 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bnot", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, { "kind": "number", "value": "0" }] }, "line": 30 }
+          ]
+        }
+        ]
+      },
+      {
+        "description": "shifts",
+        "line": 34,
+        "cases": [
+        {
+          "description": "sl shifts left",
+          "line": 35,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.sl", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }] }, { "kind": "number", "value": "16" }] }, "line": 36 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.sl", "arguments": [{ "kind": "number", "value": "255" }, { "kind": "number", "value": "8" }] }, { "kind": "number", "value": "65280" }] }, "line": 37 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.sl", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "0" }] }, { "kind": "number", "value": "1" }] }, "line": 38 }
+          ]
+        },
+        {
+          "description": "sr shifts right (logical, zero-fill)",
+          "line": 40,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.sr", "arguments": [{ "kind": "number", "value": "256" }, { "kind": "number", "value": "4" }] }, { "kind": "number", "value": "16" }] }, "line": 41 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.sr", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "9223372036854775807" }] }, "line": 42 }
+          ]
+        },
+        {
+          "description": "sra shifts right (arithmetic, sign-fill)",
+          "line": 44,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.sra", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "8" } }, { "kind": "number", "value": "1" }] }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "4" } }] }, "line": 45 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.sra", "arguments": [{ "kind": "number", "value": "8" }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "4" }] }, "line": 46 }
+          ]
+        },
+        {
+          "description": "sl traps on an out-of-range count",
+          "line": 48,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectTrap", "arguments": [{ "kind": "call", "callee": "shift", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "64" }] }, { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" }] }, "line": 49 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectTrap", "arguments": [{ "kind": "call", "callee": "shift", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, { "kind": "identifier", "value": "errorCode.ErrInvalidArgument" }] }, "line": 50 }
+          ]
+        },
+        {
+          "description": "sl does not trap on an in-range count",
+          "line": 52,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectNTrap", "arguments": [{ "kind": "call", "callee": "shift", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "4" }] }] }, "line": 53 }
+          ]
+        }
+        ]
+      },
+      {
+        "description": "rotations",
+        "line": 57,
+        "cases": [
+        {
+          "description": "rl32 rotates a 32-bit value left",
+          "line": 58,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.rl32", "arguments": [{ "kind": "number", "value": "2147483648" }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "1" }] }, "line": 59 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.rl32", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "32" }] }, { "kind": "number", "value": "1" }] }, "line": 60 }
+          ]
+        },
+        {
+          "description": "rl64 rotates a 64-bit value left",
+          "line": 62,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.rl64", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "2" }] }, "line": 63 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.rl64", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "64" }] }, { "kind": "number", "value": "1" }] }, "line": 64 }
+          ]
+        },
+        {
+          "description": "rr32 rotates a 32-bit value right",
+          "line": 66,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.rr32", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "2147483648" }] }, "line": 67 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.rr32", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "33" }] }, { "kind": "number", "value": "2147483648" }] }, "line": 68 }
+          ]
+        },
+        {
+          "description": "rr64 rotates a 64-bit value right",
+          "line": 70,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.rr64", "arguments": [{ "kind": "number", "value": "2" }, { "kind": "number", "value": "1" }] }, { "kind": "number", "value": "1" }] }, "line": 71 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.rr64", "arguments": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "64" }] }, { "kind": "number", "value": "1" }] }, "line": 72 }
+          ]
+        }
+        ]
+      },
+      {
+        "description": "byte swaps",
+        "line": 76,
+        "cases": [
+        {
+          "description": "bswap16 reverses two bytes",
+          "line": 77,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bswap16", "arguments": [{ "kind": "number", "value": "4660" }] }, { "kind": "number", "value": "13330" }] }, "line": 78 }
+          ]
+        },
+        {
+          "description": "bswap32 reverses four bytes",
+          "line": 80,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bswap32", "arguments": [{ "kind": "number", "value": "305419896" }] }, { "kind": "number", "value": "2018915346" }] }, "line": 81 }
+          ]
+        },
+        {
+          "description": "bswap64 reverses eight bytes",
+          "line": 83,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.bswap64", "arguments": [{ "kind": "number", "value": "72623859790382856" }] }, { "kind": "number", "value": "578437695752307201" }] }, "line": 84 }
+          ]
+        }
+        ]
+      },
+      {
+        "description": "bit counts",
+        "line": 88,
+        "cases": [
+        {
+          "description": "clz counts leading zeros",
+          "line": 89,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.clz", "arguments": [{ "kind": "number", "value": "1" }] }, { "kind": "number", "value": "63" }] }, "line": 90 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.clz", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "number", "value": "64" }] }, "line": 91 }
+          ]
+        },
+        {
+          "description": "ctz counts trailing zeros",
+          "line": 93,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.ctz", "arguments": [{ "kind": "number", "value": "8" }] }, { "kind": "number", "value": "3" }] }, "line": 94 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.ctz", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "number", "value": "64" }] }, "line": 95 }
+          ]
+        },
+        {
+          "description": "popCount counts set bits",
+          "line": 97,
+          "body": [
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.popCount", "arguments": [{ "kind": "number", "value": "255" }] }, { "kind": "number", "value": "8" }] }, "line": 98 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.popCount", "arguments": [{ "kind": "number", "value": "0" }] }, { "kind": "number", "value": "0" }] }, "line": 99 },
+          { "kind": "expression", "expression": { "kind": "call", "callee": "expectEQ", "arguments": [{ "kind": "call", "callee": "bits.popCount", "arguments": [{ "kind": "unary", "operator": "-", "operand": { "kind": "number", "value": "1" } }] }, { "kind": "number", "value": "64" }] }, "line": 100 }
+          ]
+        }
+        ]
+      }
+      ]
+    }
+    ]
+  }
+  ]
+}

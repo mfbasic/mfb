@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/package_bits
+Wrote AST to tests/package_bits/package_bits.ast
+Wrote IR to tests/package_bits/package_bits.ir
+[exit 0]
