@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/builtin-io/behavior/func_io_readByte_valid
+Wrote AST to tests/builtin-io/behavior/func_io_readByte_valid/func_io_readByte_valid.ast
+Wrote IR to tests/builtin-io/behavior/func_io_readByte_valid/func_io_readByte_valid.ir
+[exit 0]

@@ -1,0 +1,4 @@
+$ mfb build -ast -ir tests/builtin-tls/behavior/connect_valid
+Wrote AST to tests/builtin-tls/behavior/connect_valid/func_tls_connect_valid.ast
+Wrote IR to tests/builtin-tls/behavior/connect_valid/func_tls_connect_valid.ir
+[exit 0]

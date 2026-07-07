@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/func_term_getUnderline_invalid
-   2 | 
-   3 | FUNC bad AS Boolean
-   4 |   RETURN term::getUnderline(1)
-     | ^
-tests/func_term_getUnderline_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
-               Call to `term.getUnderline` has 1 argument(s), expected 0.
-[exit 1]

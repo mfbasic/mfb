@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET base AS Float = 4.0
-  LET exponent AS Float = 0.5
-  LET value AS Float = base ^ exponent
-  RETURN 0
-END FUNC

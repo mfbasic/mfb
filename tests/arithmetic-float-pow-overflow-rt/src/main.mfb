@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET base AS Float = toFloat("1e308")
-  LET exponent AS Float = 2.0
-  LET value AS Float = base ^ exponent
-  RETURN 0
-END FUNC

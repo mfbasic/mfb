@@ -1,6 +1,0 @@
-$ mfb build -ast -ir tests/func_thread_start_valid
-uses thread_workers - [Unsigned]
-uses thread_file_workers - [Unsigned]
-Wrote AST to tests/func_thread_start_valid/func_thread_start_valid.ast
-Wrote IR to tests/func_thread_start_valid/func_thread_start_valid.ir
-[exit 0]

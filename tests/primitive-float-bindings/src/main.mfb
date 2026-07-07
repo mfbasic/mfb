@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET letValue AS Float = 1.5
-  MUT mutValue AS Float = 3.5
-  mutValue = 2.5
-  RETURN 0
-END FUNC

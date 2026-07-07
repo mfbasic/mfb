@@ -1,7 +1,0 @@
-IMPORT io
-
-FUNC main AS Integer
-  LET result AS String = "a" & toString(1 + 2)
-  io::print(result)
-  RETURN 0
-END FUNC

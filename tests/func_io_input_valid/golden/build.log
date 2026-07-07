@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/func_io_input_valid
-Wrote AST to tests/func_io_input_valid/func_io_input_valid.ast
-Wrote IR to tests/func_io_input_valid/func_io_input_valid.ir
-[exit 0]

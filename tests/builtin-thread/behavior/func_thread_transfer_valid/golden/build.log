@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/builtin-thread/behavior/func_thread_transfer_valid
+uses thread_file_sink - [Unsigned]
+Wrote AST to tests/builtin-thread/behavior/func_thread_transfer_valid/func_thread_transfer_valid.ast
+Wrote IR to tests/builtin-thread/behavior/func_thread_transfer_valid/func_thread_transfer_valid.ir
+[exit 0]
+$ mfb build tests/builtin-thread/behavior/func_thread_transfer_valid
+uses thread_file_sink - [Unsigned]
+Wrote executable to tests/builtin-thread/behavior/func_thread_transfer_valid/func_thread_transfer_valid.out
+[exit 0]
+$ tests/builtin-thread/behavior/func_thread_transfer_valid/func_thread_transfer_valid.out
+20
+[exit 0]

@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-fs/behavior/func_fs_readText_valid
+Wrote AST to tests/builtin-fs/behavior/func_fs_readText_valid/func_fs_readText_valid.ast
+Wrote IR to tests/builtin-fs/behavior/func_fs_readText_valid/func_fs_readText_valid.ir
+[exit 0]
+$ mfb build tests/builtin-fs/behavior/func_fs_readText_valid
+Wrote executable to tests/builtin-fs/behavior/func_fs_readText_valid/func_fs_readText_valid.out
+[exit 0]
+$ tests/builtin-fs/behavior/func_fs_readText_valid/func_fs_readText_valid.out
+Hello é日😀
+[exit 0]

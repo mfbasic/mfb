@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/func_term_terminalSize_valid
-Wrote AST to tests/func_term_terminalSize_valid/func_term_terminalSize_valid.ast
-Wrote IR to tests/func_term_terminalSize_valid/func_term_terminalSize_valid.ir
-[exit 0]

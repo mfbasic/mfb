@@ -1,0 +1,10 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(fs::directoryExists("tests/builtin-fs/behavior/func_fs_directoryExists_valid/src")))
+  io::print(toString(fs::directoryExists("tests/builtin-fs/behavior/func_fs_directoryExists_valid/src/main.mfb")))
+  io::print(toString(fs::directoryExists("tests/builtin-fs/behavior/func_fs_directoryExists_valid/src/missing")))
+  io::print(toString(fs::directoryExists("tests/builtin-fs/behavior/func_fs_directoryExists_valid/src/é日😀")))
+  RETURN 0
+END FUNC

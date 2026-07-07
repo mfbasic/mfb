@@ -1,0 +1,10 @@
+IMPORT fs
+IMPORT io
+
+FUNC main AS Integer
+  io::print(toString(fs::fileExists("tests/builtin-fs/behavior/func_fs_fileExists_valid/src/main.mfb")))
+  io::print(toString(fs::fileExists("tests/builtin-fs/behavior/func_fs_fileExists_valid/src")))
+  io::print(toString(fs::fileExists("tests/builtin-fs/behavior/func_fs_fileExists_valid/src/missing.txt")))
+  io::print(toString(fs::fileExists("tests/builtin-fs/behavior/func_fs_fileExists_valid/src/é日😀.txt")))
+  RETURN 0
+END FUNC

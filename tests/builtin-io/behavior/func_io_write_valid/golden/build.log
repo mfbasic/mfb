@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-io/behavior/func_io_write_valid
+Wrote AST to tests/builtin-io/behavior/func_io_write_valid/func_io_write_valid.ast
+Wrote IR to tests/builtin-io/behavior/func_io_write_valid/func_io_write_valid.ir
+[exit 0]
+$ mfb build tests/builtin-io/behavior/func_io_write_valid
+Wrote executable to tests/builtin-io/behavior/func_io_write_valid/func_io_write_valid.out
+[exit 0]
+$ tests/builtin-io/behavior/func_io_write_valid/func_io_write_valid.out
+Hello é日😀
+[exit 0]

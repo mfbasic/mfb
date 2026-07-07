@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET letValue AS Fixed = 1.5
-  MUT mutValue AS Fixed = 3.5
-  mutValue = 2.5
-  RETURN 0
-END FUNC

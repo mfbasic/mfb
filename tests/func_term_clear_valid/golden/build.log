@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/func_term_clear_valid
-Wrote AST to tests/func_term_clear_valid/func_term_clear_valid.ast
-Wrote IR to tests/func_term_clear_valid/func_term_clear_valid.ir
-[exit 0]

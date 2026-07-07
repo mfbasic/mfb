@@ -1,0 +1,22 @@
+IMPORT thread
+IMPORT thread_workers
+IMPORT thread_file_workers
+IMPORT fs
+
+FUNC main AS Integer
+  LET t1 AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "a", 1, 1)
+  LET t2 AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "b", 1, 1)
+  LET t3 AS Thread OF String TO Integer = thread::start(thread_workers::echoText, "c", 1, 1)
+  LET fileThread AS Thread OF RES File TO Integer = thread::start(thread_file_workers::receiveFile, "file", 2, 1)
+  thread::send(t1, "d")
+  thread::send(t2, "e", 0)
+  thread::send(t3, "f", 1)
+  RES sentFile AS File = fs::openFile("tests/builtin-thread/behavior/func_thread_send_valid/src/main.mfb")
+  thread::transfer(fileThread, sentFile)
+  RES recoverFile AS File = fs::openFile("tests/builtin-thread/behavior/func_thread_send_valid/src/main.mfb")
+  thread::transfer(fileThread, recoverFile) TRAP(err)
+    fs::close(recoverFile)
+    RECOVER
+  END TRAP
+  RETURN 0
+END FUNC

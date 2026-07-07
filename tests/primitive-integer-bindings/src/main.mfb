@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET letValue AS Integer = 1 + 1
-  MUT mutValue AS Integer = 3
-  mutValue = mutValue + 1
-  RETURN letValue + mutValue
-END FUNC

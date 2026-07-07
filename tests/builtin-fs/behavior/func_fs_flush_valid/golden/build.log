@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-fs/behavior/func_fs_flush_valid
+Wrote AST to tests/builtin-fs/behavior/func_fs_flush_valid/func_fs_flush_valid.ast
+Wrote IR to tests/builtin-fs/behavior/func_fs_flush_valid/func_fs_flush_valid.ir
+[exit 0]
+$ mfb build tests/builtin-fs/behavior/func_fs_flush_valid
+Wrote executable to tests/builtin-fs/behavior/func_fs_flush_valid/func_fs_flush_valid.out
+[exit 0]
+$ tests/builtin-fs/behavior/func_fs_flush_valid/func_fs_flush_valid.out
+flushed-then-dropped
+[exit 0]

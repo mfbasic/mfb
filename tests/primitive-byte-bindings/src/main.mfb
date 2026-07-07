@@ -1,6 +1,0 @@
-FUNC main AS Integer
-  LET letValue AS Byte = 2
-  MUT mutValue AS Byte = 3
-  mutValue = 4
-  RETURN toInt(letValue + mutValue)
-END FUNC

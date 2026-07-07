@@ -1,3 +1,0 @@
-FUNC main AS Integer
-  RETURN 2 + 3 * 4 ^ 2 - 6 / 3
-END FUNC

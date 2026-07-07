@@ -1,9 +1,0 @@
-FUNC main AS Integer
-  LET x AS Byte = 100
-  LET y AS Byte = 27
-  LET z AS Integer = 50
-  LET f AS Fixed = 1.25
-  LET g AS Fixed = 0.25
-  f + g
-  RETURN x + y - z
-END FUNC

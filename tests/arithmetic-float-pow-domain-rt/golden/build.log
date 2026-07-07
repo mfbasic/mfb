@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/arithmetic-float-pow-domain-rt
-Wrote AST to tests/arithmetic-float-pow-domain-rt/arithmetic_float_pow_domain_rt.ast
-Wrote IR to tests/arithmetic-float-pow-domain-rt/arithmetic_float_pow_domain_rt.ir
-[exit 0]

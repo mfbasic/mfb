@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/builtin-fs/behavior/func_fs_readLine_valid
+Wrote AST to tests/builtin-fs/behavior/func_fs_readLine_valid/func_fs_readLine_valid.ast
+Wrote IR to tests/builtin-fs/behavior/func_fs_readLine_valid/func_fs_readLine_valid.ir
+[exit 0]
+$ mfb build tests/builtin-fs/behavior/func_fs_readLine_valid
+Wrote executable to tests/builtin-fs/behavior/func_fs_readLine_valid/func_fs_readLine_valid.out
+[exit 0]
+$ tests/builtin-fs/behavior/func_fs_readLine_valid/func_fs_readLine_valid.out
+alpha
+beta é日😀
+gamma
+[exit 0]

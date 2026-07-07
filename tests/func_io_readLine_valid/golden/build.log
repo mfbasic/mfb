@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/func_io_readLine_valid
-Wrote AST to tests/func_io_readLine_valid/func_io_readLine_valid.ast
-Wrote IR to tests/func_io_readLine_valid/func_io_readLine_valid.ir
-[exit 0]

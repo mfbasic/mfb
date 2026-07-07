@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-arithmetic/runtime/arithmetic-float-nan-rt
+Wrote AST to tests/builtin-arithmetic/runtime/arithmetic-float-nan-rt/arithmetic_float_nan_rt.ast
+Wrote IR to tests/builtin-arithmetic/runtime/arithmetic-float-nan-rt/arithmetic_float_nan_rt.ir
+[exit 0]
+$ mfb build tests/builtin-arithmetic/runtime/arithmetic-float-nan-rt
+Wrote executable to tests/builtin-arithmetic/runtime/arithmetic-float-nan-rt/arithmetic_float_nan_rt.out
+[exit 0]
+$ tests/builtin-arithmetic/runtime/arithmetic-float-nan-rt/arithmetic_float_nan_rt.out
+Code: 77050013 Message: float NaN result
+[exit 255]

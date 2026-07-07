@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/func_io_isErrorTerminal_valid
-Wrote AST to tests/func_io_isErrorTerminal_valid/func_io_isErrorTerminal_valid.ast
-Wrote IR to tests/func_io_isErrorTerminal_valid/func_io_isErrorTerminal_valid.ir
-[exit 0]

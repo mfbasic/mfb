@@ -525,4 +525,42 @@ TESTING
       expectInteger(collections::get(pt.unmatched, 1), -4)
     END TCASE
   END TGROUP
+
+  TGROUP "list bindings"
+    TCASE "let, mut reassign, copy"
+      ' from tests/collection-list-bindings
+      LET letValues AS List OF String = ["let-a", "let-b"]
+      MUT mutValues AS List OF String = ["mut-a"]
+      mutValues = ["mut-b", "mut-c"]
+      LET copied AS List OF String = mutValues
+      expectInteger(len(letValues), 2)
+      expectString(collections::get(letValues, 0), "let-a")
+      expectString(collections::get(letValues, 1), "let-b")
+      expectInteger(len(mutValues), 2)
+      expectString(collections::get(mutValues, 0), "mut-b")
+      expectString(collections::get(mutValues, 1), "mut-c")
+      expectInteger(len(copied), 2)
+      expectString(collections::get(copied, 0), "mut-b")
+      expectString(collections::get(copied, 1), "mut-c")
+    END TCASE
+  END TGROUP
+
+  TGROUP "map bindings"
+    TCASE "let, mut reassign, copy"
+      ' from tests/collection-map-bindings
+      LET letMap AS Map OF String TO String = Map OF String TO String { "a" := "one", "b" := "two" }
+      MUT mutMap AS Map OF String TO String = Map OF String TO String { "c" := "three" }
+      mutMap = Map OF String TO String { "d" := "four", "e" := "five" }
+      LET copied AS Map OF String TO String = mutMap
+      expectInteger(len(letMap), 2)
+      expectString(collections::get(letMap, "a"), "one")
+      expectString(collections::get(letMap, "b"), "two")
+      expectInteger(len(mutMap), 2)
+      expectString(collections::get(mutMap, "d"), "four")
+      expectString(collections::get(mutMap, "e"), "five")
+      expectInteger(len(copied), 2)
+      expectString(collections::get(copied, "d"), "four")
+      expectString(collections::get(copied, "e"), "five")
+    END TCASE
+  END TGROUP
 END TESTING

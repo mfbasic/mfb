@@ -1,0 +1,13 @@
+$ mfb build -ast -ir tests/builtin-fs/behavior/func_fs_isWithin_valid
+Wrote AST to tests/builtin-fs/behavior/func_fs_isWithin_valid/func_fs_isWithin_valid.ast
+Wrote IR to tests/builtin-fs/behavior/func_fs_isWithin_valid/func_fs_isWithin_valid.ir
+[exit 0]
+$ mfb build tests/builtin-fs/behavior/func_fs_isWithin_valid
+Wrote executable to tests/builtin-fs/behavior/func_fs_isWithin_valid/func_fs_isWithin_valid.out
+[exit 0]
+$ tests/builtin-fs/behavior/func_fs_isWithin_valid/func_fs_isWithin_valid.out
+TRUE
+TRUE
+FALSE
+TRUE
+[exit 0]

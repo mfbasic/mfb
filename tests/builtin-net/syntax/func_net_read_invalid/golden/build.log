@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/builtin-net/syntax/func_net_read_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::read()
+     | ^
+tests/builtin-net/syntax/func_net_read_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.read` has 0 argument(s), expected 2.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::read()
+     | ^
+tests/builtin-net/syntax/func_net_read_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::read()
+   5 |   LET wrongType = net::read(1, 16)
+     | ^
+tests/builtin-net/syntax/func_net_read_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `net.read` has argument type(s) (Integer, Integer), expected Socket, Integer.
+   3 | FUNC main AS Integer
+   4 |   LET missing = net::read()
+   5 |   LET wrongType = net::read(1, 16)
+     | ^
+tests/builtin-net/syntax/func_net_read_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   4 |   LET missing = net::read()
+   5 |   LET wrongType = net::read(1, 16)
+   6 |   LET wrongCount = net::read("s")
+     | ^
+tests/builtin-net/syntax/func_net_read_invalid/src/main.mfb:6 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.read` has 1 argument(s), expected 2.
+   4 |   LET missing = net::read()
+   5 |   LET wrongType = net::read(1, 16)
+   6 |   LET wrongCount = net::read("s")
+     | ^
+tests/builtin-net/syntax/func_net_read_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongCount` does not have a known type.
+   5 |   LET wrongType = net::read(1, 16)
+   6 |   LET wrongCount = net::read("s")
+   7 |   LET tooMany = net::read(1, 2, 3)
+     | ^
+tests/builtin-net/syntax/func_net_read_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `net.read` has 3 argument(s), expected 2.
+   5 |   LET wrongType = net::read(1, 16)
+   6 |   LET wrongCount = net::read("s")
+   7 |   LET tooMany = net::read(1, 2, 3)
+     | ^
+tests/builtin-net/syntax/func_net_read_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]

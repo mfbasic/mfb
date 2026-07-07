@@ -1,5 +1,0 @@
-$ mfb build -ast -ir tests/func_thread_poll_valid
-uses thread_workers - [Unsigned]
-Wrote AST to tests/func_thread_poll_valid/func_thread_poll_valid.ast
-Wrote IR to tests/func_thread_poll_valid/func_thread_poll_valid.ir
-[exit 0]

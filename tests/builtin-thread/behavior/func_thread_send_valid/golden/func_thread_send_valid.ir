@@ -1,0 +1,48 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "func_thread_send_valid",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "main",
+    "line": 6,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 7, "mutable": false, "name": "t1", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "a" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 8, "mutable": false, "name": "t2", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "b" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 9, "mutable": false, "name": "t3", "type": "Thread OF String TO Integer", "value": { "kind": "call", "type": "Thread OF String TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_workers.echoText", "type": "ISOLATED FUNC(ThreadWorker OF String TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "c" }, { "kind": "const", "type": "Integer", "value": "1" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 10, "mutable": false, "name": "fileThread", "type": "Thread OF RES File TO Integer", "value": { "kind": "call", "type": "Thread OF RES File TO Integer", "target": "thread.start", "args": [{ "kind": "functionRef", "name": "thread_file_workers.receiveFile", "type": "ISOLATED FUNC(ThreadWorker OF RES File TO Integer, String) AS Integer" }, { "kind": "const", "type": "String", "value": "file" }, { "kind": "const", "type": "Integer", "value": "2" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "eval", "line": 11, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t1" }, { "kind": "const", "type": "String", "value": "d" }] } },
+    { "op": "eval", "line": 12, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t2" }, { "kind": "const", "type": "String", "value": "e" }, { "kind": "const", "type": "Integer", "value": "0" }] } },
+    { "op": "eval", "line": 13, "value": { "kind": "call", "type": "Nothing", "target": "thread.send", "args": [{ "kind": "local", "name": "t3" }, { "kind": "const", "type": "String", "value": "f" }, { "kind": "const", "type": "Integer", "value": "1" }] } },
+    { "op": "bind", "line": 14, "mutable": false, "name": "sentFile", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/builtin-thread/behavior/func_thread_send_valid/src/main.mfb" }] } },
+    { "op": "eval", "line": 15, "value": { "kind": "call", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "sentFile" }] } },
+    { "op": "bind", "line": 16, "mutable": false, "name": "recoverFile", "type": "File", "value": { "kind": "call", "type": "File", "target": "fs.openFile", "args": [{ "kind": "const", "type": "String", "value": "tests/builtin-thread/behavior/func_thread_send_valid/src/main.mfb" }] } },
+    { "op": "bind", "line": 17, "mutable": false, "name": "$trap_res0", "type": "Result OF Nothing", "value": { "kind": "callResult", "type": "Nothing", "target": "thread.transferResource", "args": [{ "kind": "local", "name": "fileThread" }, { "kind": "local", "name": "recoverFile" }] } },
+    {
+      "op": "if",
+      "line": 17,
+      "condition": { "kind": "resultIsOk", "type": "Boolean", "value": { "kind": "local", "name": "$trap_res0" } },
+      "then": [
+      ],
+      "else": [
+      { "op": "bind", "line": 17, "mutable": false, "name": "err", "type": "Error", "value": { "kind": "resultError", "type": "Error", "value": { "kind": "local", "name": "$trap_res0" } } },
+      { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "fs.close", "args": [{ "kind": "local", "name": "recoverFile" }] } }
+      ]
+    },
+    { "op": "return", "line": 21, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

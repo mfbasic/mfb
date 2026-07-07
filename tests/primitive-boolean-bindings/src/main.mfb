@@ -1,7 +1,0 @@
-FUNC main AS Integer
-  LET letValue AS Boolean = TRUE
-  MUT mutValue AS Boolean = FALSE
-  mutValue = letValue
-  IF mutValue THEN RETURN 1
-  RETURN 0
-END FUNC

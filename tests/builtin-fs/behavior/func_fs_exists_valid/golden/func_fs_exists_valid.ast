@@ -1,0 +1,29 @@
+{
+  "project": "func_fs_exists_valid",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "fs", "line": 1 },
+    { "module": "io", "line": 2 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 4,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.exists", "arguments": [{ "kind": "string", "value": "tests/builtin-fs/behavior/func_fs_exists_valid/src/main.mfb" }] }] }] }, "line": 5 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.exists", "arguments": [{ "kind": "string", "value": "tests/builtin-fs/behavior/func_fs_exists_valid/src/missing.txt" }] }] }] }, "line": 6 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "call", "callee": "toString", "arguments": [{ "kind": "call", "callee": "fs.exists", "arguments": [{ "kind": "string", "value": "tests/builtin-fs/behavior/func_fs_exists_valid/src/é日😀.txt" }] }] }] }, "line": 7 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 8 }
+      ]
+    }
+    ]
+  }
+  ]
+}

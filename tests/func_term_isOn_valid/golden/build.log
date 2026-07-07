@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/func_term_isOn_valid
-Wrote AST to tests/func_term_isOn_valid/func_term_isOn_valid.ast
-Wrote IR to tests/func_term_isOn_valid/func_term_isOn_valid.ir
-[exit 0]

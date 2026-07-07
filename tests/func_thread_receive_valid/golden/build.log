@@ -1,4 +1,0 @@
-$ mfb build -ast -ir tests/func_thread_receive_valid
-Wrote AST to tests/func_thread_receive_valid/func_thread_receive_valid.ast
-Wrote IR to tests/func_thread_receive_valid/func_thread_receive_valid.ir
-[exit 0]
