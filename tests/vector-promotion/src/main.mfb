@@ -1,0 +1,50 @@
+IMPORT vector
+IMPORT collections
+
+' plan-01-vector: a non-escaping small-vector local is promoted to its lanes for
+' its whole lifetime (no arena block); an escaping one is not. Both must produce
+' identical results to the heap-record path, and construction overflow still traps.
+
+TYPE Holder
+  v AS Float3
+END TYPE
+
+FUNC overflows AS Float
+  LET big AS Float3 = Float3[1.0e200, 1.0e200, 1.0e200]
+  LET p AS Float3 = vector::scale(big, big)
+  RETURN p.x
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "vector local promotion"
+    TCASE "non-escaping locals (promoted) compute correctly"
+      LET c AS Float3 = vector::cross(Float3[1.0, 2.0, 3.0], Float3[4.0, 5.0, 6.0])
+      LET s AS Float3 = vector::scale(c, Float3[2.0, 2.0, 2.0])
+      expectFloat(c.x, -3.0)
+      expectFloat(s.z, -6.0)
+      expectFloat(vector::dot(c, s), 108.0)
+    END TCASE
+    TCASE "escaping into a collection (not promoted)"
+      LET e AS Float3 = vector::cross(Float3[1.0, 0.0, 0.0], Float3[0.0, 1.0, 0.0])
+      MUT xs AS List OF Float3 = []
+      xs = collections::append(xs, e)
+      xs = collections::append(xs, vector::scale(e, Float3[3.0, 3.0, 3.0]))
+      expectFloat(collections::get(xs, 0).z, 1.0)
+      expectFloat(collections::get(xs, 1).z, 3.0)
+    END TCASE
+    TCASE "escaping into a record field (not promoted)"
+      LET f AS Float3 = vector::scale(Float3[2.0, 3.0, 4.0], Float3[1.0, 1.0, 1.0])
+      LET h AS Holder = Holder[f]
+      expectFloat(h.v.y, 3.0)
+      ' f is still usable after escaping
+      expectFloat(f.x, 2.0)
+    END TCASE
+    TCASE "promoted construction overflow still traps"
+      expectTrap(overflows(), 77050015)
+    END TCASE
+  END TGROUP
+END TESTING

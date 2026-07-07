@@ -203,6 +203,252 @@ fn collect_value_local_reads(value: &NirValue, out: &mut HashSet<String>) {
     }
 }
 
+/// Small-vector locals safe to keep in registers (their lanes) for their whole
+/// lifetime, with no arena block (plan-01-vector). A candidate is a binding of a
+/// vector type (`Float2/3/4`, `Fixed*`, `Integer*`) whose initializer produces a
+/// register-native value — a vector construction or an inlined vector op — and
+/// whose every use is *non-materializing* (a member read, or a direct argument to
+/// an inlined vector op). Such a binding never needs a heap record. Excludes
+/// address-taken and reassigned locals. Correctness does not hinge on precision
+/// (`vector_value_as_block` materializes on demand); the analysis exists to avoid
+/// promoting an *escaping* local, which would copy its block per use.
+pub(super) fn promotable_vector_locals(
+    ops: &[NirOp],
+    address_taken: &HashSet<String>,
+) -> HashSet<String> {
+    let mut candidates = HashSet::new();
+    collect_vector_native_bindings(ops, &mut candidates);
+    let mut reassigned = HashSet::new();
+    collect_assigned_locals(ops, &mut reassigned);
+    let mut escaping = HashSet::new();
+    mark_vector_escaping_ops(ops, &mut escaping);
+    candidates
+        .into_iter()
+        .filter(|name| {
+            !address_taken.contains(name) && !reassigned.contains(name) && !escaping.contains(name)
+        })
+        .collect()
+}
+
+/// Whether `value` lowers to a register-native small vector (a vector constructor
+/// or an inlined vector op), so a binding of it starts life in lanes.
+fn is_vector_native_producing(value: &NirValue) -> bool {
+    match value {
+        NirValue::Constructor { type_, .. } => vector_field_count(type_).is_some(),
+        NirValue::Call { target, args, .. } => vector_call_is_inlined(target, args),
+        _ => false,
+    }
+}
+
+fn collect_vector_native_bindings(ops: &[NirOp], out: &mut HashSet<String>) {
+    for op in ops {
+        match op {
+            NirOp::Bind {
+                name,
+                type_,
+                value: Some(value),
+                ..
+            } if vector_field_count(type_).is_some() && is_vector_native_producing(value) => {
+                out.insert(name.clone());
+            }
+            NirOp::Bind { .. }
+            | NirOp::StoreGlobal { .. }
+            | NirOp::Assign { .. }
+            | NirOp::StateAssign { .. }
+            | NirOp::Return { .. }
+            | NirOp::Eval { .. }
+            | NirOp::Fail { .. }
+            | NirOp::ExitProgram { .. }
+            | NirOp::ExitLoop { .. }
+            | NirOp::ContinueLoop { .. } => {}
+            NirOp::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                collect_vector_native_bindings(then_body, out);
+                collect_vector_native_bindings(else_body, out);
+            }
+            NirOp::Match { cases, .. } => {
+                for case in cases {
+                    collect_vector_native_bindings(&case.body, out);
+                }
+            }
+            NirOp::While { body, .. }
+            | NirOp::DoUntil { body, .. }
+            | NirOp::For { body, .. }
+            | NirOp::ForEach { body, .. }
+            | NirOp::Trap { body, .. } => collect_vector_native_bindings(body, out),
+        }
+    }
+}
+
+fn collect_assigned_locals(ops: &[NirOp], out: &mut HashSet<String>) {
+    for op in ops {
+        match op {
+            NirOp::Assign { name, .. } => {
+                out.insert(name.clone());
+            }
+            NirOp::If {
+                then_body,
+                else_body,
+                ..
+            } => {
+                collect_assigned_locals(then_body, out);
+                collect_assigned_locals(else_body, out);
+            }
+            NirOp::Match { cases, .. } => {
+                for case in cases {
+                    collect_assigned_locals(&case.body, out);
+                }
+            }
+            NirOp::While { body, .. }
+            | NirOp::DoUntil { body, .. }
+            | NirOp::For { body, .. }
+            | NirOp::ForEach { body, .. }
+            | NirOp::Trap { body, .. } => collect_assigned_locals(body, out),
+            _ => {}
+        }
+    }
+}
+
+/// Mark every local read in a *materializing* position — anything other than a
+/// member read of the local or a direct argument to an inlined vector op.
+fn mark_vector_escaping_value(value: &NirValue, out: &mut HashSet<String>) {
+    match value {
+        NirValue::Local(name) => {
+            out.insert(name.clone());
+        }
+        // `a.x` reads a lane and does not materialize `a`; a deeper target recurses.
+        NirValue::MemberAccess { target, .. } => {
+            if !matches!(target.as_ref(), NirValue::Local(_)) {
+                mark_vector_escaping_value(target, out);
+            }
+        }
+        NirValue::Call { target, args, .. } => {
+            let inlined = vector_call_is_inlined(target, args);
+            for arg in args {
+                if inlined && matches!(arg, NirValue::Local(_)) {
+                    continue; // a lane-read argument to an inlined op
+                }
+                mark_vector_escaping_value(arg, out);
+            }
+        }
+        NirValue::CallResult { args, .. }
+        | NirValue::RuntimeCall { args, .. }
+        | NirValue::Constructor { args, .. }
+        | NirValue::ListLiteral { values: args, .. } => {
+            for arg in args {
+                mark_vector_escaping_value(arg, out);
+            }
+        }
+        NirValue::UnionWrap { value, .. }
+        | NirValue::UnionExtract { value, .. }
+        | NirValue::ResultIsOk { value }
+        | NirValue::ResultValue { value }
+        | NirValue::ResultError { value }
+        | NirValue::Unary { operand: value, .. } => mark_vector_escaping_value(value, out),
+        NirValue::Binary { left, right, .. } => {
+            mark_vector_escaping_value(left, out);
+            mark_vector_escaping_value(right, out);
+        }
+        NirValue::WithUpdate {
+            target, updates, ..
+        } => {
+            mark_vector_escaping_value(target, out);
+            for update in updates {
+                mark_vector_escaping_value(&update.value, out);
+            }
+        }
+        NirValue::MapLiteral { entries, .. } => {
+            for (key, val) in entries {
+                mark_vector_escaping_value(key, out);
+                mark_vector_escaping_value(val, out);
+            }
+        }
+        NirValue::Closure { captures, .. } => {
+            for capture in captures {
+                mark_vector_escaping_value(capture, out);
+            }
+        }
+        NirValue::Const { .. }
+        | NirValue::Global { .. }
+        | NirValue::FunctionRef { .. }
+        | NirValue::Capture { .. }
+        | NirValue::LocalRef { .. } => {}
+    }
+}
+
+fn mark_vector_escaping_ops(ops: &[NirOp], out: &mut HashSet<String>) {
+    for op in ops {
+        match op {
+            NirOp::Bind { value, .. }
+            | NirOp::StoreGlobal { value, .. }
+            | NirOp::Return { value } => {
+                if let Some(value) = value {
+                    mark_vector_escaping_value(value, out);
+                }
+            }
+            NirOp::Assign { value, .. }
+            | NirOp::StateAssign { value, .. }
+            | NirOp::Eval { value }
+            | NirOp::ExitProgram { code: value }
+            | NirOp::Fail { error: value } => mark_vector_escaping_value(value, out),
+            NirOp::ExitLoop { .. } | NirOp::ContinueLoop { .. } => {}
+            NirOp::If {
+                condition,
+                then_body,
+                else_body,
+            } => {
+                mark_vector_escaping_value(condition, out);
+                mark_vector_escaping_ops(then_body, out);
+                mark_vector_escaping_ops(else_body, out);
+            }
+            NirOp::Match { value, cases } => {
+                mark_vector_escaping_value(value, out);
+                for case in cases {
+                    if let NirMatchPattern::Value(v) = &case.pattern {
+                        mark_vector_escaping_value(v, out);
+                    }
+                    if let NirMatchPattern::OneOf(values) = &case.pattern {
+                        for v in values {
+                            mark_vector_escaping_value(v, out);
+                        }
+                    }
+                    if let Some(guard) = &case.guard {
+                        mark_vector_escaping_value(guard, out);
+                    }
+                    mark_vector_escaping_ops(&case.body, out);
+                }
+            }
+            NirOp::While {
+                condition, body, ..
+            }
+            | NirOp::DoUntil { body, condition } => {
+                mark_vector_escaping_value(condition, out);
+                mark_vector_escaping_ops(body, out);
+            }
+            NirOp::For {
+                start,
+                end,
+                step,
+                body,
+                ..
+            } => {
+                mark_vector_escaping_value(start, out);
+                mark_vector_escaping_value(end, out);
+                mark_vector_escaping_value(step, out);
+                mark_vector_escaping_ops(body, out);
+            }
+            NirOp::ForEach { iterable, body, .. } => {
+                mark_vector_escaping_value(iterable, out);
+                mark_vector_escaping_ops(body, out);
+            }
+            NirOp::Trap { body, .. } => mark_vector_escaping_ops(body, out),
+        }
+    }
+}
+
 /// Walk a loop body collecting, at `depth` 0 (this loop's own level), the locals
 /// directly assigned (`top_assigns` — the loop-carried-accumulator candidates),
 /// and into `excluded` every local that is bound inside the body, is a loop
@@ -387,6 +633,8 @@ pub(super) fn lower_function(
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,
+        promoted_vector_locals: HashMap::new(),
+        promotable_vector_locals: HashSet::new(),
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -439,6 +687,10 @@ pub(super) fn lower_function(
     builder.prescan_string_self_appends(&function.body);
     // Locals whose address is taken anywhere — never loop-promoted (plan-03 D2).
     collect_address_taken_locals(&function.body, &mut builder.address_taken_locals);
+    // Small-vector locals that can live in registers for their whole lifetime with
+    // no arena block (plan-01-vector).
+    builder.promotable_vector_locals =
+        promotable_vector_locals(&function.body, &builder.address_taken_locals);
     builder.lower_ops(&function.body)?;
     if !builder.current_block_returns() {
         builder.emit_return_exit(None)?;
@@ -593,6 +845,8 @@ pub(super) fn lower_builtin_function_wrapper(
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,
+        promoted_vector_locals: HashMap::new(),
+        promotable_vector_locals: HashSet::new(),
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);

@@ -235,6 +235,13 @@ impl CodeBuilder<'_> {
                         text: name.clone(),
                     });
                 }
+                // A promoted small-vector local lives in its lanes, not a slot
+                // (plan-01-vector): reconstruct a register-native view from them.
+                // The lanes are shared register values (vectors are immutable), so
+                // every read and any later materialization sees the same value.
+                if let Some((type_, lanes)) = self.promoted_vector_locals.get(name).cloned() {
+                    return Ok(self.make_vector_native(&type_, lanes));
+                }
                 // A loop-promoted float local lives in an FP register, not its
                 // slot (plan-03 Stage D part 2). Under the `d`-native value model
                 // its FP register *is* the value's home, so return it directly —

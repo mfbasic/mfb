@@ -159,6 +159,18 @@ struct CodeBuilder<'a> {
     /// silently miscompiling.
     vector_natives: HashMap<String, Vec<ValueResult>>,
     next_vector_native: u32,
+    /// plan-01-vector: small-vector locals promoted to their lanes for their whole
+    /// lifetime (no arena block). A binding whose every use is non-materializing
+    /// (a member read or an operand to an inlined vector op) never needs a block,
+    /// so it lives here as `(type, lanes)` instead of a heap record — killing the
+    /// per-binding `arena_alloc`. A read reconstructs a register-native view from
+    /// the lanes; the escape analysis (`promotable_vector_locals`) guarantees no
+    /// use materializes, and `vector_value_as_block` is the correctness fallback if
+    /// one ever does. Gated to non-address-taken, single-assignment bindings.
+    promoted_vector_locals: HashMap<String, (String, Vec<ValueResult>)>,
+    /// Local names the escape analysis cleared for vector promotion (computed once
+    /// per function, consulted at each `Bind`).
+    promotable_vector_locals: HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -2242,6 +2254,8 @@ fn lower_direct_builtin_runtime_helper(
         math_pool_base_vreg: None,
         vector_natives: HashMap::new(),
         next_vector_native: 0,
+        promoted_vector_locals: HashMap::new(),
+        promotable_vector_locals: HashSet::new(),
     };
 
     let args = spec
@@ -2740,7 +2754,7 @@ mod tests;
 pub(crate) mod tls;
 mod type_utils;
 use type_utils::*;
-use builder_vector_inline::vector_field_count;
+use builder_vector_inline::{vector_call_is_inlined, vector_field_count};
 mod serialization_utils;
 use serialization_utils::*;
 mod function_lowering;

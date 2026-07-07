@@ -58,6 +58,33 @@ fn float_vector_shape(target: &str) -> Option<(&'static str, &'static [&'static 
     }
 }
 
+/// Whether a `vector::` op call with `target`/`args` will be inlined by
+/// `try_inline_vector_op` (so a `Local` argument to it is read as lanes, never
+/// materialized). Single source of truth shared with the promotion escape
+/// analysis — must mirror the `try_inline_vector_op` match exactly.
+pub(super) fn vector_call_is_inlined(target: &str, args: &[NirValue]) -> bool {
+    let Some((type_name, _)) = float_vector_shape(target) else {
+        return false;
+    };
+    let Some(op) = target.strip_prefix("#vector_") else {
+        return false;
+    };
+    let op = op
+        .strip_suffix("_float2")
+        .or_else(|| op.strip_suffix("_float3"))
+        .or_else(|| op.strip_suffix("_float4"))
+        .unwrap_or(op);
+    if !args.iter().all(is_reevaluation_safe) {
+        return false;
+    }
+    match (op, args.len()) {
+        ("scale", 2) | ("dot", 2) | ("lerp_unclamped", 3) | ("lerp", 3) | ("length", 1)
+        | ("distance", 2) => true,
+        ("cross", 2) => type_name == "Float3",
+        _ => false,
+    }
+}
+
 /// Whether `value` is cheap and side-effect-free to evaluate more than once (a
 /// binding read or a field read of one). A call/arithmetic operand is not — it
 /// would be recomputed once per lane — so those fall back to the FUNC path.
@@ -76,7 +103,7 @@ impl CodeBuilder<'_> {
     }
 
     /// The per-lane scalar `Float` values of a register-native vector, if it is one.
-    fn vector_native_lanes(&self, value: &ValueResult) -> Option<Vec<ValueResult>> {
+    pub(super) fn vector_native_lanes(&self, value: &ValueResult) -> Option<Vec<ValueResult>> {
         self.vector_natives.get(&value.location).cloned()
     }
 
@@ -226,8 +253,7 @@ impl CodeBuilder<'_> {
                 }
                 self.lower_value(&sum)?
             }
-            // lerp_unclamped: Float_N[ a.f + (b.f - a.f) * t ] — pure arithmetic
-            // (the clamped `lerp` bounds `t` first, so it is not inlined here).
+            // lerp_unclamped: Float_N[ a.f + (b.f - a.f) * t ] — pure arithmetic.
             ("lerp_unclamped", 3) => {
                 let (a, b, t) = (&args[0], &args[1], &args[2]);
                 let lanes = fields
@@ -236,6 +262,37 @@ impl CodeBuilder<'_> {
                         let delta =
                             bin("-", Self::vector_field(b, f), Self::vector_field(a, f));
                         bin("+", Self::vector_field(a, f), bin("*", delta, t.clone()))
+                    })
+                    .collect();
+                build(self, lanes)?
+            }
+            // lerp (clamped): Float_N[ a.f + (b.f - a.f) * clamp(t, 0, 1) ]. Matches
+            // the FUNC body; `math::clamp` is inlined native codegen (min/max, no
+            // call/alloc), so re-evaluating it per lane is cheap and gives the same
+            // deterministic `tc`.
+            ("lerp", 3) => {
+                let (a, b, t) = (&args[0], &args[1], &args[2]);
+                let clamped_t = || NirValue::Call {
+                    target: "math.clamp".to_string(),
+                    args: vec![
+                        t.clone(),
+                        NirValue::Const {
+                            type_: "Float".to_string(),
+                            value: "0.0".to_string(),
+                        },
+                        NirValue::Const {
+                            type_: "Float".to_string(),
+                            value: "1.0".to_string(),
+                        },
+                    ],
+                    loc,
+                };
+                let lanes = fields
+                    .iter()
+                    .map(|f| {
+                        let delta =
+                            bin("-", Self::vector_field(b, f), Self::vector_field(a, f));
+                        bin("+", Self::vector_field(a, f), bin("*", delta, clamped_t()))
                     })
                     .collect();
                 build(self, lanes)?

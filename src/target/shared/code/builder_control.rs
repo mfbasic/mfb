@@ -64,6 +64,11 @@ impl CodeBuilder<'_> {
                                 by_ref: borrows_capture_slot,
                             },
                         );
+                        // Clear any stale vector-promotion for a rebound name (e.g.
+                        // the same name promoted in one branch and block-bound in
+                        // another); it is re-established below only if this binding
+                        // promotes (plan-01-vector).
+                        self.promoted_vector_locals.remove(name);
                         // A `MATCH` variant binding (`UnionExtract`) is a borrow
                         // into the matched union's inlined variant block: the union
                         // owns the data and frees it as one block on its own drop,
@@ -78,9 +83,14 @@ impl CodeBuilder<'_> {
                         // This binding owns a freeable flat block that scope-drop
                         // must free (plan-02 Phase 8). A borrowed capture slot is
                         // not owned here — the parent binding remains the freer.
+                        // A small-vector binding promoted to its lanes owns no
+                        // arena block (plan-01-vector), so it is neither zero-init'd
+                        // nor freed at scope-drop.
+                        let promote_vector = self.promotable_vector_locals.contains(name);
                         let owns_freeable_value = !borrows_union_variant
                             && !borrows_capture_slot
                             && !runtime_managed
+                            && !promote_vector
                             && self.is_freeable_flat_value(type_);
                         // Zero the slot before a (possibly fallible) initializer
                         // runs. If the initializer traps before storing, the slot
@@ -95,6 +105,38 @@ impl CodeBuilder<'_> {
                             ));
                         }
                         if let Some(value) = value {
+                            // A promoted small-vector binding keeps its lanes in
+                            // registers with no arena block: lower the (native)
+                            // initializer and record its lanes; reads reconstruct a
+                            // native view from them (plan-01-vector). Lowered
+                            // *without* the owning-copy/materialize path so the
+                            // native survives. If the value unexpectedly did not
+                            // lower to a native (the escape analysis over-approved),
+                            // fall back to storing it as an ordinary block.
+                            if promote_vector {
+                                let result = self.lower_value(value)?;
+                                if let Some(lanes) = self.vector_native_lanes(&result) {
+                                    self.promoted_vector_locals
+                                        .insert(name.clone(), (type_.clone(), lanes));
+                                } else {
+                                    let block = self.vector_value_as_block(result)?;
+                                    self.claim_pending_temp(&block);
+                                    self.store_value_at(
+                                        &block,
+                                        abi::stack_pointer(),
+                                        stack_offset,
+                                    );
+                                    self.active_cleanups.push(ActiveCleanup::OwnedValue(
+                                        OwnedValueCleanup {
+                                            type_: type_.clone(),
+                                            stack_offset,
+                                        },
+                                    ));
+                                    self.owned_value_slots.push(stack_offset);
+                                }
+                                self.reset_string_capacity_shadow(name);
+                                return Ok(());
+                            }
                             // Deep-copy aliasing sources so this binding owns an
                             // independent flat block (plan-02 Phase 8); a borrowed
                             // variant binding or borrowed capture slot aliases its
