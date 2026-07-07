@@ -385,6 +385,8 @@ pub(super) fn lower_function(
         for_each_iterable_locals: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
+        vector_natives: HashMap::new(),
+        next_vector_native: 0,
     };
     for param in &params {
         let stack_offset = builder.allocate_stack_object(&param.name, 8);
@@ -589,6 +591,8 @@ pub(super) fn lower_builtin_function_wrapper(
         for_each_iterable_locals: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
+        vector_natives: HashMap::new(),
+        next_vector_native: 0,
     };
 
     let stack_offset = builder.allocate_stack_object("value", 8);

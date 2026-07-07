@@ -407,6 +407,9 @@ impl CodeBuilder<'_> {
                             })?
                             .stack_offset;
                         let result = self.lower_value(value)?;
+                        // A register-native vector STATE payload materializes to its
+                        // block here (identity otherwise; plan-01-vector).
+                        let result = self.vector_value_as_block(result)?;
                         // The raw block pointer is stored into the resource's STATE
                         // slot (below), so this store takes ownership — claim the
                         // temp so the statement-scope free never reclaims a block the

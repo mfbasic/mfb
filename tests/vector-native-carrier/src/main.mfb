@@ -1,0 +1,61 @@
+IMPORT vector
+IMPORT collections
+
+' plan-01-vector: an in-flight Float2/3/4 is register-native (its lanes live in
+' scalar-Float carriers with no arena_alloc) and materializes to its block only at
+' a storage/escape boundary. This exercises those boundaries — record field,
+' collection element, reassignment, nested op, argument, and return — proving the
+' lazy carrier's results and memory behavior match the heap-record path.
+
+TYPE Particle
+  pos AS Float3
+  vel AS Float3
+END TYPE
+
+FUNC passThrough(v AS Float3) AS Float3
+  RETURN v
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "register-native vector carrier"
+    TCASE "construction and member read"
+      LET a AS Float3 = Float3[1.0, 2.0, 3.0]
+      expectFloat(a.x, 1.0)
+      expectFloat(a.z, 3.0)
+    END TCASE
+    TCASE "record field (owner boundary)"
+      LET p AS Particle = Particle[Float3[1.0, 2.0, 3.0], vector::scale(Float3[1.0, 1.0, 1.0], Float3[2.0, 2.0, 2.0])]
+      expectFloat(p.pos.x, 1.0)
+      expectFloat(p.vel.z, 2.0)
+    END TCASE
+    TCASE "collection element (append/get)"
+      MUT xs AS List OF Float3 = []
+      xs = collections::append(xs, Float3[7.0, 8.0, 9.0])
+      xs = collections::append(xs, vector::cross(Float3[1.0, 0.0, 0.0], Float3[0.0, 1.0, 0.0]))
+      expectFloat(collections::get(xs, 0).y, 8.0)
+      expectFloat(collections::get(xs, 1).z, 1.0)
+      expectInteger(len(xs), 2)
+    END TCASE
+    TCASE "reassignment accumulator in a loop"
+      MUT acc AS Float3 = Float3[1.0, 1.0, 1.0]
+      MUT i AS Integer = 0
+      WHILE i < 3
+        acc = vector::scale(acc, Float3[2.0, 2.0, 2.0])
+        i = i + 1
+      WEND
+      expectFloat(acc.x, 8.0)
+    END TCASE
+    TCASE "argument and return boundaries"
+      LET r AS Float3 = passThrough(vector::scale(Float3[2.0, 3.0, 4.0], Float3[1.0, 1.0, 1.0]))
+      expectFloat(r.y, 3.0)
+    END TCASE
+    TCASE "nested ops stay register-native"
+      LET n AS Float3 = vector::scale(vector::cross(Float3[1.0, 2.0, 3.0], Float3[4.0, 5.0, 6.0]), Float3[2.0, 2.0, 2.0])
+      expectFloat(n.x, -6.0)
+    END TCASE
+  END TGROUP
+END TESTING

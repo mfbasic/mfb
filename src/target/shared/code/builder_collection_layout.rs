@@ -1066,7 +1066,7 @@ impl CodeBuilder<'_> {
             // The element is stored into the collection payload through an
             // integer slot, so a `d`-native float is materialized first (plan-01
             // float-dnative).
-            let value = self.materialize_float(value)?;
+            let value = self.materialize_value(value)?;
             let slot = self.allocate_stack_object("collection_value", 8);
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
             slots.push(CollectionValueSlot {
@@ -1094,7 +1094,7 @@ impl CodeBuilder<'_> {
             self.observe_float(key_node, &key)?;
             // A `d`-native float key/value is materialized into a GPR before the
             // integer-slot store (plan-01 float-dnative).
-            let key = self.materialize_float(key)?;
+            let key = self.materialize_value(key)?;
             let key_slot = self.allocate_stack_object("collection_key", 8);
             self.emit(abi::store_u64(
                 &key.location,
@@ -1103,7 +1103,7 @@ impl CodeBuilder<'_> {
             ));
             let value = self.lower_value(value_node)?;
             self.observe_float(value_node, &value)?;
-            let value = self.materialize_float(value)?;
+            let value = self.materialize_value(value)?;
             let value_slot = self.allocate_stack_object("collection_value", 8);
             self.emit(abi::store_u64(
                 &value.location,

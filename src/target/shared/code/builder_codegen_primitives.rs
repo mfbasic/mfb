@@ -1812,9 +1812,10 @@ impl CodeBuilder<'_> {
         }
         // The return value travels in a GPR (`RESULT_VALUE_REGISTER`), so a
         // `d`-native float is materialized into one first (ABI option (b),
-        // plan-01 float-dnative §4.3). Identity for every GP-native value.
+        // plan-01 float-dnative §4.3), and a register-native vector into its block
+        // pointer. Identity for every GP-native value.
         let result = match result {
-            Some(result) => Some(self.materialize_float(result)?),
+            Some(result) => Some(self.materialize_value(result)?),
             None => None,
         };
         if self.active_cleanups.is_empty() {

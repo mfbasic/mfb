@@ -14,6 +14,33 @@
 
 use super::*;
 
+/// The un-encodable prefix marking a `ValueResult.location` as a register-native
+/// vector whose lanes live in the `vector_natives` side-table. Chosen so it can
+/// never be a physical register / vreg / stack slot: if one leaks to a GP or
+/// store site it hard-errors at the encoder (fail-loud) instead of miscompiling.
+pub(super) const VECTOR_NATIVE_MARKER: &str = "%%vecnative:";
+
+/// The lane count of a register-native small Float vector type, or `None`.
+pub(super) fn float_vector_field_count(type_name: &str) -> Option<usize> {
+    match type_name {
+        "Float2" => Some(2),
+        "Float3" => Some(3),
+        "Float4" => Some(4),
+        _ => None,
+    }
+}
+
+/// Map a vector field name to its lane index.
+fn vector_field_index(member: &str) -> Option<usize> {
+    match member {
+        "x" => Some(0),
+        "y" => Some(1),
+        "z" => Some(2),
+        "w" => Some(3),
+        _ => None,
+    }
+}
+
 /// The `_floatN` type suffix, its constructor type name, and its field names.
 fn float_vector_shape(target: &str) -> Option<(&'static str, &'static [&'static str])> {
     if target.ends_with("_float2") {
@@ -39,6 +66,110 @@ fn is_reevaluation_safe(value: &NirValue) -> bool {
 }
 
 impl CodeBuilder<'_> {
+    /// Whether `value` is a register-native vector carried by a side-table marker.
+    pub(super) fn is_vector_native(value: &ValueResult) -> bool {
+        value.location.starts_with(VECTOR_NATIVE_MARKER)
+    }
+
+    /// The per-lane scalar `Float` values of a register-native vector, if it is one.
+    fn vector_native_lanes(&self, value: &ValueResult) -> Option<Vec<ValueResult>> {
+        self.vector_natives.get(&value.location).cloned()
+    }
+
+    /// Register `lanes` as an in-flight register-native `type_` vector and return a
+    /// `ValueResult` carrying its marker location (no allocation).
+    pub(super) fn make_vector_native(&mut self, type_: &str, lanes: Vec<ValueResult>) -> ValueResult {
+        let marker = format!("{VECTOR_NATIVE_MARKER}{}", self.next_vector_native);
+        self.next_vector_native += 1;
+        self.vector_natives.insert(marker.clone(), lanes);
+        ValueResult {
+            type_: type_.to_string(),
+            location: marker,
+            text: format!("vecnative {type_}"),
+        }
+    }
+
+    /// A field read of a register-native vector (a lane), if `target_value` is one.
+    pub(super) fn vector_native_field(
+        &self,
+        target_value: &ValueResult,
+        member: &str,
+    ) -> Option<ValueResult> {
+        let lanes = self.vector_native_lanes(target_value)?;
+        let index = vector_field_index(member)?;
+        lanes.get(index).cloned()
+    }
+
+    /// Materialize a register-native vector into its N×8-byte arena block, spilling
+    /// each lane first (so the block build's `arena_alloc` cannot clobber a live
+    /// lane register) and writing the fields with the record layout. Identity for a
+    /// value that is not register-native — the single boundary choke point.
+    pub(super) fn vector_value_as_block(
+        &mut self,
+        value: ValueResult,
+    ) -> Result<ValueResult, String> {
+        let Some(lanes) = self.vector_native_lanes(&value) else {
+            return Ok(value);
+        };
+        let mut slots = Vec::with_capacity(lanes.len());
+        for lane in lanes {
+            let lane = self.materialize_float(lane)?;
+            let slot = self.allocate_stack_object("vector_lane", 8);
+            self.emit(abi::store_u64(&lane.location, abi::stack_pointer(), slot));
+            slots.push(slot);
+        }
+        let register = self.emit_build_inlined_record(&value.type_, &slots)?;
+        let block = ValueResult {
+            type_: value.type_,
+            location: register,
+            text: value.text,
+        };
+        // The materialized block is a fresh, freeable-flat arena block — register
+        // it as a statement-scope temp exactly as an eager `Constructor` result is
+        // (a native skips that registration at production, since it had no block
+        // then). An owner boundary (`lower_value_owned`) claims it; a borrow
+        // boundary (a call arg, a container-copy) leaves it to be freed at
+        // statement end. This is what keeps the lazy carrier's frees identical to
+        // the eager path.
+        let slot = self.allocate_stack_object("pending_temp", 8);
+        self.emit(abi::store_u64(&block.location, abi::stack_pointer(), slot));
+        self.pending_temp_frees.push(PendingTemp {
+            type_: block.type_.clone(),
+            slot,
+            location: block.location.clone(),
+        });
+        Ok(block)
+    }
+
+    /// The combined storage/escape-boundary materialization: a register-native
+    /// vector becomes its block; a `d`-native `Float` becomes its GPR bits; every
+    /// other value is unchanged. Every site that stores a value as 8 bytes or
+    /// passes it as an argument routes through here (or `store_vector_or_value`).
+    pub(super) fn materialize_value(&mut self, value: ValueResult) -> Result<ValueResult, String> {
+        if Self::is_vector_native(&value) {
+            return self.vector_value_as_block(value);
+        }
+        self.materialize_float(value)
+    }
+
+    /// Store `value` into `[base + offset]` as an 8-byte field/slot, materializing a
+    /// register-native vector to its block pointer (or a `d`-native `Float` via
+    /// `store_value_at`) first.
+    pub(super) fn store_vector_or_value(
+        &mut self,
+        value: &ValueResult,
+        base: &str,
+        offset: usize,
+    ) -> Result<(), String> {
+        if Self::is_vector_native(value) {
+            let block = self.vector_value_as_block(value.clone())?;
+            self.emit(abi::store_u64(&block.location, base, offset));
+            return Ok(());
+        }
+        self.store_value_at(value, base, offset);
+        Ok(())
+    }
+
     /// Read `operand.<field>` as a synthetic `MemberAccess`.
     fn vector_field(operand: &NirValue, field: &str) -> NirValue {
         NirValue::MemberAccess {

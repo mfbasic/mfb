@@ -33,8 +33,9 @@ impl CodeBuilder<'_> {
             self.observe_float(arg, &value)?;
             // Arguments are marshalled through integer slots/registers, so a
             // `d`-native float is materialized into a GPR first (ABI option (b),
-            // plan-01 float-dnative §4.3). Identity for GP-native values.
-            let value = self.materialize_float(value)?;
+            // plan-01 float-dnative §4.3), and a register-native vector into its
+            // block pointer. Identity for GP-native values.
+            let value = self.materialize_value(value)?;
             let slot = self.allocate_stack_object(slot_name, 8);
             self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
             arg_values.push(value);

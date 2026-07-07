@@ -148,6 +148,17 @@ struct CodeBuilder<'a> {
     /// a kernel while re-minting it for the next kernel. Unused (stays `None`) on
     /// backends that pin a physical base.
     math_pool_base_vreg: Option<(String, String)>,
+    /// plan-01-vector: in-flight register-native small-vector values. A
+    /// `Float2/3/4` produced by a construction or an inlined op that has not yet
+    /// crossed a storage/escape boundary lives here as its N per-lane scalar
+    /// `Float` `ValueResult`s (each on the scalar-Float carrier), keyed by a
+    /// deliberately un-encodable marker location (`VECTOR_NATIVE_MARKER`+index)
+    /// carried in the vector's `ValueResult.location`. It is materialized to the
+    /// N×8-byte block by `vector_value_as_block` at every boundary; a marker that
+    /// leaks to a GP/store site hard-errors at the encoder (fail-loud) rather than
+    /// silently miscompiling.
+    vector_natives: HashMap<String, Vec<ValueResult>>,
+    next_vector_native: u32,
 }
 
 #[derive(Clone)]
@@ -2229,6 +2240,8 @@ fn lower_direct_builtin_runtime_helper(
         for_each_iterable_locals: Vec::new(),
         string_capacity_slots: HashMap::new(),
         math_pool_base_vreg: None,
+        vector_natives: HashMap::new(),
+        next_vector_native: 0,
     };
 
     let args = spec
@@ -2727,6 +2740,7 @@ mod tests;
 pub(crate) mod tls;
 mod type_utils;
 use type_utils::*;
+use builder_vector_inline::float_vector_field_count;
 mod serialization_utils;
 use serialization_utils::*;
 mod function_lowering;

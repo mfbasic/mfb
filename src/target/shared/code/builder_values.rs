@@ -28,6 +28,12 @@ impl CodeBuilder<'_> {
     /// eventual `arena_free` survives the intervening register clobbers; the live
     /// register in `result` is left untouched for the immediate consumer.
     fn register_pending_temp(&mut self, value: &NirValue, result: &ValueResult) {
+        // A register-native vector has no arena block yet; it is registered as a
+        // temp only when materialized (`vector_value_as_block`), so skip it here
+        // (its marker location is not a real block pointer to spill/free).
+        if Self::is_vector_native(result) {
+            return;
+        }
         if !self.is_freeable_flat_value(&result.type_)
             || self.value_needs_owning_copy(value)
             || Self::value_is_runtime_managed(value)
@@ -109,6 +115,15 @@ impl CodeBuilder<'_> {
     /// non-freeable types (scalars, resources, threads) are returned unchanged.
     pub(super) fn lower_value_owned(&mut self, value: &NirValue) -> Result<ValueResult, String> {
         let result = self.lower_value(value)?;
+        // A register-native vector reaching an owner boundary (a binding, global,
+        // return, closure env) materializes to its block here — the block is
+        // registered as a temp by `vector_value_as_block` and claimed just below,
+        // so the owner owns it exactly as it would an eager `Constructor` block.
+        if Self::is_vector_native(&result) {
+            let block = self.vector_value_as_block(result)?;
+            self.claim_pending_temp(&block);
+            return Ok(block);
+        }
         if self.value_needs_owning_copy(value) && self.is_freeable_flat_value(&result.type_) {
             let copied = self.copy_flat_block(&result.type_, &result.location)?;
             return Ok(ValueResult {
@@ -915,6 +930,23 @@ impl CodeBuilder<'_> {
                 self.lower_runtime_helper_call(*helper, target, args, false)
             }
             NirValue::Constructor { type_, args } => {
+                // plan-01-vector: a small Float vector is constructed register-native
+                // — its lanes stay in per-lane scalar-Float carriers with no
+                // arena_alloc, materializing to the block only at a storage boundary
+                // (`vector_value_as_block`). Each lane is finiteness-observed exactly
+                // as the record-field boundary would (plan-17), so behavior is
+                // bit-identical to the heap-record constructor.
+                if let Some(count) = float_vector_field_count(type_) {
+                    if args.len() == count {
+                        let mut lanes = Vec::with_capacity(count);
+                        for arg in args {
+                            let value = self.lower_value(arg)?;
+                            self.observe_float(arg, &value)?;
+                            lanes.push(value);
+                        }
+                        return Ok(self.make_vector_native(type_, lanes));
+                    }
+                }
                 let mut arg_values = Vec::new();
                 let mut arg_slots = Vec::new();
                 for arg in args {
@@ -922,9 +954,9 @@ impl CodeBuilder<'_> {
                     // Observation boundary: a `Float` record/union field must be
                     // finite (plan-17).
                     self.observe_float(arg, &value)?;
-                    // Materialize a `d`-native float before the field-payload
-                    // spill (plan-01 float-dnative).
-                    let value = self.materialize_float(value)?;
+                    // A register-native vector field or a `d`-native float is
+                    // materialized before the field-payload spill (plan-01).
+                    let value = self.materialize_value(value)?;
                     let slot = self.allocate_stack_object("constructor_arg", 8);
                     self.emit(abi::store_u64(&value.location, abi::stack_pointer(), slot));
                     arg_values.push(value);

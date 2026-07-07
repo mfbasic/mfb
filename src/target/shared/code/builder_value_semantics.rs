@@ -111,6 +111,11 @@ impl CodeBuilder<'_> {
         member: &str,
     ) -> Result<ValueResult, String> {
         let target_value = self.lower_value(target)?;
+        // plan-01-vector: a field read of a register-native vector is a direct lane
+        // read — no block load, no materialization.
+        if let Some(lane) = self.vector_native_field(&target_value, member) {
+            return Ok(lane);
+        }
         // `s.state` on a `RES` value loads the shared `STATE` payload pointer
         // from the resource record. Because a resource value is a pointer to its
         // record, a borrow and the owner address the same payload.
@@ -263,9 +268,9 @@ impl CodeBuilder<'_> {
             // Observation boundary: a `Float` field updated via WITH must be
             // finite (plan-17).
             self.observe_float(&update.value, &value)?;
-            // Materialize a `d`-native float before the field-payload spill
-            // (plan-01 float-dnative).
-            let value = self.materialize_float(value)?;
+            // Materialize a `d`-native float or a register-native vector before
+            // the field-payload spill (plan-01).
+            let value = self.materialize_value(value)?;
             let value_slot = self.allocate_stack_object("with_update_value", 8);
             self.emit(abi::store_u64(
                 &value.location,
