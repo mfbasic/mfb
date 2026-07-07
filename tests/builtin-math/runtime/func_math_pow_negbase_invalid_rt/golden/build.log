@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-math/runtime/func_math_pow_negbase_invalid_rt
+Wrote AST to tests/builtin-math/runtime/func_math_pow_negbase_invalid_rt/func_math_pow_negbase_invalid_rt.ast
+Wrote IR to tests/builtin-math/runtime/func_math_pow_negbase_invalid_rt/func_math_pow_negbase_invalid_rt.ir
+[exit 0]
+$ mfb build tests/builtin-math/runtime/func_math_pow_negbase_invalid_rt
+Wrote executable to tests/builtin-math/runtime/func_math_pow_negbase_invalid_rt/func_math_pow_negbase_invalid_rt.out
+[exit 0]
+$ tests/builtin-math/runtime/func_math_pow_negbase_invalid_rt/func_math_pow_negbase_invalid_rt.out
+Code: 77050013 Message: float NaN result
+[exit 255]

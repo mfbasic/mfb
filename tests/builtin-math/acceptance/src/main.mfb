@@ -1,0 +1,617 @@
+IMPORT math
+IMPORT collections
+
+' Consolidated runtime-behavior acceptance for the math builtins, converted
+' from the tests/func_math_*_valid fixtures. Each assertion compares the SAME
+' expression as the source fixture against that fixture's exact golden value,
+' using the typed TESTING assertions so no toString formatting is needed.
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "abs"
+    TCASE "scalar"
+      LET fixedNeg AS Fixed = 0 - toFixed("4.75")
+      expectInteger(math::abs(-7), 7)
+      expectInteger(math::abs(0), 0)
+      expectFloat(math::abs(0.0 - 3.50), 3.50000000000000000)
+      expectFloat(math::abs(2.25), 2.25000000000000000)
+      expectFixed(math::abs(fixedNeg), toFixed("4.750000000000000000"))
+    END TCASE
+    TCASE "fixed array"
+      LET xs AS List OF Fixed = [toFixed("-1.5"), toFixed("2.25"), toFixed("-3.0")]
+      LET r AS List OF Fixed = math::abs(xs)
+      expectFixed(collections::get(r, 0), toFixed("1.500000000000000000"))
+      expectFixed(collections::get(r, 1), toFixed("2.250000000000000000"))
+      expectFixed(collections::get(r, 2), toFixed("3.000000000000000000"))
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.0 - 1.5, 2.25, 0.0 - 3.0, 4.5, 0.0 - 0.5]
+      LET r AS List OF Float = math::abs(xs)
+      expectFloat(collections::get(r, 0), 1.50000000000000000)
+      expectFloat(collections::get(r, 1), 2.25000000000000000)
+      expectFloat(collections::get(r, 2), 3.00000000000000000)
+      expectFloat(collections::get(r, 3), 4.50000000000000000)
+      expectFloat(collections::get(r, 4), 0.50000000000000000)
+    END TCASE
+    TCASE "int array"
+      LET xs AS List OF Integer = [0 - 7, 3, 0 - 1, 0, 0 - 9]
+      LET ys AS List OF Integer = math::abs(xs)
+      expectInteger(collections::get(ys, 0), 7)
+      expectInteger(collections::get(ys, 1), 3)
+      expectInteger(collections::get(ys, 2), 1)
+      expectInteger(collections::get(ys, 3), 0)
+      expectInteger(collections::get(ys, 4), 9)
+      expectInteger(collections::get(xs, 0), 0 - 7)
+      LET empty AS List OF Integer = []
+      LET emptyAbs AS List OF Integer = math::abs(empty)
+      expectInteger(len(emptyAbs), 0)
+    END TCASE
+  END TGROUP
+
+  TGROUP "acos"
+    TCASE "scalar"
+      LET fixedOne AS Fixed = toFixed("1.00")
+      expectFloat(math::acos(1.0), 0.00000000000000000)
+      expectFloat(math::acos(0.5), 1.04719755119659763)
+      expectFixed(math::acos(fixedOne), toFixed("0.000000000000000000"))
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.0, 0.5, 0.0 - 0.5, 1.0, 0.25]
+      LET r AS List OF Float = math::acos(xs)
+      expectFloat(collections::get(r, 0), 1.57079632679489656)
+      expectFloat(collections::get(r, 1), 1.04719755119659763)
+      expectFloat(collections::get(r, 2), 2.09439510239319526)
+      expectFloat(collections::get(r, 3), 0.00000000000000000)
+      expectFloat(collections::get(r, 4), 1.31811607165281797)
+    END TCASE
+  END TGROUP
+
+  TGROUP "asin"
+    TCASE "scalar"
+      LET fixedOne AS Fixed = toFixed("1.00")
+      expectFloat(math::asin(0.0), 0.00000000000000000)
+      expectFloat(math::asin(0.5), 0.52359877559829893)
+      expectFixed(math::asin(fixedOne), toFixed("1.570796326734125614"))
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.0, 0.5, 0.0 - 0.5, 1.0, 0.25]
+      LET r AS List OF Float = math::asin(xs)
+      expectFloat(collections::get(r, 0), 0.00000000000000000)
+      expectFloat(collections::get(r, 1), 0.52359877559829893)
+      expectFloat(collections::get(r, 2), -0.52359877559829893)
+      expectFloat(collections::get(r, 3), 1.57079632679489656)
+      expectFloat(collections::get(r, 4), 0.25268025514207865)
+    END TCASE
+  END TGROUP
+
+  TGROUP "atan"
+    TCASE "scalar"
+      LET fixedZero AS Fixed = toFixed("0.00")
+      expectFloat(math::atan(0.0), 0.00000000000000000)
+      expectFloat(math::atan(1.0), 0.78539816339744828)
+      expectFixed(math::atan(fixedZero), toFixed("0.000000000000000000"))
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.0, 0.5, 1.0, 2.0, 0.0 - 3.0]
+      LET r AS List OF Float = math::atan(xs)
+      expectFloat(collections::get(r, 0), 0.00000000000000000)
+      expectFloat(collections::get(r, 1), 0.46364760900080609)
+      expectFloat(collections::get(r, 2), 0.78539816339744828)
+      expectFloat(collections::get(r, 3), 1.10714871779409041)
+      expectFloat(collections::get(r, 4), -1.24904577239825443)
+    END TCASE
+  END TGROUP
+
+  TGROUP "atan2"
+    TCASE "scalar"
+      LET fixedY AS Fixed = toFixed("0.00")
+      LET fixedX AS Fixed = 0 - toFixed("1.00")
+      expectFloat(math::atan2(1.0, 1.0), 0.78539816339744828)
+      expectFloat(math::atan2(0.0, 1.0), 0.00000000000000000)
+      expectFixed(math::atan2(fixedY, fixedX), toFixed("3.141592653701081871"))
+    END TCASE
+    TCASE "float array"
+      LET ys AS List OF Float = [1.0, 1.0, 0.0 - 1.0, 0.0, 2.0]
+      LET xs AS List OF Float = [1.0, 0.0 - 1.0, 0.0 - 1.0, 1.0, 2.0]
+      LET r AS List OF Float = math::atan2(ys, xs)
+      expectFloat(collections::get(r, 0), 0.78539816339744828)
+      expectFloat(collections::get(r, 1), 2.35619449019234484)
+      expectFloat(collections::get(r, 2), -2.35619449019234484)
+      expectFloat(collections::get(r, 3), 0.00000000000000000)
+      expectFloat(collections::get(r, 4), 0.78539816339744828)
+    END TCASE
+    TCASE "determinism scalar vs array"
+      LET a1 AS List OF Float = [1.0]
+      expectFloat(math::atan2(1.0, 1.0), collections::get(math::atan2(a1, a1), 0))
+      LET y2 AS List OF Float = [3.0]
+      LET x2 AS List OF Float = [4.0]
+      expectFloat(math::atan2(3.0, 4.0), collections::get(math::atan2(y2, x2), 0))
+      LET ny AS Float = 0.0 - 2.0
+      LET nx AS Float = 0.0 - 3.0
+      LET y3 AS List OF Float = [ny]
+      LET x3 AS List OF Float = [nx]
+      expectFloat(math::atan2(ny, nx), collections::get(math::atan2(y3, x3), 0))
+      LET y4 AS List OF Float = [0.5]
+      LET x4 AS List OF Float = [0.0]
+      expectFloat(math::atan2(0.5, 0.0), collections::get(math::atan2(y4, x4), 0))
+    END TCASE
+  END TGROUP
+
+  TGROUP "ceil"
+    TCASE "scalar"
+      LET fixedPositive AS Fixed = toFixed("3.25")
+      LET fixedNegative AS Fixed = 0 - toFixed("3.75")
+      expectInteger(math::ceil(3.25), 4)
+      expectInteger(math::ceil(0 - 3.75), -3)
+      expectInteger(math::ceil(4.0), 4)
+      expectInteger(math::ceil(9223372036854773760.0), 9223372036854773760)
+      expectInteger(math::ceil(0.0 - 9223372036854775808.0), 0 - 9223372036854775807 - 1)
+      expectInteger(math::ceil(fixedPositive), 4)
+      expectInteger(math::ceil(fixedNegative), -3)
+    END TCASE
+    TCASE "fixed array"
+      LET xs AS List OF Fixed = [toFixed("2.3"), toFixed("-2.3"), toFixed("2.5"), toFixed("-2.5"), toFixed("3.75")]
+      LET r AS List OF Integer = math::ceil(xs)
+      expectInteger(collections::get(r, 0), 3)
+      expectInteger(collections::get(r, 1), -2)
+      expectInteger(collections::get(r, 2), 3)
+      expectInteger(collections::get(r, 3), -2)
+      expectInteger(collections::get(r, 4), 4)
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [2.3, 0.0 - 2.3, 2.5, 0.0 - 2.5, 3.7]
+      LET r AS List OF Integer = math::ceil(xs)
+      expectInteger(collections::get(r, 0), 3)
+      expectInteger(collections::get(r, 1), -2)
+      expectInteger(collections::get(r, 2), 3)
+      expectInteger(collections::get(r, 3), -2)
+      expectInteger(collections::get(r, 4), 4)
+    END TCASE
+  END TGROUP
+
+  TGROUP "clamp"
+    TCASE "scalar"
+      LET fixedValue AS Fixed = 0 - toFixed("1.25")
+      LET fixedLow AS Fixed = 0 - toFixed("1.0")
+      LET fixedHigh AS Fixed = toFixed("1.0")
+      expectInteger(math::clamp(12, 0, 10), 10)
+      expectInteger(math::clamp(-3, 0, 10), 0)
+      expectInteger(math::clamp(5, 0, 10), 5)
+      expectFloat(math::clamp(3.50, 0.0, 3.0), 3.00000000000000000)
+      expectFixed(math::clamp(fixedValue, fixedLow, fixedHigh), toFixed("-1.000000000000000000"))
+      expectFloat(math::clamp(0.50, 0.0, 1.0), 0.50000000000000000)
+    END TCASE
+    TCASE "fixed array"
+      LET a AS List OF Fixed = [toFixed("3.5"), toFixed("-1.0"), toFixed("2.0")]
+      LET r AS List OF Fixed = math::clamp(a, toFixed("0.0"), toFixed("2.5"))
+      expectFixed(collections::get(r, 0), toFixed("2.500000000000000000"))
+      expectFixed(collections::get(r, 1), toFixed("0.000000000000000000"))
+      expectFixed(collections::get(r, 2), toFixed("2.000000000000000000"))
+    END TCASE
+    TCASE "float array"
+      LET a AS List OF Float = [3.5, 0.0 - 1.0, 2.0]
+      LET r AS List OF Float = math::clamp(a, 0.0, 2.5)
+      expectFloat(collections::get(r, 0), 2.50000000000000000)
+      expectFloat(collections::get(r, 1), 0.00000000000000000)
+      expectFloat(collections::get(r, 2), 2.00000000000000000)
+    END TCASE
+    TCASE "int array"
+      LET a AS List OF Integer = [3, 0 - 5, 7, 2, 9]
+      LET r AS List OF Integer = math::clamp(a, 0, 5)
+      expectInteger(collections::get(r, 0), 3)
+      expectInteger(collections::get(r, 1), 0)
+      expectInteger(collections::get(r, 2), 5)
+      expectInteger(collections::get(r, 3), 2)
+      expectInteger(collections::get(r, 4), 5)
+    END TCASE
+  END TGROUP
+
+  TGROUP "cos"
+    TCASE "scalar"
+      LET fixedPi AS Fixed = toFixed("3.1415926536")
+      expectFloat(math::cos(0.0), 1.00000000000000000)
+      expectFloat(math::cos(3.1415926536), -1.00000000000000000)
+      expectFixed(math::cos(fixedPi), toFixed("-1.000000001629814505"))
+      expectFloat(math::cos(0.7), 0.76484218728448850)
+      expectFloat(math::cos(2.0), -0.41614683654714241)
+      expectFloat(math::cos(4.0), -0.65364362086361194)
+      expectFloat(math::cos(5.0), 0.28366218546322630)
+      expectFloat(math::cos(-2.0), -0.41614683654714241)
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.0, 0.5, 1.0, 0.7853981633974483, 2.0]
+      LET r AS List OF Float = math::cos(xs)
+      expectFloat(collections::get(r, 0), 1.00000000000000000)
+      expectFloat(collections::get(r, 1), 0.87758256189037276)
+      expectFloat(collections::get(r, 2), 0.54030230586813977)
+      expectFloat(collections::get(r, 3), 0.70710678118654757)
+      expectFloat(collections::get(r, 4), -0.41614683654714241)
+    END TCASE
+  END TGROUP
+
+  TGROUP "exp"
+    TCASE "scalar"
+      LET fixedZero AS Fixed = toFixed("0.00")
+      expectFloat(math::exp(1.0), 2.71828182845904509)
+      expectFloat(math::exp(0.0), 1.00000000000000000)
+      expectFixed(math::exp(fixedZero), toFixed("1.000000000000000000"))
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.0, 1.0, 0.0 - 1.0, 0.5, 2.0]
+      LET r AS List OF Float = math::exp(xs)
+      expectFloat(collections::get(r, 0), 1.00000000000000000)
+      expectFloat(collections::get(r, 1), 2.71828182845904509)
+      expectFloat(collections::get(r, 2), 0.36787944117144233)
+      expectFloat(collections::get(r, 3), 1.64872127070012819)
+      expectFloat(collections::get(r, 4), 7.38905609893065041)
+      LET zs AS List OF Float = [0.0 - 800.0, 3.0]
+      expectInteger(len(math::exp(zs)), 2)
+    END TCASE
+  END TGROUP
+
+  TGROUP "fixed transcendental"
+    TCASE "fixed"
+      expectFixed(math::sqrt(toFixed("2.0")), toFixed("1.414213562384247779"))
+      expectFixed(math::exp(toFixed("1.0")), toFixed("2.718281827401369810"))
+      expectFixed(math::log(toFixed("10.0")), toFixed("2.302585092373192310"))
+      expectFixed(math::log10(toFixed("50.0")), toFixed("1.698970004217699170"))
+      expectFixed(math::pow(toFixed("1.5"), toFixed("2.0")), toFixed("2.250000000000000000"))
+      expectFixed(math::pow(toFixed("2.0"), toFixed("0.5")), toFixed("1.414213562849909067"))
+      expectFixed(math::pow(toFixed("3.0"), toFixed("-2.0")), toFixed("0.111111111007630825"))
+      expectFixed(math::sin(toFixed("0.5")), toFixed("0.479425538796931505"))
+      expectFixed(math::cos(toFixed("0.5")), toFixed("0.877582563087344169"))
+      expectFixed(math::tan(toFixed("1.0")), toFixed("1.557407720247283577"))
+      expectFixed(math::asin(toFixed("0.8")), toFixed("0.927295218454673886"))
+      expectFixed(math::acos(toFixed("-0.3")), toFixed("1.875488980673253536"))
+      expectFixed(math::atan(toFixed("2.0")), toFixed("1.107148718787357211"))
+      expectFixed(math::atan2(toFixed("3.0"), toFixed("-4.0")), toFixed("2.498091545421630144"))
+    END TCASE
+  END TGROUP
+
+  TGROUP "floor"
+    TCASE "scalar"
+      LET fixedPositive AS Fixed = toFixed("3.75")
+      LET fixedNegative AS Fixed = 0 - toFixed("3.25")
+      expectInteger(math::floor(3.75), 3)
+      expectInteger(math::floor(0 - 3.25), -4)
+      expectInteger(math::floor(4.0), 4)
+      expectInteger(math::floor(9223372036854773760.0), 9223372036854773760)
+      expectInteger(math::floor(0.0 - 9223372036854775808.0), 0 - 9223372036854775807 - 1)
+      expectInteger(math::floor(fixedPositive), 3)
+      expectInteger(math::floor(fixedNegative), -4)
+    END TCASE
+    TCASE "fixed array"
+      LET xs AS List OF Fixed = [toFixed("2.3"), toFixed("-2.3"), toFixed("2.5"), toFixed("-2.5"), toFixed("3.75")]
+      LET r AS List OF Integer = math::floor(xs)
+      expectInteger(collections::get(r, 0), 2)
+      expectInteger(collections::get(r, 1), -3)
+      expectInteger(collections::get(r, 2), 2)
+      expectInteger(collections::get(r, 3), -3)
+      expectInteger(collections::get(r, 4), 3)
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [2.3, 0.0 - 2.3, 2.5, 0.0 - 2.5, 3.7]
+      LET r AS List OF Integer = math::floor(xs)
+      expectInteger(collections::get(r, 0), 2)
+      expectInteger(collections::get(r, 1), -3)
+      expectInteger(collections::get(r, 2), 2)
+      expectInteger(collections::get(r, 3), -3)
+      expectInteger(collections::get(r, 4), 3)
+    END TCASE
+  END TGROUP
+
+  TGROUP "log"
+    TCASE "scalar"
+      LET fixedOne AS Fixed = toFixed("1.00")
+      expectFloat(math::log(math::e), 1.00000000000000000)
+      expectFloat(math::log(1.0), 0.00000000000000000)
+      expectFixed(math::log(fixedOne), toFixed("0.000000000000000000"))
+    END TCASE
+    TCASE "fixed array"
+      LET xs AS List OF Fixed = [toFixed("2.0"), toFixed("4.0"), toFixed("9.0"), toFixed("0.25"), toFixed("100.0")]
+      LET r AS List OF Fixed = math::log(xs)
+      expectFixed(collections::get(r, 0), toFixed("0.693147180601954460"))
+      expectFixed(collections::get(r, 1), toFixed("1.386294361203908920"))
+      expectFixed(collections::get(r, 2), toFixed("2.197224576957523822"))
+      expectFixed(collections::get(r, 3), toFixed("-1.386294361203908920"))
+      expectFixed(collections::get(r, 4), toFixed("4.605170184746384620"))
+      LET r10 AS List OF Fixed = math::log10(xs)
+      expectFixed(collections::get(r10, 0), toFixed("0.301029995782300829"))
+      expectFixed(collections::get(r10, 1), toFixed("0.602059991564601659"))
+      expectFixed(collections::get(r10, 2), toFixed("0.954242509556934237"))
+      expectFixed(collections::get(r10, 3), toFixed("-0.602059991564601659"))
+      expectFixed(collections::get(r10, 4), toFixed("1.999999999767169356"))
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.5, 1.0, 2.0, 10.0, 100.0]
+      LET r AS List OF Float = math::log(xs)
+      expectFloat(collections::get(r, 0), -0.69314718055994529)
+      expectFloat(collections::get(r, 1), 0.00000000000000000)
+      expectFloat(collections::get(r, 2), 0.69314718055994529)
+      expectFloat(collections::get(r, 3), 2.30258509299404546)
+      expectFloat(collections::get(r, 4), 4.60517018598809180)
+      LET r10 AS List OF Float = math::log10(xs)
+      expectFloat(collections::get(r10, 0), -0.30102999566398120)
+      expectFloat(collections::get(r10, 1), 0.00000000000000000)
+      expectFloat(collections::get(r10, 2), 0.30102999566398120)
+      expectFloat(collections::get(r10, 3), 1.00000000000000000)
+      expectFloat(collections::get(r10, 4), 2.00000000000000000)
+    END TCASE
+  END TGROUP
+
+  TGROUP "log10"
+    TCASE "scalar"
+      LET fixedTen AS Fixed = toFixed("10.00")
+      expectFloat(math::log10(100.0), 2.00000000000000000)
+      expectFloat(math::log10(1.0), 0.00000000000000000)
+      expectFixed(math::log10(fixedTen), toFixed("1.000000000000000000"))
+    END TCASE
+  END TGROUP
+
+  TGROUP "max"
+    TCASE "scalar"
+      LET fixedLow AS Fixed = 0 - toFixed("3.75")
+      LET fixedHigh AS Fixed = toFixed("2.50")
+      expectInteger(math::max(2, -4), 2)
+      expectInteger(math::max(5, 5), 5)
+      expectFloat(math::max(2.50, 0.0 - 4.25), 2.50000000000000000)
+      expectFloat(math::max(1.25, 1.25), 1.25000000000000000)
+      expectFixed(math::max(fixedLow, fixedHigh), toFixed("2.500000000000000000"))
+    END TCASE
+  END TGROUP
+
+  TGROUP "min"
+    TCASE "scalar"
+      LET fixedLow AS Fixed = 0 - toFixed("3.75")
+      LET fixedHigh AS Fixed = toFixed("2.50")
+      expectInteger(math::min(2, -4), -4)
+      expectInteger(math::min(b := -6, a := 3), -6)
+      expectInteger(math::min(5, 5), 5)
+      expectFloat(math::min(2.50, 0.0 - 4.25), -4.25000000000000000)
+      expectFloat(math::min(1.25, 1.25), 1.25000000000000000)
+      expectFixed(math::min(fixedLow, fixedHigh), toFixed("-3.750000000000000000"))
+    END TCASE
+    TCASE "fixed array"
+      LET a AS List OF Fixed = [toFixed("3.5"), toFixed("-1.0"), toFixed("2.0")]
+      LET b AS List OF Fixed = [toFixed("1.5"), toFixed("-2.0"), toFixed("9.0")]
+      LET rmin AS List OF Fixed = math::min(a, b)
+      expectFixed(collections::get(rmin, 0), toFixed("1.500000000000000000"))
+      expectFixed(collections::get(rmin, 1), toFixed("-2.000000000000000000"))
+      expectFixed(collections::get(rmin, 2), toFixed("2.000000000000000000"))
+      LET rmax AS List OF Fixed = math::max(a, b)
+      expectFixed(collections::get(rmax, 0), toFixed("3.500000000000000000"))
+      expectFixed(collections::get(rmax, 1), toFixed("-1.000000000000000000"))
+      expectFixed(collections::get(rmax, 2), toFixed("9.000000000000000000"))
+    END TCASE
+    TCASE "float array"
+      LET a AS List OF Float = [3.5, 0.0 - 1.0, 2.0]
+      LET b AS List OF Float = [1.5, 0.0 - 2.0, 9.0]
+      LET rmin AS List OF Float = math::min(a, b)
+      expectFloat(collections::get(rmin, 0), 1.50000000000000000)
+      expectFloat(collections::get(rmin, 1), -2.00000000000000000)
+      expectFloat(collections::get(rmin, 2), 2.00000000000000000)
+      LET rmax AS List OF Float = math::max(a, b)
+      expectFloat(collections::get(rmax, 0), 3.50000000000000000)
+      expectFloat(collections::get(rmax, 1), -1.00000000000000000)
+      expectFloat(collections::get(rmax, 2), 9.00000000000000000)
+    END TCASE
+    TCASE "int array"
+      LET a AS List OF Integer = [3, 0 - 5, 7, 2, 9]
+      LET b AS List OF Integer = [4, 0 - 2, 1, 8, 0 - 1]
+      LET rmin AS List OF Integer = math::min(a, b)
+      expectInteger(collections::get(rmin, 0), 3)
+      expectInteger(collections::get(rmin, 1), -5)
+      expectInteger(collections::get(rmin, 2), 1)
+      expectInteger(collections::get(rmin, 3), 2)
+      expectInteger(collections::get(rmin, 4), -1)
+      LET rmax AS List OF Integer = math::max(a, b)
+      expectInteger(collections::get(rmax, 0), 4)
+      expectInteger(collections::get(rmax, 1), -2)
+      expectInteger(collections::get(rmax, 2), 7)
+      expectInteger(collections::get(rmax, 3), 8)
+      expectInteger(collections::get(rmax, 4), 9)
+    END TCASE
+  END TGROUP
+
+  TGROUP "pow"
+    TCASE "scalar"
+      LET fixedBase AS Fixed = toFixed("1.50")
+      LET fixedExponent AS Fixed = toFixed("2.00")
+      expectFloat(math::pow(2.0, 3.0), 8.00000000000000000)
+      expectFloat(math::pow(exponent := 4.0, base := 2.0), 16.00000000000000000)
+      expectFloat(math::pow(4.0, 0.5), 2.00000000000000000)
+      expectFixed(math::pow(fixedBase, fixedExponent), toFixed("2.250000000000000000"))
+    END TCASE
+    TCASE "float array"
+      LET bs AS List OF Float = [2.0, 4.0, 9.0, 2.0, 10.0]
+      LET es AS List OF Float = [0.5, 0.5, 0.5, 10.0, 0.0 - 2.0]
+      LET r AS List OF Float = math::pow(bs, es)
+      expectFloat(collections::get(r, 0), 1.41421356237309492)
+      expectFloat(collections::get(r, 1), 2.00000000000000000)
+      expectFloat(collections::get(r, 2), 3.00000000000000000)
+      expectFloat(collections::get(r, 3), 1024.00000000000000000)
+      expectFloat(collections::get(r, 4), 0.01000000000000000)
+    END TCASE
+    TCASE "negative base"
+      LET nb AS Float = 0.0 - 2.0
+      expectFloat(math::pow(nb, 3.0), -8.00000000000000000)
+      expectFloat(math::pow(nb, 2.0), 4.00000000000000000)
+      LET ne AS Float = 0.0 - 3.0
+      expectFloat(math::pow(nb, ne), -0.12500000000000000)
+      LET nb3 AS Float = 0.0 - 3.0
+      expectFloat(math::pow(nb3, 4.0), 81.00000000000000000)
+    END TCASE
+  END TGROUP
+
+  TGROUP "rand"
+    TCASE "seeded sequence"
+      math::seed(12345)
+      expectInteger(math::rand(1, 6), 3)
+      expectInteger(math::rand(1, 6), 1)
+      expectInteger(math::rand(1, 6), 4)
+      expectInteger(math::rand(1, 6), 4)
+      expectInteger(math::rand(1, 6), 5)
+      expectInteger(math::rand(100, 100), 100)
+      expectInteger(math::rand(0 - 10, 10), 10)
+    END TCASE
+  END TGROUP
+
+  TGROUP "round"
+    TCASE "scalar"
+      LET fixedPositive AS Fixed = toFixed("2.25")
+      LET fixedNegative AS Fixed = 0 - toFixed("2.25")
+      expectInteger(math::round(3.49), 3)
+      expectInteger(math::round(3.50), 4)
+      expectInteger(math::round(0 - 3.50), -4)
+      expectInteger(math::round(9223372036854773760.0), 9223372036854773760)
+      expectInteger(math::round(0.0 - 9223372036854775808.0), 0 - 9223372036854775807 - 1)
+      expectInteger(math::round(fixedPositive), 2)
+      expectInteger(math::round(fixedNegative), -2)
+    END TCASE
+    TCASE "fixed array"
+      LET xs AS List OF Fixed = [toFixed("2.3"), toFixed("-2.3"), toFixed("2.5"), toFixed("-2.5"), toFixed("3.75")]
+      LET r AS List OF Integer = math::round(xs)
+      expectInteger(collections::get(r, 0), 2)
+      expectInteger(collections::get(r, 1), -2)
+      expectInteger(collections::get(r, 2), 3)
+      expectInteger(collections::get(r, 3), -3)
+      expectInteger(collections::get(r, 4), 4)
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [2.3, 0.0 - 2.3, 2.5, 0.0 - 2.5, 3.7]
+      LET r AS List OF Integer = math::round(xs)
+      expectInteger(collections::get(r, 0), 2)
+      expectInteger(collections::get(r, 1), -2)
+      expectInteger(collections::get(r, 2), 3)
+      expectInteger(collections::get(r, 3), -3)
+      expectInteger(collections::get(r, 4), 4)
+    END TCASE
+  END TGROUP
+
+  TGROUP "scalar array determinism"
+    TCASE "x=0.5"
+      LET x AS Float = 0.5
+      LET xl AS List OF Float = [x]
+      expectFloat(math::exp(x), collections::get(math::exp(xl), 0))
+      expectFloat(math::log(x), collections::get(math::log(xl), 0))
+      expectFloat(math::log10(x), collections::get(math::log10(xl), 0))
+      expectFloat(math::sin(x), collections::get(math::sin(xl), 0))
+      expectFloat(math::cos(x), collections::get(math::cos(xl), 0))
+      expectFloat(math::tan(x), collections::get(math::tan(xl), 0))
+      expectFloat(math::pow(x, 3.0), collections::get(math::pow(xl, [3.0]), 0))
+    END TCASE
+    TCASE "x=2.0"
+      LET x AS Float = 2.0
+      LET xl AS List OF Float = [x]
+      expectFloat(math::exp(x), collections::get(math::exp(xl), 0))
+      expectFloat(math::log(x), collections::get(math::log(xl), 0))
+      expectFloat(math::log10(x), collections::get(math::log10(xl), 0))
+      expectFloat(math::sin(x), collections::get(math::sin(xl), 0))
+      expectFloat(math::cos(x), collections::get(math::cos(xl), 0))
+      expectFloat(math::tan(x), collections::get(math::tan(xl), 0))
+      expectFloat(math::pow(x, 3.0), collections::get(math::pow(xl, [3.0]), 0))
+    END TCASE
+    TCASE "x=5.0"
+      LET x AS Float = 5.0
+      LET xl AS List OF Float = [x]
+      expectFloat(math::exp(x), collections::get(math::exp(xl), 0))
+      expectFloat(math::log(x), collections::get(math::log(xl), 0))
+      expectFloat(math::log10(x), collections::get(math::log10(xl), 0))
+      expectFloat(math::sin(x), collections::get(math::sin(xl), 0))
+      expectFloat(math::cos(x), collections::get(math::cos(xl), 0))
+      expectFloat(math::tan(x), collections::get(math::tan(xl), 0))
+      expectFloat(math::pow(x, 3.0), collections::get(math::pow(xl, [3.0]), 0))
+    END TCASE
+    TCASE "x=0.1"
+      LET x AS Float = 0.1
+      LET xl AS List OF Float = [x]
+      expectFloat(math::exp(x), collections::get(math::exp(xl), 0))
+      expectFloat(math::log(x), collections::get(math::log(xl), 0))
+      expectFloat(math::log10(x), collections::get(math::log10(xl), 0))
+      expectFloat(math::sin(x), collections::get(math::sin(xl), 0))
+      expectFloat(math::cos(x), collections::get(math::cos(xl), 0))
+      expectFloat(math::tan(x), collections::get(math::tan(xl), 0))
+      expectFloat(math::pow(x, 3.0), collections::get(math::pow(xl, [3.0]), 0))
+    END TCASE
+  END TGROUP
+
+  TGROUP "sin"
+    TCASE "scalar"
+      LET fixedHalfPi AS Fixed = toFixed("1.5707963268")
+      expectFloat(math::sin(0.0), 0.00000000000000000)
+      expectFloat(math::sin(1.5707963268), 1.00000000000000000)
+      expectFixed(math::sin(fixedHalfPi), toFixed("1.000000001629814505"))
+      expectFloat(math::sin(0.7), 0.64421768723769102)
+      expectFloat(math::sin(2.0), 0.90929742682568171)
+      expectFloat(math::sin(4.0), -0.75680249530792820)
+      expectFloat(math::sin(5.0), -0.95892427466313845)
+      expectFloat(math::sin(-2.0), -0.90929742682568171)
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.0, 0.5, 1.0, 0.7853981633974483, 2.0]
+      LET r AS List OF Float = math::sin(xs)
+      expectFloat(collections::get(r, 0), 0.00000000000000000)
+      expectFloat(collections::get(r, 1), 0.47942553860420301)
+      expectFloat(collections::get(r, 2), 0.84147098480789650)
+      expectFloat(collections::get(r, 3), 0.70710678118654746)
+      expectFloat(collections::get(r, 4), 0.90929742682568171)
+    END TCASE
+  END TGROUP
+
+  TGROUP "sqrt"
+    TCASE "scalar"
+      LET fixedSquare AS Fixed = toFixed("16.0")
+      expectFloat(math::sqrt(0.0), 0.00000000000000000)
+      expectFloat(math::sqrt(9.0), 3.00000000000000000)
+      expectFloat(math::sqrt(2.25), 1.50000000000000000)
+      expectFixed(math::sqrt(fixedSquare), toFixed("4.000000000000000000"))
+    END TCASE
+    TCASE "fixed array"
+      LET xs AS List OF Fixed = [toFixed("2.0"), toFixed("4.0"), toFixed("9.0"), toFixed("0.25"), toFixed("100.0")]
+      LET r AS List OF Fixed = math::sqrt(xs)
+      expectFixed(collections::get(r, 0), toFixed("1.414213562384247779"))
+      expectFixed(collections::get(r, 1), toFixed("2.000000000000000000"))
+      expectFixed(collections::get(r, 2), toFixed("3.000000000000000000"))
+      expectFixed(collections::get(r, 3), toFixed("0.500000000000000000"))
+      expectFixed(collections::get(r, 4), toFixed("10.000000000000000000"))
+      expectFixed(math::sqrt(collections::get(xs, 0)), toFixed("1.414213562384247779"))
+      expectFixed(math::sqrt(collections::get(xs, 1)), toFixed("2.000000000000000000"))
+      expectFixed(math::sqrt(collections::get(xs, 2)), toFixed("3.000000000000000000"))
+      expectFixed(math::sqrt(collections::get(xs, 3)), toFixed("0.500000000000000000"))
+      expectFixed(math::sqrt(collections::get(xs, 4)), toFixed("10.000000000000000000"))
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [4.0, 9.0, 2.0]
+      LET r AS List OF Float = math::sqrt(xs)
+      expectFloat(collections::get(r, 0), 2.00000000000000000)
+      expectFloat(collections::get(r, 1), 3.00000000000000000)
+      expectFloat(collections::get(r, 2), 1.41421356237309515)
+    END TCASE
+  END TGROUP
+
+  TGROUP "tan"
+    TCASE "scalar"
+      LET fixedPiQuarter AS Fixed = toFixed("0.7853981634")
+      expectFloat(math::tan(0.0), 0.00000000000000000)
+      expectFloat(math::tan(0.7853981634), 1.00000000000510325)
+      expectFixed(math::tan(fixedPiQuarter), toFixed("1.000000001629814505"))
+      expectFloat(math::tan(0.7), 0.84228838046307941)
+      expectFloat(math::tan(2.0), -2.18503986326151889)
+      expectFloat(math::tan(4.0), 1.15782128234957749)
+      expectFloat(math::tan(5.0), -3.38051500624658541)
+      expectFloat(math::tan(-2.0), 2.18503986326151889)
+    END TCASE
+    TCASE "float array"
+      LET xs AS List OF Float = [0.0, 0.5, 1.0, 0.7853981633974483, 2.0]
+      LET r AS List OF Float = math::tan(xs)
+      expectFloat(collections::get(r, 0), 0.00000000000000000)
+      expectFloat(collections::get(r, 1), 0.54630248984379048)
+      expectFloat(collections::get(r, 2), 1.55740772465490207)
+      expectFloat(collections::get(r, 3), 0.99999999999999989)
+      expectFloat(collections::get(r, 4), -2.18503986326151889)
+    END TCASE
+  END TGROUP
+END TESTING

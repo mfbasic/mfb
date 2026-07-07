@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-math/runtime/func_math_atan2_floatarray_rt
+Wrote AST to tests/builtin-math/runtime/func_math_atan2_floatarray_rt/func_math_atan2_floatarray_rt.ast
+Wrote IR to tests/builtin-math/runtime/func_math_atan2_floatarray_rt/func_math_atan2_floatarray_rt.ir
+[exit 0]
+$ mfb build tests/builtin-math/runtime/func_math_atan2_floatarray_rt
+Wrote executable to tests/builtin-math/runtime/func_math_atan2_floatarray_rt/func_math_atan2_floatarray_rt.out
+[exit 0]
+$ tests/builtin-math/runtime/func_math_atan2_floatarray_rt/func_math_atan2_floatarray_rt.out
+Code: 77050002 Message: invalid argument
+[exit 255]

@@ -1,0 +1,50 @@
+$ mfb build -ast -ir tests/builtin-math/syntax/func_math_ceil_invalid
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Integer = math::ceil()
+     | ^
+tests/builtin-math/syntax/func_math_ceil_invalid/src/main.mfb:4 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `math.ceil` has 0 argument(s), expected 1.
+   2 | 
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Integer = math::ceil()
+     | ^
+tests/builtin-math/syntax/func_math_ceil_invalid/src/main.mfb:4 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `missing` does not have a known type.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Integer = math::ceil()
+   5 |   LET integerArg AS Integer = math::ceil(1)
+     | ^
+tests/builtin-math/syntax/func_math_ceil_invalid/src/main.mfb:5 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `math.ceil` has argument type(s) (Integer), expected Float | Fixed.
+   3 | FUNC main AS Integer
+   4 |   LET missing AS Integer = math::ceil()
+   5 |   LET integerArg AS Integer = math::ceil(1)
+     | ^
+tests/builtin-math/syntax/func_math_ceil_invalid/src/main.mfb:5 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `integerArg` does not have a known type.
+   4 |   LET missing AS Integer = math::ceil()
+   5 |   LET integerArg AS Integer = math::ceil(1)
+   6 |   LET wrongType AS Integer = math::ceil(TRUE)
+     | ^
+tests/builtin-math/syntax/func_math_ceil_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `math.ceil` has argument type(s) (Boolean), expected Float | Fixed.
+   4 |   LET missing AS Integer = math::ceil()
+   5 |   LET integerArg AS Integer = math::ceil(1)
+   6 |   LET wrongType AS Integer = math::ceil(TRUE)
+     | ^
+tests/builtin-math/syntax/func_math_ceil_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `wrongType` does not have a known type.
+   5 |   LET integerArg AS Integer = math::ceil(1)
+   6 |   LET wrongType AS Integer = math::ceil(TRUE)
+   7 |   LET tooMany AS Integer = math::ceil(1.0, 2.0)
+     | ^
+tests/builtin-math/syntax/func_math_ceil_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `math.ceil` has 2 argument(s), expected 1.
+   5 |   LET integerArg AS Integer = math::ceil(1)
+   6 |   LET wrongType AS Integer = math::ceil(TRUE)
+   7 |   LET tooMany AS Integer = math::ceil(1.0, 2.0)
+     | ^
+tests/builtin-math/syntax/func_math_ceil_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `tooMany` does not have a known type.
+[exit 1]
