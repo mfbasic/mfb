@@ -655,6 +655,11 @@ pub(super) fn native_primitive_text(
 ) -> Option<String> {
     match value {
         NirValue::Const { type_, value } => match type_.as_str() {
+            // Scientific-notation Float/Fixed literals fold to their expanded
+            // plain decimal (`2.5e2` -> `250`; plan-28-B).
+            "Float" | "Fixed" if value.contains('e') || value.contains('E') => {
+                Some(crate::numeric::expand_scientific_notation(value))
+            }
             "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
             "Boolean" => match value.as_str() {
                 "true" => Some("TRUE".to_string()),

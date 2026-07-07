@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/numeric-fixed-suffix-overflow-invalid
+   1 | ' plan-28-B: a Fixed-suffixed literal out of the Fixed range is rejected.
+   2 | FUNC main AS Integer
+   3 |   LET x = 3000000000F
+     | ^
+tests/numeric-fixed-suffix-overflow-invalid/src/main.mfb:3 error[2-203-0017 TYPE_FIXED_LITERAL_OVERFLOW]: numeric literal is outside the Fixed range
+               Numeric literal `3000000000` is outside the Fixed range.
+[exit 1]

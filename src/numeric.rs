@@ -38,6 +38,50 @@ pub(crate) fn classify_literal(text: &str) -> (String, LiteralType) {
     }
 }
 
+/// Expand a decimal scientific-notation string (`2.5e2`, `1e-3`) into a plain
+/// decimal string (`250`, `0.001`) by shifting the decimal point — exact digit
+/// arithmetic, no `f64` rounding. A string with no `e`/`E` is returned unchanged.
+/// Used to keep the exact Fixed conversion precise for exponent literals and to
+/// fold a scientific-notation literal's `toString` to a plain decimal (plan-28-B).
+pub(crate) fn expand_scientific_notation(value: &str) -> String {
+    let Some((mantissa, exponent_text)) = value.split_once(['e', 'E']) else {
+        return value.to_string();
+    };
+    let Ok(exponent) = exponent_text.parse::<i32>() else {
+        return value.to_string();
+    };
+    let (negative, mantissa) = mantissa
+        .strip_prefix('-')
+        .map(|rest| (true, rest))
+        .unwrap_or((false, mantissa));
+    let (int_part, frac_part) = mantissa.split_once('.').unwrap_or((mantissa, ""));
+    let digits = format!("{int_part}{frac_part}");
+    // The decimal point starts after `int_part.len()` significant digits; the
+    // exponent shifts it right by `exponent`.
+    let point = int_part.len() as i32 + exponent;
+    let mut result = String::new();
+    if negative {
+        result.push('-');
+    }
+    if point <= 0 {
+        result.push_str("0.");
+        for _ in 0..(-point) {
+            result.push('0');
+        }
+        result.push_str(&digits);
+    } else if (point as usize) >= digits.len() {
+        result.push_str(&digits);
+        for _ in 0..(point as usize - digits.len()) {
+            result.push('0');
+        }
+    } else {
+        result.push_str(&digits[..point as usize]);
+        result.push('.');
+        result.push_str(&digits[point as usize..]);
+    }
+    result
+}
+
 pub(crate) fn binary_result_type(operator: &str, left: &str, right: &str) -> Option<&'static str> {
     if !is_numeric_type(left) || !is_numeric_type(right) {
         return None;
@@ -105,6 +149,21 @@ mod tests {
             classify_literal("1e3F"),
             ("1e3".to_string(), LiteralType::Fixed)
         );
+    }
+
+    #[test]
+    fn expand_scientific_notation_shifts_the_point() {
+        assert_eq!(expand_scientific_notation("1e3"), "1000");
+        assert_eq!(expand_scientific_notation("1E3"), "1000");
+        assert_eq!(expand_scientific_notation("2.5e2"), "250");
+        assert_eq!(expand_scientific_notation("1e-3"), "0.001");
+        assert_eq!(expand_scientific_notation("1e+3"), "1000");
+        assert_eq!(expand_scientific_notation("10e10"), "100000000000");
+        assert_eq!(expand_scientific_notation("-2.5e2"), "-250");
+        assert_eq!(expand_scientific_notation("1.5e-2"), "0.015");
+        // No exponent -> unchanged.
+        assert_eq!(expand_scientific_notation("3.14"), "3.14");
+        assert_eq!(expand_scientific_notation("42"), "42");
     }
 
     #[test]

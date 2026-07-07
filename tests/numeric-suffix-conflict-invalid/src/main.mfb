@@ -1,0 +1,6 @@
+' plan-28-B: an explicit suffix wins over the expected type. A Fixed 2F assigned
+' to a Float slot is a type error (no Float<-Fixed coercion), not a silent Float.
+FUNC main AS Integer
+  LET x AS Float = 2F
+  RETURN 0
+END FUNC

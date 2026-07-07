@@ -506,12 +506,59 @@ impl Lexer<'_> {
             }
         }
 
+        // Scientific-notation exponent (plan-28-B §4.1): `e`/`E`, an optional
+        // `+`/`-`, then one or more digits (with `_` separators). Consumed only
+        // when a well-formed exponent follows; otherwise `e` is not part of the
+        // number (`1e` lexes as `1` then identifier `e`).
+        if !self.is_at_end()
+            && (self.peek() == 'e' || self.peek() == 'E')
+            && self.exponent_follows()
+        {
+            value.push(self.peek());
+            self.advance();
+            if self.peek() == '+' || self.peek() == '-' {
+                value.push(self.peek());
+                self.advance();
+            }
+            if !self.scan_base_digits(&mut value, 10) {
+                return;
+            }
+        }
+
+        // Type suffix (plan-28-B §4.2): a single trailing `f` (Float) or `F`
+        // (Fixed), only when not followed by an identifier-continue char (so
+        // `1foo` is `1` then `foo`, but `1f` is a suffixed literal). The suffix
+        // stays in the token value; `classify_literal` reads and strips it.
+        if !self.is_at_end()
+            && (self.peek() == 'f' || self.peek() == 'F')
+            && self
+                .peek_next()
+                .is_none_or(|ch| !is_identifier_continue(ch))
+        {
+            value.push(self.peek());
+            self.advance();
+        }
+
         self.tokens.push(Token {
             kind: TokenKind::Number(value),
             line,
             start,
             end: self.column,
         });
+    }
+
+    /// Non-consuming check: does a well-formed exponent follow the `e`/`E` at the
+    /// current cursor? An optional `+`/`-` then at least one ASCII digit.
+    fn exponent_follows(&self) -> bool {
+        let mut lookahead = self.index + 1;
+        if let Some(sign) = self.chars.get(lookahead).copied() {
+            if sign == '+' || sign == '-' {
+                lookahead += 1;
+            }
+        }
+        self.chars
+            .get(lookahead)
+            .is_some_and(|ch| ch.is_ascii_digit())
     }
 
     /// Whether `ch` is a valid digit in the given radix (2, 8, 10, or 16).
@@ -1323,6 +1370,55 @@ mod tests {
                 "expected lex error for {source:?}"
             );
         }
+    }
+
+    #[test]
+    fn exponent_literals_keep_their_text() {
+        for (source, expected) in [
+            ("1e3", "1e3"),
+            ("1E3", "1E3"),
+            ("1e+3", "1e+3"),
+            ("1e-3", "1e-3"),
+            ("2.5e2", "2.5e2"),
+            ("1_0e1_0", "10e10"),
+        ] {
+            let tokens = lex(Path::new("main.mfb"), &format!("{source}\n")).expect("lex source");
+            assert_eq!(
+                tokens[0].kind,
+                TokenKind::Number(expected.to_string()),
+                "for {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_exponent_lexes_as_number_then_identifier() {
+        // `1e` is `1` then identifier `e`; `1e+` is `1` then `e` then `+`.
+        let tokens = lex(Path::new("main.mfb"), "1e\n").expect("lex source");
+        assert_eq!(tokens[0].kind, TokenKind::Number("1".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Identifier("e".to_string()));
+    }
+
+    #[test]
+    fn type_suffixes_are_kept_in_the_token() {
+        for (source, expected) in [
+            ("2f", "2f"),
+            ("2F", "2F"),
+            ("1.5f", "1.5f"),
+            ("1e3F", "1e3F"),
+            ("2.5e2f", "2.5e2f"),
+        ] {
+            let tokens = lex(Path::new("main.mfb"), &format!("{source}\n")).expect("lex source");
+            assert_eq!(
+                tokens[0].kind,
+                TokenKind::Number(expected.to_string()),
+                "for {source}"
+            );
+        }
+        // `1foo` is `1` then identifier `foo`, not a suffixed literal.
+        let tokens = lex(Path::new("main.mfb"), "1foo\n").expect("lex source");
+        assert_eq!(tokens[0].kind, TokenKind::Number("1".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Identifier("foo".to_string()));
     }
 
     #[test]

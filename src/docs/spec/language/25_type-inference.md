@@ -103,6 +103,14 @@ Properties:
   at `255`.
 - `Fixed` accepts any numeric literal **unconditionally** (no range check at this
   layer); range/precision rules for `Fixed` are in `./mfb spec language types`.
+- **Suffixed literals are intrinsically typed.** An `f`/`F`-suffixed literal
+  (`mfb spec language lexical-structure` §2.1) has `actual` = `Float`/`Fixed` from
+  its suffix, *not* the untyped shape. It is then checked by ordinary
+  assignability, so a Fixed `2F` into a `Float` slot fails (no `Float`←`Fixed`
+  coercion exists), while a Float `2f` into a `Fixed` slot still coerces via the
+  `E=Fixed ∧ A=Float ∧ expr=Number` rule. The suffix therefore *wins over* an
+  expected type: the expected type never re-types a suffixed literal the way it
+  coerces an unsuffixed one. `numeric_literal_type` returns the suffix type.
 
 [[src/syntaxcheck/types.rs:expression_compatible]] [[src/syntaxcheck/helpers.rs:numeric_literal_type]]
 

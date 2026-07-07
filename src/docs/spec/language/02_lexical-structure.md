@@ -29,7 +29,13 @@ The lexer reads one or more ASCII digits, optionally followed by a single `.` an
 
 **Digit separators.** A single `_` may appear **between two digits** in any numeric run (`1_234`, `0xFF_FF`); it is stripped from the value, so `1_000_000` is `1000000`. A `_` that is not between two digits — leading (`_1` is an identifier, not a number), trailing (`1_`, unless it forms a line continuation), doubled (`1__2`), or adjacent to a prefix (`0x_1`) — is a lexer error (`MFB_LEX_MALFORMED_NUMBER`), except that a trailing `_` followed only by whitespace and a newline is the line-continuation token (§2, "Line continuation"), never a separator.
 
-There is no sign inside a literal (`-0xFF` is `-(0xFF)`).
+**Scientific notation.** After the integer part and optional `.`-fraction, an exponent — `e`/`E`, an optional `+`/`-`, then one or more digits (with `_` separators) — makes the literal a **Float**: `1e3`, `1e-3`, `2.5e2`, `1_0e1_0`. The `e`/`E` is consumed only when a well-formed exponent follows; otherwise it is not part of the number, so `1e` lexes as `1` then identifier `e`. Exponents are decimal only (no hex/oct/bin exponent). `1e400`, which parses to a non-finite `f64`, is `TYPE_FLOAT_LITERAL_OVERFLOW`.
+
+**Type suffixes.** A single trailing `f` (Float) or `F` (Fixed) sets the literal's type intrinsically: `2f`/`1.5f` are Float, `2F`/`1.5F` are Fixed, and a suffix composes with an exponent (`1e3f` Float, `1e3F`/`2.5e2F` Fixed). The suffix is consumed only when not followed by an identifier-continue character, so `1foo` is `1` then `foo` but `1f` is a suffixed literal. Suffixes are decimal only — after a `0x…` hex scan an `f`/`F` is a hex *digit*, never a suffix. A `Fixed`-suffixed literal out of the Fixed range is `TYPE_FIXED_LITERAL_OVERFLOW` (and `-…F` underflow is `TYPE_FIXED_LITERAL_UNDERFLOW`).
+
+Unlike an *untyped* numeric literal — which coerces to a `Fixed`/`Byte` slot at assignment — a suffixed literal is *intrinsically* that type: the suffix always wins over the expected type, so `LET x AS Float = 2F` is a type error (a Fixed value into a Float slot), not a silent Float. `2F` is the only way to write an intrinsically-`Fixed` literal without an expected-type context. See `mfb spec language type-inference` (§ "Literal Coercion").
+
+There is no sign inside a literal (`-0xFF` is `-(0xFF)`); a leading `-` is unary minus, and only the *exponent* may carry a `+`/`-` sign. There are no other suffixes (no `d`/`D`, no integer-width suffixes).
 
 ## 2.2 String literals and escapes
 

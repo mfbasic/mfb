@@ -31,15 +31,11 @@ impl<'a> SyntaxChecker<'a> {
         match expression {
             Expression::String(_) => Type::String,
             Expression::Boolean(_) => Type::Boolean,
-            Expression::Number(value) => {
-                if value.contains('.') {
-                    Type::Float
-                } else if value.parse::<i64>().is_ok() {
-                    Type::Integer
-                } else {
-                    Type::Integer
-                }
-            }
+            Expression::Number(value) => match numeric::classify_literal(value).1 {
+                numeric::LiteralType::Integer => Type::Integer,
+                numeric::LiteralType::Float => Type::Float,
+                numeric::LiteralType::Fixed => Type::Fixed,
+            },
             Expression::Identifier(name) if name == "NOTHING" => Type::Nothing,
             Expression::Identifier(name) => {
                 let canonical_name = self.canonical_import_name(file, name);
@@ -187,10 +183,16 @@ impl<'a> SyntaxChecker<'a> {
                     if let Expression::Number(_value) = operand.as_ref() {}
                     return Type::Integer;
                 }
-                if operator == "-"
-                    && matches!(operand.as_ref(), Expression::Number(value) if !value.contains('.'))
-                {
-                    return Type::Integer;
+                if operator == "-" {
+                    if let Expression::Number(value) = operand.as_ref() {
+                        // A negated numeric literal keeps the operand's literal
+                        // type: `-5` Integer, `-1.5`/`-1e3`/`-2f` Float, `-2F` Fixed.
+                        return match numeric::classify_literal(value).1 {
+                            numeric::LiteralType::Integer => Type::Integer,
+                            numeric::LiteralType::Float => Type::Float,
+                            numeric::LiteralType::Fixed => Type::Fixed,
+                        };
+                    }
                 }
                 let operand_type =
                     self.infer_expression(file, operand, locals, line, ExprMode::Read);

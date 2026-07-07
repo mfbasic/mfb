@@ -191,6 +191,12 @@ pub(super) fn static_primitive_text_with_constants(
 ) -> Option<String> {
     match value {
         NirValue::Const { type_, value } => match type_.as_str() {
+            // A Float/Fixed scientific-notation literal folds to its expanded
+            // plain decimal (`2.5e2` -> `250`), so `toString` on a constant reads
+            // the same as the equivalent plain literal (plan-28-B).
+            "Float" | "Fixed" if value.contains('e') || value.contains('E') => {
+                Some(numeric::expand_scientific_notation(value))
+            }
             "Integer" | "Byte" | "Float" | "Fixed" | "String" => Some(value.clone()),
             "Boolean" => match value.as_str() {
                 "true" => Some("TRUE".to_string()),
@@ -285,6 +291,8 @@ pub(super) fn native_immediate_value(type_: &str, value: &str) -> Result<String,
 pub(super) fn fixed_raw_from_decimal(value: &str) -> Result<i64, String> {
     const SCALE: i128 = 1_i128 << 32;
 
+    let expanded = numeric::expand_scientific_notation(value);
+    let value = expanded.as_str();
     let (negative, digits) = value
         .strip_prefix('-')
         .map(|rest| (true, rest))

@@ -375,7 +375,12 @@ fn link_aliases(ast: &AstProject) -> Vec<(String, String)> {
 /// honored; booleans map to `0`/`1`.
 fn eval_link_const(expr: &Expression) -> i64 {
     match expr {
-        Expression::Number(text) => text.parse::<i64>().unwrap_or(0),
+        // A LINK const is an integer; canonicalize a radix/separator/exponent
+        // literal to its decimal value first so e.g. `0x10`/`1e3` resolve to their
+        // real integer instead of silently parsing to `0` (plan-28).
+        Expression::Number(text) => numeric::expand_scientific_notation(&numeric::classify_literal(text).0)
+            .parse::<i64>()
+            .unwrap_or(0),
         Expression::Boolean(value) => i64::from(*value),
         Expression::Identifier(name) if name == "NOTHING" => 0,
         Expression::Unary {
@@ -392,7 +397,11 @@ fn eval_link_const(expr: &Expression) -> i64 {
 /// return variable named `var`.
 fn lower_link_expr(expr: &Expression, var: &str) -> IrLinkExpr {
     match expr {
-        Expression::Number(text) => IrLinkExpr::Int(text.parse::<i64>().unwrap_or(0)),
+        Expression::Number(text) => IrLinkExpr::Int(
+            numeric::expand_scientific_notation(&numeric::classify_literal(text).0)
+                .parse::<i64>()
+                .unwrap_or(0),
+        ),
         Expression::Boolean(value) => IrLinkExpr::Int(i64::from(*value)),
         Expression::Identifier(name) if name == var => IrLinkExpr::Var,
         Expression::Identifier(name) if name == "NOTHING" => IrLinkExpr::Int(0),

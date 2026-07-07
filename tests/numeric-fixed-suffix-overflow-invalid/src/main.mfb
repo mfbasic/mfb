@@ -1,0 +1,5 @@
+' plan-28-B: a Fixed-suffixed literal out of the Fixed range is rejected.
+FUNC main AS Integer
+  LET x = 3000000000F
+  RETURN 0
+END FUNC

@@ -1,0 +1,43 @@
+' plan-28-B: scientific notation (Float) and f/F type suffixes. A suffix sets the
+' literal type intrinsically (2f Float, 2F Fixed) with no expected-type context;
+' an exponent is Float. toString of a constant folds to the expanded decimal.
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "scientific notation"
+    TCASE "exponent literals are Float"
+      expectString(typeName(1e3), "Float")
+      expectString(toString(1e3), "1000")
+      expectString(toString(2.5e2), "250")
+      expectString(toString(1e-3), "0.001")
+      expectString(toString(1_0e1_0), "100000000000")
+    END TCASE
+  END TGROUP
+  TGROUP "type suffixes"
+    TCASE "f suffix is Float, F suffix is Fixed"
+      expectString(typeName(2f), "Float")
+      expectString(typeName(2F), "Fixed")
+      expectString(typeName(1.5f), "Float")
+      expectString(typeName(1.5F), "Fixed")
+    END TCASE
+    TCASE "intrinsic Fixed literal without annotation"
+      LET x = 2F
+      expectString(typeName(x), "Fixed")
+      ' A constant `toString` folds to the expanded plain decimal.
+      expectString(toString(2F), "2")
+      expectString(toString(1.5F), "1.5")
+    END TCASE
+    TCASE "exponent plus suffix"
+      expectString(typeName(1e3f), "Float")
+      expectString(typeName(1e3F), "Fixed")
+      expectString(toString(2.5e2F), "250")
+    END TCASE
+    TCASE "negated suffix keeps type"
+      LET n = -2F
+      expectString(typeName(n), "Fixed")
+    END TCASE
+  END TGROUP
+END TESTING

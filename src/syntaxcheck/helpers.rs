@@ -33,19 +33,24 @@ pub(super) fn integer_constant_value(expression: &Expression) -> Option<i128> {
 
 pub(super) fn integer_literal_in_range(expression: &Expression) -> bool {
     match expression {
-        Expression::Number(value) if !value.contains('.') => value.parse::<i64>().is_ok(),
+        Expression::Number(value) => match numeric::classify_literal(value) {
+            (canonical, numeric::LiteralType::Integer) => canonical.parse::<i64>().is_ok(),
+            // A Float/Fixed literal is not an integer-range question here; its
+            // range is checked by the Float/Fixed literal-overflow rules.
+            _ => true,
+        },
         Expression::Unary {
             operator, operand, ..
         } if operator == "-" => {
             let Expression::Number(value) = operand.as_ref() else {
                 return true;
             };
-            if value.contains('.') {
-                return true;
+            match numeric::classify_literal(value) {
+                (canonical, numeric::LiteralType::Integer) => canonical
+                    .parse::<u64>()
+                    .is_ok_and(|number| number <= (i64::MAX as u64) + 1),
+                _ => true,
             }
-            value
-                .parse::<u64>()
-                .is_ok_and(|number| number <= (i64::MAX as u64) + 1)
         }
         _ => true,
     }
