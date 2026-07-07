@@ -47,4 +47,4 @@ EXAMPLES
     END TESTING
 
 SEE ALSO
-  expectTrap, expectEQ, expectNQ
+  expectTrap, expectEqual, expectNEqual

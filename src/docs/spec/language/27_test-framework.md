@@ -11,7 +11,7 @@ any case failed.
 TESTING
   TGROUP "arithmetic"
     TCASE "adds two numbers"
-      expectEQ(add(2, 3), 5)
+      expectInteger(add(2, 3), 5)
     END TCASE
     TCASE "parsing bad input traps"
       expectTrap(parseInt("nope"))

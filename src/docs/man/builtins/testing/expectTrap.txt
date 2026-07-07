@@ -56,4 +56,4 @@ EXAMPLES
     END TESTING
 
 SEE ALSO
-  expectNTrap, expectEQ, expectNQ
+  expectNTrap, expectEqual, expectNEqual
