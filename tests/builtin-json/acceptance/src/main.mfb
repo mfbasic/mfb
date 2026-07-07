@@ -34,14 +34,6 @@ FUNC controlChar(value AS Integer) AS String
   RETURN toString(bytes)
 END FUNC
 
-' The fixtures parse a key whose bytes are `user` but end in a carriage return
-' (the compiler's internal string mode turns the source `\r`-adjacent sequence
-' into a real CR); json::stringify then re-escapes that CR as the two-character
-' JSON escape backslash-r. Build that literal backslash + r for the expected.
-FUNC crEscape AS String
-  LET bytes AS List OF Byte = [toByte(92), toByte(114)]
-  RETURN toString(bytes)
-END FUNC
 
 FUNC backspaceChar AS String
   LET bytes AS List OF Byte = [toByte(8)]
@@ -99,7 +91,7 @@ TESTING
     TCASE "nested reads"
       LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
       LET emptyPath AS List OF String = []
-      expectString(json::stringify(json::get(value, emptyPath)), "{\"use" & crEscape() & "\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
+      expectString(json::stringify(json::get(value, emptyPath)), "{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
       expectString(json::stringify(json::get(value, ["user", "name"])), "\"Ada\"")
       expectString(json::stringify(json::get(value, ["user", "meta", "active"])), "true")
       expectString(json::stringify(json::get(value, ["nothing"])), "null")
@@ -116,7 +108,7 @@ TESTING
       LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
       LET fallback AS Json = JsonStr["fallback"]
       LET emptyPath AS List OF String = []
-      expectString(json::stringify(json::getOr(value, emptyPath, fallback)), "{\"use" & crEscape() & "\":{\"name\":\"Ada\"},\"flag\":true}")
+      expectString(json::stringify(json::getOr(value, emptyPath, fallback)), "{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
       expectString(json::stringify(json::getOr(value, ["user", "name"], fallback)), "\"Ada\"")
       expectString(json::stringify(json::getOr(value, ["user", "missing"], fallback)), "\"fallback\"")
       expectString(json::stringify(json::getOr(value, ["flag", "x"], fallback)), "\"fallback\"")

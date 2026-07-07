@@ -8,11 +8,10 @@ IMPORT strings
 ' assertion compares the SAME expression as the source fixture against that
 ' fixture's exact golden value, using the typed TESTING assertions.
 
-' Carriage return (U+000D): the lexer does not decode a "\r" escape, so build CR
-' from its byte to exercise a CRLF separator with a genuine CR.
+' Carriage return (U+000D). The lexer decodes the "\r" escape (plan-27), so a
+' "\r" literal is a one-character CR string; kept as a helper for readability.
 FUNC crChar AS String
-  LET bytes AS List OF Byte = [toByte(13)]
-  RETURN toString(bytes)
+  RETURN "\r"
 END FUNC
 
 ' csv::parse is inline-lowered, so wrap it in a user FUNC to make it

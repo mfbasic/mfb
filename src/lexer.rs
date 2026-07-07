@@ -322,6 +322,29 @@ impl Lexer<'_> {
                     '\\' => value.push('\\'),
                     'n' => value.push('\n'),
                     't' => value.push('\t'),
+                    'r' => value.push('\r'),
+                    '0' => value.push('\0'),
+                    'u' => {
+                        // `\u{HEX}` Unicode scalar escape. Consume past `u`, then
+                        // scan `{`, 1-6 hex digits, `}`, and validate via
+                        // `char::from_u32` (the single validity oracle: rejects
+                        // surrogates and > U+10FFFF). On any malformed form report
+                        // MFB_LEX_INVALID_UNICODE_ESCAPE and stop lexing the token.
+                        self.advance();
+                        match self.lex_unicode_escape(line, start) {
+                            Some(ch) => {
+                                value.push(ch);
+                                continue;
+                            }
+                            None => {
+                                // The escape was already reported. Consume the rest
+                                // of the string literal so the remainder is not
+                                // re-lexed as a second (spurious) token.
+                                self.recover_string_literal();
+                                return;
+                            }
+                        }
+                    }
                     _ => value.push(escaped),
                 }
                 self.advance();
@@ -340,25 +363,146 @@ impl Lexer<'_> {
         );
     }
 
+    /// After a fatal in-string error (an invalid `\u{...}` escape), skip the rest
+    /// of the current string literal up to and including the closing `"`, or up to
+    /// a newline / EOF, so the abandoned remainder is not re-lexed as a spurious
+    /// second token. Does not emit diagnostics — the caller already reported.
+    fn recover_string_literal(&mut self) {
+        while !self.is_at_end() {
+            let ch = self.peek();
+            if ch == '\n' {
+                return;
+            }
+            self.advance();
+            if ch == '"' {
+                return;
+            }
+        }
+    }
+
+    /// Scan the body of a `\u{HEX}` escape: the cursor is positioned just past
+    /// the `u`, at the expected `{`. Returns the decoded scalar on success, or
+    /// `None` after reporting `MFB_LEX_INVALID_UNICODE_ESCAPE` for any malformed
+    /// form (missing `{`, no digits, more than 6 digits, out-of-range magnitude,
+    /// unterminated brace, or an invalid scalar such as a surrogate). All cursor
+    /// moves go through `advance`/`peek`/`is_at_end` so column/line tracking is
+    /// preserved. `line`/`start` are the enclosing string literal's origin, used
+    /// for the diagnostic span.
+    fn lex_unicode_escape(&mut self, line: usize, start: usize) -> Option<char> {
+        let column = self.column;
+        if self.is_at_end() || self.peek() != '{' {
+            self.report(
+                "MFB_LEX_INVALID_UNICODE_ESCAPE",
+                "A `\\u` escape must be followed by `{`, as in `\\u{1F600}`.",
+                line,
+                start,
+                column,
+            );
+            return None;
+        }
+        self.advance(); // consume `{`
+
+        let mut digits = String::new();
+        while !self.is_at_end() {
+            let ch = self.peek();
+            if ch.is_ascii_hexdigit() {
+                digits.push(ch);
+                self.advance();
+                if digits.len() > 6 {
+                    self.report(
+                        "MFB_LEX_INVALID_UNICODE_ESCAPE",
+                        "A `\\u{...}` escape accepts at most 6 hex digits.",
+                        line,
+                        start,
+                        self.column,
+                    );
+                    return None;
+                }
+            } else {
+                break;
+            }
+        }
+
+        if self.is_at_end() || self.peek() == '\n' || self.peek() == '"' {
+            self.report(
+                "MFB_LEX_INVALID_UNICODE_ESCAPE",
+                "A `\\u{...}` escape is missing its closing `}`.",
+                line,
+                start,
+                self.column,
+            );
+            return None;
+        }
+        if self.peek() != '}' {
+            self.report(
+                "MFB_LEX_INVALID_UNICODE_ESCAPE",
+                "A `\\u{...}` escape may contain only hex digits between the braces.",
+                line,
+                start,
+                self.column,
+            );
+            return None;
+        }
+        if digits.is_empty() {
+            self.report(
+                "MFB_LEX_INVALID_UNICODE_ESCAPE",
+                "A `\\u{...}` escape needs at least one hex digit.",
+                line,
+                start,
+                self.column,
+            );
+            return None;
+        }
+        self.advance(); // consume `}`
+
+        let code_point = u32::from_str_radix(&digits, 16).ok();
+        match code_point.and_then(char::from_u32) {
+            Some(ch) => Some(ch),
+            None => {
+                self.report(
+                    "MFB_LEX_INVALID_UNICODE_ESCAPE",
+                    "A `\\u{...}` escape must name a Unicode scalar value (U+0000..U+D7FF or U+E000..U+10FFFF).",
+                    line,
+                    start,
+                    self.column,
+                );
+                None
+            }
+        }
+    }
+
     fn lex_number(&mut self) {
         let line = self.line;
         let start = self.column;
-        let mut value = String::new();
 
-        while !self.is_at_end() && self.peek().is_ascii_digit() {
-            value.push(self.peek());
-            self.advance();
+        // Radix prefix: `0x`/`0o`/`0b` (case-insensitive prefix letter) followed
+        // by base-appropriate digits, decoded to canonical decimal (plan-28-A §4.3).
+        if self.peek() == '0' {
+            if let Some(radix) = self.peek_next().and_then(|ch| match ch {
+                'x' | 'X' => Some(16u32),
+                'o' | 'O' => Some(8),
+                'b' | 'B' => Some(2),
+                _ => None,
+            }) {
+                self.lex_radix_number(line, start, radix);
+                return;
+            }
+        }
+
+        // Decimal integer part with `_` digit separators between digits.
+        let mut value = String::new();
+        if !self.scan_base_digits(&mut value, 10) {
+            return;
         }
 
         if !self.is_at_end()
             && self.peek() == '.'
             && self.peek_next().is_some_and(|ch| ch.is_ascii_digit())
         {
-            value.push(self.peek());
+            value.push('.');
             self.advance();
-            while !self.is_at_end() && self.peek().is_ascii_digit() {
-                value.push(self.peek());
-                self.advance();
+            if !self.scan_base_digits(&mut value, 10) {
+                return;
             }
         }
 
@@ -368,6 +512,138 @@ impl Lexer<'_> {
             start,
             end: self.column,
         });
+    }
+
+    /// Whether `ch` is a valid digit in the given radix (2, 8, 10, or 16).
+    fn is_base_digit(ch: char, radix: u32) -> bool {
+        match radix {
+            16 => ch.is_ascii_hexdigit(),
+            10 => ch.is_ascii_digit(),
+            8 => ('0'..='7').contains(&ch),
+            2 => ch == '0' || ch == '1',
+            _ => false,
+        }
+    }
+
+    /// Non-consuming check: is the `_` at the current cursor a line continuation
+    /// (followed only by horizontal whitespace and then a newline)? Mirrors the
+    /// lookahead in `lex_line_continuation`.
+    fn underscore_is_line_continuation(&self) -> bool {
+        let mut lookahead = self.index + 1;
+        while let Some(ch) = self.chars.get(lookahead).copied() {
+            match ch {
+                ' ' | '\t' | '\r' => lookahead += 1,
+                '\n' => return true,
+                _ => return false,
+            }
+        }
+        false
+    }
+
+    /// Scan a run of base-`radix` digits into `value`, accepting a single `_`
+    /// separator **only** between two base digits and stripping it (plan-28-A
+    /// §4.2). Returns `true` on success; on a misplaced separator (leading,
+    /// trailing, doubled) that is not a line continuation, reports
+    /// `MFB_LEX_MALFORMED_NUMBER` and returns `false`. A trailing `_` that forms a
+    /// line continuation ends the run cleanly (the main loop handles it).
+    fn scan_base_digits(&mut self, value: &mut String, radix: u32) -> bool {
+        let mut last_was_digit = false;
+        while !self.is_at_end() {
+            let ch = self.peek();
+            if Self::is_base_digit(ch, radix) {
+                value.push(ch);
+                self.advance();
+                last_was_digit = true;
+            } else if ch == '_' {
+                let next_is_digit = self
+                    .peek_next()
+                    .is_some_and(|next| Self::is_base_digit(next, radix));
+                if last_was_digit && next_is_digit {
+                    self.advance(); // consume the separator, do not push it
+                    last_was_digit = false;
+                } else if last_was_digit && self.underscore_is_line_continuation() {
+                    break; // trailing `_` + newline: leave the continuation intact
+                } else {
+                    self.report(
+                        "MFB_LEX_MALFORMED_NUMBER",
+                        "A `_` digit separator must sit between two digits.",
+                        self.line,
+                        self.column,
+                        self.column + 1,
+                    );
+                    return false;
+                }
+            } else {
+                break;
+            }
+        }
+        true
+    }
+
+    /// Scan a radix literal (`0x`/`0o`/`0b`) whose prefix is at the cursor. The
+    /// base digits (with separators) are decoded to a canonical **decimal**
+    /// string so every downstream Integer-literal consumer is unchanged
+    /// (plan-28-A §4.3). Reports `MFB_LEX_MALFORMED_NUMBER` on empty/invalid
+    /// digits and `MFB_LEX_NUMBER_OUT_OF_RANGE` on a magnitude above `u64::MAX`.
+    fn lex_radix_number(&mut self, line: usize, start: usize, radix: u32) {
+        let base_name = match radix {
+            16 => "hexadecimal",
+            8 => "octal",
+            2 => "binary",
+            _ => "",
+        };
+        self.advance(); // `0`
+        self.advance(); // prefix letter
+
+        let mut digits = String::new();
+        if !self.scan_base_digits(&mut digits, radix) {
+            return;
+        }
+
+        // A base-appropriate-looking but invalid digit (e.g. `0o8`, `0b2`, `0xG`)
+        // or no digits at all (`0x`) is a malformed literal. An ordinary
+        // non-alphanumeric terminator (`0b10 + 1`, `0xFF.foo`) just ends it.
+        if !self.is_at_end() && self.peek().is_ascii_alphanumeric() {
+            let ch = self.peek();
+            self.report(
+                "MFB_LEX_MALFORMED_NUMBER",
+                &format!("`{ch}` is not a valid digit in a {base_name} literal."),
+                self.line,
+                self.column,
+                self.column + 1,
+            );
+            return;
+        }
+        if digits.is_empty() {
+            self.report(
+                "MFB_LEX_MALFORMED_NUMBER",
+                &format!("A {base_name} literal needs at least one digit after the prefix."),
+                line,
+                start,
+                self.column,
+            );
+            return;
+        }
+
+        match u128::from_str_radix(&digits, radix) {
+            Ok(magnitude) if magnitude <= u64::MAX as u128 => {
+                self.tokens.push(Token {
+                    kind: TokenKind::Number(magnitude.to_string()),
+                    line,
+                    start,
+                    end: self.column,
+                });
+            }
+            _ => {
+                self.report(
+                    "MFB_LEX_NUMBER_OUT_OF_RANGE",
+                    "This numeric literal is too large to represent.",
+                    line,
+                    start,
+                    self.column,
+                );
+            }
+        }
     }
 
     fn lex_identifier_or_keyword(&mut self) {
@@ -966,6 +1242,47 @@ mod tests {
             tokens[0].kind,
             TokenKind::String("a\"b\\c\nd\tezf".to_string())
         );
+    }
+
+    #[test]
+    fn carriage_return_and_nul_escapes_decode() {
+        // "\r" -> U+000D, "\0" -> U+0000 (plan-27 Phase 1).
+        let tokens = lex(Path::new("main.mfb"), "\"a\\rb\\0c\"\n").expect("lex source");
+        assert_eq!(tokens[0].kind, TokenKind::String("a\rb\0c".to_string()));
+    }
+
+    #[test]
+    fn unicode_scalar_escapes_decode() {
+        // "\u{41}" -> 'A', "\u{1F600}" -> 😀 (4-byte), case-insensitive hex,
+        // 1-digit and 6-digit bounds (plan-27 Phase 2).
+        let tokens = lex(
+            Path::new("main.mfb"),
+            "\"\\u{41}-\\u{1F600}-\\u{6a}-\\u{0}-\\u{10FFFF}\"\n",
+        )
+        .expect("lex source");
+        assert_eq!(
+            tokens[0].kind,
+            TokenKind::String("A-\u{1F600}-j-\u{0}-\u{10FFFF}".to_string())
+        );
+    }
+
+    #[test]
+    fn malformed_unicode_escapes_are_errors() {
+        // Missing brace, empty, out of range, surrogate, unterminated, non-hex.
+        for source in [
+            "\"\\u41\"\n",
+            "\"\\u{}\"\n",
+            "\"\\u{110000}\"\n",
+            "\"\\u{D800}\"\n",
+            "\"\\u{1F600\"\n",
+            "\"\\u{7fffffff}\"\n",
+            "\"\\u{GG}\"\n",
+        ] {
+            assert!(
+                lex(Path::new("main.mfb"), source).is_err(),
+                "expected lex error for {source:?}"
+            );
+        }
     }
 
     #[test]

@@ -658,7 +658,7 @@
                 {
                   "op": "if",
                   "line": 205,
-                  "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "r" } },
+                  "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\r" } },
                   "then": [
                   { "op": "assign", "line": 206, "name": "out", "value": { "kind": "binary", "type": "String", "op": "&", "left": { "kind": "local", "name": "out" }, "right": { "kind": "const", "type": "String", "value": "\\r" } } }
                   ],
@@ -1618,7 +1618,7 @@
                   "line": 518,
                   "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "r" } },
                   "then": [
-                  { "op": "return", "line": 519, "value": { "kind": "const", "type": "String", "value": "r" } }
+                  { "op": "return", "line": 519, "value": { "kind": "const", "type": "String", "value": "\r" } }
                   ],
                   "else": [
                   {
@@ -2356,7 +2356,7 @@
     {
       "op": "if",
       "line": 761,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "r" } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\r" } },
       "then": [
       { "op": "return", "line": 762, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],

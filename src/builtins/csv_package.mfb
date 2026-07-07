@@ -1,12 +1,10 @@
 IMPORT collections
 IMPORT strings
 
-' Carriage return (U+000D). The lexer only decodes the "\"", "\\", "\n", and
-' "\t" string escapes, so a "\r" literal would lex to the letter "r"; build CR
-' from its byte instead, mirroring json's "\b"/"\f" helpers.
+' Carriage return (U+000D). The lexer decodes the "\r" escape (plan-27), so a
+' "\r" literal is a one-character CR string directly.
 FUNC __csv_crChar AS String
-  LET bytes AS List OF Byte = [toByte(13)]
-  RETURN toString(bytes)
+  RETURN "\r"
 END FUNC
 
 ' csv::parse — scan CSV text into a grid of rows of String cells.

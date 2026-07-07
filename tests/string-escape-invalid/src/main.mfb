@@ -1,0 +1,8 @@
+IMPORT io
+
+' plan-27: a malformed \u{...} escape (out-of-range codepoint) must fail the
+' build with MFB_LEX_INVALID_UNICODE_ESCAPE, never a silent wrong decode.
+FUNC main AS Integer
+  io::print("\u{110000}")
+  RETURN 0
+END FUNC

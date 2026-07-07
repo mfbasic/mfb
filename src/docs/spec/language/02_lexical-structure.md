@@ -27,16 +27,23 @@ The lexer reads one or more ASCII digits, optionally followed by a single `.` an
 
 ## 2.2 String literals and escapes
 
-A string literal is delimited by `"`. It may not span a line — reaching a newline or end-of-file before the closing quote is a lexer error (`MFB_LEX_UNTERMINATED_STRING`). Inside a string, `\` introduces an escape. The lexer recognizes exactly four escapes:
+A string literal is delimited by `"`. It may not span a line — reaching a newline or end-of-file before the closing quote is a lexer error (`MFB_LEX_UNTERMINATED_STRING`). Inside a string, `\` introduces an escape. The lexer recognizes these escapes:
 
 | Escape | Produces |
 |--------|----------|
-| `\"`   | `"` |
-| `\\`   | `\` |
+| `\"`   | `"` (U+0022) |
+| `\\`   | `\` (U+005C) |
 | `\n`   | line feed (U+000A) |
 | `\t`   | tab (U+0009) |
+| `\r`   | carriage return (U+000D) |
+| `\0`   | NUL (U+0000) |
+| `\u{HEX}` | the Unicode scalar with that hex codepoint |
 
-For **any other** escape, the lexer drops the backslash and keeps the following character verbatim. There is no `\r`, `\0`, `\xNN`, or `\u{...}` escape: `"\r"` lexes to the single character `r`, and `"\q"` lexes to `q`. (This is the source of the carriage-return gotcha noted in the implementation memory: a literal carriage return cannot be written with `\r`; build it from its byte/scalar value instead.) Escape handling is identical in every lexing mode — there is a single `lex_string` routine, so internal/source-package lexing drops `\r` exactly as ordinary lexing does.
+`\u{HEX}` takes 1–6 hex digits between the braces (case-insensitive) and produces the single Unicode scalar with that codepoint, so `"\u{41}"` is `A` and `"\u{1F600}"` is 😀 (a 4-byte UTF-8 sequence). A malformed `\u{...}` escape — a missing `{`, no digits, more than 6 digits, an out-of-range magnitude, a missing closing `}` (including a newline or the closing `"` reached first), or a value that is not a Unicode scalar (a surrogate `U+D800..U+DFFF` or a codepoint above `U+10FFFF`) — is a lexer error (`MFB_LEX_INVALID_UNICODE_ESCAPE`). There is no `\xNN` two-digit-hex or fixed-width `\U########` form, and `\0` is exactly one NUL — a following digit is a literal digit, not an octal escape.
+
+For **any other** escape, the lexer drops the backslash and keeps the following character verbatim: `"\q"` lexes to `q`. Escape handling is identical in every lexing mode — there is a single `lex_string` routine, so internal/source-package lexing decodes `\r`, `\0`, and `\u{...}` exactly as ordinary lexing does.
+
+A string carrying an embedded NUL (`\0`) is truncated at the NUL when handed to a C/syscall boundary that reads a NUL-terminated C string (e.g. a filesystem path); MFBASIC string operations that use the explicit `byteLength` (length, slicing, comparison, concatenation) see the full payload.
 
 ## 2.3 `DOC` blocks
 

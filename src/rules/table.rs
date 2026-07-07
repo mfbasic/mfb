@@ -104,6 +104,12 @@ pub(super) const RULES: &[Rule] = &[
         message: "string literal is unterminated",
     },
     Rule {
+        code: "1-101-0003",
+        name: "MFB_LEX_INVALID_UNICODE_ESCAPE",
+        severity: Severity::Error,
+        message: "\\u{...} string escape is malformed",
+    },
+    Rule {
         code: "1-102-0001",
         name: "MFB_PARSE_EXPECTED_EXPRESSION",
         severity: Severity::Error,

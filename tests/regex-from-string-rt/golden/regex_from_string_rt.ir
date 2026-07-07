@@ -2657,7 +2657,7 @@
     {
       "op": "if",
       "line": 855,
-      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\t" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\n" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "r" } } },
+      "condition": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "OR", "left": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": " " } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\t" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\n" } } }, "right": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "ch" }, "right": { "kind": "const", "type": "String", "value": "\r" } } },
       "then": [
       { "op": "return", "line": 856, "value": { "kind": "const", "type": "Boolean", "value": "true" } }
       ],
@@ -2856,7 +2856,7 @@
       "line": 925,
       "condition": { "kind": "binary", "type": "Boolean", "op": "=", "left": { "kind": "local", "name": "e" }, "right": { "kind": "const", "type": "String", "value": "r" } },
       "then": [
-      { "op": "return", "line": 926, "value": { "kind": "constructor", "type": "#regex_LitScalar", "args": [{ "kind": "const", "type": "String", "value": "r" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }] } }
+      { "op": "return", "line": 926, "value": { "kind": "constructor", "type": "#regex_LitScalar", "args": [{ "kind": "const", "type": "String", "value": "\r" }, { "kind": "binary", "type": "Integer", "op": "+", "left": { "kind": "local", "name": "i" }, "right": { "kind": "const", "type": "Integer", "value": "2" } }] } }
       ],
       "else": [
       ]

@@ -50,12 +50,10 @@ FUNC __http_defaultPort(scheme AS String) AS Integer
   RETURN 80
 END FUNC
 
-' CRLF built from its bytes. This file is lexed in internal mode, where the `\r`
-' string escape is NOT decoded (the backslash is dropped, leaving a literal `r`),
-' so the line terminator must be constructed from bytes 13/10 (cf. csv_package).
+' CRLF line terminator. The lexer decodes the `\r` escape (plan-27), so the
+' terminator is written directly.
 FUNC __http_crlf AS String
-  LET bytes AS List OF Byte = [toByte(13), toByte(10)]
-  RETURN toString(bytes)
+  RETURN "\r\n"
 END FUNC
 
 ' ---- Request building (§B.3) ----

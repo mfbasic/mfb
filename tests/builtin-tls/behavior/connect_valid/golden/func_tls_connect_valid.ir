@@ -20,7 +20,7 @@
     ],
     "returns": "Integer",
     "body": [
-    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "String", "value": "GET / HTTP/1.0r\nr\n" }] } },
+    { "op": "eval", "line": 7, "value": { "kind": "call", "type": "Nothing", "target": "tls.writeText", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "String", "value": "GET / HTTP/1.0\r\n\r\n" }] } },
     { "op": "bind", "line": 8, "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "type": "List OF Byte", "values": [{ "kind": "const", "type": "Byte", "value": "1" }, { "kind": "const", "type": "Byte", "value": "2" }, { "kind": "const", "type": "Byte", "value": "3" }] } },
     { "op": "eval", "line": 9, "value": { "kind": "call", "type": "Nothing", "target": "tls.write", "args": [{ "kind": "local", "name": "c" }, { "kind": "local", "name": "payload" }] } },
     { "op": "bind", "line": 10, "mutable": false, "name": "text", "type": "String", "value": { "kind": "call", "type": "String", "target": "tls.readText", "args": [{ "kind": "local", "name": "c" }, { "kind": "const", "type": "Integer", "value": "16" }] } },

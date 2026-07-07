@@ -18,7 +18,7 @@
       ],
       "returnType": "Integer",
       "body": [
-      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "string", "value": "GET / HTTP/1.0r\nr\n" }] }, "line": 7 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "tls.writeText", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "string", "value": "GET / HTTP/1.0\r\n\r\n" }] }, "line": 7 },
       { "kind": "binding", "mutable": false, "name": "payload", "type": "List OF Byte", "value": { "kind": "list", "values": [{ "kind": "number", "value": "1" }, { "kind": "number", "value": "2" }, { "kind": "number", "value": "3" }] }, "line": 8 },
       { "kind": "expression", "expression": { "kind": "call", "callee": "tls.write", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "identifier", "value": "payload" }] }, "line": 9 },
       { "kind": "binding", "mutable": false, "name": "text", "type": null, "value": { "kind": "call", "callee": "tls.readText", "arguments": [{ "kind": "identifier", "value": "c" }, { "kind": "number", "value": "16" }] }, "line": 10 },
