@@ -1,0 +1,161 @@
+IMPORT collections
+
+' Consolidated runtime-behavior acceptance for the predicate builtins, converted
+' from the tests/func_filter_*_valid fixtures. Each Boolean observation from the
+' source fixture is asserted with expectEqual against its exact golden value, and
+' collections::filter results are asserted via their observable scalar
+' projections (len and element reads).
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "isEmpty"
+    TCASE "strings, lists, maps"
+      LET emptyList AS List OF Integer = []
+      LET list AS List OF Integer = [1, 2]
+      LET emptyMap AS Map OF String TO Integer = Map OF String TO Integer {}
+      LET map AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+      LET texts AS List OF String = ["", "Ada", ""]
+      LET emptyTexts AS List OF String = collections::filter(texts, isEmpty)
+      expectEqual(isEmpty(""), TRUE)
+      expectEqual(isEmpty("Ada"), FALSE)
+      expectEqual(isEmpty(emptyList), TRUE)
+      expectEqual(isEmpty(list), FALSE)
+      expectEqual(isEmpty(emptyMap), TRUE)
+      expectEqual(isEmpty(map), FALSE)
+      expectInteger(len(emptyTexts), 2)
+    END TCASE
+  END TGROUP
+
+  TGROUP "isNotEmpty"
+    TCASE "strings, lists, maps"
+      LET emptyList AS List OF Integer = []
+      LET list AS List OF Integer = [1, 2]
+      LET emptyMap AS Map OF String TO Integer = Map OF String TO Integer {}
+      LET map AS Map OF String TO Integer = Map OF String TO Integer { "Ada" := 36 }
+      LET texts AS List OF String = ["", "Ada", "Grace"]
+      LET filledTexts AS List OF String = collections::filter(texts, isNotEmpty)
+      expectEqual(isNotEmpty(""), FALSE)
+      expectEqual(isNotEmpty("Ada"), TRUE)
+      expectEqual(isNotEmpty(emptyList), FALSE)
+      expectEqual(isNotEmpty(list), TRUE)
+      expectEqual(isNotEmpty(emptyMap), FALSE)
+      expectEqual(isNotEmpty(map), TRUE)
+      expectInteger(len(filledTexts), 2)
+    END TCASE
+  END TGROUP
+
+  TGROUP "isEven"
+    TCASE "scalars and filter"
+      LET values AS List OF Integer = [-4, -3, 0, 1, 2]
+      LET evens AS List OF Integer = collections::filter(values, isEven)
+      expectEqual(isEven(0), TRUE)
+      expectEqual(isEven(2), TRUE)
+      expectEqual(isEven(-4), TRUE)
+      expectEqual(isEven(1), FALSE)
+      expectEqual(isEven(-3), FALSE)
+      expectInteger(len(evens), 3)
+      expectInteger(collections::get(evens, 0), -4)
+      expectInteger(collections::get(evens, 1), 0)
+      expectInteger(collections::get(evens, 2), 2)
+    END TCASE
+  END TGROUP
+
+  TGROUP "isOdd"
+    TCASE "scalars and filter"
+      LET values AS List OF Integer = [-4, -3, 0, 1, 2]
+      LET odds AS List OF Integer = collections::filter(values, isOdd)
+      expectEqual(isOdd(0), FALSE)
+      expectEqual(isOdd(2), FALSE)
+      expectEqual(isOdd(-4), FALSE)
+      expectEqual(isOdd(1), TRUE)
+      expectEqual(isOdd(-3), TRUE)
+      expectInteger(len(odds), 2)
+      expectInteger(collections::get(odds, 0), -3)
+      expectInteger(collections::get(odds, 1), 1)
+    END TCASE
+  END TGROUP
+
+  TGROUP "isNegative"
+    TCASE "int, float, fixed and filter"
+      LET integers AS List OF Integer = [-1, 0, 2]
+      LET negativeFloat AS Float = 0.0 - 1.5
+      LET zeroFloat AS Float = 0.0
+      LET positiveFloat AS Float = 2.25
+      LET zeroFixed AS Fixed = 0.000
+      LET oneFixed AS Fixed = 1.250
+      LET negativeFixed AS Fixed = zeroFixed - oneFixed
+      LET positiveFixed AS Fixed = 2.500
+      LET floats AS List OF Float = [negativeFloat, zeroFloat, positiveFloat]
+      LET fixeds AS List OF Fixed = [negativeFixed, zeroFixed, positiveFixed]
+      expectEqual(isNegative(-1), TRUE)
+      expectEqual(isNegative(0), FALSE)
+      expectEqual(isNegative(2), FALSE)
+      expectEqual(isNegative(negativeFloat), TRUE)
+      expectEqual(isNegative(0.0), FALSE)
+      expectEqual(isNegative(2.25), FALSE)
+      expectEqual(isNegative(negativeFixed), TRUE)
+      expectEqual(isNegative(0.000), FALSE)
+      expectEqual(isNegative(2.500), FALSE)
+      expectInteger(len(collections::filter(integers, isNegative)), 1)
+      expectInteger(len(collections::filter(floats, isNegative)), 1)
+      expectInteger(len(collections::filter(fixeds, isNegative)), 1)
+    END TCASE
+  END TGROUP
+
+  TGROUP "isPositive"
+    TCASE "int, float, fixed and filter"
+      LET integers AS List OF Integer = [-1, 0, 2]
+      LET negativeFloat AS Float = 0.0 - 1.5
+      LET zeroFloat AS Float = 0.0
+      LET positiveFloat AS Float = 2.25
+      LET zeroFixed AS Fixed = 0.000
+      LET oneFixed AS Fixed = 1.250
+      LET negativeFixed AS Fixed = zeroFixed - oneFixed
+      LET positiveFixed AS Fixed = 2.500
+      LET floats AS List OF Float = [negativeFloat, zeroFloat, positiveFloat]
+      LET fixeds AS List OF Fixed = [negativeFixed, zeroFixed, positiveFixed]
+      expectEqual(isPositive(-1), FALSE)
+      expectEqual(isPositive(0), FALSE)
+      expectEqual(isPositive(2), TRUE)
+      expectEqual(isPositive(negativeFloat), FALSE)
+      expectEqual(isPositive(0.0), FALSE)
+      expectEqual(isPositive(2.25), TRUE)
+      expectEqual(isPositive(negativeFixed), FALSE)
+      expectEqual(isPositive(0.000), FALSE)
+      expectEqual(isPositive(2.500), TRUE)
+      expectInteger(len(collections::filter(integers, isPositive)), 1)
+      expectInteger(len(collections::filter(floats, isPositive)), 1)
+      expectInteger(len(collections::filter(fixeds, isPositive)), 1)
+    END TCASE
+  END TGROUP
+
+  TGROUP "isZero"
+    TCASE "int, float, fixed and filter"
+      LET integers AS List OF Integer = [-1, 0, 2]
+      LET negativeFloat AS Float = 0.0 - 1.5
+      LET zeroFloat AS Float = 0.0
+      LET positiveFloat AS Float = 2.25
+      LET zeroFixed AS Fixed = 0.000
+      LET oneFixed AS Fixed = 1.250
+      LET negativeFixed AS Fixed = zeroFixed - oneFixed
+      LET positiveFixed AS Fixed = 2.500
+      LET floats AS List OF Float = [negativeFloat, zeroFloat, positiveFloat]
+      LET fixeds AS List OF Fixed = [negativeFixed, zeroFixed, positiveFixed]
+      expectEqual(isZero(-1), FALSE)
+      expectEqual(isZero(0), TRUE)
+      expectEqual(isZero(2), FALSE)
+      expectEqual(isZero(negativeFloat), FALSE)
+      expectEqual(isZero(0.0), TRUE)
+      expectEqual(isZero(2.25), FALSE)
+      expectEqual(isZero(negativeFixed), FALSE)
+      expectEqual(isZero(0.000), TRUE)
+      expectEqual(isZero(2.500), FALSE)
+      expectInteger(len(collections::filter(integers, isZero)), 1)
+      expectInteger(len(collections::filter(floats, isZero)), 1)
+      expectInteger(len(collections::filter(fixeds, isZero)), 1)
+    END TCASE
+  END TGROUP
+END TESTING

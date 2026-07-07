@@ -1,0 +1,38 @@
+$ mfb build -ast -ir tests/builtin-vector/syntax/dot_invalid
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET a AS Float = vector::dot(vector::Float2[1.0,2.0], vector::Float3[1.0,2.0,3.0])
+     | ^
+tests/builtin-vector/syntax/dot_invalid/src/main.mfb:6 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `vector.dot` has argument type(s) (Float2, Float3), expected two vectors of the same type.
+   4 | 
+   5 | FUNC main AS Integer
+   6 |   LET a AS Float = vector::dot(vector::Float2[1.0,2.0], vector::Float3[1.0,2.0,3.0])
+     | ^
+tests/builtin-vector/syntax/dot_invalid/src/main.mfb:6 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `a` does not have a known type.
+   5 | FUNC main AS Integer
+   6 |   LET a AS Float = vector::dot(vector::Float2[1.0,2.0], vector::Float3[1.0,2.0,3.0])
+   7 |   LET b AS Float = vector::dot(vector::Float2[1.0,2.0])
+     | ^
+tests/builtin-vector/syntax/dot_invalid/src/main.mfb:7 error[2-203-0022 TYPE_CALL_ARITY_MISMATCH]: function call has the wrong number of arguments
+               Call to `vector.dot` has 1 argument(s), expected 2.
+   5 | FUNC main AS Integer
+   6 |   LET a AS Float = vector::dot(vector::Float2[1.0,2.0], vector::Float3[1.0,2.0,3.0])
+   7 |   LET b AS Float = vector::dot(vector::Float2[1.0,2.0])
+     | ^
+tests/builtin-vector/syntax/dot_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `b` does not have a known type.
+   6 |   LET a AS Float = vector::dot(vector::Float2[1.0,2.0], vector::Float3[1.0,2.0,3.0])
+   7 |   LET b AS Float = vector::dot(vector::Float2[1.0,2.0])
+   8 |   LET c AS Float = vector::dot(1.0, 2.0)
+     | ^
+tests/builtin-vector/syntax/dot_invalid/src/main.mfb:8 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `vector.dot` has argument type(s) (Float, Float), expected two vectors of the same type.
+   6 |   LET a AS Float = vector::dot(vector::Float2[1.0,2.0], vector::Float3[1.0,2.0,3.0])
+   7 |   LET b AS Float = vector::dot(vector::Float2[1.0,2.0])
+   8 |   LET c AS Float = vector::dot(1.0, 2.0)
+     | ^
+tests/builtin-vector/syntax/dot_invalid/src/main.mfb:8 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `c` does not have a known type.
+[exit 1]

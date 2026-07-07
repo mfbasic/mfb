@@ -1,7 +1,0 @@
-IMPORT io
-IMPORT encoding
-
-FUNC main AS Integer
-  io::print(encoding::formUrlDecode("a+b%2Bc"))
-  RETURN 0
-END FUNC

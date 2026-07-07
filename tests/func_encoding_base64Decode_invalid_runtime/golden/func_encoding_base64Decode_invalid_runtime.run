@@ -1,4 +1,0 @@
-alphabet: ErrInvalidFormat
-length: ErrInvalidFormat
-padding: ErrInvalidFormat
-good: ok len=5

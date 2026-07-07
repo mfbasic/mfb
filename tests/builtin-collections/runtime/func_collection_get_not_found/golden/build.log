@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-collections/runtime/func_collection_get_not_found
+Wrote AST to tests/builtin-collections/runtime/func_collection_get_not_found/func_collection_get_not_found.ast
+Wrote IR to tests/builtin-collections/runtime/func_collection_get_not_found/func_collection_get_not_found.ir
+[exit 0]
+$ mfb build tests/builtin-collections/runtime/func_collection_get_not_found
+Wrote executable to tests/builtin-collections/runtime/func_collection_get_not_found/func_collection_get_not_found.out
+[exit 0]
+$ tests/builtin-collections/runtime/func_collection_get_not_found/func_collection_get_not_found.out
+Code: 77050004 Message: not found
+[exit 255]

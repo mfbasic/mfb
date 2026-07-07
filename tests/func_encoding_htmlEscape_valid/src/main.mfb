@@ -1,7 +1,0 @@
-IMPORT io
-IMPORT encoding
-
-FUNC main AS Integer
-  io::print(encoding::htmlEscape("<a href=\"x\">&'"))
-  RETURN 0
-END FUNC

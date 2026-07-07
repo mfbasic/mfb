@@ -1,4 +1,0 @@
-badescape: ErrInvalidFormat
-truncated: ErrInvalidFormat
-badutf8: ErrInvalidFormat
-good: ok

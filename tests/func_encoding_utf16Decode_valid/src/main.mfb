@@ -1,7 +1,0 @@
-IMPORT io
-IMPORT encoding
-
-FUNC main AS Integer
-  io::print(encoding::utf16Decode([104, 233, 108]))
-  RETURN 0
-END FUNC

@@ -1,7 +1,0 @@
-IMPORT io
-IMPORT encoding
-
-FUNC main AS Integer
-  io::print(encoding::punycodeDecode("xn--mnchen-3ya.de"))
-  RETURN 0
-END FUNC

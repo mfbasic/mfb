@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-collections/runtime/func_collection_sum_overflow
+Wrote AST to tests/builtin-collections/runtime/func_collection_sum_overflow/func_collection_sum_overflow.ast
+Wrote IR to tests/builtin-collections/runtime/func_collection_sum_overflow/func_collection_sum_overflow.ir
+[exit 0]
+$ mfb build tests/builtin-collections/runtime/func_collection_sum_overflow
+Wrote executable to tests/builtin-collections/runtime/func_collection_sum_overflow/func_collection_sum_overflow.out
+[exit 0]
+$ tests/builtin-collections/runtime/func_collection_sum_overflow/func_collection_sum_overflow.out
+Code: 77050010 Message: numeric overflow
+[exit 255]

@@ -1,0 +1,14 @@
+$ mfb build -ast -ir tests/builtin-collections/syntax/func_collection_transform_invalid
+   5 | FUNC main AS Integer
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET values = collections::transform(numbers, visit)
+     | ^
+tests/builtin-collections/syntax/func_collection_transform_invalid/src/main.mfb:7 error[2-203-0021 TYPE_CALL_ARGUMENT_MISMATCH]: function call argument type does not match parameter type
+               Call to `collections.transform` has argument type(s) (List OF Integer, FUNC(Integer) AS Nothing), expected List OF T, FUNC(T) AS U.
+   5 | FUNC main AS Integer
+   6 |   LET numbers AS List OF Integer = [1, 2, 3]
+   7 |   LET values = collections::transform(numbers, visit)
+     | ^
+tests/builtin-collections/syntax/func_collection_transform_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
+               Initializer for binding `values` does not have a known type.
+[exit 1]

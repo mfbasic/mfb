@@ -1,9 +1,0 @@
-IMPORT io
-IMPORT encoding
-
-FUNC main AS Integer
-  LET u AS List OF Integer = encoding::utf16Encode("héllo")
-  io::print(toString(len(u)))
-  io::print(encoding::utf16Decode(u))
-  RETURN 0
-END FUNC

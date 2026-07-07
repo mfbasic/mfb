@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-json/runtime/func_json_stringify_invalid_runtime
+Wrote AST to tests/builtin-json/runtime/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime.ast
+Wrote IR to tests/builtin-json/runtime/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime.ir
+[exit 0]
+$ mfb build tests/builtin-json/runtime/func_json_stringify_invalid_runtime
+Wrote executable to tests/builtin-json/runtime/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime.out
+[exit 0]
+$ tests/builtin-json/runtime/func_json_stringify_invalid_runtime/func_json_stringify_invalid_runtime.out
+Code: 77050003 Message: invalid format
+[exit 255]

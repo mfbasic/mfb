@@ -1,7 +1,0 @@
-IMPORT io
-IMPORT encoding
-
-FUNC main AS Integer
-  io::print(toString(encoding::sleb128Decode(encoding::sleb128Encode(0 - 123456))))
-  RETURN 0
-END FUNC

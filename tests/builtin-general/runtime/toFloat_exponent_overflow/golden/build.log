@@ -1,0 +1,10 @@
+$ mfb build -ast -ir tests/builtin-general/runtime/toFloat_exponent_overflow
+Wrote AST to tests/builtin-general/runtime/toFloat_exponent_overflow/func_general_toFloat_exponent_overflow.ast
+Wrote IR to tests/builtin-general/runtime/toFloat_exponent_overflow/func_general_toFloat_exponent_overflow.ir
+[exit 0]
+$ mfb build tests/builtin-general/runtime/toFloat_exponent_overflow
+Wrote executable to tests/builtin-general/runtime/toFloat_exponent_overflow/func_general_toFloat_exponent_overflow.out
+[exit 0]
+$ tests/builtin-general/runtime/toFloat_exponent_overflow/func_general_toFloat_exponent_overflow.out
+Code: 77050010 Message: numeric overflow
+[exit 255]

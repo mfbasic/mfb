@@ -1,0 +1,139 @@
+IMPORT json
+IMPORT strings
+
+' Consolidated runtime-behavior acceptance for the json builtins, converted
+' from the tests/func_json_*_valid fixtures. Each assertion compares the SAME
+' expression as the source fixture against that fixture's exact golden value,
+' using the typed TESTING assertions. json::stringify returns a String, so its
+' results are asserted with expectString; invalid-input paths that trap in the
+' source fixtures are asserted with expectTrap through a fallible wrapper FUNC.
+
+' The invalid-input fixtures observed a trap by catching it in a TRAP block and
+' printing "invalid"; expectTrap needs a fallible user FUNC call, so these
+' wrappers reproduce the fallible json::get / json::parse call.
+FUNC getPath(value AS Json, path AS List OF String) AS String
+  RETURN json::stringify(json::get(value, path))
+END FUNC
+
+FUNC parseValue(value AS String) AS String
+  RETURN json::stringify(json::parse(value))
+END FUNC
+
+' Projected scalar for the parse_valid byte-length observations.
+FUNC stringByteLen(value AS Json) AS Integer
+  MATCH value
+    CASE JsonStr(strValue)
+      RETURN strings::byteLen(strValue.value)
+    CASE ELSE
+      RETURN 0 - 1
+  END MATCH
+END FUNC
+
+FUNC controlChar(value AS Integer) AS String
+  LET bytes AS List OF Byte = [toByte(value)]
+  RETURN toString(bytes)
+END FUNC
+
+' The fixtures parse a key whose bytes are `user` but end in a carriage return
+' (the compiler's internal string mode turns the source `\r`-adjacent sequence
+' into a real CR); json::stringify then re-escapes that CR as the two-character
+' JSON escape backslash-r. Build that literal backslash + r for the expected.
+FUNC crEscape AS String
+  LET bytes AS List OF Byte = [toByte(92), toByte(114)]
+  RETURN toString(bytes)
+END FUNC
+
+FUNC backspaceChar AS String
+  LET bytes AS List OF Byte = [toByte(8)]
+  RETURN toString(bytes)
+END FUNC
+
+FUNC formfeedChar AS String
+  LET bytes AS List OF Byte = [toByte(12)]
+  RETURN toString(bytes)
+END FUNC
+
+FUNC controlChars(value AS Integer) AS String
+  IF value >= 32 THEN
+    RETURN ""
+  END IF
+  RETURN controlChar(value) & controlChars(value + 1)
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "parse"
+    TCASE "scalars and escapes"
+      expectString(json::stringify(json::parse(" null ")), "null")
+      expectString(json::stringify(json::parse("\"hi\"")), "\"hi\"")
+      expectString(json::stringify(json::parse("\"\\n\"")), "\"\\n\"")
+      expectString(json::stringify(json::parse("\"\\t\"")), "\"\\t\"")
+      expectString(json::stringify(json::parse("\"\\b\"")), "\"\\b\"")
+      expectString(json::stringify(json::parse("\"\\f\"")), "\"\\f\"")
+      expectString(json::stringify(json::parse("\"\\u0041\\uD83D\\uDE00\"")), "\"A😀\"")
+    END TCASE
+    TCASE "control-char string byte lengths"
+      expectInteger(stringByteLen(json::parse("\"\\u0000\"")), 1)
+      expectInteger(stringByteLen(json::parse("\"\\u001F\"")), 1)
+    END TCASE
+    TCASE "aggregates, number, named arg"
+      expectString(json::stringify(json::parse("[true,false,null,{\"x\":\"y\"}]")), "[true,false,null,{\"x\":\"y\"}]")
+      expectString(json::stringify(json::parse("-12.5e+2")), "-1250")
+      expectString(json::stringify(json::parse(value := "{\"named\":true}")), "{\"named\":true}")
+    END TCASE
+    TCASE "invalid input traps"
+      expectTrap(parseValue("\"\\uD83D\""))
+      expectTrap(parseValue("01"))
+      expectTrap(parseValue("true false"))
+      expectTrap(parseValue("\"" & "\n" & "\""))
+      expectTrap(parseValue("\"" & "\t" & "\""))
+      expectTrap(parseValue("\"" & controlChar(0) & "\""))
+      expectTrap(parseValue("\"" & controlChar(31) & "\""))
+    END TCASE
+  END TGROUP
+
+  TGROUP "get"
+    TCASE "nested reads"
+      LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
+      LET emptyPath AS List OF String = []
+      expectString(json::stringify(json::get(value, emptyPath)), "{\"use" & crEscape() & "\":{\"name\":\"Ada\",\"meta\":{\"active\":true}},\"nothing\":null}")
+      expectString(json::stringify(json::get(value, ["user", "name"])), "\"Ada\"")
+      expectString(json::stringify(json::get(value, ["user", "meta", "active"])), "true")
+      expectString(json::stringify(json::get(value, ["nothing"])), "null")
+    END TCASE
+    TCASE "invalid path traps"
+      LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+      expectTrap(getPath(value, ["user", "missing"]))
+      expectTrap(getPath(value, ["flag", "x"]))
+    END TCASE
+  END TGROUP
+
+  TGROUP "getOr"
+    TCASE "fallback on missing paths"
+      LET value AS Json = json::parse("{\"user\":{\"name\":\"Ada\"},\"flag\":true}")
+      LET fallback AS Json = JsonStr["fallback"]
+      LET emptyPath AS List OF String = []
+      expectString(json::stringify(json::getOr(value, emptyPath, fallback)), "{\"use" & crEscape() & "\":{\"name\":\"Ada\"},\"flag\":true}")
+      expectString(json::stringify(json::getOr(value, ["user", "name"], fallback)), "\"Ada\"")
+      expectString(json::stringify(json::getOr(value, ["user", "missing"], fallback)), "\"fallback\"")
+      expectString(json::stringify(json::getOr(value, ["flag", "x"], fallback)), "\"fallback\"")
+    END TCASE
+  END TGROUP
+
+  TGROUP "stringify"
+    TCASE "values and escapes"
+      LET escaped AS String = "\"" & "\\" & "/" & "\n" & "\t" & "\r" & backspaceChar() & formfeedChar()
+      expectString(json::stringify(JsonNull[NOTHING]), "null")
+      expectString(json::stringify(JsonBool[TRUE]), "true")
+      expectString(json::stringify(JsonBool[FALSE]), "false")
+      expectString(json::stringify(JsonNum[toFloat("-12.5")]), "-12.5")
+      expectString(json::stringify(JsonStr[escaped]), "\"\\\"\\\\\\/\\n\\t\\r\\b\\f\"")
+      expectString(json::stringify(JsonStr[controlChars(0)]), "\"\\u0000\\u0001\\u0002\\u0003\\u0004\\u0005\\u0006\\u0007\\b\\t\\n\\u000B\\f\\r\\u000E\\u000F\\u0010\\u0011\\u0012\\u0013\\u0014\\u0015\\u0016\\u0017\\u0018\\u0019\\u001A\\u001B\\u001C\\u001D\\u001E\\u001F\"")
+      expectString(json::stringify(JsonArr[[]]), "[]")
+      expectString(json::stringify(JsonObj[Map OF String TO Json { "name" := JsonStr["Ada"] }]), "{\"name\":\"Ada\"}")
+    END TCASE
+  END TGROUP
+END TESTING

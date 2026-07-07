@@ -1,7 +1,0 @@
-IMPORT io
-IMPORT encoding
-
-FUNC main AS Integer
-  io::print(encoding::base64UrlEncode([toByte(251), toByte(255), toByte(191)]))
-  RETURN 0
-END FUNC
