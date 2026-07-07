@@ -69,6 +69,35 @@ pub enum Item {
     /// header line alone names the declaration it documents; proximity is not
     /// assumed. Resolution links it to its target and validates its contents.
     Doc(DocBlock),
+    /// A `TESTING … END TESTING` block (plan-18-testing.md) holding `TGROUP`/`TCASE`
+    /// test cases. Parsed and validated in every mode; dropped before codegen for
+    /// `mfb build`, and desugared into a synthesized driver for `mfb test`.
+    Testing(TestingBlock),
+}
+
+/// A `TESTING … END TESTING` top-level block: a flat list of `TGROUP` groups in
+/// declaration order (plan-18-testing.md §4).
+#[derive(Clone, Debug)]
+pub struct TestingBlock {
+    pub groups: Vec<TestGroup>,
+    pub line: usize,
+}
+
+/// A `TGROUP <string> … END TGROUP` group: a described bundle of `TCASE` cases.
+#[derive(Clone, Debug)]
+pub struct TestGroup {
+    pub description: String,
+    pub cases: Vec<TestCase>,
+    pub line: usize,
+}
+
+/// A `TCASE <string> … END TCASE` case: a described statement body exercising the
+/// assertion builtins (`expectEQ`/`expectNQ`/`expectTrap`/`expectNTrap`).
+#[derive(Clone, Debug)]
+pub struct TestCase {
+    pub description: String,
+    pub body: Vec<Statement>,
+    pub line: usize,
 }
 
 /// The kind named by a `DOC` block's header line.

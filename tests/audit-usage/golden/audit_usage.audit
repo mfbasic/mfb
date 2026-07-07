@@ -43,6 +43,7 @@ Repository & Auth:
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
+  test [options] [path]   Build and run the project's TESTING blocks
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
 
@@ -100,6 +101,7 @@ Repository & Auth:
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
+  test [options] [path]   Build and run the project's TESTING blocks
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
 

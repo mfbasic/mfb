@@ -1138,4 +1138,66 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "DOC header parameter types match no overload of the declaration",
     },
+    // Test framework (plan-18-testing.md) — TESTING/TGROUP/TCASE parse errors and
+    // the assertion-builtin semantic checks.
+    Rule {
+        code: "1-102-0010",
+        name: "MFB_PARSE_TESTING_EXPECTED_TGROUP",
+        severity: Severity::Error,
+        message: "a TESTING block may contain only TGROUP groups",
+    },
+    Rule {
+        code: "1-102-0011",
+        name: "MFB_PARSE_TESTING_EXPECTED_TCASE",
+        severity: Severity::Error,
+        message: "a TGROUP may contain only TCASE cases",
+    },
+    Rule {
+        code: "1-102-0012",
+        name: "MFB_PARSE_TESTING_DESCRIPTION",
+        severity: Severity::Error,
+        message: "a TGROUP/TCASE requires a string-literal description",
+    },
+    Rule {
+        code: "2-208-0001",
+        name: "TESTING_EXPECT_OUTSIDE_TCASE",
+        severity: Severity::Error,
+        message: "assertion builtins are valid only inside a TCASE body",
+    },
+    Rule {
+        code: "2-208-0002",
+        name: "TESTING_EXPECT_ARITY",
+        severity: Severity::Error,
+        message: "assertion builtin called with the wrong number of arguments",
+    },
+    Rule {
+        code: "2-208-0003",
+        name: "TESTING_EXPECT_INCOMPARABLE",
+        severity: Severity::Error,
+        message: "expectEQ/expectNQ operands must be comparable with `=`",
+    },
+    Rule {
+        code: "2-208-0004",
+        name: "TESTING_EXPECT_NOT_PRINTABLE",
+        severity: Severity::Error,
+        message: "expectEQ/expectNQ operands must be printable for the failure message",
+    },
+    Rule {
+        code: "2-208-0005",
+        name: "TESTING_EXPECT_CODE_TYPE",
+        severity: Severity::Error,
+        message: "expectTrap expected-code argument must be an Integer",
+    },
+    Rule {
+        code: "2-208-0006",
+        name: "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
+        severity: Severity::Error,
+        message: "expectTrap/expectNTrap require a fallible call to trap-guard",
+    },
+    Rule {
+        code: "2-208-0007",
+        name: "TESTING_EXPECT_TRAP_INLINE_BUILTIN",
+        severity: Severity::Error,
+        message: "expectTrap/expectNTrap cannot trap-guard an inline-compiled builtin",
+    },
 ];

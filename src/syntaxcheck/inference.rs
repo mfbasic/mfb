@@ -199,6 +199,9 @@ impl<'a> SyntaxChecker<'a> {
             Expression::Call {
                 callee, arguments, ..
             } => {
+                if builtins::testing::is_expect_call(callee) {
+                    return self.check_expect_call(file, callee, arguments, locals, line);
+                }
                 let canonical_callee = self.canonical_import_name(file, callee);
                 if builtins::is_package_constant(&canonical_callee) {
                     for argument in arguments {
@@ -955,6 +958,172 @@ impl<'a> SyntaxChecker<'a> {
             numeric_binary_result_type(operator, left, right)
         } else {
             Type::Unknown
+        }
+    }
+
+    /// Type-check one of the four assertion builtins (plan-18-B). All produce
+    /// `Nothing`; the argument constraints differ per builtin. Called from the
+    /// `Call` arm before general builtin dispatch.
+    pub(super) fn check_expect_call(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        arguments: &[CallArg],
+        locals: &mut HashMap<String, LocalInfo>,
+        line: usize,
+    ) -> Type {
+        use crate::builtins::testing::{EXPECT_EQ, EXPECT_NQ, EXPECT_NTRAP, EXPECT_TRAP};
+
+        if let Some((min, max)) = crate::builtins::testing::expect_arity(callee) {
+            if arguments.len() < min || arguments.len() > max {
+                self.report(
+                    "TESTING_EXPECT_ARITY",
+                    &format!(
+                        "`{callee}` expects {} argument(s), got {}.",
+                        if min == max {
+                            min.to_string()
+                        } else {
+                            format!("{min}–{max}")
+                        },
+                        arguments.len()
+                    ),
+                    file,
+                    line,
+                );
+            }
+        }
+
+        let arg = |index: usize| arguments.get(index).map(call_arg_value);
+        match callee {
+            EXPECT_EQ | EXPECT_NQ => {
+                let left = arg(0)
+                    .map(|value| self.infer_expression(file, value, locals, line, ExprMode::Read))
+                    .unwrap_or(Type::Unknown);
+                let right = arg(1)
+                    .map(|value| self.infer_expression(file, value, locals, line, ExprMode::Read))
+                    .unwrap_or(Type::Unknown);
+                // Reuse language `=` acceptance: `Unknown` means the operands are
+                // not equality-comparable (and neither operand was itself Unknown).
+                let comparable = matches!(self.infer_binary(file, "=", &left, &right, line), Type::Boolean);
+                if !comparable
+                    && !matches!(left, Type::Unknown)
+                    && !matches!(right, Type::Unknown)
+                {
+                    self.report(
+                        "TESTING_EXPECT_INCOMPARABLE",
+                        &format!(
+                            "`{callee}` operands must be comparable with `=`; got {} and {}.",
+                            self.type_name(&left),
+                            self.type_name(&right)
+                        ),
+                        file,
+                        line,
+                    );
+                }
+                for operand in [&left, &right] {
+                    if !self.is_printable(operand) {
+                        self.report(
+                            "TESTING_EXPECT_NOT_PRINTABLE",
+                            &format!(
+                                "`{callee}` operands must be printable (a scalar, String, Byte, or List OF Byte); got {}.",
+                                self.type_name(operand)
+                            ),
+                            file,
+                            line,
+                        );
+                    }
+                }
+            }
+            EXPECT_TRAP => {
+                if let Some(value) = arg(0) {
+                    self.infer_expression(file, value, locals, line, ExprMode::Read);
+                    self.check_trap_guardable(file, callee, value, line);
+                }
+                if let Some(value) = arg(1) {
+                    let code = self.infer_expression(file, value, locals, line, ExprMode::Read);
+                    if !self.compatible(&Type::Integer, &code) {
+                        self.report(
+                            "TESTING_EXPECT_CODE_TYPE",
+                            &format!(
+                                "`{callee}` expected-code argument must be an Integer; got {}.",
+                                self.type_name(&code)
+                            ),
+                            file,
+                            line,
+                        );
+                    }
+                }
+            }
+            EXPECT_NTRAP => {
+                if let Some(value) = arg(0) {
+                    self.infer_expression(file, value, locals, line, ExprMode::Read);
+                    self.check_trap_guardable(file, callee, value, line);
+                }
+            }
+            _ => {}
+        }
+        Type::Nothing
+    }
+
+    /// `expectTrap`/`expectNTrap` evaluate their argument under a trap guard built
+    /// on the inline-TRAP machinery, so the argument must be a genuinely-fallible
+    /// call that the raw-TRAP path can wrap — the same constraint as an inline
+    /// `TRAP` (§8.6 rules 11/14).
+    fn check_trap_guardable(
+        &mut self,
+        file: &AstFile,
+        callee: &str,
+        expression: &Expression,
+        line: usize,
+    ) {
+        let Expression::Call {
+            callee: inner_callee,
+            ..
+        } = expression
+        else {
+            self.report(
+                "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
+                &format!("`{callee}` requires a fallible call expression to trap-guard."),
+                file,
+                line,
+            );
+            return;
+        };
+        let canonical = self.canonical_import_name(file, inner_callee);
+        if builtins::is_package_constant(&canonical)
+            || builtins::inline_builtin_is_infallible(&canonical)
+        {
+            self.report(
+                "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
+                &format!("`{callee}` requires a fallible call; this expression cannot fail."),
+                file,
+                line,
+            );
+        } else if builtins::inline_trap_unsupported(&canonical) {
+            self.report(
+                "TESTING_EXPECT_TRAP_INLINE_BUILTIN",
+                &format!(
+                    "`{callee}` cannot trap-guard `{canonical}` (it is compiled inline). Wrap the call in a FUNC/SUB and pass that call instead."
+                ),
+                file,
+                line,
+            );
+        }
+    }
+
+    /// Whether a value of `type_` can be rendered by `toString` for an assertion
+    /// failure message. `Unknown` is treated as printable to avoid error cascades.
+    fn is_printable(&self, type_: &Type) -> bool {
+        match type_ {
+            Type::Integer
+            | Type::Float
+            | Type::Fixed
+            | Type::Boolean
+            | Type::String
+            | Type::Byte
+            | Type::Unknown => true,
+            Type::List(inner) => matches!(**inner, Type::Byte),
+            _ => false,
         }
     }
 

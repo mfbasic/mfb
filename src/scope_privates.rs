@@ -117,7 +117,7 @@ fn item_name_vis(item: &Item) -> Option<(&str, Visibility, bool)> {
         Item::Type(t) => Some((&t.name, t.visibility, true)),
         Item::Resource(r) => Some((&r.name, r.visibility, false)),
         Item::FuncAlias(a) => Some((&a.name, a.visibility, false)),
-        Item::Link(_) | Item::Doc(_) => None,
+        Item::Link(_) | Item::Doc(_) | Item::Testing(_) => None,
     }
 }
 
@@ -128,7 +128,7 @@ fn item_line(item: &Item) -> usize {
         Item::Type(t) => t.line,
         Item::Resource(r) => r.line,
         Item::FuncAlias(a) => a.line,
-        Item::Link(_) | Item::Doc(_) => 0,
+        Item::Link(_) | Item::Doc(_) | Item::Testing(_) => 0,
     }
 }
 
@@ -140,7 +140,7 @@ fn rename_decl(item: &mut Item, rename: &HashMap<String, String>) {
         Item::Type(t) => &mut t.name,
         Item::Resource(r) => &mut r.name,
         Item::FuncAlias(a) => &mut a.name,
-        Item::Link(_) | Item::Doc(_) => return,
+        Item::Link(_) | Item::Doc(_) | Item::Testing(_) => return,
     };
     if let Some(mangled) = rename.get(name) {
         *name = mangled.clone();
@@ -190,6 +190,16 @@ fn rewrite_item_refs(
             }
             if let Some(value) = binding.value.as_mut() {
                 rewrite_expr(value, rename, types, &HashSet::new());
+            }
+        }
+        Item::Testing(testing) => {
+            // TESTING case bodies are ordinary statement blocks and may reference
+            // file-local PRIVATE declarations; rewrite them before the block is
+            // desugared into generated SUBs (plan-18-A).
+            for group in testing.groups.iter_mut() {
+                for case in group.cases.iter_mut() {
+                    rewrite_block(&mut case.body, rename, types, &HashSet::new());
+                }
             }
         }
         Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) | Item::Doc(_) => {}

@@ -77,12 +77,13 @@ unallocated). The scheme leaves room; it does not densely fill it.
 | --- | --- | --- |
 | `1-100` | MFBASIC source intake (read/root/overlap) | 5 |
 | `1-101` | lexer | 2 |
-| `1-102` | parser | 9 |
+| `1-102` | parser | 12 |
 | `1-103` | DOC block structure (lexer/parser) | 4 |
 | `2-200` | `project.json` validation + build orchestration | 13 |
 | `2-201` | imports & symbol resolution | 16 |
 | `2-203` | semantic checking (typing, ownership, native ABI) | 100 |
 | `2-205` | DOC block semantics (resolver) + package metadata | 23 |
+| `2-208` | test framework (assertion builtins) | 7 |
 | `3-302` | verification | 1 |
 | `3-304` | target/codegen support | 2 |
 | `5-500` | linking | 1 |
@@ -240,6 +241,9 @@ severity is `error`.
 | `1-102-0007` | `MFB_PARSE_PIPELINE_PLACEHOLDER_MISSING` | error | pipeline expression is missing a placeholder |
 | `1-102-0008` | `MFB_PARSE_MISSING_NATIVE_SYMBOL` | error | a native LINK function must declare its native SYMBOL |
 | `1-102-0009` | `MFB_PARSE_MISSING_NATIVE_ABI` | error | a native LINK function must declare its ABI signature |
+| `1-102-0010` | `MFB_PARSE_TESTING_EXPECTED_TGROUP` | error | a TESTING block may contain only TGROUP groups |
+| `1-102-0011` | `MFB_PARSE_TESTING_EXPECTED_TCASE` | error | a TGROUP may contain only TCASE cases |
+| `1-102-0012` | `MFB_PARSE_TESTING_DESCRIPTION` | error | a TGROUP/TCASE requires a string-literal description |
 
 ### `1-103` — DOC block structure (lexer/parser)
 
@@ -449,6 +453,18 @@ DOC block semantics (resolver):
 | `2-205-0019` | `DOC_GROUP_INVALID_CONTEXT` | error | GROUP is valid only on FUNC and SUB doc blocks |
 | `2-205-0020` | `DOC_DUPLICATE_GROUP` | error | more than one GROUP line in a doc block |
 | `2-205-0021` | `DOC_OVERLOAD_UNRESOLVED` | error | DOC header parameter types match no overload of the declaration |
+
+### `2-208` — Test framework (assertion builtins)
+
+| code | NAME | severity | message |
+| --- | --- | --- | --- |
+| `2-208-0001` | `TESTING_EXPECT_OUTSIDE_TCASE` | error | assertion builtins are valid only inside a TCASE body |
+| `2-208-0002` | `TESTING_EXPECT_ARITY` | error | assertion builtin called with the wrong number of arguments |
+| `2-208-0003` | `TESTING_EXPECT_INCOMPARABLE` | error | expectEQ/expectNQ operands must be comparable with `=` |
+| `2-208-0004` | `TESTING_EXPECT_NOT_PRINTABLE` | error | expectEQ/expectNQ operands must be printable for the failure message |
+| `2-208-0005` | `TESTING_EXPECT_CODE_TYPE` | error | expectTrap expected-code argument must be an Integer |
+| `2-208-0006` | `TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE` | error | expectTrap/expectNTrap require a fallible call to trap-guard |
+| `2-208-0007` | `TESTING_EXPECT_TRAP_INLINE_BUILTIN` | error | expectTrap/expectNTrap cannot trap-guard an inline-compiled builtin |
 
 ### `3-302` — Verification
 

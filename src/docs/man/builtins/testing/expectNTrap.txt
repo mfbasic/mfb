@@ -1,0 +1,50 @@
+NAME
+  expectNTrap - assert that evaluating an expression does not trap
+
+SYNOPSIS
+  expectNTrap(expression)
+
+PACKAGE
+  testing
+
+IMPORTS
+  None. testing assertions are available without an IMPORT statement, but only
+  inside a TCASE body.
+
+DESCRIPTION
+  expectNTrap evaluates expression inside a trap guard and passes iff the
+  evaluation does not trap. Its value is discarded.
+
+  Because the argument is evaluated under a trap guard, it must be a genuinely-
+  fallible call — the same constraint as an inline TRAP. A non-call, an infallible
+  call, or an inline-compiled builtin is rejected at compile time; wrap such an
+  operation in a FUNC/SUB and pass that call instead.
+
+  On failure (a trap occurred) expectNTrap records the detail "unexpected trap:
+  <message>", aborts the current TCASE, and lets sibling cases and groups
+  continue.
+
+PARAMETERS
+  expression
+    A fallible call expected to succeed. Evaluated for the absence of a trap.
+
+RETURN VALUE
+  Nothing. expectNTrap is a statement-level assertion.
+
+ERRORS
+  On a failed assertion, raises the reserved internal test-abort error caught by
+  the mfb test driver.
+
+EXAMPLES
+  Assert that valid input does not trap:
+
+    TESTING
+      TGROUP "parsing"
+        TCASE "good input does not trap"
+          expectNTrap(parseInt("42"))
+        END TCASE
+      END TGROUP
+    END TESTING
+
+SEE ALSO
+  expectTrap, expectEQ, expectNQ

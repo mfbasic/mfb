@@ -128,6 +128,7 @@ fn publish_package_project(owner: &str, project_dir: &Path) -> Result<(), String
         app_mode: false,
         regalloc: target::shared::code::regalloc::active_kind(),
         allow_unsigned: false,
+        mode: crate::testing::CompileMode::Build,
     })
     .map_err(|_| "package build failed".to_string())?;
 
@@ -339,6 +340,7 @@ fn check_abi(project_dir: &Path) -> Result<(), String> {
         app_mode: false,
         regalloc: target::shared::code::regalloc::active_kind(),
         allow_unsigned: false,
+        mode: crate::testing::CompileMode::Build,
     })
     .map_err(|_| "package build failed".to_string())?;
 

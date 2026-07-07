@@ -179,7 +179,7 @@ pub fn export_in_executable_diagnostics(
                 Item::Type(type_decl) => (type_decl.visibility, type_decl.line),
                 Item::Resource(resource) => (resource.visibility, resource.line),
                 Item::FuncAlias(alias) => (alias.visibility, alias.line),
-                Item::Link(_) | Item::Doc(_) => continue,
+                Item::Link(_) | Item::Doc(_) | Item::Testing(_) => continue,
             };
             if matches!(visibility, Visibility::Export) {
                 diagnostics.push(crate::rules::PendingDiagnostic {
@@ -1518,6 +1518,8 @@ impl<'a> SyntaxChecker<'a> {
                     Item::FuncAlias(_) => {}
                     // DOC blocks carry no executable code to syntaxcheck.
                     Item::Doc(_) => {}
+                    // TESTING blocks are lowered away before syntaxcheck (plan-18-A §3).
+                    Item::Testing(_) => {}
                 }
             }
         }

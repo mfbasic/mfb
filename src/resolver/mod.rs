@@ -304,6 +304,9 @@ impl<'a> Resolver<'a> {
                     // DOC blocks declare no symbols; they are resolved separately
                     // after symbol collection (see `resolve_doc_blocks`).
                     Item::Doc(_) => {}
+                    // TESTING blocks are lowered away (dropped or desugared into
+                    // ordinary SUBs) before resolution runs (plan-18-A §3).
+                    Item::Testing(_) => {}
                 }
             }
         }

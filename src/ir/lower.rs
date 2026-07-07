@@ -255,6 +255,8 @@ pub fn lower_project_with_external_functions(
                 // DOC blocks carry no executable body; documentation is collected
                 // separately into the project's doc table.
                 Item::Doc(_) => {}
+                // TESTING blocks are lowered away before IR lowering (plan-18-A §3).
+                Item::Testing(_) => {}
             }
         }
     }
@@ -1016,6 +1018,26 @@ fn lower_statement(
             }]
         }
         Statement::Expression { expression, .. } => {
+            // Assertion builtins (plan-18-B) desugar to ordinary statements —
+            // comparisons + FAIL, or a trap-guarded evaluation — which are then
+            // lowered through the normal path. Doing it here (post-typecheck)
+            // sidesteps the source-level RECOVER-typing constraint on a
+            // value-producing trapped expression.
+            if let Expression::Call {
+                callee,
+                arguments,
+                line: call_line,
+                ..
+            } = expression
+            {
+                if crate::builtins::testing::is_expect_call(callee) {
+                    let uid = context.next_temp_id;
+                    context.next_temp_id += 1;
+                    let expanded =
+                        crate::testing::expand_expect(callee, arguments, uid, *call_line);
+                    return lower_statement_block(&expanded, locals, context, trap_name);
+                }
+            }
             if let Expression::Trapped {
                 expression: inner,
                 binding,

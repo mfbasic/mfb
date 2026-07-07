@@ -20,6 +20,7 @@ mod rules;
 mod scope_privates;
 mod syntaxcheck;
 mod target;
+mod testing;
 #[cfg(test)]
 mod testutil;
 mod unicode_backend;
@@ -30,7 +31,7 @@ use std::path::Path;
 use std::process;
 use tinyjson::JsonValue;
 
-use cli::build::{build_project, parse_build_options};
+use cli::build::{build_project, parse_build_options, parse_test_options};
 use cli::doc::run_doc_command;
 use cli::fmt::run_fmt_command;
 use cli::init::{init_package_project, init_project};
@@ -82,6 +83,7 @@ Repository & Auth:
 
 Build & Development:
   build [options] [path]  Validate and build an MFBASIC project
+  test [options] [path]   Build and run the project's TESTING blocks
   fmt [options] [path]    Format project source (indentation/capitalization)
   audit [options] [path]  Report security and code audit findings
 
@@ -160,6 +162,20 @@ Debug/Inspection (Emits intermediate output):
   -nir                Outputs native IR
   -nplan              Outputs the execution plan
   -ncode              Outputs native code output";
+
+pub(crate) const TEST_HELP: &str = "\
+Usage: mfb test [options] [path]
+
+Build and run the project's TESTING blocks, streaming a pass/fail tree and a
+summary line. Exits non-zero iff any case failed.
+
+Arguments:
+  [path]              Path to the project (default: current directory)
+
+Options:
+  --coverage          Emit coverage.html for the exercised source lines
+  -target <os-arch>   Build for a specific target (only host targets are run)
+  -regalloc <name>    Select the register-allocation strategy";
 
 pub(crate) const FMT_HELP: &str = "\
 Usage: mfb fmt [options] [path]
@@ -290,6 +306,24 @@ fn main() {
             };
 
             if let Err(()) = build_project(&build_options) {
+                process::exit(1);
+            }
+        }
+        Some("test") => {
+            let test_args = args.collect::<Vec<_>>();
+            if test_args.iter().any(|arg| is_help_flag(arg)) {
+                println!("{TEST_HELP}");
+                return;
+            }
+            let test_options = match parse_test_options(test_args) {
+                Ok(options) => options,
+                Err(err) => {
+                    eprintln!("error: {err}\n\n{USAGE}");
+                    process::exit(2);
+                }
+            };
+
+            if let Err(()) = build_project(&test_options) {
                 process::exit(1);
             }
         }

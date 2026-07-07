@@ -82,7 +82,79 @@ impl ToAstJson for Item {
             Item::FuncAlias(alias) => alias.to_json(indent),
             Item::Link(link) => link.to_json(indent),
             Item::Doc(doc) => doc.to_json(indent),
+            Item::Testing(testing) => testing.to_json(indent),
         }
+    }
+}
+
+impl ToAstJson for TestingBlock {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"kind\": \"testing\",\n",
+                "{}  \"line\": {},\n",
+                "{}  \"groups\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.groups, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for TestGroup {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"description\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"cases\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            json_string(&self.description),
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.cases, indent + 2),
+            pad,
+            pad
+        )
+    }
+}
+
+impl ToAstJson for TestCase {
+    fn to_json(&self, indent: usize) -> String {
+        let pad = " ".repeat(indent);
+        format!(
+            concat!(
+                "\n{}{{\n",
+                "{}  \"description\": {},\n",
+                "{}  \"line\": {},\n",
+                "{}  \"body\": [{}\n{}  ]\n",
+                "{}}}"
+            ),
+            pad,
+            pad,
+            json_string(&self.description),
+            pad,
+            self.line,
+            pad,
+            join_indented(&self.body, indent + 2),
+            pad,
+            pad
+        )
     }
 }
 

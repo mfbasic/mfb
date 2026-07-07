@@ -38,6 +38,9 @@ pub(crate) struct BuildOptions {
     /// dependencies are always permitted; this flag additionally allows unsigned
     /// dependencies pulled from a remote/registry source.
     pub(crate) allow_unsigned: bool,
+    /// Ordinary build vs. `mfb test` (plan-18). In test mode the `TESTING`
+    /// blocks are desugared into a runnable driver instead of being dropped.
+    pub(crate) mode: crate::testing::CompileMode,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -133,6 +136,7 @@ pub(crate) fn parse_build_options(args: Vec<String>) -> Result<BuildOptions, Str
         app_mode,
         regalloc,
         allow_unsigned,
+        mode: crate::testing::CompileMode::Build,
     })
 }
 
@@ -184,19 +188,46 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         .and_then(|value| value.get::<String>())
         .expect("validated project name");
     let mut ast = ast::parse_project(project_name, &options.location, &manifest)?;
+    // plan-18: the assertion builtins are valid only inside a TCASE body; reject
+    // any that appear elsewhere before lowering the TESTING blocks away.
+    if crate::testing::validate_expect_placement(&ast) {
+        return Err(());
+    }
     // plan-24-C: rename file-local PRIVATE top-level declarations to unique
     // `#<hash>$name` internal names (and rewrite their in-file references) BEFORE
     // resolving, so same-named privates in different files never collide and every
-    // later stage sees globally-unique names. Returns shadow warnings (rendered
-    // with the other diagnostics below) and a should-never-fire hash-collision.
+    // later stage sees globally-unique names. Runs before the TESTING lowering so
+    // case bodies (which may reference privates) are rewritten consistently.
+    // Returns shadow warnings (rendered with the other diagnostics below) and a
+    // should-never-fire hash-collision.
     let scope_diagnostics = crate::scope_privates::scope_privates(&mut ast);
+    // The `-ast` dump shows the parsed TESTING syntax (post-rename), so snapshot
+    // after `scope_privates` but before the blocks are lowered away — only when
+    // the dump is actually requested.
+    let ast_dump = options
+        .outputs
+        .contains(&BuildOutput::Ast)
+        .then(|| ast.clone());
+    // Lower every TESTING block: `mfb build` drops them (byte-identical to a
+    // program without them); `mfb test` desugars them into a runnable driver and
+    // returns its synthesized entry-point name.
+    let test_entry = crate::testing::lower_testing_blocks(&mut ast, options.mode);
     resolver::resolve_project(&options.location, &manifest, &ast)?;
     let concrete_ast = monomorph::monomorphize_project(&options.location, &ast)?;
     // Skip DOC validation on the post-monomorph pass: monomorphization renames
     // overloaded/generic declarations, so their doc headers would falsely appear
     // unresolved. The original-AST pass above already validated them.
     resolver::resolve_project_with(&options.location, &manifest, &concrete_ast, false)?;
-    let entry = validate_entry_point(&options.location, &manifest, &concrete_ast)?;
+    // In test mode the synthesized driver is the entry point (it replaces the
+    // manifest `main`), so bypass entry validation and point at the driver.
+    let entry = match &test_entry {
+        Some(name) => Some(ir::EntryPoint {
+            name: name.clone(),
+            returns: "Integer".to_string(),
+            accepts_args: false,
+        }),
+        None => validate_entry_point(&options.location, &manifest, &concrete_ast)?,
+    };
     // plan-20-Z cutover: the semantic rules are split across two passes that
     // both run to completion (neither short-circuits the other) so a program
     // with errors of both kinds reports all of them:
@@ -275,7 +306,9 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     };
 
     if options.outputs.is_empty() {
-        if project_kind == "executable" {
+        // `mfb test` always builds a runnable executable (the synthesized driver
+        // entry), even for a package project whose normal build emits a `.mfp`.
+        if project_kind == "executable" || options.mode.is_test() {
             let packages =
                 installed_package_files(&options.location, &manifest).map_err(|err| {
                     eprintln!("error: {err}");
@@ -303,6 +336,21 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
             .map_err(|err| {
                 eprintln!("error: {err}");
             })?;
+            // `mfb test` compiles the driver, then runs it and adopts its exit
+            // status (non-zero iff any case failed). It only runs a host-native
+            // binary; a cross `-target` test build just reports the artifact.
+            if options.mode.is_test() {
+                let runnable = executable_paths.first().cloned();
+                if target.is_host() {
+                    if let Some(path) = runnable {
+                        return run_test_binary(&path);
+                    }
+                }
+                for executable_path in executable_paths {
+                    println!("Wrote test executable to {}", executable_path.display());
+                }
+                return Ok(());
+            }
             for executable_path in executable_paths {
                 println!("Wrote executable to {}", executable_path.display());
             }
@@ -361,7 +409,8 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
         // dumps require an executable project.
         match output {
             BuildOutput::Ast => {
-                let ast_path = ast::write_ast(&options.location, &ast).map_err(|err| {
+                let dump_ast = ast_dump.as_ref().unwrap_or(&ast);
+                let ast_path = ast::write_ast(&options.location, dump_ast).map_err(|err| {
                     eprintln!("error: {err}");
                 })?;
                 println!("Wrote AST to {}", ast_path.display());
@@ -522,6 +571,65 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
     }
 
     Ok(())
+}
+
+/// Parse `mfb test [location] [--coverage] [-target …] [-regalloc …]`. The build
+/// pipeline is shared with `mfb build`; only the compile mode and the always-run
+/// behavior differ (plan-18).
+pub(crate) fn parse_test_options(args: Vec<String>) -> Result<BuildOptions, String> {
+    let mut location = None;
+    let mut target = None;
+    let mut regalloc = target::shared::code::regalloc::active_kind();
+    let mut coverage = false;
+    let mut iter = args.into_iter();
+
+    while let Some(arg) = iter.next() {
+        if arg == "--coverage" {
+            coverage = true;
+        } else if arg == "-target" {
+            let Some(value) = iter.next() else {
+                return Err("mfb test -target requires os-arch".to_string());
+            };
+            target = Some(target::BuildTarget::parse(&value)?);
+        } else if let Some(value) = arg.strip_prefix("-target=") {
+            target = Some(target::BuildTarget::parse(value)?);
+        } else if arg == "-regalloc" {
+            let Some(value) = iter.next() else {
+                return Err("mfb test -regalloc requires a strategy name".to_string());
+            };
+            regalloc = target::shared::code::regalloc::parse_kind(&value)?;
+        } else if let Some(value) = arg.strip_prefix("-regalloc=") {
+            regalloc = target::shared::code::regalloc::parse_kind(value)?;
+        } else if arg.starts_with('-') {
+            return Err(format!("unknown test option `{arg}`"));
+        } else if location.replace(PathBuf::from(&arg)).is_some() {
+            return Err("mfb test accepts at most one [location]".to_string());
+        }
+    }
+
+    Ok(BuildOptions {
+        location: location.unwrap_or_else(|| PathBuf::from(".")),
+        outputs: Vec::new(),
+        target: target.unwrap_or_else(target::BuildTarget::host),
+        sign_owner: None,
+        app_mode: false,
+        regalloc,
+        allow_unsigned: false,
+        mode: crate::testing::CompileMode::Test { coverage },
+    })
+}
+
+/// Run the freshly built test executable, inheriting its stdio, and map its exit
+/// status to `mfb test`'s result: success (all cases passed) or failure.
+fn run_test_binary(path: &Path) -> Result<(), ()> {
+    match std::process::Command::new(path).status() {
+        Ok(status) if status.success() => Ok(()),
+        Ok(_) => Err(()),
+        Err(err) => {
+            eprintln!("error: failed to run test executable: {err}");
+            Err(())
+        }
+    }
 }
 
 pub(crate) struct BuildSigningInfo {

@@ -34,6 +34,8 @@ impl<'a> Monomorphizer<'a> {
                     Item::Resource(_) | Item::FuncAlias(_) | Item::Link(_) => {}
                     // DOC blocks carry no template parameters; passed through below.
                     Item::Doc(_) => {}
+                    // TESTING blocks are lowered away before monomorphization.
+                    Item::Testing(_) => {}
                 }
             }
         }

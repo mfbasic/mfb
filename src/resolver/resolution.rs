@@ -487,6 +487,8 @@ impl Resolver<'_> {
                 Item::Link(link) => self.resolve_link_block(file, link, &imports),
                 // DOC blocks are validated package-wide in `resolve_doc_blocks`.
                 Item::Doc(_) => {}
+                // TESTING blocks are lowered away before resolution (plan-18-A §3).
+                Item::Testing(_) => {}
             }
         }
     }
@@ -1146,6 +1148,11 @@ impl Resolver<'_> {
         if callee.contains('.') {
             self.resolve_package_qualified_name(file, callee, line, imports);
         } else if builtins::general::is_general_call(callee) {
+            return;
+        } else if builtins::testing::is_expect_call(callee) {
+            // Assertion builtins are compiler-lowered; their arguments are
+            // resolved by the caller. Placement (TCASE-only) is enforced earlier
+            // by `crate::testing::validate_expect_placement`.
             return;
         } else if locals.contains_key(callee) {
             return;

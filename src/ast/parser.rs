@@ -120,6 +120,14 @@ impl<'a> FileParser<'a> {
                 continue;
             }
 
+            if self.check_keyword(Keyword::Testing) {
+                if let Some(block) = self.parse_testing_block() {
+                    items.push(Item::Testing(block));
+                }
+                self.skip_separators();
+                continue;
+            }
+
             if matches!(self.peek().kind, TokenKind::Doc(_)) {
                 let token = self.advance().clone();
                 if let TokenKind::Doc(raw) = token.kind {

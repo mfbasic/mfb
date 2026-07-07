@@ -65,6 +65,12 @@ impl BuildTarget {
         format!("{}-{}", self.os, self.arch)
     }
 
+    /// Whether this target matches the machine running the compiler, so a
+    /// freshly built executable can be run directly (used by `mfb test`).
+    pub fn is_host(&self) -> bool {
+        self.os == env::consts::OS && self.arch == env::consts::ARCH
+    }
+
     pub fn parse(value: &str) -> Result<Self, String> {
         let Some((os, arch)) = value.split_once('-') else {
             return Err(format!("target '{value}' must use os-arch format"));

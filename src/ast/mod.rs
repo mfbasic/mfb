@@ -13,6 +13,7 @@ mod manifest;
 mod parser;
 mod serialize;
 mod stmt;
+mod testing;
 mod types;
 
 #[cfg(test)]
