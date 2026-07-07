@@ -34,5 +34,5 @@ tests/control-flow-inline-trap-invalid/src/main.mfb:42 error[2-203-0068 TYPE_REC
   48 |   LET a = 5 TRAP(e)
      | ^
 tests/control-flow-inline-trap-invalid/src/main.mfb:48 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
-               Inline TRAP requires a fallible call; this expression cannot fail.
+               Inline TRAP requires a call to trap; this expression is not a call.
 [exit 1]

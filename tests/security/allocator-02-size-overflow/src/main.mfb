@@ -19,7 +19,7 @@
 ' - repeat("x", -1): negative count -> 77050002.
 '
 ' strings::repeat is inline-lowered, so the fallible calls are wrapped in a FUNC
-' to make them trappable (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN otherwise).
+' and the inline TRAP is attached to that call.
 IMPORT collections
 IMPORT io
 IMPORT strings

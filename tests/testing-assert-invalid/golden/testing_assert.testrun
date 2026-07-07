@@ -15,8 +15,8 @@ tests/testing-assert-invalid/src/main.mfb:11 error[2-208-0003 TESTING_EXPECT_INC
   13 |     TCASE "expectTrap on a non-call"
   14 |       expectTrap(1 + 1)
      | ^
-tests/testing-assert-invalid/src/main.mfb:14 error[2-208-0006 TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE]: expectTrap/expectNTrap require a fallible call to trap-guard
-               `expectTrap` requires a fallible call expression to trap-guard.
+tests/testing-assert-invalid/src/main.mfb:14 error[2-208-0006 TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE]: expectTrap/expectNTrap require a call (not a package constant) to trap-guard
+               `expectTrap` requires a call to trap-guard (got a non-call).
   15 |     END TCASE
   16 |     TCASE "expectTrap expected-code must be Integer"
   17 |       expectTrap(toInt("x"), "notacode")

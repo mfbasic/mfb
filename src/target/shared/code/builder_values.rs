@@ -796,6 +796,15 @@ impl CodeBuilder<'_> {
                 if crate::builtins::inline_builtin_raw_supported(target) {
                     return self.lower_inline_builtin_raw(target, args);
                 }
+                // An inline `TRAP` on a provably-infallible inline built-in
+                // (`len`, `toString`, `typeName`, `bits::*`, the pure-query/growth
+                // collection members) is uniform surface (plan-26-A): the member
+                // emits no error exit, so lower it normally and wrap the success as
+                // an always-`Ok` `Result` for the inline-TRAP machinery. The handler
+                // is dead code (front-end warns `TYPE_INLINE_TRAP_DEAD_HANDLER`).
+                if crate::builtins::inline_builtin_is_infallible(target) {
+                    return self.lower_inline_infallible_raw(target, args);
+                }
                 // An inline `TRAP` on a helper-backed built-in (`thread::waitFor`,
                 // `fs::*`, …) traps the raw `Result`. The runtime helper leaves
                 // that `Result` in the standard tag/value/error registers just
@@ -804,16 +813,18 @@ impl CodeBuilder<'_> {
                 if let Some(helper) = runtime::helper_for_call(target) {
                     return self.lower_runtime_helper_call(helper, target, args, true);
                 }
-                // Backstop for the front-end gate (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN):
-                // an inline-lowered builtin has no standalone symbol, so the generic
-                // raw path below would emit `bl <target>` to a non-existent symbol.
-                // Typecheck rejects this case before codegen; if one still reaches
-                // here, a future builtin was added without updating the gate — fail
-                // loudly instead of miscompiling (plan-00-trap-fix.md §4.3).
+                // Future-proofing backstop: an inline-lowered builtin has no
+                // standalone symbol, so the generic raw path below would emit
+                // `bl <target>` to a non-existent symbol. After plan-26 every inline
+                // builtin is either raw-supported or infallible (both handled above),
+                // so this never fires today; it fails loudly if a *future* inline
+                // builtin is added to `native_builtin_target` without a raw or
+                // infallible lowering, instead of miscompiling.
                 if crate::builtins::inline_trap_unsupported(target) {
                     return Err(format!(
                         "internal: inline TRAP reached inline-lowered builtin '{target}' \
-                         without a raw lowering; front-end gate should have rejected it"
+                         without a raw or infallible lowering; add one to \
+                         lower_inline_builtin_raw / lower_inline_infallible_raw"
                     ));
                 }
                 let symbol = self
@@ -1402,13 +1413,17 @@ impl CodeBuilder<'_> {
     /// Inline `TRAP` on a fallible inline member (plan-21-B): the member-agnostic
     /// generalization of `lower_inline_conversion_raw`. Run the member's normal
     /// inline lowering under a `raw_result_capture` so its domain-error exit
-    /// (`emit_error_register_return`) branches to the capture point instead of
-    /// propagating, then on the success fall-through tag the produced value `Ok` and
-    /// materialize a `Result OF <success>`. The success value is a single register
-    /// for every enabled member — `get` yields the element, the mutators
-    /// (`set`/`insert`/`removeAt`) the updated collection pointer, `mid` a String,
-    /// `find` an index — so one fall-through shape covers them all. Only the members
-    /// `inline_builtin_raw_supported` allows reach here.
+    /// branches to the capture point instead of propagating, then on the success
+    /// fall-through tag the produced value `Ok` and materialize a `Result OF
+    /// <success>`. Two failure seams reach the capture: the index/range members
+    /// (`get`/`set`/`insert`/`removeAt`/`find`/`mid`) route their domain error
+    /// through `emit_error_register_return`; the callback loop members
+    /// (`transform`/`filter`/`reduce`/`forEach`, plan-26-B) route a failing user
+    /// callback through `emit_callback_failure_exit` (which also frees each
+    /// member's loop-scoped intermediates before joining the capture). The success
+    /// value is a single register for every member except `forEach`, which yields
+    /// `Nothing` (`void`) and takes the no-value fall-through below. Only the
+    /// members `inline_builtin_raw_supported` allows reach here.
     fn lower_inline_builtin_raw(
         &mut self,
         target: &str,
@@ -1424,6 +1439,10 @@ impl CodeBuilder<'_> {
             Some("removeAt") => self.lower_collection_remove_at(args),
             Some("find") => self.lower_find(args),
             Some("mid") => self.lower_mid(args),
+            Some("transform") => self.lower_collection_transform_call(args),
+            Some("filter") => self.lower_collection_filter_call(args),
+            Some("reduce") => self.lower_collection_reduce_call(args),
+            Some("forEach") => self.lower_collection_for_each_call(args),
             other => Err(format!(
                 "native raw inline builtin '{target}' ({other:?}) is not supported"
             )),
@@ -1431,7 +1450,13 @@ impl CodeBuilder<'_> {
         self.raw_result_capture = previous;
         let success = lowered?;
         // Success fall-through: tag the produced value as the `Ok` result.
-        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
+        // `forEach` produces `Nothing` (a `void` location) — there is no value
+        // register to carry, so set a benign 0 and materialize `Result OF Nothing`.
+        if success.location == "void" {
+            self.emit(abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", "0"));
+        } else {
+            self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
+        }
         self.emit(abi::move_immediate(
             RESULT_TAG_REGISTER,
             "Integer",
@@ -1440,6 +1465,79 @@ impl CodeBuilder<'_> {
         self.emit(abi::label(&capture));
         let success_type = success.type_.clone();
         self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+    }
+
+    /// Inline `TRAP` on a provably-infallible inline built-in (plan-26-A). Unlike
+    /// [`lower_inline_builtin_raw`](Self::lower_inline_builtin_raw) there is no
+    /// error exit to capture — the member cannot fail — so we lower it exactly as
+    /// the normal call path would, then tag the single-register success `Ok` and
+    /// materialize an always-`Ok` `Result OF <success>`. No capture label is
+    /// needed (nothing ever branches to the error tail). The `TRAP`'s handler is
+    /// therefore dead code, which the front-end flags with the advisory
+    /// `TYPE_INLINE_TRAP_DEAD_HANDLER` warning.
+    fn lower_inline_infallible_raw(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        let success = self.lower_infallible_member(target, args)?;
+        let success_type = success.type_.clone();
+        self.emit(abi::move_register(RESULT_VALUE_REGISTER, &success.location));
+        self.emit(abi::move_immediate(
+            RESULT_TAG_REGISTER,
+            "Integer",
+            RESULT_OK_TAG,
+        ));
+        self.materialize_current_result(&success_type, format!("callResult {target}"), false)
+    }
+
+    /// Dispatch a provably-infallible inline built-in to its normal lowering. The
+    /// enabled set matches `builtins::inline_builtin_is_infallible`: `len`,
+    /// `toString`, `typeName`, every `bits::*` op, and the pure-query / growth /
+    /// default-returning collection members. Each yields a single-register value,
+    /// so one success shape covers them all. Shared only by
+    /// [`lower_inline_infallible_raw`](Self::lower_inline_infallible_raw); the
+    /// non-trapped call path keeps its own inline arms so its codegen is unchanged.
+    fn lower_infallible_member(
+        &mut self,
+        target: &str,
+        args: &[NirValue],
+    ) -> Result<ValueResult, String> {
+        if target == "len" && args.len() == 1 {
+            return self.lower_len(&args[0]);
+        }
+        if target == "toString" && (args.len() == 1 || args.len() == 2) {
+            return self.lower_to_string(args);
+        }
+        if target == "typeName" && args.len() == 1 {
+            let type_name = self.static_type_name(&args[0]).ok_or_else(|| {
+                "native code cannot determine typeName argument type".to_string()
+            })?;
+            let register = self.load_string_constant(&type_name)?;
+            return Ok(ValueResult {
+                type_: "String".to_string(),
+                location: register,
+                text: format!("typeName({type_name})"),
+            });
+        }
+        if let Some(function) = target.strip_prefix("bits.") {
+            return self.lower_bits_call(function, args);
+        }
+        match crate::builtins::native_builtin_target(target) {
+            Some("contains") if args.len() == 2 => self.lower_collection_contains(args),
+            Some("hasKey") if args.len() == 2 => self.lower_collection_has_key(args),
+            Some("keys") if args.len() == 1 => self.lower_collection_keys(args),
+            Some("values") if args.len() == 1 => self.lower_collection_values_builtin(args),
+            Some("sum") if args.len() == 1 => self.lower_collection_sum(args),
+            Some("getOr") if args.len() == 3 => self.lower_collection_get_or(args),
+            Some("append") if args.len() == 2 => self.lower_collection_append(args),
+            Some("prepend") if args.len() == 2 => self.lower_collection_prepend(args),
+            Some("removeKey") if args.len() == 2 => self.lower_collection_remove_key(args),
+            Some("replace") if args.len() == 3 => self.lower_replace(args),
+            other => Err(format!(
+                "native infallible inline builtin '{target}' ({other:?}) is not supported"
+            )),
+        }
     }
 
     /// Lower a runtime-helper-backed call (`thread::*`, `fs::*`, `io::*`, …).

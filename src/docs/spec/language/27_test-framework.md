@@ -60,12 +60,15 @@ failed assertion aborts its case, and sibling cases and groups continue.
   `expectString`, and their `expectN…` counterparts) additionally require both
   operands to be exactly the named type (`TESTING_EXPECT_TYPE_MISMATCH`) — an
   exact type-and-value check that needs no `toString`.
-- `expectTrap`/`expectNTrap` evaluate their argument under a trap guard, so the
-  argument must be a genuinely-fallible call — the same constraint as an inline
-  `TRAP` (§8.6). A non-call, an infallible call, or an inline-compiled builtin is
-  rejected (`TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE` /
-  `TESTING_EXPECT_TRAP_INLINE_BUILTIN`); wrap such an operation in a `FUNC`/`SUB`
-  and pass that call instead.
+- `expectTrap`/`expectNTrap` evaluate their argument under a trap guard built on
+  the inline-`TRAP` machinery, so they accept **any call** it accepts — the same
+  uniform surface (§8.6): infallible built-ins, the index/range members, the
+  callback members, and user `FUNC`/`SUB` calls. The only rejection is a scrutinee
+  with no runtime call to trap — a non-call or a package constant
+  (`TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE`). On an infallible callee the assertion
+  simply evaluates against the real outcome: `expectTrap` always fails at runtime
+  (no trap occurs) and `expectNTrap` always passes — exactly as for an infallible
+  user `FUNC`.
 - A failed assertion raises the reserved internal error code `77069001`
   (`7-706-9001`, trap/failure subsystem); it is not part of the `errorCode::`
   registry and is recognized only by the driver, which uses it to distinguish an

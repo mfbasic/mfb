@@ -1,5 +1,5 @@
 {
-  "name": "inline_trap_fallible_member_invalid",
+  "name": "inline_trap_infallible_builtin_valid",
   "version": "0.1.0",
   "mfb": "1.0",
   "kind": "executable",

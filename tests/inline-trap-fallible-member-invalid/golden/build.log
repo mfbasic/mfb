@@ -1,8 +1,0 @@
-$ mfb build -ast -ir tests/inline-trap-fallible-member-invalid
-  11 |   ' return, not the raw-capture branch, so it has no inline raw lowering (plan-21-B)
-  12 |   ' and an inline TRAP on it is still rejected as ON_INLINED_BUILTIN.
-  13 |   collections::forEach(numbers, show) TRAP(e)
-     | ^
-tests/inline-trap-fallible-member-invalid/src/main.mfb:13 error[2-203-0102 TYPE_INLINE_TRAP_ON_INLINED_BUILTIN]: inline TRAP is not supported on an inline-lowered built-in
-               Inline TRAP is not supported on `collections.forEach` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead.
-[exit 1]

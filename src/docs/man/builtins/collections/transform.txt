@@ -27,7 +27,9 @@ OVERLOADS
 
 ERRORS
   transform propagates errors raised by f, stopping at the failing item. Errors
-  can still propagate from evaluating value or f before transform is called.
+  can still propagate from evaluating value or f before transform is called. An
+  inline TRAP attached to a transform call captures that failure at the call site
+  instead of auto-propagating (the partially-built result is freed first).
 
 TYPE CHECKING
   The first argument must be a List OF T. The second argument must accept one

@@ -1,10 +1,17 @@
-IMPORT collections
+IMPORT math
 
+' plan-26-A: an inline TRAP is legal on any *call*, so the only rejections left
+' are scrutinees with no runtime call to trap. A provably-infallible built-in like
+' `len` is now ALLOWED (it warns TYPE_INLINE_TRAP_DEAD_HANDLER instead). These two
+' still reject with TYPE_INLINE_TRAP_REQUIRES_FALLIBLE:
 FUNC main AS Integer
-  MUT xs AS List OF Integer = []
-  collections::append(xs, 1)
-  LET n AS Integer = len(xs) TRAP(e)
+  ' 1. a non-call literal expression.
+  LET a AS Integer = 5 TRAP(e)
     RECOVER 0
   END TRAP
-  RETURN n
+  ' 2. a package constant (not a runtime call).
+  LET p AS Float = math::pi() TRAP(e)
+    RECOVER 0.0
+  END TRAP
+  RETURN a
 END FUNC

@@ -47,10 +47,4 @@ tests/builtin-bits/syntax/func_bits_sl_invalid/src/main.mfb:7 error[2-203-0021 T
      | ^
 tests/builtin-bits/syntax/func_bits_sl_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `d` does not have a known type.
-   9 |   ' attached directly to it is rejected (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN),
-  10 |   ' even though the call's arguments are well-typed.
-  11 |   LET t AS Integer = bits::sl(8, 1) TRAP(err)
-     | ^
-tests/builtin-bits/syntax/func_bits_sl_invalid/src/main.mfb:11 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
-               Inline TRAP requires a fallible call; this expression cannot fail.
 [exit 1]

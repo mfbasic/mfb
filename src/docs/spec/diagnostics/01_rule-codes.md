@@ -93,10 +93,10 @@ unallocated). The scheme leaves room; it does not densely fill it.
 
 `EEEE` is the per-subsystem ordinal, generally `0001`-up, but it is **not
 guaranteed dense or monotonic**: subsystem `2-203` allocates a high block at
-`0100`-`0102` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, `TYPE_OVERLOAD_AMBIGUOUS`,
-`TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`) after `0056`/`0058` (`0057` is
-unallocated), and `2-200` mixes a low
-validation block (`0001`-`0011`) with a high orchestration block
+`0100`-`0101` (`TYPE_RESOURCE_ELEMENT_NOT_OWNER`, `TYPE_OVERLOAD_AMBIGUOUS`) after
+`0056`/`0058` (`0057` is unallocated), plus a later `0104`
+(`TYPE_INLINE_TRAP_DEAD_HANDLER`; `0102` is retired and not reused), and `2-200`
+mixes a low validation block (`0001`-`0011`) with a high orchestration block
 (`0100`/`0101`). Treat `EEEE` as an opaque ordinal, never as a count.
 [[src/rules/table.rs:RULES]]
 
@@ -384,8 +384,8 @@ Scheme*).
 | `2-203-0066` | `TYPE_INLINE_TRAP_FALLS_THROUGH` | error | inline TRAP handler path neither recovers nor diverges |
 | `2-203-0067` | `TYPE_RECOVER_TYPE_MISMATCH` | error | RECOVER value does not match the trapped expression's success type |
 | `2-203-0068` | `TYPE_RECOVER_OUTSIDE_INLINE_TRAP` | error | RECOVER is valid only inside an inline TRAP handler |
-| `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a fallible call (a package constant or an infallible inline-lowered built-in cannot fail) |
-| `2-203-0102` | `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN` | error | inline TRAP is not supported on a callback inline-lowered member (`forEach`/`transform`/`filter`/`reduce`) |
+| `2-203-0069` | `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` | error | inline TRAP requires a call to trap (a non-call or a package constant is not a call); an infallible built-in is allowed but warns (`TYPE_INLINE_TRAP_DEAD_HANDLER`) |
+| `2-203-0104` | `TYPE_INLINE_TRAP_DEAD_HANDLER` | warn | inline TRAP handler is unreachable — the guarded call cannot fail (an infallible inline-lowered built-in) |
 | `2-203-0103` | `EXPORT_IN_EXECUTABLE` | error | EXPORT is only valid in a package project; use PUBLIC (the default) in an executable |
 | `2-203-0070` | `TYPE_RESULT_NOT_USER_VISIBLE` | error | Result is an internal type and cannot be named in user code |
 | `2-203-0071` | `TYPE_RESULT_NOT_MATCHABLE` | error | Ok and Error are not matchable as Result members in user code |
@@ -466,8 +466,7 @@ DOC block semantics (resolver):
 | `2-208-0003` | `TESTING_EXPECT_INCOMPARABLE` | error | expectEqual/expectNEqual operands must be comparable with `=` |
 | `2-208-0004` | `TESTING_EXPECT_NOT_PRINTABLE` | error | expectEqual/expectNEqual operands must be printable for the failure message |
 | `2-208-0005` | `TESTING_EXPECT_CODE_TYPE` | error | expectTrap expected-code argument must be an Integer |
-| `2-208-0006` | `TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE` | error | expectTrap/expectNTrap require a fallible call to trap-guard |
-| `2-208-0007` | `TESTING_EXPECT_TRAP_INLINE_BUILTIN` | error | expectTrap/expectNTrap cannot trap-guard an inline-compiled builtin |
+| `2-208-0006` | `TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE` | error | expectTrap/expectNTrap require a call (not a package constant) to trap-guard |
 | `2-208-0008` | `TESTING_EXPECT_TYPE_MISMATCH` | error | typed assertion operands must both be the named type |
 
 ### `3-302` — Verification

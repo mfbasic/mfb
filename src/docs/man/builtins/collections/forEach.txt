@@ -25,7 +25,8 @@ OVERLOADS
 ERRORS
   forEach propagates errors raised by action, stopping at the failing item.
   Errors can still propagate from evaluating value or action before forEach is
-  called.
+  called. An inline TRAP attached to a forEach call captures that failure at the
+  call site instead of auto-propagating.
 
 TYPE CHECKING
   The first argument must be a List OF T. The second argument must accept one

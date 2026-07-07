@@ -697,11 +697,14 @@ pub(super) const RULES: &[Rule] = &[
         severity: Severity::Error,
         message: "inline TRAP requires a fallible call",
     },
+    // 2-203-0102 (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) retired in plan-26-C: every
+    // inline-lowered builtin is now trappable (raw-supported or infallible), so an
+    // inline TRAP is legal on all of them. The code is not reused.
     Rule {
-        code: "2-203-0102",
-        name: "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN",
-        severity: Severity::Error,
-        message: "inline TRAP is not supported on an inline-lowered built-in",
+        code: "2-203-0104",
+        name: "TYPE_INLINE_TRAP_DEAD_HANDLER",
+        severity: Severity::Warn,
+        message: "inline TRAP handler is unreachable — the guarded call cannot fail",
     },
     Rule {
         code: "2-203-0103",
@@ -1210,14 +1213,11 @@ pub(super) const RULES: &[Rule] = &[
         code: "2-208-0006",
         name: "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
         severity: Severity::Error,
-        message: "expectTrap/expectNTrap require a fallible call to trap-guard",
+        message: "expectTrap/expectNTrap require a call (not a package constant) to trap-guard",
     },
-    Rule {
-        code: "2-208-0007",
-        name: "TESTING_EXPECT_TRAP_INLINE_BUILTIN",
-        severity: Severity::Error,
-        message: "expectTrap/expectNTrap cannot trap-guard an inline-compiled builtin",
-    },
+    // 2-208-0007 (TESTING_EXPECT_TRAP_INLINE_BUILTIN) retired in plan-26-C: the
+    // assertions now accept every call inline TRAP accepts, so no inline-compiled
+    // builtin is rejected. The code is not reused.
     Rule {
         code: "2-208-0008",
         name: "TESTING_EXPECT_TYPE_MISMATCH",

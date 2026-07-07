@@ -30,7 +30,9 @@ OVERLOADS
 ERRORS
   filter propagates errors raised by predicate, stopping at the failing item.
   Errors can still propagate from evaluating value or predicate before filter
-  is called.
+  is called. An inline TRAP attached to a filter call captures that failure at
+  the call site instead of auto-propagating (the partially-built result is freed
+  first).
 
 TYPE CHECKING
   The first argument must be a List OF T. The second argument must accept one

@@ -1,0 +1,64 @@
+IMPORT io
+IMPORT collections
+
+' plan-26-B: inline TRAP on the collection callback members. A failing user
+' callback routes its Error to the handler; the member frees its own loop-scoped
+' intermediates first, so a partially-built result leaks nothing.
+FUNC dbl(v AS Integer) AS Integer
+  IF v = 20 THEN FAIL error(1, "double hit 20")
+  RETURN v * 2
+END FUNC
+
+FUNC keepBig(v AS Integer) AS Boolean
+  IF v = 20 THEN FAIL error(2, "filter hit 20")
+  RETURN v > 5
+END FUNC
+
+FUNC addUp(acc AS Integer, v AS Integer) AS Integer
+  IF v = 20 THEN FAIL error(3, "reduce hit 20")
+  RETURN acc + v
+END FUNC
+
+SUB visit(v AS Integer)
+  IF v = 20 THEN FAIL error(4, "forEach hit 20")
+  io::print("visit " & toString(v))
+END SUB
+
+FUNC main AS Integer
+  LET nums AS List OF Integer = [10, 20, 30]
+
+  ' transform: fails on 20 → handler runs, partial output freed
+  LET t AS List OF Integer = collections::transform(nums, dbl) TRAP(e)
+    io::print("transform caught: " & e.message)
+    RECOVER []
+  END TRAP
+  io::print("t-len=" & toString(len(t)))
+
+  ' filter: fails on 20
+  LET f AS List OF Integer = collections::filter(nums, keepBig) TRAP(e)
+    io::print("filter caught: " & e.message)
+    RECOVER []
+  END TRAP
+  io::print("f-len=" & toString(len(f)))
+
+  ' reduce: fails on 20
+  LET r AS Integer = collections::reduce(nums, 0, addUp) TRAP(e)
+    io::print("reduce caught: " & e.message)
+    RECOVER -1
+  END TRAP
+  io::print("r=" & toString(r))
+
+  ' forEach: visits 10, then fails on 20
+  collections::forEach(nums, visit) TRAP(e)
+    io::print("forEach caught: " & e.message)
+    RECOVER
+  END TRAP
+
+  ' success path: transform over a safe list still works
+  LET safe AS List OF Integer = [1, 2, 3]
+  LET t2 AS List OF Integer = collections::transform(safe, dbl) TRAP(e)
+    RECOVER []
+  END TRAP
+  io::print("t2-len=" & toString(len(t2)) & " first=" & toString(collections::get(t2, 0)))
+  RETURN 0
+END FUNC

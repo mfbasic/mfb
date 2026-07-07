@@ -23,7 +23,9 @@ OVERLOADS
 
 ERRORS
   reduce propagates errors raised by f. Errors can also propagate from
-  evaluating value, initial, or f before reduce is called.
+  evaluating value, initial, or f before reduce is called. An inline TRAP
+  attached to a reduce call captures that failure at the call site instead of
+  auto-propagating.
 
 TYPE CHECKING
   The first argument must be a List OF T. The second argument fixes the

@@ -859,7 +859,9 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&scratch17);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        self.emit(abi::return_());
+        // A failing callback: forEach owns no accumulator, so no cleanup — under
+        // an inline TRAP the raw error routes to the capture point (plan-26-B).
+        self.emit_callback_failure_exit(None)?;
         self.emit(abi::label(&ok_label));
         self.emit(abi::load_u64(&scratch10, abi::stack_pointer(), cursor_slot));
         self.emit(abi::add_immediate(
@@ -957,7 +959,10 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&scratch17);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        self.emit(abi::return_());
+        // A failing callback: free the partial output list (a private, uniquely-
+        // owned buffer) before routing the raw error to the inline-TRAP capture
+        // point (plan-26-B); non-trapped, this is the same auto-propagating return.
+        self.emit_callback_failure_exit(Some((output_slot, output_list_type.clone())))?;
         self.emit(abi::label(&ok_label));
 
         let item_slot = self.allocate_stack_object("transform_item", 8);
@@ -1054,7 +1059,9 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&scratch17);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        self.emit(abi::return_());
+        // A failing predicate: free the partial output list before routing the raw
+        // error to the inline-TRAP capture point (plan-26-B).
+        self.emit_callback_failure_exit(Some((output_slot, collection.type_.clone())))?;
         self.emit(abi::label(&ok_label));
         self.emit(abi::compare_immediate(RESULT_VALUE_REGISTER, "0"));
         self.emit(abi::branch_ne(&keep_label));
@@ -1146,7 +1153,11 @@ impl CodeBuilder<'_> {
         self.emit_direct_callable_branch(&scratch17);
         self.emit(abi::compare_immediate(RESULT_TAG_REGISTER, RESULT_OK_TAG));
         self.emit(abi::branch_eq(&ok_label));
-        self.emit(abi::return_());
+        // A failing reducer: no cleanup — the accumulator may still alias the
+        // borrowed seed (no owning copy is inserted for it), so freeing it here
+        // would be a use-after-free after the handler recovers; the success path
+        // likewise leaves intermediate accumulators unfreed (plan-26-B).
+        self.emit_callback_failure_exit(None)?;
         self.emit(abi::label(&ok_label));
         self.emit(abi::store_u64(
             RESULT_VALUE_REGISTER,
@@ -1169,6 +1180,61 @@ impl CodeBuilder<'_> {
                 collection.type_, initial.text, action.text
             ),
         })
+    }
+
+    /// The callback-failure exit shared by the collection loop members
+    /// (`transform`/`filter`/`reduce`/`forEach`). When the user callback returns a
+    /// non-`Ok` `Result`, the raw error is already in the standard tag/value/
+    /// message/source registers (x0–x3). Two routes:
+    ///
+    /// - **Non-trapped** (`raw_result_capture` is `None`): the member auto-
+    ///   propagates the error with a bare `return` — byte-identical to before
+    ///   plan-26-B.
+    /// - **Inline `TRAP`** (`raw_result_capture` is `Some`): free the member's
+    ///   loop-scoped intermediate (via `cleanup`), then branch to the capture point
+    ///   leaving the raw `Result` in the registers for `materialize_current_result`.
+    ///   Because the cleanup's `arena_free` clobbers every caller-saved register
+    ///   (including x0–x3), the raw `Result` is spilled around it and reloaded.
+    ///
+    /// `cleanup` names the member's private, uniquely-owned intermediate to free
+    /// (`transform`/`filter`: the partial output list; `forEach`: none). `reduce`
+    /// passes `None`: its accumulator may still alias the **borrowed** seed on an
+    /// iteration-1 failure (the seed reaches codegen as a bare local with no owning
+    /// copy), so freeing it would be a use-after-free after the handler recovers —
+    /// and the success path already leaves intermediate accumulators unfreed, so
+    /// not freeing here matches it exactly.
+    pub(super) fn emit_callback_failure_exit(
+        &mut self,
+        cleanup: Option<(usize, String)>,
+    ) -> Result<(), String> {
+        let Some(label) = self.raw_result_capture.clone() else {
+            self.emit(abi::return_());
+            return Ok(());
+        };
+        if let Some((block_slot, type_)) = cleanup {
+            let regs = [
+                RESULT_TAG_REGISTER,
+                RESULT_VALUE_REGISTER,
+                RESULT_ERROR_MESSAGE_REGISTER,
+                RESULT_ERROR_SOURCE_REGISTER,
+            ];
+            let slots: Vec<usize> = regs
+                .iter()
+                .map(|_| self.allocate_stack_object("callback_fail_result", 8))
+                .collect();
+            for (reg, slot) in regs.iter().zip(&slots) {
+                self.emit(abi::store_u64(reg, abi::stack_pointer(), *slot));
+            }
+            self.emit_owned_value_drop(&OwnedValueCleanup {
+                type_,
+                stack_offset: block_slot,
+            })?;
+            for (reg, slot) in regs.iter().zip(&slots) {
+                self.emit(abi::load_u64(reg, abi::stack_pointer(), *slot));
+            }
+        }
+        self.emit(abi::branch(&label));
+        Ok(())
     }
 
     pub(super) fn require_direct_callable(

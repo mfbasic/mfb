@@ -69,7 +69,6 @@ their golden output.
 | `unicode-08-tobytes-roundtrip` | #8 | LO | `toBytes` of a multi-byte string round-trips byte-for-byte (derived-length sizing correct) |
 | `unicode-09-expanding-two-pass` | #9 | LO | expanding `upper`/`lower`/`normalizeNfc`/`graphemes` produce correct output+length (a count/write divergence would break these) |
 
-Findings #1, #2, #4, and #6 are expressed with an inline `TRAP` on a FUNC wrapper
-because `strings::*` members are inline-lowered and cannot take an inline TRAP directly
-(`TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`); the wrapper FUNC owns a callable symbol, so the
-trap compiles.
+Findings #1, #2, #4, and #6 are expressed with an inline `TRAP` on a FUNC wrapper:
+the `strings::repeat` member is inline-lowered, so the fallible call is placed in a
+wrapper FUNC and the inline `TRAP` is attached to that call.

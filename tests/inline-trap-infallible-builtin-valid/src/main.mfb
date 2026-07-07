@@ -1,0 +1,40 @@
+IMPORT io
+IMPORT collections
+IMPORT bits
+
+' plan-26-A: an inline TRAP on a provably-infallible built-in compiles and runs —
+' the value is the real result and the handler is dead code (each guarded call
+' emits the advisory TYPE_INLINE_TRAP_DEAD_HANDLER warning at build time). If any
+' handler ran it would print a DEAD marker; none do.
+FUNC main AS Integer
+  MUT xs AS List OF Integer = []
+  xs = collections::append(xs, 10)
+  xs = collections::append(xs, 20)
+  xs = collections::append(xs, 30)
+
+  LET n AS Integer = len(xs) TRAP(e)
+    io::print("DEAD-len")
+    RECOVER -1
+  END TRAP
+  io::print("len=" & toString(n))
+
+  LET s AS String = toString(42) TRAP(e)
+    io::print("DEAD-toString")
+    RECOVER "?"
+  END TRAP
+  io::print("s=" & s)
+
+  LET b AS Integer = bits::sl(1, 4) TRAP(e)
+    io::print("DEAD-bits")
+    RECOVER -1
+  END TRAP
+  io::print("b=" & toString(b))
+
+  LET has AS Boolean = collections::contains(xs, 20) TRAP(e)
+    io::print("DEAD-contains")
+    RECOVER false
+  END TRAP
+  io::print("has=" & toString(has))
+
+  RETURN 0
+END FUNC

@@ -47,10 +47,4 @@ tests/builtin-bits/syntax/func_bits_band_invalid/src/main.mfb:7 error[2-203-0021
      | ^
 tests/builtin-bits/syntax/func_bits_band_invalid/src/main.mfb:7 error[2-203-0043 TYPE_UNKNOWN_VALUE]: value type could not be determined
                Initializer for binding `d` does not have a known type.
-   8 |   ' Inline TRAP on the inline-lowered bits::band is rejected
-   9 |   ' (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN) even with well-typed arguments.
-  10 |   LET t AS Integer = bits::band(6, 3) TRAP(err)
-     | ^
-tests/builtin-bits/syntax/func_bits_band_invalid/src/main.mfb:10 error[2-203-0069 TYPE_INLINE_TRAP_REQUIRES_FALLIBLE]: inline TRAP requires a fallible call
-               Inline TRAP requires a fallible call; this expression cannot fail.
 [exit 1]

@@ -1,0 +1,47 @@
+IMPORT collections
+
+' plan-26-C: expectTrap/expectNTrap accept any call inline TRAP accepts —
+' infallible built-ins, index/range members, and the callback members. Each
+' assertion evaluates against the real runtime trap outcome.
+FUNC boom(v AS Integer) AS Integer
+  IF v = 2 THEN FAIL error(5, "boom")
+  RETURN v
+END FUNC
+
+FUNC ok(v AS Integer) AS Integer
+  RETURN v * 2
+END FUNC
+
+FUNC boomReduce(acc AS Integer, v AS Integer) AS Integer
+  IF v = 2 THEN FAIL error(5, "reduce boom")
+  RETURN acc + v
+END FUNC
+
+TESTING
+  TGROUP "trap parity"
+    TCASE "expectNTrap on infallible len (never traps)"
+      LET xs AS List OF Integer = [1, 2, 3]
+      expectNTrap(len(xs))
+    END TCASE
+    TCASE "expectTrap on out-of-range get"
+      LET xs AS List OF Integer = [1, 2, 3]
+      expectTrap(collections::get(xs, 99))
+    END TCASE
+    TCASE "expectTrap on failing transform callback"
+      LET xs AS List OF Integer = [1, 2, 3]
+      expectTrap(collections::transform(xs, boom))
+    END TCASE
+    TCASE "expectNTrap on succeeding transform callback"
+      LET xs AS List OF Integer = [1, 2, 3]
+      expectNTrap(collections::transform(xs, ok))
+    END TCASE
+    TCASE "expectTrap with matching code on failing reduce"
+      LET xs AS List OF Integer = [1, 2, 3]
+      expectTrap(collections::reduce(xs, 0, boomReduce), 5)
+    END TCASE
+  END TGROUP
+END TESTING
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC

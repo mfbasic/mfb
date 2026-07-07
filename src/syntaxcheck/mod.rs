@@ -141,7 +141,10 @@ pub fn check_project_collect(
 /// instead so it can merge the two diagnostic streams.
 pub fn check_project(project_dir: &Path, ast: &AstProject) -> Result<(), ()> {
     let diagnostics = check_project_collect(project_dir, ast)?;
-    let had_error = !diagnostics.is_empty();
+    // Warnings (`Severity::Warn`) are rendered but never fail the check — only
+    // real errors do, mirroring the `build` pipeline (which gates on
+    // `crate::rules::is_error`).
+    let had_error = diagnostics.iter().any(|d| crate::rules::is_error(&d.rule));
     crate::rules::render_pending(diagnostics);
     if had_error {
         Err(())
@@ -1993,6 +1996,24 @@ impl<'a> SyntaxChecker<'a> {
             "rule {rule} is relocated to ir::verify; syntaxcheck must not emit it"
         );
         self.had_error = true;
+        self.diagnostics.push(crate::rules::PendingDiagnostic {
+            rule: rule.to_string(),
+            detail: detail.to_string(),
+            path: self.project_dir.join(&file.path),
+            line,
+        });
+    }
+
+    /// Emit a **non-fatal** advisory diagnostic (a `Severity::Warn` rule). It is
+    /// collected and rendered like any diagnostic but does not fail the build
+    /// (`crate::rules::is_error` gates the pipeline), so `had_error` stays unset.
+    /// Used for rules that flag a benign condition (e.g. a provably-dead inline
+    /// TRAP handler) without rejecting the program.
+    pub(super) fn report_warning(&mut self, rule: &str, detail: &str, file: &AstFile, line: usize) {
+        debug_assert!(
+            !crate::ir::RELOCATED_TO_IR_VERIFY.contains(&rule),
+            "rule {rule} is relocated to ir::verify; syntaxcheck must not emit it"
+        );
         self.diagnostics.push(crate::rules::PendingDiagnostic {
             rule: rule.to_string(),
             detail: detail.to_string(),

@@ -85,18 +85,6 @@ impl<'a> SyntaxChecker<'a> {
                     }
                     _ => None,
                 };
-                // A call is fallible-for-inline-TRAP unless it is a package constant
-                // or an inline-lowered built-in that raises no trappable domain error
-                // (plan-21-A): the latter route to the accurate "cannot fail"
-                // diagnostic below, and only genuinely-fallible inline members reach
-                // the "unsupported inline built-in" report.
-                let fallible = match &trapped_callee {
-                    Some(canonical) => {
-                        !builtins::is_package_constant(canonical)
-                            && !builtins::inline_builtin_is_infallible(canonical)
-                    }
-                    None => false,
-                };
                 // A failed `thread.send` returns ownership of the sent value to
                 // the caller so the handler can release it. Capture it before
                 // the call consumes it, then restore it into the handler scope.
@@ -106,33 +94,41 @@ impl<'a> SyntaxChecker<'a> {
                 self.allow_value_less_call = value_less_call_ok;
                 let success_type =
                     self.infer_expression_with_expected(file, inner, locals, line, expected, mode);
-                if !fallible {
-                    self.report(
+                // Uniformity (plan-26-A): a `TRAP` is legal on any call. Only a
+                // scrutinee with *nothing to trap* is rejected — a non-call, or a
+                // package constant (which is not a runtime call). A provably-
+                // infallible inline built-in (`len`, `toString`, every `bits::*`,
+                // the pure-query/growth collection members, …) is *allowed*: it
+                // compiles and runs, and its handler is dead code — flagged by the
+                // advisory `TYPE_INLINE_TRAP_DEAD_HANDLER` warning, not an error.
+                match &trapped_callee {
+                    None => self.report(
                         "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
-                        "Inline TRAP requires a fallible call; this expression cannot fail.",
+                        "Inline TRAP requires a call to trap; this expression is not a call.",
                         file,
                         *trap_line,
-                    );
-                }
-                // An inline-lowered built-in (string/collection member, `bits::*`
-                // op, or `len`/`toString`/`typeName`) has its code spliced in at
-                // the call site and owns no callable symbol, so codegen's raw-TRAP
-                // path cannot trap it — it would emit a `bl` to a missing symbol.
-                // Reject it here with a located diagnostic and the workaround.
-                // Report-and-continue so the rest of the expression still checks.
-                if fallible {
-                    if let Some(canonical) = &trapped_callee {
-                        if builtins::inline_trap_unsupported(canonical) {
-                            self.report(
-                                "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN",
-                                &format!(
-                                    "Inline TRAP is not supported on `{canonical}` (it is compiled inline). Move the call into a FUNC/SUB and TRAP on that call instead."
-                                ),
-                                file,
-                                *trap_line,
-                            );
-                        }
-                    }
+                    ),
+                    Some(canonical) if builtins::is_package_constant(canonical) => self.report(
+                        "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE",
+                        "Inline TRAP requires a fallible call; a package constant is not a call.",
+                        file,
+                        *trap_line,
+                    ),
+                    Some(canonical) if builtins::inline_builtin_is_infallible(canonical) => self
+                        .report_warning(
+                            "TYPE_INLINE_TRAP_DEAD_HANDLER",
+                            &format!(
+                                "Inline TRAP handler is unreachable — `{canonical}` cannot fail, so the handler is dead code."
+                            ),
+                            file,
+                            *trap_line,
+                        ),
+                    // Every other call — a fallible inline built-in (all now raw-
+                    // supported, plan-26-B), a runtime-helper built-in, or a user
+                    // FUNC/SUB — is trappable. (`inline_trap_unsupported` no longer
+                    // matches any inline target; the codegen backstop guards a
+                    // future built-in added without a raw/infallible lowering.)
+                    Some(_) => {}
                 }
                 let mut handler_locals = locals.clone();
                 if let Some((name, info)) = send_failure_restore {
@@ -1092,9 +1088,12 @@ impl<'a> SyntaxChecker<'a> {
     }
 
     /// `expectTrap`/`expectNTrap` evaluate their argument under a trap guard built
-    /// on the inline-TRAP machinery, so the argument must be a genuinely-fallible
-    /// call that the raw-TRAP path can wrap — the same constraint as an inline
-    /// `TRAP` (§8.6 rules 11/14).
+    /// on the inline-TRAP machinery, so the gate rejects exactly what inline `TRAP`
+    /// rejects (plan-26-C): a scrutinee with no runtime call to trap — a non-call,
+    /// or a package constant. Everything else is accepted, including infallible
+    /// built-ins (the assertion evaluates against the real outcome: `expectTrap`
+    /// always fails, `expectNTrap` always passes — just as for an infallible user
+    /// FUNC) and the callback members (a failing callback is trapped).
     fn check_trap_guardable(
         &mut self,
         file: &AstFile,
@@ -1109,28 +1108,17 @@ impl<'a> SyntaxChecker<'a> {
         else {
             self.report(
                 "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
-                &format!("`{callee}` requires a fallible call expression to trap-guard."),
+                &format!("`{callee}` requires a call to trap-guard (got a non-call)."),
                 file,
                 line,
             );
             return;
         };
         let canonical = self.canonical_import_name(file, inner_callee);
-        if builtins::is_package_constant(&canonical)
-            || builtins::inline_builtin_is_infallible(&canonical)
-        {
+        if builtins::is_package_constant(&canonical) {
             self.report(
                 "TESTING_EXPECT_TRAP_REQUIRES_FALLIBLE",
-                &format!("`{callee}` requires a fallible call; this expression cannot fail."),
-                file,
-                line,
-            );
-        } else if builtins::inline_trap_unsupported(&canonical) {
-            self.report(
-                "TESTING_EXPECT_TRAP_INLINE_BUILTIN",
-                &format!(
-                    "`{callee}` cannot trap-guard `{canonical}` (it is compiled inline). Wrap the call in a FUNC/SUB and pass that call instead."
-                ),
+                &format!("`{callee}` requires a call to trap-guard; a package constant is not a call."),
                 file,
                 line,
             );
@@ -1728,17 +1716,35 @@ mod tests {
     }
 
     #[test]
-    fn inline_trap_on_inlined_builtin_rejected() {
-        // `collections::transform` is a fallible inline-lowered callback member with
-        // no raw inline-TRAP lowering (unlike get/set/find, which gained one in
-        // plan-21-B), so an inline TRAP on it is rejected.
-        let src = "IMPORT collections\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  LET doubled AS List OF Integer = collections::transform(numbers, LAMBDA(x AS Integer) -> x * 2) TRAP(e)\n    RECOVER numbers\n  END TRAP\n  RETURN 0\nEND FUNC\n";
-        assert!(rejects_with(src, "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN"));
+    fn inline_trap_on_callback_member_accepted() {
+        // `collections::transform` is a callback member with a raw inline-TRAP
+        // lowering (plan-26-B), so an inline TRAP on it is accepted — no more
+        // `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN` rejection (retired in plan-26-C).
+        let src = "IMPORT collections\nFUNC dbl(x AS Integer) AS Integer\n  RETURN x * 2\nEND FUNC\nFUNC main AS Integer\n  LET numbers AS List OF Integer = [1, 2, 3]\n  LET doubled AS List OF Integer = collections::transform(numbers, dbl) TRAP(e)\n    RECOVER numbers\n  END TRAP\n  RETURN 0\nEND FUNC\n";
+        assert!(accepts(src));
+    }
+
+    #[test]
+    fn inline_trap_on_infallible_builtin_warns_dead_handler() {
+        // An infallible inline builtin under a TRAP compiles (plan-26-A): the
+        // handler is dead code, flagged by the advisory warning, not an error.
+        let src = "IMPORT collections\nFUNC main AS Integer\n  LET xs AS List OF Integer = [1, 2, 3]\n  LET n AS Integer = len(xs) TRAP(e)\n    RECOVER 0\n  END TRAP\n  RETURN n\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_INLINE_TRAP_DEAD_HANDLER"));
+        assert!(!rejects_with(src, "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"));
+        assert!(!rejects_with(src, "TYPE_INLINE_TRAP_ON_INLINED_BUILTIN"));
     }
 
     #[test]
     fn inline_trap_requires_fallible_rejected() {
+        // A non-call scrutinee still has nothing to trap.
         let src = "FUNC main AS Integer\n  LET a AS Integer = 5 TRAP(e)\n    RECOVER 0\n  END TRAP\n  RETURN a\nEND FUNC\n";
+        assert!(rejects_with(src, "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"));
+    }
+
+    #[test]
+    fn inline_trap_on_package_constant_rejected() {
+        // A package constant is not a runtime call — still rejected.
+        let src = "IMPORT math\nFUNC main AS Float\n  LET a AS Float = math::pi() TRAP(e)\n    RECOVER 0.0\n  END TRAP\n  RETURN a\nEND FUNC\n";
         assert!(rejects_with(src, "TYPE_INLINE_TRAP_REQUIRES_FALLIBLE"));
     }
 

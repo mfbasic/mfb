@@ -5,8 +5,8 @@
 ' size with the catchable ErrInvalidArgument (77050002) BEFORE allocating, so the
 ' program recovers cleanly instead of corrupting the heap.
 '
-' strings::repeat is inline-lowered, so the fallible call is wrapped in a FUNC to
-' make it trappable (TYPE_INLINE_TRAP_ON_INLINED_BUILTIN otherwise).
+' strings::repeat is inline-lowered, so the fallible call is wrapped in a FUNC and
+' the inline TRAP is attached to that call.
 IMPORT io
 IMPORT strings
 

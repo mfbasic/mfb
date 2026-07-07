@@ -146,72 +146,92 @@ pub(crate) fn native_builtin_target(name: &str) -> Option<&'static str> {
     }
 }
 
-/// Whether an inline `TRAP` attached directly to a call to `target` would reach
-/// codegen's raw-`TRAP` path with no lowering to emit. The inline-lowered
-/// builtins — string/collection members, the `bits::*` ops, and the inline
-/// general builtins `len`/`toString`/`typeName` — have their machine code
-/// spliced in at the call site and own no standalone callable symbol, so a raw
-/// `bl <target>` would name a symbol that does not exist (undefined-symbol at
-/// link). The front-end gate (`Expression::Trapped` syntaxcheck) rejects these
-/// with `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`; the codegen backstop asserts
-/// against the same set so a future builtin added without updating the gate
-/// fails loudly instead of miscompiling (plan-00-trap-fix.md §4.1).
+/// Whether an inline `TRAP` on `target` would reach codegen's raw-`TRAP` path
+/// with **no** lowering to emit — an inline-lowered builtin (string/collection
+/// member, `bits::*` op, or `len`/`toString`/`typeName`) that is neither
+/// raw-supported (`lower_inline_builtin_raw`) nor infallible
+/// (`lower_inline_infallible_raw`). Such a target has its machine code spliced in
+/// at the call site and owns no standalone symbol, so the generic raw path would
+/// emit `bl <target>` to a symbol that does not exist.
 ///
-/// Deliberately **excluded** — these already have working raw-`TRAP` lowerings:
-/// the conversion builtins `toInt`/`toFloat`/`toFixed`/`toByte`
-/// (`lower_inline_conversion_raw`) and every `runtime::helper_for_call` target
-/// (`lower_runtime_helper_call`). User `FUNC`/`SUB` calls are excluded too: they
-/// carry real symbols and arrive as bare names that match none of the qualified
-/// member forms here.
+/// After plan-26 this set is **empty**: every inline builtin is either
+/// raw-supported or infallible, so an inline `TRAP` is legal on all of them
+/// (uniform surface). The predicate survives only as the **codegen backstop**
+/// (`lower_ops` `CallResult`), which fails loudly if a *future* inline builtin is
+/// added to `native_builtin_target` without also giving it a raw or infallible
+/// lowering — catching the mistake instead of miscompiling. The front-end no
+/// longer rejects anything here (the old `TYPE_INLINE_TRAP_ON_INLINED_BUILTIN`
+/// diagnostic was retired in plan-26-C).
+///
+/// Excluded (already trappable): the conversion builtins
+/// `toInt`/`toFloat`/`toFixed`/`toByte` (`lower_inline_conversion_raw`) and every
+/// `runtime::helper_for_call` target (`lower_runtime_helper_call`); user
+/// `FUNC`/`SUB` calls carry real symbols and match none of the member forms here.
 ///
 /// `target` is the canonical, dot-qualified callee (`strings.find`,
 /// `collections.get`, `bits.sl`) or a bare inline general-builtin name (`len`,
-/// `toString`, `typeName`) — the same forms the call lowering dispatches on, so
-/// the gate and the backstop classify identically.
+/// `toString`, `typeName`).
 pub(crate) fn inline_trap_unsupported(target: &str) -> bool {
     (bits::is_bits_call(target)
         || native_builtin_target(target).is_some()
         || matches!(target, "len" | "toString" | "typeName"))
         && !inline_builtin_raw_supported(target)
+        && !inline_builtin_is_infallible(target)
 }
 
 /// Whether a fallible inline member has a raw-`Result` inline lowering
 /// (`lower_inline_builtin_raw`) so an inline `TRAP` on it compiles and traps the
-/// real runtime error (plan-21-B). These are the index/range members whose failure
-/// raises through the shared `emit_error_register_return` tail (so the
-/// `raw_result_capture` branch already redirects the error to the capture point):
-/// `collections::get`/`set`/`insert`/`removeAt`, `strings::mid`, and `find`
-/// (`collections::find`/`strings::find`). The callback members
-/// (`forEach`/`transform`/`filter`/`reduce`) are excluded — a failing callback
-/// propagates via a plain return, not the capture branch — as are the infallible
-/// members (which the front-end gate rejects as "cannot fail" first). `target` is
-/// the canonical callee (`collections.get`, `strings.mid`, ...).
+/// real runtime error. Two failure seams reach the capture point:
+///
+/// - the index/range members `collections::get`/`set`/`insert`/`removeAt`,
+///   `strings::mid`, and `find` (`collections::find`/`strings::find`) raise
+///   through the shared `emit_error_register_return` tail, whose
+///   `raw_result_capture` branch redirects the domain error (plan-21-B);
+/// - the callback loop members `forEach`/`transform`/`filter`/`reduce` route a
+///   failing user callback through `emit_callback_failure_exit`, which frees each
+///   member's loop-scoped intermediate before joining the capture (plan-26-B).
+///
+/// The infallible members are excluded here (they cannot fail, so there is
+/// nothing to capture; `lower_inline_infallible_raw` wraps them always-`Ok`
+/// instead). `target` is the canonical callee (`collections.get`,
+/// `strings.mid`, ...).
 pub(crate) fn inline_builtin_raw_supported(target: &str) -> bool {
     matches!(
         native_builtin_target(target),
-        Some("get" | "set" | "insert" | "removeAt" | "find" | "mid")
+        Some(
+            "get" | "set"
+                | "insert"
+                | "removeAt"
+                | "find"
+                | "mid"
+                | "forEach"
+                | "transform"
+                | "filter"
+                | "reduce"
+        )
     )
 }
 
 /// Whether an inline-lowered built-in callee can raise **no** user-trappable
-/// domain error, so an inline `TRAP` on it should report the accurate
-/// `TYPE_INLINE_TRAP_REQUIRES_FALLIBLE` ("this expression cannot fail") rather than
-/// the "move it into a FUNC/SUB" message (plan-21-A). The fallibility census is
-/// grounded in each member's `lower_*` method: a member is infallible here iff no
-/// success-relevant path emits a domain error (`emit_index_out_of_range_return` /
-/// `emit_not_found_return` / range / invalid-format). Allocation OOM does **not**
-/// count as trappable (umbrella Open Decision), so growth-only mutators
-/// (`append`/`prepend`) are infallible.
+/// domain error. Under an inline `TRAP` such a call is *allowed* but its handler
+/// is dead code — the front-end warns `TYPE_INLINE_TRAP_DEAD_HANDLER` and codegen
+/// wraps it always-`Ok` (`lower_inline_infallible_raw`, plan-26-A). The
+/// fallibility census is grounded in each member's `lower_*` method: a member is
+/// infallible here iff no success-relevant path emits a domain error
+/// (`emit_index_out_of_range_return` / `emit_not_found_return` / range /
+/// invalid-format). Allocation OOM does **not** count as trappable (umbrella Open
+/// Decision), so growth-only mutators (`append`/`prepend`) are infallible.
 ///
 /// Infallible: `len`, `toString`, `typeName`, every `bits::*` op, and the
 /// pure-query / default-returning / OOM-only members `contains`, `hasKey`, `keys`,
 /// `values`, `sum`, `getOr`, `append`, `prepend`, `removeKey`, `replace`.
 ///
-/// Fallible (NOT infallible — still rejected as unsupported until plan-21-B):
-/// index members `get`/`set`/`insert`/`removeAt`, `strings::mid`, `find` (negative
-/// start raises), and the callback members `forEach`/`transform`/`filter`/`reduce`
-/// (a failing callback propagates a real error). `target` is the canonical callee
-/// (`collections.get`, `strings.mid`, `bits.sl`) or a bare general-builtin name.
+/// Fallible (NOT infallible — raw-supported, so an inline `TRAP` traps their real
+/// error): index members `get`/`set`/`insert`/`removeAt`, `strings::mid`, `find`
+/// (negative start raises), and the callback members
+/// `forEach`/`transform`/`filter`/`reduce` (a failing callback raises a real
+/// error). `target` is the canonical callee (`collections.get`, `strings.mid`,
+/// `bits.sl`) or a bare general-builtin name.
 pub(crate) fn inline_builtin_is_infallible(target: &str) -> bool {
     if bits::is_bits_call(target) || matches!(target, "len" | "toString" | "typeName") {
         return true;
@@ -407,23 +427,31 @@ mod tests {
                 "raw-supported must not be unsupported: {c}"
             );
         }
-        // Callback members and infallible members are NOT raw-supported.
+        // The callback members are now raw-supported too (plan-26-B).
         for c in [
             "collections.forEach",
             "collections.transform",
             "collections.filter",
             "collections.reduce",
-            "collections.contains",
-            "len",
-            "bits.sl",
         ] {
+            assert!(inline_builtin_raw_supported(c), "expected raw-supported: {c}");
+            assert!(
+                !inline_trap_unsupported(c),
+                "raw-supported must not be unsupported: {c}"
+            );
+        }
+        // The infallible members are NOT raw-supported (nothing to capture) but are
+        // still trappable via the always-`Ok` path — so also not unsupported.
+        for c in ["collections.contains", "len", "bits.sl"] {
             assert!(
                 !inline_builtin_raw_supported(c),
                 "expected NOT raw-supported: {c}"
             );
+            assert!(
+                !inline_trap_unsupported(c),
+                "infallible must not be unsupported: {c}"
+            );
         }
-        // Callback members are still unsupported for inline TRAP.
-        assert!(inline_trap_unsupported("collections.forEach"));
     }
 
     #[test]
@@ -515,18 +543,27 @@ mod tests {
 
     #[test]
     fn inline_trap_unsupported_cases() {
-        assert!(inline_trap_unsupported("bits.sl"));
-        // Callback members are fallible but have no raw inline-TRAP lowering, so an
-        // inline TRAP on them is still unsupported.
-        assert!(inline_trap_unsupported("collections.transform"));
-        assert!(inline_trap_unsupported("len"));
-        assert!(inline_trap_unsupported("toString"));
-        assert!(inline_trap_unsupported("typeName"));
-        // `collections::get` gained a raw inline-TRAP lowering (plan-21-B), so it is
-        // no longer classified unsupported.
-        assert!(!inline_trap_unsupported("collections.get"));
-        assert!(!inline_trap_unsupported("toInt"));
-        assert!(!inline_trap_unsupported("nope"));
+        // Post plan-26 every inline builtin is trappable — infallible ones via the
+        // always-`Ok` path, fallible ones via a raw capture — so `inline_trap_
+        // unsupported` (the codegen backstop for a future un-lowered builtin) is
+        // false for all of them.
+        for target in [
+            "bits.sl",            // infallible bits op
+            "len",                // infallible general builtin
+            "toString",           // infallible general builtin
+            "typeName",           // infallible general builtin
+            "collections.contains", // infallible collection query
+            "collections.transform", // raw-supported callback member (plan-26-B)
+            "collections.forEach",   // raw-supported callback member (plan-26-B)
+            "collections.get",       // raw-supported index member (plan-21-B)
+            "toInt",              // conversion builtin (own raw lowering)
+            "nope",               // not a builtin at all
+        ] {
+            assert!(
+                !inline_trap_unsupported(target),
+                "expected trappable (not unsupported): {target}"
+            );
+        }
     }
 
     #[test]
