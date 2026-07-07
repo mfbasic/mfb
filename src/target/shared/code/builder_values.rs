@@ -555,7 +555,17 @@ impl CodeBuilder<'_> {
                     text: format!("capture[{index}]"),
                 })
             }
-            NirValue::Call { target, args, .. } => {
+            NirValue::Call { target, args, loc } => {
+                // plan-01-vector: inline the pure-arithmetic `vector::` ops
+                // (`scale`, `dot`) over Float2/3/4 as their equivalent constructor
+                // / sum expression, eliminating the out-of-line FUNC call. The
+                // rewrite reproduces the `vector_package.mfb` body's exact
+                // expression tree, so the result and its finiteness observation are
+                // bit-identical; a non-simple (re-evaluation-unsafe) operand or any
+                // un-inlined op falls back to the package FUNC call below.
+                if let Some(result) = self.try_inline_vector_op(target, args, *loc)? {
+                    return Ok(result);
+                }
                 if let Some(local) = self.locals.get(target).cloned() {
                     if local.type_.starts_with("FUNC(") {
                         let return_type = callable_return_type(&local.type_).ok_or_else(|| {

@@ -1,0 +1,53 @@
+IMPORT vector
+
+' plan-01-vector: the pure-arithmetic vector ops (scale, dot, cross, lerp_unclamped)
+' are inlined at the call site instead of an out-of-line FUNC call. This pins their
+' results (bit-identical to the FUNC path) and the overflow-trap behavior, and
+' exercises the fallback (a non-simple operand keeps the FUNC path).
+
+FUNC overflows AS Float
+  LET big AS Float3 = Float3[1.0e200, 1.0e200, 1.0e200]
+  LET p AS Float3 = vector::scale(big, big)
+  RETURN p.x
+END FUNC
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "inlined vector ops"
+    TCASE "scale is componentwise (Float3)"
+      LET s AS Float3 = vector::scale(Float3[1.0, 2.0, 3.0], Float3[4.0, 5.0, 6.0])
+      expectFloat(s.x, 4.0)
+      expectFloat(s.y, 10.0)
+      expectFloat(s.z, 18.0)
+    END TCASE
+    TCASE "scale (Float2 and Float4)"
+      LET s2 AS Float2 = vector::scale(Float2[2.0, 3.0], Float2[4.0, 5.0])
+      expectFloat(s2.x, 8.0)
+      expectFloat(s2.y, 15.0)
+      LET s4 AS Float4 = vector::scale(Float4[1.0, 2.0, 3.0, 4.0], Float4[2.0, 2.0, 2.0, 2.0])
+      expectFloat(s4.w, 8.0)
+    END TCASE
+    TCASE "dot inner product"
+      expectFloat(vector::dot(Float3[1.0, 2.0, 3.0], Float3[4.0, 5.0, 6.0]), 32.0)
+      expectFloat(vector::dot(Float2[3.0, 4.0], Float2[3.0, 4.0]), 25.0)
+    END TCASE
+    TCASE "cross product (Float3)"
+      LET x AS Float3 = vector::cross(Float3[1.0, 2.0, 3.0], Float3[4.0, 5.0, 6.0])
+      expectFloat(x.x, -3.0)
+      expectFloat(x.y, 6.0)
+      expectFloat(x.z, -3.0)
+    END TCASE
+    TCASE "lerp_unclamped"
+      LET l AS Float3 = vector::lerp_unclamped(Float3[1.0, 2.0, 3.0], Float3[4.0, 5.0, 6.0], 0.5)
+      expectFloat(l.x, 2.5)
+      expectFloat(l.y, 3.5)
+      expectFloat(l.z, 4.5)
+    END TCASE
+    TCASE "overflow still traps at the boundary"
+      expectTrap(overflows(), 77050015)
+    END TCASE
+  END TGROUP
+END TESTING

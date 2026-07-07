@@ -2713,6 +2713,7 @@ mod builder_strings_builtins;
 mod builder_strings_package;
 mod builder_value_semantics;
 mod builder_values;
+mod builder_vector_inline;
 mod crypto;
 mod crypto_ec;
 mod datetime;
