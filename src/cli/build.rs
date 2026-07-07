@@ -332,8 +332,19 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 &external_functions,
                 &external_params,
             );
+            // A host `mfb test` links the driver into a unique temporary
+            // directory (removed after the run) so nothing is ever left in the
+            // project directory. A cross `-target` test build has no host binary
+            // to run, so it writes to the project directory like a normal build
+            // and reports the artifact.
+            let test_output_dir = if options.mode.is_test() && target.is_host() {
+                Some(make_temp_output_dir())
+            } else {
+                None
+            };
+            let output_dir = test_output_dir.as_deref().unwrap_or(&options.location);
             let executable_paths = target::write_executable(
-                &options.location,
+                output_dir,
                 &ir,
                 &target,
                 &packages,
@@ -346,19 +357,25 @@ pub(crate) fn build_project(options: &BuildOptions) -> Result<(), ()> {
                 eprintln!("error: {err}");
             })?;
             // `mfb test` compiles the driver, then runs it and adopts its exit
-            // status (non-zero iff any case failed). It only runs a host-native
-            // binary; a cross `-target` test build just reports the artifact.
+            // status (non-zero iff any case failed).
             if options.mode.is_test() {
-                let runnable = executable_paths.first().cloned();
-                if target.is_host() {
-                    if let Some(path) = runnable {
-                        let status = run_test_binary(&path);
-                        if options.mode.coverage() {
-                            generate_coverage_report(&project_abs);
+                if let Some(dir) = test_output_dir {
+                    // Host run: execute the freshly linked binary, then remove
+                    // the whole temp directory regardless of outcome.
+                    let status = match executable_paths.first() {
+                        Some(path) => run_test_binary(path),
+                        None => {
+                            eprintln!("error: mfb test produced no executable to run");
+                            Err(())
                         }
-                        return status;
+                    };
+                    if options.mode.coverage() {
+                        generate_coverage_report(&project_abs);
                     }
+                    let _ = std::fs::remove_dir_all(&dir);
+                    return status;
                 }
+                // Cross target: cannot run; report the artifact.
                 for executable_path in executable_paths {
                     println!("Wrote test executable to {}", executable_path.display());
                 }
@@ -649,6 +666,19 @@ fn generate_coverage_report(project_dir: &Path) {
         Ok(()) => println!("Wrote coverage report to {}", out.display()),
         Err(err) => eprintln!("warning: failed to write coverage report: {err}"),
     }
+}
+
+/// A unique temporary directory for a `mfb test` executable, so the linked
+/// binary never lands in the project directory. Named by process id + a
+/// high-resolution timestamp; created eagerly and removed after the run.
+fn make_temp_output_dir() -> PathBuf {
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let dir = std::env::temp_dir().join(format!("mfb-test-{}-{nanos}", std::process::id()));
+    let _ = std::fs::create_dir_all(&dir);
+    dir
 }
 
 /// Run the freshly built test executable, inheriting its stdio, and map its exit
