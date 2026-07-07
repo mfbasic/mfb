@@ -618,14 +618,14 @@ mod resources_tests {
         // A resolvable thread.start (package entry point) walks the start arm of
         // check_thread_boundary_sendability (input/message/resource/output).
         use std::path::Path;
-        assert!(check_project_dir(Path::new(&fixture("func_thread_start_valid"))).is_empty());
+        assert!(check_project_dir(Path::new(&fixture("builtin-thread/behavior/func_thread_start_valid"))).is_empty());
     }
 
     #[test]
     fn thread_transfer_boundary_via_package() {
         // thread.transfer over a RES resource plane walks the transfer/accept arm.
         use std::path::Path;
-        assert!(check_project_dir(Path::new(&fixture("func_thread_transfer_valid"))).is_empty());
+        assert!(check_project_dir(Path::new(&fixture("builtin-thread/behavior/func_thread_transfer_valid"))).is_empty());
     }
 
     // ---- contains_resource_or_thread over collection-shaped Map keys -------

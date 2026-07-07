@@ -1,0 +1,57 @@
+{
+  "format": "mfb-ir",
+  "version": 1,
+  "project": "collection_map_bindings",
+  "entry": {
+    "name": "main",
+    "returns": "Integer",
+    "accepts_args": false
+  },
+  "types": [
+  ],
+  "functions": [
+  {
+    "name": "printMap",
+    "line": 3,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    { "name": "values", "line": 3, "type": "Map OF String TO String", "default": null }
+    ],
+    "returns": "Nothing",
+    "body": [
+    {
+      "op": "forEach",
+      "line": 4,
+      "name": "entry",
+      "type": "MapEntry OF String TO String",
+      "iterable": { "kind": "local", "name": "values" },
+      "body": [
+      { "op": "eval", "line": 5, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "entry" }, "member": "key" }] } },
+      { "op": "eval", "line": 6, "value": { "kind": "call", "type": "Nothing", "target": "io.print", "args": [{ "kind": "memberAccess", "type": "String", "target": { "kind": "local", "name": "entry" }, "member": "value" }] } }
+      ]
+    },
+    { "op": "return", "line": 8, "value": { "kind": "const", "type": "Nothing", "value": "NOTHING" } }
+    ]
+  },
+  {
+    "name": "main",
+    "line": 11,
+    "visibility": "public",
+    "kind": "func",
+    "params": [
+    ],
+    "returns": "Integer",
+    "body": [
+    { "op": "bind", "line": 12, "mutable": false, "name": "letMap", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [{ "key": { "kind": "const", "type": "String", "value": "a" }, "value": { "kind": "const", "type": "String", "value": "one" } }, { "key": { "kind": "const", "type": "String", "value": "b" }, "value": { "kind": "const", "type": "String", "value": "two" } }] } },
+    { "op": "bind", "line": 13, "mutable": true, "name": "mutMap", "type": "Map OF String TO String", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [{ "key": { "kind": "const", "type": "String", "value": "c" }, "value": { "kind": "const", "type": "String", "value": "three" } }] } },
+    { "op": "assign", "line": 14, "name": "mutMap", "value": { "kind": "map", "type": "Map OF String TO String", "entries": [{ "key": { "kind": "const", "type": "String", "value": "d" }, "value": { "kind": "const", "type": "String", "value": "four" } }, { "key": { "kind": "const", "type": "String", "value": "e" }, "value": { "kind": "const", "type": "String", "value": "five" } }] } },
+    { "op": "bind", "line": 15, "mutable": false, "name": "copied", "type": "Map OF String TO String", "value": { "kind": "local", "name": "mutMap" } },
+    { "op": "eval", "line": 17, "value": { "kind": "call", "type": "Nothing", "target": "printMap", "args": [{ "kind": "local", "name": "letMap" }] } },
+    { "op": "eval", "line": 18, "value": { "kind": "call", "type": "Nothing", "target": "printMap", "args": [{ "kind": "local", "name": "mutMap" }] } },
+    { "op": "eval", "line": 19, "value": { "kind": "call", "type": "Nothing", "target": "printMap", "args": [{ "kind": "local", "name": "copied" }] } },
+    { "op": "return", "line": 20, "value": { "kind": "const", "type": "Integer", "value": "0" } }
+    ]
+  }
+  ]
+}

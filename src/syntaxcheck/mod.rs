@@ -2541,12 +2541,12 @@ mod checker_tests {
 
     #[test]
     fn package_metadata_thread_transfer_valid() {
-        assert!(check_project_dir(Path::new(&fixture("func_thread_transfer_valid"))).is_empty());
+        assert!(check_project_dir(Path::new(&fixture("builtin-thread/behavior/func_thread_transfer_valid"))).is_empty());
     }
 
     #[test]
     fn package_metadata_thread_send_valid() {
-        assert!(check_project_dir(Path::new(&fixture("func_thread_send_valid"))).is_empty());
+        assert!(check_project_dir(Path::new(&fixture("builtin-thread/behavior/func_thread_send_valid"))).is_empty());
     }
 
     // Diverse imported-package metadata shapes walk validate_package_metadata_type
@@ -2559,7 +2559,7 @@ mod checker_tests {
             "thread-return-map-of-string-to-string",
             "thread-return-list-of-string",
             "package-import-as",
-            "func_thread_start_valid",
+            "builtin-thread/behavior/func_thread_start_valid",
             "thread-drop-cleanup",
             "native-resource-import-valid",
             "thread-import-package-print",

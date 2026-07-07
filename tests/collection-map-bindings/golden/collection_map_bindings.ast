@@ -1,0 +1,55 @@
+{
+  "project": "collection_map_bindings",
+  "files": [
+  {
+    "path": "src/main.mfb",
+    "imports": [
+    { "module": "io", "line": 1 }
+    ],
+    "items": [
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "printMap",
+      "line": 3,
+      "params": [
+      { "name": "values", "type": "Map OF String TO String", "default": null }
+      ],
+      "returnType": "Nothing",
+      "body": [
+      {
+        "kind": "forEach",
+        "name": "entry",
+        "iterable": { "kind": "identifier", "value": "values" },
+        "line": 4,
+        "body": [
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "entry" }, "member": "key" }] }, "line": 5 },
+        { "kind": "expression", "expression": { "kind": "call", "callee": "io.print", "arguments": [{ "kind": "memberAccess", "target": { "kind": "identifier", "value": "entry" }, "member": "value" }] }, "line": 6 }
+        ]
+      },
+      { "kind": "return", "value": { "kind": "identifier", "value": "NOTHING" }, "line": 8 }
+      ]
+    },
+    {
+      "kind": "func",
+      "visibility": "public",
+      "name": "main",
+      "line": 11,
+      "params": [
+      ],
+      "returnType": "Integer",
+      "body": [
+      { "kind": "binding", "mutable": false, "name": "letMap", "type": "Map OF String TO String", "value": { "kind": "map", "keyType": "String", "valueType": "String", "entries": [{ "key": { "kind": "string", "value": "a" }, "value": { "kind": "string", "value": "one" } }, { "key": { "kind": "string", "value": "b" }, "value": { "kind": "string", "value": "two" } }] }, "line": 12 },
+      { "kind": "binding", "mutable": true, "name": "mutMap", "type": "Map OF String TO String", "value": { "kind": "map", "keyType": "String", "valueType": "String", "entries": [{ "key": { "kind": "string", "value": "c" }, "value": { "kind": "string", "value": "three" } }] }, "line": 13 },
+      { "kind": "assignment", "name": "mutMap", "value": { "kind": "map", "keyType": "String", "valueType": "String", "entries": [{ "key": { "kind": "string", "value": "d" }, "value": { "kind": "string", "value": "four" } }, { "key": { "kind": "string", "value": "e" }, "value": { "kind": "string", "value": "five" } }] }, "line": 14 },
+      { "kind": "binding", "mutable": false, "name": "copied", "type": "Map OF String TO String", "value": { "kind": "identifier", "value": "mutMap" }, "line": 15 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printMap", "arguments": [{ "kind": "identifier", "value": "letMap" }] }, "line": 17 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printMap", "arguments": [{ "kind": "identifier", "value": "mutMap" }] }, "line": 18 },
+      { "kind": "expression", "expression": { "kind": "call", "callee": "printMap", "arguments": [{ "kind": "identifier", "value": "copied" }] }, "line": 19 },
+      { "kind": "return", "value": { "kind": "number", "value": "0" }, "line": 20 }
+      ]
+    }
+    ]
+  }
+  ]
+}
