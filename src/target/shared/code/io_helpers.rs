@@ -343,8 +343,11 @@ pub(super) fn lower_io_write_helper(
 
 pub(super) fn lower_io_flush_helper(
     symbol: &str,
-    platform_imports: &HashMap<String, String>,
-    platform: &dyn CodegenPlatform,
+    // Flush is now drain-only (no fsync), so it no longer needs the platform to
+    // emit a libc/syscall sequence; kept in the signature for parity with the
+    // other io helper lowerings dispatched from mod.rs.
+    _platform_imports: &HashMap<String, String>,
+    _platform: &dyn CodegenPlatform,
     stderr: bool,
 ) -> Result<
     (
@@ -356,20 +359,21 @@ pub(super) fn lower_io_flush_helper(
     String,
 > {
     const FRAME_SIZE: usize = 16;
-    const ERRNO_EINVAL: &str = "22";
-    const ERRNO_ENOTSUP_DARWIN: &str = "45";
-    const ERRNO_EOPNOTSUPP_LINUX: &str = "95";
 
-    let sync_error = format!("{symbol}_sync_error");
-    let ok = format!("{symbol}_ok");
     let output_error = format!("{symbol}_output_error");
     let done = format!("{symbol}_done");
 
     let mut instructions = vec![abi::label("entry")];
     let mut relocations = Vec::new();
-    // Opt-in stdout buffering (plan-14-A): io::flush() first drains the per-arena
-    // MFBASIC output buffer (a no-op when buffering is off), then performs the
-    // host stream sync as before. stderr is never buffered, so only stdout drains.
+    // io::flush() drains the per-arena MFBASIC stdout buffer via write() and
+    // reports a write failure — nothing else. It deliberately does NOT fsync:
+    // fsync's result depends on the fd *type* (EBADF only for a genuinely closed
+    // fd, benign EINVAL on pipes/char devices, 0 on a regular file), which made
+    // flush's success/failure depend on the runtime environment rather than on
+    // what the program actually wrote. The buffer drain's write() is the one
+    // portable failure signal — identical on every platform/libc. A no-op when
+    // buffering is off, and stderr is never buffered, so flushing stderr always
+    // succeeds (nothing to drain).
     if !stderr {
         instructions.push(abi::branch_link(STDOUT_DRAIN_SYMBOL));
         relocations.push(internal_branch(symbol, STDOUT_DRAIN_SYMBOL));
@@ -378,39 +382,9 @@ pub(super) fn lower_io_flush_helper(
             abi::branch_ne(&output_error),
         ]);
     }
-    instructions.push(abi::move_immediate(
-        abi::return_register(),
-        "Integer",
-        if stderr { "2" } else { "1" },
-    ));
-    platform.emit_sync_file(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
     instructions.extend([
-        abi::compare_immediate(abi::return_register(), "0"),
-        abi::branch_lt(&sync_error),
-        abi::label(&ok),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_OK_TAG),
         abi::branch(&done),
-        abi::label(&sync_error),
-    ]);
-    platform.emit_errno(
-        symbol,
-        platform_imports,
-        &mut instructions,
-        &mut relocations,
-    )?;
-    instructions.push(abi::move_register("%v9", "x9"));
-    instructions.extend([
-        abi::compare_immediate("%v9", ERRNO_EINVAL),
-        abi::branch_eq(&ok),
-        abi::compare_immediate("%v9", ERRNO_ENOTSUP_DARWIN),
-        abi::branch_eq(&ok),
-        abi::compare_immediate("%v9", ERRNO_EOPNOTSUPP_LINUX),
-        abi::branch_eq(&ok),
         abi::label(&output_error),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
         abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
@@ -1329,9 +1303,7 @@ pub(super) fn lower_io_read_line_helper(
         original: 96,
         modified: 168,
     };
-    let prompt_ok = format!("{symbol}_prompt_ok");
     let prompt_flush = format!("{symbol}_prompt_flush");
-    let prompt_flush_error = format!("{symbol}_prompt_flush_error");
     let alloc_ok = format!("{symbol}_alloc_ok");
     let read_loop = format!("{symbol}_read_loop");
     let have_sequence = format!("{symbol}_have_sequence");
@@ -1369,6 +1341,11 @@ pub(super) fn lower_io_read_line_helper(
         }
     }
     if with_prompt {
+        // Write the prompt directly and report a write failure via output_error.
+        // Like io::flush, prompt "flushing" is just the write() — the portable,
+        // platform-independent failure signal. No fsync (its errno depends on the
+        // fd type, not on the write). An empty prompt writes nothing and so
+        // cannot fail; it joins at `prompt_flush` and proceeds to the read.
         instructions.extend([
             abi::load_u64(abi::string_length_register(), abi::return_register(), 0),
             abi::compare_immediate(abi::string_length_register(), "0"),
@@ -1386,18 +1363,6 @@ pub(super) fn lower_io_read_line_helper(
             abi::compare_immediate(abi::return_register(), "0"),
             abi::branch_lt(&output_error),
             abi::label(&prompt_flush),
-            abi::move_immediate(abi::return_register(), "Integer", "1"),
-        ]);
-        platform.emit_sync_file(
-            symbol,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?;
-        instructions.extend([
-            abi::compare_immediate(abi::return_register(), "0"),
-            abi::branch_lt(&prompt_flush_error),
-            abi::label(&prompt_ok),
         ]);
     }
     if !with_prompt {
@@ -1757,33 +1722,6 @@ pub(super) fn lower_io_read_line_helper(
         &mut relocations,
     );
     instructions.push(abi::branch(&done));
-    if with_prompt {
-        instructions.push(abi::label(&prompt_flush_error));
-        platform.emit_errno(
-            symbol,
-            platform_imports,
-            &mut instructions,
-            &mut relocations,
-        )?;
-        instructions.push(abi::move_register("%v9", "x9"));
-        instructions.extend([
-            abi::compare_immediate("%v9", "22"),
-            abi::branch_eq(&prompt_ok),
-            abi::compare_immediate("%v9", "45"),
-            abi::branch_eq(&prompt_ok),
-            abi::compare_immediate("%v9", "95"),
-            abi::branch_eq(&prompt_ok),
-            abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_OUTPUT_CODE),
-            abi::move_immediate(RESULT_TAG_REGISTER, "Integer", RESULT_ERR_TAG),
-        ]);
-        push_error_message_address(
-            symbol,
-            ERR_OUTPUT_SYMBOL,
-            &mut instructions,
-            &mut relocations,
-        );
-        instructions.push(abi::branch(&done));
-    }
     instructions.extend([
         abi::label(&eof_error),
         abi::move_immediate(RESULT_VALUE_REGISTER, "Integer", ERR_EOF_CODE),

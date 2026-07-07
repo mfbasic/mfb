@@ -271,6 +271,64 @@ sys.stdout.write(binascii.hexlify(err).decode("ascii") + "\n")"#,
     (status, child_stdout, child_stderr)
 }
 
+/// Run `executable` with stdout (fd 1) pointed at a **read-only** descriptor
+/// (`/dev/null` opened `O_RDONLY`), then dup'd onto fd 1. Any real `write(1, …)`
+/// then fails deterministically with `EBADF` on every platform/libc — unlike a
+/// *closed* fd, a valid-but-read-only descriptor cannot be silently reopened or
+/// replaced by the runtime/loader, so this is the portable way to exercise the
+/// stdout-write failure path (bug-04: `io::flush`/`io::input` detect failures via
+/// `write`, not `fsync`).
+fn run_with_readonly_stdout(executable: &Path, stdin: &[u8]) -> (i32, String, String) {
+    let output = Command::new("python3")
+        .arg("-c")
+        .arg(
+            r#"import binascii, os, subprocess, sys
+stdin_data = bytes.fromhex(sys.argv[2])
+
+def make_stdout_readonly():
+    fd = os.open(os.devnull, os.O_RDONLY)
+    os.dup2(fd, 1)
+    if fd != 1:
+        os.close(fd)
+
+proc = subprocess.Popen(
+    [sys.argv[1]],
+    stdin=subprocess.PIPE,
+    stdout=subprocess.PIPE,
+    stderr=subprocess.PIPE,
+    preexec_fn=make_stdout_readonly,
+)
+out, err = proc.communicate(stdin_data)
+sys.stdout.write(str(proc.returncode) + "\n")
+sys.stdout.write(binascii.hexlify(out).decode("ascii") + "\n")
+sys.stdout.write(binascii.hexlify(err).decode("ascii") + "\n")"#,
+        )
+        .arg(executable)
+        .arg(hex(stdin))
+        .output()
+        .expect("run readonly-stdout helper");
+
+    assert!(
+        output.status.success(),
+        "readonly-stdout helper failed:\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let stdout = String::from_utf8(output.stdout).expect("utf8 helper output");
+    let mut lines = stdout.lines();
+    let status = lines
+        .next()
+        .expect("status line")
+        .parse::<i32>()
+        .expect("status code");
+    let child_stdout =
+        String::from_utf8(decode_hex(lines.next().expect("stdout line"))).expect("utf8 stdout");
+    let child_stderr =
+        String::from_utf8(decode_hex(lines.next().expect("stderr line"))).expect("utf8 stderr");
+    (status, child_stdout, child_stderr)
+}
+
 fn run_under_pty(executable: &Path) -> String {
     let output = Command::new("python3")
         .arg("-c")
@@ -418,12 +476,19 @@ END FUNC
 
 #[test]
 fn native_io_flush_reports_standard_stream_failures() {
+    // io::flush() surfaces a stdout *write* failure — deterministically, on every
+    // platform. Buffer real bytes, then flush into a read-only stdout: the drain's
+    // write(1, …) fails with EBADF and flush traps (bug-04). This exercises the
+    // real detection path (write, not fsync), so it behaves identically
+    // everywhere instead of depending on what fd 1 happens to be.
     let flush_stdout = temp_project(
         "native_io_flush_stdout_failure",
         r#"
 IMPORT io
 
 FUNC main AS Integer
+  io::setBuffered(TRUE)
+  io::write("data")
   io::flush()
   RETURN 17
   TRAP(err)
@@ -433,7 +498,7 @@ FUNC main AS Integer
 END FUNC
 "#,
     );
-    let (status, stdout, stderr) = run_with_closed_fd(&build_project(&flush_stdout), 1, b"");
+    let (status, stdout, stderr) = run_with_readonly_stdout(&build_project(&flush_stdout), b"");
     assert_eq!(status, 0);
     assert_eq!(stdout, "");
     assert_eq!(stderr, "77020002\n");
@@ -755,13 +820,18 @@ END FUNC
 
 #[test]
 fn native_io_input_reports_prompt_flush_failure() {
+    // io::input(prompt) writes the prompt before reading; a stdout write failure
+    // there must trap. A *non-empty* prompt drives the write path (bug-04:
+    // input no longer fsyncs), so with a read-only stdout the prompt write fails
+    // EBADF and traps deterministically everywhere. An empty prompt writes
+    // nothing and correctly cannot fail.
     let project = temp_project(
         "native_io_input_prompt_failure",
         r#"
 IMPORT io
 
 FUNC main AS Integer
-  io::input()
+  io::input("prompt> ")
   RETURN 17
   TRAP(err)
     io::printError(toString(err.code))
@@ -770,7 +840,7 @@ FUNC main AS Integer
 END FUNC
 "#,
     );
-    let (status, stdout, stderr) = run_with_closed_fd(&build_project(&project), 1, b"Ada\n");
+    let (status, stdout, stderr) = run_with_readonly_stdout(&build_project(&project), b"Ada\n");
     assert_eq!(status, 0);
     assert_eq!(stdout, "");
     assert_eq!(stderr, "77020002\n");
