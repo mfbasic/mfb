@@ -20,12 +20,16 @@ use super::*;
 /// store site it hard-errors at the encoder (fail-loud) instead of miscompiling.
 pub(super) const VECTOR_NATIVE_MARKER: &str = "%%vecnative:";
 
-/// The lane count of a register-native small Float vector type, or `None`.
-pub(super) fn float_vector_field_count(type_name: &str) -> Option<usize> {
+/// The lane count of a register-native small vector type (Float/Fixed/Integer),
+/// or `None`. The carrier (construction, member reads, boundary materialization)
+/// is element-type-agnostic — a lane is a scalar `Float`/`Fixed`/`Integer` value
+/// stored as 8 bytes — so every `<Elem>N` type is register-native. Only the *op
+/// inlining* is Float-only (Fixed/Integer ops keep their FUNC bodies).
+pub(super) fn vector_field_count(type_name: &str) -> Option<usize> {
     match type_name {
-        "Float2" => Some(2),
-        "Float3" => Some(3),
-        "Float4" => Some(4),
+        "Float2" | "Fixed2" | "Integer2" => Some(2),
+        "Float3" | "Fixed3" | "Integer3" => Some(3),
+        "Float4" | "Fixed4" | "Integer4" => Some(4),
         _ => None,
     }
 }
@@ -266,6 +270,47 @@ impl CodeBuilder<'_> {
                     bin("-", bin("*", m(a, "x"), m(b, "y")), bin("*", m(a, "y"), m(b, "x"))),
                 ];
                 build(self, lanes)?
+            }
+            // length: math::sqrt(v.f0*v.f0 + v.f1*v.f1 + ...) — a single expression
+            // (matching the FUNC body exactly, so the sum is finiteness-observed as
+            // the sqrt argument and the sqrt result is finite by the boundary
+            // invariant). `distance` binds intermediates to LETs in its body, so it
+            // is left to the FUNC to keep its observation points identical.
+            ("length", 1) => {
+                let v = &args[0];
+                let square = |f: &str| bin("*", Self::vector_field(v, f), Self::vector_field(v, f));
+                let mut sum = square(fields[0]);
+                for f in &fields[1..] {
+                    sum = bin("+", sum, square(f));
+                }
+                let sqrt = NirValue::Call {
+                    target: "math.sqrt".to_string(),
+                    args: vec![sum],
+                    loc,
+                };
+                self.lower_value(&sqrt)?
+            }
+            // distance: math::sqrt((a.f0-b.f0)^2 + ...). The FUNC binds each
+            // difference to a LET; inlining re-evaluates the (deterministic)
+            // subtraction per square, so the value is bit-identical (a subtraction
+            // that overflows still traps `ErrFloatOverflow`, at the call site's
+            // location rather than the FUNC's — the code is unchanged).
+            ("distance", 2) => {
+                let (a, b) = (&args[0], &args[1]);
+                let sq_diff = |f: &str| {
+                    let diff = bin("-", Self::vector_field(a, f), Self::vector_field(b, f));
+                    bin("*", diff.clone(), diff)
+                };
+                let mut sum = sq_diff(fields[0]);
+                for f in &fields[1..] {
+                    sum = bin("+", sum, sq_diff(f));
+                }
+                let sqrt = NirValue::Call {
+                    target: "math.sqrt".to_string(),
+                    args: vec![sum],
+                    loc,
+                };
+                self.lower_value(&sqrt)?
             }
             _ => return Ok(None),
         };

@@ -2740,7 +2740,7 @@ mod tests;
 pub(crate) mod tls;
 mod type_utils;
 use type_utils::*;
-use builder_vector_inline::float_vector_field_count;
+use builder_vector_inline::vector_field_count;
 mod serialization_utils;
 use serialization_utils::*;
 mod function_lowering;

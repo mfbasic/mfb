@@ -46,6 +46,14 @@ TESTING
       expectFloat(l.y, 3.5)
       expectFloat(l.z, 4.5)
     END TCASE
+    TCASE "length (sqrt of sum of squares)"
+      expectFloat(vector::length(Float3[3.0, 0.0, 4.0]), 5.0)
+      expectFloat(vector::length(Float2[6.0, 8.0]), 10.0)
+    END TCASE
+    TCASE "distance"
+      expectFloat(vector::distance(Float3[0.0, 0.0, 0.0], Float3[3.0, 0.0, 4.0]), 5.0)
+      expectFloat(vector::distance(Float2[1.0, 1.0], Float2[4.0, 5.0]), 5.0)
+    END TCASE
     TCASE "overflow still traps at the boundary"
       expectTrap(overflows(), 77050015)
     END TCASE

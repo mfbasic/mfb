@@ -936,7 +936,7 @@ impl CodeBuilder<'_> {
                 // (`vector_value_as_block`). Each lane is finiteness-observed exactly
                 // as the record-field boundary would (plan-17), so behavior is
                 // bit-identical to the heap-record constructor.
-                if let Some(count) = float_vector_field_count(type_) {
+                if let Some(count) = vector_field_count(type_) {
                     if args.len() == count {
                         let mut lanes = Vec::with_capacity(count);
                         for arg in args {
