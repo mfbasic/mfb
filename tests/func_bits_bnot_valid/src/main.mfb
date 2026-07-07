@@ -1,8 +1,0 @@
-IMPORT io
-IMPORT bits
-
-FUNC main AS Integer
-  io::print(toString(bits::bnot(0)))
-  io::print(toString(bits::bnot(-1)))
-  RETURN 0
-END FUNC

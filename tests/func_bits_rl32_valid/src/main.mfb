@@ -1,8 +1,0 @@
-IMPORT io
-IMPORT bits
-
-FUNC main AS Integer
-  io::print(toString(bits::rl32(2147483648, 1)))
-  io::print(toString(bits::rl32(1, 32)))
-  RETURN 0
-END FUNC

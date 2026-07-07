@@ -1,8 +1,0 @@
-IMPORT io
-IMPORT bits
-
-FUNC main AS Integer
-  io::print(toString(bits::clz(1)))
-  io::print(toString(bits::clz(0)))
-  RETURN 0
-END FUNC

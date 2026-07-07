@@ -1,9 +1,0 @@
-IMPORT io
-IMPORT bits
-
-FUNC main AS Integer
-  io::print(toString(bits::popCount(255)))
-  io::print(toString(bits::popCount(0)))
-  io::print(toString(bits::popCount(-1)))
-  RETURN 0
-END FUNC

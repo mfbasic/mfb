@@ -1,9 +1,0 @@
-IMPORT io
-IMPORT bits
-
-FUNC main AS Integer
-  io::print(toString(bits::sl(1, 4)))
-  io::print(toString(bits::sl(255, 8)))
-  io::print(toString(bits::sl(1, 0)))
-  RETURN 0
-END FUNC
