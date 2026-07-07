@@ -1,0 +1,12 @@
+$ mfb build -ast -ir tests/builtin-bits/runtime/func_bits_sl_range_rt
+Wrote AST to tests/builtin-bits/runtime/func_bits_sl_range_rt/func_bits_sl_range_rt.ast
+Wrote IR to tests/builtin-bits/runtime/func_bits_sl_range_rt/func_bits_sl_range_rt.ir
+[exit 0]
+$ mfb build tests/builtin-bits/runtime/func_bits_sl_range_rt
+Wrote executable to tests/builtin-bits/runtime/func_bits_sl_range_rt/func_bits_sl_range_rt.out
+[exit 0]
+$ tests/builtin-bits/runtime/func_bits_sl_range_rt/func_bits_sl_range_rt.out
+16
+ErrInvalidArgument
+ErrInvalidArgument
+[exit 0]

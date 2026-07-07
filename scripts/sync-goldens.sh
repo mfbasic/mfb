@@ -17,10 +17,12 @@ bash "$ROOT/scripts/test-accept.sh" "$MFB_EXE" "$ACTUAL" >/dev/null 2>&1 || true
 tests=("$@")
 if [ "${#tests[@]}" -eq 0 ]; then
   tests=()
-  for d in "$ROOT"/tests/*/ "$ROOT"/tests/security/*/; do
-    rel=${d#"$ROOT/tests/"}
-    tests+=("${rel%/}")
-  done
+  # Every project.json is a test at any depth (flat, tests/security/*, and nested
+  # package suites like tests/builtin-bits/{syntax,runtime}/*).
+  while IFS= read -r pj; do
+    d=$(dirname "$pj")
+    tests+=("${d#"$ROOT/tests/"}")
+  done < <(find "$ROOT"/tests -name project.json | sort)
 fi
 
 count=0

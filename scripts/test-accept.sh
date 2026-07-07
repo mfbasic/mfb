@@ -124,10 +124,13 @@ mkdir -p "$ACTUAL_ROOT"
 
 cd "$ROOT" || exit 2
 
-# Top-level tests plus grouped suites (e.g. tests/security/*) one level down.
-for test_dir in "$TEST_ROOT"/* "$TEST_ROOT"/security/*; do
-  [ -d "$test_dir" ] || continue
-  [ -f "$test_dir/project.json" ] || continue
+# Every directory holding a project.json is a test, at any depth: the flat
+# tests/<name>, the grouped tests/security/* suites, and nested package suites
+# such as tests/builtin-bits/{acceptance,syntax,runtime}/* (a grouping directory
+# has no project.json of its own and is skipped). Process substitution keeps the
+# loop in this shell so `ran`/`failures` persist.
+while IFS= read -r project_json; do
+  test_dir=$(dirname "$project_json")
 
   test_name=${test_dir#"$TEST_ROOT/"}
   matches_filter "$test_name" || continue
@@ -142,6 +145,25 @@ for test_dir in "$TEST_ROOT"/* "$TEST_ROOT"/security/*; do
   golden_dir="$test_dir/golden"
   actual_dir="$ACTUAL_ROOT/$test_name"
   mkdir -p "$actual_dir"
+
+  # A test with no golden/ directory is a behavioral (acceptance) test: run
+  # `mfb test` and require exit 0 (all TESTING cases passed). Nothing is compared.
+  if [ ! -d "$golden_dir" ]; then
+    test_out=$("$MFB_EXE" test "tests/$test_name" 2>&1)
+    test_status=$?
+    {
+      echo "\$ mfb test tests/$test_name"
+      printf '%s\n' "$test_out"
+      echo "[exit $test_status]"
+    } >"$actual_dir/test.log"
+    rm -f "$test_dir/$package_name.out"
+    if [ "$test_status" -ne 0 ]; then
+      echo "behavioral test failed (exit $test_status): $test_name" >&2
+      printf '%s\n' "$test_out" >&2
+      failures=$((failures + 1))
+    fi
+    continue
+  fi
 
   log_path="$actual_dir/build.log"
   ast_path="$test_dir/$package_name.ast"
@@ -387,7 +409,7 @@ for test_dir in "$TEST_ROOT"/* "$TEST_ROOT"/security/*; do
   compare_optional_output "$test_name/$package_name.$target_name.app.ncode" \
     "$golden_dir/$package_name.$target_name.app.ncode" \
     "$actual_dir/$package_name.$target_name.app.ncode"
-done
+done < <(find "$TEST_ROOT" -name project.json | sort)
 
 if [ "${#FILTERS[@]}" -ne 0 ] && [ "$ran" -eq 0 ]; then
   echo "no tests matched filter: ${FILTERS[*]}" >&2
