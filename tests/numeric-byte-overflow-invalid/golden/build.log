@@ -1,0 +1,8 @@
+$ mfb build -ast -ir tests/numeric-byte-overflow-invalid
+   2 | ' check rejects 0x100 (256) exactly as it would the decimal 256.
+   3 | FUNC main AS Integer
+   4 |   LET b AS Byte = 0x100
+     | ^
+tests/numeric-byte-overflow-invalid/src/main.mfb:4 error[2-203-0013 TYPE_BYTE_LITERAL_OVERFLOW]: integer literal is outside the Byte range
+               Integer literal `256` is outside the Byte range 0..255.
+[exit 1]

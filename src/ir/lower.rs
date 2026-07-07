@@ -2013,13 +2013,14 @@ fn expression_type(
 ) -> Option<String> {
     match expression {
         Expression::String(_) => Some("String".to_string()),
-        Expression::Number(value) => {
-            if value.contains('.') {
-                Some("Float".to_string())
-            } else {
-                Some("Integer".to_string())
+        Expression::Number(value) => Some(
+            match numeric::classify_literal(value).1 {
+                numeric::LiteralType::Integer => "Integer",
+                numeric::LiteralType::Float => "Float",
+                numeric::LiteralType::Fixed => "Fixed",
             }
-        }
+            .to_string(),
+        ),
         Expression::Boolean(_) => Some("Boolean".to_string()),
         Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
         Expression::Identifier(value) => {
@@ -2603,18 +2604,39 @@ fn lower_expression_with_expected(
             type_: "String".to_string(),
             value: value.clone(),
         },
-        Expression::Number(value) => IrValue::Const {
-            type_: if expected == Some("Fixed") {
+        Expression::Number(value) => {
+            let (canonical, literal_type) = numeric::classify_literal(value);
+            // An explicit `f`/`F` *suffix* makes the literal intrinsically
+            // Float/Fixed and wins over the expected type (plan-28-B §4.3). An
+            // *unsuffixed* literal — including a `.`/exponent Float-shaped one — is
+            // untyped and still coerces to a `Fixed`/`Byte` slot, so the expected
+            // type wins there (the pre-existing rule). In plan-28-A no suffix or
+            // exponent is lexed yet, so this is byte-identical to the previous
+            // expected-first behavior.
+            let is_suffixed = value.ends_with('f') || value.ends_with('F');
+            let type_ = if is_suffixed {
+                match literal_type {
+                    numeric::LiteralType::Fixed => "Fixed",
+                    _ => "Float",
+                }
+                .to_string()
+            } else if expected == Some("Fixed") {
                 "Fixed".to_string()
             } else if expected == Some("Byte") {
                 "Byte".to_string()
-            } else if value.contains('.') {
-                "Float".to_string()
             } else {
-                "Integer".to_string()
-            },
-            value: value.clone(),
-        },
+                match literal_type {
+                    numeric::LiteralType::Float => "Float",
+                    numeric::LiteralType::Fixed => "Fixed",
+                    numeric::LiteralType::Integer => "Integer",
+                }
+                .to_string()
+            };
+            IrValue::Const {
+                type_,
+                value: canonical,
+            }
+        }
         Expression::Boolean(value) => IrValue::Const {
             type_: "Boolean".to_string(),
             value: value.to_string(),
@@ -3441,13 +3463,14 @@ fn numeric_binary_result_type(operator: &str, left: &str, right: &str) -> &'stat
 fn literal_expression_type(expression: &Expression) -> Option<String> {
     match expression {
         Expression::String(_) => Some("String".to_string()),
-        Expression::Number(value) => {
-            if value.contains('.') {
-                Some("Float".to_string())
-            } else {
-                Some("Integer".to_string())
+        Expression::Number(value) => Some(
+            match numeric::classify_literal(value).1 {
+                numeric::LiteralType::Integer => "Integer",
+                numeric::LiteralType::Float => "Float",
+                numeric::LiteralType::Fixed => "Fixed",
             }
-        }
+            .to_string(),
+        ),
         Expression::Boolean(_) => Some("Boolean".to_string()),
         Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
         _ => None,

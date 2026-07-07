@@ -234,8 +234,11 @@ pub(super) fn is_c_abi_type(type_name: &str) -> bool {
 
 pub(super) fn numeric_literal_type(expression: &Expression) -> Option<Type> {
     match expression {
-        Expression::Number(number) if number.contains('.') => Some(Type::Float),
-        Expression::Number(_) => Some(Type::Integer),
+        Expression::Number(number) => Some(match numeric::classify_literal(number).1 {
+            numeric::LiteralType::Integer => Type::Integer,
+            numeric::LiteralType::Float => Type::Float,
+            numeric::LiteralType::Fixed => Type::Fixed,
+        }),
         Expression::Unary {
             operator, operand, ..
         } if operator == "-" && matches!(operand.as_ref(), Expression::Number(_)) => {

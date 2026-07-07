@@ -23,7 +23,13 @@ Identifiers are case-sensitive, so `userId` and `userid` are distinct. Tooling s
 
 ## 2.1 Numeric literals
 
-The lexer reads one or more ASCII digits, optionally followed by a single `.` and one or more ASCII digits. A `.` is consumed as a decimal point **only** when a digit follows it, so `x.0` is `x . 0` (member access) and `1.foo` is `1 . foo`. There is no exponent (`1e9`), hexadecimal (`0x`), binary, sign, digit-separator (`1_000`), or type-suffix syntax at the lexical level; a number token is just its raw digit text. A leading `-` is the unary-minus operator, not part of the literal. Literal *typing* (untyped → `Integer`/`Float`/`Fixed`) is resolved later from context during type inference; see §4.1.
+The lexer reads one or more ASCII digits, optionally followed by a single `.` and one or more ASCII digits. A `.` is consumed as a decimal point **only** when a digit follows it, so `x.0` is `x . 0` (member access) and `1.foo` is `1 . foo`. A leading `-` is the unary-minus operator, not part of the literal. Literal *typing* (untyped → `Integer`/`Float`/`Fixed`) is resolved later from context during type inference; see §4.1.
+
+**Radix prefixes.** A literal may begin with a base prefix — `0x`/`0X` (hexadecimal), `0o`/`0O` (octal), or `0b`/`0B` (binary), the prefix letter case-insensitive — followed by one or more base digits: `0xFFF` is 4095, `0o777` is 511, `0b1010` is 10. A radix literal is an ordinary untyped-`Integer` literal (the lexer canonicalizes it to decimal), so it types, range-checks, and lowers exactly as the equivalent decimal. There are no hex/oct/bin **floats**: after `0xFFF` a `.` is member access, exactly as `1.foo` is. A prefix with no digits (`0x`), or a digit outside the base (`0o8`, `0b2`, `0xG`), is a lexer error (`MFB_LEX_MALFORMED_NUMBER`); a magnitude above `u64::MAX` (e.g. a 17-digit hex literal) is `MFB_LEX_NUMBER_OUT_OF_RANGE`.
+
+**Digit separators.** A single `_` may appear **between two digits** in any numeric run (`1_234`, `0xFF_FF`); it is stripped from the value, so `1_000_000` is `1000000`. A `_` that is not between two digits — leading (`_1` is an identifier, not a number), trailing (`1_`, unless it forms a line continuation), doubled (`1__2`), or adjacent to a prefix (`0x_1`) — is a lexer error (`MFB_LEX_MALFORMED_NUMBER`), except that a trailing `_` followed only by whitespace and a newline is the line-continuation token (§2, "Line continuation"), never a separator.
+
+There is no sign inside a literal (`-0xFF` is `-(0xFF)`).
 
 ## 2.2 String literals and escapes
 

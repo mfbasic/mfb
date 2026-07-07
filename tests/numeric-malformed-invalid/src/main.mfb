@@ -1,0 +1,7 @@
+IMPORT io
+
+' plan-28-A: a digit outside the base is a lexer error, never a silent decode.
+FUNC main AS Integer
+  io::print(toString(0b2))
+  RETURN 0
+END FUNC

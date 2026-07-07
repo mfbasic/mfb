@@ -1286,6 +1286,61 @@ mod tests {
     }
 
     #[test]
+    fn radix_literals_decode_to_canonical_decimal() {
+        for (source, expected) in [
+            ("0xFFF", "4095"),
+            ("0o777", "511"),
+            ("0b1010", "10"),
+            ("0XaB", "171"),
+            ("0xFF_FF", "65535"),
+            ("0b1111_1111", "255"),
+        ] {
+            let tokens = lex(Path::new("main.mfb"), &format!("{source}\n")).expect("lex source");
+            assert_eq!(
+                tokens[0].kind,
+                TokenKind::Number(expected.to_string()),
+                "for {source}"
+            );
+        }
+    }
+
+    #[test]
+    fn digit_separators_are_stripped() {
+        for (source, expected) in [("1_000", "1000"), ("1_2_3", "123"), ("1_000_000", "1000000")] {
+            let tokens = lex(Path::new("main.mfb"), &format!("{source}\n")).expect("lex source");
+            assert_eq!(tokens[0].kind, TokenKind::Number(expected.to_string()));
+        }
+    }
+
+    #[test]
+    fn malformed_numbers_are_errors() {
+        for source in [
+            "0x\n", "0b2\n", "0o8\n", "0xG\n", "1__2\n", "0x_1\n",
+            "0xFFFFFFFFFFFFFFFFF\n",
+        ] {
+            assert!(
+                lex(Path::new("main.mfb"), source).is_err(),
+                "expected lex error for {source:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn leading_underscore_is_an_identifier_not_a_number() {
+        let tokens = lex(Path::new("main.mfb"), "_1\n").expect("lex source");
+        assert_eq!(tokens[0].kind, TokenKind::Identifier("_1".to_string()));
+    }
+
+    #[test]
+    fn trailing_underscore_after_digit_still_continues_line() {
+        // `1_` followed by a newline is the line-continuation token, not a
+        // separator: no Newline is emitted between the `1` and the next line.
+        let tokens = lex(Path::new("main.mfb"), "1_\n2\n").expect("lex source");
+        assert_eq!(tokens[0].kind, TokenKind::Number("1".to_string()));
+        assert_eq!(tokens[1].kind, TokenKind::Number("2".to_string()));
+    }
+
+    #[test]
     fn unterminated_string_on_line_is_an_error() {
         // Newline before the closing quote.
         assert!(lex(Path::new("main.mfb"), "\"abc\ndef\n").is_err());

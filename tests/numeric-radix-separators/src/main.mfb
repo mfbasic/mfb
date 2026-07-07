@@ -1,0 +1,43 @@
+' plan-28-A: radix prefixes (0x/0o/0b) and _ digit separators. Each radix literal
+' canonicalizes to the same decimal Integer as the equivalent decimal literal, so
+' it types and lowers identically; separators are stripped from the value.
+
+FUNC main AS Integer
+  RETURN 0
+END FUNC
+
+TESTING
+  TGROUP "radix prefixes"
+    TCASE "hexadecimal"
+      expectInteger(0xFFF, 4095)
+      expectInteger(0XaB, 171)
+      expectInteger(0x0, 0)
+    END TCASE
+    TCASE "octal"
+      expectInteger(0o777, 511)
+      expectInteger(0O10, 8)
+    END TCASE
+    TCASE "binary"
+      expectInteger(0b1010, 10)
+      expectInteger(0B1111_1111, 255)
+    END TCASE
+    TCASE "u64-max hex decodes"
+      expectInteger(0x7FFFFFFFFFFFFFFF, 9223372036854775807)
+    END TCASE
+  END TGROUP
+  TGROUP "digit separators"
+    TCASE "decimal separators are stripped"
+      expectInteger(1_000_000, 1000000)
+      expectInteger(1_2_3, 123)
+    END TCASE
+    TCASE "separators in radix literals"
+      expectInteger(0xFF_FF, 65535)
+    END TCASE
+  END TGROUP
+  TGROUP "byte coercion"
+    TCASE "byte slot accepts 0xFF"
+      LET b AS Byte = 0xFF
+      expectInteger(toInt(b), 255)
+    END TCASE
+  END TGROUP
+END TESTING

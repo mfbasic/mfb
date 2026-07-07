@@ -110,6 +110,18 @@ pub(super) const RULES: &[Rule] = &[
         message: "\\u{...} string escape is malformed",
     },
     Rule {
+        code: "1-101-0004",
+        name: "MFB_LEX_MALFORMED_NUMBER",
+        severity: Severity::Error,
+        message: "numeric literal is malformed",
+    },
+    Rule {
+        code: "1-101-0005",
+        name: "MFB_LEX_NUMBER_OUT_OF_RANGE",
+        severity: Severity::Error,
+        message: "numeric literal is out of range",
+    },
+    Rule {
         code: "1-102-0001",
         name: "MFB_PARSE_EXPECTED_EXPRESSION",
         severity: Severity::Error,

@@ -1,0 +1,6 @@
+' plan-28-A: a radix literal decodes to decimal, so the existing Byte-range
+' check rejects 0x100 (256) exactly as it would the decimal 256.
+FUNC main AS Integer
+  LET b AS Byte = 0x100
+  RETURN toInt(b)
+END FUNC

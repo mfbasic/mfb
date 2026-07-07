@@ -1425,11 +1425,14 @@ impl<'a> Monomorphizer<'a> {
     ) -> Option<String> {
         match expression {
             Expression::String(_) => Some("String".to_string()),
-            Expression::Number(value) => Some(if value.contains('.') {
-                "Float".to_string()
-            } else {
-                "Integer".to_string()
-            }),
+            Expression::Number(value) => Some(
+                match crate::numeric::classify_literal(value).1 {
+                    crate::numeric::LiteralType::Integer => "Integer",
+                    crate::numeric::LiteralType::Float => "Float",
+                    crate::numeric::LiteralType::Fixed => "Fixed",
+                }
+                .to_string(),
+            ),
             Expression::Boolean(_) => Some("Boolean".to_string()),
             Expression::Identifier(value) if value == "NOTHING" => Some("Nothing".to_string()),
             Expression::Identifier(value) => context
